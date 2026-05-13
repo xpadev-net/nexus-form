@@ -46,7 +46,7 @@ pnpm monorepo (Turborepo)
 ### 1. リポジトリのクローン
 
 ```bash
-git clone https://github.com/xpadev/nexus-form.git
+git clone https://github.com/xpadev-net/nexus-form.git
 cd nexus-form
 ```
 
