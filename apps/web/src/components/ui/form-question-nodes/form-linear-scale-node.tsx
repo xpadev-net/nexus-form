@@ -1,0 +1,82 @@
+import { cn, withRef } from "@udecode/cn";
+import type { TElement } from "platejs";
+import { PlateElement, useElement, useReadOnly } from "platejs/react";
+import { Button } from "@/components/ui/button";
+import { useFormResponseOptional } from "@/contexts/form-response-context";
+import {
+  EditorControlsWrapper,
+  LinearScaleSettingsEditor,
+} from "./editor-controls";
+import { FormQuestionElement } from "./form-question-base";
+
+export const FormLinearScaleElement = withRef<typeof PlateElement>(
+  ({ children, ...props }, ref) => {
+    const element = useElement<TElement>();
+    const readOnly = useReadOnly();
+    const viewerControls = readOnly ? (
+      <LinearScaleInput element={element} />
+    ) : undefined;
+    const editorControls = !readOnly ? (
+      <EditorControlsWrapper>
+        <LinearScaleSettingsEditor />
+      </EditorControlsWrapper>
+    ) : undefined;
+    return (
+      <FormQuestionElement
+        ref={ref}
+        viewerControls={viewerControls}
+        editorControls={editorControls}
+        {...props}
+      >
+        {children}
+      </FormQuestionElement>
+    );
+  },
+);
+
+function LinearScaleInput({ element }: { element: TElement }) {
+  const ctx = useFormResponseOptional();
+  if (!ctx) return null;
+  const blockId = element.blockId as string;
+  const answer = ctx.getAnswer(blockId);
+  const validation = element.validation as
+    | { min?: number; max?: number; step?: number; minLabel?: string; maxLabel?: string }
+    | undefined;
+  const min = validation?.min ?? 1;
+  const max = validation?.max ?? 5;
+  const step = validation?.step ?? 1;
+  const minLabel = validation?.minLabel;
+  const maxLabel = validation?.maxLabel;
+  const currentValue = answer?.value as number | undefined;
+
+  const steps: number[] = [];
+  for (let i = min; i <= max; i += step) {
+    steps.push(i);
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        {minLabel && (
+          <span className="text-xs text-muted-foreground">{minLabel}</span>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {steps.map((value) => (
+            <Button
+              key={value}
+              type="button"
+              variant={currentValue === value ? "default" : "outline"}
+              onClick={() => ctx.setAnswer(blockId, { value })}
+              className="size-9 rounded-full p-0 shadow-none"
+            >
+              {value}
+            </Button>
+          ))}
+        </div>
+        {maxLabel && (
+          <span className="text-xs text-muted-foreground">{maxLabel}</span>
+        )}
+      </div>
+    </div>
+  );
+}

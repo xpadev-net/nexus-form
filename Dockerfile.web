@@ -1,0 +1,53 @@
+FROM node:24-alpine AS base
+WORKDIR /app
+RUN corepack enable pnpm
+
+# ── Install dependencies ──
+FROM base AS deps
+
+COPY ./package.json ./pnpm-workspace.yaml ./pnpm-lock.yaml ./
+COPY ./apps/api/package.json ./apps/api/
+COPY ./apps/web/package.json ./apps/web/
+COPY ./packages/database/package.json ./packages/database/
+COPY ./packages/integrations/package.json ./packages/integrations/
+COPY ./packages/shared/package.json ./packages/shared/
+
+RUN pnpm install --frozen-lockfile --prod=false
+
+# ── Build ──
+FROM deps AS builder
+
+COPY ./tsconfig.json ./
+COPY ./apps/api/ ./apps/api/
+COPY ./apps/web/ ./apps/web/
+COPY ./packages/database/ ./packages/database/
+COPY ./packages/integrations/ ./packages/integrations/
+COPY ./packages/shared/ ./packages/shared/
+
+RUN pnpm --filter @nexus-form/shared build && \
+    pnpm --filter @nexus-form/database build && \
+    pnpm --filter @nexus-form/integrations build && \
+    pnpm --filter @nexus-form/web build
+
+# ── Serve with nginx ──
+FROM nginx:alpine AS runner
+RUN apk add --no-cache jq
+
+COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
+COPY ./apps/web/docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+# SPA fallback: route all non-file requests to index.html
+RUN printf 'server {\n\
+    listen 3000;\n\
+    root /usr/share/nginx/html;\n\
+    index index.html;\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
+
+EXPOSE 3000
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
+CMD ["nginx", "-g", "daemon off;"]

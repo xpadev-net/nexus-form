@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-09-29T18:34:10.594Z",
+  "services": {
+    "discord": {
+      "service": "discord",
+      "enabled": true,
+      "config": {
+        "botToken": "YOUR_DISCORD_BOT_TOKEN_HERE"
+      },
+      "display_result": true,
+      "cacheExpiry": 3600,
+      "retryPolicy": {
+        "maxAttempts": 3,
+        "backoffMultiplier": 2,
+        "maxDelay": 10000
+      }
+    }
+  },
+  "metadata": {
+    "totalServices": 1,
+    "enabledServices": ["discord"]
+  }
+}

@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexus-form-config
+  labels:
+    app: nexus-form
+data:
+  # Redis
+  REDIS_URL: "redis://redis-service:6379"
+  
+  # NextAuth.js
+  NEXTAUTH_URL: "http://localhost:3000"
+  
+  # Application
+  NODE_ENV: "production"
+  NEXT_TELEMETRY_DISABLED: "1"
+  
+  # Signup Invitation Code (required for new user registration)
+  SIGNUP_INVITATION_CODE: "CHANGE_ME"
+  
+  # External Services (optional)
+  # Note: S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are stored in Secret
+  S3_ENDPOINT: ""
+  S3_BUCKET_TMP: "tmp"
+  S3_BUCKET_PROD: "prod"
+  
+  # Discord OAuth
+  # Note: DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET are stored in Secret
+  DISCORD_GUILD_ID: ""
+  
+  # External Validation Services
+  # Note: All credentials are stored in Secret for security
+  
+  # Client-side Environment Variables (NEXT_PUBLIC_*)
+  # These variables are replaced in build artifacts by env-replacer.sh
+  # The placeholder format _NEXT_PUBLIC_*_ in build outputs will be replaced with actual values
+  NEXT_PUBLIC_HCAPTCHA_SITE_KEY: ""
+  NEXT_PUBLIC_BASE_URL: ""
+  NEXT_PUBLIC_TELEMETRY_V4_HOST: ""
+  NEXT_PUBLIC_TELEMETRY_V6_HOST: ""
+  NEXT_PUBLIC_GOOGLE_SHEETS_INTEGRATION_ENABLED: "false"
+  NEXT_PUBLIC_GOOGLE_SHEETS_OAUTH_ENABLED: "false"
+  
+  # Optional Settings
+  SENTRY_DSN: ""
+  LOG_LEVEL: "info"
+  ENABLE_FINGERPRINT_COLLECTION: "false"
+  DATA_RETENTION_DAYS: "90"
+  EXTERNAL_SERVICE_CACHE_TTL: "3600"
+  MAX_FILE_SIZE_MB: "10"
+  ALLOWED_IMAGE_TYPES: "image/jpeg,image/png,image/webp"
+  DEFAULT_TIMEZONE: "Asia/Tokyo"
+

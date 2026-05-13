@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: default
+
+commonLabels:
+  app: nexus-form
+  managed-by: kustomize
+
+resources:
+  - configmap.yaml
+  - secret.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - web-deployment.yaml
+  - web-service.yaml
+  - bullmq-validation-discord-deployment.yaml
+  - bullmq-validation-github-deployment.yaml
+  - bullmq-validation-twitter-deployment.yaml
+  - bullmq-sheets-deployment.yaml
+
+# Images to be replaced by overlays
+# Base defines placeholder image names that will be overridden in overlays
+# with full registry paths (e.g., ghcr.io/<your-org>/nexus-form:latest)
+images:
+  - name: nexus-form
+    newName: nexus-form
+    newTag: latest
+  - name: nexus-form-web
+    newName: nexus-form-web
+    newTag: latest
+  - name: nexus-form-worker
+    newName: nexus-form-worker
+    newTag: latest

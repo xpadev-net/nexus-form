@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bullmq-sheets
+  labels:
+    app: nexus-form
+    component: bullmq-sheets
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: nexus-form
+      component: bullmq-sheets
+  template:
+    metadata:
+      labels:
+        app: nexus-form
+        component: bullmq-sheets
+    spec:
+      containers:
+      - name: sheets-worker
+        # Use worker-specific image built from Dockerfile.worker
+        # This image includes pnpm and tsx for running TypeScript workers
+        image: nexus-form-worker:latest
+        imagePullPolicy: Always
+        command: ["pnpm"]
+        args: ["--filter", "@nexus-form/worker", "exec", "tsx", "src/worker-sheets.ts"]
+        envFrom:
+        - configMapRef:
+            name: nexus-form-config
+        - secretRef:
+            name: nexus-form-secrets
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        # BullMQ workers typically don't expose HTTP endpoints
+        # Health checks can be added via file-based health checks or custom endpoints if needed
+

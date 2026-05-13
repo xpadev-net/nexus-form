@@ -1,0 +1,37 @@
+{
+  "name": "@nexus-form/validation-provider-discord",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js"
+    },
+    "./plugin": {
+      "import": "./dist/plugin.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "type-check": "tsgo --noEmit",
+    "lint": "biome check",
+    "lint:fix": "biome check --write --unsafe",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@nexus-form/integrations": "workspace:*",
+    "p-limit": "^7.3.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.3.15",
+    "@types/node": "^24.10.13",
+    "@typescript/native-preview": "^7.0.0-dev",
+    "tsdown": "^0.22.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

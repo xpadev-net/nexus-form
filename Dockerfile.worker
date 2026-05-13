@@ -1,0 +1,54 @@
+FROM node:24-alpine AS base
+WORKDIR /app
+RUN corepack enable pnpm
+
+# ── Install dependencies ──
+FROM base AS deps
+
+COPY --chown=node:node ./package.json ./pnpm-workspace.yaml ./pnpm-lock.yaml ./
+COPY --chown=node:node ./apps/api/package.json ./apps/api/
+COPY --chown=node:node ./apps/web/package.json ./apps/web/
+COPY --chown=node:node ./apps/worker/package.json ./apps/worker/
+COPY --chown=node:node ./packages/database/package.json ./packages/database/
+COPY --chown=node:node ./packages/integrations/package.json ./packages/integrations/
+COPY --chown=node:node ./packages/shared/package.json ./packages/shared/
+COPY --chown=node:node ./packages/validation-provider-discord/package.json ./packages/validation-provider-discord/
+COPY --chown=node:node ./packages/validation-provider-github/package.json ./packages/validation-provider-github/
+COPY --chown=node:node ./packages/validation-provider-twitter/package.json ./packages/validation-provider-twitter/
+
+# Install dependencies including devDependencies for tsx
+# --prod=false is required to install devDependencies (tsx) even when NODE_ENV=production
+RUN pnpm install --frozen-lockfile --prod=false
+
+# ── Production ──
+FROM deps AS prod
+ENV NODE_ENV=production
+
+# Copy source code
+COPY --chown=node:node ./tsconfig.json ./
+COPY --chown=node:node ./apps/worker/ ./apps/worker/
+COPY --chown=node:node ./packages/database/ ./packages/database/
+COPY --chown=node:node ./packages/integrations/ ./packages/integrations/
+COPY --chown=node:node ./packages/shared/ ./packages/shared/
+COPY --chown=node:node ./packages/validation-provider-discord/ ./packages/validation-provider-discord/
+COPY --chown=node:node ./packages/validation-provider-github/ ./packages/validation-provider-github/
+COPY --chown=node:node ./packages/validation-provider-twitter/ ./packages/validation-provider-twitter/
+
+# Build workspace packages (exports point to ./dist/ which requires a build step).
+# Built-in providers are loaded at runtime via import.meta.resolve from
+# @nexus-form/validation-provider-*/plugin → ./dist/plugin.mjs, so those bundles
+# must exist in the runtime image.
+RUN pnpm --filter @nexus-form/shared build && \
+    pnpm --filter @nexus-form/database build && \
+    pnpm --filter @nexus-form/integrations build && \
+    pnpm --filter "@nexus-form/validation-provider-*" build
+
+RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
+
+USER node
+
+# Default command is not set - each Deployment should specify its own command.
+# 推奨は src/index.ts を起動する単一エントリポイント。組み込み + 動的プラグインの
+# キューが registry から自動配線される。Google Sheets 専用 Pod を分離したい場合は
+# src/worker-sheets.ts を使う。
+# Example: CMD ["pnpm", "--filter", "@nexus-form/worker", "exec", "tsx", "src/index.ts"]

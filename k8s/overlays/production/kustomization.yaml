@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: production
+
+resources:
+  - ../../base
+
+patchesStrategicMerge:
+  - configmap-patch.yaml
+
+commonLabels:
+  app: nexus-form
+  environment: production
+  managed-by: kustomize
+
+# Override image references with full registry paths
+# If you fork this repository, update the organization name below to match your own
+images:
+  - name: nexus-form
+    newName: ghcr.io/xpadev-net/nexus-form
+    newTag: latest
+  - name: nexus-form-web
+    newName: ghcr.io/xpadev-net/nexus-form-web
+    newTag: latest
+  - name: nexus-form-worker
+    newName: ghcr.io/xpadev-net/nexus-form-worker
+    newTag: latest
+

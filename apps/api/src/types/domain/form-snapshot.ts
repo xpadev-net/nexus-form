@@ -1,0 +1,84 @@
+import { z } from "zod";
+
+export const FormSnapshotListItemSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  version: z.number().int().min(1),
+  isActive: z.boolean(),
+  publishedBy: z.string(),
+  publishedAt: z.date(),
+  changeLog: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  parentVersion: z.number().int().nullish(),
+});
+
+export const FormSnapshotSchema = FormSnapshotListItemSchema.extend({
+  plateContent: z.string(),
+  validationRulesJson: z.string(),
+});
+
+export type FormSnapshot = z.infer<typeof FormSnapshotSchema>;
+
+export const ActivateSnapshotResponseSchema = z.object({
+  ok: z.boolean(),
+  snapshot: FormSnapshotListItemSchema.extend({ plateContent: z.string() }),
+});
+export type ActivateSnapshotResponse = z.infer<
+  typeof ActivateSnapshotResponseSchema
+>;
+
+export const RestoreEditResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type RestoreEditResponse = z.infer<typeof RestoreEditResponseSchema>;
+
+export const UnpublishedChangesInfoSchema = z.object({
+  hasChanges: z.boolean(),
+  hasValidationRuleChanges: z.boolean(),
+  lastPublishedAt: z.date().nullable(),
+});
+export type UnpublishedChangesInfo = z.infer<
+  typeof UnpublishedChangesInfoSchema
+>;
+
+export const NodeDiffSchema = z.object({
+  nodeId: z.string(),
+  nodeType: z.string().nullable(),
+  diffType: z.enum(["added", "removed", "modified"]),
+});
+export type NodeDiff = z.infer<typeof NodeDiffSchema>;
+
+export const FormDiffResultSchema = z.object({
+  formId: z.string(),
+  hasUnpublishedChanges: z.boolean(),
+  hasChangesFromActive: z.boolean(),
+  hasValidationRuleChanges: z.boolean(),
+  nodes: z.array(NodeDiffSchema),
+  totalChanges: z.number().int(),
+  lastChecked: z.date(),
+});
+export type FormDiffResult = z.infer<typeof FormDiffResultSchema>;
+
+export const SnapshotLatestResponseSchema = z.object({
+  snapshot: FormSnapshotListItemSchema.nullable(),
+  hasActiveSnapshot: z.boolean(),
+  activeSnapshotVersion: z.number().int().nullable(),
+});
+export type SnapshotLatestResponse = z.infer<
+  typeof SnapshotLatestResponseSchema
+>;
+
+export const PublishSnapshotResponseSchema = z.object({
+  version: z.number().int().min(1),
+  publishedAt: z.date(),
+});
+export type PublishSnapshotResponse = z.infer<
+  typeof PublishSnapshotResponseSchema
+>;
+
+export const FormDiffResponseSchema = z.object({
+  success: z.boolean(),
+  data: FormDiffResultSchema,
+});
+export type FormDiffResponse = z.infer<typeof FormDiffResponseSchema>;

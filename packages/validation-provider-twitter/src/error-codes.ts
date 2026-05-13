@@ -1,0 +1,16 @@
+export enum TwitterErrorCode {
+  TWITTER_API_RATE_LIMIT = "TWITTER_API_RATE_LIMIT",
+  TWITTER_USER_NOT_FOUND = "TWITTER_USER_NOT_FOUND",
+  TWITTER_AUTH_FAILED = "TWITTER_AUTH_FAILED",
+  TWITTER_API_ERROR = "TWITTER_API_ERROR",
+  NETWORK_ERROR = "NETWORK_ERROR",
+  TIMEOUT = "TIMEOUT",
+  INVALID_INPUT = "INVALID_INPUT",
+  UNKNOWN_ERROR = "UNKNOWN_ERROR",
+}
+
+export interface TwitterValidationError {
+  code: TwitterErrorCode;
+  message: string;
+  retryable: boolean;
+}

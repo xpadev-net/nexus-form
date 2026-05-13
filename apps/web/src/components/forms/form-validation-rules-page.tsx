@@ -1,0 +1,414 @@
+import type {
+  ValidationProviderItem,
+  ValidationProviderRuleItem,
+} from "@nexus-form/shared";
+import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Plus, Trash2 } from "lucide-react";
+import { type FC, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { ExternalServiceValidationConfig } from "@/components/form/external-service-validation-config";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { client, rpc } from "@/lib/api";
+import { useValidationProviders } from "@/lib/validation/validation-providers";
+
+interface RuleDto {
+  id: string;
+  name: string;
+  providerName: string;
+  ruleType: string;
+  referencedBlockIds: string[];
+  configJson: Record<string, unknown>;
+  orderIndex: number;
+}
+
+interface BlockOption {
+  blockId: string;
+  title: string;
+}
+
+async function fetchRules(formId: string): Promise<RuleDto[]> {
+  const res = await rpc(
+    client.api.forms[":id"]["validation-rules"].$get({
+      param: { id: formId },
+    }),
+  );
+  return (res as { rules: RuleDto[] }).rules;
+}
+
+interface Props {
+  formId: string;
+  plateContent: string;
+}
+
+export const FormValidationRulesPage: FC<Props> = ({
+  formId,
+  plateContent,
+}) => {
+  const queryClient = useQueryClient();
+  const rulesQuery = useQuery({
+    queryKey: ["validationRules", formId],
+    queryFn: () => fetchRules(formId),
+  });
+  const providersQuery = useValidationProviders();
+
+  const blocks = useMemo<BlockOption[]>(() => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(plateContent);
+    } catch {
+      return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+    return extractQuestionsFromPlateContent(parsed)
+      .filter((q) => q.type === "short_text")
+      .map((q) => ({
+        blockId: q.blockId,
+        title: q.title.trim() || q.blockId,
+      }));
+  }, [plateContent]);
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: {
+      name: string;
+      providerName: string;
+      ruleType: string;
+      referencedBlockIds: string[];
+      configJson: Record<string, unknown>;
+    }) =>
+      rpc(
+        client.api.forms[":id"]["validation-rules"].$post({
+          param: { id: formId },
+          json: payload,
+        }),
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["validationRules", formId] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message ?? "ルールの作成に失敗しました");
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (input: {
+      ruleId: string;
+      payload: Partial<{
+        name: string;
+        providerName: string;
+        ruleType: string;
+        referencedBlockIds: string[];
+        configJson: Record<string, unknown>;
+      }>;
+    }) =>
+      rpc(
+        client.api.forms[":id"]["validation-rules"][":ruleId"].$put({
+          param: { id: formId, ruleId: input.ruleId },
+          json: input.payload,
+        }),
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["validationRules", formId] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message ?? "ルールの更新に失敗しました");
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ruleId: string) =>
+      rpc(
+        client.api.forms[":id"]["validation-rules"][":ruleId"].$delete({
+          param: { id: formId, ruleId },
+        }),
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["validationRules", formId] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message ?? "ルールの削除に失敗しました");
+    },
+  });
+
+  const providers = providersQuery.data?.data ?? [];
+  const rules = rulesQuery.data ?? [];
+
+  const handleCreate = () => {
+    const firstProvider = providers[0];
+    const firstRule = firstProvider?.rules[0];
+    const firstBlock = blocks[0];
+    if (!firstProvider || !firstRule || !firstBlock) {
+      toast.error(
+        "ルールを追加するには short_text ブロックと有効な provider が必要です",
+      );
+      return;
+    }
+    createMutation.mutate({
+      name: "新しい検証ルール",
+      providerName: firstProvider.name,
+      ruleType: firstRule.name,
+      referencedBlockIds: [firstBlock.blockId],
+      configJson: {},
+    });
+  };
+
+  if (rulesQuery.isLoading || providersQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        読み込み中…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold">外部サービス検証ルール</h2>
+          <p className="text-sm text-muted-foreground">
+            フォーム送信時に実行する検証ルールを設定します。各ルールは選択した
+            ブロックを参照し、選択したプロバイダーで検証されます。
+          </p>
+        </div>
+        <Button
+          onClick={handleCreate}
+          disabled={
+            createMutation.isPending ||
+            blocks.length === 0 ||
+            providers.length === 0
+          }
+        >
+          <Plus className="mr-1 h-4 w-4" />
+          ルール追加
+        </Button>
+      </header>
+
+      {rules.length === 0 ? (
+        <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+          検証ルールはまだありません。「ルール追加」から作成してください。
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rules.map((rule) => (
+            <ValidationRuleCard
+              key={rule.id}
+              rule={rule}
+              providers={providers}
+              blocks={blocks}
+              formId={formId}
+              onUpdate={(payload) =>
+                updateMutation.mutate({ ruleId: rule.id, payload })
+              }
+              onDelete={() => deleteMutation.mutate(rule.id)}
+              busy={updateMutation.isPending || deleteMutation.isPending}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface RuleCardProps {
+  rule: RuleDto;
+  providers: ValidationProviderItem[];
+  blocks: BlockOption[];
+  formId: string;
+  onUpdate: (
+    payload: Partial<{
+      name: string;
+      providerName: string;
+      ruleType: string;
+      referencedBlockIds: string[];
+      configJson: Record<string, unknown>;
+    }>,
+  ) => void;
+  onDelete: () => void;
+  busy: boolean;
+}
+
+const ValidationRuleCard: FC<RuleCardProps> = ({
+  rule,
+  providers,
+  blocks,
+  formId,
+  onUpdate,
+  onDelete,
+  busy,
+}) => {
+  const [name, setName] = useState(rule.name);
+  const provider = providers.find((p) => p.name === rule.providerName);
+  const providerRules = provider?.rules ?? [];
+
+  const handleProviderChange = (providerName: string) => {
+    const target = providers.find((p) => p.name === providerName);
+    const firstRule = target?.rules[0];
+    onUpdate({
+      providerName,
+      ruleType: firstRule?.name ?? "",
+      configJson: {},
+    });
+  };
+
+  const handleRuleTypeChange = (ruleType: string) => {
+    onUpdate({ ruleType, configJson: {} });
+  };
+
+  const toggleReferenced = (blockId: string, checked: boolean) => {
+    const next = checked
+      ? [...new Set([...rule.referencedBlockIds, blockId])]
+      : rule.referencedBlockIds.filter((id) => id !== blockId);
+    if (next.length === 0) {
+      toast.error("少なくとも 1 つの参照ブロックを選択してください");
+      return;
+    }
+    onUpdate({ referencedBlockIds: next });
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3">
+        <div className="flex-1 space-y-2">
+          <Label htmlFor={`rule-name-${rule.id}`}>ルール名</Label>
+          <Input
+            id={`rule-name-${rule.id}`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              if (name.trim() && name !== rule.name) {
+                onUpdate({ name: name.trim() });
+              }
+            }}
+            placeholder="例: Discord メンバー検証"
+            disabled={busy}
+          />
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          disabled={busy}
+          aria-label="ルールを削除"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label>プロバイダー</Label>
+            <Select
+              value={rule.providerName}
+              onValueChange={handleProviderChange}
+              disabled={busy}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providers.map((p) => (
+                  <SelectItem key={p.name} value={p.name}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label>検証種別</Label>
+            <Select
+              value={rule.ruleType}
+              onValueChange={handleRuleTypeChange}
+              disabled={busy || providerRules.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {providerRules.map((r: ValidationProviderRuleItem) => (
+                  <SelectItem key={r.name} value={r.name}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>参照ブロック (short_text)</Label>
+          {blocks.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              short_text
+              ブロックがありません。エディタでブロックを追加してください。
+            </p>
+          ) : (
+            <div className="space-y-1.5 rounded-md border p-2">
+              {blocks.map((block) => {
+                const checked = rule.referencedBlockIds.includes(block.blockId);
+                const checkboxId = `rule-${rule.id}-block-${block.blockId}`;
+                return (
+                  <div
+                    key={block.blockId}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      id={checkboxId}
+                      checked={checked}
+                      onCheckedChange={(value) =>
+                        toggleReferenced(block.blockId, value === true)
+                      }
+                      disabled={busy}
+                    />
+                    <Label htmlFor={checkboxId} className="font-normal">
+                      <span>{block.title}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {block.blockId}
+                      </span>
+                    </Label>
+                  </div>
+                );
+              })}
+              {rule.referencedBlockIds
+                .filter((id) => !blocks.some((b) => b.blockId === id))
+                .map((id) => (
+                  <p
+                    key={id}
+                    className="rounded-sm bg-destructive/10 px-2 py-1 text-xs text-destructive"
+                  >
+                    参照ブロック {id} は見つかりません (検証時に missing として
+                    扱われます)。
+                  </p>
+                ))}
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-2 border-t pt-4">
+          <Label>プロバイダー設定</Label>
+          <ExternalServiceValidationConfig
+            providerName={rule.providerName}
+            ruleType={rule.ruleType}
+            providers={providers}
+            config={rule.configJson}
+            disabled={busy}
+            formId={formId}
+            onChange={(nextConfig) => onUpdate({ configJson: nextConfig })}
+          />
+        </div>
+      </CardContent>
+    </Card>
+  );
+};

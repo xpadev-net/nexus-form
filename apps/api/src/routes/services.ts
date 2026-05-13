@@ -1,0 +1,318 @@
+import { randomUUID } from "node:crypto";
+import { zValidator } from "@hono/zod-validator";
+import { db } from "@nexus-form/database";
+import { systemSetting } from "@nexus-form/database/schema";
+import { providerRegistry } from "@nexus-form/integrations";
+import { eq, like } from "drizzle-orm";
+import { z } from "zod";
+import { getRedisClient } from "../lib/cache/redis-client";
+import { withDualAuth } from "../lib/dual-auth";
+import { getCacheStats } from "../lib/forms/response-counter";
+import { createHonoApp } from "../lib/hono";
+import { serviceMonitor } from "../lib/services/monitoring";
+
+const serviceSchema = z
+  .string()
+  .min(1)
+  .refine((value) => providerRegistry.has(value), {
+    message: "Unknown validation provider",
+  });
+
+const updateServiceSchema = z.object({
+  config: z.record(z.string(), z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+const cacheClearSchema = z.object({
+  service: serviceSchema.optional(),
+  force: z.boolean().optional(),
+});
+
+type DynamicServiceEntry = {
+  service: string;
+  enabled: boolean;
+  config?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  updatedAt: string;
+};
+
+const DYNAMIC_KEY = "services.dynamic";
+const CONFIG_KEY = "services.config";
+
+async function getSetting<T>(key: string, fallback: T): Promise<T> {
+  const [row] = await db
+    .select({ value: systemSetting.value })
+    .from(systemSetting)
+    .where(eq(systemSetting.key, key))
+    .limit(1);
+  return (row?.value as T | undefined) ?? fallback;
+}
+
+async function upsertSetting(
+  key: string,
+  value: Record<string, unknown> | DynamicServiceEntry[],
+  description: string,
+): Promise<void> {
+  const [existing] = await db
+    .select({ id: systemSetting.id })
+    .from(systemSetting)
+    .where(eq(systemSetting.key, key))
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(systemSetting)
+      .set({ value, description })
+      .where(eq(systemSetting.key, key));
+    return;
+  }
+
+  await db.insert(systemSetting).values({
+    id: randomUUID(),
+    key,
+    value,
+    description,
+  });
+}
+
+async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
+  return await getSetting<DynamicServiceEntry[]>(DYNAMIC_KEY, []);
+}
+
+async function setDynamicServices(
+  services: DynamicServiceEntry[],
+): Promise<void> {
+  await upsertSetting(DYNAMIC_KEY, services, "Dynamic external services");
+}
+
+export const servicesRouter = createHonoApp()
+  .use("/*", withDualAuth(["admin"]))
+  .get("/dynamic", async (c) => {
+    const services = await getDynamicServices();
+    return c.json({ success: true, data: services });
+  })
+  .get("/dynamic/:service", async (c) => {
+    const parsed = serviceSchema.safeParse(c.req.param("service"));
+    if (!parsed.success) {
+      return c.json({ success: false, error: "Invalid service type" }, 400);
+    }
+    const services = await getDynamicServices();
+    const found = services.find((entry) => entry.service === parsed.data);
+    if (!found)
+      return c.json({ success: false, error: "Service not found" }, 404);
+    return c.json({ success: true, data: found });
+  })
+  .post(
+    "/dynamic/:service/enable",
+    zValidator("json", updateServiceSchema.optional()),
+    async (c) => {
+      const parsed = serviceSchema.safeParse(c.req.param("service"));
+      if (!parsed.success) {
+        return c.json({ success: false, error: "Invalid service type" }, 400);
+      }
+      const payload = c.req.valid("json");
+      const services = await getDynamicServices();
+      const index = services.findIndex(
+        (entry) => entry.service === parsed.data,
+      );
+      const now = new Date().toISOString();
+
+      if (index >= 0) {
+        const current = services[index];
+        if (!current)
+          return c.json({ success: false, error: "Service not found" }, 404);
+        services[index] = {
+          ...current,
+          enabled: true,
+          config: payload?.config ?? current.config,
+          metadata: payload?.metadata ?? current.metadata,
+          updatedAt: now,
+        };
+      } else {
+        services.push({
+          service: parsed.data,
+          enabled: true,
+          config: payload?.config,
+          metadata: payload?.metadata,
+          updatedAt: now,
+        });
+      }
+
+      await setDynamicServices(services);
+      return c.json({
+        success: true,
+        message: `Service ${parsed.data} enabled successfully`,
+      });
+    },
+  )
+  .post(
+    "/dynamic/:service/disable",
+    zValidator("json", updateServiceSchema.optional()),
+    async (c) => {
+      const parsed = serviceSchema.safeParse(c.req.param("service"));
+      if (!parsed.success) {
+        return c.json({ success: false, error: "Invalid service type" }, 400);
+      }
+
+      const payload = c.req.valid("json");
+      const services = await getDynamicServices();
+      const index = services.findIndex(
+        (entry) => entry.service === parsed.data,
+      );
+      if (index < 0)
+        return c.json({ success: false, error: "Service not found" }, 404);
+
+      const current = services[index];
+      if (!current)
+        return c.json({ success: false, error: "Service not found" }, 404);
+      services[index] = {
+        ...current,
+        enabled: false,
+        config: payload?.config ?? current.config,
+        metadata: payload?.metadata ?? current.metadata,
+        updatedAt: new Date().toISOString(),
+      };
+      await setDynamicServices(services);
+
+      return c.json({
+        success: true,
+        message: `Service ${parsed.data} disabled successfully`,
+      });
+    },
+  )
+  .post(
+    "/dynamic/:service/test",
+    zValidator("json", updateServiceSchema.optional()),
+    async (c) => {
+      const parsed = serviceSchema.safeParse(c.req.param("service"));
+      if (!parsed.success) {
+        return c.json({ success: false, error: "Invalid service type" }, 400);
+      }
+      const services = await getDynamicServices();
+      const found = services.find((entry) => entry.service === parsed.data);
+      if (!found)
+        return c.json({ success: false, error: "Service not found" }, 404);
+
+      return c.json({
+        success: true,
+        data: {
+          service: parsed.data,
+          isValid: true,
+          enabled: found.enabled,
+          testedAt: new Date().toISOString(),
+        },
+      });
+    },
+  )
+  .get("/cache", async (c) => {
+    const stats = await getCacheStats();
+    return c.json({ success: true, data: stats });
+  })
+  .get("/cache/stats", async (c) => {
+    const redis = getRedisClient();
+    if (!redis) {
+      return c.json({
+        success: true,
+        data: {
+          redisAvailable: false,
+          message: "Redis is not configured",
+        },
+      });
+    }
+
+    const [ping, info] = await Promise.all([redis.ping(), redis.info()]);
+    const keyspace = info
+      .split("\n")
+      .filter((line) => line.startsWith("db"))
+      .map((line) => line.trim());
+
+    return c.json({
+      success: true,
+      data: {
+        redisAvailable: true,
+        ping,
+        keyspace,
+      },
+    });
+  })
+  .post("/cache/clear", zValidator("json", cacheClearSchema), async (c) => {
+    const payload = c.req.valid("json");
+    const redis = getRedisClient();
+    if (!redis) {
+      return c.json({ success: false, error: "Redis is not configured" }, 503);
+    }
+
+    if (payload.service) {
+      const keys = await redis.keys(`service:cache:${payload.service}:*`);
+      const deleted = keys.length > 0 ? await redis.del(...keys) : 0;
+      return c.json({
+        success: true,
+        data: { cleared: true, service: payload.service, deleted },
+      });
+    }
+
+    if (!payload.force) {
+      return c.json(
+        { success: false, error: "force=true is required to clear all cache" },
+        400,
+      );
+    }
+
+    await redis.flushdb();
+    return c.json({
+      success: true,
+      data: { cleared: true, allServices: true },
+    });
+  })
+  .get("/statistics", async (c) => {
+    const services = await getDynamicServices();
+    const cache = await getCacheStats();
+    const enabledCount = services.filter((entry) => entry.enabled).length;
+
+    return c.json({
+      success: true,
+      data: {
+        totalServices: services.length,
+        enabledServices: enabledCount,
+        disabledServices: services.length - enabledCount,
+        cache,
+      },
+    });
+  })
+  .get("/config", async (c) => {
+    const [config, dynamicSettings] = await Promise.all([
+      getSetting<Record<string, unknown>>(CONFIG_KEY, {}),
+      db
+        .select({ key: systemSetting.key, value: systemSetting.value })
+        .from(systemSetting)
+        .where(like(systemSetting.key, "services.%")),
+    ]);
+
+    return c.json({
+      success: true,
+      data: {
+        config,
+        dynamic: dynamicSettings,
+      },
+    });
+  })
+  .get("/monitoring/health", async (c) => {
+    const health = serviceMonitor.getHealth();
+    return c.json({ success: true, data: health });
+  })
+  .post("/monitoring/check", async (c) => {
+    const results = await serviceMonitor.checkAllHealth();
+    return c.json({ success: true, data: results });
+  })
+  .get("/monitoring/alerts", async (c) => {
+    const alerts = serviceMonitor.getAlerts();
+    return c.json({ success: true, data: alerts });
+  })
+  .post("/monitoring/alerts/:alertId/resolve", async (c) => {
+    const alertId = c.req.param("alertId");
+    const resolved = serviceMonitor.resolveAlert(alertId);
+    if (!resolved) {
+      return c.json({ success: false, error: "Alert not found" }, 404);
+    }
+    return c.json({ success: true, message: "Alert resolved" });
+  });

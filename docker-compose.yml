@@ -1,0 +1,81 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: nexus-form-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: nexus_root_password
+      MYSQL_USER: nexus_user
+      MYSQL_PASSWORD: nexus_password
+      MYSQL_DATABASE: nexus_form
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-form-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: nexus-form-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+
+  # ── API / Worker production-style example ────────────────────────────────
+  # ローカル開発では `pnpm dev` を使うのが基本。
+  # 組み込みプロバイダ (discord/github/twitter) は API / Worker イメージ自体に
+  # 同梱されるため、外部プラグイン (VALIDATION_PLUGINS_DIR) だけを揃えれば OK。
+  # この外部プラグインディレクトリは **必ず両サービスで同じ内容** にすること。
+  # 揃っていないと API がジョブを enqueue したのに Worker 側に該当キューが無い、
+  # あるいは API がプロバイダ未登録として即 FAILED にする、というドリフトが
+  # 発生します。詳細は docs/external-plugins.md を参照。
+  #
+  # api:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   depends_on: [mysql, redis]
+  #   environment:
+  #     DATABASE_URL: mysql://nexus_user:nexus_password@mysql:3306/nexus_form
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: "6379"
+  #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
+  #   volumes:
+  #     - ./plugins/validation:/app/plugins/validation:ro
+  #   ports:
+  #     - "3001:3001"
+  #
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.worker
+  #   depends_on: [mysql, redis]
+  #   environment:
+  #     DATABASE_URL: mysql://nexus_user:nexus_password@mysql:3306/nexus_form
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: "6379"
+  #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
+  #   volumes:
+  #     - ./plugins/validation:/app/plugins/validation:ro
+  #   command: ["pnpm", "--filter", "@nexus-form/worker", "exec", "tsx", "src/index.ts"]
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
