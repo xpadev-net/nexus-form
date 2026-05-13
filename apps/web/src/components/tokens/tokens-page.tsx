@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { type ApiToken, useApiTokens } from "@/hooks/tokens/use-api-tokens";
+import { useApiTokens } from "@/hooks/tokens/use-api-tokens";
 import { usePageTitle } from "@/hooks/use-page-title";
 
 function TokenRevealDialog({
@@ -79,8 +79,7 @@ export function TokensPage() {
   const [error, setError] = useState<string | null>(null);
   const [newTokenValue, setNewTokenValue] = useState<string | null>(null);
 
-  const tokens =
-    (tokensQuery.data as { tokens?: ApiToken[] } | undefined)?.tokens ?? [];
+  const tokens = tokensQuery.data?.tokens ?? [];
   const isLoading = tokensQuery.isPending;
   const isCreating = createTokenMutation.isPending;
 
@@ -94,14 +93,8 @@ export function TokensPage() {
         scopes: ["read"],
       });
 
-      const tokenString = (result as { token?: { token?: string } })?.token
-        ?.token;
-      if (tokenString) {
-        setNewTokenValue(tokenString);
-        setName("");
-      } else {
-        setError("トークン値が取得できませんでした");
-      }
+      setNewTokenValue(result.token.token);
+      setName("");
     } catch (createError) {
       setError(
         createError instanceof Error
