@@ -3,6 +3,17 @@ import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import type { ReactNode } from "react";
 
+type LeafNode = { text: string; [key: string]: unknown };
+type ChildNode = { type: string; children: LeafNode[]; [key: string]: unknown };
+
+function isElementEmpty(element: TElement): boolean {
+  const nodes = element.children as ChildNode[] | undefined;
+  if (!nodes || nodes.length === 0) return true;
+  return nodes.every((child) =>
+    child.children?.every((leaf) => (leaf.text ?? "") === ""),
+  );
+}
+
 // Icons for each question type
 const questionTypeLabels: Record<string, string> = {
   form_short_text: "テキスト入力",
@@ -74,11 +85,21 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
-        <div className="min-w-0">{children}</div>
+        <div className="relative min-w-0">
+          {!readOnly && isElementEmpty(element) && (
+            <span
+              className="pointer-events-none absolute select-none text-muted-foreground/60"
+              contentEditable={false}
+            >
+              質問タイトルを入力...
+            </span>
+          )}
+          {children}
+        </div>
 
         {/* Non-editable controls area */}
         {!readOnly && editorControls && (
-          <div className="mt-3 border-t pt-3" contentEditable={false}>
+          <div className="mt-5 border-t pt-4" contentEditable={false}>
             {editorControls}
           </div>
         )}

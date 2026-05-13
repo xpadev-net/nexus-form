@@ -129,4 +129,11 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+  :focus-visible {
+    outline: 2px solid oklch(0.708 0 0);
+    outline-offset: 2px;
+  }
+  .dark :focus-visible {
+    outline-color: oklch(0.922 0 0);
+  }
 }

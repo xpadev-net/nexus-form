@@ -294,7 +294,7 @@ const VersionHistorySection: FC<VersionHistorySectionProps> = ({
           <p className="text-xs text-muted-foreground">
             スナップショットがまだ作成されていません
           </p>
-          {hasUnpublishedChanges && (
+          {!hasUnpublishedChanges && (
             <Button
               variant="outline"
               size="sm"

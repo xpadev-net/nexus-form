@@ -31,6 +31,7 @@ import { ScheduleManager } from "@/components/forms/schedule-manager";
 import { Button } from "@/components/ui/button";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
 import type { FormStatus } from "@/types/validation/shared";
 
@@ -48,6 +49,7 @@ export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
   const router = useRouter();
   const queryClient = useQueryClient();
+  usePageTitle("フォームを編集");
   const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
 
   const [activeTab, setActiveTab] = useState<EditorTab>(() =>
@@ -69,6 +71,14 @@ export function FormEditorPage() {
     queryKey: ["formDetail", id],
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id } })),
   });
+
+  // フォームタイトルが取得できたらページタイトルを更新
+  useEffect(() => {
+    const title = formQuery.data?.form?.title;
+    if (title) {
+      document.title = `${title} | Nexus Form`;
+    }
+  }, [formQuery.data?.form?.title]);
 
   // Plate コンテンツ取得
   const contentQuery = useQuery({
@@ -515,7 +525,7 @@ export function FormEditorPage() {
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <FormHeader
           title={formData?.title ?? "フォームエディタ"}
-          description={`フォームID: ${id}`}
+          description={undefined}
           onTitleBlur={
             formData ? (title) => updateTitleMutation.mutate(title) : undefined
           }
