@@ -3,15 +3,16 @@ import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import type { ReactNode } from "react";
 
-type LeafNode = { text: string; [key: string]: unknown };
-type ChildNode = { type: string; children: LeafNode[]; [key: string]: unknown };
+type TextNode = { text: string };
+type TreeNode = TextNode | { children: TreeNode[] };
+
+function collectText(node: TreeNode): string {
+  if ("text" in node) return node.text;
+  return node.children.map(collectText).join("");
+}
 
 function isElementEmpty(element: TElement): boolean {
-  const nodes = element.children as ChildNode[] | undefined;
-  if (!nodes || nodes.length === 0) return true;
-  return nodes.every((child) =>
-    child.children?.every((leaf) => (leaf.text ?? "") === ""),
-  );
+  return collectText(element as TreeNode).trim() === "";
 }
 
 // Icons for each question type
@@ -88,6 +89,8 @@ export const FormQuestionElement = withRef<
         <div className="relative min-w-0">
           {!readOnly && isElementEmpty(element) && (
             <span
+              aria-hidden="true"
+              role="presentation"
               className="pointer-events-none absolute select-none text-muted-foreground/60"
               contentEditable={false}
             >

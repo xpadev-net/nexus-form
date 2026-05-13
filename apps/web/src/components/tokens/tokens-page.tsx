@@ -1,5 +1,6 @@
 import { Check, Copy } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,9 +22,13 @@ function TokenRevealDialog({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(tokenValue);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error("クリップボードへのコピーに失敗しました");
+    }
   };
 
   return (
@@ -93,8 +98,10 @@ export function TokensPage() {
         ?.token;
       if (tokenString) {
         setNewTokenValue(tokenString);
+        setName("");
+      } else {
+        setError("トークン値が取得できませんでした");
       }
-      setName("");
     } catch (createError) {
       setError(
         createError instanceof Error
