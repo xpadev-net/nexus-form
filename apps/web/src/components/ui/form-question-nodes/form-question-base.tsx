@@ -1,18 +1,19 @@
 import { cn, withRef } from "@udecode/cn";
-import type { TElement } from "platejs";
+import type { TElement, TText } from "platejs";
+import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import type { ReactNode } from "react";
 
-type TextNode = { text: string };
-type TreeNode = TextNode | { children: TreeNode[] };
-
-function collectText(node: TreeNode): string {
-  if ("text" in node) return node.text;
-  return node.children.map(collectText).join("");
+function collectText(node: TElement | TText): string {
+  if (ElementApi.isElement(node)) {
+    const children = (node as TElement).children as (TElement | TText)[];
+    return children.map(collectText).join("");
+  }
+  return node.text;
 }
 
 function isElementEmpty(element: TElement): boolean {
-  return collectText(element as TreeNode).trim() === "";
+  return collectText(element).trim() === "";
 }
 
 // Icons for each question type

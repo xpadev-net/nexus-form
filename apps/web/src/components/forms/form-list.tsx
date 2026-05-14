@@ -72,7 +72,7 @@ export const FormList = () => {
         onStatusChange={setStatus}
       />
       {filteredForms.length === 0 ? (
-        <Empty className="border-dashed mt-2">
+        <Empty className="mt-2 border-dashed">
           <EmptyHeader>
             <EmptyMedia variant="icon">
               <FileText />
