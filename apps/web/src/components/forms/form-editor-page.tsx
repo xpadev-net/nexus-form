@@ -518,7 +518,6 @@ export function FormEditorPage() {
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <FormHeader
           title={formData?.title ?? "フォームエディタ"}
-          description={undefined}
           onTitleBlur={
             formData ? (title) => updateTitleMutation.mutate(title) : undefined
           }

@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 
 function collectText(node: TElement | TText): string {
   if (ElementApi.isElement(node)) {
-    const children = (node as TElement).children as (TElement | TText)[];
+    const children = node.children as (TElement | TText)[];
     return children.map(collectText).join("");
   }
   return node.text;
