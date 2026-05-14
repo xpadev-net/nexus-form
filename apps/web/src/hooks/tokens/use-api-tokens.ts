@@ -6,7 +6,7 @@ const apiTokenSchema = z.object({
   id: z.string(),
   name: z.string(),
   scopes: z.array(z.string()),
-  form_ids: z.array(z.string()).optional(),
+  form_ids: z.array(z.string()).nullish(),
   expires_at: z.string().optional(),
   last_used_at: z.string().optional(),
   created_at: z.string(),

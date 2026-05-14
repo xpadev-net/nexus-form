@@ -5,7 +5,11 @@ import type { ComponentProps } from "react";
 import { ToolbarButton } from "./toolbar";
 
 const isMac =
-  typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);
+  typeof navigator !== "undefined" &&
+  /mac/i.test(
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData
+      ?.platform ?? navigator.platform,
+  );
 const modKey = isMac ? "⌘" : "Ctrl";
 
 export function RedoToolbarButton(

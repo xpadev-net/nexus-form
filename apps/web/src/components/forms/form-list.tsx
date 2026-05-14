@@ -106,7 +106,7 @@ export const FormList = () => {
                     }
                   />
                 </div>
-                <span className="shrink-0 rounded border px-3 py-1 text-sm font-medium transition-colors hover:bg-background">
+                <span className="shrink-0 rounded border px-3 py-1 text-sm font-medium">
                   開く
                 </span>
               </Link>

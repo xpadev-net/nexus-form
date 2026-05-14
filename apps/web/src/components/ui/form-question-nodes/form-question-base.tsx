@@ -91,7 +91,7 @@ export const FormQuestionElement = withRef<
             <span
               aria-hidden="true"
               role="presentation"
-              className="pointer-events-none absolute select-none text-muted-foreground/60"
+              className="pointer-events-none absolute top-0 left-0 select-none text-muted-foreground/60"
               contentEditable={false}
             >
               質問タイトルを入力...
