@@ -31,7 +31,7 @@ import type {
   DataRetentionConfig,
   DataRetentionStats,
 } from "@/lib/fingerprint/data-retention";
-import { japanDateTimeFormatter } from "@/lib/formatters";
+import { formatJapanDateTime } from "@/lib/formatters";
 import { logError } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
@@ -271,10 +271,8 @@ export function DataRetentionManager({ className }: DataRetentionManagerProps) {
     }
   };
 
-  const formatDate = (date: Date | null) => {
-    if (!date) return "未設定";
-    return japanDateTimeFormatter.format(new Date(date));
-  };
+  const formatDate = (date: Date | null) =>
+    date ? formatJapanDateTime(date) : "未設定";
 
   if (loading) {
     return (
