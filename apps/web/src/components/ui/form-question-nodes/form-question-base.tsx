@@ -16,8 +16,7 @@ function isElementEmpty(element: TElement): boolean {
   return collectText(element).trim() === "";
 }
 
-// Icons for each question type
-const questionTypeLabels: Record<string, string> = {
+export const questionTypeLabels: Record<string, string> = {
   form_short_text: "テキスト入力",
   form_long_text: "テキストエリア",
   form_radio: "ラジオボタン",

@@ -1,5 +1,6 @@
 import { GitCompare, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { questionTypeLabels } from "@/components/ui/form-question-nodes/form-question-base";
 import { useDiffDisplay, useFormDiff } from "@/hooks/forms/use-form-diff";
 
 interface NodesDiffListProps {
@@ -63,10 +64,9 @@ export function NodesDiffList({ formId }: NodesDiffListProps) {
             {node.diffType === "modified" && (
               <GitCompare className="h-3.5 w-3.5 shrink-0" />
             )}
-            <span className="text-sm font-mono truncate">{node.nodeId}</span>
             {node.nodeType && (
               <Badge variant="outline" className="text-xs shrink-0">
-                {node.nodeType}
+                {questionTypeLabels[node.nodeType] ?? node.nodeType}
               </Badge>
             )}
           </div>

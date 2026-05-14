@@ -75,7 +75,7 @@ export const FormValidationRulesPage: FC<Props> = ({
       .filter((q) => q.type === "short_text")
       .map((q) => ({
         blockId: q.blockId,
-        title: q.title.trim() || q.blockId,
+        title: q.title.trim() || "（タイトル未設定）",
       }));
   }, [plateContent]);
 
@@ -150,7 +150,7 @@ export const FormValidationRulesPage: FC<Props> = ({
     const firstBlock = blocks[0];
     if (!firstProvider || !firstRule || !firstBlock) {
       toast.error(
-        "ルールを追加するには short_text ブロックと有効な provider が必要です",
+        "ルールを追加するにはテキスト入力ブロックと有効なプロバイダーが必要です",
       );
       return;
     }
@@ -174,24 +174,24 @@ export const FormValidationRulesPage: FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      <header className="flex items-center justify-between">
-        <div>
+      <header className="space-y-1">
+        <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">外部サービス検証ルール</h2>
-          <p className="text-sm text-muted-foreground">
-            フォーム送信時に実行する検証ルールを設定します。各ルールは選択したブロックを参照し、選択したプロバイダーで検証されます。
-          </p>
+          <Button
+            onClick={handleCreate}
+            disabled={
+              createMutation.isPending ||
+              blocks.length === 0 ||
+              providers.length === 0
+            }
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            ルール追加
+          </Button>
         </div>
-        <Button
-          onClick={handleCreate}
-          disabled={
-            createMutation.isPending ||
-            blocks.length === 0 ||
-            providers.length === 0
-          }
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          ルール追加
-        </Button>
+        <p className="text-sm text-muted-foreground">
+          フォーム送信時に実行する検証ルールを設定します。各ルールは選択したブロックを参照し、選択したプロバイダーで検証されます。
+        </p>
       </header>
 
       {rules.length === 0 ? (
@@ -347,11 +347,10 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
         </div>
 
         <div className="space-y-2">
-          <Label>参照ブロック (short_text)</Label>
+          <Label>参照ブロック（テキスト入力）</Label>
           {blocks.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              short_text
-              ブロックがありません。エディタでブロックを追加してください。
+              テキスト入力ブロックがありません。エディタでブロックを追加してください。
             </p>
           ) : (
             <div className="space-y-1.5 rounded-md border p-2">
@@ -372,10 +371,7 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
                       disabled={busy}
                     />
                     <Label htmlFor={checkboxId} className="font-normal">
-                      <span>{block.title}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        {block.blockId}
-                      </span>
+                      {block.title}
                     </Label>
                   </div>
                 );
