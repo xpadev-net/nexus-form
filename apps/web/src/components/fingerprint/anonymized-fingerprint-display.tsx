@@ -20,15 +20,8 @@ import type {
   AnonymizedFingerprint,
   AnonymizedFingerprintStats,
 } from "@/lib/fingerprint/anonymizer";
+import { japanDateTimeFormatter } from "@/lib/formatters";
 import { logError } from "@/lib/logger";
-
-const japanDateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-});
 
 interface AnonymizedFingerprintDisplayProps {
   responseId?: string;
