@@ -178,8 +178,7 @@ export const FormValidationRulesPage: FC<Props> = ({
         <div>
           <h2 className="text-lg font-semibold">外部サービス検証ルール</h2>
           <p className="text-sm text-muted-foreground">
-            フォーム送信時に実行する検証ルールを設定します。各ルールは選択した
-            ブロックを参照し、選択したプロバイダーで検証されます。
+            フォーム送信時に実行する検証ルールを設定します。各ルールは選択したブロックを参照し、選択したプロバイダーで検証されます。
           </p>
         </div>
         <Button

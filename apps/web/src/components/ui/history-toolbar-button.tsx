@@ -4,6 +4,14 @@ import type { ComponentProps } from "react";
 
 import { ToolbarButton } from "./toolbar";
 
+const isMac =
+  typeof navigator !== "undefined" &&
+  /mac/i.test(
+    (navigator as { userAgentData?: { platform?: string } }).userAgentData
+      ?.platform ?? navigator.platform,
+  );
+const modKey = isMac ? "⌘" : "Ctrl";
+
 export function RedoToolbarButton(
   props: ComponentProps<typeof ToolbarButton>,
 ) {
@@ -19,7 +27,7 @@ export function RedoToolbarButton(
       disabled={disabled}
       onClick={() => editor.redo()}
       onMouseDown={(e) => e.preventDefault()}
-      tooltip="Redo"
+      tooltip={`Redo (${modKey}+Shift+Z)`}
     >
       <Redo2Icon />
     </ToolbarButton>
@@ -41,7 +49,7 @@ export function UndoToolbarButton(
       disabled={disabled}
       onClick={() => editor.undo()}
       onMouseDown={(e) => e.preventDefault()}
-      tooltip="Undo"
+      tooltip={`Undo (${modKey}+Z)`}
     >
       <Undo2Icon />
     </ToolbarButton>

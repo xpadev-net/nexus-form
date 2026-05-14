@@ -268,6 +268,19 @@ function toBaseType(questionType: FormQuestionType): string {
   return questionType.replace(/^form_/, "");
 }
 
+const CHOICE_QUESTION_TYPES = new Set([
+  "form_radio",
+  "form_checkbox",
+  "form_dropdown",
+]);
+
+function makeDefaultOptions() {
+  return [
+    { id: crypto.randomUUID(), label: "" },
+    { id: crypto.randomUUID(), label: "" },
+  ];
+}
+
 // Insert a form question block (container element with editable children)
 export const insertFormQuestion = (
   editor: PlateEditor,
@@ -279,10 +292,14 @@ export const insertFormQuestion = (
 ) => {
   const blockId = crypto.randomUUID();
   const label = options.label || "";
-  const validation = options.validation || {
+  const defaultValidation: Record<string, unknown> = {
     type: toBaseType(questionType),
     required: false,
   };
+  if (CHOICE_QUESTION_TYPES.has(questionType)) {
+    defaultValidation.options = makeDefaultOptions();
+  }
+  const validation = options.validation || defaultValidation;
 
   editor.tf.insertNodes(
     {

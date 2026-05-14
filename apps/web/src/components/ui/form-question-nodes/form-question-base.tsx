@@ -1,7 +1,20 @@
 import { cn, withRef } from "@udecode/cn";
-import type { TElement } from "platejs";
+import type { TElement, TText } from "platejs";
+import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import type { ReactNode } from "react";
+
+function collectText(node: TElement | TText): string {
+  if (ElementApi.isElement(node)) {
+    const children = node.children as (TElement | TText)[];
+    return children.map(collectText).join("");
+  }
+  return node.text;
+}
+
+function isElementEmpty(element: TElement): boolean {
+  return collectText(element).trim() === "";
+}
 
 // Icons for each question type
 const questionTypeLabels: Record<string, string> = {
@@ -74,11 +87,23 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
-        <div className="min-w-0">{children}</div>
+        <div className="relative min-w-0">
+          {!readOnly && isElementEmpty(element) && (
+            <span
+              aria-hidden="true"
+              role="presentation"
+              className="pointer-events-none absolute top-0 left-0 select-none text-muted-foreground/60"
+              contentEditable={false}
+            >
+              質問タイトルを入力...
+            </span>
+          )}
+          {children}
+        </div>
 
         {/* Non-editable controls area */}
         {!readOnly && editorControls && (
-          <div className="mt-3 border-t pt-3" contentEditable={false}>
+          <div className="mt-5 border-t pt-4" contentEditable={false}>
             {editorControls}
           </div>
         )}

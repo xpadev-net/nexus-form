@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { client } from "@/lib/api";
 
 type CurrentUser = {
@@ -12,6 +13,7 @@ type CurrentUser = {
 };
 
 export function SettingsPage() {
+  usePageTitle("設定");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(true);

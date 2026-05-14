@@ -3,8 +3,10 @@ import { FormList } from "@/components/forms/form-list";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useForms } from "@/hooks/forms/use-forms";
+import { usePageTitle } from "@/hooks/use-page-title";
 
 export function DashboardPage() {
+  usePageTitle("ホーム");
   const { createFormMutation } = useForms();
 
   const createButtonLabel = useMemo(() => {
@@ -31,7 +33,7 @@ export function DashboardPage() {
           disabled={createFormMutation.isPending}
           onClick={() =>
             createFormMutation.mutate({
-              title: "Untitled Form",
+              title: "無題のフォーム",
             })
           }
         >

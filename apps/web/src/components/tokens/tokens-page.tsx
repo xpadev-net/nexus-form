@@ -1,15 +1,90 @@
-import { useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { type ApiToken, useApiTokens } from "@/hooks/tokens/use-api-tokens";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useApiTokens } from "@/hooks/tokens/use-api-tokens";
+import { usePageTitle } from "@/hooks/use-page-title";
+
+function TokenRevealDialog({
+  tokenValue,
+  onClose,
+}: {
+  tokenValue: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopied(true);
+    } catch {
+      toast.error("クリップボードへのコピーに失敗しました");
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>APIトークンが作成されました</DialogTitle>
+          <DialogDescription>
+            このトークンは一度だけ表示されます。安全な場所にコピーして保管してください。
+          </DialogDescription>
+        </DialogHeader>
+        <div className="mt-2 space-y-3">
+          <div className="flex items-center gap-2 rounded border bg-muted p-3 font-mono text-xs break-all">
+            <span className="flex-1 select-all">{tokenValue}</span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            onClick={() => void handleCopy()}
+          >
+            {copied ? (
+              <>
+                <Check className="mr-2 h-4 w-4 text-green-500" />
+                コピー済み
+              </>
+            ) : (
+              <>
+                <Copy className="mr-2 h-4 w-4" />
+                クリップボードにコピー
+              </>
+            )}
+          </Button>
+          <Button type="button" className="w-full" onClick={onClose}>
+            閉じる
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function TokensPage() {
+  usePageTitle("APIトークン管理");
   const { tokensQuery, createTokenMutation, revokeTokenMutation } =
     useApiTokens();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [newTokenValue, setNewTokenValue] = useState<string | null>(null);
 
-  const tokens =
-    (tokensQuery.data as { tokens?: ApiToken[] } | undefined)?.tokens ?? [];
+  const tokens = tokensQuery.data?.tokens ?? [];
   const isLoading = tokensQuery.isPending;
   const isCreating = createTokenMutation.isPending;
 
@@ -18,11 +93,12 @@ export function TokensPage() {
 
     try {
       setError(null);
-      await createTokenMutation.mutateAsync({
+      const result = await createTokenMutation.mutateAsync({
         name: name.trim(),
         scopes: ["read"],
       });
 
+      setNewTokenValue(result.token.token);
       setName("");
     } catch (createError) {
       setError(
@@ -119,6 +195,13 @@ export function TokensPage() {
           ) : null}
         </ul>
       )}
+
+      {newTokenValue ? (
+        <TokenRevealDialog
+          tokenValue={newTokenValue}
+          onClose={() => setNewTokenValue(null)}
+        />
+      ) : null}
     </section>
   );
 }

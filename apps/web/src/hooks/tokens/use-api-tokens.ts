@@ -6,11 +6,30 @@ const apiTokenSchema = z.object({
   id: z.string(),
   name: z.string(),
   scopes: z.array(z.string()),
-  form_ids: z.array(z.string()).optional(),
+  form_ids: z.array(z.string()).nullish(),
   expires_at: z.string().optional(),
   last_used_at: z.string().optional(),
   created_at: z.string(),
   is_active: z.boolean(),
+});
+
+const listTokensResponseSchema = z.object({
+  tokens: z.array(apiTokenSchema),
+  total: z.number().optional(),
+});
+
+const createTokenResponseSchema = z.object({
+  token: z.object({
+    id: z.string(),
+    name: z.string(),
+    token: z.string(),
+    scopes: z.array(z.string()),
+    form_ids: z.array(z.string()).nullish(),
+    expires_at: z.string().nullish(),
+    created_at: z.string(),
+    is_active: z.boolean(),
+  }),
+  message: z.string(),
 });
 
 const createTokenPayloadSchema = z.object({
@@ -28,14 +47,18 @@ export const useApiTokens = () => {
 
   const tokensQuery = useQuery({
     queryKey: ["apiTokens"],
-    queryFn: () => rpc(client.api.tokens.$get({ query: {} })),
+    queryFn: async () => {
+      const result = await rpc(client.api.tokens.$get({ query: {} }));
+      return listTokensResponseSchema.parse(result);
+    },
     staleTime: 5 * 60 * 1000,
   });
 
   const createTokenMutation = useMutation({
-    mutationFn: (payload: CreateApiTokenPayload) => {
+    mutationFn: async (payload: CreateApiTokenPayload) => {
       const validated = createTokenPayloadSchema.parse(payload);
-      return rpc(client.api.tokens.$post({ json: validated }));
+      const result = await rpc(client.api.tokens.$post({ json: validated }));
+      return createTokenResponseSchema.parse(result);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["apiTokens"] });

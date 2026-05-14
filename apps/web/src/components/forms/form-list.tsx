@@ -1,11 +1,18 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
+import { FileText } from "lucide-react";
 import { useMemo, useState } from "react";
-import { FormActionButton } from "@/components/forms/form-action-button";
 import {
   FormFilterBar,
   type FormFilterStatus,
 } from "@/components/forms/form-filter-bar";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useForms } from "@/hooks/forms/use-forms";
 
 const normalizeFormStatus = (
@@ -24,7 +31,6 @@ const normalizeFormStatus = (
 };
 
 export const FormList = () => {
-  const navigate = useNavigate();
   const { formsQuery } = useForms();
   const [searchTerm, setSearchTerm] = useState("");
   const [status, setStatus] = useState<FormFilterStatus>("all");
@@ -42,11 +48,19 @@ export const FormList = () => {
   }, [forms, searchTerm, status]);
 
   if (formsQuery.isLoading) {
-    return <div>Loading forms...</div>;
+    return (
+      <div className="py-4 text-sm text-muted-foreground">
+        フォームを読み込み中...
+      </div>
+    );
   }
 
   if (formsQuery.isError) {
-    return <div>Failed to load forms</div>;
+    return (
+      <div className="py-4 text-sm text-destructive">
+        フォームの読み込みに失敗しました
+      </div>
+    );
   }
 
   return (
@@ -57,33 +71,49 @@ export const FormList = () => {
         onSearchTermChange={setSearchTerm}
         onStatusChange={setStatus}
       />
-      <ul className="space-y-2">
-        {filteredForms.map((item) => (
-          <li
-            key={item.id}
-            className="flex items-center justify-between gap-2 rounded border p-3"
-          >
-            <div className="space-y-1">
-              <p>{item.title}</p>
-              <FormStatusBadge
-                status={
-                  typeof item.status === "string" ? item.status : undefined
-                }
-              />
-            </div>
-            <FormActionButton
-              onClick={() =>
-                void navigate({
-                  to: "/forms/$id/edit",
-                  params: { id: item.id },
-                })
-              }
-            >
-              開く
-            </FormActionButton>
-          </li>
-        ))}
-      </ul>
+      {filteredForms.length === 0 ? (
+        <Empty className="mt-2 border-dashed">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <FileText />
+            </EmptyMedia>
+            <EmptyTitle>
+              {forms.length === 0
+                ? "フォームがまだありません"
+                : "条件に一致するフォームがありません"}
+            </EmptyTitle>
+            <EmptyDescription>
+              {forms.length === 0
+                ? "「新規フォームを作成」ボタンから最初のフォームを作りましょう。"
+                : "検索条件やフィルターを変更してみてください。"}
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : (
+        <ul className="space-y-2">
+          {filteredForms.map((item) => (
+            <li key={item.id}>
+              <Link
+                to="/forms/$id/edit"
+                params={{ id: item.id }}
+                className="flex items-center justify-between gap-2 rounded border p-3 transition-colors hover:bg-accent"
+              >
+                <div className="space-y-1">
+                  <p>{item.title}</p>
+                  <FormStatusBadge
+                    status={
+                      typeof item.status === "string" ? item.status : undefined
+                    }
+                  />
+                </div>
+                <span className="shrink-0 rounded border px-3 py-1 text-sm font-medium">
+                  開く
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 };
