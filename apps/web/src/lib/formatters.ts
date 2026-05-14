@@ -6,5 +6,5 @@ const japanDateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
   minute: "2-digit",
 });
 
-export const formatJapanDateTime = (date: Date): string =>
-  japanDateTimeFormatter.format(date);
+export const formatJapanDateTime = (date: Date | string): string =>
+  japanDateTimeFormatter.format(new Date(date));
