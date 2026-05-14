@@ -56,7 +56,7 @@ interface RadioQuestionProps {
  * @param props - コンポーネントのプロパティ
  * @returns JSX要素
  */
-const _RadioQuestionComponent: FC<RadioQuestionProps> = ({
+const RadioQuestionBase: FC<RadioQuestionProps> = ({
   block,
   value = "",
   onChange,
@@ -225,4 +225,4 @@ const _RadioQuestionComponent: FC<RadioQuestionProps> = ({
 };
 
 // memoでパフォーマンス最適化
-export const RadioQuestionComponent = memo(_RadioQuestionComponent);
+export const RadioQuestionComponent = memo(RadioQuestionBase);

@@ -55,7 +55,7 @@ interface LinearScaleQuestionProps {
  * - キーボードナビゲーション対応
  * - 値の音声読み上げ対応
  */
-const _LinearScaleQuestionComponent: FC<LinearScaleQuestionProps> = ({
+const LinearScaleQuestionBase: FC<LinearScaleQuestionProps> = ({
   block,
   value,
   onChange,
@@ -297,6 +297,6 @@ const arePropsEqual = (
 
 // memoでパフォーマンス最適化
 export const LinearScaleQuestionComponent = memo(
-  _LinearScaleQuestionComponent,
+  LinearScaleQuestionBase,
   arePropsEqual,
 );

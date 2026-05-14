@@ -35,97 +35,95 @@ interface TimeQuestionProps {
  * - 入力マスキングの改善
  * - バリデーション機能の強化
  */
-const _TimeQuestionComponent = memo<TimeQuestionProps>(
-  ({
-    block,
-    value = "",
-    onChange,
-    error,
-    disabled = false,
-    className,
-    debounceDelay = 300,
-  }) => {
-    // Block型がtimeタイプであることを確認
-    if (block.type !== "time") {
-      throw new Error("TimeQuestionComponent requires a time block");
+function TimeQuestionBase({
+  block,
+  value = "",
+  onChange,
+  error,
+  disabled = false,
+  className,
+  debounceDelay = 300,
+}: TimeQuestionProps) {
+  // Block型がtimeタイプであることを確認
+  if (block.type !== "time") {
+    throw new Error("TimeQuestionComponent requires a time block");
+  }
+
+  const timeFormat = block.validation?.format || "24h";
+
+  // バリデーション処理
+  const validator = useMemo(() => createTimeValidator(block), [block]);
+  const { validationError, isValidating } = useGenericValidation(value, {
+    validator,
+    debounceDelay,
+  });
+
+  // 表示するエラーメッセージ
+  const displayError = error || validationError;
+
+  // 入力値の正規化とマスキング
+  const handleChange = useCallback(
+    (inputValue: string) => {
+      let processedValue = inputValue;
+
+      // 12hフォーマットの場合はマスキングを適用
+      if (timeFormat === "12h") {
+        processedValue = InputMasking.mask12HourTime(inputValue);
+      }
+
+      // 正規化を適用
+      const normalizedValue = DateTimeUtils.normalizeTimeValue(
+        processedValue,
+        timeFormat,
+      );
+
+      onChange(normalizedValue);
+    },
+    [timeFormat, onChange],
+  );
+
+  // 時刻範囲情報の生成
+  const rangeInfo = useMemo(() => {
+    const { minTime, maxTime } = block.validation || {};
+
+    if (minTime && maxTime) {
+      return `時刻範囲: ${minTime} ～ ${maxTime}`;
+    } else if (minTime) {
+      return `最小時刻: ${minTime}`;
+    } else if (maxTime) {
+      return `最大時刻: ${maxTime}`;
     }
+    return undefined;
+  }, [block.validation]);
 
-    const timeFormat = block.validation?.format || "24h";
-
-    // バリデーション処理
-    const validator = useMemo(() => createTimeValidator(block), [block]);
-    const { validationError, isValidating } = useGenericValidation(value, {
-      validator,
-      debounceDelay,
-    });
-
-    // 表示するエラーメッセージ
-    const displayError = error || validationError;
-
-    // 入力値の正規化とマスキング
-    const handleChange = useCallback(
-      (inputValue: string) => {
-        let processedValue = inputValue;
-
-        // 12hフォーマットの場合はマスキングを適用
-        if (timeFormat === "12h") {
-          processedValue = InputMasking.mask12HourTime(inputValue);
-        }
-
-        // 正規化を適用
-        const normalizedValue = DateTimeUtils.normalizeTimeValue(
-          processedValue,
-          timeFormat,
-        );
-
-        onChange(normalizedValue);
-      },
-      [timeFormat, onChange],
-    );
-
-    // 時刻範囲情報の生成
-    const rangeInfo = useMemo(() => {
-      const { minTime, maxTime } = block.validation || {};
-
-      if (minTime && maxTime) {
-        return `時刻範囲: ${minTime} ～ ${maxTime}`;
-      } else if (minTime) {
-        return `最小時刻: ${minTime}`;
-      } else if (maxTime) {
-        return `最大時刻: ${maxTime}`;
-      }
+  // フォーマット情報の生成
+  const formatInfo = useMemo(() => {
+    if (timeFormat === "24h") {
       return undefined;
-    }, [block.validation]);
+    }
+    return `時刻形式: ${timeFormat}`;
+  }, [timeFormat]);
 
-    // フォーマット情報の生成
-    const formatInfo = useMemo(() => {
-      if (timeFormat === "24h") {
-        return undefined;
-      }
-      return `時刻形式: ${timeFormat}`;
-    }, [timeFormat]);
-
-    return (
-      <BaseQuestionInput
-        id={block.blockId}
-        title={block.title}
-        description={block.description}
-        value={value}
-        onChange={onChange}
-        onInputChange={handleChange}
-        type={DateTimeUtils.getTimeInputType(timeFormat)}
-        placeholder={DateTimeUtils.getTimePlaceholder(timeFormat)}
-        disabled={disabled}
-        className={className}
-        error={displayError}
-        isValidating={isValidating}
-        formatInfo={formatInfo}
-        rangeInfo={rangeInfo}
-        inputFormat={timeFormat === "12h" ? "12h" : undefined}
-      />
-    );
-  },
-);
+  return (
+    <BaseQuestionInput
+      id={block.blockId}
+      title={block.title}
+      description={block.description}
+      value={value}
+      onChange={onChange}
+      onInputChange={handleChange}
+      type={DateTimeUtils.getTimeInputType(timeFormat)}
+      placeholder={DateTimeUtils.getTimePlaceholder(timeFormat)}
+      disabled={disabled}
+      className={className}
+      error={displayError}
+      isValidating={isValidating}
+      formatInfo={formatInfo}
+      rangeInfo={rangeInfo}
+      inputFormat={timeFormat === "12h" ? "12h" : undefined}
+    />
+  );
+}
 
 // メモ化の比較関数
 const areTimeQuestionPropsEqual = (
@@ -146,6 +144,6 @@ const areTimeQuestionPropsEqual = (
 };
 
 export const TimeQuestionComponent = memo(
-  _TimeQuestionComponent,
+  TimeQuestionBase,
   areTimeQuestionPropsEqual,
 );

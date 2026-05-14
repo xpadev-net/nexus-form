@@ -58,7 +58,7 @@ interface CheckboxQuestionProps {
  * @param props - コンポーネントのプロパティ
  * @returns JSX要素
  */
-const _CheckboxQuestionComponent: FC<CheckboxQuestionProps> = ({
+const CheckboxQuestionBase: FC<CheckboxQuestionProps> = ({
   block,
   value = [],
   onChange,
@@ -298,4 +298,4 @@ const _CheckboxQuestionComponent: FC<CheckboxQuestionProps> = ({
 };
 
 // memoでパフォーマンス最適化
-export const CheckboxQuestionComponent = memo(_CheckboxQuestionComponent);
+export const CheckboxQuestionComponent = memo(CheckboxQuestionBase);

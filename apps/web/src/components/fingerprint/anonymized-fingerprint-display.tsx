@@ -22,6 +22,14 @@ import type {
 } from "@/lib/fingerprint/anonymizer";
 import { logError } from "@/lib/logger";
 
+const japanDateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 interface AnonymizedFingerprintDisplayProps {
   responseId?: string;
   formId?: string;
@@ -86,15 +94,8 @@ export function AnonymizedFingerprintDisplay({
     fetchAnonymizedFingerprints();
   }, [fetchAnonymizedFingerprints]);
 
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat("ja-JP", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(date));
-  };
+  const formatDate = (date: Date) =>
+    japanDateTimeFormatter.format(new Date(date));
 
   if (loading) {
     return (

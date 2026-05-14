@@ -34,6 +34,14 @@ import type {
 import { logError } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 
+const japanDateTimeFormatter = new Intl.DateTimeFormat("ja-JP", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
 const dataRetentionStatsSchema = z.object({
   totalFingerprints: z.number(),
   expiredFingerprints: z.number(),
@@ -272,13 +280,7 @@ export function DataRetentionManager({ className }: DataRetentionManagerProps) {
 
   const formatDate = (date: Date | null) => {
     if (!date) return "未設定";
-    return new Intl.DateTimeFormat("ja-JP", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(date));
+    return japanDateTimeFormatter.format(new Date(date));
   };
 
   if (loading) {

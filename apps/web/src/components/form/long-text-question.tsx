@@ -62,7 +62,7 @@ interface LongTextQuestionProps {
  * - エラー状態の適切な通知
  * - キーボードナビゲーション対応
  */
-const _LongTextQuestionComponent: FC<LongTextQuestionProps> = ({
+const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
   block,
   value = "",
   onChange,
@@ -214,7 +214,7 @@ const _LongTextQuestionComponent: FC<LongTextQuestionProps> = ({
 // memoでパフォーマンス最適化
 // プロップの比較関数をカスタマイズして、不要な再レンダリングを防止
 export const LongTextQuestionComponent = memo(
-  _LongTextQuestionComponent,
+  LongTextQuestionBase,
   (prevProps, nextProps) => {
     // 基本的なプロップの比較
     if (

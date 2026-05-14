@@ -11,7 +11,7 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const TanStackQueryProvider = ({ children }: PropsWithChildren) => {
+const _TanStackQueryProvider = ({ children }: PropsWithChildren) => {
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
