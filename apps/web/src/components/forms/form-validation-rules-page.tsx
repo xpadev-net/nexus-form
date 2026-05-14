@@ -383,8 +383,8 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
                     key={id}
                     className="rounded-sm bg-destructive/10 px-2 py-1 text-xs text-destructive"
                   >
-                    参照ブロック {id} は見つかりません (検証時に missing として
-                    扱われます)。
+                    参照ブロックが見つかりません（削除された可能性があります）。検証時に
+                    missing として扱われます。
                   </p>
                 ))}
             </div>

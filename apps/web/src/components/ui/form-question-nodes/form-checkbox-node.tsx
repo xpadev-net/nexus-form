@@ -5,6 +5,7 @@ import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EMPTY_OPTION_LABEL } from "@/lib/constants/form-question";
 import {
   AllowOtherEditor,
   ChoiceOptionsEditor,
@@ -102,7 +103,7 @@ function CheckboxInput({ element }: { element: TElement }) {
                 }
               />
               <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
-                {option.label || "（空の選択肢）"}
+                {option.label || EMPTY_OPTION_LABEL}
               </Label>
             </div>
           );
