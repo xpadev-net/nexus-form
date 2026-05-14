@@ -14,6 +14,7 @@ import {
 import { FormResponseProvider } from "@/contexts/form-response-context";
 import { useSnapshotContent } from "@/hooks/forms/use-snapshot-content";
 import { useSnapshots } from "@/hooks/forms/use-snapshots";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
 import { FormBody } from "./form-body";
 
@@ -45,6 +46,12 @@ export function FormPreviewPage() {
 
   const isLoading = formQuery.isLoading || contentQuery.isLoading;
   const error = formQuery.error || contentQuery.error;
+
+  usePageTitle(
+    formQuery.data?.form?.title
+      ? `${formQuery.data.form.title} - プレビュー`
+      : "プレビュー",
+  );
 
   // Reset preview message and error when user switches to a different version
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reacts only to selectedVersion changes

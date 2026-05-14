@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { EMPTY_OPTION_LABEL } from "@/lib/constants/form-question";
 import {
   AllowOtherEditor,
   ChoiceOptionsEditor,
@@ -85,7 +86,7 @@ function DropdownInput({ element }: { element: TElement }) {
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
-              {option.label || option.id}
+              {option.label || EMPTY_OPTION_LABEL}
             </SelectItem>
           ))}
           {allowOther && (

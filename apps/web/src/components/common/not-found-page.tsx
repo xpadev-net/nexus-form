@@ -1,8 +1,10 @@
 import { Link } from "@tanstack/react-router";
 import { Home } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { usePageTitle } from "@/hooks/use-page-title";
 
 export function NotFoundPage() {
+  usePageTitle("ページが見つかりません");
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
       <div className="w-full max-w-md rounded-lg border bg-card p-8 text-center text-card-foreground shadow-sm">
