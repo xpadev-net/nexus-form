@@ -102,7 +102,7 @@ function CheckboxInput({ element }: { element: TElement }) {
                 }
               />
               <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
-                {option.label || option.id}
+                {option.label || "（空の選択肢）"}
               </Label>
             </div>
           );

@@ -78,7 +78,7 @@ function RadioInput({ element }: { element: TElement }) {
           <div key={option.id} className="flex items-center gap-2">
             <RadioGroupItem value={option.id} id={`${blockId}-${option.id}`} />
             <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
-              {option.label || option.id}
+              {option.label || "（空の選択肢）"}
             </Label>
           </div>
         ))}

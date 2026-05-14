@@ -85,7 +85,7 @@ function DropdownInput({ element }: { element: TElement }) {
         <SelectContent>
           {options.map((option) => (
             <SelectItem key={option.id} value={option.id}>
-              {option.label || option.id}
+              {option.label || "（空の選択肢）"}
             </SelectItem>
           ))}
           {allowOther && (
