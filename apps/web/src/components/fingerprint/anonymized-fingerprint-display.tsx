@@ -20,6 +20,7 @@ import type {
   AnonymizedFingerprint,
   AnonymizedFingerprintStats,
 } from "@/lib/fingerprint/anonymizer";
+import { formatJapanDateTime } from "@/lib/formatters";
 import { logError } from "@/lib/logger";
 
 interface AnonymizedFingerprintDisplayProps {
@@ -85,16 +86,6 @@ export function AnonymizedFingerprintDisplay({
   useEffect(() => {
     fetchAnonymizedFingerprints();
   }, [fetchAnonymizedFingerprints]);
-
-  const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat("ja-JP", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-    }).format(new Date(date));
-  };
 
   if (loading) {
     return (
@@ -199,7 +190,7 @@ export function AnonymizedFingerprintDisplay({
                       </Badge>
                     </div>
                     <div className="text-sm text-muted-foreground/70">
-                      {formatDate(fingerprint.collectedAt)}
+                      {formatJapanDateTime(fingerprint.collectedAt)}
                     </div>
                   </div>
 

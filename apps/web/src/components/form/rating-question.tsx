@@ -54,7 +54,7 @@ interface RatingQuestionProps {
  * - キーボードナビゲーション対応
  * - 値の音声読み上げ対応
  */
-const _RatingQuestionComponent: FC<RatingQuestionProps> = ({
+const RatingQuestionBase: FC<RatingQuestionProps> = ({
   block,
   value,
   onChange,
@@ -279,7 +279,4 @@ const arePropsEqual = (
 };
 
 // memoでパフォーマンス最適化
-export const RatingQuestionComponent = memo(
-  _RatingQuestionComponent,
-  arePropsEqual,
-);
+export const RatingQuestionComponent = memo(RatingQuestionBase, arePropsEqual);

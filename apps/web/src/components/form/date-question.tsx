@@ -35,99 +35,97 @@ interface DateQuestionProps {
  * - 入力マスキングの改善
  * - バリデーション機能の強化
  */
-const _DateQuestionComponent = memo<DateQuestionProps>(
-  ({
-    block,
-    value = "",
-    onChange,
-    error,
-    disabled = false,
-    className,
-    debounceDelay = 300,
-  }) => {
-    // Block型がdateタイプであることを確認
-    if (block.type !== "date") {
-      throw new Error("DateQuestionComponent requires a date block");
-    }
+function DateQuestionBase({
+  block,
+  value = "",
+  onChange,
+  error,
+  disabled = false,
+  className,
+  debounceDelay = 300,
+}: DateQuestionProps) {
+  // Block型がdateタイプであることを確認
+  if (block.type !== "date") {
+    throw new Error("DateQuestionComponent requires a date block");
+  }
 
-    const dateFormat = block.validation?.format || "YYYY-MM-DD";
+  const dateFormat = block.validation?.format || "YYYY-MM-DD";
 
-    // バリデーション処理
-    const validator = useMemo(() => createDateValidator(block), [block]);
-    const { validationError, isValidating } = useGenericValidation(value, {
-      validator,
-      debounceDelay,
-    });
+  // バリデーション処理
+  const validator = useMemo(() => createDateValidator(block), [block]);
+  const { validationError, isValidating } = useGenericValidation(value, {
+    validator,
+    debounceDelay,
+  });
 
-    // 表示するエラーメッセージ
-    const displayError = error || validationError;
+  // 表示するエラーメッセージ
+  const displayError = error || validationError;
 
-    // 入力値の正規化とマスキング
-    const handleChange = useCallback(
-      (inputValue: string) => {
-        let normalizedValue = DateTimeUtils.normalizeDateValue(
-          inputValue,
-          dateFormat,
-        );
+  // 入力値の正規化とマスキング
+  const handleChange = useCallback(
+    (inputValue: string) => {
+      let normalizedValue = DateTimeUtils.normalizeDateValue(
+        inputValue,
+        dateFormat,
+      );
 
-        // カスタムフォーマットの場合はマスキングを適用
-        if (dateFormat !== "YYYY-MM-DD") {
-          if (dateFormat === "MM/DD/YYYY") {
-            normalizedValue = InputMasking.maskMMDDYYYY(inputValue);
-          } else if (dateFormat === "DD/MM/YYYY") {
-            normalizedValue = InputMasking.maskDDMMYYYY(inputValue);
-          }
+      // カスタムフォーマットの場合はマスキングを適用
+      if (dateFormat !== "YYYY-MM-DD") {
+        if (dateFormat === "MM/DD/YYYY") {
+          normalizedValue = InputMasking.maskMMDDYYYY(inputValue);
+        } else if (dateFormat === "DD/MM/YYYY") {
+          normalizedValue = InputMasking.maskDDMMYYYY(inputValue);
         }
-
-        onChange(normalizedValue);
-      },
-      [dateFormat, onChange],
-    );
-
-    // 日付範囲情報の生成
-    const rangeInfo = useMemo(() => {
-      const { minDate, maxDate } = block.validation || {};
-
-      if (minDate && maxDate) {
-        return `日付範囲: ${minDate} ～ ${maxDate}`;
-      } else if (minDate) {
-        return `最小日付: ${minDate}`;
-      } else if (maxDate) {
-        return `最大日付: ${maxDate}`;
       }
+
+      onChange(normalizedValue);
+    },
+    [dateFormat, onChange],
+  );
+
+  // 日付範囲情報の生成
+  const rangeInfo = useMemo(() => {
+    const { minDate, maxDate } = block.validation || {};
+
+    if (minDate && maxDate) {
+      return `日付範囲: ${minDate} ～ ${maxDate}`;
+    } else if (minDate) {
+      return `最小日付: ${minDate}`;
+    } else if (maxDate) {
+      return `最大日付: ${maxDate}`;
+    }
+    return undefined;
+  }, [block.validation]);
+
+  // フォーマット情報の生成
+  const formatInfo = useMemo(() => {
+    if (dateFormat === "YYYY-MM-DD") {
       return undefined;
-    }, [block.validation]);
+    }
+    return `日付形式: ${dateFormat}`;
+  }, [dateFormat]);
 
-    // フォーマット情報の生成
-    const formatInfo = useMemo(() => {
-      if (dateFormat === "YYYY-MM-DD") {
-        return undefined;
-      }
-      return `日付形式: ${dateFormat}`;
-    }, [dateFormat]);
+  return (
+    <BaseQuestionInput
+      id={block.blockId}
+      title={block.title}
+      description={block.description}
+      value={value}
+      onChange={handleChange}
+      type={DateTimeUtils.getDateInputType(dateFormat)}
+      placeholder={DateTimeUtils.getDatePlaceholder(dateFormat)}
+      disabled={disabled}
+      className={className}
+      error={displayError}
+      isValidating={isValidating}
+      formatInfo={formatInfo}
+      rangeInfo={rangeInfo}
+      inputFormat={dateFormat !== "YYYY-MM-DD" ? dateFormat : undefined}
+    />
+  );
+}
 
-    return (
-      <BaseQuestionInput
-        id={block.blockId}
-        title={block.title}
-        description={block.description}
-        value={value}
-        onChange={handleChange}
-        type={DateTimeUtils.getDateInputType(dateFormat)}
-        placeholder={DateTimeUtils.getDatePlaceholder(dateFormat)}
-        disabled={disabled}
-        className={className}
-        error={displayError}
-        isValidating={isValidating}
-        formatInfo={formatInfo}
-        rangeInfo={rangeInfo}
-        inputFormat={dateFormat !== "YYYY-MM-DD" ? dateFormat : undefined}
-      />
-    );
-  },
-);
-
-_DateQuestionComponent.displayName = "DateQuestion";
+DateQuestionBase.displayName = "DateQuestion";
 
 // メモ化の比較関数
 const areDateQuestionPropsEqual = (
@@ -148,6 +146,6 @@ const areDateQuestionPropsEqual = (
 };
 
 export const DateQuestionComponent = memo(
-  _DateQuestionComponent,
+  DateQuestionBase,
   areDateQuestionPropsEqual,
 );

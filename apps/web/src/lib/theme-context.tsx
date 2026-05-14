@@ -9,7 +9,7 @@ import {
 
 type Theme = "light" | "dark" | "system";
 
-export type ThemeContextValue = {
+type ThemeContextValue = {
   theme: Theme;
   resolvedTheme: "light" | "dark";
   setTheme: (theme: Theme) => void;

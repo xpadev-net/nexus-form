@@ -64,7 +64,7 @@ interface DropdownQuestionProps {
  * @param props - コンポーネントのプロパティ
  * @returns JSX要素
  */
-const _DropdownQuestionComponent: FC<DropdownQuestionProps> = ({
+const DropdownQuestionBase: FC<DropdownQuestionProps> = ({
   block,
   value = "",
   onChange,
@@ -218,4 +218,4 @@ const _DropdownQuestionComponent: FC<DropdownQuestionProps> = ({
 };
 
 // memoでパフォーマンス最適化
-export const DropdownQuestionComponent = memo(_DropdownQuestionComponent);
+export const DropdownQuestionComponent = memo(DropdownQuestionBase);
