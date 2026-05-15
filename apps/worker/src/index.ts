@@ -121,7 +121,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error("[worker] Fatal error during startup:", error);
+  captureError(error);
+  await flushSentry();
   process.exit(1);
 });
