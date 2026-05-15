@@ -6,10 +6,13 @@ import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { ZodError } from "zod";
 import { auth } from "./lib/auth";
+import { logError } from "./lib/logger";
 import { authRouteRateLimiter } from "./lib/rate-limit";
-import { initSentry } from "./lib/sentry";
+import { captureError, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
 import { avatarRouter } from "./routes/avatar";
@@ -134,7 +137,24 @@ const app = new Hono()
   .route("/api/sessions", sessionsRouter)
   .route("/api/csrf", csrfRouter)
   .route("/api/avatar", avatarRouter)
-  .route("/api/validation-providers", validationProvidersRouter);
+  .route("/api/validation-providers", validationProvidersRouter)
+  // 未捕捉エラーの集約ハンドラ。レスポンススキーマの `.parse()` が投げる
+  // ZodError などをログ／Sentry に送り、構造化された 500 を返す。
+  .onError((err, c) => {
+    if (err instanceof HTTPException) {
+      return err.getResponse();
+    }
+    const isZodError = err instanceof ZodError;
+    logError(
+      isZodError
+        ? "Response schema validation failed"
+        : "Unhandled error in API route",
+      "api",
+      { error: err, path: c.req.path },
+    );
+    captureError(err);
+    return c.json({ error: "Internal Server Error" }, 500);
+  });
 
 export default app;
 export type AppType = typeof app;

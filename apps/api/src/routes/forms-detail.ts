@@ -23,6 +23,15 @@ import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
+import {
+  FormCreateResponseSchema,
+  FormDetailResponseSchema,
+  FormNullableResponseSchema,
+  FormPreviewResponseSchema,
+  OkResponseSchema,
+  RegeneratePublicUrlResponseSchema,
+  TransferOwnershipResponseSchema,
+} from "../types/domain/form-row";
 
 const updateFormSchema = z.object({
   title: z.string().min(1).max(255).optional(),
@@ -43,7 +52,7 @@ export const formsDetailRouter = createHonoApp()
       .where(eq(form.id, id))
       .limit(1);
     if (!target) return c.json({ error: "Form not found" }, 404);
-    return c.json({ form: target });
+    return c.json(FormDetailResponseSchema.parse({ form: target }));
   })
   .put(
     "/:id",
@@ -58,7 +67,9 @@ export const formsDetailRouter = createHonoApp()
         .from(form)
         .where(eq(form.id, id))
         .limit(1);
-      return c.json({ form: updated ?? null });
+      return c.json(
+        FormNullableResponseSchema.parse({ form: updated ?? null }),
+      );
     },
   )
   .delete("/:id", withDualFormAuth("OWNER"), async (c) => {
@@ -128,7 +139,7 @@ export const formsDetailRouter = createHonoApp()
       await tx.delete(form).where(eq(form.id, id));
     });
 
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post("/:id/publish", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
@@ -145,28 +156,28 @@ export const formsDetailRouter = createHonoApp()
       .update(form)
       .set({ status: "PUBLISHED", publishedAt: new Date() })
       .where(eq(form.id, id));
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post("/:id/unpublish", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
     await db.update(form).set({ status: "UNPUBLISHED" }).where(eq(form.id, id));
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post("/:id/archive", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
     await db.update(form).set({ status: "ARCHIVED" }).where(eq(form.id, id));
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post("/:id/unarchive", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
     await db.update(form).set({ status: "DRAFT" }).where(eq(form.id, id));
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post("/:id/regenerate-public-url", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
     const publicId = randomUUID();
     await db.update(form).set({ publicId }).where(eq(form.id, id));
-    return c.json({ publicId });
+    return c.json(RegeneratePublicUrlResponseSchema.parse({ publicId }));
   })
   .post(
     "/:id/transfer-ownership",
@@ -179,7 +190,12 @@ export const formsDetailRouter = createHonoApp()
         .update(form)
         .set({ creatorId: newOwnerUserId })
         .where(eq(form.id, id));
-      return c.json({ ok: true, ownerUserId: newOwnerUserId });
+      return c.json(
+        TransferOwnershipResponseSchema.parse({
+          ok: true,
+          ownerUserId: newOwnerUserId,
+        }),
+      );
     },
   )
   .post("/:id/duplicate", withDualFormAuth("EDITOR"), async (c) => {
@@ -391,7 +407,7 @@ export const formsDetailRouter = createHonoApp()
       .from(form)
       .where(eq(form.id, newFormId))
       .limit(1);
-    return c.json({ form: created }, 201);
+    return c.json(FormCreateResponseSchema.parse({ form: created }), 201);
   })
   .get("/:id/export", withDualFormAuth("VIEWER"), async (c) => {
     const id = c.req.param("id");
@@ -400,7 +416,7 @@ export const formsDetailRouter = createHonoApp()
       .from(form)
       .where(eq(form.id, id))
       .limit(1);
-    return c.json({ form: target ?? null });
+    return c.json(FormNullableResponseSchema.parse({ form: target ?? null }));
   })
   .get("/:id/preview", withDualFormAuth("VIEWER"), async (c) => {
     const id = c.req.param("id");
@@ -409,5 +425,7 @@ export const formsDetailRouter = createHonoApp()
       .from(form)
       .where(eq(form.id, id))
       .limit(1);
-    return c.json({ form: target ?? null, preview: true });
+    return c.json(
+      FormPreviewResponseSchema.parse({ form: target ?? null, preview: true }),
+    );
   });
