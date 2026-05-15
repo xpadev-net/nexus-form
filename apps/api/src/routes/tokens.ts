@@ -13,6 +13,14 @@ import {
   revokeApiToken,
   validateApiToken,
 } from "../lib/tokens";
+import {
+  MessageResponseSchema,
+  TokenCreateResponseSchema,
+  TokenDetailResponseSchema,
+  TokenListResponseSchema,
+  TokenUpdateResponseSchema,
+  TokenValidateResponseSchema,
+} from "../types/domain/api-token";
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
@@ -84,7 +92,7 @@ export const tokensRouter = createHonoApp()
     ]);
 
     const total = totalRows[0]?.total ?? 0;
-    return c.json({
+    const listResponse = TokenListResponseSchema.parse({
       tokens: tokens.map((token) => ({
         id: token.id,
         name: token.name,
@@ -105,6 +113,7 @@ export const tokensRouter = createHonoApp()
         hasPrev: page > 1,
       },
     });
+    return c.json(listResponse);
   })
   .post("/", zValidator("json", createTokenSchema), async (c) => {
     const user = requireSessionUser(c);
@@ -112,22 +121,20 @@ export const tokensRouter = createHonoApp()
 
     const payload = c.req.valid("json");
     const created = await createApiToken(user.userId, payload);
-    return c.json(
-      {
-        token: {
-          id: created.id,
-          name: created.name,
-          token: created.token,
-          scopes: created.scopes,
-          form_ids: created.formIds,
-          expires_at: created.expiresAt?.toISOString(),
-          created_at: created.createdAt.toISOString(),
-          is_active: true,
-        },
-        message: "API token created successfully",
+    const createResponse = TokenCreateResponseSchema.parse({
+      token: {
+        id: created.id,
+        name: created.name,
+        token: created.token,
+        scopes: created.scopes,
+        form_ids: created.formIds,
+        expires_at: created.expiresAt?.toISOString(),
+        created_at: created.createdAt.toISOString(),
+        is_active: true,
       },
-      201,
-    );
+      message: "API token created successfully",
+    });
+    return c.json(createResponse, 201);
   })
   .get("/:id", async (c) => {
     const user = requireSessionUser(c);
@@ -151,7 +158,7 @@ export const tokensRouter = createHonoApp()
 
     if (!token) return c.json({ error: "Token not found" }, 404);
 
-    return c.json({
+    const detailResponse = TokenDetailResponseSchema.parse({
       token: {
         id: token.id,
         name: token.name,
@@ -163,6 +170,7 @@ export const tokensRouter = createHonoApp()
         is_active: token.isActive,
       },
     });
+    return c.json(detailResponse);
   })
   .patch("/:id", zValidator("json", patchTokenSchema), async (c) => {
     const user = requireSessionUser(c);
@@ -212,7 +220,7 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!updated) return c.json({ error: "Token not found" }, 404);
-    return c.json({
+    const updateResponse = TokenUpdateResponseSchema.parse({
       token: {
         id: updated.id,
         name: updated.name,
@@ -225,6 +233,7 @@ export const tokensRouter = createHonoApp()
       },
       message: "API token updated successfully",
     });
+    return c.json(updateResponse);
   })
   .delete("/:id", async (c) => {
     const user = requireSessionUser(c);
@@ -235,7 +244,11 @@ export const tokensRouter = createHonoApp()
     if (!success) {
       return c.json({ error: "Token not found or already deleted" }, 404);
     }
-    return c.json({ message: "API token deleted successfully" });
+    return c.json(
+      MessageResponseSchema.parse({
+        message: "API token deleted successfully",
+      }),
+    );
   })
   .post("/:id/revoke", async (c) => {
     const user = requireSessionUser(c);
@@ -246,7 +259,11 @@ export const tokensRouter = createHonoApp()
     if (!success) {
       return c.json({ error: "Token not found or already revoked" }, 404);
     }
-    return c.json({ message: "API token revoked successfully" });
+    return c.json(
+      MessageResponseSchema.parse({
+        message: "API token revoked successfully",
+      }),
+    );
   })
   .post("/validate", zValidator("json", validateTokenSchema), async (c) => {
     const { token } = c.req.valid("json");
@@ -264,9 +281,11 @@ export const tokensRouter = createHonoApp()
       );
     }
 
-    return c.json({
-      valid: true,
-      user_id: authContext.user_id,
-      scopes: authContext.scopes,
-    });
+    return c.json(
+      TokenValidateResponseSchema.parse({
+        valid: true,
+        user_id: authContext.user_id,
+        scopes: authContext.scopes,
+      }),
+    );
   });
