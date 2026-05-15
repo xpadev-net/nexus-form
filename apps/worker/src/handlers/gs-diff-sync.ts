@@ -323,6 +323,12 @@ async function fullSync(
     allRows.push(row);
   }
 
+  // 全レスポンスが不正データでスキップされた場合は、シートに何も書かず
+  // 終了する（既存ヘッダーをむやみに上書きしない）。
+  if (allRows.length === 0) {
+    return;
+  }
+
   // ヘッダーを書き込み
   const headerResult = await updateRange(token, {
     spreadsheetId,
