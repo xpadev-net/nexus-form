@@ -332,6 +332,14 @@ export const formsDetailRouter = createHonoApp()
           plateContent: sourceSnapshot.plateContent,
           validationRulesJson: JSON.stringify(remappedRules),
         });
+
+        // 通常の snapshot 作成（snapshot-repository.ts）と同様、フォームの
+        // baseSnapshotVersion をこの snapshot バージョンに合わせ、差分判定が
+        // 「未公開変更なし」と正しく認識できるようにする。
+        await tx
+          .update(form)
+          .set({ baseSnapshotVersion: 1 })
+          .where(eq(form.id, newFormId));
       }
     });
 
