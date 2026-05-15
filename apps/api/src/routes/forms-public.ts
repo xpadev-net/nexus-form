@@ -657,7 +657,7 @@ async function queueExternalValidations(
       try {
         // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
         const queue = getValidationQueue(pair.providerName);
-        await queue.add(
+        const job = await queue.add(
           `validate-${pair.providerName}`,
           {
             responseId,
@@ -669,6 +669,21 @@ async function queueExternalValidations(
           },
           { removeOnComplete: 100, removeOnFail: 100 },
         );
+        // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
+        // トラッキング/キャンセルを可能にする。失敗しても Worker 側が
+        // 処理時に jobId を設定するため致命的ではない。
+        try {
+          await db
+            .update(externalServiceValidationResult)
+            .set({ jobId: job.id ?? null })
+            .where(eq(externalServiceValidationResult.id, pendingRow.id));
+        } catch (updateError) {
+          logError("Failed to persist jobId for validation result", "api", {
+            error: updateError,
+            resultId: pendingRow.id,
+          });
+          captureError(updateError);
+        }
       } catch (error) {
         logError("Failed to enqueue external validation job", "api", {
           error,
