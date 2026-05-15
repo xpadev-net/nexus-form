@@ -70,7 +70,8 @@ export type MessageResponse = z.infer<typeof MessageResponseSchema>;
 /** POST /tokens/validate のレスポンス。 */
 export const TokenValidateResponseSchema = z.object({
   valid: z.literal(true),
-  user_id: z.string(),
+  // share-link トークンなどは user スコープを持たず user_id が null になりうる。
+  user_id: z.string().nullable(),
   scopes: z.array(ApiTokenScopeSchema),
 });
 export type TokenValidateResponse = z.infer<typeof TokenValidateResponseSchema>;
