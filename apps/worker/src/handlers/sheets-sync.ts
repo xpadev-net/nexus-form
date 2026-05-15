@@ -16,6 +16,7 @@ import {
   updateRange,
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
+import { safeParseResponseData } from "../lib/response-data-extractor";
 
 export type SheetsSyncJob = {
   formId: string;
@@ -157,11 +158,20 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   await job.updateProgress(60);
 
-  // 6. レスポンスデータをパース
-  const responseData = JSON.parse(response.responseDataJson) as Record<
-    string,
-    unknown
-  >;
+  // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+  const responseData = safeParseResponseData(
+    response.responseDataJson,
+    response.id,
+  );
+  if (!responseData) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "invalid_data",
+      provider: "google-sheets",
+      jobId: job.id,
+    };
+  }
 
   // 7. ヘッダーと行データを構築
   const { headers, row } = buildRowFromResponse(

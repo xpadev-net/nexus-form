@@ -153,3 +153,37 @@ export function extractReferencedValueFromJson(
 
   return extractReferencedValue(parseResult.data, referencedBlockId);
 }
+
+/**
+ * responseDataJson を安全にパースする。
+ *
+ * パース不能・オブジェクト/配列でない場合は警告ログを出して `null` を返す。
+ * Sheets 同期のバッチ処理で 1 件の不正データが全体を巻き込まないよう、
+ * 呼び出し元は `null` の場合に該当レスポンスをスキップする。
+ *
+ * 既存挙動（`JSON.parse(...) as Record<string, unknown>`）を保つため、
+ * オブジェクトであれば配列も含めてそのまま返す。
+ */
+export function safeParseResponseData(
+  responseDataJson: string,
+  responseId: string,
+): Record<string, unknown> | null {
+  let rawData: unknown;
+  try {
+    rawData = JSON.parse(responseDataJson);
+  } catch (e) {
+    console.warn(
+      `[response-data] Skipping response ${responseId}: invalid JSON -`,
+      e instanceof Error ? e.message : String(e),
+    );
+    return null;
+  }
+
+  if (rawData === null || typeof rawData !== "object") {
+    console.warn(
+      `[response-data] Skipping response ${responseId}: payload is not an object`,
+    );
+    return null;
+  }
+  return rawData as Record<string, unknown>;
+}

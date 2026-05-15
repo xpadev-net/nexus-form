@@ -17,6 +17,7 @@ import {
   updateRange,
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
+import { safeParseResponseData } from "../lib/response-data-extractor";
 
 export type GsDiffSyncJob = {
   formId: string;
@@ -182,10 +183,12 @@ export const handleGsDiffSync = async (job: Job<GsDiffSyncJob>) => {
     const rows: string[][] = [];
 
     for (const response of batch) {
-      const responseData = JSON.parse(response.responseDataJson) as Record<
-        string,
-        unknown
-      >;
+      // 不正データはスキップし、1 件の障害がバッチ全体を巻き込まないようにする
+      const responseData = safeParseResponseData(
+        response.responseDataJson,
+        response.id,
+      );
+      if (!responseData) continue;
 
       const { headers: newHeaders, row } = buildRowFromResponse(
         headers,
@@ -202,6 +205,15 @@ export const handleGsDiffSync = async (job: Job<GsDiffSyncJob>) => {
       }
 
       rows.push(row);
+    }
+
+    // バッチ内の全レスポンスが不正データでスキップされた場合は
+    // 空の append（API エラーの原因）を避けて次バッチへ進む。
+    if (rows.length === 0) {
+      await job.updateProgress(
+        Math.round(((i + batch.length) / missingResponses.length) * 100),
+      );
+      continue;
     }
 
     // ヘッダーが変更された場合は更新
@@ -287,10 +299,12 @@ async function fullSync(
   const allRows: string[][] = [];
 
   for (const response of allResponses) {
-    const responseData = JSON.parse(response.responseDataJson) as Record<
-      string,
-      unknown
-    >;
+    // 不正データはスキップし、1 件の障害がバッチ全体を巻き込まないようにする
+    const responseData = safeParseResponseData(
+      response.responseDataJson,
+      response.id,
+    );
+    if (!responseData) continue;
 
     const { headers: newHeaders, row } = buildRowFromResponse(
       headers,
@@ -307,6 +321,12 @@ async function fullSync(
     }
 
     allRows.push(row);
+  }
+
+  // 全レスポンスが不正データでスキップされた場合は、シートに何も書かず
+  // 終了する（既存ヘッダーをむやみに上書きしない）。
+  if (allRows.length === 0) {
+    return;
   }
 
   // ヘッダーを書き込み
