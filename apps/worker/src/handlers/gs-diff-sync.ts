@@ -207,6 +207,15 @@ export const handleGsDiffSync = async (job: Job<GsDiffSyncJob>) => {
       rows.push(row);
     }
 
+    // バッチ内の全レスポンスが不正データでスキップされた場合は
+    // 空の append（API エラーの原因）を避けて次バッチへ進む。
+    if (rows.length === 0) {
+      await job.updateProgress(
+        Math.round(((i + batch.length) / missingResponses.length) * 100),
+      );
+      continue;
+    }
+
     // ヘッダーが変更された場合は更新
     if (headers.length > headerRow.length || headerRow.length === 0) {
       const headerUpdateResult = await updateRange(token, {
