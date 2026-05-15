@@ -244,32 +244,55 @@ export const formsDetailRouter = createHonoApp()
         .select()
         .from(formValidationRule)
         .where(eq(formValidationRule.formId, id));
-      for (const rule of sourceRules) {
-        const newRuleId = randomUUID();
-        ruleIdMap.set(rule.id, newRuleId);
-        await tx.insert(formValidationRule).values({
-          id: newRuleId,
-          formId: newFormId,
-          name: rule.name,
-          providerName: rule.providerName,
-          ruleType: rule.ruleType,
-          configJson: rule.configJson,
-          orderIndex: rule.orderIndex,
-        });
-
+      if (sourceRules.length > 0) {
+        // 参照ブロックは全 rule 分を 1 クエリで取得し、N+1 を避ける。
         const sourceBlocks = await tx
           .select()
           .from(formValidationRuleBlock)
-          .where(eq(formValidationRuleBlock.ruleId, rule.id));
-        if (sourceBlocks.length > 0) {
-          await tx.insert(formValidationRuleBlock).values(
-            sourceBlocks.map((block) => ({
+          .where(
+            inArray(
+              formValidationRuleBlock.ruleId,
+              sourceRules.map((rule) => rule.id),
+            ),
+          );
+        const blocksByRuleId = new Map<string, typeof sourceBlocks>();
+        for (const block of sourceBlocks) {
+          const list = blocksByRuleId.get(block.ruleId);
+          if (list) {
+            list.push(block);
+          } else {
+            blocksByRuleId.set(block.ruleId, [block]);
+          }
+        }
+
+        const newRuleRows: (typeof formValidationRule.$inferInsert)[] = [];
+        const newBlockRows: (typeof formValidationRuleBlock.$inferInsert)[] =
+          [];
+        for (const rule of sourceRules) {
+          const newRuleId = randomUUID();
+          ruleIdMap.set(rule.id, newRuleId);
+          newRuleRows.push({
+            id: newRuleId,
+            formId: newFormId,
+            name: rule.name,
+            providerName: rule.providerName,
+            ruleType: rule.ruleType,
+            configJson: rule.configJson,
+            orderIndex: rule.orderIndex,
+          });
+          for (const block of blocksByRuleId.get(rule.id) ?? []) {
+            newBlockRows.push({
               id: randomUUID(),
               ruleId: newRuleId,
               referencedBlockId: block.referencedBlockId,
               orderIndex: block.orderIndex,
-            })),
-          );
+            });
+          }
+        }
+
+        await tx.insert(formValidationRule).values(newRuleRows);
+        if (newBlockRows.length > 0) {
+          await tx.insert(formValidationRuleBlock).values(newBlockRows);
         }
       }
 
