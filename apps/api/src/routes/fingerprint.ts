@@ -9,6 +9,16 @@ import { checkFormAccess, withDualAuth } from "../lib/dual-auth";
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
 import { createHonoApp } from "../lib/hono";
+import {
+  AnonymizedFingerprintsResponseSchema,
+  FingerprintDeleteResponseSchema,
+  FingerprintGetResponseSchema,
+  FingerprintManageResponseSchema,
+  FingerprintSaveResponseSchema,
+  RetentionCleanupResponseSchema,
+  RetentionGetResponseSchema,
+  RetentionUpdateResponseSchema,
+} from "../types/domain/fingerprint";
 
 const saveFingerprintSchema = z.object({
   responseId: z.string().min(1),
@@ -98,7 +108,11 @@ export const fingerprintRouter = createHonoApp()
         }
       });
 
-      return c.json({ saved: payload.components.length });
+      return c.json(
+        FingerprintSaveResponseSchema.parse({
+          saved: payload.components.length,
+        }),
+      );
     },
   )
   .get(
@@ -155,7 +169,7 @@ export const fingerprintRouter = createHonoApp()
             : eq(formResponse.formId, formId as string),
         );
 
-      return c.json({ fingerprints: rows });
+      return c.json(FingerprintGetResponseSchema.parse({ fingerprints: rows }));
     },
   )
   .get(
@@ -197,7 +211,7 @@ export const fingerprintRouter = createHonoApp()
         includeStats ?? false,
       );
 
-      return c.json(result);
+      return c.json(AnonymizedFingerprintsResponseSchema.parse(result));
     },
   )
   .get("/manage", withDualAuth(["admin"]), async (c) => {
@@ -213,7 +227,12 @@ export const fingerprintRouter = createHonoApp()
       })
       .from(fingerprintDetail);
 
-    return c.json({ fingerprints: rows, total: rows.length });
+    return c.json(
+      FingerprintManageResponseSchema.parse({
+        fingerprints: rows,
+        total: rows.length,
+      }),
+    );
   })
   .delete(
     "/manage",
@@ -251,7 +270,11 @@ export const fingerprintRouter = createHonoApp()
           ),
         );
 
-      return c.json({ deleted: deleted[0]?.affectedRows ?? 0 });
+      return c.json(
+        FingerprintDeleteResponseSchema.parse({
+          deleted: deleted[0]?.affectedRows ?? 0,
+        }),
+      );
     },
   )
   .get("/retention", withDualAuth(["admin"]), async (c) => {
@@ -260,7 +283,7 @@ export const fingerprintRouter = createHonoApp()
       manager.getConfig(),
       manager.getDataRetentionStats(),
     ]);
-    return c.json({ config, stats });
+    return c.json(RetentionGetResponseSchema.parse({ config, stats }));
   })
   .post(
     "/retention",
@@ -278,11 +301,13 @@ export const fingerprintRouter = createHonoApp()
       }
 
       manager.updateConfig(config);
-      return c.json({ config: manager.getConfig() });
+      return c.json(
+        RetentionUpdateResponseSchema.parse({ config: manager.getConfig() }),
+      );
     },
   )
   .put("/retention", withDualAuth(["admin"]), async (c) => {
     const manager = getDataRetentionManager();
     const result = await manager.cleanupExpiredData();
-    return c.json({ result });
+    return c.json(RetentionCleanupResponseSchema.parse({ result }));
   });
