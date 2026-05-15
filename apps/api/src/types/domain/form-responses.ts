@@ -1,17 +1,9 @@
 import { z } from "zod";
 import { FormResponseRowSchema } from "./form-row";
-import { isoDate } from "./iso-date";
 
 /** GET /:id/responses のリストアイテム（responseDataJson を含まない）。 */
-export const ResponseListItemSchema = z.object({
-  id: z.string(),
-  formId: z.string(),
-  submittedAt: isoDate,
-  updatedAt: isoDate.nullable(),
-  respondentUuid: z.string(),
-  userAgent: z.string().nullable(),
-  sessionId: z.string().nullable(),
-  countryCode: z.string().nullable(),
+export const ResponseListItemSchema = FormResponseRowSchema.omit({
+  responseDataJson: true,
 });
 export type ResponseListItem = z.infer<typeof ResponseListItemSchema>;
 
@@ -74,6 +66,97 @@ export type ResponseAnalyticsResponse = z.infer<
   typeof ResponseAnalyticsResponseSchema
 >;
 
+// ===== ブロック分析サブスキーマ =====
+
+const ChoiceOptionAnalyticsSchema = z.object({
+  label: z.string(),
+  count: z.number().int(),
+  percentage: z.number(),
+});
+
+/** radio / checkbox / dropdown / linear_scale / rating のブロック集計。 */
+const ChoiceAnalyticsSchema = z.object({
+  total_responses: z.number().int(),
+  options: z.array(ChoiceOptionAnalyticsSchema),
+});
+
+/** choice_grid / checkbox_grid のブロック集計。 */
+const GridAnalyticsSchema = z.object({
+  grid_type: z.enum(["choice_grid", "checkbox_grid"]),
+  columns: z.array(z.object({ id: z.string(), label: z.string() })),
+  row_analytics: z.array(
+    z.object({
+      row_label: z.string(),
+      column_counts: z.array(
+        z.object({ column_id: z.string(), count: z.number().int() }),
+      ),
+    }),
+  ),
+  total_responses: z.number().int(),
+  response_rate: z.number(),
+});
+
+/** date ブロックの集計。 */
+const DateAnalyticsSchema = z.object({
+  block_id: z.string(),
+  form_id: z.string(),
+  total_responses: z.number().int(),
+  distribution: z.array(
+    z.object({
+      date: z.string(),
+      count: z.number().int(),
+      percentage: z.number(),
+    }),
+  ),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      date: z.string(),
+    }),
+  ),
+});
+
+/** time ブロックの集計。 */
+const TimeAnalyticsSchema = z.object({
+  block_id: z.string(),
+  form_id: z.string(),
+  total_responses: z.number().int(),
+  distribution: z.array(
+    z.object({
+      time: z.string(),
+      count: z.number().int(),
+      percentage: z.number(),
+    }),
+  ),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      time: z.string(),
+    }),
+  ),
+});
+
+/** short_text / long_text ブロックの集計。 */
+const TextAnalyticsSchema = z.object({
+  total_responses: z.number().int(),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      value: z.string(),
+    }),
+  ),
+  word_count_stats: z
+    .object({
+      average: z.number(),
+      min: z.number().int(),
+      max: z.number().int(),
+    })
+    .optional(),
+});
+
 /** GET /:id/responses/block-analytics の 1 ブロック。 */
 export const BlockAnalyticsResultSchema = z.object({
   block_id: z.string(),
@@ -81,7 +164,13 @@ export const BlockAnalyticsResultSchema = z.object({
   block_title: z.string(),
   total_responses: z.number().int(),
   response_rate: z.number(),
-  analytics_data: z.unknown(),
+  analytics_data: z.union([
+    ChoiceAnalyticsSchema,
+    GridAnalyticsSchema,
+    DateAnalyticsSchema,
+    TimeAnalyticsSchema,
+    TextAnalyticsSchema,
+  ]),
 });
 
 /** GET /:id/responses/block-analytics のレスポンス。 */
