@@ -1,4 +1,4 @@
-import type { Context, Next } from "hono";
+import type { Context, MiddlewareHandler, Next } from "hono";
 import { getRedisClient } from "./cache/redis-client";
 import { logError, logWarn } from "./logger";
 
@@ -16,7 +16,7 @@ interface RateLimitEntry {
 // インメモリフォールバック用のレート制限ストア
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
-function getClientIp(c: Context): string {
+export function getClientIp(c: Context): string {
   const forwarded = c.req.header("x-forwarded-for");
   const cfIp = c.req.header("cf-connecting-ip");
   return cfIp || forwarded?.split(",")[0]?.trim() || "unknown";
@@ -155,8 +155,8 @@ async function checkRateLimitRedis(
  * Redis が利用可能な場合は Redis ベースの固定ウィンドウ方式を使用し、
  * 利用不可の場合はインメモリ Map にフォールバックする
  */
-export function createRateLimit(config: RateLimitConfig) {
-  return async (c: Context, next: Next) => {
+export function createRateLimit(config: RateLimitConfig): MiddlewareHandler {
+  return async (c, next) => {
     const key = config.keyGenerator ? config.keyGenerator(c) : getDefaultKey(c);
 
     // Redis ベースのレート制限を試行

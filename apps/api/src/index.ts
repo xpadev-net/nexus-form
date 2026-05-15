@@ -49,7 +49,10 @@ const VALIDATION_PLUGINS_DIR =
   process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
 
 const getCorsOrigins = (): string[] => {
-  const origins: string[] = ["http://localhost:3000"];
+  const origins: string[] = [];
+  if (process.env.NODE_ENV !== "production") {
+    origins.push("http://localhost:3000");
+  }
   const trustedOrigins = process.env.TRUSTED_ORIGINS;
   if (trustedOrigins) {
     for (const origin of trustedOrigins.split(",")) {
