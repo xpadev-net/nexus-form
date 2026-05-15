@@ -21,6 +21,7 @@ import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 
 const updateFormSchema = z.object({
@@ -235,38 +236,17 @@ export const formsDetailRouter = createHonoApp()
         });
       }
 
-      // 3. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）
-      const [sourceSnapshot] = await tx
-        .select()
-        .from(formSnapshot)
-        .where(
-          and(eq(formSnapshot.formId, id), eq(formSnapshot.isActive, true)),
-        )
-        .orderBy(desc(formSnapshot.version))
-        .limit(1);
-      if (sourceSnapshot) {
-        await tx.insert(formSnapshot).values({
-          id: randomUUID(),
-          formId: newFormId,
-          version: 1,
-          isActive: true,
-          publishedBy: auth.user_id,
-          changeLog: sourceSnapshot.changeLog,
-          title: sourceSnapshot.title,
-          description: sourceSnapshot.description,
-          parentVersion: null,
-          plateContent: sourceSnapshot.plateContent,
-          validationRulesJson: sourceSnapshot.validationRulesJson,
-        });
-      }
-
-      // 4. validation rules と参照ブロック（rule ごとに新 ID を割り当て）
+      // 3. validation rules と参照ブロック（rule ごとに新 ID を割り当て）。
+      //    snapshot の validationRulesJson を remap するため、ここで
+      //    旧 ID → 新 ID のマップを構築しておく。
+      const ruleIdMap = new Map<string, string>();
       const sourceRules = await tx
         .select()
         .from(formValidationRule)
         .where(eq(formValidationRule.formId, id));
       for (const rule of sourceRules) {
         const newRuleId = randomUUID();
+        ruleIdMap.set(rule.id, newRuleId);
         await tx.insert(formValidationRule).values({
           id: newRuleId,
           formId: newFormId,
@@ -291,6 +271,39 @@ export const formsDetailRouter = createHonoApp()
             })),
           );
         }
+      }
+
+      // 4. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）。
+      //    validationRulesJson の各 entry.id は新 rule ID へ remap する。
+      //    対応する rule が無い entry は dangling FK を避けるため除外する。
+      const [sourceSnapshot] = await tx
+        .select()
+        .from(formSnapshot)
+        .where(
+          and(eq(formSnapshot.formId, id), eq(formSnapshot.isActive, true)),
+        )
+        .orderBy(desc(formSnapshot.version))
+        .limit(1);
+      if (sourceSnapshot) {
+        const remappedRules = parseValidationRuleSnapshot(
+          sourceSnapshot.validationRulesJson,
+        ).flatMap((entry) => {
+          const newRuleId = ruleIdMap.get(entry.id);
+          return newRuleId ? [{ ...entry, id: newRuleId }] : [];
+        });
+        await tx.insert(formSnapshot).values({
+          id: randomUUID(),
+          formId: newFormId,
+          version: 1,
+          isActive: true,
+          publishedBy: auth.user_id,
+          changeLog: sourceSnapshot.changeLog,
+          title: sourceSnapshot.title,
+          description: sourceSnapshot.description,
+          parentVersion: null,
+          plateContent: sourceSnapshot.plateContent,
+          validationRulesJson: JSON.stringify(remappedRules),
+        });
       }
     });
 
