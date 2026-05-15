@@ -2,8 +2,18 @@ import { FormStatus } from "@nexus-form/shared";
 import { z } from "zod";
 
 /**
+ * DB の `Date` 列をレスポンス用に ISO-8601 文字列へ変換するスキーマ。
+ *
+ * `.parse()` には Drizzle が返す `Date` を渡し、出力は文字列になる。
+ * これにより `z.infer` 型（=Hono RPC がクライアントへ伝える型）が、
+ * `c.json()` が実際に送出するワイヤ形式（ISO 文字列）と一致する。
+ */
+const isoDate = z.date().transform((d) => d.toISOString());
+
+/**
  * Form テーブル行のレスポンススキーマ。
- * `form.$inferSelect`（Drizzle 推論型）と一致する。
+ * 列構成は `form.$inferSelect`（Drizzle 推論型）と一致し、
+ * 日時列は ISO 文字列として出力する。
  */
 export const FormRowSchema = z.object({
   id: z.string(),
@@ -12,11 +22,11 @@ export const FormRowSchema = z.object({
   description: z.string().nullable(),
   creatorId: z.string(),
   status: FormStatus,
-  publishedAt: z.date().nullable(),
-  unpublishedAt: z.date().nullable(),
+  publishedAt: isoDate.nullable(),
+  unpublishedAt: isoDate.nullable(),
   allowEditResponses: z.boolean(),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
   version: z.number().int(),
   plateContent: z.string().nullable(),
   plateContentVersion: z.number().int(),
@@ -38,14 +48,15 @@ export type FormCreateResponse = z.infer<typeof FormCreateResponseSchema>;
 
 /**
  * FormResponse テーブル行のレスポンススキーマ。
- * `formResponse.$inferSelect`（Drizzle 推論型）と一致する。
+ * 列構成は `formResponse.$inferSelect`（Drizzle 推論型）と一致し、
+ * 日時列は ISO 文字列として出力する。
  */
 export const FormResponseRowSchema = z.object({
   id: z.string(),
   formId: z.string(),
   responseDataJson: z.string(),
-  submittedAt: z.date(),
-  updatedAt: z.date().nullable(),
+  submittedAt: isoDate,
+  updatedAt: isoDate.nullable(),
   respondentUuid: z.string(),
   userAgent: z.string().nullable(),
   sessionId: z.string().nullable(),

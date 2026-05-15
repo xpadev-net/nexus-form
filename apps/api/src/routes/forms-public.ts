@@ -512,27 +512,33 @@ export const formsPublicRouter = createHonoApp()
   // ── GET /shared/:token ───────────────────────────────────────────
   .get("/shared/:token", async (c) => {
     const token = c.req.param("token");
+
+    // validateShareLink のドメインエラーのみ 404 に変換する。
+    // レスポンス整形・schema parse は try の外に置き、ZodError 等が
+    // 404 に誤って握り潰されないようにする。
+    let result: Awaited<ReturnType<typeof validateShareLink>>;
     try {
-      const result = await validateShareLink(token);
-      const { share_link } = result;
-      const sharedResponse = SharedFormResponseSchema.parse({
-        form: result.form,
-        role: result.role,
-        share_link: {
-          id: share_link.id,
-          form_id: share_link.form_id,
-          role: share_link.role,
-          is_active: share_link.is_active,
-          expires_at: share_link.expires_at,
-          created_at: share_link.created_at,
-          updated_at: share_link.updated_at,
-          created_by: share_link.created_by,
-        },
-      });
-      return c.json(sharedResponse);
+      result = await validateShareLink(token);
     } catch {
       return c.json({ error: "Share link not found" }, 404);
     }
+
+    const { share_link } = result;
+    const sharedResponse = SharedFormResponseSchema.parse({
+      form: result.form,
+      role: result.role,
+      share_link: {
+        id: share_link.id,
+        form_id: share_link.form_id,
+        role: share_link.role,
+        is_active: share_link.is_active,
+        expires_at: share_link.expires_at,
+        created_at: share_link.created_at,
+        updated_at: share_link.updated_at,
+        created_by: share_link.created_by,
+      },
+    });
+    return c.json(sharedResponse);
   });
 
 // ── Background Job Helpers ───────────────────────────────────────────
