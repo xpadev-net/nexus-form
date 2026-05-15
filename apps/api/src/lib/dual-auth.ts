@@ -538,20 +538,27 @@ export async function checkFormAccess(
 }
 
 /**
- * 編集権限があるかチェック
+ * 指定フォームへの編集権限があるかチェック
  */
-export function hasEditPermission(context: DualAuthContext): boolean {
-  if (context.auth_type === "session") return true;
-
+export async function hasEditPermission(
+  context: DualAuthContext,
+  formId: string,
+): Promise<boolean> {
   if (context.auth_type === "api_token") {
     const scopes = context.scopes ?? [];
-    return (
-      scopes.includes("write" as TokenScope) ||
-      scopes.includes("admin" as TokenScope)
-    );
+    if (
+      !scopes.includes("write" as TokenScope) &&
+      !scopes.includes("admin" as TokenScope)
+    ) {
+      return false;
+    }
   }
-
-  return false;
+  try {
+    await checkFormPermissionLevel(context, formId, "EDITOR");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -77,13 +77,33 @@ function resolveBucketName(bucket?: string): string {
   );
 }
 
+/**
+ * key が指定ユーザーの名前空間（`tmp/users/{userId}/` または `prod/users/{userId}/`）に
+ * 属するか検証する。パストラバーサル文字が含まれる場合も false を返す。
+ */
+function isKeyOwnedBy(userId: string, key: string): boolean {
+  if (key.includes("..") || key.includes("//")) return false;
+  return (
+    key.startsWith(`tmp/users/${userId}/`) ||
+    key.startsWith(`prod/users/${userId}/`)
+  );
+}
+
 export const s3Router = createHonoApp()
   .get(
     "/presigned-url",
     withDualAuth(),
     zValidator("query", presignedUrlSchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const query = c.req.valid("query");
+
+      if (!isKeyOwnedBy(auth.user_id, query.key)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+
       const bucket = resolveBucketName(query.bucket);
       const expiresIn = query.expiresIn ?? 3600;
       const type = query.type ?? "download";
@@ -103,6 +123,9 @@ export const s3Router = createHonoApp()
     zValidator("json", presignedUploadSchema),
     async (c) => {
       try {
+        const auth = c.get("dualAuthContext");
+        if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
         const { fileName, fileSize, mimeType } = c.req.valid("json");
 
         const fileNameValidation = validateFileName(fileName);
@@ -160,7 +183,7 @@ export const s3Router = createHonoApp()
         const timestamp = Date.now();
         const randomString = randomBytes(12).toString("hex");
         const fileExtension = fileName.split(".").pop()?.toLowerCase() || "";
-        const uniqueKey = `tmp/${timestamp}-${randomString}.${fileExtension}`;
+        const uniqueKey = `tmp/users/${auth.user_id}/${timestamp}-${randomString}.${fileExtension}`;
 
         const presignedUrl = await s3BaseService.generatePresignedPutUrl(
           uniqueKey,
@@ -203,7 +226,15 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60 * 1000, maxRequests: 30 }),
     zValidator("json", uploadCompleteSchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const { key, bucket, size, contentType, etag } = c.req.valid("json");
+
+      if (!isKeyOwnedBy(auth.user_id, key)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+
       const resolvedBucket = resolveBucketName(bucket ?? "tmp");
 
       const exists = await s3Service.objectExists(key, resolvedBucket);
@@ -230,7 +261,17 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60 * 1000, maxRequests: 10 }),
     zValidator("json", processImageSchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const { tmpKey, processingConfig, finalKey } = c.req.valid("json");
+
+      if (!isKeyOwnedBy(auth.user_id, tmpKey)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+      if (finalKey !== undefined && !isKeyOwnedBy(auth.user_id, finalKey)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
 
       const exists = await s3Service.objectExists(tmpKey, S3_BUCKETS.TMP);
       if (!exists) {
@@ -266,7 +307,18 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60_000, maxRequests: 20 }),
     zValidator("json", moveSchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const { tmpKey, finalKey } = c.req.valid("json");
+
+      if (!isKeyOwnedBy(auth.user_id, tmpKey)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+      if (finalKey !== undefined && !isKeyOwnedBy(auth.user_id, finalKey)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+
       const data = await s3Service.moveToProd(tmpKey, finalKey);
       return c.json({ success: true, data });
     },
@@ -277,7 +329,15 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60_000, maxRequests: 20 }),
     zValidator("json", deleteSchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const { key, bucket } = c.req.valid("json");
+
+      if (!isKeyOwnedBy(auth.user_id, key)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+
       await s3Service.deleteObject(key, resolveBucketName(bucket));
       return c.json({ success: true, message: "Object deleted successfully" });
     },
@@ -288,9 +348,24 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60 * 1000, maxRequests: 30 }),
     zValidator("query", listQuerySchema),
     async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
       const query = c.req.valid("query");
       const bucket = resolveBucketName(query.bucket ?? "prod");
-      const prefix = query.prefix ?? "";
+      const bucketAlias = query.bucket === "tmp" ? "tmp" : "prod";
+      const userNamespacePrefix = `${bucketAlias}/users/${auth.user_id}/`;
+
+      let prefix: string;
+      if (query.prefix !== undefined) {
+        if (!isKeyOwnedBy(auth.user_id, query.prefix)) {
+          return c.json({ error: "Access denied to prefix" }, 403);
+        }
+        prefix = query.prefix;
+      } else {
+        prefix = userNamespacePrefix;
+      }
+
       const maxKeys = query.maxKeys ?? 100;
 
       const result = await getS3Client().send(
