@@ -6,6 +6,10 @@
 
 import type { OAuthToken } from "./oauth-token-store";
 
+/** Google Sheets API 呼び出しのタイムアウト (ms)。 */
+const SHEETS_API_TIMEOUT_MS =
+  Number(process.env.GOOGLE_SHEETS_API_TIMEOUT_MS) || 30_000;
+
 export type GoogleApiErrorCode =
   | "rateLimit"
   | "unauthorized"
@@ -40,6 +44,9 @@ async function fetchGoogleSheetsAPI<T = unknown>(opts: {
     method: opts.method,
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    // 接続〜レスポンスボディ受信までを含めてタイムアウトさせ、
+    // Google 無応答時にワーカーが無期限ブロックするのを防ぐ。
+    signal: AbortSignal.timeout(SHEETS_API_TIMEOUT_MS),
   });
   if (!res.ok) {
     const retryAfter = res.headers.get("retry-after");
