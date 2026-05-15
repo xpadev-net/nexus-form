@@ -16,12 +16,12 @@ import {
   formValidationRule,
   formValidationRuleBlock,
 } from "@nexus-form/database/schema";
-import { regenerateBlockIds } from "@nexus-form/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 
 const updateFormSchema = z.object({
@@ -197,20 +197,11 @@ export const formsDetailRouter = createHonoApp()
     const newFormId = randomUUID();
     const publicId = randomUUID();
 
-    // Duplicate Plate content with regenerated blockIds
-    let duplicatedPlateContent: string | null = null;
-    if (sourceForm.plateContent) {
-      try {
-        const parsed: unknown = JSON.parse(sourceForm.plateContent);
-        if (Array.isArray(parsed)) {
-          duplicatedPlateContent = JSON.stringify(regenerateBlockIds(parsed));
-        }
-      } catch {
-        duplicatedPlateContent = null;
-      }
-    }
-
+    // blockId は再生成しない。structureJson / snapshot / validationRuleBlock が
+    // 同じ blockId を参照しているため、再生成すると参照が壊れる。blockId は
+    // フォーム単位でスコープされ、フォーム間で重複しても問題ない。
     await db.transaction(async (tx) => {
+      // 1. フォーム本体
       await tx.insert(form).values({
         id: newFormId,
         creatorId: auth.user_id,
@@ -219,9 +210,180 @@ export const formsDetailRouter = createHonoApp()
         publicId,
         status: "DRAFT",
         allowEditResponses: sourceForm.allowEditResponses,
-        plateContent: duplicatedPlateContent,
+        plateContent: sourceForm.plateContent,
         plateContentVersion: 0,
       });
+
+      // 2. 最新 active な formStructure（version は 1 にリセット）
+      const [sourceStructure] = await tx
+        .select()
+        .from(formStructure)
+        .where(
+          and(eq(formStructure.formId, id), eq(formStructure.isActive, true)),
+        )
+        .orderBy(desc(formStructure.version))
+        .limit(1);
+      if (sourceStructure) {
+        await tx.insert(formStructure).values({
+          id: randomUUID(),
+          formId: newFormId,
+          structureJson: sourceStructure.structureJson,
+          version: 1,
+          createdBy: auth.user_id,
+          isActive: true,
+          changeLog: sourceStructure.changeLog,
+          parentVersion: null,
+        });
+      }
+
+      // 3. validation rules と参照ブロック（rule ごとに新 ID を割り当て）。
+      //    snapshot の validationRulesJson を remap するため、ここで
+      //    旧 ID → 新 ID のマップを構築しておく。
+      const ruleIdMap = new Map<string, string>();
+      const sourceRules = await tx
+        .select()
+        .from(formValidationRule)
+        .where(eq(formValidationRule.formId, id));
+      if (sourceRules.length > 0) {
+        // 参照ブロックは全 rule 分を 1 クエリで取得し、N+1 を避ける。
+        const sourceBlocks = await tx
+          .select()
+          .from(formValidationRuleBlock)
+          .where(
+            inArray(
+              formValidationRuleBlock.ruleId,
+              sourceRules.map((rule) => rule.id),
+            ),
+          );
+        const blocksByRuleId = new Map<string, typeof sourceBlocks>();
+        for (const block of sourceBlocks) {
+          const list = blocksByRuleId.get(block.ruleId);
+          if (list) {
+            list.push(block);
+          } else {
+            blocksByRuleId.set(block.ruleId, [block]);
+          }
+        }
+
+        const newRuleRows: (typeof formValidationRule.$inferInsert)[] = [];
+        const newBlockRows: (typeof formValidationRuleBlock.$inferInsert)[] =
+          [];
+        for (const rule of sourceRules) {
+          const newRuleId = randomUUID();
+          ruleIdMap.set(rule.id, newRuleId);
+          newRuleRows.push({
+            id: newRuleId,
+            formId: newFormId,
+            name: rule.name,
+            providerName: rule.providerName,
+            ruleType: rule.ruleType,
+            configJson: rule.configJson,
+            orderIndex: rule.orderIndex,
+          });
+          for (const block of blocksByRuleId.get(rule.id) ?? []) {
+            newBlockRows.push({
+              id: randomUUID(),
+              ruleId: newRuleId,
+              referencedBlockId: block.referencedBlockId,
+              orderIndex: block.orderIndex,
+            });
+          }
+        }
+
+        await tx.insert(formValidationRule).values(newRuleRows);
+        if (newBlockRows.length > 0) {
+          await tx.insert(formValidationRuleBlock).values(newBlockRows);
+        }
+      }
+
+      // 4. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）。
+      //    validationRulesJson の各 entry.id は新 rule ID へ remap する。
+      //    複製元に active snapshot が無い場合はスキップする。その場合
+      //    複製フォームは /publish 前に明示的な snapshot 作成が必要となる
+      //    （複製元自体が未公開状態なら、これは想定どおりの挙動）。
+      const [sourceSnapshot] = await tx
+        .select()
+        .from(formSnapshot)
+        .where(
+          and(eq(formSnapshot.formId, id), eq(formSnapshot.isActive, true)),
+        )
+        .orderBy(desc(formSnapshot.version))
+        .limit(1);
+      if (sourceSnapshot) {
+        const snapshotEntries = parseValidationRuleSnapshot(
+          sourceSnapshot.validationRulesJson,
+        );
+
+        // snapshot にしか存在しない rule（複製元で公開後に削除された等で
+        // 現在の formValidationRule に無いもの）も新 rule として作成する。
+        // こうしないと remap 先が無く、複製 snapshot の validation が
+        // 複製元より欠落してしまう。
+        const extraRuleRows: (typeof formValidationRule.$inferInsert)[] = [];
+        const extraBlockRows: (typeof formValidationRuleBlock.$inferInsert)[] =
+          [];
+        for (const entry of snapshotEntries) {
+          if (ruleIdMap.has(entry.id)) continue;
+          const newRuleId = randomUUID();
+          ruleIdMap.set(entry.id, newRuleId);
+          extraRuleRows.push({
+            id: newRuleId,
+            formId: newFormId,
+            name: entry.name,
+            providerName: entry.providerName,
+            ruleType: entry.ruleType,
+            configJson: entry.configJson,
+            orderIndex: entry.orderIndex,
+          });
+          // (ruleId, referencedBlockId) は unique のため重複ブロックを除外する。
+          const seenBlockIds = new Set<string>();
+          let blockOrder = 0;
+          for (const blockId of entry.referencedBlockIds) {
+            if (seenBlockIds.has(blockId)) continue;
+            seenBlockIds.add(blockId);
+            extraBlockRows.push({
+              id: randomUUID(),
+              ruleId: newRuleId,
+              referencedBlockId: blockId,
+              orderIndex: blockOrder++,
+            });
+          }
+        }
+        if (extraRuleRows.length > 0) {
+          await tx.insert(formValidationRule).values(extraRuleRows);
+        }
+        if (extraBlockRows.length > 0) {
+          await tx.insert(formValidationRuleBlock).values(extraBlockRows);
+        }
+
+        // 上で全 entry の rule を確保したため、remap 先は必ず存在する。
+        const remappedRules = snapshotEntries.map((entry) => ({
+          ...entry,
+          id: ruleIdMap.get(entry.id) ?? entry.id,
+        }));
+        await tx.insert(formSnapshot).values({
+          id: randomUUID(),
+          formId: newFormId,
+          version: 1,
+          isActive: true,
+          publishedBy: auth.user_id,
+          changeLog: sourceSnapshot.changeLog,
+          // snapshot の title/description は配信時にそのまま使われるため、
+          // 複製元の snapshot 値ではなく複製フォームの値に合わせる。
+          title: `${sourceForm.title} (コピー)`,
+          description: sourceForm.description,
+          parentVersion: null,
+          plateContent: sourceSnapshot.plateContent,
+          validationRulesJson: JSON.stringify(remappedRules),
+        });
+
+        // 通常の snapshot 作成（snapshot-repository.ts）と同様、フォームの
+        // baseSnapshotVersion をこの snapshot バージョンに合わせ、差分判定が
+        // 「未公開変更なし」と正しく認識できるようにする。
+        await tx
+          .update(form)
+          .set({ baseSnapshotVersion: 1 })
+          .where(eq(form.id, newFormId));
+      }
     });
 
     const [created] = await db
