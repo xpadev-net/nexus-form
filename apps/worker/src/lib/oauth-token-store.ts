@@ -161,13 +161,23 @@ export async function refreshTokenIfNeeded(
     return token;
   }
 
-  return withRedisLock(`oauth-refresh:${token.userId}`, async () => {
-    // ロック取得を待つ間に別プロセスがリフレッシュ済みの可能性があるため、
-    // 最新のトークンを再取得してから判定する。
-    const latest = await getOAuthToken(token.userId);
-    if (latest && !isTokenExpired(latest)) {
-      return latest;
-    }
-    return performTokenRefresh(latest ?? token);
-  });
+  return withRedisLock(
+    `oauth-refresh:${token.userId}`,
+    async () => {
+      // ロック取得を待つ間に別プロセスがリフレッシュ済みの可能性があるため、
+      // 最新のトークンを再取得してから判定する。
+      const latest = await getOAuthToken(token.userId);
+      if (latest && !isTokenExpired(latest)) {
+        return latest;
+      }
+      return performTokenRefresh(latest ?? token);
+    },
+    {
+      // クリティカルセクションは fetch(REFRESH_TIMEOUT_MS) + DB 読み書き。
+      // TTL はその最大時間より十分長く、wait はさらに長くして
+      // クラッシュした保持側のロック失効を待てるようにする。
+      ttlMs: REFRESH_TIMEOUT_MS + 20_000,
+      waitTimeoutMs: REFRESH_TIMEOUT_MS + 25_000,
+    },
+  );
 }

@@ -30,9 +30,18 @@ else
 end`;
 
 export interface RedisLockOptions {
-  /** ロックの有効期限 (ms)。保持側がクラッシュしても自動解放される。 */
+  /**
+   * ロックの有効期限 (ms)。保持側がクラッシュしても自動解放される。
+   * クリティカルセクションの最大実行時間より十分長く設定すること。
+   * 短すぎると保持側の処理中に TTL が失効し、別プロセスがロックを
+   * 取得して並行実行してしまう。
+   */
   ttlMs?: number;
-  /** ロック取得を待つ最大時間 (ms)。超過すると例外を投げる。 */
+  /**
+   * ロック取得を待つ最大時間 (ms)。超過すると例外を投げる。
+   * クラッシュした保持側のロックが TTL で解放されるのを待てるよう、
+   * `ttlMs` より長く設定すること。
+   */
   waitTimeoutMs?: number;
   /** 取得失敗時の再試行間隔 (ms)。 */
   retryDelayMs?: number;
@@ -50,8 +59,8 @@ export async function withRedisLock<T>(
   fn: () => Promise<T>,
   options: RedisLockOptions = {},
 ): Promise<T> {
-  const ttlMs = options.ttlMs ?? 15_000;
-  const waitTimeoutMs = options.waitTimeoutMs ?? 20_000;
+  const ttlMs = options.ttlMs ?? 30_000;
+  const waitTimeoutMs = options.waitTimeoutMs ?? 35_000;
   const retryDelayMs = options.retryDelayMs ?? 200;
 
   const redis = getLockClient();
