@@ -22,8 +22,11 @@ const VALIDATION_PLUGINS_DIR =
  * グレースフルシャットダウンの最大待機時間。
  * これを超えてもワーカーが close しない場合は強制終了する。
  */
+const shutdownTimeoutEnv = Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS);
 const SHUTDOWN_TIMEOUT_MS =
-  Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS) || 30_000;
+  Number.isFinite(shutdownTimeoutEnv) && shutdownTimeoutEnv > 0
+    ? shutdownTimeoutEnv
+    : 30_000;
 
 let shuttingDown = false;
 
@@ -55,6 +58,7 @@ async function gracefulShutdown(
     await Promise.all(workers.map((worker) => worker.close()));
     clearTimeout(forceExit);
     console.log("[worker] All workers closed gracefully");
+    await flushSentry();
     process.exit(0);
   } catch (err) {
     clearTimeout(forceExit);
@@ -68,9 +72,12 @@ async function gracefulShutdown(
 async function main() {
   await initSentry();
 
+  // unhandledRejection はプロセス状態が不定になりうるため、Node v15+ の
+  // デフォルト挙動と同様に、Sentry へ送信したうえで終了する。
   process.on("unhandledRejection", (reason) => {
     console.error("[worker] Unhandled promise rejection:", reason);
     captureError(reason);
+    void flushSentry().finally(() => process.exit(1));
   });
   // uncaughtException 後はプロセス状態が不定なため、Sentry へ送信したうえで終了する。
   process.on("uncaughtException", (error) => {
