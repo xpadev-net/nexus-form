@@ -57,7 +57,7 @@ export type ResponseAggregateResponse = z.infer<
 export const ResponseAnalyticsResponseSchema = z.object({
   timeline: z.array(
     z.object({
-      date: z.string(),
+      date: z.iso.date(),
       count: z.number().int(),
     }),
   ),
