@@ -43,6 +43,12 @@ import {
 } from "../lib/sessions/jwt";
 import { consumeTokensOrThrow } from "../lib/telemetry/tokens";
 import type { FormSnapshot } from "../types/domain/form-snapshot";
+import {
+  PublicFormResponseSchema,
+  PublicSubmitResponseSchema,
+  SharedFormResponseSchema,
+  VerifyPasswordResponseSchema,
+} from "../types/domain/public-form";
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
@@ -198,7 +204,7 @@ export const formsPublicRouter = createHonoApp()
       ? getPasswordProtection(parsedStructure)
       : undefined;
 
-    return c.json({
+    const response = PublicFormResponseSchema.parse({
       form: {
         id: target.id,
         publicId: target.publicId,
@@ -213,6 +219,7 @@ export const formsPublicRouter = createHonoApp()
         : null,
       plateContent: activeSnapshot?.plateContent ?? target.plateContent ?? "[]",
     });
+    return c.json(response);
   })
 
   // ── POST /public/:publicId/submit ────────────────────────────────
@@ -423,7 +430,10 @@ export const formsPublicRouter = createHonoApp()
         .where(eq(formResponse.id, responseId))
         .limit(1);
 
-      return c.json({ response: createdResponse ?? null }, 201);
+      const submitResponse = PublicSubmitResponseSchema.parse({
+        response: createdResponse ?? null,
+      });
+      return c.json(submitResponse, 201);
     },
   )
 
@@ -455,15 +465,17 @@ export const formsPublicRouter = createHonoApp()
         .orderBy(desc(formStructure.version))
         .limit(1);
 
-      if (!structure) return c.json({ valid: true });
+      if (!structure)
+        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
 
       const parsed = parseStructure(structure.structureJson);
-      if (!parsed) return c.json({ valid: true });
+      if (!parsed)
+        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
 
       const pwProtection = getPasswordProtection(parsed);
 
       if (!pwProtection?.enabled || !pwProtection.password) {
-        return c.json({ valid: true });
+        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
       }
 
       const valid = await verifyPassword(
@@ -472,7 +484,7 @@ export const formsPublicRouter = createHonoApp()
       );
 
       if (!valid) {
-        return c.json({ valid: false });
+        return c.json(VerifyPasswordResponseSchema.parse({ valid: false }));
       }
 
       // Issue JWT with verifiedForms
@@ -493,7 +505,7 @@ export const formsPublicRouter = createHonoApp()
       });
       setSessionCookie(c, newJwt);
 
-      return c.json({ valid: true });
+      return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
     },
   )
 
@@ -503,7 +515,7 @@ export const formsPublicRouter = createHonoApp()
     try {
       const result = await validateShareLink(token);
       const { share_link } = result;
-      return c.json({
+      const sharedResponse = SharedFormResponseSchema.parse({
         form: result.form,
         role: result.role,
         share_link: {
@@ -517,6 +529,7 @@ export const formsPublicRouter = createHonoApp()
           created_by: share_link.created_by,
         },
       });
+      return c.json(sharedResponse);
     } catch {
       return c.json({ error: "Share link not found" }, 404);
     }

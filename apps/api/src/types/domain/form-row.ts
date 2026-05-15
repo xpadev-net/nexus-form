@@ -35,3 +35,20 @@ export const FormCreateResponseSchema = z.object({
   form: FormRowSchema,
 });
 export type FormCreateResponse = z.infer<typeof FormCreateResponseSchema>;
+
+/**
+ * FormResponse テーブル行のレスポンススキーマ。
+ * `formResponse.$inferSelect`（Drizzle 推論型）と一致する。
+ */
+export const FormResponseRowSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  responseDataJson: z.string(),
+  submittedAt: z.date(),
+  updatedAt: z.date().nullable(),
+  respondentUuid: z.string(),
+  userAgent: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  countryCode: z.string().nullable(),
+});
+export type FormResponseRow = z.infer<typeof FormResponseRowSchema>;
