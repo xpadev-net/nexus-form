@@ -31,6 +31,19 @@ export function captureError(error: unknown): void {
   sentryModule.captureException(error);
 }
 
+/**
+ * バッファされた Sentry イベントの送信完了を待つ。
+ * プロセス終了直前に呼び、イベント取りこぼしを防ぐ。
+ */
+export async function flushSentry(timeoutMs = 2000): Promise<void> {
+  if (!sentryModule) return;
+  try {
+    await sentryModule.flush(timeoutMs);
+  } catch {
+    // flush 失敗は終了処理を妨げない
+  }
+}
+
 export function captureMessage(
   message: string,
   level: "info" | "warning" | "error" = "info",

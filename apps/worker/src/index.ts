@@ -6,7 +6,7 @@ import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleGsDiffSync } from "./handlers/gs-diff-sync";
 import { handleSheetsSync } from "./handlers/sheets-sync";
 import { startQueueMetricsCollection } from "./lib/queue-metrics";
-import { captureError, initSentry } from "./lib/sentry";
+import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { createWorker } from "./lib/worker-factory";
 
 const BUILTIN_PLUGIN_SPECIFIERS = [
@@ -60,6 +60,7 @@ async function gracefulShutdown(
     clearTimeout(forceExit);
     console.error("[worker] Error during graceful shutdown:", err);
     captureError(err);
+    await flushSentry();
     process.exit(1);
   }
 }
@@ -71,9 +72,11 @@ async function main() {
     console.error("[worker] Unhandled promise rejection:", reason);
     captureError(reason);
   });
+  // uncaughtException 後はプロセス状態が不定なため、Sentry へ送信したうえで終了する。
   process.on("uncaughtException", (error) => {
     console.error("[worker] Uncaught exception:", error);
     captureError(error);
+    void flushSentry().finally(() => process.exit(1));
   });
 
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
