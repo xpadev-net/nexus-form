@@ -14,13 +14,14 @@ import {
   validateApiToken,
 } from "../lib/tokens";
 import {
-  MessageResponseSchema,
-  TokenCreateResponseSchema,
-  TokenDetailResponseSchema,
-  TokenListResponseSchema,
-  TokenUpdateResponseSchema,
-  TokenValidateResponseSchema,
-} from "../types/domain/api-token";
+  CreateTokenResponse,
+  DeleteTokenResponse,
+  GetTokenResponse,
+  GetTokensResponse,
+  RevokeTokenResponse,
+  UpdateTokenResponse,
+  ValidateTokenResponse,
+} from "../types/api/auth";
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
@@ -92,7 +93,7 @@ export const tokensRouter = createHonoApp()
     ]);
 
     const total = totalRows[0]?.total ?? 0;
-    const listResponse = TokenListResponseSchema.parse({
+    const listResponse = GetTokensResponse.parse({
       tokens: tokens.map((token) => ({
         id: token.id,
         name: token.name,
@@ -121,7 +122,7 @@ export const tokensRouter = createHonoApp()
 
     const payload = c.req.valid("json");
     const created = await createApiToken(user.userId, payload);
-    const createResponse = TokenCreateResponseSchema.parse({
+    const createResponse = CreateTokenResponse.parse({
       token: {
         id: created.id,
         name: created.name,
@@ -158,7 +159,7 @@ export const tokensRouter = createHonoApp()
 
     if (!token) return c.json({ error: "Token not found" }, 404);
 
-    const detailResponse = TokenDetailResponseSchema.parse({
+    const detailResponse = GetTokenResponse.parse({
       token: {
         id: token.id,
         name: token.name,
@@ -220,7 +221,7 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!updated) return c.json({ error: "Token not found" }, 404);
-    const updateResponse = TokenUpdateResponseSchema.parse({
+    const updateResponse = UpdateTokenResponse.parse({
       token: {
         id: updated.id,
         name: updated.name,
@@ -245,7 +246,7 @@ export const tokensRouter = createHonoApp()
       return c.json({ error: "Token not found or already deleted" }, 404);
     }
     return c.json(
-      MessageResponseSchema.parse({
+      DeleteTokenResponse.parse({
         message: "API token deleted successfully",
       }),
     );
@@ -260,7 +261,7 @@ export const tokensRouter = createHonoApp()
       return c.json({ error: "Token not found or already revoked" }, 404);
     }
     return c.json(
-      MessageResponseSchema.parse({
+      RevokeTokenResponse.parse({
         message: "API token revoked successfully",
       }),
     );
@@ -282,7 +283,7 @@ export const tokensRouter = createHonoApp()
     }
 
     return c.json(
-      TokenValidateResponseSchema.parse({
+      ValidateTokenResponse.parse({
         valid: true,
         user_id: authContext.user_id,
         scopes: authContext.scopes,
