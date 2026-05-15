@@ -7,7 +7,19 @@
 
 import { db, googleOAuthToken } from "@nexus-form/database";
 import { eq } from "drizzle-orm";
+import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import { decryptFromBase64, encryptToBase64 } from "./field-encryption";
+import { withRedisLock } from "./redis-lock";
+
+/** トークンリフレッシュ用 fetch のタイムアウト (ms)。 */
+const REFRESH_TIMEOUT_MS = parsePositiveIntEnv(
+  "GOOGLE_OAUTH_REFRESH_TIMEOUT_MS",
+  10_000,
+  MAX_TIMER_MS,
+);
+
+/** 期限切れ判定の安全マージン (ms)。 */
+const EXPIRY_SKEW_MS = 60_000;
 
 export interface OAuthToken {
   userId: string;
@@ -80,19 +92,19 @@ export async function saveOAuthToken(
 }
 
 /**
- * トークンが期限切れの場合にリフレッシュする
+ * トークンが期限切れ（安全マージン込み）かどうかを判定する。
+ * expiryDate が解釈不能な場合はリフレッシュ対象外とみなす。
  */
-export async function refreshTokenIfNeeded(
-  token: OAuthToken,
-): Promise<OAuthToken> {
-  const skewMs = 60_000; // 1分の安全マージン
-  const now = Date.now();
+function isTokenExpired(token: OAuthToken): boolean {
   const expiryMs = Date.parse(token.expiryDate);
+  if (Number.isNaN(expiryMs)) return false;
+  return expiryMs - EXPIRY_SKEW_MS <= Date.now();
+}
 
-  if (Number.isNaN(expiryMs) || expiryMs - skewMs > now) {
-    return token;
-  }
-
+/**
+ * 実際にトークンリフレッシュ API を呼び、結果を保存して返す。
+ */
+async function performTokenRefresh(token: OAuthToken): Promise<OAuthToken> {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -110,6 +122,9 @@ export async function refreshTokenIfNeeded(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    // 接続〜レスポンスボディ受信までを含めてタイムアウトさせ、
+    // Google 無応答時にワーカーが無期限ブロックするのを防ぐ。
+    signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -135,4 +150,45 @@ export async function refreshTokenIfNeeded(
 
   await saveOAuthToken(token.userId, updated);
   return updated;
+}
+
+/**
+ * トークンが期限切れの場合にリフレッシュする。
+ *
+ * 同一ユーザーのリフレッシュは Redis ロックで直列化し、複数ジョブが
+ * 同時に Google のトークンエンドポイントを叩くのを防ぐ。
+ */
+export async function refreshTokenIfNeeded(
+  token: OAuthToken,
+): Promise<OAuthToken> {
+  if (!isTokenExpired(token)) {
+    return token;
+  }
+
+  return withRedisLock(
+    `oauth-refresh:${token.userId}`,
+    async () => {
+      // ロック取得を待つ間に別プロセスがリフレッシュ済みの可能性があるため、
+      // 最新のトークンを再取得してから判定する。
+      const latest = await getOAuthToken(token.userId);
+      // 待機中にレコードが削除された場合（連携解除など）は、古い token で
+      // リフレッシュして削除済みレコードを復活させないよう明示的に失敗させる。
+      if (!latest) {
+        throw new Error(
+          `OAuth token for user ${token.userId} was removed during refresh`,
+        );
+      }
+      if (!isTokenExpired(latest)) {
+        return latest;
+      }
+      return performTokenRefresh(latest);
+    },
+    {
+      // クリティカルセクションは fetch(REFRESH_TIMEOUT_MS) + DB 読み書き。
+      // TTL はその最大時間より十分長く、wait はさらに長くして
+      // クラッシュした保持側のロック失効を待てるようにする。
+      ttlMs: REFRESH_TIMEOUT_MS + 20_000,
+      waitTimeoutMs: REFRESH_TIMEOUT_MS + 25_000,
+    },
+  );
 }

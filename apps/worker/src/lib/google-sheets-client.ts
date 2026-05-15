@@ -4,7 +4,15 @@
  * apps/api/src/lib/google/google-sheets-client.ts のロジックを再利用
  */
 
+import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import type { OAuthToken } from "./oauth-token-store";
+
+/** Google Sheets API 呼び出しのタイムアウト (ms)。 */
+const SHEETS_API_TIMEOUT_MS = parsePositiveIntEnv(
+  "GOOGLE_SHEETS_API_TIMEOUT_MS",
+  30_000,
+  MAX_TIMER_MS,
+);
 
 export type GoogleApiErrorCode =
   | "rateLimit"
@@ -40,6 +48,9 @@ async function fetchGoogleSheetsAPI<T = unknown>(opts: {
     method: opts.method,
     headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
+    // 接続〜レスポンスボディ受信までを含めてタイムアウトさせ、
+    // Google 無応答時にワーカーが無期限ブロックするのを防ぐ。
+    signal: AbortSignal.timeout(SHEETS_API_TIMEOUT_MS),
   });
   if (!res.ok) {
     const retryAfter = res.headers.get("retry-after");
@@ -58,6 +69,16 @@ async function fetchGoogleSheetsAPI<T = unknown>(opts: {
 function mapApiError(e: unknown): GoogleApiError {
   const message = e instanceof Error ? e.message : String(e);
   const errObj: GoogleApiError = { code: "unknown", message };
+  // AbortSignal.timeout() による中断は DOMException("TimeoutError")、
+  // 手動中断は "AbortError" を投げる。どちらも一過性の障害として
+  // 再試行可能な "internal" に分類する。
+  if (
+    e instanceof Error &&
+    (e.name === "TimeoutError" || e.name === "AbortError")
+  ) {
+    errObj.code = "internal";
+    return errObj;
+  }
   if (e && typeof e === "object") {
     const info = e as { status?: number; retryAfterSeconds?: number };
     if (info.status === 429) {

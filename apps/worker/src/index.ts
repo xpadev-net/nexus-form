@@ -6,6 +6,7 @@ import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleGsDiffSync } from "./handlers/gs-diff-sync";
 import { handleSheetsSync } from "./handlers/sheets-sync";
 import { startQueueMetricsCollection } from "./lib/queue-metrics";
+import { closeLockClient } from "./lib/redis-lock";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { createWorker } from "./lib/worker-factory";
 
@@ -56,6 +57,7 @@ async function gracefulShutdown(
 
   try {
     await Promise.all(workers.map((worker) => worker.close()));
+    await closeLockClient();
     clearTimeout(forceExit);
     console.log("[worker] All workers closed gracefully");
     await flushSentry();
