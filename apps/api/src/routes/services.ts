@@ -10,6 +10,20 @@ import { withDualAuth } from "../lib/dual-auth";
 import { getCacheStats } from "../lib/forms/response-counter";
 import { createHonoApp } from "../lib/hono";
 import { serviceMonitor } from "../lib/services/monitoring";
+import {
+  CacheClearResponseSchema,
+  CacheStatsResponseSchema,
+  DynamicServiceResponseSchema,
+  DynamicServicesResponseSchema,
+  MonitoringAlertsResponseSchema,
+  MonitoringCheckResponseSchema,
+  MonitoringHealthResponseSchema,
+  RedisStatsResponseSchema,
+  ServiceConfigResponseSchema,
+  ServiceMessageResponseSchema,
+  ServiceStatisticsResponseSchema,
+  ServiceTestResponseSchema,
+} from "../types/domain/services";
 
 const serviceSchema = z
   .string()
@@ -89,7 +103,9 @@ export const servicesRouter = createHonoApp()
   .use("/*", withDualAuth(["admin"]))
   .get("/dynamic", async (c) => {
     const services = await getDynamicServices();
-    return c.json({ success: true, data: services });
+    return c.json(
+      DynamicServicesResponseSchema.parse({ success: true, data: services }),
+    );
   })
   .get("/dynamic/:service", async (c) => {
     const parsed = serviceSchema.safeParse(c.req.param("service"));
@@ -100,7 +116,9 @@ export const servicesRouter = createHonoApp()
     const found = services.find((entry) => entry.service === parsed.data);
     if (!found)
       return c.json({ success: false, error: "Service not found" }, 404);
-    return c.json({ success: true, data: found });
+    return c.json(
+      DynamicServiceResponseSchema.parse({ success: true, data: found }),
+    );
   })
   .post(
     "/dynamic/:service/enable",
@@ -139,10 +157,12 @@ export const servicesRouter = createHonoApp()
       }
 
       await setDynamicServices(services);
-      return c.json({
-        success: true,
-        message: `Service ${parsed.data} enabled successfully`,
-      });
+      return c.json(
+        ServiceMessageResponseSchema.parse({
+          success: true,
+          message: `Service ${parsed.data} enabled successfully`,
+        }),
+      );
     },
   )
   .post(
@@ -174,10 +194,12 @@ export const servicesRouter = createHonoApp()
       };
       await setDynamicServices(services);
 
-      return c.json({
-        success: true,
-        message: `Service ${parsed.data} disabled successfully`,
-      });
+      return c.json(
+        ServiceMessageResponseSchema.parse({
+          success: true,
+          message: `Service ${parsed.data} disabled successfully`,
+        }),
+      );
     },
   )
   .post(
@@ -193,31 +215,37 @@ export const servicesRouter = createHonoApp()
       if (!found)
         return c.json({ success: false, error: "Service not found" }, 404);
 
-      return c.json({
-        success: true,
-        data: {
-          service: parsed.data,
-          isValid: true,
-          enabled: found.enabled,
-          testedAt: new Date().toISOString(),
-        },
-      });
+      return c.json(
+        ServiceTestResponseSchema.parse({
+          success: true,
+          data: {
+            service: parsed.data,
+            isValid: true,
+            enabled: found.enabled,
+            testedAt: new Date().toISOString(),
+          },
+        }),
+      );
     },
   )
   .get("/cache", async (c) => {
     const stats = await getCacheStats();
-    return c.json({ success: true, data: stats });
+    return c.json(
+      CacheStatsResponseSchema.parse({ success: true, data: stats }),
+    );
   })
   .get("/cache/stats", async (c) => {
     const redis = getRedisClient();
     if (!redis) {
-      return c.json({
-        success: true,
-        data: {
-          redisAvailable: false,
-          message: "Redis is not configured",
-        },
-      });
+      return c.json(
+        RedisStatsResponseSchema.parse({
+          success: true,
+          data: {
+            redisAvailable: false,
+            message: "Redis is not configured",
+          },
+        }),
+      );
     }
 
     const [ping, info] = await Promise.all([redis.ping(), redis.info()]);
@@ -226,14 +254,16 @@ export const servicesRouter = createHonoApp()
       .filter((line) => line.startsWith("db"))
       .map((line) => line.trim());
 
-    return c.json({
-      success: true,
-      data: {
-        redisAvailable: true,
-        ping,
-        keyspace,
-      },
-    });
+    return c.json(
+      RedisStatsResponseSchema.parse({
+        success: true,
+        data: {
+          redisAvailable: true,
+          ping,
+          keyspace,
+        },
+      }),
+    );
   })
   .post("/cache/clear", zValidator("json", cacheClearSchema), async (c) => {
     const payload = c.req.valid("json");
@@ -245,10 +275,12 @@ export const servicesRouter = createHonoApp()
     if (payload.service) {
       const keys = await redis.keys(`service:cache:${payload.service}:*`);
       const deleted = keys.length > 0 ? await redis.del(...keys) : 0;
-      return c.json({
-        success: true,
-        data: { cleared: true, service: payload.service, deleted },
-      });
+      return c.json(
+        CacheClearResponseSchema.parse({
+          success: true,
+          data: { cleared: true, service: payload.service, deleted },
+        }),
+      );
     }
 
     if (!payload.force) {
@@ -259,25 +291,29 @@ export const servicesRouter = createHonoApp()
     }
 
     await redis.flushdb();
-    return c.json({
-      success: true,
-      data: { cleared: true, allServices: true },
-    });
+    return c.json(
+      CacheClearResponseSchema.parse({
+        success: true,
+        data: { cleared: true, allServices: true },
+      }),
+    );
   })
   .get("/statistics", async (c) => {
     const services = await getDynamicServices();
     const cache = await getCacheStats();
     const enabledCount = services.filter((entry) => entry.enabled).length;
 
-    return c.json({
-      success: true,
-      data: {
-        totalServices: services.length,
-        enabledServices: enabledCount,
-        disabledServices: services.length - enabledCount,
-        cache,
-      },
-    });
+    return c.json(
+      ServiceStatisticsResponseSchema.parse({
+        success: true,
+        data: {
+          totalServices: services.length,
+          enabledServices: enabledCount,
+          disabledServices: services.length - enabledCount,
+          cache,
+        },
+      }),
+    );
   })
   .get("/config", async (c) => {
     const [config, dynamicSettings] = await Promise.all([
@@ -288,25 +324,33 @@ export const servicesRouter = createHonoApp()
         .where(like(systemSetting.key, "services.%")),
     ]);
 
-    return c.json({
-      success: true,
-      data: {
-        config,
-        dynamic: dynamicSettings,
-      },
-    });
+    return c.json(
+      ServiceConfigResponseSchema.parse({
+        success: true,
+        data: {
+          config,
+          dynamic: dynamicSettings,
+        },
+      }),
+    );
   })
   .get("/monitoring/health", async (c) => {
     const health = serviceMonitor.getHealth();
-    return c.json({ success: true, data: health });
+    return c.json(
+      MonitoringHealthResponseSchema.parse({ success: true, data: health }),
+    );
   })
   .post("/monitoring/check", async (c) => {
     const results = await serviceMonitor.checkAllHealth();
-    return c.json({ success: true, data: results });
+    return c.json(
+      MonitoringCheckResponseSchema.parse({ success: true, data: results }),
+    );
   })
   .get("/monitoring/alerts", async (c) => {
     const alerts = serviceMonitor.getAlerts();
-    return c.json({ success: true, data: alerts });
+    return c.json(
+      MonitoringAlertsResponseSchema.parse({ success: true, data: alerts }),
+    );
   })
   .post("/monitoring/alerts/:alertId/resolve", async (c) => {
     const alertId = c.req.param("alertId");
@@ -314,5 +358,10 @@ export const servicesRouter = createHonoApp()
     if (!resolved) {
       return c.json({ success: false, error: "Alert not found" }, 404);
     }
-    return c.json({ success: true, message: "Alert resolved" });
+    return c.json(
+      ServiceMessageResponseSchema.parse({
+        success: true,
+        message: "Alert resolved",
+      }),
+    );
   });
