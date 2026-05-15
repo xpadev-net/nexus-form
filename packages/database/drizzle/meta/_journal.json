@@ -8,6 +8,20 @@
       "when": 1778695623601,
       "tag": "0000_bored_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1778866491571,
+      "tag": "0001_watery_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1778866781480,
+      "tag": "0002_broad_mentallo",
+      "breakpoints": true
     }
   ]
 }

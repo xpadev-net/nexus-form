@@ -98,7 +98,9 @@ export const discordGuild = mysqlTable(
     guildId: varchar("guildId", { length: 255 }).notNull(),
     name: varchar("name", { length: 255 }).notNull(),
     iconUrl: varchar("iconUrl", { length: 512 }),
-    discordUserId: varchar("discordUserId", { length: 255 }).notNull(),
+    discordUserId: varchar("discordUserId", { length: 255 })
+      .notNull()
+      .references(() => discordUser.discordUserId, { onDelete: "cascade" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt")
       .defaultNow()
@@ -124,7 +126,9 @@ export const form = mysqlTable(
     publicId: varchar("publicId", { length: 255 }).notNull().unique(),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
-    creatorId: varchar("creatorId", { length: 255 }).notNull(),
+    creatorId: varchar("creatorId", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     status: formStatusEnum.default("DRAFT").notNull(),
     publishedAt: timestamp("publishedAt"),
     unpublishedAt: timestamp("unpublishedAt"),
@@ -155,7 +159,9 @@ export const formSchedule = mysqlTable(
   "FormSchedule",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     triggerAt: timestamp("triggerAt").notNull(),
     action: formScheduleActionEnum.notNull(),
     snapshotVersion: int("snapshotVersion"),
@@ -184,7 +190,9 @@ export const apiToken = mysqlTable(
   "ApiToken",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    userId: varchar("userId", { length: 255 }),
+    userId: varchar("userId", { length: 191 }).references(() => user.id, {
+      onDelete: "cascade",
+    }),
     name: varchar("name", { length: 255 }).notNull(),
     tokenHash: varchar("tokenHash", { length: 255 }).notNull().unique(),
     lookupHash: varchar("lookupHash", { length: 64 }),
@@ -200,7 +208,10 @@ export const apiToken = mysqlTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
-    shareLinkId: varchar("shareLinkId", { length: 128 }),
+    shareLinkId: varchar("shareLinkId", { length: 128 }).references(
+      () => formShareLink.id,
+      { onDelete: "set null" },
+    ),
   },
   (table) => [
     index("ApiToken_userId_idx").on(table.userId),
@@ -218,8 +229,12 @@ export const formPermission = mysqlTable(
   "FormPermission",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
-    userId: varchar("userId", { length: 255 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    userId: varchar("userId", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     role: formPermissionRoleEnum.notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt")
@@ -243,7 +258,9 @@ export const formShareLink = mysqlTable(
   "FormShareLink",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     token: varchar("token", { length: 255 }).notNull().unique(),
     role: formShareRoleEnum.notNull(),
     isActive: boolean("isActive").default(true).notNull(),
@@ -270,7 +287,9 @@ export const formIntegration = mysqlTable(
   "FormIntegration",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("form_id", { length: 128 }).notNull(),
+    formId: varchar("form_id", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     configJson: text("config_json").notNull(),
     ownerUserId: varchar("owner_user_id", { length: 255 }).notNull(),
     userId: varchar("user_id", { length: 255 }),
@@ -292,7 +311,9 @@ export const formInvitation = mysqlTable(
   "FormInvitation",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     email: varchar("email", { length: 255 }).notNull(),
     role: formPermissionRoleEnum.notNull(),
     token: varchar("token", { length: 255 }).notNull().unique(),
@@ -326,7 +347,9 @@ export const formStructure = mysqlTable(
   "FormStructure",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     structureJson: text("structureJson").notNull(),
     version: int("version").notNull(),
     createdBy: varchar("createdBy", { length: 255 }).notNull(),
@@ -353,15 +376,20 @@ export const formResponse = mysqlTable(
   "FormResponse",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     responseDataJson: text("responseDataJson").notNull(),
     submittedAt: timestamp("submittedAt").defaultNow().notNull(),
-    updatedAt: timestamp("updatedAt"),
+    updatedAt: timestamp("updatedAt").$onUpdate(() => new Date()),
     respondentUuid: varchar("respondentUuid", { length: 255 })
       .notNull()
       .unique(),
     userAgent: varchar("userAgent", { length: 512 }),
-    sessionId: varchar("sessionId", { length: 128 }),
+    sessionId: varchar("sessionId", { length: 128 }).references(
+      () => formSession.id,
+      { onDelete: "set null" },
+    ),
     countryCode: varchar("countryCode", { length: 10 }),
   },
   (table) => [
@@ -386,7 +414,9 @@ export const fingerprintDetail = mysqlTable(
   "FingerprintDetail",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    responseId: varchar("responseId", { length: 128 }).notNull(),
+    responseId: varchar("responseId", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
     fingerprintType: varchar("fingerprintType", { length: 50 }).notNull(),
     componentName: varchar("componentName", { length: 255 }).notNull(),
     componentValue: text("componentValue").notNull(),
@@ -447,7 +477,9 @@ export const formSnapshot = mysqlTable(
   "FormSnapshot",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     version: int("version").notNull(),
     isActive: boolean("isActive").default(true).notNull(),
     publishedBy: varchar("publishedBy", { length: 255 }).notNull(),
@@ -503,7 +535,10 @@ export const googleOAuthToken = mysqlTable(
   "GoogleOAuthToken",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    userId: varchar("userId", { length: 255 }).notNull().unique(),
+    userId: varchar("userId", { length: 191 })
+      .notNull()
+      .unique()
+      .references(() => user.id, { onDelete: "cascade" }),
     provider: varchar("provider", { length: 50 }).default("google").notNull(),
     accessTokenEnc: text("accessTokenEnc").notNull(),
     refreshTokenEnc: text("refreshTokenEnc").notNull(),
@@ -573,7 +608,9 @@ export const formValidationRule = mysqlTable(
   "FormValidationRule",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 200 }).notNull(),
     providerName: varchar("providerName", { length: 64 }).notNull(),
     ruleType: varchar("ruleType", { length: 64 }).notNull(),
@@ -602,7 +639,9 @@ export const formValidationRuleBlock = mysqlTable(
   "FormValidationRuleBlock",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    ruleId: varchar("ruleId", { length: 128 }).notNull(),
+    ruleId: varchar("ruleId", { length: 128 })
+      .notNull()
+      .references(() => formValidationRule.id, { onDelete: "cascade" }),
     referencedBlockId: varchar("referencedBlockId", { length: 128 }).notNull(),
     orderIndex: int("orderIndex").notNull().default(0),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -623,8 +662,12 @@ export const externalServiceValidationResult = mysqlTable(
   "ExternalServiceValidationResult",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    responseId: varchar("responseId", { length: 128 }).notNull(),
-    ruleId: varchar("ruleId", { length: 128 }).notNull(),
+    responseId: varchar("responseId", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
+    ruleId: varchar("ruleId", { length: 128 })
+      .notNull()
+      .references(() => formValidationRule.id, { onDelete: "cascade" }),
     referencedBlockId: varchar("referencedBlockId", { length: 128 }).notNull(),
     service: varchar("service", { length: 64 }),
     status: validationStatusEnum.default("PENDING").notNull(),
@@ -634,7 +677,7 @@ export const externalServiceValidationResult = mysqlTable(
     nextRetryAt: timestamp("nextRetryAt"),
     metadata: json("metadata"),
     errorCode: varchar("errorCode", { length: 255 }),
-    errorMessage: varchar("errorMessage", { length: 1024 }),
+    errorMessage: text("errorMessage"),
     jobId: varchar("jobId", { length: 255 }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt")

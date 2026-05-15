@@ -89,33 +89,8 @@ export async function getValidationContext(
 }
 
 /**
- * (responseId, ruleId, referencedBlockId) で既存結果行を検索する。
- */
-async function findExistingResult(
-  responseId: string,
-  ruleId: string,
-  referencedBlockId: string,
-) {
-  const [existing] = await db
-    .select()
-    .from(externalServiceValidationResult)
-    .where(
-      and(
-        eq(externalServiceValidationResult.responseId, responseId),
-        eq(externalServiceValidationResult.ruleId, ruleId),
-        eq(
-          externalServiceValidationResult.referencedBlockId,
-          referencedBlockId,
-        ),
-      ),
-    )
-    .limit(1);
-
-  return existing;
-}
-
-/**
  * バリデーション結果をDBに書き込み、SSEイベントを publish する。
+ * INSERT ... ON DUPLICATE KEY UPDATE で競合状態を回避する。
  */
 export async function writeValidationResult(params: {
   responseId: string;
@@ -130,38 +105,14 @@ export async function writeValidationResult(params: {
   errorMessage?: string;
   jobId?: string;
 }) {
-  const id = randomUUID();
   const now = new Date();
-
-  const existing = await findExistingResult(
-    params.responseId,
-    params.ruleId,
-    params.referencedBlockId,
-  );
-
   const status: "COMPLETED" | "FAILED" | "MISSING" =
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
 
-  let resultId: string;
-
-  if (existing) {
-    await db
-      .update(externalServiceValidationResult)
-      .set({
-        status,
-        success: params.success,
-        attemptCount: existing.attemptCount + 1,
-        lastAttemptAt: now,
-        metadata: params.metadata ?? null,
-        errorCode: params.errorCode ?? null,
-        errorMessage: params.errorMessage ?? null,
-        jobId: params.jobId ?? null,
-      })
-      .where(eq(externalServiceValidationResult.id, existing.id));
-    resultId = existing.id;
-  } else {
-    await db.insert(externalServiceValidationResult).values({
-      id,
+  await db
+    .insert(externalServiceValidationResult)
+    .values({
+      id: randomUUID(),
       responseId: params.responseId,
       ruleId: params.ruleId,
       referencedBlockId: params.referencedBlockId,
@@ -174,9 +125,41 @@ export async function writeValidationResult(params: {
       errorCode: params.errorCode ?? null,
       errorMessage: params.errorMessage ?? null,
       jobId: params.jobId ?? null,
+    })
+    .onDuplicateKeyUpdate({
+      set: {
+        status,
+        success: params.success,
+        attemptCount: sql`${externalServiceValidationResult.attemptCount} + 1`,
+        lastAttemptAt: now,
+        metadata: params.metadata ?? null,
+        errorCode: params.errorCode ?? null,
+        errorMessage: params.errorMessage ?? null,
+        jobId: params.jobId ?? null,
+      },
     });
-    resultId = id;
+
+  const [row] = await db
+    .select({ id: externalServiceValidationResult.id })
+    .from(externalServiceValidationResult)
+    .where(
+      and(
+        eq(externalServiceValidationResult.responseId, params.responseId),
+        eq(externalServiceValidationResult.ruleId, params.ruleId),
+        eq(
+          externalServiceValidationResult.referencedBlockId,
+          params.referencedBlockId,
+        ),
+      ),
+    )
+    .limit(1);
+
+  if (!row) {
+    throw new Error(
+      `writeValidationResult: upsert succeeded but no row found for responseId=${params.responseId} ruleId=${params.ruleId} referencedBlockId=${params.referencedBlockId}`,
+    );
   }
+  const resultId = row.id;
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
@@ -205,11 +188,20 @@ export async function markValidationProcessing(params: {
   formId: string;
   service: string;
 }) {
-  const existing = await findExistingResult(
-    params.responseId,
-    params.ruleId,
-    params.referencedBlockId,
-  );
+  const [existing] = await db
+    .select({ id: externalServiceValidationResult.id })
+    .from(externalServiceValidationResult)
+    .where(
+      and(
+        eq(externalServiceValidationResult.responseId, params.responseId),
+        eq(externalServiceValidationResult.ruleId, params.ruleId),
+        eq(
+          externalServiceValidationResult.referencedBlockId,
+          params.referencedBlockId,
+        ),
+      ),
+    )
+    .limit(1);
 
   if (!existing) {
     throw new Error(
