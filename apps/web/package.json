@@ -83,7 +83,7 @@
     "@tanstack/react-table": "^8.21.3",
     "@udecode/cn": "^52.0.11",
     "@uiw/react-md-editor": "^4.0.11",
-    "better-auth": "^1.4.7",
+    "better-auth": "^1.6.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
