@@ -11,7 +11,8 @@ export const ApiToken = z.object({
   name: z.string().min(1).max(100),
   token: z.string().optional(), // 作成時のみ返される
   scopes: z.array(TokenScope),
-  form_ids: z.array(z.string()).optional(), // 特定フォームのみアクセス可能な場合
+  // 特定フォームのみアクセス可能な場合。DB の json 列は未設定時 null を返す。
+  form_ids: z.array(z.string()).nullish(),
   expires_at: z.string().optional(), // ISO datetime
   created_at: z.string(), // ISO datetime
   last_used_at: z.string().optional(), // ISO datetime
@@ -58,6 +59,31 @@ export const GetTokensResponse = z.object({
 });
 
 export type GetTokensResponse = z.infer<typeof GetTokensResponse>;
+
+// APIトークン単体取得レスポンス
+export const GetTokenResponse = z.object({
+  token: ApiToken,
+});
+
+export type GetTokenResponse = z.infer<typeof GetTokenResponse>;
+
+// APIトークン更新レスポンス
+export const UpdateTokenResponse = z.object({
+  token: ApiToken,
+  message: z.string(),
+});
+
+export type UpdateTokenResponse = z.infer<typeof UpdateTokenResponse>;
+
+// APIトークン検証レスポンス
+export const ValidateTokenResponse = z.object({
+  valid: z.literal(true),
+  // share-link トークン等は user スコープを持たず user_id が null になりうる。
+  user_id: z.string().nullable(),
+  scopes: z.array(TokenScope),
+});
+
+export type ValidateTokenResponse = z.infer<typeof ValidateTokenResponse>;
 
 // APIトークン削除リクエスト
 export const DeleteTokenRequest = z.object({
