@@ -126,7 +126,7 @@ export const form = mysqlTable(
     publicId: varchar("publicId", { length: 255 }).notNull().unique(),
     title: varchar("title", { length: 255 }).notNull(),
     description: text("description"),
-    creatorId: varchar("creatorId", { length: 255 })
+    creatorId: varchar("creatorId", { length: 191 })
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     status: formStatusEnum.default("DRAFT").notNull(),
@@ -190,7 +190,7 @@ export const apiToken = mysqlTable(
   "ApiToken",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    userId: varchar("userId", { length: 255 }).references(() => user.id, {
+    userId: varchar("userId", { length: 191 }).references(() => user.id, {
       onDelete: "cascade",
     }),
     name: varchar("name", { length: 255 }).notNull(),
@@ -232,7 +232,7 @@ export const formPermission = mysqlTable(
     formId: varchar("formId", { length: 128 })
       .notNull()
       .references(() => form.id, { onDelete: "cascade" }),
-    userId: varchar("userId", { length: 255 })
+    userId: varchar("userId", { length: 191 })
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     role: formPermissionRoleEnum.notNull(),
@@ -535,7 +535,7 @@ export const googleOAuthToken = mysqlTable(
   "GoogleOAuthToken",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    userId: varchar("userId", { length: 255 })
+    userId: varchar("userId", { length: 191 })
       .notNull()
       .unique()
       .references(() => user.id, { onDelete: "cascade" }),

@@ -154,7 +154,12 @@ export async function writeValidationResult(params: {
     )
     .limit(1);
 
-  const resultId = row?.id ?? params.responseId;
+  if (!row) {
+    throw new Error(
+      `writeValidationResult: upsert succeeded but no row found for responseId=${params.responseId} ruleId=${params.ruleId} referencedBlockId=${params.referencedBlockId}`,
+    );
+  }
+  const resultId = row.id;
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",

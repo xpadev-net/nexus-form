@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "7efe1049-2a6d-489e-9107-4937a6f18346",
-  "prevId": "306a13f8-3542-4414-8ab4-25d7a56deda9",
+  "id": "ff8c7e21-2d54-46c1-b980-5aab34e27f94",
+  "prevId": "7efe1049-2a6d-489e-9107-4937a6f18346",
   "tables": {
     "ApiToken": {
       "name": "ApiToken",
@@ -16,7 +16,7 @@
         },
         "userId": {
           "name": "userId",
-          "type": "varchar(255)",
+          "type": "varchar(191)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -785,7 +785,7 @@
         },
         "creatorId": {
           "name": "creatorId",
-          "type": "varchar(255)",
+          "type": "varchar(191)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -1176,7 +1176,7 @@
         },
         "userId": {
           "name": "userId",
-          "type": "varchar(255)",
+          "type": "varchar(191)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2136,7 +2136,7 @@
         },
         "userId": {
           "name": "userId",
-          "type": "varchar(255)",
+          "type": "varchar(191)",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
