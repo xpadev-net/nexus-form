@@ -654,8 +654,9 @@ async function queueExternalValidations(
       // pendingRows は validRows.map で生成しているため index は 1:1 対応する。
       const pendingRow = pendingRows[index];
       if (!pendingRow) return;
-      const queue = getValidationQueue(pair.providerName);
       try {
+        // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
+        const queue = getValidationQueue(pair.providerName);
         await queue.add(
           `validate-${pair.providerName}`,
           {
