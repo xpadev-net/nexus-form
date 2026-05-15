@@ -1,0 +1,21 @@
+ALTER TABLE `ExternalServiceValidationResult` MODIFY COLUMN `errorMessage` text;--> statement-breakpoint
+ALTER TABLE `ApiToken` ADD CONSTRAINT `ApiToken_userId_User_id_fk` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `ApiToken` ADD CONSTRAINT `ApiToken_shareLinkId_FormShareLink_id_fk` FOREIGN KEY (`shareLinkId`) REFERENCES `FormShareLink`(`id`) ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `DiscordGuild` ADD CONSTRAINT `DiscordGuild_discordUserId_DiscordUser_discordUserId_fk` FOREIGN KEY (`discordUserId`) REFERENCES `DiscordUser`(`discordUserId`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `ExternalServiceValidationResult` ADD CONSTRAINT `ExternalServiceValidationResult_responseId_FormResponse_id_fk` FOREIGN KEY (`responseId`) REFERENCES `FormResponse`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `ExternalServiceValidationResult` ADD CONSTRAINT `ExternalServiceValidationResult_ruleId_FormValidationRule_id_fk` FOREIGN KEY (`ruleId`) REFERENCES `FormValidationRule`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FingerprintDetail` ADD CONSTRAINT `FingerprintDetail_responseId_FormResponse_id_fk` FOREIGN KEY (`responseId`) REFERENCES `FormResponse`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `Form` ADD CONSTRAINT `Form_creatorId_User_id_fk` FOREIGN KEY (`creatorId`) REFERENCES `User`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormIntegration` ADD CONSTRAINT `FormIntegration_form_id_Form_id_fk` FOREIGN KEY (`form_id`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormInvitation` ADD CONSTRAINT `FormInvitation_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormPermission` ADD CONSTRAINT `FormPermission_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormPermission` ADD CONSTRAINT `FormPermission_userId_User_id_fk` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormResponse` ADD CONSTRAINT `FormResponse_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormResponse` ADD CONSTRAINT `FormResponse_sessionId_FormSession_id_fk` FOREIGN KEY (`sessionId`) REFERENCES `FormSession`(`id`) ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormSchedule` ADD CONSTRAINT `FormSchedule_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormShareLink` ADD CONSTRAINT `FormShareLink_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormSnapshot` ADD CONSTRAINT `FormSnapshot_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormStructure` ADD CONSTRAINT `FormStructure_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormValidationRule` ADD CONSTRAINT `FormValidationRule_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `FormValidationRuleBlock` ADD CONSTRAINT `FormValidationRuleBlock_ruleId_FormValidationRule_id_fk` FOREIGN KEY (`ruleId`) REFERENCES `FormValidationRule`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `GoogleOAuthToken` ADD CONSTRAINT `GoogleOAuthToken_userId_User_id_fk` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE cascade ON UPDATE no action;
