@@ -21,6 +21,24 @@ function getLockClient(): Redis {
   return lockClient;
 }
 
+/**
+ * ロック用 Redis クライアントを閉じる。
+ * グレースフルシャットダウン時に呼び、接続リークを防ぐ。
+ */
+export async function closeLockClient(): Promise<void> {
+  if (!lockClient) return;
+  try {
+    await lockClient.quit();
+  } catch (error) {
+    console.error(
+      "[redis-lock] failed to close lock client:",
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    lockClient = null;
+  }
+}
+
 /** 自分が取得したロックのみをアトミックに解放する Lua スクリプト。 */
 const RELEASE_SCRIPT = `
 if redis.call("get", KEYS[1]) == ARGV[1] then

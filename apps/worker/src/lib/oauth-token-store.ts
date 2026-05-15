@@ -7,12 +7,15 @@
 
 import { db, googleOAuthToken } from "@nexus-form/database";
 import { eq } from "drizzle-orm";
+import { parsePositiveIntEnv } from "./env";
 import { decryptFromBase64, encryptToBase64 } from "./field-encryption";
 import { withRedisLock } from "./redis-lock";
 
 /** トークンリフレッシュ用 fetch のタイムアウト (ms)。 */
-const REFRESH_TIMEOUT_MS =
-  Number(process.env.GOOGLE_OAUTH_REFRESH_TIMEOUT_MS) || 10_000;
+const REFRESH_TIMEOUT_MS = parsePositiveIntEnv(
+  "GOOGLE_OAUTH_REFRESH_TIMEOUT_MS",
+  10_000,
+);
 
 /** 期限切れ判定の安全マージン (ms)。 */
 const EXPIRY_SKEW_MS = 60_000;
@@ -167,10 +170,17 @@ export async function refreshTokenIfNeeded(
       // ロック取得を待つ間に別プロセスがリフレッシュ済みの可能性があるため、
       // 最新のトークンを再取得してから判定する。
       const latest = await getOAuthToken(token.userId);
-      if (latest && !isTokenExpired(latest)) {
+      // 待機中にレコードが削除された場合（連携解除など）は、古い token で
+      // リフレッシュして削除済みレコードを復活させないよう明示的に失敗させる。
+      if (!latest) {
+        throw new Error(
+          `OAuth token for user ${token.userId} was removed during refresh`,
+        );
+      }
+      if (!isTokenExpired(latest)) {
         return latest;
       }
-      return performTokenRefresh(latest ?? token);
+      return performTokenRefresh(latest);
     },
     {
       // クリティカルセクションは fetch(REFRESH_TIMEOUT_MS) + DB 読み書き。
