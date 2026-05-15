@@ -78,51 +78,43 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../lib/s3/image-service", () => ({
   s3ImageService: {
     deleteObject: vi.fn().mockResolvedValue(undefined),
-    moveToProd: vi
-      .fn()
-      .mockResolvedValue({
-        key: "prod/users/user-a/file.jpg",
-        bucket: "prod-bucket",
-        url: "",
-        size: 0,
-        contentType: "",
-      }),
+    moveToProd: vi.fn().mockResolvedValue({
+      key: "prod/users/user-a/file.jpg",
+      bucket: "prod-bucket",
+      url: "",
+      size: 0,
+      contentType: "",
+    }),
     objectExists: vi.fn().mockResolvedValue(true),
-    processAndMoveImage: vi
-      .fn()
-      .mockResolvedValue({
-        key: "prod/users/user-a/file.jpg",
-        bucket: "prod-bucket",
-        url: "",
-        size: 0,
-        contentType: "",
-      }),
+    processAndMoveImage: vi.fn().mockResolvedValue({
+      key: "prod/users/user-a/file.jpg",
+      bucket: "prod-bucket",
+      url: "",
+      size: 0,
+      contentType: "",
+    }),
   },
 }));
 
 vi.mock("../lib/s3/base-service", () => ({
   s3BaseService: {
     objectExists: vi.fn().mockResolvedValue(true),
-    generateDownloadUrl: vi
-      .fn()
-      .mockResolvedValue({
-        url: "https://s3.example.com/file",
-        key: "prod/users/user-a/file.jpg",
-        expiresIn: 3600,
-      }),
+    generateDownloadUrl: vi.fn().mockResolvedValue({
+      url: "https://s3.example.com/file",
+      key: "prod/users/user-a/file.jpg",
+      expiresIn: 3600,
+    }),
     generatePresignedPutUrl: vi
       .fn()
       .mockResolvedValue("https://s3.example.com/upload"),
     deleteObject: vi.fn().mockResolvedValue(undefined),
-    moveToProd: vi
-      .fn()
-      .mockResolvedValue({
-        key: "prod/users/user-a/file.jpg",
-        bucket: "prod-bucket",
-        url: "",
-        size: 0,
-        contentType: "",
-      }),
+    moveToProd: vi.fn().mockResolvedValue({
+      key: "prod/users/user-a/file.jpg",
+      bucket: "prod-bucket",
+      url: "",
+      size: 0,
+      contentType: "",
+    }),
   },
 }));
 
