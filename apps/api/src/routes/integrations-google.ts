@@ -10,6 +10,11 @@ import {
 } from "../lib/crypto/field-encryption";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import {
+  GoogleCallbackResponseSchema,
+  GoogleSheetsResponseSchema,
+  GoogleSpreadsheetsResponseSchema,
+} from "../types/domain/integrations-google";
 
 const authorizeQuerySchema = z.object({
   state: z.string().optional(),
@@ -285,7 +290,7 @@ export const integrationsGoogleRouter = createHonoApp()
       "Set-Cookie",
       `google_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
     );
-    return c.json({ success: true });
+    return c.json(GoogleCallbackResponseSchema.parse({ success: true }));
   })
   .get("/spreadsheets", async (c) => {
     const user = requireSessionUser(c);
@@ -326,7 +331,12 @@ export const integrationsGoogleRouter = createHonoApp()
       .filter((file) => typeof file.id === "string")
       .map((file) => ({ id: file.id as string, name: file.name }));
 
-    return c.json({ spreadsheets, nextPageToken: raw.nextPageToken });
+    return c.json(
+      GoogleSpreadsheetsResponseSchema.parse({
+        spreadsheets,
+        nextPageToken: raw.nextPageToken,
+      }),
+    );
   })
   .get("/spreadsheets/:id/sheets", async (c) => {
     const user = requireSessionUser(c);
@@ -361,5 +371,5 @@ export const integrationsGoogleRouter = createHonoApp()
       }))
       .filter((entry) => entry.title.length > 0);
 
-    return c.json({ sheets });
+    return c.json(GoogleSheetsResponseSchema.parse({ sheets }));
   });
