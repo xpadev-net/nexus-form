@@ -5,6 +5,10 @@ import { desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import {
+  FormCreateResponseSchema,
+  FormsListResponseSchema,
+} from "../types/domain/form-row";
 
 const createFormSchema = z.object({
   title: z.string().min(1).max(255).default("Untitled Form"),
@@ -21,7 +25,8 @@ export const formsRouter = createHonoApp()
       where: eq(form.creatorId, auth.user_id),
       orderBy: [desc(form.updatedAt)],
     });
-    return c.json({ forms });
+    const response = FormsListResponseSchema.parse({ forms });
+    return c.json(response);
   })
   .post("/", zValidator("json", createFormSchema), async (c) => {
     const auth = c.get("dualAuthContext");
@@ -44,5 +49,6 @@ export const formsRouter = createHonoApp()
       .from(form)
       .where(eq(form.id, id))
       .limit(1);
-    return c.json({ form: created }, 201);
+    const response = FormCreateResponseSchema.parse({ form: created });
+    return c.json(response, 201);
   });
