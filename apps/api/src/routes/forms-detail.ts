@@ -324,8 +324,10 @@ export const formsDetailRouter = createHonoApp()
           isActive: true,
           publishedBy: auth.user_id,
           changeLog: sourceSnapshot.changeLog,
-          title: sourceSnapshot.title,
-          description: sourceSnapshot.description,
+          // snapshot の title/description は配信時にそのまま使われるため、
+          // 複製元の snapshot 値ではなく複製フォームの値に合わせる。
+          title: `${sourceForm.title} (コピー)`,
+          description: sourceForm.description,
           parentVersion: null,
           plateContent: sourceSnapshot.plateContent,
           validationRulesJson: JSON.stringify(remappedRules),
