@@ -16,8 +16,7 @@ import {
   formValidationRule,
   formValidationRuleBlock,
 } from "@nexus-form/database/schema";
-import { regenerateBlockIds } from "@nexus-form/shared";
-import { eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
@@ -197,20 +196,11 @@ export const formsDetailRouter = createHonoApp()
     const newFormId = randomUUID();
     const publicId = randomUUID();
 
-    // Duplicate Plate content with regenerated blockIds
-    let duplicatedPlateContent: string | null = null;
-    if (sourceForm.plateContent) {
-      try {
-        const parsed: unknown = JSON.parse(sourceForm.plateContent);
-        if (Array.isArray(parsed)) {
-          duplicatedPlateContent = JSON.stringify(regenerateBlockIds(parsed));
-        }
-      } catch {
-        duplicatedPlateContent = null;
-      }
-    }
-
+    // blockId は再生成しない。structureJson / snapshot / validationRuleBlock が
+    // 同じ blockId を参照しているため、再生成すると参照が壊れる。blockId は
+    // フォーム単位でスコープされ、フォーム間で重複しても問題ない。
     await db.transaction(async (tx) => {
+      // 1. フォーム本体
       await tx.insert(form).values({
         id: newFormId,
         creatorId: auth.user_id,
@@ -219,9 +209,89 @@ export const formsDetailRouter = createHonoApp()
         publicId,
         status: "DRAFT",
         allowEditResponses: sourceForm.allowEditResponses,
-        plateContent: duplicatedPlateContent,
+        plateContent: sourceForm.plateContent,
         plateContentVersion: 0,
       });
+
+      // 2. 最新 active な formStructure（version は 1 にリセット）
+      const [sourceStructure] = await tx
+        .select()
+        .from(formStructure)
+        .where(
+          and(eq(formStructure.formId, id), eq(formStructure.isActive, true)),
+        )
+        .orderBy(desc(formStructure.version))
+        .limit(1);
+      if (sourceStructure) {
+        await tx.insert(formStructure).values({
+          id: randomUUID(),
+          formId: newFormId,
+          structureJson: sourceStructure.structureJson,
+          version: 1,
+          createdBy: auth.user_id,
+          isActive: true,
+          changeLog: sourceStructure.changeLog,
+          parentVersion: null,
+        });
+      }
+
+      // 3. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）
+      const [sourceSnapshot] = await tx
+        .select()
+        .from(formSnapshot)
+        .where(
+          and(eq(formSnapshot.formId, id), eq(formSnapshot.isActive, true)),
+        )
+        .orderBy(desc(formSnapshot.version))
+        .limit(1);
+      if (sourceSnapshot) {
+        await tx.insert(formSnapshot).values({
+          id: randomUUID(),
+          formId: newFormId,
+          version: 1,
+          isActive: true,
+          publishedBy: auth.user_id,
+          changeLog: sourceSnapshot.changeLog,
+          title: sourceSnapshot.title,
+          description: sourceSnapshot.description,
+          parentVersion: null,
+          plateContent: sourceSnapshot.plateContent,
+          validationRulesJson: sourceSnapshot.validationRulesJson,
+        });
+      }
+
+      // 4. validation rules と参照ブロック（rule ごとに新 ID を割り当て）
+      const sourceRules = await tx
+        .select()
+        .from(formValidationRule)
+        .where(eq(formValidationRule.formId, id));
+      for (const rule of sourceRules) {
+        const newRuleId = randomUUID();
+        await tx.insert(formValidationRule).values({
+          id: newRuleId,
+          formId: newFormId,
+          name: rule.name,
+          providerName: rule.providerName,
+          ruleType: rule.ruleType,
+          configJson: rule.configJson,
+          orderIndex: rule.orderIndex,
+        });
+
+        const sourceBlocks = await tx
+          .select()
+          .from(formValidationRuleBlock)
+          .where(eq(formValidationRuleBlock.ruleId, rule.id));
+        if (sourceBlocks.length > 0) {
+          await tx.insert(formValidationRuleBlock).values(
+            sourceBlocks.map((block) => ({
+              id: randomUUID(),
+              ruleId: newRuleId,
+              referencedBlockId: block.referencedBlockId,
+              orderIndex: block.orderIndex,
+            })),
+          );
+        }
+      }
     });
 
     const [created] = await db
