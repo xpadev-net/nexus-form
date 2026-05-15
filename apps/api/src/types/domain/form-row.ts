@@ -63,3 +63,45 @@ export const FormResponseRowSchema = z.object({
   countryCode: z.string().nullable(),
 });
 export type FormResponseRow = z.infer<typeof FormResponseRowSchema>;
+
+/** GET /:id （フォーム詳細）のレスポンス。 */
+export const FormDetailResponseSchema = z.object({
+  form: FormRowSchema,
+});
+export type FormDetailResponse = z.infer<typeof FormDetailResponseSchema>;
+
+/** PUT /:id・GET /:id/export 等、フォームが存在しないこともあるレスポンス。 */
+export const FormNullableResponseSchema = z.object({
+  form: FormRowSchema.nullable(),
+});
+export type FormNullableResponse = z.infer<typeof FormNullableResponseSchema>;
+
+/** GET /:id/preview のレスポンス。 */
+export const FormPreviewResponseSchema = z.object({
+  form: FormRowSchema.nullable(),
+  preview: z.literal(true),
+});
+export type FormPreviewResponse = z.infer<typeof FormPreviewResponseSchema>;
+
+/** `{ ok: true }` のみを返すミューテーション系レスポンス。 */
+export const OkResponseSchema = z.object({
+  ok: z.literal(true),
+});
+export type OkResponse = z.infer<typeof OkResponseSchema>;
+
+/** POST /:id/regenerate-public-url のレスポンス。 */
+export const RegeneratePublicUrlResponseSchema = z.object({
+  publicId: z.string(),
+});
+export type RegeneratePublicUrlResponse = z.infer<
+  typeof RegeneratePublicUrlResponseSchema
+>;
+
+/** POST /:id/transfer-ownership のレスポンス。 */
+export const TransferOwnershipResponseSchema = z.object({
+  ok: z.literal(true),
+  ownerUserId: z.string(),
+});
+export type TransferOwnershipResponse = z.infer<
+  typeof TransferOwnershipResponseSchema
+>;
