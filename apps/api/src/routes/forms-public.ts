@@ -25,7 +25,7 @@ import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
-import { logWarn } from "../lib/logger";
+import { logError, logWarn } from "../lib/logger";
 import {
   getSheetsSyncQueue,
   getValidationQueue,
@@ -34,6 +34,7 @@ import {
 import { createRateLimit } from "../lib/rate-limit";
 import { verifyHCaptcha } from "../lib/security/hcaptcha";
 import { verifyPassword } from "../lib/security/password";
+import { captureError } from "../lib/sentry";
 import {
   extractJwtFromRequest,
   resolveSessionIdOrCreate,
@@ -399,7 +400,14 @@ export const formsPublicRouter = createHonoApp()
       // 11. Queue external validation jobs (non-blocking)
       if (activeSnapshot) {
         queueExternalValidations(target.id, responseId, activeSnapshot).catch(
-          () => {},
+          (error) => {
+            logError("Failed to queue external validations", "api", {
+              error,
+              responseId,
+              formId: target.id,
+            });
+            captureError(error);
+          },
         );
       }
 
@@ -638,21 +646,69 @@ async function queueExternalValidations(
     await db.insert(externalServiceValidationResult).values(inserts);
   }
 
+  // リトライ経路 (forms-responses.ts) と同様に per-row で enqueue し、
+  // 失敗した行のみ FAILED (ENQUEUE_FAILED) に更新してジョブ無しの
+  // PENDING 行が残留しないようにする。
   await Promise.all(
-    validRows.map((pair) => {
-      const queue = getValidationQueue(pair.providerName);
-      return queue.add(
-        `validate-${pair.providerName}`,
-        {
+    validRows.map(async (pair, index) => {
+      // pendingRows は validRows.map で生成しているため index は 1:1 対応する。
+      const pendingRow = pendingRows[index];
+      if (!pendingRow) return;
+      try {
+        // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
+        const queue = getValidationQueue(pair.providerName);
+        const job = await queue.add(
+          `validate-${pair.providerName}`,
+          {
+            responseId,
+            ruleId: pair.ruleId,
+            referencedBlockId: pair.referencedBlockId,
+            snapshotProviderName: pair.providerName,
+            snapshotRuleType: pair.ruleType,
+            snapshotConfigJson: pair.configJson,
+          },
+          { removeOnComplete: 100, removeOnFail: 100 },
+        );
+        // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
+        // トラッキング/キャンセルを可能にする。失敗しても Worker 側が
+        // 処理時に jobId を設定するため致命的ではない。
+        try {
+          await db
+            .update(externalServiceValidationResult)
+            .set({ jobId: job.id ?? null })
+            .where(eq(externalServiceValidationResult.id, pendingRow.id));
+        } catch (updateError) {
+          logError("Failed to persist jobId for validation result", "api", {
+            error: updateError,
+            resultId: pendingRow.id,
+          });
+          captureError(updateError);
+        }
+      } catch (error) {
+        logError("Failed to enqueue external validation job", "api", {
+          error,
           responseId,
           ruleId: pair.ruleId,
-          referencedBlockId: pair.referencedBlockId,
-          snapshotProviderName: pair.providerName,
-          snapshotRuleType: pair.ruleType,
-          snapshotConfigJson: pair.configJson,
-        },
-        { removeOnComplete: 100, removeOnFail: 100 },
-      );
+        });
+        captureError(error);
+        try {
+          await db
+            .update(externalServiceValidationResult)
+            .set({
+              status: "FAILED",
+              errorCode: "ENQUEUE_FAILED",
+              errorMessage: "Failed to enqueue validation job",
+            })
+            .where(eq(externalServiceValidationResult.id, pendingRow.id));
+        } catch (updateError) {
+          logError(
+            "Failed to mark validation result as FAILED after enqueue error",
+            "api",
+            { error: updateError, resultId: pendingRow.id },
+          );
+          captureError(updateError);
+        }
+      }
     }),
   );
 }
