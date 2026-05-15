@@ -544,6 +544,15 @@ export async function hasEditPermission(
   context: DualAuthContext,
   formId: string,
 ): Promise<boolean> {
+  if (context.auth_type === "api_token") {
+    const scopes = context.scopes ?? [];
+    if (
+      !scopes.includes("write" as TokenScope) &&
+      !scopes.includes("admin" as TokenScope)
+    ) {
+      return false;
+    }
+  }
   try {
     await checkFormPermissionLevel(context, formId, "EDITOR");
     return true;

@@ -358,10 +358,7 @@ export const s3Router = createHonoApp()
 
       let prefix: string;
       if (query.prefix !== undefined) {
-        if (
-          !isKeyOwnedBy(auth.user_id, query.prefix) &&
-          query.prefix !== userNamespacePrefix
-        ) {
+        if (!isKeyOwnedBy(auth.user_id, query.prefix)) {
           return c.json({ error: "Access denied to prefix" }, 403);
         }
         prefix = query.prefix;
