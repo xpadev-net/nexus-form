@@ -69,6 +69,16 @@ async function fetchGoogleSheetsAPI<T = unknown>(opts: {
 function mapApiError(e: unknown): GoogleApiError {
   const message = e instanceof Error ? e.message : String(e);
   const errObj: GoogleApiError = { code: "unknown", message };
+  // AbortSignal.timeout() による中断は DOMException("TimeoutError")、
+  // 手動中断は "AbortError" を投げる。どちらも一過性の障害として
+  // 再試行可能な "internal" に分類する。
+  if (
+    e instanceof Error &&
+    (e.name === "TimeoutError" || e.name === "AbortError")
+  ) {
+    errObj.code = "internal";
+    return errObj;
+  }
   if (e && typeof e === "object") {
     const info = e as { status?: number; retryAfterSeconds?: number };
     if (info.status === 429) {
