@@ -299,6 +299,9 @@ export const formsDetailRouter = createHonoApp()
       // 4. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）。
       //    validationRulesJson の各 entry.id は新 rule ID へ remap する。
       //    対応する rule が無い entry は dangling FK を避けるため除外する。
+      //    複製元に active snapshot が無い場合はスキップする。その場合
+      //    複製フォームは /publish 前に明示的な snapshot 作成が必要となる
+      //    （複製元自体が未公開状態なら、これは想定どおりの挙動）。
       const [sourceSnapshot] = await tx
         .select()
         .from(formSnapshot)
