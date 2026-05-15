@@ -298,7 +298,6 @@ export const formsDetailRouter = createHonoApp()
 
       // 4. 最新 active な formSnapshot（publish に必要・version は 1 にリセット）。
       //    validationRulesJson の各 entry.id は新 rule ID へ remap する。
-      //    対応する rule が無い entry は dangling FK を避けるため除外する。
       //    複製元に active snapshot が無い場合はスキップする。その場合
       //    複製フォームは /publish 前に明示的な snapshot 作成が必要となる
       //    （複製元自体が未公開状態なら、これは想定どおりの挙動）。
@@ -311,12 +310,56 @@ export const formsDetailRouter = createHonoApp()
         .orderBy(desc(formSnapshot.version))
         .limit(1);
       if (sourceSnapshot) {
-        const remappedRules = parseValidationRuleSnapshot(
+        const snapshotEntries = parseValidationRuleSnapshot(
           sourceSnapshot.validationRulesJson,
-        ).flatMap((entry) => {
-          const newRuleId = ruleIdMap.get(entry.id);
-          return newRuleId ? [{ ...entry, id: newRuleId }] : [];
-        });
+        );
+
+        // snapshot にしか存在しない rule（複製元で公開後に削除された等で
+        // 現在の formValidationRule に無いもの）も新 rule として作成する。
+        // こうしないと remap 先が無く、複製 snapshot の validation が
+        // 複製元より欠落してしまう。
+        const extraRuleRows: (typeof formValidationRule.$inferInsert)[] = [];
+        const extraBlockRows: (typeof formValidationRuleBlock.$inferInsert)[] =
+          [];
+        for (const entry of snapshotEntries) {
+          if (ruleIdMap.has(entry.id)) continue;
+          const newRuleId = randomUUID();
+          ruleIdMap.set(entry.id, newRuleId);
+          extraRuleRows.push({
+            id: newRuleId,
+            formId: newFormId,
+            name: entry.name,
+            providerName: entry.providerName,
+            ruleType: entry.ruleType,
+            configJson: entry.configJson,
+            orderIndex: entry.orderIndex,
+          });
+          // (ruleId, referencedBlockId) は unique のため重複ブロックを除外する。
+          const seenBlockIds = new Set<string>();
+          let blockOrder = 0;
+          for (const blockId of entry.referencedBlockIds) {
+            if (seenBlockIds.has(blockId)) continue;
+            seenBlockIds.add(blockId);
+            extraBlockRows.push({
+              id: randomUUID(),
+              ruleId: newRuleId,
+              referencedBlockId: blockId,
+              orderIndex: blockOrder++,
+            });
+          }
+        }
+        if (extraRuleRows.length > 0) {
+          await tx.insert(formValidationRule).values(extraRuleRows);
+        }
+        if (extraBlockRows.length > 0) {
+          await tx.insert(formValidationRuleBlock).values(extraBlockRows);
+        }
+
+        // 上で全 entry の rule を確保したため、remap 先は必ず存在する。
+        const remappedRules = snapshotEntries.map((entry) => ({
+          ...entry,
+          id: ruleIdMap.get(entry.id) ?? entry.id,
+        }));
         await tx.insert(formSnapshot).values({
           id: randomUUID(),
           formId: newFormId,
