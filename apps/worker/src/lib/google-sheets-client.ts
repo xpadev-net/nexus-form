@@ -4,13 +4,14 @@
  * apps/api/src/lib/google/google-sheets-client.ts のロジックを再利用
  */
 
-import { parsePositiveIntEnv } from "./env";
+import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import type { OAuthToken } from "./oauth-token-store";
 
 /** Google Sheets API 呼び出しのタイムアウト (ms)。 */
 const SHEETS_API_TIMEOUT_MS = parsePositiveIntEnv(
   "GOOGLE_SHEETS_API_TIMEOUT_MS",
   30_000,
+  MAX_TIMER_MS,
 );
 
 export type GoogleApiErrorCode =

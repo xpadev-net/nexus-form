@@ -7,7 +7,7 @@
 
 import { db, googleOAuthToken } from "@nexus-form/database";
 import { eq } from "drizzle-orm";
-import { parsePositiveIntEnv } from "./env";
+import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import { decryptFromBase64, encryptToBase64 } from "./field-encryption";
 import { withRedisLock } from "./redis-lock";
 
@@ -15,6 +15,7 @@ import { withRedisLock } from "./redis-lock";
 const REFRESH_TIMEOUT_MS = parsePositiveIntEnv(
   "GOOGLE_OAUTH_REFRESH_TIMEOUT_MS",
   10_000,
+  MAX_TIMER_MS,
 );
 
 /** 期限切れ判定の安全マージン (ms)。 */
