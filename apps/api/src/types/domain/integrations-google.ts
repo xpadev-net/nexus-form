@@ -11,13 +11,13 @@ export type GoogleCallbackResponse = z.infer<
 /** Google スプレッドシート 1 件。 */
 export const SpreadsheetItemSchema = z.object({
   id: z.string(),
-  name: z.string().optional(),
+  name: z.string().nullish(),
 });
 
 /** GET /integrations/google/spreadsheets のレスポンス。 */
 export const GoogleSpreadsheetsResponseSchema = z.object({
   spreadsheets: z.array(SpreadsheetItemSchema),
-  nextPageToken: z.string().optional(),
+  nextPageToken: z.string().nullish(),
 });
 export type GoogleSpreadsheetsResponse = z.infer<
   typeof GoogleSpreadsheetsResponseSchema
@@ -25,7 +25,7 @@ export type GoogleSpreadsheetsResponse = z.infer<
 
 /** Google シート 1 件。 */
 export const SheetItemSchema = z.object({
-  sheetId: z.number().int().optional(),
+  sheetId: z.number().int().nullish(),
   title: z.string(),
 });
 
