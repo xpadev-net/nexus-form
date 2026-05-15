@@ -26,6 +26,19 @@ import { createHonoApp } from "../lib/hono";
 import { logWarn } from "../lib/logger";
 import { getValidationQueue, isValidServiceName } from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
+import {
+  BlockAnalyticsResponseSchema,
+  BulkDeleteResponseSchema,
+  ResponseAggregateResponseSchema,
+  ResponseAnalyticsResponseSchema,
+  ResponseDetailResponseSchema,
+  ResponseIdsResponseSchema,
+  ResponseMutationResponseSchema,
+  ResponseStatusesResponseSchema,
+  ResponsesListResponseSchema,
+  ValidationRetryResponseSchema,
+} from "../types/domain/form-responses";
+import { OkResponseSchema } from "../types/domain/form-row";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -283,12 +296,14 @@ export const formsResponsesRouter = createHonoApp()
           .where(eq(formResponse.formId, formId)),
       ]);
 
-      return c.json({
-        responses,
-        total: totalResult[0]?.count ?? 0,
-        page: query.page,
-        limit: query.limit,
-      });
+      return c.json(
+        ResponsesListResponseSchema.parse({
+          responses,
+          total: totalResult[0]?.count ?? 0,
+          page: query.page,
+          limit: query.limit,
+        }),
+      );
     },
   )
   .post(
@@ -346,7 +361,10 @@ export const formsResponsesRouter = createHonoApp()
         .where(eq(formResponse.id, id))
         .limit(1);
 
-      return c.json({ response: created ?? null }, 201);
+      return c.json(
+        ResponseMutationResponseSchema.parse({ response: created ?? null }),
+        201,
+      );
     },
   )
   .get("/:id/responses/ids", async (c) => {
@@ -356,7 +374,11 @@ export const formsResponsesRouter = createHonoApp()
       .from(formResponse)
       .where(eq(formResponse.formId, formId))
       .orderBy(desc(formResponse.submittedAt));
-    return c.json({ responseIds: rows.map((row) => row.id) });
+    return c.json(
+      ResponseIdsResponseSchema.parse({
+        responseIds: rows.map((row) => row.id),
+      }),
+    );
   })
   .get("/:id/responses/statuses", async (c) => {
     const formId = c.req.param("id");
@@ -372,7 +394,7 @@ export const formsResponsesRouter = createHonoApp()
       )
       .where(eq(formResponse.formId, formId))
       .groupBy(externalServiceValidationResult.status);
-    return c.json({ statuses: rows });
+    return c.json(ResponseStatusesResponseSchema.parse({ statuses: rows }));
   })
   .get("/:id/responses/aggregate", async (c) => {
     const formId = c.req.param("id");
@@ -388,10 +410,12 @@ export const formsResponsesRouter = createHonoApp()
         .from(formResponse)
         .where(eq(formResponse.formId, formId)),
     ]);
-    return c.json({
-      totalResponses: totalRows[0]?.count ?? 0,
-      uniqueRespondents: uniqueRows[0]?.count ?? 0,
-    });
+    return c.json(
+      ResponseAggregateResponseSchema.parse({
+        totalResponses: totalRows[0]?.count ?? 0,
+        uniqueRespondents: uniqueRows[0]?.count ?? 0,
+      }),
+    );
   })
   .get("/:id/responses/analytics", async (c) => {
     const formId = c.req.param("id");
@@ -404,7 +428,7 @@ export const formsResponsesRouter = createHonoApp()
       .where(eq(formResponse.formId, formId))
       .groupBy(sql`date(${formResponse.submittedAt})`)
       .orderBy(sql`date(${formResponse.submittedAt}) desc`);
-    return c.json({ timeline });
+    return c.json(ResponseAnalyticsResponseSchema.parse({ timeline }));
   })
   .get("/:id/responses/block-analytics", async (c) => {
     const formId = c.req.param("id");
@@ -442,7 +466,7 @@ export const formsResponsesRouter = createHonoApp()
     }
 
     const analytics = aggregateAllBlocks(formId, blocks, responses);
-    return c.json({ blocks: analytics });
+    return c.json(BlockAnalyticsResponseSchema.parse({ blocks: analytics }));
   })
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
@@ -457,7 +481,9 @@ export const formsResponsesRouter = createHonoApp()
     if (!response) return c.json({ error: "Response not found" }, 404);
 
     const externalValidations = await getExternalValidationResults(responseId);
-    return c.json({ response, externalValidations });
+    return c.json(
+      ResponseDetailResponseSchema.parse({ response, externalValidations }),
+    );
   })
   .put(
     "/:id/responses/:responseId",
@@ -517,7 +543,9 @@ export const formsResponsesRouter = createHonoApp()
         .where(eq(formResponse.id, responseId))
         .limit(1);
 
-      return c.json({ response: updated ?? null });
+      return c.json(
+        ResponseMutationResponseSchema.parse({ response: updated ?? null }),
+      );
     },
   )
   .delete(
@@ -544,7 +572,7 @@ export const formsResponsesRouter = createHonoApp()
           .where(eq(externalServiceValidationResult.responseId, responseId));
         await tx.delete(formResponse).where(eq(formResponse.id, responseId));
       });
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
   .post(
@@ -624,10 +652,12 @@ export const formsResponsesRouter = createHonoApp()
         }
       }
 
-      return c.json({
-        success: failedCount === 0,
-        data: { deleted: deletedCount, failed: failedCount, results },
-      });
+      return c.json(
+        BulkDeleteResponseSchema.parse({
+          success: failedCount === 0,
+          data: { deleted: deletedCount, failed: failedCount, results },
+        }),
+      );
     },
   )
   .post(
@@ -716,7 +746,12 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
-      return c.json({ enqueued: enqueuedCount, jobIds });
+      return c.json(
+        ValidationRetryResponseSchema.parse({
+          enqueued: enqueuedCount,
+          jobIds,
+        }),
+      );
     },
   )
   .post(
@@ -800,7 +835,12 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
-      return c.json({ enqueued: enqueuedCount, jobIds });
+      return c.json(
+        ValidationRetryResponseSchema.parse({
+          enqueued: enqueuedCount,
+          jobIds,
+        }),
+      );
     },
   )
   .post(
@@ -839,6 +879,6 @@ export const formsResponsesRouter = createHonoApp()
         })
         .where(eq(externalServiceValidationResult.id, validationResultId));
 
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );
