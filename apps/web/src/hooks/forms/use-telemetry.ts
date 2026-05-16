@@ -16,7 +16,7 @@ export const useTelemetryToken = (): TelemetryTokenResult => {
     // callers using refetch() will re-POST by design.
     queryFn: () => rpc(client.api.telemetry.v4.$post()),
     staleTime: Number.POSITIVE_INFINITY,
-    retry: false,
+    retry: 1,
   });
 
   return {

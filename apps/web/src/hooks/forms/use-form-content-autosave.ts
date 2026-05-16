@@ -28,8 +28,6 @@ export interface UseFormContentAutosaveReturn {
   isSaving: boolean;
   draftContent: string | null;
   isMerging: boolean;
-  isMergingRef: React.MutableRefObject<boolean>;
-  isConflictActiveRef: React.MutableRefObject<boolean>;
   conflictState: {
     result: MergePlateResult;
     remoteVersion: number;
@@ -39,14 +37,11 @@ export interface UseFormContentAutosaveReturn {
   setConflictResolutions: React.Dispatch<
     React.SetStateAction<Record<string, "local" | "remote">>
   >;
-  attemptMerge: () => Promise<void>;
   resolveConflicts: (
     resolutions: Record<string, "local" | "remote">,
   ) => Promise<void>;
   dismissConflict: () => void;
   handleContentChange: (value: string) => void;
-  pendingValueRef: React.MutableRefObject<string | null>;
-  lastSavedVersionRef: React.MutableRefObject<number | null>;
 }
 
 export function useFormContentAutosave({
@@ -360,17 +355,12 @@ export function useFormContentAutosave({
     isSaving,
     draftContent,
     isMerging,
-    isMergingRef,
-    isConflictActiveRef,
     conflictState,
     conflictResolutions,
     setConflictResolutions,
-    attemptMerge,
     resolveConflicts,
     dismissConflict,
     handleContentChange,
-    pendingValueRef,
-    lastSavedVersionRef,
     snapshotEditorToDraft: () => setDraftContent(editorValueRef.current),
   };
 }
