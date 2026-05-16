@@ -429,11 +429,15 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it("retryAfterプロパティを持つエラーはリトライさせる", async () => {
-    const rateLimitErr = Object.assign(new Error("GitHub rate limit"), {
-      code: "GITHUB_API_RATE_LIMIT",
-      retryAfter: 60_000,
-    });
+  it("retryAfterプロパティを持つエラーはリトライさせる (コードもステータスも一致しない場合のみhasRetryAfterが有効)", async () => {
+    // Uses an unrecognised code so the test would fail if hasRetryAfter were removed.
+    const rateLimitErr = Object.assign(
+      new Error("Custom provider rate limit"),
+      {
+        code: "CUSTOM_RATE_LIMIT",
+        retryAfter: 60_000,
+      },
+    );
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(rateLimitErr),
     });
@@ -445,7 +449,7 @@ describe("handleGenericValidation", () => {
     });
 
     await expect(handleGenericValidation(job)).rejects.toThrow(
-      "GitHub rate limit",
+      "Custom provider rate limit",
     );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });

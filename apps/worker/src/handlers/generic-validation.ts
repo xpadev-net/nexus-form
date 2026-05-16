@@ -17,6 +17,21 @@ import {
   writeValidationResult,
 } from "../lib/validation-helpers";
 
+const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
+// Include provider-domain codes: validation-provider-github remaps syscall
+// errors to NETWORK_ERROR / TIMEOUT and rate limits to GITHUB_API_RATE_LIMIT
+// before re-throwing, so raw syscall codes never surface on those errors.
+const RETRYABLE_CODES = new Set([
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "NETWORK_ERROR",
+  "TIMEOUT",
+  "GITHUB_API_RATE_LIMIT",
+]);
+
 export type GenericValidationJob = {
   responseId: string;
   ruleId: string;
@@ -176,20 +191,6 @@ export const handleGenericValidation = async (
           : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
-    // Include provider-domain codes: validation-provider-github remaps syscall
-    // errors to NETWORK_ERROR / TIMEOUT and rate limits to GITHUB_API_RATE_LIMIT
-    // before re-throwing, so raw syscall codes never surface on those errors.
-    const RETRYABLE_CODES = new Set([
-      "ECONNREFUSED",
-      "ETIMEDOUT",
-      "ENOTFOUND",
-      "ECONNRESET",
-      "EAI_AGAIN",
-      "NETWORK_ERROR",
-      "TIMEOUT",
-      "GITHUB_API_RATE_LIMIT",
-    ]);
     // Also retry if the provider set a numeric retryAfter on the error object
     // (used by validation-provider-github for rate-limit back-off).
     const hasRetryAfter = typeof errObj?.retryAfter === "number";
