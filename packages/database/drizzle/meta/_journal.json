@@ -22,6 +22,13 @@
       "when": 1778866781480,
       "tag": "0002_broad_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1778955682197,
+      "tag": "0003_flippant_pete_wisdom",
+      "breakpoints": true
     }
   ]
 }
