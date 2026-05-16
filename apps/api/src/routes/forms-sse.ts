@@ -98,18 +98,14 @@ function createSSEStream(c: Context<Env>, channel: string) {
       // クライアント切断時のクリーンアップ + ストリーム待機
       await new Promise<void>((resolve) => {
         stream.onAbort(() => {
-          if (keepalive !== null) clearInterval(keepalive);
           subscriber?.unsubscribe(channel).catch(() => {});
-          subscriber?.quit().catch(() => {});
-          activeConnections--;
           resolve();
         });
       });
-    } catch (err) {
+    } finally {
       if (keepalive !== null) clearInterval(keepalive);
       activeConnections--;
       subscriber?.quit().catch(() => {});
-      throw err;
     }
   });
 }

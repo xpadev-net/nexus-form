@@ -8,7 +8,8 @@ import { createRateLimit } from "../lib/rate-limit";
 import { hashIPAddress } from "../lib/telemetry/tokens";
 
 function getCorsOrigins(): string[] {
-  const origins: string[] = ["http://localhost:3000"];
+  const origins: string[] =
+    process.env.NODE_ENV !== "production" ? ["http://localhost:3000"] : [];
   const trusted = process.env.TRUSTED_ORIGINS;
   if (trusted) {
     for (const origin of trusted.split(",")) {

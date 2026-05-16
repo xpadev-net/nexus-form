@@ -3,19 +3,13 @@ export interface TwitterConfig {
   apiVersion?: string;
   baseUrl?: string;
   timeout?: number;
-  retryAttempts?: number;
-  retryDelay?: number;
 }
 
 export const TWITTER_CONFIG_DEFAULTS = {
   API_VERSION: "2",
   BASE_URL: "https://api.twitter.com",
   TIMEOUT: 30000,
-  RETRY_ATTEMPTS: 3,
-  RETRY_DELAY: 1000,
   MIN_TIMEOUT: 1000,
-  MIN_RETRY_ATTEMPTS: 1,
-  MIN_RETRY_DELAY: 100,
 } as const;
 
 export function getTwitterConfig(): TwitterConfig {
@@ -35,22 +29,6 @@ export function getTwitterConfig(): TwitterConfig {
         10,
       ) || TWITTER_CONFIG_DEFAULTS.TIMEOUT,
     ),
-    retryAttempts: Math.max(
-      TWITTER_CONFIG_DEFAULTS.MIN_RETRY_ATTEMPTS,
-      parseInt(
-        process.env.TWITTER_RETRY_ATTEMPTS ||
-          String(TWITTER_CONFIG_DEFAULTS.RETRY_ATTEMPTS),
-        10,
-      ) || TWITTER_CONFIG_DEFAULTS.RETRY_ATTEMPTS,
-    ),
-    retryDelay: Math.max(
-      TWITTER_CONFIG_DEFAULTS.MIN_RETRY_DELAY,
-      parseInt(
-        process.env.TWITTER_RETRY_DELAY ||
-          String(TWITTER_CONFIG_DEFAULTS.RETRY_DELAY),
-        10,
-      ) || TWITTER_CONFIG_DEFAULTS.RETRY_DELAY,
-    ),
   };
 }
 
@@ -69,9 +47,5 @@ export function validateTwitterConfig(config: TwitterConfig): {
   }
   if (config.timeout !== undefined && config.timeout < 0)
     errors.push("Timeout must be non-negative");
-  if (config.retryAttempts !== undefined && config.retryAttempts < 0)
-    errors.push("Retry attempts must be non-negative");
-  if (config.retryDelay !== undefined && config.retryDelay < 0)
-    errors.push("Retry delay must be non-negative");
   return { isValid: errors.length === 0, errors };
 }

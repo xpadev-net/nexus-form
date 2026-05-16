@@ -10,12 +10,26 @@ import {
   validationProviderResultSchema,
 } from "@nexus-form/integrations";
 import type { Job } from "bullmq";
+import { ZodError } from "zod";
 import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
   writeValidationResult,
 } from "../lib/validation-helpers";
+
+function logZodError(prefix: string, err: unknown): void {
+  if (err instanceof ZodError) {
+    console.error(prefix, {
+      issueCount: err.issues.length,
+      paths: err.issues.map((i) => i.path.join(".")),
+    });
+  } else {
+    console.error(prefix, {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]); // 429 rate-limit; 502/503/504 transient gateway errors
 // NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
@@ -116,6 +130,7 @@ export const handleGenericValidation = async (
   try {
     providerConfig = providerRule.configSchema.parse(sanitizedConfig);
   } catch (zodError) {
+    logZodError("[generic-validation] CONFIG_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -124,10 +139,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "CONFIG_VALIDATION_ERROR",
-      errorMessage:
-        zodError instanceof Error
-          ? zodError.message
-          : "Invalid provider config",
+      errorMessage: "Invalid provider configuration",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Config validation failed" };
@@ -137,6 +149,7 @@ export const handleGenericValidation = async (
   try {
     validatedInput = providerRule.inputSchema.parse(referencedValue);
   } catch (zodError) {
+    logZodError("[generic-validation] INPUT_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -145,8 +158,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "INPUT_VALIDATION_ERROR",
-      errorMessage:
-        zodError instanceof Error ? zodError.message : "Invalid input",
+      errorMessage: "Invalid input format",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Input validation failed" };
@@ -157,6 +169,10 @@ export const handleGenericValidation = async (
       validatedInput = providerRule.normalizeInput(validatedInput);
       validatedInput = providerRule.inputSchema.parse(validatedInput);
     } catch (normalizeError) {
+      logZodError(
+        "[generic-validation] INPUT_VALIDATION_ERROR (normalize)",
+        normalizeError,
+      );
       await writeValidationResult({
         responseId,
         formId,
@@ -165,10 +181,7 @@ export const handleGenericValidation = async (
         service: serviceType,
         success: false,
         errorCode: "INPUT_VALIDATION_ERROR",
-        errorMessage:
-          normalizeError instanceof Error
-            ? normalizeError.message
-            : "Input normalization failed",
+        errorMessage: "Input normalization failed",
         jobId: job.id?.toString(),
       });
       return { ok: false, error: "Input normalization failed" };
@@ -228,6 +241,10 @@ export const handleGenericValidation = async (
 
   const resultParse = validationProviderResultSchema.safeParse(rawResult);
   if (!resultParse.success) {
+    logZodError(
+      "[generic-validation] VALIDATION_RESULT_MALFORMED",
+      resultParse.error,
+    );
     await writeValidationResult({
       responseId,
       formId,
@@ -236,7 +253,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "VALIDATION_RESULT_MALFORMED",
-      errorMessage: `Provider returned malformed result: ${resultParse.error.message}`,
+      errorMessage: "Provider returned invalid result",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Provider returned malformed result" };
