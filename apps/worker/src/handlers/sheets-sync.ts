@@ -133,13 +133,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   return await withRedisLock(
     `sheets-sync:${integrationId}`,
     async () => {
-      // Idempotency check. The key holds "pending" (write in progress) or "done"
-      // (write completed). Any truthy value means skip to avoid duplicates:
-      // - "done": a prior attempt already wrote the row.
-      // - "pending": a concurrent job acquired this lock after TTL expiry and the
-      //   first job is still in its critical section; skip to prevent a race.
       const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
-      if (await getIdempotencyKeyValue(idempotencyKey)) {
+      const keyValue = await getIdempotencyKeyValue(idempotencyKey);
+
+      if (keyValue === "done") {
+        // A prior attempt already wrote the row; skip.
         return {
           ok: true,
           skipped: true,
@@ -147,6 +145,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           provider: "google-sheets",
           jobId: job.id,
         };
+      }
+
+      if (keyValue === "pending") {
+        // The lock TTL expired while another job's critical section is still in
+        // progress.  Throw so BullMQ retries after the 90s "pending" TTL expires.
+        throw new Error(
+          `[sheets-sync] Concurrent write in progress for ${idempotencyKey}; will retry`,
+        );
       }
 
       // 5. ヘッダー行を読み取り
@@ -203,10 +209,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       }
       await job.updateProgress(80);
 
-      // Mark as "pending" BEFORE appendRows so any concurrent job that acquires
-      // the lock after TTL expiry sees the key and skips rather than racing.
+      // Mark as "pending" BEFORE appendRows — fail-closed: if Redis is unavailable
+      // here, throw so the job retries rather than proceeding without the guard.
       // TTL (90 s) slightly exceeds the lock TTL (60 s) so the window is covered.
-      await setIdempotencyKey(idempotencyKey, 90, "pending").catch(() => {});
+      await setIdempotencyKey(idempotencyKey, 90, "pending");
 
       // 9. 行を追記
       const appendResult = await appendRows(token, {

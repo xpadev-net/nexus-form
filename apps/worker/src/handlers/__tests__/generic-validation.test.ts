@@ -454,6 +454,34 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("retryAfter: 0 はリトライしない（ゼロはセンチネル値として扱う）", async () => {
+    const zeroRetryErr = Object.assign(
+      new Error("Rate limit with zero delay"),
+      {
+        code: "CUSTOM_RATE_LIMIT",
+        retryAfter: 0,
+      },
+    );
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(zeroRetryErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+    expect(result).toEqual({
+      ok: false,
+      error: "Rate limit with zero delay",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "VALIDATION_ERROR" }),
+    );
+  });
+
   it("文字列のみのエラーメッセージはリトライしない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(new Error("rate limit exceeded")),
