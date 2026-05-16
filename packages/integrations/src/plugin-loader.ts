@@ -180,10 +180,12 @@ export class PluginLoader {
         );
         plugins.push(outcome.provider);
       } else if (outcome.kind === "skipped") {
-        console.warn(`[PluginLoader] ${outcome.reason} in: ${file}`);
+        console.warn(
+          `[PluginLoader] ${outcome.reason} in: ${file} sha256=${hash}`,
+        );
       } else {
         console.error(
-          `[PluginLoader] Failed to load plugin ${file}: ${outcome.error}`,
+          `[PluginLoader] Failed to load plugin ${file} sha256=${hash}: ${outcome.error}`,
         );
         this.failedPlugins.push({ file, error: outcome.error });
       }
