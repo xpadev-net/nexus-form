@@ -170,11 +170,11 @@ export class PluginLoader {
         continue;
       }
 
+      const hash = await readFile(resolvedPath)
+        .then((buf) => createHash("sha256").update(buf).digest("hex"))
+        .catch(() => "<unreadable>");
       const outcome = await loadPluginFromSpecifier(resolvedPath);
       if (outcome.kind === "ok") {
-        const hash = await readFile(resolvedPath)
-          .then((buf) => createHash("sha256").update(buf).digest("hex"))
-          .catch(() => "<unreadable>");
         console.info(
           `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${hash}`,
         );

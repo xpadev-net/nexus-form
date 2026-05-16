@@ -22,7 +22,7 @@ import { safeParseResponseData } from "../lib/response-data-extractor";
 export type SheetsSyncJob = {
   formId: string;
   integrationId: string;
-  responseId?: string;
+  responseId: string;
 };
 
 const RESPONSE_ID_HEADER = "Response ID";
@@ -88,11 +88,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得
-  if (!responseId) {
-    // responseIdが指定されていない場合は最新のレスポンスを取得
-    throw new Error("responseId is required for sheets sync");
-  }
-
   const [response] = await db
     .select()
     .from(formResponse)
