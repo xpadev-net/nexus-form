@@ -263,7 +263,8 @@ describe("R2-H1: Fingerprint /save is blocked for VIEWER (hasEditPermission)", (
   it("returns false for api_token missing write/admin scope — DB is never consulted", async () => {
     const { db } = await import("@nexus-form/database");
     // Capture baseline before the call so accumulated prior-test counts don't interfere.
-    const dbSelect = (db as { select: ReturnType<typeof vi.fn> }).select;
+    const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+      .select;
     const callsBefore = dbSelect.mock.calls.length;
 
     const { hasEditPermission } = await import("../lib/dual-auth");
@@ -342,8 +343,10 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     });
 
     expect(txSpy).toHaveBeenCalledOnce();
-    // Verify the count check (and FOR UPDATE lock) ran inside the transaction.
-    expect(txSelectSpy).toHaveBeenCalled();
+    // Verify both the FOR UPDATE lock SELECT and the count SELECT ran inside the
+    // transaction. toHaveBeenCalledTimes(2) catches the TOCTOU regression where
+    // only the count check is moved outside — toHaveBeenCalled() would still pass.
+    expect(txSelectSpy).toHaveBeenCalledTimes(2);
     txSpy.mockRestore();
   });
 
