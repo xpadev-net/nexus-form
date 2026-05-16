@@ -14,8 +14,9 @@ import { PlateElement, useElement } from "platejs/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-// Block dangerous URI schemes that execute code. Normalize away whitespace and
-// control characters before checking so "j a v a s c r i p t:" is also caught.
+// Block dangerous URI schemes that execute code. Normalize away invisible
+// control characters (tabs, zero-width spaces, soft hyphens, etc.) before
+// checking so "java​script:" style bypass attempts are also caught.
 const BLOCKED_PROTOCOLS = /^(javascript|vbscript|data):/i;
 
 function sanitizeUrl(url: string | undefined): string | undefined {
