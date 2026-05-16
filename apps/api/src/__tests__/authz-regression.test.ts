@@ -324,7 +324,7 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     txSpy.mockRestore();
   });
 
-  it("formRoleSatisfies: EDITOR satisfies VIEWER but VIEWER does not satisfy EDITOR", async () => {
+  it("formRoleSatisfies: EDITOR satisfies VIEWER requirement (inverse covered by R2-C1/R2-H3)", async () => {
     // R2-H2 fix also gated the submit path at form-level auth.
     // Verify the role hierarchy correctly prevents cross-level access.
     const { db } = await import("@nexus-form/database");
