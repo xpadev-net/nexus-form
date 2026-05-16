@@ -4,7 +4,8 @@
  * ファイルシステムからPluginを読み込む
  */
 
-import { readdir, realpath, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import type { ValidationProvider } from "./plugin-interface";
 
@@ -171,6 +172,12 @@ export class PluginLoader {
 
       const outcome = await loadPluginFromSpecifier(resolvedPath);
       if (outcome.kind === "ok") {
+        const hash = await readFile(resolvedPath)
+          .then((buf) => createHash("sha256").update(buf).digest("hex"))
+          .catch(() => "<unreadable>");
+        console.info(
+          `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${hash}`,
+        );
         plugins.push(outcome.provider);
       } else if (outcome.kind === "skipped") {
         console.warn(`[PluginLoader] ${outcome.reason} in: ${file}`);
