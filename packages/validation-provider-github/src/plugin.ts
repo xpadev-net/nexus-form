@@ -103,11 +103,15 @@ const userExistsRule: ValidationProviderRule = {
       };
 
       if (structured.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
+        // structured.retryAfter is in milliseconds (from getGitHubRateLimitRetryAfter);
+        // ValidationProviderResult.retryAfter expects seconds.
+        const retryAfterMs = structured.retryAfter;
         return {
           isValid: false,
           errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
           errorMessage: "GitHub API rate limit exceeded",
-          retryAfter: structured.retryAfter ?? 60,
+          retryAfter:
+            retryAfterMs != null ? Math.ceil(retryAfterMs / 1000) : 60,
         };
       }
 

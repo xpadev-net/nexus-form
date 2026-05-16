@@ -351,7 +351,7 @@ const guildMemberRule: ValidationProviderRule = {
             isValid: false,
             errorCode: DiscordErrorCode.DISCORD_BOT_NOT_IN_GUILD,
             errorMessage:
-              "検証用Botが指定されたDiscordサーバーに追加されていません",
+              "検証用Botが指定されたDiscordサーバーに追加されていないか、必要な権限がありません",
           };
         }
         if (error.status === 404) {
