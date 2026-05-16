@@ -2,9 +2,14 @@ import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement } from "platejs/react";
 
+interface CalloutTElement extends TElement {
+  variant?: string;
+  icon?: string;
+}
+
 export const CalloutElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<CalloutTElement>();
 
     const variantStyles: Record<string, string> = {
       info: "border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/50",
@@ -17,9 +22,8 @@ export const CalloutElement = withRef<typeof PlateElement>(
       default: "border-border bg-muted/50",
     };
 
-    const elementRecord = element as unknown as Record<string, string>;
-    const variant = elementRecord.variant ?? "default";
-    const icon = elementRecord.icon;
+    const variant = element.variant ?? "default";
+    const icon = element.icon;
 
     return (
       <PlateElement

@@ -9,22 +9,6 @@ import { Button } from "@/components/ui/button";
 import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
 
-interface ResponseItem {
-  id: string;
-  submittedAt: string;
-  updatedAt: string | null;
-  respondentUuid?: string | null;
-  countryCode?: string | null;
-  [key: string]: unknown;
-}
-
-interface ResponsesData {
-  responses: ResponseItem[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
 type ViewMode = "list" | "analytics";
 
 export function FormResponsesContent({ formId }: { formId: string }) {
@@ -49,7 +33,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             limit: String(limit),
           },
         }),
-      ) as Promise<ResponsesData>,
+      ),
   });
 
   const data = responsesQuery.data;

@@ -4,12 +4,16 @@ import type { TElement } from "platejs";
 import { PlateElement, useElement, useSelected } from "platejs/react";
 import { useRef } from "react";
 
+interface MentionTElement extends TElement {
+  value?: string;
+}
+
 export const MentionElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<MentionTElement>();
     const selected = useSelected();
 
-    const value = (element as unknown as Record<string, string>).value;
+    const value = element.value;
 
     return (
       <PlateElement

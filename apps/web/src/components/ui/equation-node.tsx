@@ -3,13 +3,16 @@ import { RadicalIcon } from "lucide-react";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useSelected } from "platejs/react";
 
+interface EquationTElement extends TElement {
+  texExpression?: string;
+}
+
 export const EquationElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<EquationTElement>();
     const selected = useSelected();
 
-    const texExpression = (element as unknown as Record<string, string>)
-      .texExpression;
+    const texExpression = element.texExpression;
 
     return (
       <PlateElement
@@ -39,11 +42,10 @@ export const EquationElement = withRef<typeof PlateElement>(
 
 export const InlineEquationElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<EquationTElement>();
     const selected = useSelected();
 
-    const texExpression = (element as unknown as Record<string, string>)
-      .texExpression;
+    const texExpression = element.texExpression;
 
     return (
       <PlateElement

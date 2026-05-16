@@ -14,9 +14,29 @@ import { PlateElement, useElement } from "platejs/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+// Block dangerous URI schemes that execute code. Normalize away invisible
+// control characters (tabs, zero-width spaces, soft hyphens, etc.) before
+// checking so "java​script:" style bypass attempts are also caught.
+const BLOCKED_PROTOCOLS = /^(javascript|vbscript|data):/i;
+
+function sanitizeUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url
+    .trim()
+    .replace(/[\x00-\x1f\x7f\u00ad\u200b-\u200d\u2028\u2029\ufeff]+/g, "")
+    .trim();
+  if (BLOCKED_PROTOCOLS.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+interface LinkTElement extends TElement {
+  url?: string;
+}
+
 export const LinkElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<LinkTElement>();
+    const safeUrl = sanitizeUrl(element.url);
 
     return (
       <PlateElement
@@ -26,9 +46,9 @@ export const LinkElement = withRef<typeof PlateElement>(
           "font-medium text-primary underline decoration-primary underline-offset-4",
           className,
         )}
-        {...((element as Record<string, unknown>).url
+        {...(safeUrl
           ? {
-              href: (element as Record<string, unknown>).url as string,
+              href: safeUrl,
               target: "_blank",
               rel: "noopener noreferrer",
             }
@@ -107,6 +127,7 @@ function LinkFloatingEdit({
   unlinkButtonProps,
 }: ReturnType<typeof useFloatingLinkEdit>) {
   const { element } = useLinkOpenButtonState();
+  const safeUrl = sanitizeUrl((element as LinkTElement).url);
 
   return (
     <div
@@ -115,13 +136,7 @@ function LinkFloatingEdit({
       {...floatingProps}
     >
       <Button variant="ghost" size="icon-sm" asChild>
-        <a
-          href={
-            (element as unknown as Record<string, string>)?.url
-          }
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <a href={safeUrl} target="_blank" rel="noopener noreferrer">
           <ExternalLinkIcon className="size-4" />
         </a>
       </Button>
