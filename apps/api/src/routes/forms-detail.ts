@@ -197,11 +197,12 @@ export const formsDetailRouter = createHonoApp()
       }
 
       await db.transaction(async (tx) => {
-        // Read creatorId inside the transaction to avoid a race with concurrent transfers.
+        // FOR UPDATE forces a current read, serialising concurrent transfers on this row.
         const [currentForm] = await tx
           .select({ creatorId: form.creatorId })
           .from(form)
           .where(eq(form.id, id))
+          .for("update")
           .limit(1);
         const previousOwnerId = currentForm?.creatorId;
 
