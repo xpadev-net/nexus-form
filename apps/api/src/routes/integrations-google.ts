@@ -318,8 +318,8 @@ export const integrationsGoogleRouter = createHonoApp()
     const query = c.req.query("query");
     const pageSize = c.req.query("pageSize");
     const pageToken = c.req.query("pageToken");
-    // Escape single quotes to prevent Google Drive API query injection
-    const sanitizedQuery = query?.replace(/'/g, "\\'");
+    // Escape per Drive API rules: \ first, then ' (reversed order breaks escaping)
+    const sanitizedQuery = query?.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const q = `mimeType='application/vnd.google-apps.spreadsheet'${sanitizedQuery ? ` and name contains '${sanitizedQuery}'` : ""}`;
 
     const params = new URLSearchParams({

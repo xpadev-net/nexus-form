@@ -196,10 +196,35 @@ export const formsDetailRouter = createHonoApp()
         return c.json({ error: "User not found" }, 404);
       }
 
-      await db
-        .update(form)
-        .set({ creatorId: newOwnerUserId })
-        .where(eq(form.id, id));
+      await db.transaction(async (tx) => {
+        // FOR UPDATE forces a current read, serialising concurrent transfers on this row.
+        const [currentForm] = await tx
+          .select({ creatorId: form.creatorId })
+          .from(form)
+          .where(eq(form.id, id))
+          .for("update")
+          .limit(1);
+        const previousOwnerId = currentForm?.creatorId;
+
+        await tx
+          .update(form)
+          .set({ creatorId: newOwnerUserId })
+          .where(eq(form.id, id));
+
+        // Grant the previous owner EDITOR access so they don't lose access.
+        if (previousOwnerId && previousOwnerId !== newOwnerUserId) {
+          await tx
+            .insert(formPermission)
+            .values({
+              id: randomUUID(),
+              formId: id,
+              userId: previousOwnerId,
+              role: "EDITOR",
+            })
+            .onDuplicateKeyUpdate({ set: { role: "EDITOR" } });
+        }
+      });
+
       return c.json(
         TransferOwnershipResponseSchema.parse({
           ok: true,
