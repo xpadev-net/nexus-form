@@ -216,15 +216,17 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         }
         throw new Error(`Failed to append rows: ${appendResult.error.message}`);
       }
-      await job.updateProgress(100);
-
-      // Mark row as written so retries are idempotent (24h TTL covers all retry windows).
-      // Best-effort: if Redis is transiently unavailable here, do NOT throw — the row
-      // was already appended, so throwing would only schedule a retry that duplicates it.
+      // Mark row as written BEFORE updateProgress so a transient BullMQ/Redis
+      // error on progress update doesn't cause a retry that duplicates the row.
+      // Best-effort: if Redis is transiently unavailable, do NOT throw.
       await setIdempotencyKey(idempotencyKey, 86_400).catch((e: unknown) => {
         console.warn(
           `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
         );
+      });
+
+      await job.updateProgress(100).catch(() => {
+        // Best-effort progress update; job result is what matters.
       });
 
       return {

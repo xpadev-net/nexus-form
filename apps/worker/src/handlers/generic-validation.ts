@@ -176,13 +176,14 @@ export const handleGenericValidation = async (
           : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
+    const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
     const isRetryable =
       errorCode === "ECONNREFUSED" ||
       errorCode === "ETIMEDOUT" ||
       errorCode === "ENOTFOUND" ||
       errorCode === "ECONNRESET" ||
       errorCode === "EAI_AGAIN" ||
-      errorStatus === 429;
+      (errorStatus !== undefined && RETRYABLE_HTTP_STATUSES.has(errorStatus));
 
     if (isRetryable) {
       throw error;

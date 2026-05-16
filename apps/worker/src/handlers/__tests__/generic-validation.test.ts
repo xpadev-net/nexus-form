@@ -363,6 +363,48 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("リトライ可能なエラーはスローして再キューさせる (axios形式 error.response.status 429)", async () => {
+    const axiosErr = Object.assign(new Error("Rate Limit Exceeded"), {
+      response: { status: 429 },
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(axiosErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Rate Limit Exceeded",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    502, 503, 504,
+  ])("リトライ可能なエラーはスローして再キューさせる (HTTP %i)", async (status) => {
+    const gatewayErr = Object.assign(new Error(`Gateway error ${status}`), {
+      status,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(gatewayErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      `Gateway error ${status}`,
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("文字列のみのエラーメッセージはリトライしない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(new Error("rate limit exceeded")),
