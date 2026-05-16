@@ -10,12 +10,26 @@ import {
   validationProviderResultSchema,
 } from "@nexus-form/integrations";
 import type { Job } from "bullmq";
+import { ZodError } from "zod";
 import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
   writeValidationResult,
 } from "../lib/validation-helpers";
+
+function logZodError(prefix: string, err: unknown): void {
+  if (err instanceof ZodError) {
+    console.error(prefix, {
+      issueCount: err.issues.length,
+      paths: err.issues.map((i) => i.path.join(".")),
+    });
+  } else {
+    console.error(prefix, {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
 
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]); // 429 rate-limit; 502/503/504 transient gateway errors
 // NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
@@ -116,7 +130,7 @@ export const handleGenericValidation = async (
   try {
     providerConfig = providerRule.configSchema.parse(sanitizedConfig);
   } catch (zodError) {
-    console.error("[generic-validation] CONFIG_VALIDATION_ERROR", zodError);
+    logZodError("[generic-validation] CONFIG_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -135,7 +149,7 @@ export const handleGenericValidation = async (
   try {
     validatedInput = providerRule.inputSchema.parse(referencedValue);
   } catch (zodError) {
-    console.error("[generic-validation] INPUT_VALIDATION_ERROR", zodError);
+    logZodError("[generic-validation] INPUT_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -155,7 +169,7 @@ export const handleGenericValidation = async (
       validatedInput = providerRule.normalizeInput(validatedInput);
       validatedInput = providerRule.inputSchema.parse(validatedInput);
     } catch (normalizeError) {
-      console.error(
+      logZodError(
         "[generic-validation] INPUT_VALIDATION_ERROR (normalize)",
         normalizeError,
       );
@@ -227,7 +241,7 @@ export const handleGenericValidation = async (
 
   const resultParse = validationProviderResultSchema.safeParse(rawResult);
   if (!resultParse.success) {
-    console.error(
+    logZodError(
       "[generic-validation] VALIDATION_RESULT_MALFORMED",
       resultParse.error,
     );

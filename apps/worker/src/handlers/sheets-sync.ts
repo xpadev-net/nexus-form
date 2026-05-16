@@ -69,10 +69,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     GoogleSheetsIntegrationSettingSchema.safeParse(googleSheetsConfig);
 
   if (!settingResult.success) {
-    console.error(
-      "[sheets-sync] Invalid Google Sheets integration setting",
-      settingResult.error.issues,
-    );
+    const paths = settingResult.error.issues.map((i) => i.path.join("."));
+    console.error("[sheets-sync] Invalid Google Sheets integration setting", {
+      issueCount: settingResult.error.issues.length,
+      paths,
+    });
     throw new Error("Invalid Google Sheets integration setting");
   }
 
