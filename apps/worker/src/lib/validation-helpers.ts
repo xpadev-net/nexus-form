@@ -209,10 +209,16 @@ export async function markValidationProcessing(params: {
     );
   }
 
-  await db
+  const updateResult = await db
     .update(externalServiceValidationResult)
     .set({ status: "PROCESSING" })
     .where(eq(externalServiceValidationResult.id, existing.id));
+
+  if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+    throw new Error(
+      `markValidationProcessing: row deleted concurrently for responseId=${params.responseId} ruleId=${params.ruleId} referencedBlockId=${params.referencedBlockId}`,
+    );
+  }
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
