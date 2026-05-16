@@ -47,10 +47,11 @@ export async function validateApiToken(
     const isValid = await verifyToken(token, tokenRecord.tokenHash);
     if (!isValid) return null;
 
-    await db
+    void db
       .update(apiToken)
       .set({ lastUsedAt: new Date() })
-      .where(eq(apiToken.id, tokenRecord.id));
+      .where(eq(apiToken.id, tokenRecord.id))
+      .catch(() => {});
 
     if (tokenRecord.type === "SHARE_LINK" && tokenRecord.shareLinkId) {
       const [link] = await db

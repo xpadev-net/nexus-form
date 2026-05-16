@@ -18,7 +18,8 @@ export function hashIPAddress(ip: string): string {
 }
 
 export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
-  if (tokens.length === 0) {
+  const unique = [...new Set(tokens)];
+  if (unique.length === 0) {
     throw new Error("No telemetry tokens provided");
   }
 
@@ -30,7 +31,7 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
     .set({ usedAt: now })
     .where(
       and(
-        inArray(telemetryToken.token, tokens),
+        inArray(telemetryToken.token, unique),
         isNull(telemetryToken.usedAt),
         gt(telemetryToken.expiresAt, now),
       ),
@@ -38,7 +39,7 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
 
   // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
   const header = result[0] as { affectedRows: number };
-  if (header.affectedRows !== tokens.length) {
+  if (header.affectedRows !== unique.length) {
     throw new Error("Invalid or expired telemetry tokens");
   }
 }
