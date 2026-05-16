@@ -454,7 +454,7 @@ export async function checkFormPermissionLevel(
   if (context.auth_type === "api_token") {
     // フォーム存在確認
     const [formRecord] = await db
-      .select({ id: form.id })
+      .select({ id: form.id, creatorId: form.creatorId })
       .from(form)
       .where(eq(form.id, formId))
       .limit(1);
@@ -487,6 +487,39 @@ export async function checkFormPermissionLevel(
       }
       return;
     }
+
+    // anon トークン (user_id が "anon:" プレフィックス) は DB 権限を持たない。
+    // このプレフィックス形式は authenticateWithApiToken の構築ロジックに依存。
+    if (context.user_id.startsWith("anon:")) {
+      throw new InsufficientFormPermissionError(formId, requiredRole, null);
+    }
+
+    // ユーザースコープのトークン: セッションブランチと同等の DB 権限チェック
+    if (formRecord.creatorId === context.user_id) return;
+
+    const [exactPerm] = await db
+      .select({ role: formPermission.role })
+      .from(formPermission)
+      .where(
+        and(
+          eq(formPermission.formId, formId),
+          eq(formPermission.userId, context.user_id),
+        ),
+      )
+      .limit(1);
+
+    const effectiveRole = exactPerm
+      ? (exactPerm.role as FormPermissionRole)
+      : null;
+
+    if (!formRoleSatisfies(requiredRole, effectiveRole)) {
+      throw new InsufficientFormPermissionError(
+        formId,
+        requiredRole,
+        effectiveRole,
+      );
+    }
+    return;
   }
 }
 
@@ -531,7 +564,31 @@ export async function checkFormAccess(
       return role === "VIEWER" || role === "EDITOR";
     }
 
-    return true;
+    // anon トークンは DB 権限を持たない
+    if (context.user_id.startsWith("anon:")) return false;
+
+    // ユーザースコープのトークン: 実際の DB 権限を確認
+    const [formRecord] = await db
+      .select({ id: form.id, creatorId: form.creatorId })
+      .from(form)
+      .where(eq(form.id, formId))
+      .limit(1);
+
+    if (!formRecord) return false;
+    if (formRecord.creatorId === context.user_id) return true;
+
+    const [perm] = await db
+      .select({ role: formPermission.role })
+      .from(formPermission)
+      .where(
+        and(
+          eq(formPermission.formId, formId),
+          eq(formPermission.userId, context.user_id),
+        ),
+      )
+      .limit(1);
+
+    return !!perm;
   }
 
   return false;

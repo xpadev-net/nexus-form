@@ -260,3 +260,48 @@ describe("S3 key ownership enforcement (H-1)", () => {
     });
   });
 });
+
+describe("C-2: S3 proxy route requires authentication and ownership (regression)", () => {
+  it("returns 401 for unauthenticated request to proxy route", async () => {
+    mockGetSession.mockResolvedValueOnce(null);
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file.jpg`,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 when accessing another user's key via proxy", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_B_ID}/file.jpg`,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 400 for path-traversal key via proxy (format check before ownership)", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    // Route rejects '..' in key with 400 before reaching the ownership check.
+    const encodedKey = encodeURIComponent(
+      `users/${USER_A_ID}/../${USER_B_ID}/file.jpg`,
+    );
+    const res = await app.request(`/api/s3/proxy/prod/${encodedKey}`);
+    expect(res.status).toBe(400);
+  });
+
+  it("redirects (302) when accessing own key via proxy", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file.jpg`,
+    );
+    // Ownership check passes → 302 redirect to presigned URL
+    expect(res.status).toBe(302);
+  });
+
+  it("returns 400 for invalid bucket alias via proxy", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request(
+      `/api/s3/proxy/invalid/users/${USER_A_ID}/file.jpg`,
+    );
+    expect(res.status).toBe(400);
+  });
+});

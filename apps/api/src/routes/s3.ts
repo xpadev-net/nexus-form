@@ -401,38 +401,51 @@ export const s3Router = createHonoApp()
       });
     },
   )
-  .get("/proxy/:bucket/:key{.+}", async (c) => {
-    const bucketAlias = c.req.param("bucket");
-    const key = c.req.param("key");
+  .get(
+    "/proxy/:bucket/:key{.+}",
+    withDualAuth(),
+    createRateLimit({ windowMs: 60_000, maxRequests: 60 }),
+    async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
-    if (bucketAlias !== "prod" && bucketAlias !== "tmp") {
-      return c.json(
-        { error: "Invalid bucket name. Only 'prod' and 'tmp' are allowed." },
-        400,
+      const bucketAlias = c.req.param("bucket");
+      const key = c.req.param("key");
+
+      if (bucketAlias !== "prod" && bucketAlias !== "tmp") {
+        return c.json(
+          { error: "Invalid bucket name. Only 'prod' and 'tmp' are allowed." },
+          400,
+        );
+      }
+
+      if (!key || key.includes("..") || key.includes("//")) {
+        return c.json({ error: "Invalid key format" }, 400);
+      }
+
+      const s3Key = `${bucketAlias}/${key}`;
+
+      if (!isKeyOwnedBy(auth.user_id, s3Key)) {
+        return c.json({ error: "Access denied to key" }, 403);
+      }
+
+      const actualBucket =
+        bucketAlias === "prod" ? S3_BUCKETS.PROD : S3_BUCKETS.TMP;
+
+      const exists = await s3BaseService.objectExists(s3Key, actualBucket);
+      if (!exists) {
+        return c.json({ error: "Object not found" }, 404);
+      }
+
+      const presignedUrlResult = await s3BaseService.generateDownloadUrl(
+        s3Key,
+        actualBucket,
+        3600,
       );
-    }
 
-    if (!key || key.includes("..") || key.includes("//")) {
-      return c.json({ error: "Invalid key format" }, 400);
-    }
-
-    const actualBucket =
-      bucketAlias === "prod" ? S3_BUCKETS.PROD : S3_BUCKETS.TMP;
-    const s3Key = `${bucketAlias}/${key}`;
-
-    const exists = await s3BaseService.objectExists(s3Key, actualBucket);
-    if (!exists) {
-      return c.json({ error: "Object not found" }, 404);
-    }
-
-    const presignedUrlResult = await s3BaseService.generateDownloadUrl(
-      s3Key,
-      actualBucket,
-      3600,
-    );
-
-    return c.redirect(presignedUrlResult.url, 302);
-  })
+      return c.redirect(presignedUrlResult.url, 302);
+    },
+  )
   .get("/health", async (c) => {
     try {
       await getS3Client().send(
