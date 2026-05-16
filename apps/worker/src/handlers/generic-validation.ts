@@ -17,7 +17,7 @@ import {
   writeValidationResult,
 } from "../lib/validation-helpers";
 
-const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
+const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]); // 429 rate-limit; 502/503/504 transient gateway errors
 // NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
 // paths that re-throw these codes directly. The current validation-provider-github
 // catches them inside validate() and returns a non-retryable GITHUB_API_ERROR
