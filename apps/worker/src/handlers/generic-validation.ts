@@ -18,9 +18,13 @@ import {
 } from "../lib/validation-helpers";
 
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]);
-// Include provider-domain codes: validation-provider-github remaps syscall
-// errors to NETWORK_ERROR / TIMEOUT and rate limits to GITHUB_API_RATE_LIMIT
-// before re-throwing, so raw syscall codes never surface on those errors.
+// NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
+// paths that re-throw these codes directly. The current validation-provider-github
+// catches them inside validate() and returns a non-retryable GITHUB_API_ERROR
+// result, so these entries have no effect for that provider today.
+// GITHUB_API_RATE_LIMIT is also caught inside plugin.ts validate() and converted
+// to a result with retryAfter (handled by the hasRetryAfter check below), so it
+// likewise has no effect via this set for the current GitHub provider.
 const RETRYABLE_CODES = new Set([
   "ECONNREFUSED",
   "ETIMEDOUT",
