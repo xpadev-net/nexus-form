@@ -172,10 +172,19 @@ export function GoogleSheetsIntegration({
 
   const authWindowRef = useRef<Window | null>(null);
   const popupIntervalRef = useRef<number | null>(null);
+  const syncTimeoutRef = useRef<number | null>(null);
   const hasInitializedConfigRef = useRef(false);
   useEffect(() => {
     searchQueryRef.current = searchQuery;
   }, [searchQuery]);
+
+  useEffect(() => {
+    return () => {
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const { data: syncJobData, error: syncJobError } = useQuery({
     queryKey: ["syncJobStatus", formId, activeJobId],
@@ -208,10 +217,18 @@ export function GoogleSheetsIntegration({
       error: uiStatus === "failed" ? syncJobData.job.failedReason : undefined,
     });
     if (uiStatus === "completed") {
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
       toast.success("同期が完了しました");
       setIsSyncing(false);
       setActiveJobId(null);
     } else if (uiStatus === "failed") {
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
       toast.error("同期に失敗しました");
       setIsSyncing(false);
       setActiveJobId(null);
@@ -220,6 +237,10 @@ export function GoogleSheetsIntegration({
 
   useEffect(() => {
     if (!syncJobError) return;
+    if (syncTimeoutRef.current != null) {
+      window.clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
     toast.error("同期状態の確認に失敗しました");
     setIsSyncing(false);
     setActiveJobId(null);
@@ -569,6 +590,16 @@ export function GoogleSheetsIntegration({
         status: data.status,
       });
       setActiveJobId(data.jobId);
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+      }
+      syncTimeoutRef.current = window.setTimeout(() => {
+        syncTimeoutRef.current = null;
+        toast.error("同期状態の監視がタイムアウトしました");
+        setIsSyncing(false);
+        setActiveJobId(null);
+        setSyncStatus(null);
+      }, 60_000);
 
       toast.success("同期を開始しました");
 
