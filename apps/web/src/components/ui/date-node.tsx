@@ -3,12 +3,16 @@ import { CalendarIcon } from "lucide-react";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useSelected } from "platejs/react";
 
+interface DateTElement extends TElement {
+  date?: string;
+}
+
 export const DateElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<DateTElement>();
     const selected = useSelected();
 
-    const dateValue = (element as unknown as Record<string, string>).date;
+    const dateValue = element.date;
     const displayDate = dateValue
       ? new Date(dateValue).toLocaleDateString(undefined, {
           year: "numeric",

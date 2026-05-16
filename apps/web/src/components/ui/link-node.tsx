@@ -14,9 +14,25 @@ import { PlateElement, useElement } from "platejs/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+// Block dangerous URI schemes that execute code. Normalize away whitespace and
+// control characters before checking so "j a v a s c r i p t:" is also caught.
+const BLOCKED_PROTOCOLS = /^(javascript|vbscript|data):/i;
+
+function sanitizeUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  const trimmed = url.trim().replace(/[\x00-\x1f]+/g, "");
+  if (BLOCKED_PROTOCOLS.test(trimmed)) return undefined;
+  return trimmed;
+}
+
+interface LinkTElement extends TElement {
+  url?: string;
+}
+
 export const LinkElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
+    const element = useElement<LinkTElement>();
+    const safeUrl = sanitizeUrl(element.url);
 
     return (
       <PlateElement
@@ -26,9 +42,9 @@ export const LinkElement = withRef<typeof PlateElement>(
           "font-medium text-primary underline decoration-primary underline-offset-4",
           className,
         )}
-        {...((element as Record<string, unknown>).url
+        {...(safeUrl
           ? {
-              href: (element as Record<string, unknown>).url as string,
+              href: safeUrl,
               target: "_blank",
               rel: "noopener noreferrer",
             }
@@ -107,6 +123,7 @@ function LinkFloatingEdit({
   unlinkButtonProps,
 }: ReturnType<typeof useFloatingLinkEdit>) {
   const { element } = useLinkOpenButtonState();
+  const safeUrl = sanitizeUrl((element as LinkTElement).url);
 
   return (
     <div
@@ -115,13 +132,7 @@ function LinkFloatingEdit({
       {...floatingProps}
     >
       <Button variant="ghost" size="icon-sm" asChild>
-        <a
-          href={
-            (element as unknown as Record<string, string>)?.url
-          }
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <a href={safeUrl} target="_blank" rel="noopener noreferrer">
           <ExternalLinkIcon className="size-4" />
         </a>
       </Button>

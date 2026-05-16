@@ -2,8 +2,9 @@ import {
   extractQuestionsFromPlateContent,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { z } from "zod";
 import {
   FormResponseProvider,
@@ -19,8 +20,6 @@ import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
 const fetchPublicForm = (publicId: string) =>
   rpc(client.api.forms.public[":publicId"].$get({ param: { publicId } }));
 
-type PublicFormData = Awaited<ReturnType<typeof fetchPublicForm>>;
-
 const responsesSchema = z.array(responsePayloadItemSchema);
 
 export function PublicFormPage() {
@@ -33,12 +32,9 @@ export function PublicFormPage() {
 
 function PublicFormPageInner() {
   const { publicId } = useParams({ from: "/forms/public/$publicId" });
-  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [formData, setFormData] = useState<PublicFormData | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
   const { answers, clearAnswers } = useFormResponse();
 
@@ -47,43 +43,20 @@ function PublicFormPageInner() {
     autoCollect: true,
   });
 
-  useEffect(() => {
-    let active = true;
+  const {
+    data: formData,
+    isLoading,
+    error: fetchError,
+  } = useQuery({
+    queryKey: ["publicForm", publicId],
+    queryFn: () => fetchPublicForm(publicId),
+    retry: (failureCount, err) => {
+      if (err instanceof RpcError && err.status === 404) return false;
+      return failureCount < 3;
+    },
+  });
 
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const result = await fetchPublicForm(publicId);
-
-        if (active) {
-          setFormData(result);
-        }
-      } catch (loadError) {
-        if (active) {
-          if (loadError instanceof RpcError && loadError.status === 404) {
-            setNotFound(true);
-          } else {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "不明なエラーが発生しました",
-            );
-          }
-        }
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      active = false;
-    };
-  }, [publicId]);
+  const notFound = fetchError instanceof RpcError && fetchError.status === 404;
 
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token);
@@ -214,11 +187,13 @@ function PublicFormPageInner() {
   }
 
   if (!formData) {
+    const fetchErrorMessage =
+      fetchError instanceof Error
+        ? fetchError.message
+        : "不明なエラーが発生しました";
     return (
       <section className="p-6">
-        <p className="text-sm text-destructive">
-          {error ?? "不明なエラーが発生しました"}
-        </p>
+        <p className="text-sm text-destructive">{fetchErrorMessage}</p>
       </section>
     );
   }

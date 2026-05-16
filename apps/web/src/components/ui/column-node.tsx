@@ -2,6 +2,10 @@ import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement } from "platejs/react";
 
+interface ColumnTElement extends TElement {
+  width?: string;
+}
+
 export const ColumnGroupElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => (
     <PlateElement
@@ -16,8 +20,8 @@ export const ColumnGroupElement = withRef<typeof PlateElement>(
 
 export const ColumnElement = withRef<typeof PlateElement>(
   ({ children, className, ...props }, ref) => {
-    const element = useElement<TElement>();
-    const width = (element as unknown as Record<string, string>).width;
+    const element = useElement<ColumnTElement>();
+    const width = element.width;
 
     return (
       <PlateElement

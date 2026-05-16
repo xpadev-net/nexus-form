@@ -11,8 +11,13 @@ import { authClient } from "@/lib/auth-client";
 
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
-    const { data } = await authClient.getSession();
-    if (!data?.session) {
+    try {
+      const { data } = await authClient.getSession();
+      if (!data?.session) {
+        throw redirect({ to: "/login" });
+      }
+    } catch (error) {
+      if (error && typeof error === "object" && "to" in error) throw error;
       throw redirect({ to: "/login" });
     }
   },
