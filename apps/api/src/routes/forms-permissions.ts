@@ -195,6 +195,7 @@ export const formsPermissionsRouter = createHonoApp()
   )
   .get(
     "/:id/invitations",
+    withDualFormAuth("EDITOR"),
     zValidator("query", invitationsQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -228,22 +229,26 @@ export const formsPermissionsRouter = createHonoApp()
       return c.json({ invitation }, 201);
     },
   )
-  .get("/:id/invitations/:invitationId", async (c) => {
-    const formId = c.req.param("id");
-    const invitationId = c.req.param("invitationId");
-    const [invitation] = await db
-      .select()
-      .from(formInvitation)
-      .where(
-        and(
-          eq(formInvitation.id, invitationId),
-          eq(formInvitation.formId, formId),
-        ),
-      )
-      .limit(1);
-    if (!invitation) return c.json({ error: "Invitation not found" }, 404);
-    return c.json({ invitation });
-  })
+  .get(
+    "/:id/invitations/:invitationId",
+    withDualFormAuth("EDITOR"),
+    async (c) => {
+      const formId = c.req.param("id");
+      const invitationId = c.req.param("invitationId");
+      const [invitation] = await db
+        .select()
+        .from(formInvitation)
+        .where(
+          and(
+            eq(formInvitation.id, invitationId),
+            eq(formInvitation.formId, formId),
+          ),
+        )
+        .limit(1);
+      if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+      return c.json({ invitation });
+    },
+  )
   .delete(
     "/:id/invitations/:invitationId",
     withDualFormAuth("EDITOR"),
