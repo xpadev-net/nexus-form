@@ -360,14 +360,13 @@ export const formsPublicRouter = createHonoApp()
       // 7. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure?.settings?.response_limit;
 
-      // 8. Session management (resolved before atomic section)
+      // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
       const jwtToken = extractJwtFromRequest(c);
       const { sessionId, jwt: newJwt } = await resolveSessionIdOrCreate(
         jwtToken,
         { ip, ua: userAgent },
       );
-      setSessionCookie(c, newJwt);
 
       // 7+9+10. Atomically enforce response limit and persist response/fingerprints
       const responseId = randomUUID();
@@ -432,6 +431,9 @@ export const formsPublicRouter = createHonoApp()
           403,
         );
       }
+
+      // Set session cookie only after a successful submission
+      setSessionCookie(c, newJwt);
 
       // 11. Queue external validation jobs (non-blocking)
       if (activeSnapshot) {
