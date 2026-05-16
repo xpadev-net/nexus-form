@@ -17,7 +17,7 @@ import {
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
 import {
-  idempotencyKeyExists,
+  getIdempotencyKeyValue,
   setIdempotencyKey,
   withRedisLock,
 } from "../lib/redis-lock";
@@ -133,10 +133,13 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   return await withRedisLock(
     `sheets-sync:${integrationId}`,
     async () => {
-      // Idempotency check: skip if this response was already written (e.g. prior
-      // attempt wrote the row but crashed before the job completed).
+      // Idempotency check. The key holds "pending" (write in progress) or "done"
+      // (write completed). Any truthy value means skip to avoid duplicates:
+      // - "done": a prior attempt already wrote the row.
+      // - "pending": a concurrent job acquired this lock after TTL expiry and the
+      //   first job is still in its critical section; skip to prevent a race.
       const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
-      if (await idempotencyKeyExists(idempotencyKey)) {
+      if (await getIdempotencyKeyValue(idempotencyKey)) {
         return {
           ok: true,
           skipped: true,
@@ -200,6 +203,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       }
       await job.updateProgress(80);
 
+      // Mark as "pending" BEFORE appendRows so any concurrent job that acquires
+      // the lock after TTL expiry sees the key and skips rather than racing.
+      // TTL (90 s) slightly exceeds the lock TTL (60 s) so the window is covered.
+      await setIdempotencyKey(idempotencyKey, 90, "pending").catch(() => {});
+
       // 9. 行を追記
       const appendResult = await appendRows(token, {
         spreadsheetId,
@@ -216,14 +224,16 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         }
         throw new Error(`Failed to append rows: ${appendResult.error.message}`);
       }
-      // Mark row as written BEFORE updateProgress so a transient BullMQ/Redis
-      // error on progress update doesn't cause a retry that duplicates the row.
-      // Best-effort: if Redis is transiently unavailable, do NOT throw.
-      await setIdempotencyKey(idempotencyKey, 86_400).catch((e: unknown) => {
-        console.warn(
-          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-        );
-      });
+      // Promote "pending" → "done" (24 h TTL) BEFORE updateProgress so a
+      // transient BullMQ/Redis error on progress update doesn't trigger a retry
+      // that would duplicate the row.  Best-effort: do NOT throw on failure.
+      await setIdempotencyKey(idempotencyKey, 86_400, "done").catch(
+        (e: unknown) => {
+          console.warn(
+            `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+          );
+        },
+      );
 
       await job.updateProgress(100).catch(() => {
         // Best-effort progress update; job result is what matters.
