@@ -4,7 +4,11 @@ import { db } from "@nexus-form/database";
 import { fingerprintDetail, formResponse } from "@nexus-form/database/schema";
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
-import { checkFormAccess, withDualAuth } from "../lib/dual-auth";
+import {
+  checkFormAccess,
+  hasEditPermission,
+  withDualAuth,
+} from "../lib/dual-auth";
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
 import { createHonoApp } from "../lib/hono";
@@ -76,7 +80,7 @@ export const fingerprintRouter = createHonoApp()
         .limit(1);
       if (!response) return c.json({ error: "Response not found" }, 404);
 
-      const hasAccess = await checkFormAccess(context, response.formId);
+      const hasAccess = await hasEditPermission(context, response.formId);
       if (!hasAccess) {
         return c.json({ error: "Access denied to this form" }, 403);
       }

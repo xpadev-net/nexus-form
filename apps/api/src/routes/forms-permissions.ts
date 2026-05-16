@@ -71,6 +71,7 @@ export const formsPermissionsRouter = createHonoApp()
   .use("/:id/share-links*", withDualFormAuth("EDITOR"))
   .get(
     "/:id/permissions",
+    withDualFormAuth("EDITOR"),
     zValidator("query", paginationQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -132,7 +133,7 @@ export const formsPermissionsRouter = createHonoApp()
     });
     return c.json({ role });
   })
-  .get("/:id/permissions/:userId", async (c) => {
+  .get("/:id/permissions/:userId", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const userId = c.req.param("userId");
     const result = await getFormPermissions({
