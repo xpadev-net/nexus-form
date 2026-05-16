@@ -65,6 +65,22 @@ export interface RedisLockOptions {
   retryDelayMs?: number;
 }
 
+/** 冪等性キーの現在値を取得する。存在しなければ null を返す。 */
+export async function getIdempotencyKeyValue(
+  key: string,
+): Promise<string | null> {
+  return getLockClient().get(key);
+}
+
+/** 冪等性キーを value・TTL 付きでセットする。withRedisLock と同一接続を再利用。 */
+export async function setIdempotencyKey(
+  key: string,
+  ttlSeconds: number,
+  value = "done",
+): Promise<void> {
+  await getLockClient().set(key, value, "EX", ttlSeconds);
+}
+
 /**
  * `key` のロックを取得してから `fn` を実行し、完了後に解放する。
  *

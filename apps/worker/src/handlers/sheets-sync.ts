@@ -16,12 +16,17 @@ import {
   updateRange,
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
+import {
+  getIdempotencyKeyValue,
+  setIdempotencyKey,
+  withRedisLock,
+} from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
 
 export type SheetsSyncJob = {
   formId: string;
   integrationId: string;
-  responseId?: string;
+  responseId: string;
 };
 
 const RESPONSE_ID_HEADER = "Response ID";
@@ -87,11 +92,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得
-  if (!responseId) {
-    // responseIdが指定されていない場合は最新のレスポンスを取得
-    throw new Error("responseId is required for sheets sync");
-  }
-
   const [response] = await db
     .select()
     .from(formResponse)
@@ -126,106 +126,137 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   }
   await job.updateProgress(40);
 
-  // 5. ヘッダー行を読み取り
-  const headerData = await readRange(token, {
-    spreadsheetId,
-    rangeA1: `${sheetName}!1:1`,
-  });
+  // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
+  // BullMQ jobId deduplication prevents duplicate concurrent jobs.
+  // A Redis idempotency key guards against duplicate rows on BullMQ retries
+  // (jobId dedup only applies while the job is still in the queue).
+  return await withRedisLock(
+    `sheets-sync:${integrationId}`,
+    async () => {
+      const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
+      const keyValue = await getIdempotencyKeyValue(idempotencyKey);
 
-  let existingHeaders: string[] = [];
-  if (headerData.ok && headerData.data.values.length > 0) {
-    existingHeaders = headerData.data.values[0] ?? [];
+      if (keyValue === "done") {
+        // A prior attempt already wrote the row; skip.
+        return {
+          ok: true,
+          skipped: true,
+          reason: "duplicate",
+          provider: "google-sheets",
+          jobId: job.id,
+        };
+      }
 
-    // 重複チェック: Response ID 列のみを読み取る
-    const responseIdColIndex = existingHeaders.indexOf(RESPONSE_ID_HEADER);
-    if (responseIdColIndex >= 0) {
-      const colLetter = columnIndexToLetter(responseIdColIndex);
-      const colData = await readRange(token, {
+      if (keyValue === "pending") {
+        // The lock TTL expired while another job's critical section is still in
+        // progress.  Throw so BullMQ retries after the 90s "pending" TTL expires.
+        throw new Error(
+          `[sheets-sync] Concurrent write in progress for ${idempotencyKey}; will retry`,
+        );
+      }
+
+      // 5. ヘッダー行を読み取り
+      const headerData = await readRange(token, {
         spreadsheetId,
-        rangeA1: `${sheetName}!${colLetter}:${colLetter}`,
+        rangeA1: `${sheetName}!1:1`,
       });
-      if (colData.ok) {
-        for (let i = 1; i < colData.data.values.length; i++) {
-          const existingResponseId = colData.data.values[i]?.[0];
-          if (existingResponseId === response.id) {
-            return {
-              ok: true,
-              skipped: true,
-              reason: "duplicate",
-              provider: "google-sheets",
-              jobId: job.id,
-            };
-          }
+
+      let existingHeaders: string[] = [];
+      if (headerData.ok && headerData.data.values.length > 0) {
+        existingHeaders = headerData.data.values[0] ?? [];
+      }
+
+      await job.updateProgress(60);
+
+      // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+      const responseData = safeParseResponseData(
+        response.responseDataJson,
+        response.id,
+      );
+      if (!responseData) {
+        return {
+          ok: true,
+          skipped: true,
+          reason: "invalid_data",
+          provider: "google-sheets",
+          jobId: job.id,
+        };
+      }
+
+      // 7. ヘッダーと行データを構築
+      const { headers, row } = buildRowFromResponse(
+        existingHeaders,
+        responseData,
+        blockTitleMap,
+        response.id,
+      );
+
+      // 8. ヘッダーが変更された場合は更新
+      if (
+        existingHeaders.length === 0 ||
+        headers.length > existingHeaders.length
+      ) {
+        const headerUpdateResult = await updateRange(token, {
+          spreadsheetId,
+          rangeA1: `${sheetName}!1:1`,
+          values: [headers],
+        });
+        if (!headerUpdateResult.ok) {
+          throw new Error(
+            `Failed to update headers: ${headerUpdateResult.error.message}`,
+          );
         }
       }
-    }
-  }
+      await job.updateProgress(80);
 
-  await job.updateProgress(60);
+      // Mark as "pending" BEFORE appendRows — fail-closed: if Redis is unavailable
+      // here, throw so the job retries rather than proceeding without the guard.
+      // TTL (90 s) slightly exceeds the lock TTL (60 s) so the window is covered.
+      await setIdempotencyKey(idempotencyKey, 90, "pending");
 
-  // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-  const responseData = safeParseResponseData(
-    response.responseDataJson,
-    response.id,
-  );
-  if (!responseData) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "invalid_data",
-      provider: "google-sheets",
-      jobId: job.id,
-    };
-  }
+      // 9. 行を追記
+      const appendResult = await appendRows(token, {
+        spreadsheetId,
+        sheetName,
+        rows: [row],
+      });
 
-  // 7. ヘッダーと行データを構築
-  const { headers, row } = buildRowFromResponse(
-    existingHeaders,
-    responseData,
-    blockTitleMap,
-    response.id,
-  );
-
-  // 8. ヘッダーが変更された場合は更新
-  if (existingHeaders.length === 0 || headers.length > existingHeaders.length) {
-    const headerUpdateResult = await updateRange(token, {
-      spreadsheetId,
-      rangeA1: `${sheetName}!1:1`,
-      values: [headers],
-    });
-    if (!headerUpdateResult.ok) {
-      throw new Error(
-        `Failed to update headers: ${headerUpdateResult.error.message}`,
+      if (!appendResult.ok) {
+        // レート制限エラーはリトライさせる
+        if (appendResult.error.code === "rateLimit") {
+          throw new Error(
+            `Google Sheets API rate limit: ${appendResult.error.message}`,
+          );
+        }
+        throw new Error(`Failed to append rows: ${appendResult.error.message}`);
+      }
+      // Promote "pending" → "done" (24 h TTL) BEFORE updateProgress so a
+      // transient BullMQ/Redis error on progress update doesn't trigger a retry
+      // that would duplicate the row.  Best-effort: do NOT throw on failure.
+      await setIdempotencyKey(idempotencyKey, 86_400, "done").catch(
+        (e: unknown) => {
+          console.warn(
+            `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+          );
+        },
       );
-    }
-  }
-  await job.updateProgress(80);
 
-  // 9. 行を追記
-  const appendResult = await appendRows(token, {
-    spreadsheetId,
-    sheetName,
-    rows: [row],
-  });
+      await job.updateProgress(100).catch(() => {
+        // Best-effort progress update; job result is what matters.
+      });
 
-  if (!appendResult.ok) {
-    // レート制限エラーはリトライさせる
-    if (appendResult.error.code === "rateLimit") {
-      throw new Error(
-        `Google Sheets API rate limit: ${appendResult.error.message}`,
-      );
-    }
-    throw new Error(`Failed to append rows: ${appendResult.error.message}`);
-  }
-  await job.updateProgress(100);
-
-  return {
-    ok: true,
-    provider: "google-sheets",
-    jobId: job.id,
-    updatedRange: appendResult.data.updatedRange,
-    updatedRows: appendResult.data.updatedRows,
-  };
+      return {
+        ok: true,
+        provider: "google-sheets",
+        jobId: job.id,
+        updatedRange: appendResult.data.updatedRange,
+        updatedRows: appendResult.data.updatedRows,
+      };
+    },
+    // Critical section contains up to 3 sequential Sheets API calls; use a
+    // generous TTL so a slow API doesn't expire the lock mid-write.
+    { ttlMs: 60_000, waitTimeoutMs: 65_000 },
+  );
 };
 
 /**
@@ -274,19 +305,6 @@ function buildRowFromResponse(
   }
 
   return { headers, row };
-}
-
-/**
- * カラムインデックス (0-based) をスプレッドシートのカラム文字に変換する
- */
-function columnIndexToLetter(index: number): string {
-  let letter = "";
-  let i = index;
-  while (i >= 0) {
-    letter = String.fromCharCode((i % 26) + 65) + letter;
-    i = Math.floor(i / 26) - 1;
-  }
-  return letter;
 }
 
 /**

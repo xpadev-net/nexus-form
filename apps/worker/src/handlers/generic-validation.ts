@@ -17,6 +17,26 @@ import {
   writeValidationResult,
 } from "../lib/validation-helpers";
 
+const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]); // 429 rate-limit; 502/503/504 transient gateway errors
+// NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
+// paths that re-throw these codes directly. The current validation-provider-github
+// catches them inside validate() and returns a non-retryable GITHUB_API_ERROR
+// result, so these entries have no effect for that provider today.
+// GITHUB_API_RATE_LIMIT is also caught inside plugin.ts validate() and converted
+// to a result with retryAfter (handled by the `if (result.retryAfter)` throw
+// in the result-processing path below), so it likewise has no effect via this
+// set for the current GitHub provider.
+const RETRYABLE_CODES = new Set([
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "NETWORK_ERROR",
+  "TIMEOUT",
+  "GITHUB_API_RATE_LIMIT",
+]);
+
 export type GenericValidationJob = {
   responseId: string;
   ruleId: string;
@@ -165,21 +185,27 @@ export const handleGenericValidation = async (
         : null;
     const errorCode =
       typeof errObj?.code === "string" ? errObj.code : undefined;
+    const responseStatus = (
+      errObj?.response as Record<string, unknown> | undefined
+    )?.status;
     const errorStatus =
-      typeof errObj?.status === "number" ? errObj.status : undefined;
+      typeof errObj?.status === "number"
+        ? errObj.status
+        : typeof responseStatus === "number"
+          ? responseStatus
+          : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
+    // Also retry if the provider set a strictly positive retryAfter on the error
+    // (used by validation-provider-github for rate-limit back-off). Zero is
+    // treated as unset to avoid retrying on accidental default values.
+    const hasRetryAfter =
+      typeof errObj?.retryAfter === "number" &&
+      (errObj.retryAfter as number) > 0;
     const isRetryable =
-      errorCode === "ECONNREFUSED" ||
-      errorCode === "ETIMEDOUT" ||
-      errorCode === "ENOTFOUND" ||
-      errorCode === "ECONNRESET" ||
-      errorCode === "EAI_AGAIN" ||
-      errorStatus === 429 ||
-      errorMessage.includes("rate limit") ||
-      errorMessage.includes("timeout") ||
-      errorMessage.includes("ETIMEDOUT") ||
-      errorMessage.includes("ECONNREFUSED");
+      (errorCode !== undefined && RETRYABLE_CODES.has(errorCode)) ||
+      (errorStatus !== undefined && RETRYABLE_HTTP_STATUSES.has(errorStatus)) ||
+      hasRetryAfter;
 
     if (isRetryable) {
       throw error;

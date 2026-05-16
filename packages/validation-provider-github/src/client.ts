@@ -96,22 +96,10 @@ export class GitHubApiClient {
   async cleanup(): Promise<void> {}
 }
 
-let githubClient: GitHubApiClient | null = null;
-
 export function getGitHubClient(
   appId?: string,
   privateKey?: string,
   installationId?: string,
 ): GitHubApiClient {
-  if (
-    appId !== undefined ||
-    privateKey !== undefined ||
-    installationId !== undefined
-  ) {
-    return new GitHubApiClient(appId, privateKey, installationId);
-  }
-  if (!githubClient) {
-    githubClient = new GitHubApiClient();
-  }
-  return githubClient;
+  return new GitHubApiClient(appId, privateKey, installationId);
 }

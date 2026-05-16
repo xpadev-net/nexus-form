@@ -450,7 +450,7 @@ export const formsPublicRouter = createHonoApp()
       }
 
       // 12. Queue Google Sheets sync (non-blocking)
-      queueSheetsSyncIfNeeded(target.id).catch(() => {
+      queueSheetsSyncIfNeeded(target.id, responseId).catch(() => {
         // Log errors but don't fail the response
       });
 
@@ -763,7 +763,10 @@ async function queueExternalValidations(
   );
 }
 
-async function queueSheetsSyncIfNeeded(formId: string): Promise<void> {
+async function queueSheetsSyncIfNeeded(
+  formId: string,
+  responseId: string,
+): Promise<void> {
   const [integration] = await db
     .select({ id: formIntegration.id })
     .from(formIntegration)
@@ -776,9 +779,13 @@ async function queueSheetsSyncIfNeeded(formId: string): Promise<void> {
       {
         formId,
         integrationId: integration.id,
-        force: false,
+        responseId,
       },
-      { removeOnComplete: 100, removeOnFail: 100 },
+      {
+        removeOnComplete: 100,
+        removeOnFail: 100,
+        jobId: `sheets:${integration.id}:${responseId}`,
+      },
     );
   }
 }

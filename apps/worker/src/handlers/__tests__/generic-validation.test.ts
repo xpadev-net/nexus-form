@@ -323,7 +323,166 @@ describe("handleGenericValidation", () => {
     );
   });
 
-  it("リトライ可能なエラーはスローして再キューさせる", async () => {
+  it("リトライ可能なエラーはスローして再キューさせる (HTTP 429)", async () => {
+    const rateLimitErr = Object.assign(new Error("Rate Limit Exceeded"), {
+      status: 429,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(rateLimitErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Rate Limit Exceeded",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("リトライ可能なエラーはスローして再キューさせる (Node.js ETIMEDOUT)", async () => {
+    const timeoutErr = Object.assign(new Error("Connection timed out"), {
+      code: "ETIMEDOUT",
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(timeoutErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Connection timed out",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("リトライ可能なエラーはスローして再キューさせる (axios形式 error.response.status 429)", async () => {
+    const axiosErr = Object.assign(new Error("Rate Limit Exceeded"), {
+      response: { status: 429 },
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(axiosErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Rate Limit Exceeded",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    502, 503, 504,
+  ])("リトライ可能なエラーはスローして再キューさせる (HTTP %i)", async (status) => {
+    const gatewayErr = Object.assign(new Error(`Gateway error ${status}`), {
+      status,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(gatewayErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      `Gateway error ${status}`,
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "NETWORK_ERROR",
+    "TIMEOUT",
+    "GITHUB_API_RATE_LIMIT",
+  ])("リトライ可能なエラーはスローして再キューさせる (プロバイダードメインコード %s)", async (code) => {
+    const domainErr = Object.assign(new Error(`Provider error: ${code}`), {
+      code,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(domainErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      `Provider error: ${code}`,
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("retryAfterプロパティを持つエラーはリトライさせる (コードもステータスも一致しない場合のみhasRetryAfterが有効)", async () => {
+    // Uses an unrecognised code so the test would fail if hasRetryAfter were removed.
+    const rateLimitErr = Object.assign(
+      new Error("Custom provider rate limit"),
+      {
+        code: "CUSTOM_RATE_LIMIT",
+        retryAfter: 60_000,
+      },
+    );
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(rateLimitErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Custom provider rate limit",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("retryAfter: 0 はリトライしない（ゼロはセンチネル値として扱う）", async () => {
+    const zeroRetryErr = Object.assign(
+      new Error("Rate limit with zero delay"),
+      {
+        code: "CUSTOM_RATE_LIMIT",
+        retryAfter: 0,
+      },
+    );
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(zeroRetryErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+    expect(result).toEqual({
+      ok: false,
+      error: "Rate limit with zero delay",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "VALIDATION_ERROR" }),
+    );
+  });
+
+  it("文字列のみのエラーメッセージはリトライしない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(new Error("rate limit exceeded")),
     });
@@ -334,10 +493,11 @@ describe("handleGenericValidation", () => {
       referencedBlockId: "block-a",
     });
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      "rate limit exceeded",
+    const result = await handleGenericValidation(job);
+    expect(result).toEqual({ ok: false, error: "rate limit exceeded" });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "VALIDATION_ERROR" }),
     );
-    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("sanitizeConfigが存在する場合に設定を変換してから渡す", async () => {
