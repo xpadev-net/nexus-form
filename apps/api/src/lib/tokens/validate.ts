@@ -51,7 +51,11 @@ export async function validateApiToken(
       .update(apiToken)
       .set({ lastUsedAt: new Date() })
       .where(eq(apiToken.id, tokenRecord.id))
-      .catch(() => {});
+      .catch((err: unknown) => {
+        logError("Failed to update token lastUsedAt", "authentication", {
+          error: err,
+        });
+      });
 
     if (tokenRecord.type === "SHARE_LINK" && tokenRecord.shareLinkId) {
       const [link] = await db

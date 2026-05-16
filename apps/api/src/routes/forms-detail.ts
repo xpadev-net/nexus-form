@@ -196,14 +196,15 @@ export const formsDetailRouter = createHonoApp()
         return c.json({ error: "User not found" }, 404);
       }
 
-      const [currentForm] = await db
-        .select({ creatorId: form.creatorId })
-        .from(form)
-        .where(eq(form.id, id))
-        .limit(1);
-      const previousOwnerId = currentForm?.creatorId;
-
       await db.transaction(async (tx) => {
+        // Read creatorId inside the transaction to avoid a race with concurrent transfers.
+        const [currentForm] = await tx
+          .select({ creatorId: form.creatorId })
+          .from(form)
+          .where(eq(form.id, id))
+          .limit(1);
+        const previousOwnerId = currentForm?.creatorId;
+
         await tx
           .update(form)
           .set({ creatorId: newOwnerUserId })
