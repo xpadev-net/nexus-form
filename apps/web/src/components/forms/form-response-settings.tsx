@@ -2,6 +2,10 @@ import { useMutation } from "@tanstack/react-query";
 import { type FC, useState } from "react";
 import { z } from "zod";
 
+// NOTE: This component initialises its local state from `initialSettings` once
+// on mount. Callers must pass `key={formId}` (or another value that changes
+// with the data) to remount the component when switching forms; otherwise the
+// displayed settings will reflect the stale initial values.
 interface FormResponseSettingsProps {
   formId: string;
   initialSettings: {

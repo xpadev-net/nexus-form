@@ -12,10 +12,12 @@ export const useTelemetryToken = (): TelemetryTokenResult => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["telemetry-token"],
     // Intentionally wraps a POST: the endpoint is idempotent (returns the same
-    // token per session). staleTime: Infinity prevents automatic re-fetches;
-    // callers using refetch() will re-POST by design.
+    // token per session). staleTime and gcTime: Infinity prevent automatic
+    // re-fetches and garbage collection. Do NOT call invalidateQueries on this
+    // key — explicit invalidation would silently re-POST.
     queryFn: () => rpc(client.api.telemetry.v4.$post()),
     staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
     retry: 1,
   });
 
