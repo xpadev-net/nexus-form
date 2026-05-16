@@ -401,7 +401,10 @@ export const s3Router = createHonoApp()
       });
     },
   )
-  .get("/proxy/:bucket/:key{.+}", async (c) => {
+  .get("/proxy/:bucket/:key{.+}", withDualAuth(), async (c) => {
+    const auth = c.get("dualAuthContext");
+    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+
     const bucketAlias = c.req.param("bucket");
     const key = c.req.param("key");
 
@@ -416,9 +419,14 @@ export const s3Router = createHonoApp()
       return c.json({ error: "Invalid key format" }, 400);
     }
 
+    const s3Key = `${bucketAlias}/${key}`;
+
+    if (!isKeyOwnedBy(auth.user_id, s3Key)) {
+      return c.json({ error: "Access denied to key" }, 403);
+    }
+
     const actualBucket =
       bucketAlias === "prod" ? S3_BUCKETS.PROD : S3_BUCKETS.TMP;
-    const s3Key = `${bucketAlias}/${key}`;
 
     const exists = await s3BaseService.objectExists(s3Key, actualBucket);
     if (!exists) {
