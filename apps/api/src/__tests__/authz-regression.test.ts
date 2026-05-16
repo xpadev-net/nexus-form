@@ -43,6 +43,41 @@ vi.mock("@nexus-form/database/schema", () => ({
   formResponse: {},
   fingerprintDetail: {},
   formInvitation: {},
+  formStructure: {},
+  formIntegration: {},
+  externalServiceValidationResult: {},
+}));
+
+vi.mock("../lib/security/hcaptcha", () => ({
+  verifyHCaptcha: vi.fn().mockResolvedValue(true),
+}));
+
+vi.mock("../lib/telemetry/tokens", () => ({
+  consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("../lib/forms/schedule-processor", () => ({
+  processFormSchedule: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../lib/forms/snapshot-repository", () => ({
+  getLatestSnapshot: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("../lib/sessions/jwt", () => ({
+  extractJwtFromRequest: vi.fn().mockReturnValue(null),
+  resolveSessionIdOrCreate: vi
+    .fn()
+    .mockResolvedValue({ sessionId: "s1", jwt: "tok" }),
+  signSessionJwt: vi.fn().mockReturnValue("tok"),
+  verifySessionJwt: vi.fn().mockReturnValue(null),
+}));
+
+vi.mock("@nexus-form/integrations", () => ({
+  providerRegistry: {
+    get: vi.fn().mockReturnValue(undefined),
+    getAll: vi.fn().mockReturnValue([]),
+  },
 }));
 
 vi.mock("better-auth", () => ({
@@ -97,20 +132,20 @@ const EDITOR_ID = "editor-user-id";
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
   let callIdx = 0;
+  const nextResult = () => {
+    const result = resultSets[callIdx] ?? [];
+    callIdx++;
+    return Promise.resolve(result);
+  };
   db.select.mockImplementation(() => ({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockImplementation(() => {
-          const result = resultSets[callIdx] ?? [];
-          callIdx++;
-          return Promise.resolve(result);
-        }),
+        limit: vi.fn().mockImplementation(nextResult),
         for: vi.fn().mockReturnValue({
-          limit: vi.fn().mockImplementation(() => {
-            const result = resultSets[callIdx] ?? [];
-            callIdx++;
-            return Promise.resolve(result);
-          }),
+          limit: vi.fn().mockImplementation(nextResult),
+        }),
+        orderBy: vi.fn().mockReturnValue({
+          limit: vi.fn().mockImplementation(nextResult),
         }),
       }),
     }),
@@ -165,8 +200,11 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
 
   it("throws for share-link VIEWER token when EDITOR is required", async () => {
     const { db } = await import("@nexus-form/database");
-    // getShareLinkRole returns VIEWER
-    mockDbSelectChain(db, [[{ role: "VIEWER" }]]);
+    // form found; share-link found with VIEWER role and active
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [{ id: "link-viewer", role: "VIEWER", isActive: true, formId: FORM_ID }],
+    ]);
 
     const { checkFormPermissionLevel } = await import("../lib/dual-auth");
     const shareViewerCtx: DualAuthContext = {
@@ -248,28 +286,41 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     vi.resetModules();
   });
 
-  it("db.transaction is called during form submission when response limit is set", async () => {
+  it("db.transaction is called during submit when the form has a response limit", async () => {
     const { db } = await import("@nexus-form/database");
+
+    // form found (PUBLISHED), then formStructure containing the response limit
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      [
+        {
+          structureJson: JSON.stringify({
+            settings: { response_limit: { enabled: true, max_responses: 100 } },
+          }),
+        },
+      ],
+    ]);
+
     const txSpy = vi.spyOn(
       db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
       "transaction",
     );
-
-    // Simulate the transaction being called (it's called in the submit handler
-    // after all pre-transaction checks pass). The spy verifies the code path
-    // uses a transaction, which is where the SELECT FOR UPDATE lock occurs.
     txSpy.mockResolvedValue({ limitReached: false });
 
-    // The spy is set up; in production code the transaction wraps:
-    //   1. SELECT form FOR UPDATE
-    //   2. SELECT count(*) FROM formResponse WHERE formId = ?
-    //   3. If count >= max_responses → return { limitReached: true }
-    //   4. Otherwise INSERT formResponse + fingerprintDetails
-    //
-    // This test verifies the transaction function IS accessible on the db
-    // object (i.e., the TOCTOU fix is structurally in place).
-    expect(txSpy).toBeDefined();
-    expect(typeof db.transaction).toBe("function");
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    await formsPublicRouter.request(`/public/test-public-id/submit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        responses: [],
+        captchaToken: "test-captcha-token",
+        telemetry: { v4Token: "tok-v4" },
+        fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+      }),
+    });
+
+    expect(txSpy).toHaveBeenCalledOnce();
     txSpy.mockRestore();
   });
 
