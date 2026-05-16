@@ -191,9 +191,12 @@ export const handleGenericValidation = async (
           : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // Also retry if the provider set a numeric retryAfter on the error object
-    // (used by validation-provider-github for rate-limit back-off).
-    const hasRetryAfter = typeof errObj?.retryAfter === "number";
+    // Also retry if the provider set a strictly positive retryAfter on the error
+    // (used by validation-provider-github for rate-limit back-off). Zero is
+    // treated as unset to avoid retrying on accidental default values.
+    const hasRetryAfter =
+      typeof errObj?.retryAfter === "number" &&
+      (errObj.retryAfter as number) > 0;
     const isRetryable =
       (errorCode !== undefined && RETRYABLE_CODES.has(errorCode)) ||
       (errorStatus !== undefined && RETRYABLE_HTTP_STATUSES.has(errorStatus)) ||
