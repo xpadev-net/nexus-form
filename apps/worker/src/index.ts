@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
 import { handleGenericValidation } from "./handlers/generic-validation";
-import { handleGsDiffSync } from "./handlers/gs-diff-sync";
 import { handleSheetsSync } from "./handlers/sheets-sync";
 import { startQueueMetricsCollection } from "./lib/queue-metrics";
 import { closeLockClient } from "./lib/redis-lock";
@@ -105,7 +104,6 @@ async function main() {
   }
 
   workers.push(createWorker("google-sheets-sync", handleSheetsSync));
-  workers.push(createWorker("google-sheets-diff-sync", handleGsDiffSync));
 
   for (const worker of workers) {
     worker.on("completed", (job) => {

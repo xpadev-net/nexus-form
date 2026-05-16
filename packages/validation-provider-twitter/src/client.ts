@@ -136,12 +136,11 @@ export class TwitterApiClient {
 let twitterClient: TwitterApiClient | null = null;
 
 export function getTwitterClient(config?: TwitterConfig): TwitterApiClient {
-  if (!twitterClient && config) {
-    twitterClient = new TwitterApiClient(config);
+  if (config) {
+    return new TwitterApiClient(config);
   }
   if (!twitterClient) {
-    const defaultConfig = getTwitterConfig();
-    twitterClient = new TwitterApiClient(defaultConfig);
+    twitterClient = new TwitterApiClient(getTwitterConfig());
   }
   return twitterClient;
 }

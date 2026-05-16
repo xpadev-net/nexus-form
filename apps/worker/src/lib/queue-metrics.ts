@@ -21,16 +21,24 @@ export interface QueueMetrics {
   avgProcessingTime?: number;
 }
 
-const STATIC_QUEUE_NAMES = [
-  "google-sheets-sync",
-  "google-sheets-diff-sync",
-] as const;
+const STATIC_QUEUE_NAMES = ["google-sheets-sync"] as const;
 
 function collectQueueNames(): string[] {
   const validationQueues = providerRegistry
     .getNames()
     .map((name) => `${name}-validation`);
   return [...validationQueues, ...STATIC_QUEUE_NAMES];
+}
+
+const queueCache = new Map<string, Queue>();
+
+function getOrCreateQueue(name: string): Queue {
+  let queue = queueCache.get(name);
+  if (!queue) {
+    queue = new Queue(name, { connection: redisConnection });
+    queueCache.set(name, queue);
+  }
+  return queue;
 }
 
 // 前回のメトリクスを保存
@@ -48,7 +56,7 @@ export async function collectQueueMetrics(): Promise<QueueMetrics[]> {
   const metrics: QueueMetrics[] = [];
 
   for (const name of collectQueueNames()) {
-    const queue = new Queue(name, { connection: redisConnection });
+    const queue = getOrCreateQueue(name);
 
     try {
       const [waiting, active, completed, failed, delayed, isPaused] =
@@ -89,8 +97,8 @@ export async function collectQueueMetrics(): Promise<QueueMetrics[]> {
         paused: isPaused,
         avgProcessingTime,
       });
-    } finally {
-      await queue.close();
+    } catch {
+      // Skip metric for this queue on error; logged by the caller
     }
   }
 

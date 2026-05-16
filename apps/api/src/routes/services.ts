@@ -42,24 +42,32 @@ const cacheClearSchema = z.object({
   force: z.boolean().optional(),
 });
 
-type DynamicServiceEntry = {
-  service: string;
-  enabled: boolean;
-  config?: Record<string, unknown>;
-  metadata?: Record<string, unknown>;
-  updatedAt: string;
-};
+const DynamicServiceEntrySchema = z.object({
+  service: z.string(),
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  updatedAt: z.string(),
+});
+
+type DynamicServiceEntry = z.infer<typeof DynamicServiceEntrySchema>;
 
 const DYNAMIC_KEY = "services.dynamic";
 const CONFIG_KEY = "services.config";
 
-async function getSetting<T>(key: string, fallback: T): Promise<T> {
+async function getSetting<T>(
+  key: string,
+  schema: z.ZodType<T>,
+  fallback: T,
+): Promise<T> {
   const [row] = await db
     .select({ value: systemSetting.value })
     .from(systemSetting)
     .where(eq(systemSetting.key, key))
     .limit(1);
-  return (row?.value as T | undefined) ?? fallback;
+  if (row?.value == null) return fallback;
+  const result = schema.safeParse(row.value);
+  return result.success ? result.data : fallback;
 }
 
 async function upsertSetting(
@@ -90,7 +98,7 @@ async function upsertSetting(
 }
 
 async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
-  return await getSetting<DynamicServiceEntry[]>(DYNAMIC_KEY, []);
+  return await getSetting(DYNAMIC_KEY, z.array(DynamicServiceEntrySchema), []);
 }
 
 async function setDynamicServices(
@@ -317,7 +325,7 @@ export const servicesRouter = createHonoApp()
   })
   .get("/config", async (c) => {
     const [config, dynamicSettings] = await Promise.all([
-      getSetting<Record<string, unknown>>(CONFIG_KEY, {}),
+      getSetting(CONFIG_KEY, z.record(z.string(), z.unknown()), {}),
       db
         .select({ key: systemSetting.key, value: systemSetting.value })
         .from(systemSetting)

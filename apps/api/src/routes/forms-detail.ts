@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
-import { db, form } from "@nexus-form/database";
+import { db, form, user } from "@nexus-form/database";
 import {
   apiToken,
   externalServiceValidationResult,
@@ -186,6 +186,16 @@ export const formsDetailRouter = createHonoApp()
     async (c) => {
       const id = c.req.param("id");
       const { newOwnerUserId } = c.req.valid("json");
+
+      const [targetUser] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, newOwnerUserId))
+        .limit(1);
+      if (!targetUser) {
+        return c.json({ error: "User not found" }, 404);
+      }
+
       await db
         .update(form)
         .set({ creatorId: newOwnerUserId })

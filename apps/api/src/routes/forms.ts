@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db, form } from "@nexus-form/database";
-import { desc, eq } from "drizzle-orm";
+import { count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
@@ -15,17 +15,43 @@ const createFormSchema = z.object({
   description: z.string().max(5000).optional(),
 });
 
+const formsListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
 export const formsRouter = createHonoApp()
   .use("*", withDualAuth())
-  .get("/", async (c) => {
+  .get("/", zValidator("query", formsListQuerySchema), async (c) => {
     const auth = c.get("dualAuthContext");
     if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
-    const forms = await db.query.form.findMany({
-      where: eq(form.creatorId, auth.user_id),
-      orderBy: [desc(form.updatedAt)],
+    const { page, limit } = c.req.valid("query");
+    const offset = (page - 1) * limit;
+
+    const [totalResult, forms] = await Promise.all([
+      db
+        .select({ count: count() })
+        .from(form)
+        .where(eq(form.creatorId, auth.user_id)),
+      db.query.form.findMany({
+        where: eq(form.creatorId, auth.user_id),
+        orderBy: [desc(form.updatedAt)],
+        limit,
+        offset,
+      }),
+    ]);
+
+    const total = totalResult[0]?.count ?? 0;
+    const response = FormsListResponseSchema.parse({
+      forms,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     });
-    const response = FormsListResponseSchema.parse({ forms });
     return c.json(response);
   })
   .post("/", zValidator("json", createFormSchema), async (c) => {

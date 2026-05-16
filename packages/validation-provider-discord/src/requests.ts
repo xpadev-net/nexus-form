@@ -22,14 +22,13 @@ import {
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-const limit = pLimit(1);
+const limit = pLimit(3);
 
 const discordFetchWithRetry = async (
   url: string,
   init: RequestInit,
 ): Promise<Response> => {
   return limit(async () => {
-    await sleep(500);
     const response = await fetch(url, init);
     if (response.status === 429) {
       const data = ZDiscordRateLimitResponse.parse(await response.json());

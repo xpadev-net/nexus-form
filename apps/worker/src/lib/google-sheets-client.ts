@@ -54,13 +54,13 @@ async function fetchGoogleSheetsAPI<T = unknown>(opts: {
   });
   if (!res.ok) {
     const retryAfter = res.headers.get("retry-after");
-    const err = new Error(`Google Sheets API error: ${res.status}`);
-    const ext = err as unknown as {
-      status?: number;
-      retryAfterSeconds?: number;
-    };
-    ext.status = res.status;
-    if (retryAfter) ext.retryAfterSeconds = Number(retryAfter);
+    const err = Object.assign(
+      new Error(`Google Sheets API error: ${res.status}`),
+      {
+        status: res.status,
+        ...(retryAfter ? { retryAfterSeconds: Number(retryAfter) } : {}),
+      },
+    );
     throw err;
   }
   return res.json() as Promise<T>;
