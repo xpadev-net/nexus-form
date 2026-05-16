@@ -263,16 +263,6 @@ export const authRouteRateLimiter = async (c: Context, next: Next) => {
 };
 
 /**
- * 招待エンドポイント用レート制限
- * 15分間に5リクエスト
- */
-export const inviteRateLimiter = createRateLimit({
-  windowMs: 15 * 60 * 1000,
-  maxRequests: 5,
-  keyGenerator: (c) => `rate_limit:invite:${getClientIp(c)}`,
-});
-
-/**
  * 一般APIエンドポイント用レート制限
  * 1分間に60リクエスト
  */

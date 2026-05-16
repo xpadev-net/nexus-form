@@ -60,6 +60,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
   return streamSSE(c, async (stream) => {
     activeConnections++;
     let subscriber: Redis | null = null;
+    let keepalive: ReturnType<typeof setInterval> | null = null;
 
     try {
       subscriber = createSubscriber();
@@ -83,7 +84,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
       await subscriber.subscribe(channel);
 
       // Keepalive: 30秒ごとにコメントを送信して接続を維持
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         stream
           .writeSSE({
             event: "keepalive",
@@ -97,7 +98,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
       // クライアント切断時のクリーンアップ + ストリーム待機
       await new Promise<void>((resolve) => {
         stream.onAbort(() => {
-          clearInterval(keepalive);
+          if (keepalive !== null) clearInterval(keepalive);
           subscriber?.unsubscribe(channel).catch(() => {});
           subscriber?.quit().catch(() => {});
           activeConnections--;
@@ -105,6 +106,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
         });
       });
     } catch (err) {
+      if (keepalive !== null) clearInterval(keepalive);
       activeConnections--;
       subscriber?.quit().catch(() => {});
       throw err;

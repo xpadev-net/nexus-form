@@ -12,7 +12,7 @@ export const formsInvitesRouter = createHonoApp()
     createRateLimit({
       windowMs: 15 * 60 * 1000,
       maxRequests: 5,
-      keyGenerator: (c) => `rate_limit:invite:${getClientIp(c)}`,
+      keyGenerator: (c) => `rate_limit:invite:view:${getClientIp(c)}`,
     }),
     async (c) => {
       const token = c.req.param("token");
@@ -38,12 +38,12 @@ export const formsInvitesRouter = createHonoApp()
   )
   .post(
     "/invites/:token/accept",
-    withDualAuth(),
     createRateLimit({
       windowMs: 15 * 60 * 1000,
       maxRequests: 5,
-      keyGenerator: (c) => `rate_limit:invite:${getClientIp(c)}`,
+      keyGenerator: (c) => `rate_limit:invite:accept:${getClientIp(c)}`,
     }),
+    withDualAuth(),
     async (c) => {
       const token = c.req.param("token");
       const auth = c.get("dualAuthContext");
