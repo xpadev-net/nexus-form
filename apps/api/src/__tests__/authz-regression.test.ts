@@ -260,12 +260,11 @@ describe("R2-H1: Fingerprint /save is blocked for VIEWER (hasEditPermission)", (
     expect(await hasEditPermission(editorCtx, FORM_ID)).toBe(true);
   });
 
-  it("returns false for api_token without write/admin scope even if EDITOR", async () => {
+  it("returns false for api_token missing write/admin scope — DB is never consulted", async () => {
     const { db } = await import("@nexus-form/database");
-    mockDbSelectChain(db, [
-      [{ id: FORM_ID, creatorId: OWNER_ID }],
-      [{ role: "EDITOR" }],
-    ]);
+    // Capture baseline before the call so accumulated prior-test counts don't interfere.
+    const dbSelect = (db as { select: ReturnType<typeof vi.fn> }).select;
+    const callsBefore = dbSelect.mock.calls.length;
 
     const { hasEditPermission } = await import("../lib/dual-auth");
     const readOnlyTokenCtx: DualAuthContext = {
@@ -276,6 +275,8 @@ describe("R2-H1: Fingerprint /save is blocked for VIEWER (hasEditPermission)", (
     };
 
     expect(await hasEditPermission(readOnlyTokenCtx, FORM_ID)).toBe(false);
+    // scope check short-circuits at line 610 of dual-auth.ts before any DB call
+    expect(dbSelect.mock.calls.length).toBe(callsBefore);
   });
 });
 
@@ -301,11 +302,31 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       ],
     ]);
 
+    // txSelectSpy witnesses every SELECT that runs inside the transaction.
+    // If a future change moves the count check outside the transaction,
+    // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
+    const txSelectSpy = vi.fn().mockReturnValue({
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue(
+          // Awaitable as-is (count check) and supports .for("update") (lock query).
+          Object.assign(Promise.resolve([{ count: 0 }]), {
+            for: vi.fn().mockResolvedValue([]),
+          }),
+        ),
+      }),
+    });
+    const txMock = {
+      select: txSelectSpy,
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockResolvedValue(undefined),
+      }),
+    };
+
     const txSpy = vi.spyOn(
       db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
       "transaction",
     );
-    txSpy.mockResolvedValue({ limitReached: false });
+    txSpy.mockImplementation(async (fn) => fn(txMock));
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -321,6 +342,8 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     });
 
     expect(txSpy).toHaveBeenCalledOnce();
+    // Verify the count check (and FOR UPDATE lock) ran inside the transaction.
+    expect(txSelectSpy).toHaveBeenCalled();
     txSpy.mockRestore();
   });
 
