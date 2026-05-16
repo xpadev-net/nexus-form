@@ -49,7 +49,13 @@ const VALIDATION_PLUGINS_DIR =
   process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
 
 const getCorsOrigins = (): string[] => {
-  const origins: string[] = ["http://localhost:3000"];
+  const origins: string[] = [];
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    origins.push("http://localhost:3000");
+  }
   const trustedOrigins = process.env.TRUSTED_ORIGINS;
   if (trustedOrigins) {
     for (const origin of trustedOrigins.split(",")) {
@@ -59,7 +65,13 @@ const getCorsOrigins = (): string[] => {
       }
     }
   }
-  return [...new Set(origins)];
+  const result = [...new Set(origins)];
+  if (process.env.NODE_ENV === "production" && result.length === 0) {
+    console.warn(
+      "[cors] TRUSTED_ORIGINS is not set — all cross-origin requests will be blocked in production",
+    );
+  }
+  return result;
 };
 
 const app = new Hono()
