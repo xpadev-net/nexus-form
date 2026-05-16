@@ -331,12 +331,13 @@ export const integrationsGoogleRouter = createHonoApp()
       .filter((file) => typeof file.id === "string")
       .map((file) => ({ id: file.id as string, name: file.name }));
 
-    return c.json(
-      GoogleSpreadsheetsResponseSchema.parse({
-        spreadsheets,
-        nextPageToken: raw.nextPageToken,
-      }),
-    );
+    const parsed = GoogleSpreadsheetsResponseSchema.safeParse({
+      spreadsheets,
+      nextPageToken: raw.nextPageToken,
+    });
+    if (!parsed.success)
+      return c.json({ error: "Unexpected response from Google API" }, 502);
+    return c.json(parsed.data);
   })
   .get("/spreadsheets/:id/sheets", async (c) => {
     const user = requireSessionUser(c);
@@ -371,5 +372,8 @@ export const integrationsGoogleRouter = createHonoApp()
       }))
       .filter((entry) => entry.title.length > 0);
 
-    return c.json(GoogleSheetsResponseSchema.parse({ sheets }));
+    const parsedSheets = GoogleSheetsResponseSchema.safeParse({ sheets });
+    if (!parsedSheets.success)
+      return c.json({ error: "Unexpected response from Google API" }, 502);
+    return c.json(parsedSheets.data);
   });
