@@ -217,7 +217,6 @@ export const apiToken = mysqlTable(
     index("ApiToken_userId_idx").on(table.userId),
     index("ApiToken_isActive_idx").on(table.isActive),
     index("ApiToken_type_idx").on(table.type),
-    index("ApiToken_tokenHash_idx").on(table.tokenHash),
     index("ApiToken_lookupHash_idx").on(table.lookupHash),
     index("ApiToken_shareLinkId_idx").on(table.shareLinkId),
   ],
@@ -274,7 +273,6 @@ export const formShareLink = mysqlTable(
   },
   (table) => [
     index("FormShareLink_formId_idx").on(table.formId),
-    index("FormShareLink_token_idx").on(table.token),
     index("FormShareLink_isActive_idx").on(table.isActive),
     index("FormShareLink_expiresAt_idx").on(table.expiresAt),
     index("FormShareLink_createdBy_idx").on(table.createdBy),
@@ -334,7 +332,6 @@ export const formInvitation = mysqlTable(
     ),
     index("FormInvitation_formId_idx").on(table.formId),
     index("FormInvitation_email_idx").on(table.email),
-    index("FormInvitation_token_idx").on(table.token),
     index("FormInvitation_status_idx").on(table.status),
     index("FormInvitation_expiresAt_idx").on(table.expiresAt),
     index("FormInvitation_invitedBy_idx").on(table.invitedBy),
@@ -462,8 +459,6 @@ export const userInvite = mysqlTable(
     acceptedAt: timestamp("acceptedAt"),
   },
   (table) => [
-    index("UserInvite_email_idx").on(table.email),
-    index("UserInvite_token_idx").on(table.token),
     index("UserInvite_status_idx").on(table.status),
     index("UserInvite_expiresAt_idx").on(table.expiresAt),
   ],
@@ -520,7 +515,6 @@ export const telemetryToken = mysqlTable(
     expiresAt: timestamp("expiresAt"),
   },
   (table) => [
-    index("TelemetryToken_token_idx").on(table.token),
     index("TelemetryToken_ip_idx").on(table.ip),
     index("TelemetryToken_version_idx").on(table.version),
     index("TelemetryToken_usedAt_idx").on(table.usedAt),

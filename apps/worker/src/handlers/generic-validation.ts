@@ -116,6 +116,7 @@ export const handleGenericValidation = async (
   try {
     providerConfig = providerRule.configSchema.parse(sanitizedConfig);
   } catch (zodError) {
+    console.error("[generic-validation] CONFIG_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -124,10 +125,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "CONFIG_VALIDATION_ERROR",
-      errorMessage:
-        zodError instanceof Error
-          ? zodError.message
-          : "Invalid provider config",
+      errorMessage: "Invalid provider configuration",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Config validation failed" };
@@ -137,6 +135,7 @@ export const handleGenericValidation = async (
   try {
     validatedInput = providerRule.inputSchema.parse(referencedValue);
   } catch (zodError) {
+    console.error("[generic-validation] INPUT_VALIDATION_ERROR", zodError);
     await writeValidationResult({
       responseId,
       formId,
@@ -145,8 +144,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "INPUT_VALIDATION_ERROR",
-      errorMessage:
-        zodError instanceof Error ? zodError.message : "Invalid input",
+      errorMessage: "Invalid input format",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Input validation failed" };
@@ -157,6 +155,10 @@ export const handleGenericValidation = async (
       validatedInput = providerRule.normalizeInput(validatedInput);
       validatedInput = providerRule.inputSchema.parse(validatedInput);
     } catch (normalizeError) {
+      console.error(
+        "[generic-validation] INPUT_VALIDATION_ERROR (normalize)",
+        normalizeError,
+      );
       await writeValidationResult({
         responseId,
         formId,
@@ -165,10 +167,7 @@ export const handleGenericValidation = async (
         service: serviceType,
         success: false,
         errorCode: "INPUT_VALIDATION_ERROR",
-        errorMessage:
-          normalizeError instanceof Error
-            ? normalizeError.message
-            : "Input normalization failed",
+        errorMessage: "Input normalization failed",
         jobId: job.id?.toString(),
       });
       return { ok: false, error: "Input normalization failed" };
@@ -228,6 +227,10 @@ export const handleGenericValidation = async (
 
   const resultParse = validationProviderResultSchema.safeParse(rawResult);
   if (!resultParse.success) {
+    console.error(
+      "[generic-validation] VALIDATION_RESULT_MALFORMED",
+      resultParse.error,
+    );
     await writeValidationResult({
       responseId,
       formId,
@@ -236,7 +239,7 @@ export const handleGenericValidation = async (
       service: serviceType,
       success: false,
       errorCode: "VALIDATION_RESULT_MALFORMED",
-      errorMessage: `Provider returned malformed result: ${resultParse.error.message}`,
+      errorMessage: "Provider returned invalid result",
       jobId: job.id?.toString(),
     });
     return { ok: false, error: "Provider returned malformed result" };
