@@ -405,6 +405,51 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it.each([
+    "NETWORK_ERROR",
+    "TIMEOUT",
+    "GITHUB_API_RATE_LIMIT",
+  ])("リトライ可能なエラーはスローして再キューさせる (プロバイダードメインコード %s)", async (code) => {
+    const domainErr = Object.assign(new Error(`Provider error: ${code}`), {
+      code,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(domainErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      `Provider error: ${code}`,
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("retryAfterプロパティを持つエラーはリトライさせる", async () => {
+    const rateLimitErr = Object.assign(new Error("GitHub rate limit"), {
+      code: "GITHUB_API_RATE_LIMIT",
+      retryAfter: 60_000,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(rateLimitErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "GitHub rate limit",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("文字列のみのエラーメッセージはリトライしない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(new Error("rate limit exceeded")),
