@@ -323,7 +323,47 @@ describe("handleGenericValidation", () => {
     );
   });
 
-  it("リトライ可能なエラーはスローして再キューさせる", async () => {
+  it("リトライ可能なエラーはスローして再キューさせる (HTTP 429)", async () => {
+    const rateLimitErr = Object.assign(new Error("Rate Limit Exceeded"), {
+      status: 429,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(rateLimitErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Rate Limit Exceeded",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("リトライ可能なエラーはスローして再キューさせる (Node.js ETIMEDOUT)", async () => {
+    const timeoutErr = Object.assign(new Error("Connection timed out"), {
+      code: "ETIMEDOUT",
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(timeoutErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Connection timed out",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("文字列のみのエラーメッセージはリトライしない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockRejectedValue(new Error("rate limit exceeded")),
     });
@@ -334,10 +374,11 @@ describe("handleGenericValidation", () => {
       referencedBlockId: "block-a",
     });
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      "rate limit exceeded",
+    const result = await handleGenericValidation(job);
+    expect(result).toEqual({ ok: false, error: "rate limit exceeded" });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: "VALIDATION_ERROR" }),
     );
-    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("sanitizeConfigが存在する場合に設定を変換してから渡す", async () => {

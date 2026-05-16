@@ -175,11 +175,7 @@ export const handleGenericValidation = async (
       errorCode === "ENOTFOUND" ||
       errorCode === "ECONNRESET" ||
       errorCode === "EAI_AGAIN" ||
-      errorStatus === 429 ||
-      errorMessage.includes("rate limit") ||
-      errorMessage.includes("timeout") ||
-      errorMessage.includes("ETIMEDOUT") ||
-      errorMessage.includes("ECONNREFUSED");
+      errorStatus === 429;
 
     if (isRetryable) {
       throw error;
