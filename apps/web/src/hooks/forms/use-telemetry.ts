@@ -1,20 +1,18 @@
-import { useMutation } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
 export const useTelemetryToken = () => {
-  const mutation = useMutation({
-    mutationFn: () => rpc(client.api.telemetry.v4.$post()),
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["telemetry-token"],
+    queryFn: () => rpc(client.api.telemetry.v4.$post()),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
   });
 
-  useEffect(() => {
-    mutation.mutate();
-  }, [mutation.mutate]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return {
-    token: mutation.data?.token ?? null,
-    isLoading: mutation.isPending,
-    error: mutation.error,
-    refetch: () => mutation.mutate(),
+    token: data?.token ?? null,
+    isLoading,
+    error,
+    refetch,
   };
 };

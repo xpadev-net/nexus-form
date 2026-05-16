@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { type FC, useEffect, useState } from "react";
+import { type FC, useState } from "react";
 import { z } from "zod";
 
 interface FormResponseSettingsProps {
@@ -18,9 +18,6 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
   onSaved,
 }) => {
   const [settings, setSettings] = useState(initialSettings);
-  useEffect(() => {
-    setSettings(initialSettings);
-  }, [initialSettings]);
 
   const saveMutation = useMutation({
     // NOTE: PATCH /:id/settings/responses はサーバー側に未定義のため raw fetch を使用

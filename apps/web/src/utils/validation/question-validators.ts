@@ -1113,6 +1113,9 @@ export const validateQuestion = (
     };
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: Complex union type requires any for dynamic dispatch
-  return (validator as any)(question, response);
+  type GenericValidator = (
+    question: Block,
+    response: ResponseData,
+  ) => ValidationResult;
+  return (validator as GenericValidator)(question, response);
 };

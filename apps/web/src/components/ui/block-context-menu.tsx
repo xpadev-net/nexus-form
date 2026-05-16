@@ -123,7 +123,7 @@ export function BlockContextMenu({ children }: { children: ReactNode }) {
 
           if (disabled) return event.preventDefault();
 
-          setTimeout(() => {
+          window.setTimeout(() => {
             api.blockMenu.show(BLOCK_CONTEXT_MENU_ID, {
               x: event.clientX,
               y: event.clientY,
