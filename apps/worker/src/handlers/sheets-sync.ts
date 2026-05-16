@@ -16,7 +16,11 @@ import {
   updateRange,
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
-import { withRedisLock } from "../lib/redis-lock";
+import {
+  idempotencyKeyExists,
+  setIdempotencyKey,
+  withRedisLock,
+} from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
 
 export type SheetsSyncJob = {
@@ -123,9 +127,23 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   await job.updateProgress(40);
 
   // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
-  // BullMQ jobId deduplication (sheets:{integrationId}:{responseId}) prevents
-  // duplicate jobs, so an O(N) Response ID column scan is no longer needed.
+  // BullMQ jobId deduplication prevents duplicate concurrent jobs.
+  // A Redis idempotency key guards against duplicate rows on BullMQ retries
+  // (jobId dedup only applies while the job is still in the queue).
   return await withRedisLock(`sheets-sync:${integrationId}`, async () => {
+    // Idempotency check: skip if this response was already written (e.g. prior
+    // attempt wrote the row but crashed before the job completed).
+    const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
+    if (await idempotencyKeyExists(idempotencyKey)) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: "duplicate",
+        provider: "google-sheets",
+        jobId: job.id,
+      };
+    }
+
     // 5. ヘッダー行を読み取り
     const headerData = await readRange(token, {
       spreadsheetId,
@@ -197,6 +215,9 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       throw new Error(`Failed to append rows: ${appendResult.error.message}`);
     }
     await job.updateProgress(100);
+
+    // Mark row as written so retries are idempotent (24h TTL covers all retry windows)
+    await setIdempotencyKey(idempotencyKey, 86_400);
 
     return {
       ok: true,

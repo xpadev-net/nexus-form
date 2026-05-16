@@ -65,6 +65,19 @@ export interface RedisLockOptions {
   retryDelayMs?: number;
 }
 
+/** 冪等性キーが存在するかチェックする。withRedisLock と同一接続を再利用。 */
+export async function idempotencyKeyExists(key: string): Promise<boolean> {
+  return (await getLockClient().exists(key)) === 1;
+}
+
+/** 冪等性キーを TTL 付きでセットする。withRedisLock と同一接続を再利用。 */
+export async function setIdempotencyKey(
+  key: string,
+  ttlSeconds: number,
+): Promise<void> {
+  await getLockClient().set(key, "1", "EX", ttlSeconds);
+}
+
 /**
  * `key` のロックを取得してから `fn` を実行し、完了後に解放する。
  *
