@@ -15,6 +15,19 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
 
+export class ConcurrentDeleteError extends Error {
+  constructor(
+    public readonly responseId: string,
+    public readonly ruleId: string,
+    public readonly referencedBlockId: string,
+  ) {
+    super(
+      `markValidationProcessing: row deleted concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
+    );
+    this.name = "ConcurrentDeleteError";
+  }
+}
+
 export class ReferencedBlockMissingError extends Error {
   constructor(
     public readonly formId: string,
@@ -209,10 +222,20 @@ export async function markValidationProcessing(params: {
     );
   }
 
-  await db
+  const updateResult = await db
     .update(externalServiceValidationResult)
     .set({ status: "PROCESSING" })
     .where(eq(externalServiceValidationResult.id, existing.id));
+
+  // mysql2 includes CLIENT_FOUND_ROWS by default, so affectedRows counts matched
+  // rows (not changed rows). affectedRows === 0 therefore means the row is gone.
+  if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+    throw new ConcurrentDeleteError(
+      params.responseId,
+      params.ruleId,
+      params.referencedBlockId,
+    );
+  }
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
