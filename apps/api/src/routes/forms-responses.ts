@@ -97,7 +97,7 @@ async function enqueueValidationRetries(
     liveRuleType: string | null;
     liveConfigJson: unknown;
   }>,
-): Promise<{ jobIds: string[]; enqueuedCount: number }> {
+): Promise<{ jobIds: string[]; enqueuedCount: number; skippedCount: number }> {
   // MISSING は参照ブロック自体が存在しないため retry 不可。
   const retryable = results.filter((r) => r.status !== "MISSING");
   for (const r of results) {
@@ -111,7 +111,8 @@ async function enqueueValidationRetries(
   const validResults = retryable.filter(
     (r): r is typeof r & { service: string } => r.service != null,
   );
-  if (validResults.length === 0) return { jobIds: [], enqueuedCount: 0 };
+  if (validResults.length === 0)
+    return { jobIds: [], enqueuedCount: 0, skippedCount: results.length };
 
   // ルールが draft から削除されている場合、active スナップショットをフォールバックとして使用する。
   const needsFallback = validResults.filter(
@@ -250,7 +251,11 @@ async function enqueueValidationRetries(
     enqueuedCount++;
   }
 
-  return { jobIds, enqueuedCount };
+  return {
+    jobIds,
+    enqueuedCount,
+    skippedCount: results.length - enqueuedCount,
+  };
 }
 
 export const formsResponsesRouter = createHonoApp()
@@ -732,7 +737,8 @@ export const formsResponsesRouter = createHonoApp()
       }
 
       // PENDING リセットは enqueueValidationRetries 内で per-row にアトミックに行う
-      const { jobIds, enqueuedCount } = await enqueueValidationRetries(targets);
+      const { jobIds, enqueuedCount, skippedCount } =
+        await enqueueValidationRetries(targets);
 
       if (enqueuedCount === 0) {
         return c.json(
@@ -740,6 +746,7 @@ export const formsResponsesRouter = createHonoApp()
             error:
               "No validation jobs could be enqueued; check service configuration",
             enqueued: 0,
+            skipped: skippedCount,
             jobIds: [],
           },
           422,
@@ -749,6 +756,7 @@ export const formsResponsesRouter = createHonoApp()
       return c.json(
         ValidationRetryResponseSchema.parse({
           enqueued: enqueuedCount,
+          skipped: skippedCount,
           jobIds,
         }),
       );
@@ -821,7 +829,8 @@ export const formsResponsesRouter = createHonoApp()
       }
 
       // PENDING リセットは enqueueValidationRetries 内で per-row にアトミックに行う
-      const { jobIds, enqueuedCount } = await enqueueValidationRetries(rows);
+      const { jobIds, enqueuedCount, skippedCount } =
+        await enqueueValidationRetries(rows);
 
       if (enqueuedCount === 0) {
         return c.json(
@@ -829,6 +838,7 @@ export const formsResponsesRouter = createHonoApp()
             error:
               "No validation jobs could be enqueued; check service configuration",
             enqueued: 0,
+            skipped: skippedCount,
             jobIds: [],
           },
           422,
@@ -838,6 +848,7 @@ export const formsResponsesRouter = createHonoApp()
       return c.json(
         ValidationRetryResponseSchema.parse({
           enqueued: enqueuedCount,
+          skipped: skippedCount,
           jobIds,
         }),
       );

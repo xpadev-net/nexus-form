@@ -239,6 +239,7 @@ export type BulkDeleteResponse = z.infer<typeof BulkDeleteResponseSchema>;
 /** POST /:id/responses/validation/bulk-retry および /:responseId/validation/retry のレスポンス。 */
 export const ValidationRetryResponseSchema = z.object({
   enqueued: z.number().int(),
+  skipped: z.number().int(),
   jobIds: z.array(z.string()),
 });
 export type ValidationRetryResponse = z.infer<

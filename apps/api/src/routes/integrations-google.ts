@@ -22,6 +22,19 @@ const authorizeQuerySchema = z.object({
   prompt: z.string().optional(),
 });
 
+const googleTokenRefreshResponseSchema = z.object({
+  access_token: z.string(),
+  expires_in: z.number(),
+  scope: z.string().optional(),
+});
+
+const googleTokenExchangeResponseSchema = z.object({
+  access_token: z.string(),
+  refresh_token: z.string().optional(),
+  expires_in: z.number(),
+  scope: z.string().optional(),
+});
+
 const callbackQuerySchema = z.object({
   code: z.string().optional(),
   state: z.string().optional(),
@@ -134,11 +147,11 @@ async function refreshIfNeeded(
   });
   if (!response.ok) return null;
 
-  const json = (await response.json()) as {
-    access_token: string;
-    expires_in: number;
-    scope?: string;
-  };
+  const parsed = googleTokenRefreshResponseSchema.safeParse(
+    await response.json(),
+  );
+  if (!parsed.success) return null;
+  const json = parsed.data;
 
   const updated: StoredGoogleToken = {
     ...token,
@@ -267,12 +280,13 @@ export const integrationsGoogleRouter = createHonoApp()
       return c.json({ error: "Failed to exchange token" }, 502);
     }
 
-    const json = (await response.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in: number;
-      scope?: string;
-    };
+    const tokenParsed = googleTokenExchangeResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (!tokenParsed.success) {
+      return c.json({ error: "Unexpected token response format" }, 502);
+    }
+    const json = tokenParsed.data;
 
     if (!json.refresh_token) {
       return c.json({ error: "refresh_token not returned" }, 502);

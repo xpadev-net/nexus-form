@@ -28,9 +28,6 @@ This repository is a **pnpm workspace monorepo** orchestrated by **Turborepo**. 
 | `@nexus-form/validation-provider-github` | 組み込み GitHub バリデーター |
 | `@nexus-form/validation-provider-twitter` | 組み込み Twitter バリデーター |
 
-### Root-level legacy code (`src/`, `prisma/`)
-ルート直下の `src/` と `prisma/` は旧 Next.js 単体アプリの残存コードです。新規開発は `apps/` と `packages/` 配下で行ってください。
-
 ### Key config files
 - `pnpm-workspace.yaml` — ワークスペース定義 (`apps/*`, `packages/*`)
 - `turbo.json` — Turborepo タスクパイプライン
@@ -94,7 +91,7 @@ Processing speed varies widely by environment, so do not add performance tests t
 Follow the existing history by writing short, imperative commit subjects (e.g., `Add contact form route`). Push atomic commits that group related changes and leave formatting noise to Biome. Pull requests should describe the motivation, note affected packages/apps, link open issues, and include screenshots or clips for UI updates. Confirm linting and production build steps in the PR checklist before requesting review.
 
 ## Environment & Configuration Tips
-Environment variables live in `.env.local` (git-ignored); document any new keys in the PR summary with usage notes. `docker-compose.yml` で MySQL, Redis, MinIO をローカル起動できます。Tailwind は `@tailwindcss/vite` (Web) および `@tailwindcss/postcss` (レガシー) 経由で提供されます。
+Environment variables live in `.env.local` (git-ignored); document any new keys in the PR summary with usage notes. `docker-compose.yml` で MySQL, Redis, MinIO をローカル起動できます。Tailwind は `@tailwindcss/vite` (Web) 経由で提供されます。
 
 ## Additional Agent Rules
 - Always run `pnpm lint:fix`, `pnpm type-check`, and `pnpm test --silent` before declaring a task complete, even if the changes seem small.

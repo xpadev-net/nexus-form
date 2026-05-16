@@ -159,7 +159,14 @@ export const handleGenericValidation = async (
   try {
     rawResult = await providerRule.validate(validatedInput, providerConfig);
   } catch (error) {
-    const errorCode = (error as { code?: string }).code;
+    const errObj =
+      error !== null && typeof error === "object"
+        ? (error as Record<string, unknown>)
+        : null;
+    const errorCode =
+      typeof errObj?.code === "string" ? errObj.code : undefined;
+    const errorStatus =
+      typeof errObj?.status === "number" ? errObj.status : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     const isRetryable =
@@ -168,9 +175,8 @@ export const handleGenericValidation = async (
       errorCode === "ENOTFOUND" ||
       errorCode === "ECONNRESET" ||
       errorCode === "EAI_AGAIN" ||
-      errorCode === "429" ||
+      errorStatus === 429 ||
       errorMessage.includes("rate limit") ||
-      errorMessage.includes("429") ||
       errorMessage.includes("timeout") ||
       errorMessage.includes("ETIMEDOUT") ||
       errorMessage.includes("ECONNREFUSED");

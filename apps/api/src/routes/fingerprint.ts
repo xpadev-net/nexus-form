@@ -4,7 +4,6 @@ import { db } from "@nexus-form/database";
 import { fingerprintDetail, formResponse } from "@nexus-form/database/schema";
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
-import type { DualAuthContext } from "../lib/dual-auth";
 import { checkFormAccess, withDualAuth } from "../lib/dual-auth";
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
@@ -67,7 +66,8 @@ export const fingerprintRouter = createHonoApp()
     zValidator("json", saveFingerprintSchema),
     async (c) => {
       const payload = c.req.valid("json");
-      const context = c.get("dualAuthContext") as DualAuthContext;
+      const context = c.get("dualAuthContext");
+      if (!context) return c.json({ error: "Unauthorized" }, 401);
 
       const [response] = await db
         .select({ id: formResponse.id, formId: formResponse.formId })
@@ -121,7 +121,8 @@ export const fingerprintRouter = createHonoApp()
     zValidator("query", getFingerprintQuerySchema),
     async (c) => {
       const { responseId, formId } = c.req.valid("query");
-      const context = c.get("dualAuthContext") as DualAuthContext;
+      const context = c.get("dualAuthContext");
+      if (!context) return c.json({ error: "Unauthorized" }, 401);
 
       if (!responseId && !formId) {
         return c.json({ error: "responseId or formId is required" }, 400);
@@ -178,7 +179,8 @@ export const fingerprintRouter = createHonoApp()
     zValidator("query", anonymizedQuerySchema),
     async (c) => {
       const { responseId, formId, includeStats } = c.req.valid("query");
-      const context = c.get("dualAuthContext") as DualAuthContext;
+      const context = c.get("dualAuthContext");
+      if (!context) return c.json({ error: "Unauthorized" }, 401);
       if (!responseId && !formId) {
         return c.json({ error: "responseId or formId is required" }, 400);
       }

@@ -50,7 +50,12 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     throw new Error("Form integration config_json is empty");
   }
 
-  const rawConfig = JSON.parse(configJson) as Record<string, unknown>;
+  let rawConfig: Record<string, unknown>;
+  try {
+    rawConfig = JSON.parse(configJson) as Record<string, unknown>;
+  } catch {
+    throw new Error("Form integration config_json is not valid JSON");
+  }
   const googleSheetsConfig = (rawConfig.googleSheets ?? rawConfig) as Record<
     string,
     unknown

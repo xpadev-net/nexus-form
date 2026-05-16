@@ -14,7 +14,7 @@ export const useForms = () => {
 
   const formsQuery = useQuery({
     queryKey: ["forms"],
-    queryFn: () => rpc(client.api.forms.$get()),
+    queryFn: () => rpc(client.api.forms.$get({ query: {} })),
   });
 
   const createFormMutation = useMutation({

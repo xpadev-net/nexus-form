@@ -29,6 +29,12 @@ export type FormRow = z.infer<typeof FormRowSchema>;
 /** GET / （フォーム一覧）のレスポンス。 */
 export const FormsListResponseSchema = z.object({
   forms: z.array(FormRowSchema),
+  pagination: z.object({
+    total: z.number().int(),
+    page: z.number().int(),
+    limit: z.number().int(),
+    totalPages: z.number().int(),
+  }),
 });
 export type FormsListResponse = z.infer<typeof FormsListResponseSchema>;
 

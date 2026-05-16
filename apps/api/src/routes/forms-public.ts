@@ -82,36 +82,48 @@ const verifyPasswordSchema = z.object({
 
 // ── Types ────────────────────────────────────────────────────────────
 
-interface PasswordProtection {
-  enabled?: boolean;
-  password?: string;
-  password_hint?: string;
-}
+const PasswordProtectionSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    password: z.string().optional(),
+    password_hint: z.string().optional(),
+  })
+  .passthrough();
 
-interface ResponseLimit {
-  enabled: boolean;
-  max_responses: number;
-  message?: string;
-}
+const ResponseLimitSchema = z
+  .object({
+    enabled: z.boolean(),
+    max_responses: z.number().int(),
+    message: z.string().optional(),
+  })
+  .passthrough();
 
-interface ParsedStructure {
-  version?: number;
-  settings?: {
-    response_limit?: ResponseLimit;
-    [key: string]: unknown;
-  };
-  access_control?: {
-    password_protection?: PasswordProtection;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
+const ParsedStructureSchema = z
+  .object({
+    version: z.number().optional(),
+    settings: z
+      .object({ response_limit: ResponseLimitSchema.optional() })
+      .passthrough()
+      .optional(),
+    access_control: z
+      .object({
+        password_protection: PasswordProtectionSchema.optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+type ParsedStructure = z.infer<typeof ParsedStructureSchema>;
+type PasswordProtection = z.infer<typeof PasswordProtectionSchema>;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function parseStructure(structureJson: string): ParsedStructure | null {
   try {
-    return JSON.parse(structureJson) as ParsedStructure;
+    const parsed: unknown = JSON.parse(structureJson);
+    const result = ParsedStructureSchema.safeParse(parsed);
+    return result.success ? result.data : null;
   } catch {
     return null;
   }
@@ -346,9 +358,7 @@ export const formsPublicRouter = createHonoApp()
       }
 
       // 7. Response limit check
-      const responseLimit = parsedStructure?.settings?.response_limit as
-        | ResponseLimit
-        | undefined;
+      const responseLimit = parsedStructure?.settings?.response_limit;
 
       if (responseLimit?.enabled && responseLimit.max_responses) {
         const [existingCount] = await db
