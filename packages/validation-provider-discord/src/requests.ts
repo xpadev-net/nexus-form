@@ -42,6 +42,7 @@ const discordFetchWithRetry = async (
         await sleep(retryData.retry_after * 1000 * 2);
         const finalResponse = await fetch(url, init);
         if (finalResponse.status === 429) {
+          await finalResponse.body?.cancel();
           throw new DiscordHttpError(
             429,
             "Discord rate limit exceeded after 3 attempts",
