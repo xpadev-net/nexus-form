@@ -16,6 +16,7 @@ import {
   updateRange,
 } from "../lib/google-sheets-client";
 import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
+import { withRedisLock } from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
 
 export type SheetsSyncJob = {
@@ -126,106 +127,90 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   }
   await job.updateProgress(40);
 
-  // 5. ヘッダー行を読み取り
-  const headerData = await readRange(token, {
-    spreadsheetId,
-    rangeA1: `${sheetName}!1:1`,
-  });
-
-  let existingHeaders: string[] = [];
-  if (headerData.ok && headerData.data.values.length > 0) {
-    existingHeaders = headerData.data.values[0] ?? [];
-
-    // 重複チェック: Response ID 列のみを読み取る
-    const responseIdColIndex = existingHeaders.indexOf(RESPONSE_ID_HEADER);
-    if (responseIdColIndex >= 0) {
-      const colLetter = columnIndexToLetter(responseIdColIndex);
-      const colData = await readRange(token, {
-        spreadsheetId,
-        rangeA1: `${sheetName}!${colLetter}:${colLetter}`,
-      });
-      if (colData.ok) {
-        for (let i = 1; i < colData.data.values.length; i++) {
-          const existingResponseId = colData.data.values[i]?.[0];
-          if (existingResponseId === response.id) {
-            return {
-              ok: true,
-              skipped: true,
-              reason: "duplicate",
-              provider: "google-sheets",
-              jobId: job.id,
-            };
-          }
-        }
-      }
-    }
-  }
-
-  await job.updateProgress(60);
-
-  // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-  const responseData = safeParseResponseData(
-    response.responseDataJson,
-    response.id,
-  );
-  if (!responseData) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "invalid_data",
-      provider: "google-sheets",
-      jobId: job.id,
-    };
-  }
-
-  // 7. ヘッダーと行データを構築
-  const { headers, row } = buildRowFromResponse(
-    existingHeaders,
-    responseData,
-    blockTitleMap,
-    response.id,
-  );
-
-  // 8. ヘッダーが変更された場合は更新
-  if (existingHeaders.length === 0 || headers.length > existingHeaders.length) {
-    const headerUpdateResult = await updateRange(token, {
+  // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
+  // BullMQ jobId deduplication (sheets:{integrationId}:{responseId}) prevents
+  // duplicate jobs, so an O(N) Response ID column scan is no longer needed.
+  return await withRedisLock(`sheets-sync:${integrationId}`, async () => {
+    // 5. ヘッダー行を読み取り
+    const headerData = await readRange(token, {
       spreadsheetId,
       rangeA1: `${sheetName}!1:1`,
-      values: [headers],
     });
-    if (!headerUpdateResult.ok) {
-      throw new Error(
-        `Failed to update headers: ${headerUpdateResult.error.message}`,
-      );
-    }
-  }
-  await job.updateProgress(80);
 
-  // 9. 行を追記
-  const appendResult = await appendRows(token, {
-    spreadsheetId,
-    sheetName,
-    rows: [row],
+    let existingHeaders: string[] = [];
+    if (headerData.ok && headerData.data.values.length > 0) {
+      existingHeaders = headerData.data.values[0] ?? [];
+    }
+
+    await job.updateProgress(60);
+
+    // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+    const responseData = safeParseResponseData(
+      response.responseDataJson,
+      response.id,
+    );
+    if (!responseData) {
+      return {
+        ok: true,
+        skipped: true,
+        reason: "invalid_data",
+        provider: "google-sheets",
+        jobId: job.id,
+      };
+    }
+
+    // 7. ヘッダーと行データを構築
+    const { headers, row } = buildRowFromResponse(
+      existingHeaders,
+      responseData,
+      blockTitleMap,
+      response.id,
+    );
+
+    // 8. ヘッダーが変更された場合は更新
+    if (
+      existingHeaders.length === 0 ||
+      headers.length > existingHeaders.length
+    ) {
+      const headerUpdateResult = await updateRange(token, {
+        spreadsheetId,
+        rangeA1: `${sheetName}!1:1`,
+        values: [headers],
+      });
+      if (!headerUpdateResult.ok) {
+        throw new Error(
+          `Failed to update headers: ${headerUpdateResult.error.message}`,
+        );
+      }
+    }
+    await job.updateProgress(80);
+
+    // 9. 行を追記
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows: [row],
+    });
+
+    if (!appendResult.ok) {
+      // レート制限エラーはリトライさせる
+      if (appendResult.error.code === "rateLimit") {
+        throw new Error(
+          `Google Sheets API rate limit: ${appendResult.error.message}`,
+        );
+      }
+      throw new Error(`Failed to append rows: ${appendResult.error.message}`);
+    }
+    await job.updateProgress(100);
+
+    return {
+      ok: true,
+      provider: "google-sheets",
+      jobId: job.id,
+      updatedRange: appendResult.data.updatedRange,
+      updatedRows: appendResult.data.updatedRows,
+    };
   });
-
-  if (!appendResult.ok) {
-    // レート制限エラーはリトライさせる
-    if (appendResult.error.code === "rateLimit") {
-      throw new Error(
-        `Google Sheets API rate limit: ${appendResult.error.message}`,
-      );
-    }
-    throw new Error(`Failed to append rows: ${appendResult.error.message}`);
-  }
-  await job.updateProgress(100);
-
-  return {
-    ok: true,
-    provider: "google-sheets",
-    jobId: job.id,
-    updatedRange: appendResult.data.updatedRange,
-    updatedRows: appendResult.data.updatedRows,
-  };
 };
 
 /**
@@ -274,19 +259,6 @@ function buildRowFromResponse(
   }
 
   return { headers, row };
-}
-
-/**
- * カラムインデックス (0-based) をスプレッドシートのカラム文字に変換する
- */
-function columnIndexToLetter(index: number): string {
-  let letter = "";
-  let i = index;
-  while (i >= 0) {
-    letter = String.fromCharCode((i % 26) + 65) + letter;
-    i = Math.floor(i / 26) - 1;
-  }
-  return letter;
 }
 
 /**
