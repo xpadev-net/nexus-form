@@ -177,35 +177,12 @@ export function GoogleSheetsIntegration({
     searchQueryRef.current = searchQuery;
   }, [searchQuery]);
 
-  useQuery({
+  const { data: syncJobData, error: syncJobError } = useQuery({
     queryKey: ["syncJobStatus", formId, activeJobId],
-    queryFn: async () => {
-      const data = await fetchJson<SyncJobStatusResponse>(
+    queryFn: () =>
+      fetchJson<SyncJobStatusResponse>(
         `/api/forms/${formId}/integrations/google-sheets/sync/${activeJobId}`,
-      );
-      const uiStatus = mapBullMqStateToUiStatus(data.job.state);
-      const jobProgress = extractProgress(data.job.progress);
-      const jobResult = isJobResult(data.job.result)
-        ? data.job.result
-        : undefined;
-      setSyncStatus({
-        jobId: activeJobId as string,
-        status: uiStatus,
-        progress: jobProgress,
-        result: jobResult,
-        error: uiStatus === "failed" ? data.job.failedReason : undefined,
-      });
-      if (uiStatus === "completed") {
-        toast.success("同期が完了しました");
-        setIsSyncing(false);
-        setActiveJobId(null);
-      } else if (uiStatus === "failed") {
-        toast.error("同期に失敗しました");
-        setIsSyncing(false);
-        setActiveJobId(null);
-      }
-      return data;
-    },
+      ),
     enabled: !!activeJobId && isSyncing,
     refetchInterval: (query) => {
       const state = query.state.data
@@ -215,6 +192,39 @@ export function GoogleSheetsIntegration({
     },
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    if (!syncJobData || !activeJobId) return;
+    const uiStatus = mapBullMqStateToUiStatus(syncJobData.job.state);
+    const jobProgress = extractProgress(syncJobData.job.progress);
+    const jobResult = isJobResult(syncJobData.job.result)
+      ? syncJobData.job.result
+      : undefined;
+    setSyncStatus({
+      jobId: activeJobId,
+      status: uiStatus,
+      progress: jobProgress,
+      result: jobResult,
+      error: uiStatus === "failed" ? syncJobData.job.failedReason : undefined,
+    });
+    if (uiStatus === "completed") {
+      toast.success("同期が完了しました");
+      setIsSyncing(false);
+      setActiveJobId(null);
+    } else if (uiStatus === "failed") {
+      toast.error("同期に失敗しました");
+      setIsSyncing(false);
+      setActiveJobId(null);
+    }
+  }, [syncJobData, activeJobId]);
+
+  useEffect(() => {
+    if (!syncJobError) return;
+    toast.error("同期状態の確認に失敗しました");
+    setIsSyncing(false);
+    setActiveJobId(null);
+    setSyncStatus(null);
+  }, [syncJobError]);
 
   const {
     data: connectionData,

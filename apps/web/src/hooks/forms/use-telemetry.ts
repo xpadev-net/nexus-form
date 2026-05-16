@@ -1,7 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
-export const useTelemetryToken = () => {
+interface TelemetryTokenResult {
+  token: string | null;
+  isLoading: boolean;
+  error: UseQueryResult["error"];
+  refetch: UseQueryResult["refetch"];
+}
+
+export const useTelemetryToken = (): TelemetryTokenResult => {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["telemetry-token"],
     queryFn: () => rpc(client.api.telemetry.v4.$post()),

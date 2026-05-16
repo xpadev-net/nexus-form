@@ -2,9 +2,15 @@ import { ensureNodeIds, type MergePlateResult } from "@nexus-form/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
+
+const pendingSaveSchema = z.object({
+  plateContent: z.string(),
+  expectedVersion: z.number().int(),
+});
 
 interface ContentQueryData {
   plateContent: string | null;
@@ -62,6 +68,7 @@ export function useFormContentAutosave({
   const editorValueRef = useRef("[]");
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
+  const inFlightValueRef = useRef<string | null>(null);
   const mutateRef = useRef<
     (data: { plateContent: string; expectedVersion: number }) => void
   >(() => {});
@@ -72,24 +79,35 @@ export function useFormContentAutosave({
   const getActiveTabRef = useRef(getActiveTab);
   getActiveTabRef.current = getActiveTab;
 
-  // Initialize refs and draft from server data
+  // Initialize refs and draft from server data.
+  // Guard: if the editor has unsaved local edits, only update version and
+  // baseContent — do NOT overwrite the live editor value or draft. This
+  // prevents background refetches (window-focus, invalidation) from silently
+  // discarding in-progress typing.
   useEffect(() => {
     if (!contentData) return;
     versionRef.current = contentData.plateContentVersion;
     const raw = contentData.plateContent ?? "[]";
+    let canonical: string;
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         ensureNodeIds(parsed);
-        baseContentRef.current = JSON.stringify(parsed);
+        canonical = JSON.stringify(parsed);
       } else {
-        baseContentRef.current = raw;
+        canonical = raw;
       }
     } catch {
-      baseContentRef.current = raw;
+      canonical = raw;
     }
-    editorValueRef.current = baseContentRef.current;
-    setDraftContent(baseContentRef.current);
+    const hasLocalEdits =
+      editorValueRef.current !== baseContentRef.current ||
+      pendingValueRef.current != null;
+    baseContentRef.current = canonical;
+    if (!hasLocalEdits) {
+      editorValueRef.current = canonical;
+      setDraftContent(canonical);
+    }
   }, [contentData]);
 
   const handleMergeSuccess = useCallback(
@@ -119,6 +137,7 @@ export function useFormContentAutosave({
           const pendingValue = pendingValueRef.current;
           saveTimerRef.current = null;
           if (pendingValue == null) return;
+          inFlightValueRef.current = pendingValue;
           pendingValueRef.current = null;
           mutateRef.current({
             plateContent: pendingValue,
@@ -145,6 +164,9 @@ export function useFormContentAutosave({
       saveTimerRef.current = null;
     }
     pendingValueRef.current = null;
+    // Align editorValueRef with baseContentRef so the init effect correctly
+    // resets the editor to server content after the upcoming refetch.
+    editorValueRef.current = baseContentRef.current;
     void refetchRef.current();
     setIsSaving(false);
   }, []);
@@ -196,6 +218,7 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      inFlightValueRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
@@ -205,6 +228,7 @@ export function useFormContentAutosave({
       setIsSaving(false);
     },
     onError: (err) => {
+      inFlightValueRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
       if (err instanceof RpcError && err.status === 409) {
@@ -244,6 +268,7 @@ export function useFormContentAutosave({
       const pendingValue = pendingValueRef.current;
       saveTimerRef.current = null;
       if (pendingValue == null) return;
+      inFlightValueRef.current = pendingValue;
       pendingValueRef.current = null;
       lastSavedVersionRef.current = versionRef.current + 1;
       mutateRef.current({
@@ -253,15 +278,19 @@ export function useFormContentAutosave({
     }, 2000);
   }, []);
 
-  // Unmount: clear timer and best-effort save via keepalive fetch
+  // Unmount: clear timer and best-effort save via keepalive fetch.
+  // Check both pendingValueRef (debounce not yet fired) and inFlightValueRef
+  // (mutation already started but not yet confirmed) to avoid losing saves
+  // when the component unmounts immediately after the timer fires.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
-      if (pendingValueRef.current != null) {
+      const valueToSave = pendingValueRef.current ?? inFlightValueRef.current;
+      if (valueToSave != null) {
         const body = JSON.stringify({
-          plateContent: pendingValueRef.current,
+          plateContent: valueToSave,
           expectedVersion: versionRef.current,
         });
         const KEEPALIVE_LIMIT = 64 * 1024;
@@ -296,19 +325,18 @@ export function useFormContentAutosave({
     const saved = localStorage.getItem(key);
     if (!saved) return;
     localStorage.removeItem(key);
-    let parsed: { plateContent: string; expectedVersion: number };
+    let rawParsed: unknown;
     try {
-      parsed = JSON.parse(saved) as {
-        plateContent: string;
-        expectedVersion: number;
-      };
+      rawParsed = JSON.parse(saved);
     } catch {
       return;
     }
+    const result = pendingSaveSchema.safeParse(rawParsed);
+    if (!result.success) return;
     rpc(
       client.api.forms[":id"].content.$put({
         param: { id: formId },
-        json: parsed,
+        json: result.data,
       }),
     )
       .then(() => {
@@ -317,7 +345,9 @@ export function useFormContentAutosave({
           queryKey: ["formContent", formId],
         });
       })
-      .catch(() => {
+      .catch((err) => {
+        // 409 = server already has a newer version; discard the stale entry
+        if (err instanceof RpcError && err.status === 409) return;
         try {
           localStorage.setItem(key, saved);
         } catch {

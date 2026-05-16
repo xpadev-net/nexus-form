@@ -16,10 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type {
-  AnonymizedFingerprint,
-  AnonymizedFingerprintStats,
-} from "@/lib/fingerprint/anonymizer";
+import { client, rpc } from "@/lib/api";
 import { formatJapanDateTime } from "@/lib/formatters";
 
 interface AnonymizedFingerprintDisplayProps {
@@ -27,15 +24,6 @@ interface AnonymizedFingerprintDisplayProps {
   formId?: string;
   showStats?: boolean;
   className?: string;
-}
-
-interface AnonymizedFingerprintResponse {
-  success: boolean;
-  data: {
-    fingerprints: AnonymizedFingerprint[];
-    stats?: AnonymizedFingerprintStats;
-  };
-  error?: string;
 }
 
 export function AnonymizedFingerprintDisplay({
@@ -46,22 +34,12 @@ export function AnonymizedFingerprintDisplay({
 }: AnonymizedFingerprintDisplayProps) {
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["anonymizedFingerprints", responseId, formId, showStats],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (responseId) params.append("responseId", responseId);
-      if (formId) params.append("formId", formId);
-      if (showStats) params.append("includeStats", "true");
-
-      const response = await fetch(
-        `/api/fingerprint/anonymized?${params.toString()}`,
-      );
-      const json: AnonymizedFingerprintResponse = await response.json();
-      if (!json.success) {
-        throw new Error(
-          json.error || "Failed to fetch anonymized fingerprints",
-        );
-      }
-      return json.data;
+    queryFn: () => {
+      const query: Record<string, string> = {};
+      if (responseId) query.responseId = responseId;
+      if (formId) query.formId = formId;
+      if (showStats) query.includeStats = "true";
+      return rpc(client.api.fingerprint.anonymized.$get({ query }));
     },
   });
 
