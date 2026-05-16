@@ -18,6 +18,7 @@ import {
   ZDiscordRateLimitResponse,
   ZDiscordUser,
 } from "./types";
+import { DiscordHttpError } from "./utils";
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -84,7 +85,8 @@ export async function getGuild(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get guild: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -107,7 +109,8 @@ export async function searchGuildMembers(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to search guild members: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -128,7 +131,8 @@ export async function getGuildMember(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get guild member: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -148,7 +152,8 @@ export async function getGuildRoles(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get guild roles: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -168,7 +173,8 @@ export async function getUser(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get user: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -190,7 +196,8 @@ export async function listGuildMembers(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to list guild members: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -213,7 +220,8 @@ export async function addGuildMemberRole(
     "PUT",
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to add role: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -231,7 +239,8 @@ export async function deleteGuildMemberRole(
     "DELETE",
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to delete role: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -245,7 +254,8 @@ export async function getBelongGuilds(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get belong guilds: ${response.statusText} (HTTP ${response.status})`,
     );
   }
@@ -264,7 +274,8 @@ export async function getSelfApplication(
     token,
   );
   if (!response.ok) {
-    throw new Error(
+    throw new DiscordHttpError(
+      response.status,
       `Failed to get self application: ${response.statusText} (HTTP ${response.status})`,
     );
   }

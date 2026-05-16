@@ -96,18 +96,23 @@ const userExistsRule: ValidationProviderRule = {
         },
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const structured = error as {
+        code?: string;
+        retryAfter?: number;
+        message?: string;
+      };
 
-      if (errorMessage.includes("403") && errorMessage.includes("rate limit")) {
+      if (structured.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
         return {
           isValid: false,
           errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
           errorMessage: "GitHub API rate limit exceeded",
-          retryAfter: 60,
+          retryAfter: structured.retryAfter ?? 60,
         };
       }
 
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       return {
         isValid: false,
         errorCode: GitHubErrorCode.GITHUB_API_ERROR,

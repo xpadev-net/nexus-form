@@ -6,6 +6,7 @@ import type {
 import { z } from "zod";
 import { getTwitterClient } from "./client";
 import { TwitterErrorCode } from "./error-codes";
+import { parseTwitterError } from "./utils";
 
 const TwitterInputSchema = z.string().min(1).max(15);
 
@@ -98,13 +99,9 @@ const userExistsRule: ValidationProviderRule = {
         },
       };
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const parsed = parseTwitterError(error);
 
-      if (
-        errorMessage.includes("429") ||
-        (errorMessage.includes("403") && errorMessage.includes("rate limit"))
-      ) {
+      if (parsed.code === TwitterErrorCode.TWITTER_API_RATE_LIMIT) {
         return {
           isValid: false,
           errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
@@ -116,7 +113,7 @@ const userExistsRule: ValidationProviderRule = {
       return {
         isValid: false,
         errorCode: TwitterErrorCode.TWITTER_API_ERROR,
-        errorMessage,
+        errorMessage: parsed.message,
       };
     }
   },

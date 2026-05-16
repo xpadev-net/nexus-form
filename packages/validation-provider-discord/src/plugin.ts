@@ -18,6 +18,7 @@ import {
   ZDiscordGuildRoleId,
   ZDiscordToken,
 } from "./types";
+import { DiscordHttpError } from "./utils";
 
 const DiscordInputSchema = z.string().min(2).max(32);
 
@@ -336,43 +337,34 @@ const guildMemberRule: ValidationProviderRule = {
         },
       };
     } catch (error) {
+      if (error instanceof DiscordHttpError) {
+        if (error.status === 429) {
+          return {
+            isValid: false,
+            errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
+            errorMessage: "Discord API rate limit exceeded",
+            retryAfter: 30,
+          };
+        }
+        if (error.status === 403) {
+          return {
+            isValid: false,
+            errorCode: DiscordErrorCode.DISCORD_BOT_NOT_IN_GUILD,
+            errorMessage:
+              "検証用Botが指定されたDiscordサーバーに追加されていません",
+          };
+        }
+        if (error.status === 404) {
+          return {
+            isValid: false,
+            errorCode: DiscordErrorCode.DISCORD_GUILD_NOT_FOUND,
+            errorMessage: `指定されたDiscordサーバーが見つかりません: ${guildId}`,
+          };
+        }
+      }
+
       const errorMessage =
         error instanceof Error ? error.message : String(error);
-
-      if (errorMessage.includes("HTTP 429")) {
-        return {
-          isValid: false,
-          errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
-          errorMessage: "Discord API rate limit exceeded",
-          retryAfter: 30,
-        };
-      }
-
-      if (
-        errorMessage.includes("50001") ||
-        errorMessage.includes("Missing Access") ||
-        errorMessage.includes("HTTP 403")
-      ) {
-        return {
-          isValid: false,
-          errorCode: DiscordErrorCode.DISCORD_BOT_NOT_IN_GUILD,
-          errorMessage:
-            "検証用Botが指定されたDiscordサーバーに追加されていません",
-        };
-      }
-
-      if (
-        errorMessage.includes("10004") ||
-        errorMessage.includes("Unknown Guild") ||
-        errorMessage.includes("HTTP 404")
-      ) {
-        return {
-          isValid: false,
-          errorCode: DiscordErrorCode.DISCORD_GUILD_NOT_FOUND,
-          errorMessage: `指定されたDiscordサーバーが見つかりません: ${guildId}`,
-        };
-      }
-
       return {
         isValid: false,
         errorCode: DiscordErrorCode.DISCORD_API_ERROR,
