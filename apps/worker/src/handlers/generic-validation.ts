@@ -165,8 +165,15 @@ export const handleGenericValidation = async (
         : null;
     const errorCode =
       typeof errObj?.code === "string" ? errObj.code : undefined;
+    const responseStatus = (
+      errObj?.response as Record<string, unknown> | undefined
+    )?.status;
     const errorStatus =
-      typeof errObj?.status === "number" ? errObj.status : undefined;
+      typeof errObj?.status === "number"
+        ? errObj.status
+        : typeof responseStatus === "number"
+          ? responseStatus
+          : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
 
     const isRetryable =

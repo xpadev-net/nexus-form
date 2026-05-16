@@ -130,109 +130,115 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
   // (jobId dedup only applies while the job is still in the queue).
-  return await withRedisLock(`sheets-sync:${integrationId}`, async () => {
-    // Idempotency check: skip if this response was already written (e.g. prior
-    // attempt wrote the row but crashed before the job completed).
-    const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
-    if (await idempotencyKeyExists(idempotencyKey)) {
-      return {
-        ok: true,
-        skipped: true,
-        reason: "duplicate",
-        provider: "google-sheets",
-        jobId: job.id,
-      };
-    }
+  return await withRedisLock(
+    `sheets-sync:${integrationId}`,
+    async () => {
+      // Idempotency check: skip if this response was already written (e.g. prior
+      // attempt wrote the row but crashed before the job completed).
+      const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
+      if (await idempotencyKeyExists(idempotencyKey)) {
+        return {
+          ok: true,
+          skipped: true,
+          reason: "duplicate",
+          provider: "google-sheets",
+          jobId: job.id,
+        };
+      }
 
-    // 5. ヘッダー行を読み取り
-    const headerData = await readRange(token, {
-      spreadsheetId,
-      rangeA1: `${sheetName}!1:1`,
-    });
-
-    let existingHeaders: string[] = [];
-    if (headerData.ok && headerData.data.values.length > 0) {
-      existingHeaders = headerData.data.values[0] ?? [];
-    }
-
-    await job.updateProgress(60);
-
-    // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-    const responseData = safeParseResponseData(
-      response.responseDataJson,
-      response.id,
-    );
-    if (!responseData) {
-      return {
-        ok: true,
-        skipped: true,
-        reason: "invalid_data",
-        provider: "google-sheets",
-        jobId: job.id,
-      };
-    }
-
-    // 7. ヘッダーと行データを構築
-    const { headers, row } = buildRowFromResponse(
-      existingHeaders,
-      responseData,
-      blockTitleMap,
-      response.id,
-    );
-
-    // 8. ヘッダーが変更された場合は更新
-    if (
-      existingHeaders.length === 0 ||
-      headers.length > existingHeaders.length
-    ) {
-      const headerUpdateResult = await updateRange(token, {
+      // 5. ヘッダー行を読み取り
+      const headerData = await readRange(token, {
         spreadsheetId,
         rangeA1: `${sheetName}!1:1`,
-        values: [headers],
       });
-      if (!headerUpdateResult.ok) {
-        throw new Error(
-          `Failed to update headers: ${headerUpdateResult.error.message}`,
-        );
+
+      let existingHeaders: string[] = [];
+      if (headerData.ok && headerData.data.values.length > 0) {
+        existingHeaders = headerData.data.values[0] ?? [];
       }
-    }
-    await job.updateProgress(80);
 
-    // 9. 行を追記
-    const appendResult = await appendRows(token, {
-      spreadsheetId,
-      sheetName,
-      rows: [row],
-    });
+      await job.updateProgress(60);
 
-    if (!appendResult.ok) {
-      // レート制限エラーはリトライさせる
-      if (appendResult.error.code === "rateLimit") {
-        throw new Error(
-          `Google Sheets API rate limit: ${appendResult.error.message}`,
-        );
-      }
-      throw new Error(`Failed to append rows: ${appendResult.error.message}`);
-    }
-    await job.updateProgress(100);
-
-    // Mark row as written so retries are idempotent (24h TTL covers all retry windows).
-    // Best-effort: if Redis is transiently unavailable here, do NOT throw — the row
-    // was already appended, so throwing would only schedule a retry that duplicates it.
-    await setIdempotencyKey(idempotencyKey, 86_400).catch((e: unknown) => {
-      console.warn(
-        `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+      // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+      const responseData = safeParseResponseData(
+        response.responseDataJson,
+        response.id,
       );
-    });
+      if (!responseData) {
+        return {
+          ok: true,
+          skipped: true,
+          reason: "invalid_data",
+          provider: "google-sheets",
+          jobId: job.id,
+        };
+      }
 
-    return {
-      ok: true,
-      provider: "google-sheets",
-      jobId: job.id,
-      updatedRange: appendResult.data.updatedRange,
-      updatedRows: appendResult.data.updatedRows,
-    };
-  });
+      // 7. ヘッダーと行データを構築
+      const { headers, row } = buildRowFromResponse(
+        existingHeaders,
+        responseData,
+        blockTitleMap,
+        response.id,
+      );
+
+      // 8. ヘッダーが変更された場合は更新
+      if (
+        existingHeaders.length === 0 ||
+        headers.length > existingHeaders.length
+      ) {
+        const headerUpdateResult = await updateRange(token, {
+          spreadsheetId,
+          rangeA1: `${sheetName}!1:1`,
+          values: [headers],
+        });
+        if (!headerUpdateResult.ok) {
+          throw new Error(
+            `Failed to update headers: ${headerUpdateResult.error.message}`,
+          );
+        }
+      }
+      await job.updateProgress(80);
+
+      // 9. 行を追記
+      const appendResult = await appendRows(token, {
+        spreadsheetId,
+        sheetName,
+        rows: [row],
+      });
+
+      if (!appendResult.ok) {
+        // レート制限エラーはリトライさせる
+        if (appendResult.error.code === "rateLimit") {
+          throw new Error(
+            `Google Sheets API rate limit: ${appendResult.error.message}`,
+          );
+        }
+        throw new Error(`Failed to append rows: ${appendResult.error.message}`);
+      }
+      await job.updateProgress(100);
+
+      // Mark row as written so retries are idempotent (24h TTL covers all retry windows).
+      // Best-effort: if Redis is transiently unavailable here, do NOT throw — the row
+      // was already appended, so throwing would only schedule a retry that duplicates it.
+      await setIdempotencyKey(idempotencyKey, 86_400).catch((e: unknown) => {
+        console.warn(
+          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+        );
+      });
+
+      return {
+        ok: true,
+        provider: "google-sheets",
+        jobId: job.id,
+        updatedRange: appendResult.data.updatedRange,
+        updatedRows: appendResult.data.updatedRows,
+      };
+    },
+    // Critical section contains up to 3 sequential Sheets API calls; use a
+    // generous TTL so a slow API doesn't expire the lock mid-write.
+    { ttlMs: 60_000, waitTimeoutMs: 65_000 },
+  );
 };
 
 /**
