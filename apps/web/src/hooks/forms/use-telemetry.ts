@@ -1,20 +1,30 @@
-import { useMutation } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
-export const useTelemetryToken = () => {
-  const mutation = useMutation({
-    mutationFn: () => rpc(client.api.telemetry.v4.$post()),
+interface TelemetryTokenResult {
+  token: string | null;
+  isLoading: boolean;
+  error: UseQueryResult["error"];
+  refetch: UseQueryResult["refetch"];
+}
+
+export const useTelemetryToken = (): TelemetryTokenResult => {
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["telemetry-token"],
+    // Intentionally wraps a POST: the endpoint is idempotent (returns the same
+    // token per session). staleTime and gcTime: Infinity prevent automatic
+    // re-fetches and garbage collection. Do NOT call invalidateQueries on this
+    // key — explicit invalidation would silently re-POST.
+    queryFn: () => rpc(client.api.telemetry.v4.$post()),
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+    retry: 1,
   });
 
-  useEffect(() => {
-    mutation.mutate();
-  }, [mutation.mutate]); // eslint-disable-line react-hooks/exhaustive-deps
-
   return {
-    token: mutation.data?.token ?? null,
-    isLoading: mutation.isPending,
-    error: mutation.error,
-    refetch: () => mutation.mutate(),
+    token: data?.token ?? null,
+    isLoading,
+    error,
+    refetch,
   };
 };

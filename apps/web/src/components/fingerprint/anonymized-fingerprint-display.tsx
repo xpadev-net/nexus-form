@@ -4,8 +4,8 @@
  * 同一ユーザーであると判定されたか否かのみがわかるようにする
  */
 
+import { useQuery } from "@tanstack/react-query";
 import { BarChart3, Loader2, Shield, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type {
-  AnonymizedFingerprint,
-  AnonymizedFingerprintStats,
-} from "@/lib/fingerprint/anonymizer";
+import { client, rpc } from "@/lib/api";
 import { formatJapanDateTime } from "@/lib/formatters";
-import { logError } from "@/lib/logger";
 
 interface AnonymizedFingerprintDisplayProps {
   responseId?: string;
@@ -30,64 +26,29 @@ interface AnonymizedFingerprintDisplayProps {
   className?: string;
 }
 
-interface AnonymizedFingerprintResponse {
-  success: boolean;
-  data: {
-    fingerprints: AnonymizedFingerprint[];
-    stats?: AnonymizedFingerprintStats;
-  };
-  error?: string;
-}
-
 export function AnonymizedFingerprintDisplay({
   responseId,
   formId,
   showStats = false,
   className,
 }: AnonymizedFingerprintDisplayProps) {
-  const [fingerprints, setFingerprints] = useState<AnonymizedFingerprint[]>([]);
-  const [stats, setStats] = useState<AnonymizedFingerprintStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["anonymizedFingerprints", responseId, formId, showStats],
+    queryFn: () => {
+      const query: Record<string, string> = {};
+      if (responseId) query.responseId = responseId;
+      if (formId) query.formId = formId;
+      if (showStats) query.includeStats = "true";
+      return rpc(client.api.fingerprint.anonymized.$get({ query }));
+    },
+  });
 
-  const fetchAnonymizedFingerprints = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const fingerprints = data?.fingerprints ?? [];
+  const stats = data?.stats ?? null;
+  const errorMessage =
+    error instanceof Error ? error.message : "Unknown error occurred";
 
-      const params = new URLSearchParams();
-      if (responseId) params.append("responseId", responseId);
-      if (formId) params.append("formId", formId);
-      if (showStats) params.append("includeStats", "true");
-
-      const response = await fetch(
-        `/api/fingerprint/anonymized?${params.toString()}`,
-      );
-      const data: AnonymizedFingerprintResponse = await response.json();
-
-      if (!data.success) {
-        throw new Error(
-          data.error || "Failed to fetch anonymized fingerprints",
-        );
-      }
-
-      setFingerprints(data.data.fingerprints);
-      setStats(data.data.stats || null);
-    } catch (err) {
-      logError("Failed to fetch anonymized fingerprints:", "ui", {
-        error: err,
-      });
-      setError(err instanceof Error ? err.message : "Unknown error occurred");
-    } finally {
-      setLoading(false);
-    }
-  }, [responseId, formId, showStats]);
-
-  useEffect(() => {
-    fetchAnonymizedFingerprints();
-  }, [fetchAnonymizedFingerprints]);
-
-  if (loading) {
+  if (isLoading) {
     return (
       <div className={`flex items-center justify-center p-8 ${className}`}>
         <Loader2 className="h-8 w-8 animate-spin" />
@@ -100,7 +61,7 @@ export function AnonymizedFingerprintDisplay({
     return (
       <Alert variant="destructive" className={className}>
         <AlertDescription>
-          フィンガープリント情報の取得に失敗しました: {error}
+          フィンガープリント情報の取得に失敗しました: {errorMessage}
         </AlertDescription>
       </Alert>
     );
@@ -241,7 +202,7 @@ export function AnonymizedFingerprintDisplay({
 
       {/* 更新ボタン */}
       <div className="flex justify-end">
-        <Button onClick={fetchAnonymizedFingerprints} variant="outline">
+        <Button onClick={() => void refetch()} variant="outline">
           情報を更新
         </Button>
       </div>

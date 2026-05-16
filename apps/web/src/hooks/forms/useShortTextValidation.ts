@@ -65,11 +65,11 @@ export const useShortTextValidation = (
   useEffect(() => {
     if (!question.validation) return;
 
-    const timeoutId = setTimeout(() => {
+    const timeoutId = window.setTimeout(() => {
       validateValue(value);
     }, debounceDelay);
 
-    return () => clearTimeout(timeoutId);
+    return () => window.clearTimeout(timeoutId);
   }, [value, validateValue, question.validation, debounceDelay]);
 
   return {

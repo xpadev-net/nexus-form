@@ -160,7 +160,7 @@ export function GoogleSheetsIntegration({
   // 同期状態
   const [syncStatus, setSyncStatus] = useState<UiSyncState | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const isMountedRef = useRef(false);
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   const [isSpreadsheetDialogOpen, setIsSpreadsheetDialogOpen] = useState(false);
   const [newSpreadsheetTitle, setNewSpreadsheetTitle] = useState("");
@@ -172,17 +172,80 @@ export function GoogleSheetsIntegration({
 
   const authWindowRef = useRef<Window | null>(null);
   const popupIntervalRef = useRef<number | null>(null);
+  const syncTimeoutRef = useRef<number | null>(null);
   const hasInitializedConfigRef = useRef(false);
   useEffect(() => {
     searchQueryRef.current = searchQuery;
   }, [searchQuery]);
 
   useEffect(() => {
-    isMountedRef.current = true;
     return () => {
-      isMountedRef.current = false;
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+      }
     };
   }, []);
+
+  const { data: syncJobData, error: syncJobError } = useQuery({
+    queryKey: ["syncJobStatus", formId, activeJobId],
+    queryFn: () =>
+      fetchJson<SyncJobStatusResponse>(
+        `/api/forms/${formId}/integrations/google-sheets/sync/${activeJobId}`,
+      ),
+    enabled: !!activeJobId && isSyncing,
+    refetchInterval: (query) => {
+      const state = query.state.data
+        ? mapBullMqStateToUiStatus(query.state.data.job.state)
+        : "queued";
+      return state === "completed" || state === "failed" ? false : 1000;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  useEffect(() => {
+    if (!syncJobData || !activeJobId) return;
+    const uiStatus = mapBullMqStateToUiStatus(syncJobData.job.state);
+    const jobProgress = extractProgress(syncJobData.job.progress);
+    const jobResult = isJobResult(syncJobData.job.result)
+      ? syncJobData.job.result
+      : undefined;
+    setSyncStatus({
+      jobId: activeJobId,
+      status: uiStatus,
+      progress: jobProgress,
+      result: jobResult,
+      error: uiStatus === "failed" ? syncJobData.job.failedReason : undefined,
+    });
+    if (uiStatus === "completed") {
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      toast.success("同期が完了しました");
+      setIsSyncing(false);
+      setActiveJobId(null);
+    } else if (uiStatus === "failed") {
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
+      toast.error("同期に失敗しました");
+      setIsSyncing(false);
+      setActiveJobId(null);
+    }
+  }, [syncJobData, activeJobId]);
+
+  useEffect(() => {
+    if (!syncJobError) return;
+    if (syncTimeoutRef.current != null) {
+      window.clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+    toast.error("同期状態の確認に失敗しました");
+    setIsSyncing(false);
+    setActiveJobId(null);
+    setSyncStatus(null);
+  }, [syncJobError]);
 
   const {
     data: connectionData,
@@ -269,70 +332,6 @@ export function GoogleSheetsIntegration({
     }
     hasInitializedConfigRef.current = true;
   }, [savedConfig]);
-
-  // ジョブの状態を監視
-  const monitorSyncJob = useCallback(
-    async (jobId: string) => {
-      const maxAttempts = 60; // 最大1分間監視
-      let attempts = 0;
-
-      const checkStatus = async () => {
-        if (!isMountedRef.current) return;
-
-        try {
-          const data = await fetchJson<SyncJobStatusResponse>(
-            `/api/forms/${formId}/integrations/google-sheets/sync/${jobId}`,
-          );
-
-          if (!isMountedRef.current) return;
-
-          const uiStatus = mapBullMqStateToUiStatus(data.job.state);
-          const jobProgress = extractProgress(data.job.progress);
-          const jobResult = isJobResult(data.job.result)
-            ? data.job.result
-            : undefined;
-
-          setSyncStatus({
-            jobId,
-            status: uiStatus,
-            progress: jobProgress,
-            result: jobResult,
-            error: uiStatus === "failed" ? data.job.failedReason : undefined,
-          });
-
-          if (uiStatus === "completed") {
-            toast.success("同期が完了しました");
-            setIsSyncing(false);
-            return;
-          }
-
-          if (uiStatus === "failed") {
-            toast.error("同期に失敗しました");
-            setIsSyncing(false);
-            return;
-          }
-
-          // まだ処理中の場合は再度チェック
-          attempts++;
-          if (attempts < maxAttempts && isMountedRef.current) {
-            window.setTimeout(checkStatus, 1000);
-          } else if (isMountedRef.current) {
-            // タイムアウト
-            toast.error("同期状態の監視がタイムアウトしました");
-            setIsSyncing(false);
-          }
-        } catch (error) {
-          if (!isMountedRef.current) return;
-          logError("Failed to check sync status:", "ui", { error: error });
-          toast.error("同期状態の確認中にエラーが発生しました");
-          setIsSyncing(false);
-        }
-      };
-
-      await checkStatus();
-    },
-    [formId],
-  );
 
   // OAuth認証を開始
   const handleConnect = useCallback(async () => {
@@ -590,11 +589,19 @@ export function GoogleSheetsIntegration({
         jobId: data.jobId,
         status: data.status,
       });
+      setActiveJobId(data.jobId);
+      if (syncTimeoutRef.current != null) {
+        window.clearTimeout(syncTimeoutRef.current);
+      }
+      syncTimeoutRef.current = window.setTimeout(() => {
+        syncTimeoutRef.current = null;
+        toast.error("同期状態の監視がタイムアウトしました");
+        setIsSyncing(false);
+        setActiveJobId(null);
+        setSyncStatus(null);
+      }, 60_000);
 
       toast.success("同期を開始しました");
-
-      // ジョブの状態を監視
-      void monitorSyncJob(data.jobId);
 
       try {
         await queryClient.invalidateQueries({
@@ -615,7 +622,6 @@ export function GoogleSheetsIntegration({
     formId,
     hasUnsavedChanges,
     isSyncing,
-    monitorSyncJob,
     queryClient,
     savedConfig,
     selectedSpreadsheetId,

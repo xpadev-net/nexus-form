@@ -72,6 +72,8 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
   const collectMutation = useMutation({
     mutationFn: collectDefaultFingerprint,
   });
+  const mutateAsyncRef = useRef(collectMutation.mutateAsync);
+  mutateAsyncRef.current = collectMutation.mutateAsync;
 
   const saveMutation = useMutation({
     mutationFn: ({
@@ -95,9 +97,9 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
   useEffect(() => {
     if (options?.autoCollect && !collectedRef.current) {
       collectedRef.current = true;
-      void collectMutation.mutateAsync();
+      void mutateAsyncRef.current();
     }
-  }, [options?.autoCollect, collectMutation.mutateAsync]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [options?.autoCollect]);
 
   return {
     fingerprint: collectMutation.data ?? null,
