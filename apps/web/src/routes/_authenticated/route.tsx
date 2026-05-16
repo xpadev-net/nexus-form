@@ -1,5 +1,6 @@
 import {
   createFileRoute,
+  isRedirect,
   Outlet,
   redirect,
   useRouterState,
@@ -17,7 +18,7 @@ export const Route = createFileRoute("/_authenticated")({
         throw redirect({ to: "/login" });
       }
     } catch (error) {
-      if (error && typeof error === "object" && "to" in error) throw error;
+      if (isRedirect(error)) throw error;
       throw redirect({ to: "/login" });
     }
   },

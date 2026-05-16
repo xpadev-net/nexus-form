@@ -20,7 +20,10 @@ const BLOCKED_PROTOCOLS = /^(javascript|vbscript|data):/i;
 
 function sanitizeUrl(url: string | undefined): string | undefined {
   if (!url) return undefined;
-  const trimmed = url.trim().replace(/[\x00-\x1f]+/g, "");
+  const trimmed = url
+    .trim()
+    .replace(/[\x00-\x1f\x7f\u00ad\u200b-\u200d\u2028\u2029\ufeff]+/g, "")
+    .trim();
   if (BLOCKED_PROTOCOLS.test(trimmed)) return undefined;
   return trimmed;
 }
