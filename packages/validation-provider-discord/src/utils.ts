@@ -4,6 +4,16 @@ interface DiscordError {
   status?: number;
 }
 
+export class DiscordHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "DiscordHttpError";
+  }
+}
+
 export function isValidDiscordUserId(userId: string): boolean {
   return /^\d{17,20}$/.test(userId);
 }
