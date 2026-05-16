@@ -45,7 +45,7 @@ function PublicFormPageInner() {
 
   const {
     data: formData,
-    isLoading,
+    isPending: isLoading,
     error: fetchError,
   } = useQuery({
     queryKey: ["publicForm", publicId],
