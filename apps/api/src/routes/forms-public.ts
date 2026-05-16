@@ -357,29 +357,10 @@ export const formsPublicRouter = createHonoApp()
         }
       }
 
-      // 7. Response limit check
+      // 7. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure?.settings?.response_limit;
 
-      if (responseLimit?.enabled && responseLimit.max_responses) {
-        const [existingCount] = await db
-          .select({ count: count() })
-          .from(formResponse)
-          .where(eq(formResponse.formId, target.id));
-
-        if ((existingCount?.count ?? 0) >= responseLimit.max_responses) {
-          return c.json(
-            {
-              error:
-                responseLimit.message ??
-                "This form has reached its response limit",
-              responseLimitReached: true,
-            },
-            403,
-          );
-        }
-      }
-
-      // 8. Session management
+      // 8. Session management (resolved before atomic section)
       const userAgent = c.req.header("user-agent") ?? undefined;
       const jwtToken = extractJwtFromRequest(c);
       const { sessionId, jwt: newJwt } = await resolveSessionIdOrCreate(
@@ -388,29 +369,67 @@ export const formsPublicRouter = createHonoApp()
       );
       setSessionCookie(c, newJwt);
 
-      // 9. Save response
+      // 7+9+10. Atomically enforce response limit and persist response/fingerprints
       const responseId = randomUUID();
-      await db.insert(formResponse).values({
-        id: responseId,
-        formId: target.id,
-        responseDataJson: JSON.stringify(payload.responses),
-        respondentUuid: payload.respondentUuid ?? randomUUID(),
-        sessionId,
-        userAgent: userAgent ?? null,
-        countryCode: null,
+      const respondentUuid = payload.respondentUuid ?? randomUUID();
+      const insertResult = await db.transaction(async (tx) => {
+        if (responseLimit?.enabled && responseLimit.max_responses) {
+          // Acquire exclusive lock on the form row to serialize concurrent
+          // submissions and prevent TOCTOU on the response limit check.
+          await tx
+            .select({ id: form.id })
+            .from(form)
+            .where(eq(form.id, target.id))
+            .for("update");
+
+          const [existingCount] = await tx
+            .select({ count: count() })
+            .from(formResponse)
+            .where(eq(formResponse.formId, target.id));
+
+          if ((existingCount?.count ?? 0) >= responseLimit.max_responses) {
+            return {
+              limitReached: true as const,
+              message:
+                responseLimit.message ??
+                "This form has reached its response limit",
+            };
+          }
+        }
+
+        await tx.insert(formResponse).values({
+          id: responseId,
+          formId: target.id,
+          responseDataJson: JSON.stringify(payload.responses),
+          respondentUuid,
+          sessionId,
+          userAgent: userAgent ?? null,
+          countryCode: null,
+        });
+
+        if (payload.fingerprints.length > 0) {
+          await tx.insert(fingerprintDetail).values(
+            payload.fingerprints.map((fp) => ({
+              id: randomUUID(),
+              responseId,
+              fingerprintType: fp.type,
+              componentName: fp.name,
+              componentValue: "",
+              componentValueHash: fp.value_hash,
+            })),
+          );
+        }
+
+        return { limitReached: false as const };
       });
 
-      // 10. Save fingerprints
-      if (payload.fingerprints.length > 0) {
-        await db.insert(fingerprintDetail).values(
-          payload.fingerprints.map((fp) => ({
-            id: randomUUID(),
-            responseId,
-            fingerprintType: fp.type,
-            componentName: fp.name,
-            componentValue: "",
-            componentValueHash: fp.value_hash,
-          })),
+      if (insertResult.limitReached) {
+        return c.json(
+          {
+            error: insertResult.message,
+            responseLimitReached: true,
+          },
+          403,
         );
       }
 
