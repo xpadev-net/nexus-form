@@ -68,7 +68,7 @@ const shareLinksQuerySchema = paginationQuerySchema.extend({
 export const formsPermissionsRouter = createHonoApp()
   .use("/:id/permissions*", withDualFormAuth("VIEWER"))
   .use("/:id/invitations*", withDualFormAuth("VIEWER"))
-  .use("/:id/share-links*", withDualFormAuth("VIEWER"))
+  .use("/:id/share-links*", withDualFormAuth("EDITOR"))
   .get(
     "/:id/permissions",
     zValidator("query", paginationQuerySchema),
