@@ -216,8 +216,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     }
     await job.updateProgress(100);
 
-    // Mark row as written so retries are idempotent (24h TTL covers all retry windows)
-    await setIdempotencyKey(idempotencyKey, 86_400);
+    // Mark row as written so retries are idempotent (24h TTL covers all retry windows).
+    // Best-effort: if Redis is transiently unavailable here, do NOT throw — the row
+    // was already appended, so throwing would only schedule a retry that duplicates it.
+    await setIdempotencyKey(idempotencyKey, 86_400).catch((e: unknown) => {
+      console.warn(
+        `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+      );
+    });
 
     return {
       ok: true,
