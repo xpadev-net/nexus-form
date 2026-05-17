@@ -41,3 +41,16 @@ export function normalizePaginationParams(params: {
 
   return { page, pageSize };
 }
+
+export function paginationMetadata(
+  page: number,
+  pageSize: number,
+  total: number,
+) {
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages: Math.ceil(total / pageSize),
+  };
+}

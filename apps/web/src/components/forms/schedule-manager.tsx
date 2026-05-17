@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { client, rpc } from "@/lib/api";
 
 interface ScheduleEntry {
@@ -263,7 +264,6 @@ interface ScheduleManagerProps {
 }
 
 const SCHEDULE_PAGE_SIZE = 100;
-const SNAPSHOT_PAGE_SIZE = 100;
 
 async function fetchAllSchedules(formId: string): Promise<{
   schedules: ScheduleEntry[];
@@ -287,32 +287,11 @@ async function fetchAllSchedules(formId: string): Promise<{
   return { schedules };
 }
 
-async function fetchAllSnapshots(formId: string): Promise<{
-  snapshots: Snapshot[];
-}> {
-  const snapshots: Snapshot[] = [];
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const res = await rpc(
-      client.api.forms[":id"].snapshots.$get({
-        param: { id: formId },
-        query: { page: String(page), pageSize: String(SNAPSHOT_PAGE_SIZE) },
-      }),
-    );
-    snapshots.push(...(res.snapshots as Snapshot[]));
-    totalPages = res.pagination.totalPages;
-    page++;
-  } while (page <= totalPages);
-
-  return { snapshots };
-}
-
 export function ScheduleManager({ formId }: ScheduleManagerProps) {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ScheduleEntry | null>(null);
+  const { snapshotsQuery } = useSnapshots(formId);
 
   const schedulesQuery = useQuery({
     queryKey: ["formSchedules", formId],
@@ -320,14 +299,8 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
     enabled: !!formId,
   });
 
-  const snapshotsQuery = useQuery({
-    queryKey: ["snapshots", formId],
-    queryFn: () => fetchAllSnapshots(formId),
-    enabled: !!formId,
-  });
-
   const schedules = schedulesQuery.data?.schedules ?? [];
-  const snapshots = snapshotsQuery.data?.snapshots ?? [];
+  const snapshots = (snapshotsQuery.data?.snapshots ?? []) as Snapshot[];
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({

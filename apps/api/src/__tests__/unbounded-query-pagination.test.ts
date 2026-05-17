@@ -125,6 +125,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions) => ({ op: "and", conditions })),
   asc: vi.fn((field) => ({ op: "asc", field })),
   count: vi.fn(() => "count"),
+  countDistinct: vi.fn(() => "countDistinct"),
   desc: vi.fn((field) => ({ op: "desc", field })),
   eq: vi.fn((left, right) => ({ op: "eq", left, right })),
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
@@ -162,6 +163,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mocks.db.select.mockReset();
     mocks.offsetCalls.length = 0;
     mocks.limitCalls.length = 0;
   });

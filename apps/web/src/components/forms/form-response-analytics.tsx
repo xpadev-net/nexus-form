@@ -1,53 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
 import type { FC } from "react";
 import { BlockAnalyticsDisplay } from "@/components/forms/analytics/block-analytics-display";
-import { client, rpc } from "@/lib/api";
+import { useResponseAnalytics } from "@/hooks/forms/use-response-analytics";
 
 interface FormResponseAnalyticsProps {
   formId: string;
 }
 
-const ANALYTICS_PAGE_SIZE = 100;
-
-async function fetchAllResponseAnalytics(formId: string) {
-  const timeline = [];
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const res = await rpc(
-      client.api.forms[":id"].responses.analytics.$get({
-        param: { id: formId },
-        query: { page: String(page), pageSize: String(ANALYTICS_PAGE_SIZE) },
-      }),
-    );
-    timeline.push(...res.timeline);
-    totalPages = res.pagination.totalPages;
-    page++;
-  } while (page <= totalPages);
-
-  return { timeline };
-}
-
 export const FormResponseAnalytics: FC<FormResponseAnalyticsProps> = ({
   formId,
 }) => {
-  const analyticsQuery = useQuery({
-    queryKey: ["formResponseAnalytics", formId],
-    queryFn: () => fetchAllResponseAnalytics(formId),
-    enabled: !!formId,
-  });
-
-  const blockAnalyticsQuery = useQuery({
-    queryKey: ["formBlockAnalytics", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses["block-analytics"].$get({
-          param: { id: formId },
-        }),
-      ),
-    enabled: !!formId,
-  });
+  const { analyticsQuery, blockAnalyticsQuery } = useResponseAnalytics(formId);
 
   if (analyticsQuery.isLoading) {
     return (

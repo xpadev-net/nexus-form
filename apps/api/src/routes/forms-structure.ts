@@ -4,7 +4,10 @@ import { db } from "@nexus-form/database";
 import { formSchedule, formSnapshot } from "@nexus-form/database/schema";
 import { and, asc, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { paginationQuerySchema } from "../lib/constants/pagination";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   FormStructureNotFoundError,
@@ -47,15 +50,6 @@ const historyQuerySchema = z.object({
 });
 
 const limitedListQuerySchema = paginationQuerySchema;
-
-function paginationMetadata(page: number, pageSize: number, total: number) {
-  return {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.ceil(total / pageSize),
-  };
-}
 
 const diffQuerySchema = z.object({
   fromVersion: z.coerce.number().int().min(1),

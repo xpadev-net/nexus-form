@@ -13,7 +13,18 @@ import {
   extractQuestionsFromPlateContent,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  inArray,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -468,7 +479,7 @@ export const formsResponsesRouter = createHonoApp()
           .limit(pageSize),
         db
           .select({
-            count: sql<number>`count(distinct ${responseDate})`,
+            count: countDistinct(responseDate),
           })
           .from(formResponse)
           .where(eq(formResponse.formId, formId)),

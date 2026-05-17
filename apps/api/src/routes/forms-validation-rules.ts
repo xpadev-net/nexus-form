@@ -1,5 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
-import { paginationQuerySchema } from "../lib/constants/pagination";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   countValidationRules,
@@ -18,15 +21,6 @@ import {
   ReorderFormValidationRulesSchema,
   UpdateFormValidationRuleSchema,
 } from "../types/domain/validation-rule";
-
-function paginationMetadata(page: number, pageSize: number, total: number) {
-  return {
-    page,
-    pageSize,
-    total,
-    totalPages: Math.ceil(total / pageSize),
-  };
-}
 
 function configErrorResponse(error: unknown): { error: string } | null {
   if (error instanceof ValidationRuleConfigError) {
