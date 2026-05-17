@@ -50,6 +50,7 @@
 
 ### R3-C3. 本番環境で `/api` 相対パスのリクエストが API サーバーに到達しない
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #35、`gh-review-hook` exit 0）
 - **対象:** `apps/web/src/components/forms/google-sheets-integration.tsx:526` ほか、`apps/web/src/components/forms/form-response-settings.tsx:29`、`apps/web/src/lib/validation/validation-providers.ts:16`
 - **問題:** これらは `fetch("/api/...")` / `fetchJson(`/api/...`)` のように相対パスでリクエストする。`vite.config.ts` の `server.proxy` は**開発サーバー専用**で本番ビルドでは効かない。本番では Web SPA は API（ポート 3001 / `VITE_API_URL`）と別オリジン配信のため、相対 `/api` は SPA 自身のオリジンに飛び 404/HTML を返す。Google Sheets 連携・回答設定・検証プロバイダ取得が本番で全滅する。
 - **修正内容:** 全リクエストを `baseUrl`（`@/lib/api`）起点にする。可能なら hono-rpc `client` 経由に統一（`PATCH /:id/settings/responses` のように API 側ルートが未定義なら、API にルートを追加して型安全化）。最低限 `fetchJson(`${baseUrl}/api/...`)` に統一し `credentials: "include"` を付ける。
