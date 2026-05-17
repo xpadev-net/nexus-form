@@ -1,0 +1,1 @@
+DROP INDEX `FormResponse_formId_submittedAt_idx` ON `FormResponse`;
