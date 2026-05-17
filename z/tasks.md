@@ -71,6 +71,7 @@
 
 ### R3-C5. Sheets 同期の冪等性ウィンドウによる行欠落・重複
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #37、`gh-review-hook` exit 0）
 - **対象:** `apps/worker/src/handlers/sheets-sync.ts:218-245`
 - **問題:** `setIdempotencyKey(key, 90, "pending")` → `appendRows` → `setIdempotencyKey(key, 86400, "done")` の順で、`appendRows` 成功後・`"done"` 書込み前のクラッシュ/Redis 障害時、行は書かれたまま冪等性キーは `"pending"`（TTL 90 秒）のまま残る。`attempts: 3` + 指数バックオフ 30 秒（`apps/api/src/lib/queues.ts:16-22`）下でリトライが `"pending"` を見て `throw` し dead-letter 化、90 秒経過後の手動リトライでは**重複行**が発生する。
 - **修正内容:** `"done"` キーの TTL を手動リトライ想定窓（例 7 日）より長くする。または `appendRows` の `updatedRange` を `"done"` の値に保存し、`"pending"` 検出時に Sheets を再読込して当該 `responseId` 行の有無を確認してから判断する。
