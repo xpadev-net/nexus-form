@@ -8,7 +8,7 @@ import {
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type {
   CreateFormValidationRule,
@@ -180,8 +180,9 @@ function toFormValidationRule(loaded: RuleWithBlocks): FormValidationRule {
 
 export async function listValidationRules(
   formId: string,
+  pagination?: { limit: number; offset: number },
 ): Promise<FormValidationRule[]> {
-  const rules = await db
+  const query = db
     .select()
     .from(formValidationRule)
     .where(eq(formValidationRule.formId, formId))
@@ -189,6 +190,9 @@ export async function listValidationRules(
       asc(formValidationRule.orderIndex),
       asc(formValidationRule.createdAt),
     );
+  const rules = pagination
+    ? await query.offset(pagination.offset).limit(pagination.limit)
+    : await query;
   if (rules.length === 0) return [];
 
   const ruleBlocks = await db
@@ -218,6 +222,14 @@ export async function listValidationRules(
   return rules.map((rule) =>
     toFormValidationRule({ rule, ruleBlocks: blocksByRule.get(rule.id) ?? [] }),
   );
+}
+
+export async function countValidationRules(formId: string): Promise<number> {
+  const rows = await db
+    .select({ count: count() })
+    .from(formValidationRule)
+    .where(eq(formValidationRule.formId, formId));
+  return rows[0]?.count ?? 0;
 }
 
 export async function getValidationRule(

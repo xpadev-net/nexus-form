@@ -13,8 +13,23 @@ import {
   extractQuestionsFromPlateContent,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  inArray,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
@@ -50,6 +65,8 @@ const listResponsesQuerySchema = z.object({
   sort: z.enum(["submittedAt", "updatedAt"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
 });
+
+const limitedListQuerySchema = paginationQuerySchema;
 
 const createResponseSchema = z.object({
   responses: z.array(responsePayloadItemSchema),
@@ -372,19 +389,35 @@ export const formsResponsesRouter = createHonoApp()
       );
     },
   )
-  .get("/:id/responses/ids", async (c) => {
-    const formId = c.req.param("id");
-    const rows = await db
-      .select({ id: formResponse.id })
-      .from(formResponse)
-      .where(eq(formResponse.formId, formId))
-      .orderBy(desc(formResponse.submittedAt));
-    return c.json(
-      ResponseIdsResponseSchema.parse({
-        responseIds: rows.map((row) => row.id),
-      }),
-    );
-  })
+  .get(
+    "/:id/responses/ids",
+    zValidator("query", limitedListQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const [rows, totalResult] = await Promise.all([
+        db
+          .select({ id: formResponse.id })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId))
+          .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+          .offset(offset)
+          .limit(pageSize),
+        db
+          .select({ count: count() })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId)),
+      ]);
+      const total = totalResult[0]?.count ?? 0;
+      return c.json(
+        ResponseIdsResponseSchema.parse({
+          responseIds: rows.map((row) => row.id),
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
+    },
+  )
   .get("/:id/responses/statuses", async (c) => {
     const formId = c.req.param("id");
     const rows = await db
@@ -422,19 +455,42 @@ export const formsResponsesRouter = createHonoApp()
       }),
     );
   })
-  .get("/:id/responses/analytics", async (c) => {
-    const formId = c.req.param("id");
-    const timeline = await db
-      .select({
-        date: sql<string>`date(${formResponse.submittedAt})`,
-        count: count(),
-      })
-      .from(formResponse)
-      .where(eq(formResponse.formId, formId))
-      .groupBy(sql`date(${formResponse.submittedAt})`)
-      .orderBy(sql`date(${formResponse.submittedAt}) desc`);
-    return c.json(ResponseAnalyticsResponseSchema.parse({ timeline }));
-  })
+  .get(
+    "/:id/responses/analytics",
+    zValidator("query", limitedListQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const responseDate = sql<string>`date(${formResponse.submittedAt})`;
+      const [timeline, totalResult] = await Promise.all([
+        db
+          .select({
+            date: responseDate,
+            count: count(),
+          })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId))
+          .groupBy(responseDate)
+          .orderBy(sql`${responseDate} desc`)
+          .offset(offset)
+          .limit(pageSize),
+        db
+          .select({
+            count: countDistinct(responseDate),
+          })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId)),
+      ]);
+      const total = totalResult[0]?.count ?? 0;
+      return c.json(
+        ResponseAnalyticsResponseSchema.parse({
+          timeline,
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
+    },
+  )
   .get("/:id/responses/block-analytics", async (c) => {
     const formId = c.req.param("id");
 

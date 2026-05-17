@@ -30,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { client, rpc } from "@/lib/api";
 
 interface ScheduleEntry {
@@ -262,31 +263,44 @@ interface ScheduleManagerProps {
   formId: string;
 }
 
+const SCHEDULE_PAGE_SIZE = 100;
+
+async function fetchAllSchedules(formId: string): Promise<{
+  schedules: ScheduleEntry[];
+}> {
+  const schedules: ScheduleEntry[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"].schedule.$get({
+        param: { id: formId },
+        query: { page: String(page), pageSize: String(SCHEDULE_PAGE_SIZE) },
+      }),
+    );
+    schedules.push(...(res.schedules as ScheduleEntry[]));
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return { schedules };
+}
+
 export function ScheduleManager({ formId }: ScheduleManagerProps) {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ScheduleEntry | null>(null);
+  const { snapshotsQuery } = useSnapshots(formId);
 
   const schedulesQuery = useQuery({
     queryKey: ["formSchedules", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].schedule.$get({ param: { id: formId } }),
-      ) as Promise<{ schedules: ScheduleEntry[] }>,
-    enabled: !!formId,
-  });
-
-  const snapshotsQuery = useQuery({
-    queryKey: ["snapshots", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].snapshots.$get({ param: { id: formId } }),
-      ) as Promise<{ snapshots: Snapshot[] }>,
+    queryFn: () => fetchAllSchedules(formId),
     enabled: !!formId,
   });
 
   const schedules = schedulesQuery.data?.schedules ?? [];
-  const snapshots = snapshotsQuery.data?.snapshots ?? [];
+  const snapshots = (snapshotsQuery.data?.snapshots ?? []) as Snapshot[];
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({

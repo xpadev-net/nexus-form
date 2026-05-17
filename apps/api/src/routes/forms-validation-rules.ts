@@ -1,6 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
+  countValidationRules,
   createValidationRule,
   deleteValidationRule,
   getValidationRule,
@@ -26,11 +31,23 @@ function configErrorResponse(error: unknown): { error: string } | null {
 
 export const formsValidationRulesRouter = createHonoApp()
   .use("/:id/validation-rules*", withDualFormAuth("VIEWER"))
-  .get("/:id/validation-rules", async (c) => {
-    const formId = c.req.param("id");
-    const rules = await listValidationRules(formId);
-    return c.json({ rules });
-  })
+  .get(
+    "/:id/validation-rules",
+    zValidator("query", paginationQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const [rules, total] = await Promise.all([
+        listValidationRules(formId, { limit: pageSize, offset }),
+        countValidationRules(formId),
+      ]);
+      return c.json({
+        rules,
+        pagination: paginationMetadata(page, pageSize, total),
+      });
+    },
+  )
   .post(
     "/:id/validation-rules",
     withDualFormAuth("EDITOR"),
