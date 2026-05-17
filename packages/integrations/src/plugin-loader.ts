@@ -7,6 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
 
@@ -66,10 +67,20 @@ async function readPluginLock(resolvedDir: string): Promise<PluginLock | null> {
   return result.data;
 }
 
-async function computeSha256(path: string): Promise<string | null> {
+type VerifiedPluginSource = {
+  hash: string;
+  source: string;
+};
+
+async function readPluginSource(
+  path: string,
+): Promise<VerifiedPluginSource | null> {
   try {
     const buf = await readFile(path);
-    return createHash("sha256").update(buf).digest("hex");
+    return {
+      hash: createHash("sha256").update(buf).digest("hex"),
+      source: buf.toString("utf8"),
+    };
   } catch {
     return null;
   }
@@ -83,6 +94,20 @@ export type PluginLoadOutcome =
 export async function loadPluginFromSpecifier(
   specifier: string,
 ): Promise<PluginLoadOutcome> {
+  return loadPluginModule(specifier);
+}
+
+async function loadPluginFromVerifiedSource(
+  source: string,
+  sourcePath: string,
+): Promise<PluginLoadOutcome> {
+  const sourceUrl = pathToFileURL(sourcePath).href;
+  const sourceWithUrl = `${source}\n//# sourceURL=${sourceUrl}`;
+  const specifier = `data:text/javascript;base64,${Buffer.from(sourceWithUrl).toString("base64")}`;
+  return loadPluginModule(specifier);
+}
+
+async function loadPluginModule(specifier: string): Promise<PluginLoadOutcome> {
   let module: { default?: unknown; provider?: unknown };
   try {
     module = await import(specifier);
@@ -244,8 +269,8 @@ export class PluginLoader {
         continue;
       }
 
-      const hash = await computeSha256(resolvedPath);
-      if (!hash) {
+      const verifiedSource = await readPluginSource(resolvedPath);
+      if (!verifiedSource) {
         const error = "Cannot read plugin file for SHA-256 verification";
         console.error(`[PluginLoader] ${error}: ${file}`);
         this.failedPlugins.push({ file, error });
@@ -255,32 +280,37 @@ export class PluginLoader {
       const expectedHash = pluginLock?.plugins[file];
       if (!expectedHash) {
         const error = `${PLUGIN_LOCK_FILE} does not list plugin`;
-        console.error(`[PluginLoader] ${error}: ${file} sha256=${hash}`);
+        console.error(
+          `[PluginLoader] ${error}: ${file} sha256=${verifiedSource.hash}`,
+        );
         this.failedPlugins.push({ file, error });
         continue;
       }
-      if (expectedHash !== hash) {
+      if (expectedHash !== verifiedSource.hash) {
         const error = `${PLUGIN_LOCK_FILE} hash mismatch`;
         console.error(
-          `[PluginLoader] ${error}: ${file} expected=${expectedHash} actual=${hash}`,
+          `[PluginLoader] ${error}: ${file} expected=${expectedHash} actual=${verifiedSource.hash}`,
         );
         this.failedPlugins.push({ file, error });
         continue;
       }
 
-      const outcome = await loadPluginFromSpecifier(resolvedPath);
+      const outcome = await loadPluginFromVerifiedSource(
+        verifiedSource.source,
+        resolvedPath,
+      );
       if (outcome.kind === "ok") {
         console.info(
-          `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${hash}`,
+          `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${verifiedSource.hash}`,
         );
         plugins.push(outcome.provider);
       } else if (outcome.kind === "skipped") {
         console.warn(
-          `[PluginLoader] ${outcome.reason} in: ${file} sha256=${hash}`,
+          `[PluginLoader] ${outcome.reason} in: ${file} sha256=${verifiedSource.hash}`,
         );
       } else {
         console.error(
-          `[PluginLoader] Failed to load plugin ${file} sha256=${hash}: ${outcome.error}`,
+          `[PluginLoader] Failed to load plugin ${file} sha256=${verifiedSource.hash}: ${outcome.error}`,
         );
         this.failedPlugins.push({ file, error: outcome.error });
       }

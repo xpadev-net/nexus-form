@@ -103,7 +103,9 @@ Node の `node_modules` 探索が走ります。pnpm のワークスペースは
 node_modules がある本番運用では解決します）。
 
 そのため外部プラグインは **rollup / esbuild / tsdown などで依存込みに
-bundle した自己完結 `.mjs`** を配置するのが推奨です。組み込みプロバイダ
+bundle した自己完結 `.mjs`** を配置してください。外部プラグインは
+SHA-256 検証済みのソースを data URL として import するため、相対 import や
+bare specifier に依存する未バンドル構成はサポート対象外です。組み込みプロバイダ
 (`packages/validation-provider-*`) も同じ方針で全依存を inline した
 `dist/plugin.mjs` を生成しています（`tsdown` の `alwaysBundle` 設定）。
 
