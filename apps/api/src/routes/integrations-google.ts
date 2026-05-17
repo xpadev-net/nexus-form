@@ -102,7 +102,7 @@ function resolveAppOrigin(c: Context, requestedOrigin: string | undefined) {
   return null;
 }
 
-function getCallbackTargetOrigin(c: Context, cookie: string): string {
+function getCallbackTargetOrigin(cookie: string): string | null {
   const trustedOrigins = getTrustedAppOrigins();
   const encodedOrigin = getCookieValue(cookie, "google_oauth_app_origin");
   const storedOrigin = encodedOrigin
@@ -117,7 +117,7 @@ function getCallbackTargetOrigin(c: Context, cookie: string): string {
   }
   const [onlyTrustedOrigin] = trustedOrigins;
   if (trustedOrigins.size === 1 && onlyTrustedOrigin) return onlyTrustedOrigin;
-  return new URL(c.req.url).origin;
+  return null;
 }
 
 function escapeScriptJson(json: string): string {
@@ -127,11 +127,23 @@ function escapeScriptJson(json: string): string {
     .replace(/>/g, "\\u003e");
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildOAuthCallbackHtml(params: {
   status: "error" | "success";
-  targetOrigin: string;
+  targetOrigin: string | null;
   message?: string;
 }): string {
+  if (!params.targetOrigin) {
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><p>${escapeHtml(params.message ?? "Google OAuth callback origin is not configured.")}</p></body></html>`;
+  }
   const payload = escapeScriptJson(
     JSON.stringify({
       source: "google-oauth",
@@ -169,7 +181,7 @@ function clearGoogleOAuthCookies(c: Context): void {
 
 function oauthCallbackResponse(
   c: Context,
-  targetOrigin: string,
+  targetOrigin: string | null,
   status: "error" | "success",
   message?: string,
 ): Response {
@@ -370,7 +382,7 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const cookie = c.req.header("cookie") ?? "";
-    const callbackTargetOrigin = getCallbackTargetOrigin(c, cookie);
+    const callbackTargetOrigin = getCallbackTargetOrigin(cookie);
 
     const parsed = callbackQuerySchema.safeParse(c.req.query());
     if (!parsed.success)

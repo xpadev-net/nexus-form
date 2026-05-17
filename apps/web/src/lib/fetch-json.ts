@@ -26,9 +26,10 @@ export async function fetchJson<T = undefined>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> {
+  const { credentials = "same-origin", ...restInit } = init ?? {};
   const response = await fetch(input, {
-    credentials: "include",
-    ...init,
+    ...restInit,
+    credentials,
   });
 
   if (!response.ok) {

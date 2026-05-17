@@ -63,6 +63,11 @@ interface GoogleOAuthMessage {
   state?: string | null;
 }
 
+const apiRequestInit = (init: RequestInit = {}): RequestInit => ({
+  ...init,
+  credentials: "include",
+});
+
 const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
   if (!isRecord(value)) return false;
   return (
@@ -194,6 +199,7 @@ export function GoogleSheetsIntegration({
         apiUrl(
           `/api/forms/${formId}/integrations/google-sheets/sync/${activeJobId}`,
         ),
+        apiRequestInit(),
       ),
     enabled: !!activeJobId && isSyncing,
     refetchInterval: (query) => {
@@ -259,6 +265,7 @@ export function GoogleSheetsIntegration({
     queryFn: () =>
       fetchJson<{ spreadsheets: Spreadsheet[] }>(
         apiUrl("/api/integrations/google/spreadsheets?pageSize=1"),
+        apiRequestInit(),
       ),
     refetchOnWindowFocus: false,
   });
@@ -269,6 +276,7 @@ export function GoogleSheetsIntegration({
       try {
         const data = await fetchJson<FormIntegrationResponse>(
           apiUrl(`/api/forms/${formId}/integrations/google-sheets`),
+          apiRequestInit(),
         );
         return data.integration?.config ?? null;
       } catch (error) {
@@ -303,6 +311,7 @@ export function GoogleSheetsIntegration({
       if (searchQuery) params.set("query", searchQuery);
       return await fetchJson<{ spreadsheets: Spreadsheet[] }>(
         apiUrl(`/api/integrations/google/spreadsheets?${params}`),
+        apiRequestInit(),
       );
     },
     enabled: isConnected,
@@ -321,6 +330,7 @@ export function GoogleSheetsIntegration({
         apiUrl(
           `/api/integrations/google/spreadsheets/${selectedSpreadsheetId}/sheets`,
         ),
+        apiRequestInit(),
       ),
     enabled: !!selectedSpreadsheetId,
     refetchOnWindowFocus: false,
@@ -465,11 +475,14 @@ export function GoogleSheetsIntegration({
       const data = await fetchJson<{
         spreadsheetId: string;
         defaultSheetTitle?: string;
-      }>(apiUrl("/api/integrations/google/spreadsheets"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
-      });
+      }>(
+        apiUrl("/api/integrations/google/spreadsheets"),
+        apiRequestInit({
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        }),
+      );
       toast.success("スプレッドシートを作成しました");
       setIsSpreadsheetDialogOpen(false);
       setNewSpreadsheetTitle("");
@@ -504,11 +517,11 @@ export function GoogleSheetsIntegration({
         apiUrl(
           `/api/integrations/google/spreadsheets/${selectedSpreadsheetId}/sheets`,
         ),
-        {
+        apiRequestInit({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title }),
-        },
+        }),
       );
       toast.success("シートを追加しました");
       setIsSheetDialogOpen(false);
@@ -541,11 +554,11 @@ export function GoogleSheetsIntegration({
 
       await fetchJson(
         apiUrl(`/api/forms/${formId}/integrations/google-sheets`),
-        {
+        apiRequestInit({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(config),
-        },
+        }),
       );
       toast.success("設定を保存しました");
       try {
@@ -598,11 +611,11 @@ export function GoogleSheetsIntegration({
     try {
       const data = await fetchJson<SyncStartResponse>(
         apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
-        {
+        apiRequestInit({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({}),
-        },
+        }),
       );
       setSyncStatus({
         jobId: data.jobId,
