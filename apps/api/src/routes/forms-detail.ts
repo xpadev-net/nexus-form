@@ -19,6 +19,7 @@ import {
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
+import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
@@ -45,7 +46,12 @@ const transferOwnerSchema = z.object({
 export const formsDetailRouter = createHonoApp()
   .get("/:id", withDualFormAuth("VIEWER"), async (c) => {
     const id = c.req.param("id");
-    await processFormSchedule(id).catch(() => {});
+    await processFormSchedule(id).catch((error) =>
+      logFormScheduleError(error, {
+        formId: id,
+        operation: "GET /forms/:id",
+      }),
+    );
     const [target] = await db
       .select()
       .from(form)

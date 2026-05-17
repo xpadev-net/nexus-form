@@ -20,6 +20,7 @@ import { validateShareLink } from "../lib/forms/permission-service";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import { buildPublicFormStructure } from "../lib/forms/public-structure";
 import { validateResponseData } from "../lib/forms/response-validator";
+import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
@@ -180,8 +181,12 @@ export const formsPublicRouter = createHonoApp()
 
     if (!target) return c.json({ error: "Form not found" }, 404);
 
-    const scheduleResult = await processFormSchedule(target.id).catch(
-      () => null,
+    const scheduleResult = await processFormSchedule(target.id).catch((error) =>
+      logFormScheduleError(error, {
+        formId: target.id,
+        publicId,
+        operation: "GET /public/:publicId",
+      }),
     );
     const currentStatus = scheduleResult?.statusChanged
       ? scheduleResult.newStatus
@@ -265,7 +270,12 @@ export const formsPublicRouter = createHonoApp()
       if (!target) return c.json({ error: "Form not found" }, 404);
 
       const submitScheduleResult = await processFormSchedule(target.id).catch(
-        () => null,
+        (error) =>
+          logFormScheduleError(error, {
+            formId: target.id,
+            publicId,
+            operation: "POST /public/:publicId/submit",
+          }),
       );
       const submitStatus = submitScheduleResult?.statusChanged
         ? submitScheduleResult.newStatus
