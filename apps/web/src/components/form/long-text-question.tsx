@@ -85,7 +85,7 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
     });
 
   const { isOverLimit, getCharacterCountDisplay } = useCharacterCount({
-    initialValue: value,
+    value,
     maxLength: block.validation?.maxLength,
   });
 

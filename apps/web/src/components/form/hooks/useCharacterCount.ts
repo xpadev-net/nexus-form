@@ -1,5 +1,5 @@
 interface UseCharacterCountProps {
-  initialValue: string;
+  value: string;
   maxLength?: number;
 }
 
@@ -19,10 +19,10 @@ interface UseCharacterCountReturn {
  * - 表示用文字列の生成
  */
 export const useCharacterCount = ({
-  initialValue,
+  value,
   maxLength,
 }: UseCharacterCountProps): UseCharacterCountReturn => {
-  const currentLength = initialValue.length;
+  const currentLength = value.length;
 
   const isOverLimit = maxLength ? currentLength > maxLength : false;
   const isNearLimit = maxLength ? currentLength > maxLength * 0.9 : false;
