@@ -194,6 +194,21 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
+  it('fails closed when the "pending" idempotency sheet check fails', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockReadRange.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "internal", message: "Sheets unavailable" },
+    } as never);
+
+    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+      "Failed to read sheet for idempotency check",
+    );
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+  });
+
   it('promotes "pending" to "done" when the response row already exists', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");

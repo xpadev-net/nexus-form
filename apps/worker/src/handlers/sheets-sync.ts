@@ -176,12 +176,12 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
 
       if (keyValue === "pending") {
-        const rowAlreadyWritten = await hasResponseIdInSheet(token, {
+        const sheetCheck = await readSheetForIdempotency(token, {
           spreadsheetId,
           sheetName,
           responseId: response.id,
         });
-        if (rowAlreadyWritten) {
+        if (sheetCheck.exists) {
           return markDuplicateWritten();
         }
 
@@ -193,25 +193,17 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         );
       }
 
-      const rowAlreadyWritten = await hasResponseIdInSheet(token, {
+      const sheetCheck = await readSheetForIdempotency(token, {
         spreadsheetId,
         sheetName,
         responseId: response.id,
       });
-      if (rowAlreadyWritten) {
+      if (sheetCheck.exists) {
         return markDuplicateWritten();
       }
 
-      // 5. ヘッダー行を読み取り
-      const headerData = await readRange(token, {
-        spreadsheetId,
-        rangeA1: `${sheetName}!1:1`,
-      });
-
-      let existingHeaders: string[] = [];
-      if (headerData.ok && headerData.data.values.length > 0) {
-        existingHeaders = headerData.data.values[0] ?? [];
-      }
+      // 5. ヘッダー行を取得
+      const existingHeaders = sheetCheck.headers;
 
       await job.updateProgress(60);
 
@@ -313,14 +305,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   );
 };
 
-async function hasResponseIdInSheet(
+async function readSheetForIdempotency(
   token: OAuthToken,
   params: {
     spreadsheetId: string;
     sheetName: string;
     responseId: string;
   },
-): Promise<boolean> {
+): Promise<{ exists: boolean; headers: string[] }> {
   const sheetData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: params.sheetName,
@@ -331,18 +323,19 @@ async function hasResponseIdInSheet(
     );
   }
   if (sheetData.data.values.length === 0) {
-    return false;
+    return { exists: false, headers: [] };
   }
 
   const headers = sheetData.data.values[0] ?? [];
   const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIndex === -1) {
-    return false;
+    return { exists: false, headers };
   }
 
-  return sheetData.data.values
+  const exists = sheetData.data.values
     .slice(1)
     .some((row) => row[responseIdIndex] === params.responseId);
+  return { exists, headers };
 }
 
 /**
