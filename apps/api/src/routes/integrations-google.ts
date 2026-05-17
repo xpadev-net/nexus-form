@@ -42,11 +42,11 @@ const callbackQuerySchema = z.object({
 });
 
 function getCookieValue(cookie: string, name: string): string | undefined {
-  return cookie
+  const part = cookie
     .split(";")
     .map((part) => part.trim())
-    .find((part) => part.startsWith(`${name}=`))
-    ?.split("=")[1];
+    .find((part) => part.startsWith(`${name}=`));
+  return part?.split("=").slice(1).join("=");
 }
 
 function getTrustedAppOrigins(): Set<string> {
