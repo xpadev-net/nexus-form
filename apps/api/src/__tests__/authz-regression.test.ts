@@ -371,6 +371,61 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
   });
 });
 
+// ── R3-H3: Captcha gates public submit validation and DB work ────────────────
+
+describe("R3-H3: hCaptcha is verified before public submit work", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("rejects invalid captcha before form lookup, schedule processing, or answer validation", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { verifyHCaptcha } = await import("../lib/security/hcaptcha");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+
+    vi.mocked(verifyHCaptcha).mockResolvedValueOnce(false);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [
+            {
+              question_id: "unknown-question",
+              question_type: "short_text",
+              value: "should-not-be-validated",
+            },
+          ],
+          captchaToken: "invalid-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    expect(vi.mocked(db.select)).not.toHaveBeenCalled();
+    expect(processFormSchedule).not.toHaveBeenCalled();
+    expect(getLatestSnapshot).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+});
+
 // ── R2-H3: Permissions and Invitations require EDITOR, not VIEWER ────────────
 
 describe("R2-H3: VIEWER cannot list permissions or invitations", () => {
