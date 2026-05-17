@@ -139,6 +139,12 @@ export function validateFileName(fileName: string): FileValidationResult {
   };
 }
 
+/**
+ * S3 オブジェクトキーが署名・削除対象として安全な名前空間にあるか検証する。
+ *
+ * @param key - 検証する S3 オブジェクトキー。`tmp/` または `prod/` で始まる必要がある。
+ * @returns `FileValidationResult`。`..` パスセグメント、連続スラッシュ、バックスラッシュ、制御文字を含む場合は invalid。
+ */
 export function validateS3ObjectKey(key: string): FileValidationResult {
   const errors: string[] = [];
 
@@ -172,6 +178,12 @@ export function validateS3ObjectKey(key: string): FileValidationResult {
   };
 }
 
+/**
+ * S3 オブジェクトキーが安全でない場合に例外を投げる。
+ *
+ * @param key - 検証する S3 オブジェクトキー。`tmp/` または `prod/` 名前空間のみ許可する。
+ * @throws SecurityValidationError `validateS3ObjectKey` が invalid を返した場合。
+ */
 export function assertValidS3ObjectKey(key: string): void {
   const validation = validateS3ObjectKey(key);
   if (!validation.isValid) {
@@ -182,6 +194,13 @@ export function assertValidS3ObjectKey(key: string): void {
   }
 }
 
+/**
+ * S3 オブジェクトキーが安全で、期待する名前空間 prefix に属することを検証する。
+ *
+ * @param key - 検証する S3 オブジェクトキー。
+ * @param prefix - 期待する名前空間 prefix。`tmp/` または `prod/` のみ指定できる。
+ * @throws SecurityValidationError キー自体が unsafe、または指定 prefix と一致しない場合。
+ */
 export function assertS3ObjectKeyPrefix(
   key: string,
   prefix: (typeof allowedObjectKeyPrefixes)[number],

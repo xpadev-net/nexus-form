@@ -77,7 +77,10 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../lib/rate-limit", () => {
-  const passThrough = async (_c: unknown, next: () => Promise<void>) => next();
+  const passThrough = async (
+    _c: unknown,
+    next: () => Promise<void>,
+  ): Promise<void> => next();
   return {
     createRateLimit: vi.fn(() => passThrough),
     getClientIp: vi.fn(() => "127.0.0.1"),
@@ -209,7 +212,8 @@ describe("S3 key ownership enforcement (H-1)", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: `prod/users/${USER_A_ID}/file.jpg` }),
       });
-      expect(res.status).not.toBe(403);
+      expect(res.status).toBeGreaterThanOrEqual(200);
+      expect(res.status).toBeLessThan(300);
     });
 
     it("proceeds (not 403) for double-dot filenames in own namespace", async () => {

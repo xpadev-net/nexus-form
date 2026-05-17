@@ -3,7 +3,12 @@ import { S3BaseService } from "../base-service";
 import { generatePresignedUploadUrl, generatePresignedUrl } from "../client";
 import { S3ImageService } from "../image-service";
 import { S3_BUCKETS } from "../utils";
-import { validateS3ObjectKey } from "../validation";
+import {
+  assertS3ObjectKeyPrefix,
+  assertValidS3ObjectKey,
+  SecurityValidationError,
+  validateS3ObjectKey,
+} from "../validation";
 
 vi.mock("@aws-sdk/s3-request-presigner", () => ({
   getSignedUrl: vi.fn().mockResolvedValue("https://s3.example.com/signed"),
@@ -47,6 +52,41 @@ describe("S3 object key validation", () => {
     expect(validateS3ObjectKey("users/user-1/file.png")).toMatchObject({
       isValid: false,
     });
+  });
+
+  it("asserts valid S3 object keys directly", () => {
+    expect(() =>
+      assertValidS3ObjectKey("tmp/users/user-1/file.png"),
+    ).not.toThrow();
+    expect(() =>
+      assertValidS3ObjectKey("prod/users/user-1/file.png"),
+    ).not.toThrow();
+
+    expect(() =>
+      assertValidS3ObjectKey("tmp/users/user-1/../file.png"),
+    ).toThrow(SecurityValidationError);
+    expect(() =>
+      assertValidS3ObjectKey("tmp/users/user-1/../file.png"),
+    ).toThrow("Object key validation failed");
+  });
+
+  it("asserts expected S3 object key prefixes directly", () => {
+    expect(() =>
+      assertS3ObjectKeyPrefix("tmp/users/user-1/file.png", "tmp/"),
+    ).not.toThrow();
+    expect(() =>
+      assertS3ObjectKeyPrefix("prod/users/user-1/file.png", "prod/"),
+    ).not.toThrow();
+
+    expect(() =>
+      assertS3ObjectKeyPrefix("prod/users/user-1/file.png", "tmp/"),
+    ).toThrow(SecurityValidationError);
+    expect(() =>
+      assertS3ObjectKeyPrefix("prod/users/user-1/file.png", "tmp/"),
+    ).toThrow("Object key must start with tmp/");
+    expect(() =>
+      assertS3ObjectKeyPrefix("tmp/users/user-1/file.png", "prod/"),
+    ).toThrow("Object key must start with prod/");
   });
 
   it("rejects invalid download presigned keys before signing", async () => {
