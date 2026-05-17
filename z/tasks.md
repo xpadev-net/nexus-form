@@ -111,7 +111,7 @@
 
 ### R3-C9. 共有リンク用 API トークンが `lookupHash` を保存せず認証不能（再レビュー新規）
 - **重要度:** 🔴 Critical
-- **対応状況:** ✅ 完了（PR #41）
+- **対応状況:** ✅ 完了（PR #41、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/tokens/share-link-token.ts:111-123`
 - **問題:** `createApiTokenForShareLink` の `db.insert(apiToken).values({...})` は `lookupHash` を設定しない（`scopes`/`formIds`/`tokenHash` 等は設定済み）。一方 `validateApiToken`（`apps/api/src/lib/tokens/validate.ts:38-42`）は `eq(apiToken.lookupHash, computeLookupHash(token))` で完全一致検索する。`lookupHash` カラムは nullable（`schema.ts`）のため、共有リンク経由で発行したトークンは **すべての検証で行が見つからず 401 になり、共有リンク機能が機能停止**している。通常トークン発行（`generate.ts`）は `lookupHash` を正しく設定しているため共有リンクのみ壊れている。実ファイルで再現確認済み。
 - **修正内容:** `share-link-token.ts` の insert 値に `lookupHash: computeLookupHash(plainToken)` を追加する（`./hash` から `computeLookupHash` を import）。
