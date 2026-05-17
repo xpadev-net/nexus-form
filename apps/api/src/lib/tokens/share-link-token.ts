@@ -8,7 +8,7 @@ import {
 } from "@nexus-form/shared";
 import { eq } from "drizzle-orm";
 import { generateSecureToken } from "./generate";
-import { hashToken } from "./hash";
+import { computeLookupHash, hashToken } from "./hash";
 
 export type IssuedShareLinkApiToken = {
   token: string;
@@ -107,6 +107,7 @@ export async function createApiTokenForShareLink(
   // プレーンテキストトークン生成とハッシュ化
   const plainToken = generateSecureToken();
   const tokenHash = await hashToken(plainToken);
+  const lookupHash = computeLookupHash(plainToken);
 
   // 有効期限の同期（共有リンクが期限なしならundefinedのまま）
   const expiresAt = shareLinkResult.share_link.expires_at
@@ -122,6 +123,7 @@ export async function createApiTokenForShareLink(
     userId: null,
     name: `Share Link: ${formTitle}`,
     tokenHash,
+    lookupHash,
     scopes,
     formIds,
     type: "SHARE_LINK",
