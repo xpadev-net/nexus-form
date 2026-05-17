@@ -1,4 +1,4 @@
-import { db } from "@nexus-form/database";
+import { db, user as userTable } from "@nexus-form/database";
 import { apiToken, formShareLink } from "@nexus-form/database/schema";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { AuthContext, TokenScope } from "../../types/api/auth";
@@ -42,6 +42,18 @@ function getActiveTokenCondition() {
   );
 }
 
+async function isSuspendedTokenOwner(userId: string | null): Promise<boolean> {
+  if (!userId) return false;
+
+  const [owner] = await db
+    .select({ isSuspended: userTable.isSuspended })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+
+  return owner?.isSuspended !== false;
+}
+
 async function buildAuthContextFromTokenRecord(
   token: string,
   tokenRecord: TokenRecord,
@@ -49,6 +61,8 @@ async function buildAuthContextFromTokenRecord(
 ): Promise<AuthContext | null> {
   const isValid = await verifyToken(token, tokenRecord.tokenHash);
   if (!isValid) return null;
+
+  if (await isSuspendedTokenOwner(tokenRecord.userId)) return null;
 
   if (options.updateLastUsedAt ?? true) {
     void db
