@@ -5,6 +5,7 @@ import { S3Error } from "../../types/s3";
 import { logWarn } from "../logger";
 import { S3BaseService } from "./base-service";
 import { putObject } from "./utils";
+import { assertS3ObjectKeyPrefix } from "./validation";
 
 /**
  * S3画像処理サービスクラス
@@ -140,6 +141,10 @@ export class S3ImageService extends S3BaseService {
     finalKey?: string,
   ): Promise<UploadResult> {
     try {
+      assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+      const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
+      assertS3ObjectKeyPrefix(prodKey, "prod/");
+
       // 1. 一時バケットから画像データを取得
       const originalImageData = await this.getObject(tmpKey, this.tmpBucket);
 
@@ -150,8 +155,6 @@ export class S3ImageService extends S3BaseService {
       );
 
       // 3. 最終キーを決定
-      const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
-
       // 4. 処理された画像を本番バケットにアップロード
       const contentType =
         processingConfig.format === "webp"

@@ -4,6 +4,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { assertValidS3ObjectKey } from "./validation";
 
 /**
  * S3クライアントの設定
@@ -66,6 +67,8 @@ export async function generatePresignedUrl(
   key: string,
   expiresIn: number = 3600,
 ): Promise<string> {
+  assertValidS3ObjectKey(key);
+
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
@@ -88,6 +91,8 @@ export async function generatePresignedUploadUrl(
   expiresIn: number = 3600,
   contentType?: string,
 ): Promise<string> {
+  assertValidS3ObjectKey(key);
+
   const command = new PutObjectCommand({
     Bucket: bucket,
     Key: key,

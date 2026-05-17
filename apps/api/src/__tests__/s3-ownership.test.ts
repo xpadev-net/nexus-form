@@ -74,6 +74,16 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn(),
 }));
 
+vi.mock("../lib/rate-limit", () => {
+  const passThrough = async (_c: unknown, next: () => Promise<void>) => next();
+  return {
+    createRateLimit: vi.fn(() => passThrough),
+    getClientIp: vi.fn(() => "127.0.0.1"),
+    authRouteRateLimiter: passThrough,
+    generalRateLimiter: passThrough,
+  };
+});
+
 // Mock S3 services so no real AWS calls are made
 vi.mock("../lib/s3/image-service", () => ({
   s3ImageService: {
@@ -86,6 +96,16 @@ vi.mock("../lib/s3/image-service", () => ({
       contentType: "",
     }),
     objectExists: vi.fn().mockResolvedValue(true),
+    generateDownloadUrl: vi.fn().mockResolvedValue({
+      url: "https://s3.example.com/file",
+      key: "prod/users/user-a/file.jpg",
+      expiresIn: 3600,
+    }),
+    generateUploadUrl: vi.fn().mockResolvedValue({
+      url: "https://s3.example.com/file",
+      key: "tmp/users/user-a/file.jpg",
+      expiresIn: 3600,
+    }),
     processAndMoveImage: vi.fn().mockResolvedValue({
       key: "prod/users/user-a/file.jpg",
       bucket: "prod-bucket",
@@ -234,6 +254,22 @@ describe("S3 key ownership enforcement (H-1)", () => {
       });
       expect(res.status).not.toBe(403);
     });
+
+    it("returns 400 when finalKey uses the temporary namespace", async () => {
+      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+      const res = await app.request("/api/s3/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tmpKey: `tmp/users/${USER_A_ID}/file.jpg`,
+          finalKey: `tmp/users/${USER_A_ID}/file.jpg`,
+        }),
+      });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: "Object key must start with prod/",
+      });
+    });
   });
 
   describe("GET /api/s3/list", () => {
@@ -257,6 +293,35 @@ describe("S3 key ownership enforcement (H-1)", () => {
         `/api/s3/list?prefix=prod%2Fusers%2F${USER_A_ID}%2F`,
       );
       expect(res.status).not.toBe(403);
+    });
+  });
+});
+
+describe("R3-H22: S3 route rejects bucket/key role mismatches", () => {
+  it("returns 400 when a prod presigned URL is requested for a tmp key", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
+    const res = await app.request(
+      `/api/s3/presigned-url?bucket=prod&key=${key}`,
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Object key must start with prod/",
+    });
+  });
+
+  it("returns 400 when process-image receives a prod tmpKey", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tmpKey: `prod/users/${USER_A_ID}/file.jpg`,
+      }),
+    });
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Object key must start with tmp/",
     });
   });
 });

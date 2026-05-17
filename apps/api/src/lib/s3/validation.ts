@@ -29,6 +29,8 @@ export interface FileValidationConfig {
   fileTypeSizeLimits?: FileTypeSizeLimits; // ファイルタイプ別のサイズ制限
 }
 
+const allowedObjectKeyPrefixes = ["tmp/", "prod/"] as const;
+
 /**
  * デフォルトの検証設定
  */
@@ -131,6 +133,61 @@ export function validateFileName(fileName: string): FileValidationResult {
     isValid: errors.length === 0,
     errors,
   };
+}
+
+export function validateS3ObjectKey(key: string): FileValidationResult {
+  const errors: string[] = [];
+
+  if (key.length === 0) {
+    errors.push("Object key cannot be empty");
+  }
+
+  if (!allowedObjectKeyPrefixes.some((prefix) => key.startsWith(prefix))) {
+    errors.push("Object key must start with tmp/ or prod/");
+  }
+
+  if (
+    key.startsWith("/") ||
+    key.includes("..") ||
+    key.includes("//") ||
+    key.includes("\\")
+  ) {
+    errors.push("Object key contains unsafe path segments");
+  }
+
+  for (let i = 0; i < key.length; i++) {
+    if (key.charCodeAt(i) < 32) {
+      errors.push("Object key contains control characters");
+      break;
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+export function assertValidS3ObjectKey(key: string): void {
+  const validation = validateS3ObjectKey(key);
+  if (!validation.isValid) {
+    throw new SecurityValidationError(
+      "Object key validation failed",
+      validation.errors,
+    );
+  }
+}
+
+export function assertS3ObjectKeyPrefix(
+  key: string,
+  prefix: (typeof allowedObjectKeyPrefixes)[number],
+): void {
+  assertValidS3ObjectKey(key);
+  if (!key.startsWith(prefix)) {
+    throw new SecurityValidationError(`Object key must start with ${prefix}`, [
+      `Object key must start with ${prefix}`,
+    ]);
+  }
 }
 
 /**

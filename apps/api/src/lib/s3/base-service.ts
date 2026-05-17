@@ -15,6 +15,7 @@ import {
   putObject,
   S3_BUCKETS,
 } from "./utils";
+import { assertS3ObjectKeyPrefix } from "./validation";
 
 /**
  * S3基本サービスクラス
@@ -77,7 +78,9 @@ export class S3BaseService {
    * @returns 移動結果
    */
   async moveToProd(tmpKey: string, finalKey?: string): Promise<UploadResult> {
+    assertS3ObjectKeyPrefix(tmpKey, "tmp/");
     const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
+    assertS3ObjectKeyPrefix(prodKey, "prod/");
 
     // 一時バケットから本番バケットに移動
     await moveObject(this.tmpBucket, tmpKey, this.prodBucket, prodKey);
@@ -103,6 +106,7 @@ export class S3BaseService {
     bucket: string = this.prodBucket,
     expiresIn: number = 3600,
   ): Promise<PresignedUrlResult> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUrl(bucket, key, expiresIn);
 
     return {
@@ -124,6 +128,7 @@ export class S3BaseService {
     bucket: string = this.tmpBucket,
     expiresIn: number = 3600,
   ): Promise<PresignedUrlResult> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUploadUrl(bucket, key, expiresIn);
 
     return {
@@ -147,6 +152,7 @@ export class S3BaseService {
     expiresIn: number = 900, // 15分
     bucket: string = this.tmpBucket,
   ): Promise<string> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUploadUrl(
       bucket,
       key,

@@ -11,6 +11,7 @@ import { getS3Client } from "../lib/s3/client";
 import { s3ImageService as s3Service } from "../lib/s3/image-service";
 import { S3_BUCKETS } from "../lib/s3/utils";
 import {
+  assertS3ObjectKeyPrefix,
   DEFAULT_VALIDATION_CONFIG,
   SecurityValidationError,
   validateFileExtension,
@@ -77,6 +78,17 @@ function resolveBucketName(bucket?: string): string {
   );
 }
 
+function s3ValidationErrorResponse(error: SecurityValidationError) {
+  return {
+    error: error.message,
+    validationErrors: error.validationErrors,
+  };
+}
+
+function assertKeyMatchesBucket(key: string, bucket: string): void {
+  assertS3ObjectKeyPrefix(key, bucket === S3_BUCKETS.TMP ? "tmp/" : "prod/");
+}
+
 /**
  * key が指定ユーザーの名前空間（`tmp/users/{userId}/` または `prod/users/{userId}/`）に
  * 属するか検証する。パストラバーサル文字が含まれる場合も false を返す。
@@ -105,6 +117,15 @@ export const s3Router = createHonoApp()
       }
 
       const bucket = resolveBucketName(query.bucket);
+      try {
+        assertKeyMatchesBucket(query.key, bucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
       const expiresIn = query.expiresIn ?? 3600;
       const type = query.type ?? "download";
 
@@ -273,6 +294,18 @@ export const s3Router = createHonoApp()
         return c.json({ error: "Access denied to key" }, 403);
       }
 
+      try {
+        assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+        if (finalKey !== undefined) {
+          assertS3ObjectKeyPrefix(finalKey, "prod/");
+        }
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
       const exists = await s3Service.objectExists(tmpKey, S3_BUCKETS.TMP);
       if (!exists) {
         return c.json({ error: "File not found in temporary bucket" }, 404);
@@ -317,6 +350,18 @@ export const s3Router = createHonoApp()
       }
       if (finalKey !== undefined && !isKeyOwnedBy(auth.user_id, finalKey)) {
         return c.json({ error: "Access denied to key" }, 403);
+      }
+
+      try {
+        assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+        if (finalKey !== undefined) {
+          assertS3ObjectKeyPrefix(finalKey, "prod/");
+        }
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
       }
 
       const data = await s3Service.moveToProd(tmpKey, finalKey);

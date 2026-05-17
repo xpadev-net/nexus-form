@@ -214,6 +214,7 @@
 
 ### R3-H22. S3 プリサインド URL 生成にキー/バケット検証が無くパストラバーサルの恐れ（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/s3/client.ts:64-98`（`generatePresignedUrl`/`generatePresignedUploadUrl`）、`apps/api/src/lib/s3/base-service.ts`（`generateDownloadUrl`/`generatePresignedPutUrl`）
 - **問題:** 引数 `key` を一切検証せず `GetObjectCommand`/`PutObjectCommand` に渡す。`key` がユーザー入力由来の経路では `prod/../other-tenant/...` のようなキーや他フォームのキーを指定して **任意オブジェクトの署名付き URL を取得**しうる。`moveToProd` の `tmpKey.replace("tmp/", "prod/")` も `tmp/` を含まないキーで無変換のまま本番バケットへ書き込む。
 - **修正内容:** プリサインド URL 系関数の入口で `key` を検証する（許可プレフィックス `tmp/` または `prod/` で始まる、`..` を含まない、想定 form/user スコープに一致）。`base-service` 側でキー所有権をルートのコンテキストと突き合わせる。
