@@ -169,7 +169,7 @@
 
 ### R3-H4. `processFormSchedule` のエラーが握り潰される
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR #47）
+- **対応状況:** ✅ 完了（PR #47、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/routes/forms-detail.ts:48`、`apps/api/src/routes/forms-public.ts:183, 257`
 - **問題:** `processFormSchedule(...).catch(() => {})` / `.catch(() => null)` で、publish/unpublish/snapshot 切替という状態変更操作の失敗が `logError`/Sentry に届かず完全に消える。
 - **修正内容:** 少なくとも `logError` + `captureError` でログ出力する。
