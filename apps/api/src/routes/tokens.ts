@@ -11,7 +11,7 @@ import {
   createApiToken,
   deleteApiToken,
   revokeApiToken,
-  validateApiToken,
+  validateApiTokenForUser,
 } from "../lib/tokens";
 import {
   CreateTokenResponse,
@@ -267,19 +267,16 @@ export const tokensRouter = createHonoApp()
     );
   })
   .post("/validate", zValidator("json", validateTokenSchema), async (c) => {
+    const user = requireSessionUser(c);
+    if (!user.ok) return user.response;
+
     const { token } = c.req.valid("json");
-    const authContext = await validateApiToken(token);
+    const authContext = await validateApiTokenForUser(token, user.userId, {
+      updateLastUsedAt: false,
+    });
 
     if (!authContext) {
-      return c.json(
-        {
-          error: {
-            message: "Invalid or expired token",
-            code: "INVALID_TOKEN",
-          },
-        },
-        401,
-      );
+      return c.json(ValidateTokenResponse.parse({ valid: false }), 401);
     }
 
     return c.json(

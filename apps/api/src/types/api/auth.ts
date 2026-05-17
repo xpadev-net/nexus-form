@@ -76,12 +76,17 @@ export const UpdateTokenResponse = z.object({
 export type UpdateTokenResponse = z.infer<typeof UpdateTokenResponse>;
 
 // APIトークン検証レスポンス
-export const ValidateTokenResponse = z.object({
-  valid: z.literal(true),
-  // share-link トークン等は user スコープを持たず user_id が null になりうる。
-  user_id: z.string().nullable(),
-  scopes: z.array(TokenScope),
-});
+export const ValidateTokenResponse = z.discriminatedUnion("valid", [
+  z.object({
+    valid: z.literal(true),
+    // share-link トークン等は user スコープを持たず user_id が null になりうる。
+    user_id: z.string().nullable(),
+    scopes: z.array(TokenScope),
+  }),
+  z.object({
+    valid: z.literal(false),
+  }),
+]);
 
 export type ValidateTokenResponse = z.infer<typeof ValidateTokenResponse>;
 
