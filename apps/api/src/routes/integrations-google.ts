@@ -72,10 +72,15 @@ function buildTrustedAppOrigins(): Set<string> {
   );
 }
 
-const trustedAppOrigins = buildTrustedAppOrigins();
+let trustedAppOrigins: Set<string> | null = null;
 
 function getTrustedAppOrigins(): Set<string> {
+  trustedAppOrigins ??= buildTrustedAppOrigins();
   return trustedAppOrigins;
+}
+
+export function resetTrustedAppOriginsForTesting(): void {
+  trustedAppOrigins = null;
 }
 
 function normalizeHttpOrigin(value: string | undefined): string | null {
@@ -148,7 +153,7 @@ function buildOAuthCallbackHtml(params: {
   message?: string;
 }): string {
   if (!params.targetOrigin) {
-    return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><p>${escapeHtml(params.message ?? "Google OAuth callback origin is not configured.")}</p></body></html>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><p>${escapeHtml(params.message ?? "Google OAuth callback origin is not configured.")}</p><script>window.close();</script></body></html>`;
   }
   const payload = escapeScriptJson(
     JSON.stringify({
