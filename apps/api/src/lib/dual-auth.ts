@@ -23,6 +23,7 @@ import {
   type FormPermissionRole,
 } from "./permissions/constants";
 import {
+  SuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
   validateApiTokenWithScopes,
@@ -50,7 +51,7 @@ const ERROR_MESSAGES = {
   INVALID_TOKEN: "Invalid or expired token",
   INSUFFICIENT_PERMISSIONS: "Insufficient permissions",
   FORM_ACCESS_DENIED: "Access denied to this form",
-  ACCOUNT_SUSPENDED: "アカウントが停止されています",
+  ACCOUNT_SUSPENDED: "Your account has been suspended",
   AUTH_FAILED: "Authentication failed",
 } as const;
 
@@ -152,6 +153,9 @@ async function authenticateWithApiToken(
       auth_type: "api_token",
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      throw error;
+    }
     logError("API token authentication failed", "authentication", {
       error,
       operation: "apiTokenAuthentication",
@@ -263,6 +267,12 @@ export async function authenticateDual(
       ),
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      return {
+        error: true,
+        response: suspendedAccountResponse(c),
+      };
+    }
     logError("Dual authentication failed", "authentication", {
       error,
       operation: "authenticateDual",
@@ -355,6 +365,12 @@ export async function authenticateDualForForm(
       ),
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      return {
+        error: true,
+        response: suspendedAccountResponse(c),
+      };
+    }
     logError("Dual authentication for form failed", "authentication", {
       error,
       operation: "authenticateDualForForm",

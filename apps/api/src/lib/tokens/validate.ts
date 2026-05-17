@@ -14,6 +14,13 @@ type ValidateApiTokenOptions = {
   updateLastUsedAt?: boolean;
 };
 
+export class SuspendedTokenOwnerError extends Error {
+  constructor() {
+    super("Token owner account is suspended");
+    this.name = "SuspendedTokenOwnerError";
+  }
+}
+
 const selectTokenFields = {
   id: apiToken.id,
   tokenHash: apiToken.tokenHash,
@@ -62,7 +69,9 @@ async function buildAuthContextFromTokenRecord(
   const isValid = await verifyToken(token, tokenRecord.tokenHash);
   if (!isValid) return null;
 
-  if (await isSuspendedTokenOwner(tokenRecord.userId)) return null;
+  if (await isSuspendedTokenOwner(tokenRecord.userId)) {
+    throw new SuspendedTokenOwnerError();
+  }
 
   if (options.updateLastUsedAt ?? true) {
     void db
@@ -123,6 +132,7 @@ export async function validateApiToken(
 
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) throw error;
     logError("Token validation error", "authentication", { error });
     return null;
   }
@@ -155,6 +165,7 @@ export async function validateApiTokenForUser(
 
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) throw error;
     logError("User token validation error", "authentication", { error });
     return null;
   }

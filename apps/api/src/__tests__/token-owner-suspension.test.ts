@@ -53,7 +53,9 @@ vi.mock("../lib/tokens/hash", () => ({
   verifyToken,
 }));
 
-const { validateApiToken } = await import("../lib/tokens/validate");
+const { SuspendedTokenOwnerError, validateApiToken } = await import(
+  "../lib/tokens/validate"
+);
 
 function mockSelectResults(resultSets: unknown[][]): void {
   let callIndex = 0;
@@ -93,7 +95,9 @@ describe("validateApiToken owner suspension", () => {
       [{ isSuspended: true }],
     ]);
 
-    await expect(validateApiToken("ct_token")).resolves.toBeNull();
+    await expect(validateApiToken("ct_token")).rejects.toThrow(
+      SuspendedTokenOwnerError,
+    );
     expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
     expect(update).not.toHaveBeenCalled();
   });

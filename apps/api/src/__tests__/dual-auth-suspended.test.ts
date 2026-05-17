@@ -7,6 +7,8 @@ const validateApiToken = vi.fn();
 const validateApiTokenForForm = vi.fn();
 const validateApiTokenWithScopes = vi.fn();
 
+class MockSuspendedTokenOwnerError extends Error {}
+
 vi.mock("../lib/auth", () => ({
   auth: {
     api: {
@@ -16,6 +18,7 @@ vi.mock("../lib/auth", () => ({
 }));
 
 vi.mock("../lib/tokens", () => ({
+  SuspendedTokenOwnerError: MockSuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
   validateApiTokenWithScopes,
@@ -83,6 +86,27 @@ describe("suspended users in dual auth", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: {
         code: "FORBIDDEN",
+      },
+    });
+  });
+
+  it("rejects suspended API token owners with 403", async () => {
+    validateApiToken.mockRejectedValueOnce(new MockSuspendedTokenOwnerError());
+    const app = createHonoApp()
+      .use("/secure", withDualAuth())
+      .get("/secure", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/secure", {
+      headers: {
+        authorization: "Bearer ct_suspended_owner",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+        message: "Your account has been suspended",
       },
     });
   });
