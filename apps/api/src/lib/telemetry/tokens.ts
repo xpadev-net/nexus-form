@@ -3,18 +3,25 @@ import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
 import { and, gt, inArray, isNull } from "drizzle-orm";
 
-export function hashIPAddress(ip: string): string {
-  const salt =
-    process.env.TELEMETRY_IP_SALT ??
-    (() => {
-      if (process.env.NODE_ENV === "production") {
-        throw new Error("TELEMETRY_IP_SALT must be set in production");
-      }
-      return "default-salt-change-in-production";
-    })();
+function resolveTelemetryIpSalt(): string {
+  const telemetrySalt = process.env.TELEMETRY_IP_SALT;
+  if (telemetrySalt) return telemetrySalt;
+
+  const authSecret = process.env.AUTH_SECRET;
+  if (!authSecret) {
+    throw new Error(
+      "TELEMETRY_IP_SALT or AUTH_SECRET must be set for telemetry IP hashing",
+    );
+  }
+
   return createHash("sha256")
-    .update(ip + salt)
+    .update(`telemetry-ip-salt:${authSecret}`)
     .digest("hex");
+}
+
+export function hashIPAddress(ip: string): string {
+  const salt = resolveTelemetryIpSalt();
+  return createHash("sha256").update(`${ip}:${salt}`).digest("hex");
 }
 
 export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {

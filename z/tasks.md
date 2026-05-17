@@ -223,6 +223,7 @@
 
 ### R3-H23. テレメトリ IP ソルトの開発デフォルトが固定値で IP を逆引き可能（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/telemetry/tokens.ts:6-18`（`hashIPAddress`）
 - **問題:** 本番では `TELEMETRY_IP_SALT` 必須だが、非本番では `"default-salt-change-in-production"` の固定値を使う。SHA-256(ip + 既知ソルト) は全 IPv4 空間の総当たりで即座に逆引き可能で、ステージング等で IP（個人情報）が事実上平文同等になる。`sessions/jwt.ts:hashIp` は `AUTH_SECRET` 由来ソルトにフォールバックしており、こちらの方が安全。
 - **修正内容:** テレメトリも `AUTH_SECRET` 派生ソルトにフォールバックするか、全環境でランダムソルトを必須にする。
