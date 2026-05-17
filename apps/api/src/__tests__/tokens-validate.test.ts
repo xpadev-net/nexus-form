@@ -5,6 +5,8 @@ vi.mock("../load-env", () => ({}));
 const getSession = vi.fn();
 const validateApiTokenForUser = vi.fn();
 
+class MockSuspendedTokenOwnerError extends Error {}
+
 vi.mock("../lib/auth", () => ({
   auth: {
     api: {
@@ -17,6 +19,7 @@ vi.mock("../lib/tokens", () => ({
   createApiToken: vi.fn(),
   deleteApiToken: vi.fn(),
   revokeApiToken: vi.fn(),
+  SuspendedTokenOwnerError: MockSuspendedTokenOwnerError,
   validateApiTokenForUser,
 }));
 
@@ -113,5 +116,25 @@ describe("POST /api/tokens/validate", () => {
 
     expect(res.status).toBe(401);
     expect(validateApiTokenForUser).not.toHaveBeenCalled();
+  });
+
+  it("returns 403 when the token owner is suspended", async () => {
+    validateApiTokenForUser.mockRejectedValueOnce(
+      new MockSuspendedTokenOwnerError(),
+    );
+
+    const res = await tokensRouter.request("/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "ct_suspended" }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: {
+        message: "Your account has been suspended",
+        code: "FORBIDDEN",
+      },
+    });
   });
 });

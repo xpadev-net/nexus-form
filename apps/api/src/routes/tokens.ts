@@ -4,6 +4,7 @@ import { apiToken } from "@nexus-form/database/schema";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
+import { ERROR_CODES } from "../lib/constants/error-codes";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
@@ -11,6 +12,7 @@ import {
   createApiToken,
   deleteApiToken,
   revokeApiToken,
+  SuspendedTokenOwnerError,
   validateApiTokenForUser,
 } from "../lib/tokens";
 import {
@@ -271,9 +273,25 @@ export const tokensRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const { token } = c.req.valid("json");
-    const authContext = await validateApiTokenForUser(token, user.userId, {
-      updateLastUsedAt: false,
-    });
+    let authContext: Awaited<ReturnType<typeof validateApiTokenForUser>>;
+    try {
+      authContext = await validateApiTokenForUser(token, user.userId, {
+        updateLastUsedAt: false,
+      });
+    } catch (error) {
+      if (error instanceof SuspendedTokenOwnerError) {
+        return c.json(
+          {
+            error: {
+              message: "Your account has been suspended",
+              code: ERROR_CODES.FORBIDDEN,
+            },
+          },
+          403,
+        );
+      }
+      throw error;
+    }
 
     if (!authContext) {
       return c.json(ValidateTokenResponse.parse({ valid: false }), 401);
