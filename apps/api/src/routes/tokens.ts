@@ -235,7 +235,9 @@ export const tokensRouter = createHonoApp()
       },
       "tokens.patch.preflight",
     );
-    if (!nextJson) return c.json({ error: "Token not found" }, 404);
+    if (!nextJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
 
     const patch: {
       name?: string;
@@ -280,7 +282,9 @@ export const tokensRouter = createHonoApp()
 
     if (!updated) return c.json({ error: "Token not found" }, 404);
     const parsedJson = parseStoredApiTokenJson(updated, "tokens.patch");
-    if (!parsedJson) return c.json({ error: "Token not found" }, 404);
+    if (!parsedJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
 
     const updateResponse = UpdateTokenResponse.parse({
       token: {

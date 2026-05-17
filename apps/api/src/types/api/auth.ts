@@ -94,7 +94,7 @@ export const ValidateTokenResponse = z.discriminatedUnion("valid", [
     valid: z.literal(true),
     // share-link トークン等は user スコープを持たず user_id が null になりうる。
     user_id: z.string().nullable(),
-    scopes: z.array(TokenScope),
+    scopes: apiTokenScopesSchema,
   }),
   z.object({
     valid: z.literal(false),
