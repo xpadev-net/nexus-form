@@ -16,10 +16,24 @@ export const storedApiTokenFormIdsSchema = apiTokenFormIdsSchema
   .nullish()
   .transform((value) => value ?? undefined);
 
+/**
+ * Parses a stored or requested API token scope list.
+ *
+ * @param value Unknown JSON value to validate.
+ * @returns A non-empty list of supported API token scopes.
+ * @throws Zod validation error from apiTokenScopesSchema when value is invalid.
+ */
 export function parseApiTokenScopes(value: unknown): ApiTokenScopes {
   return apiTokenScopesSchema.parse(value);
 }
 
+/**
+ * Parses the optional form restriction list stored on an API token.
+ *
+ * @param value Unknown JSON value to validate.
+ * @returns A non-empty form ID list, or undefined when value is nullish.
+ * @throws Zod validation error from storedApiTokenFormIdsSchema when value is invalid.
+ */
 export function parseStoredApiTokenFormIds(
   value: unknown,
 ): ApiTokenFormIds | undefined {

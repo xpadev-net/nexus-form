@@ -13,10 +13,19 @@ type StoredApiTokenJson = {
 };
 
 export type ParsedApiTokenJson = {
+  /** Non-empty scope list validated against the shared API token contract. */
   scopes: ApiTokenScopes;
+  /** Optional non-empty form ID restriction list, normalized from nullish storage. */
   formIds: ApiTokenFormIds | undefined;
 };
 
+/**
+ * Error thrown when a stored API token JSON field cannot satisfy the shared
+ * token contract.
+ *
+ * `tokenId` identifies the malformed token row, and `operation` identifies the
+ * read path that encountered it.
+ */
 export class MalformedStoredApiTokenJsonError extends Error {
   constructor(
     public readonly tokenId: string,
@@ -27,6 +36,13 @@ export class MalformedStoredApiTokenJsonError extends Error {
   }
 }
 
+/**
+ * Parses stored API token JSON fields and logs malformed values with context.
+ *
+ * @param token Stored token fields that include id, scopes, and formIds.
+ * @param operation Read path name used in structured logs.
+ * @returns Parsed token JSON, or null when stored JSON is malformed.
+ */
 export function parseStoredApiTokenJson(
   token: StoredApiTokenJson,
   operation: string,
@@ -46,6 +62,14 @@ export function parseStoredApiTokenJson(
   }
 }
 
+/**
+ * Parses stored API token JSON fields and requires them to be valid.
+ *
+ * @param token Stored token fields that include id, scopes, and formIds.
+ * @param operation Read path name used in structured logs.
+ * @returns Parsed token JSON.
+ * @throws MalformedStoredApiTokenJsonError when stored JSON is malformed.
+ */
 export function requireStoredApiTokenJson(
   token: StoredApiTokenJson,
   operation: string,

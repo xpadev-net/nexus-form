@@ -141,7 +141,7 @@ export type AuthError = z.infer<typeof AuthError>;
 export const AuthContext = z.object({
   user_id: z.string().nullable(),
   token_id: z.string().optional(),
-  scopes: z.array(TokenScope),
+  scopes: apiTokenScopesSchema,
   form_ids: apiTokenFormIdsSchema.optional(),
   is_admin: z.boolean(),
 });
