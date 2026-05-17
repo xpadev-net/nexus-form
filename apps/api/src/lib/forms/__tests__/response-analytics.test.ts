@@ -110,10 +110,18 @@ function loadByCursor<T extends { id: string; submittedAt: Date | string }>(
 ) => Promise<T[]> {
   return async (cursor, limit) => {
     seenCursors.push(cursor ? formatCursorMarker(cursor) : "START");
+    const cursorTime = cursor
+      ? cursor.submittedAt instanceof Date
+        ? cursor.submittedAt.valueOf()
+        : new Date(cursor.submittedAt).valueOf()
+      : undefined;
     const start = cursor
       ? rows.findIndex(
           (row) =>
-            row.id === cursor.id && row.submittedAt === cursor.submittedAt,
+            row.id === cursor.id &&
+            (row.submittedAt instanceof Date
+              ? row.submittedAt.valueOf()
+              : new Date(row.submittedAt).valueOf()) === cursorTime,
         ) + 1
       : 0;
     return rows.slice(start, start + limit);
