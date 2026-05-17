@@ -154,8 +154,8 @@ export async function createApiTokenForShareLink(
     apiToken: {
       ...createdToken,
       type: createdToken.type as string,
-      scopes: parseApiTokenScopes(createdToken.scopes),
-      formIds: parseStoredApiTokenFormIds(createdToken.formIds),
+      scopes,
+      formIds,
       shareLink: shareLink ?? null,
     },
   };
