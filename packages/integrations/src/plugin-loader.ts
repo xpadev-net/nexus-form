@@ -277,9 +277,13 @@ export class PluginLoader {
         continue;
       }
 
-      const expectedHash = pluginLock?.plugins[file];
-      if (!expectedHash) {
-        const error = `${PLUGIN_LOCK_FILE} does not list plugin`;
+      const expectedHash =
+        pluginLock === null ? undefined : pluginLock.plugins[file];
+      if (pluginLock === null || expectedHash === undefined) {
+        const error =
+          pluginLock === null
+            ? `${PLUGIN_LOCK_FILE} not found`
+            : `${PLUGIN_LOCK_FILE} does not list plugin`;
         console.error(
           `[PluginLoader] ${error}: ${file} sha256=${verifiedSource.hash}`,
         );

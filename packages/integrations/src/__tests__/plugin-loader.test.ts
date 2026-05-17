@@ -283,7 +283,7 @@ ${VALID_RULE}
     expect(loader.hasFailedPlugins()).toBe(true);
     expect(loader.getFailedPlugins()[0]).toMatchObject({
       file: "valid.mjs",
-      error: "plugins.lock does not list plugin",
+      error: "plugins.lock not found",
     });
   });
 

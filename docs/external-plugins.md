@@ -90,11 +90,14 @@ const ConfigSchema = z.object({
 ## 3. プラグインファイルの実装
 
 プラグインは ESM 形式の `.js` または `.mjs` で、`default` または `provider`
-名でプロバイダを export します。
+名でプロバイダを export します。`.js` であっても CommonJS の
+`module.exports` は使えません。`export default` または `export const provider`
+を使ってください。
 
 ### 依存解決の注意（重要）
 
-プラグインは `await import(modulePath)` で読み込まれるため、`import "zod"`
+外部プラグインは SHA-256 検証済みのソースを data URL として import します。
+そのため Node.js は `.js` も含めて ESM として評価します。`import "zod"`
 のような **bare specifier** はそのプラグイン `.mjs` の置かれた場所を起点に
 Node の `node_modules` 探索が走ります。pnpm のワークスペースは依存を
 リポジトリルートには hoist しないため、`plugins/validation/foo.mjs` から
@@ -105,7 +108,8 @@ node_modules がある本番運用では解決します）。
 そのため外部プラグインは **rollup / esbuild / tsdown などで依存込みに
 bundle した自己完結 `.mjs`** を配置してください。外部プラグインは
 SHA-256 検証済みのソースを data URL として import するため、相対 import や
-bare specifier に依存する未バンドル構成はサポート対象外です。組み込みプロバイダ
+bare specifier に依存する未バンドル構成、および CommonJS 形式は
+サポート対象外です。組み込みプロバイダ
 (`packages/validation-provider-*`) も同じ方針で全依存を inline した
 `dist/plugin.mjs` を生成しています（`tsdown` の `alwaysBundle` 設定）。
 
