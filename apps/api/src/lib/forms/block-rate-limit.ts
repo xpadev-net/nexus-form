@@ -1,14 +1,5 @@
 import type { Context } from "hono";
-import { createRateLimit } from "../rate-limit";
-
-/**
- * HonoリクエストコンテキストからクライアントIPを抽出
- */
-function extractClientIP(c: Context): string {
-  const cfIp = c.req.header("cf-connecting-ip");
-  const forwarded = c.req.header("x-forwarded-for");
-  return cfIp || forwarded?.split(",")[0]?.trim() || "unknown";
-}
+import { createRateLimit, getClientIp } from "../rate-limit";
 
 /**
  * ブロック更新用のレート制限
@@ -25,7 +16,7 @@ export const blockUpdateRateLimit = createRateLimit({
     const formId = pathSegments[formIdIndex] || "unknown";
 
     // IPアドレスベースのキー生成
-    const ip = extractClientIP(c);
+    const ip = getClientIp(c);
 
     return `block_update:${formId}:${ip}`;
   },
@@ -46,7 +37,7 @@ export const changesRateLimit = createRateLimit({
     const formId = pathSegments[formIdIndex] || "unknown";
 
     // IPアドレスベースのキー生成
-    const ip = extractClientIP(c);
+    const ip = getClientIp(c);
 
     return `changes:${formId}:${ip}`;
   },
@@ -69,7 +60,7 @@ export const sessionRateLimit = createRateLimit({
     const blockId = pathSegments[blockIdIndex] || "unknown";
 
     // IPアドレスベースのキー生成
-    const ip = extractClientIP(c);
+    const ip = getClientIp(c);
 
     return `session:${formId}:${blockId}:${ip}`;
   },
