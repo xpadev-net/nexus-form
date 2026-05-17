@@ -1,5 +1,3 @@
-import { useCallback, useState } from "react";
-
 interface UseCharacterCountProps {
   initialValue: string;
   maxLength?: number;
@@ -7,7 +5,6 @@ interface UseCharacterCountProps {
 
 interface UseCharacterCountReturn {
   currentLength: number;
-  updateLength: (newValue: string) => void;
   isOverLimit: boolean;
   isNearLimit: boolean;
   getCharacterCountDisplay: () => string | null;
@@ -25,23 +22,18 @@ export const useCharacterCount = ({
   initialValue,
   maxLength,
 }: UseCharacterCountProps): UseCharacterCountReturn => {
-  const [currentLength, setCurrentLength] = useState(initialValue.length);
-
-  const updateLength = useCallback((newValue: string) => {
-    setCurrentLength(newValue.length);
-  }, []);
+  const currentLength = initialValue.length;
 
   const isOverLimit = maxLength ? currentLength > maxLength : false;
   const isNearLimit = maxLength ? currentLength > maxLength * 0.9 : false;
 
-  const getCharacterCountDisplay = useCallback((): string | null => {
+  const getCharacterCountDisplay = (): string | null => {
     if (!maxLength) return null;
     return `${currentLength}/${maxLength}`;
-  }, [currentLength, maxLength]);
+  };
 
   return {
     currentLength,
-    updateLength,
     isOverLimit,
     isNearLimit,
     getCharacterCountDisplay,
