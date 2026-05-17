@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -27,6 +28,11 @@ ${VALID_RULE}
     },
   },
 };
+`;
+
+const SIDE_EFFECT_PLUGIN_CODE = `
+globalThis.TEST_PLUGIN_SIDE_EFFECT = true;
+${VALID_PLUGIN_CODE}
 `;
 
 // Missing required description field
@@ -79,12 +85,71 @@ export default {
 
 let tmpDir: string;
 
+declare global {
+  var TEST_PLUGIN_SIDE_EFFECT: boolean | undefined;
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+  );
+}
+
+function parsePluginLockEntries(content: string): Record<string, string> {
+  const parsedLock: unknown = JSON.parse(content);
+  if (typeof parsedLock !== "object" || parsedLock === null) return {};
+  const plugins = (parsedLock as Record<string, unknown>).plugins;
+  if (typeof plugins !== "object" || plugins === null) return {};
+  return Object.fromEntries(
+    Object.entries(plugins).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+async function writePluginLock(entries: Record<string, string>): Promise<void> {
+  await writeFile(
+    join(tmpDir, "plugins.lock"),
+    JSON.stringify({ plugins: entries }, null, 2),
+  );
+}
+
+async function writeLockedPlugin(
+  filename: string,
+  content: string,
+  expectedHash = sha256(content),
+): Promise<void> {
+  await writeFile(join(tmpDir, filename), content);
+  let existingEntries: Record<string, string>;
+  try {
+    const lockContent = await readFile(join(tmpDir, "plugins.lock"), "utf8");
+    existingEntries = parsePluginLockEntries(lockContent);
+  } catch (error) {
+    if (!isErrnoException(error) || error.code !== "ENOENT") {
+      throw error;
+    }
+    existingEntries = {};
+  }
+  await writePluginLock({
+    ...existingEntries,
+    [filename]: expectedHash,
+  });
+}
+
 beforeEach(async () => {
   tmpDir = join(tmpdir(), `plugin-loader-test-${Date.now()}`);
   await mkdir(tmpDir, { recursive: true });
 });
 
 afterEach(async () => {
+  globalThis.TEST_PLUGIN_SIDE_EFFECT = undefined;
   await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -117,7 +182,7 @@ describe("PluginLoader", () => {
   });
 
   it("records failed plugins and reports them", async () => {
-    await writeFile(join(tmpDir, "broken.js"), "this is not valid js }{{{");
+    await writeLockedPlugin("broken.js", "this is not valid js }{{{");
     const loader = new PluginLoader(tmpDir);
     await loader.loadPlugins();
     expect(loader.hasFailedPlugins()).toBe(true);
@@ -125,7 +190,7 @@ describe("PluginLoader", () => {
   });
 
   it("loads a valid plugin from a .mjs file", async () => {
-    await writeFile(join(tmpDir, "valid.mjs"), VALID_PLUGIN_CODE);
+    await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(1);
@@ -136,14 +201,14 @@ describe("PluginLoader", () => {
   });
 
   it("skips plugin with missing description", async () => {
-    await writeFile(join(tmpDir, "bad.mjs"), MISSING_DESCRIPTION_PLUGIN);
+    await writeLockedPlugin("bad.mjs", MISSING_DESCRIPTION_PLUGIN);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(0);
   });
 
   it("skips plugin with no rules", async () => {
-    await writeFile(join(tmpDir, "norules.mjs"), NO_RULES_PLUGIN);
+    await writeLockedPlugin("norules.mjs", NO_RULES_PLUGIN);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(0);
@@ -164,14 +229,14 @@ describe("PluginLoader", () => {
   });
 
   it("skips plugin with a name longer than 64 characters", async () => {
-    await writeFile(join(tmpDir, "long.mjs"), LONG_NAME_PLUGIN);
+    await writeLockedPlugin("long.mjs", LONG_NAME_PLUGIN);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(0);
   });
 
   it("skips plugin with an invalid name format", async () => {
-    await writeFile(join(tmpDir, "badfmt.mjs"), INVALID_FORMAT_NAME_PLUGIN);
+    await writeLockedPlugin("badfmt.mjs", INVALID_FORMAT_NAME_PLUGIN);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(0);
@@ -190,10 +255,127 @@ ${VALID_RULE}
   },
 };
 `;
-    await writeFile(join(tmpDir, "maxlen.mjs"), code);
+    await writeLockedPlugin("maxlen.mjs", code);
     const loader = new PluginLoader(tmpDir);
     const plugins = await loader.loadPlugins();
     expect(plugins).toHaveLength(1);
     expect(plugins[0]?.name).toBe("a".repeat(64));
+  });
+
+  it("rejects plugin files that are not listed in plugins.lock", async () => {
+    await writeFile(join(tmpDir, "valid.mjs"), VALID_PLUGIN_CODE);
+    await writePluginLock({});
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "valid.mjs",
+      error: "plugins.lock does not list plugin",
+    });
+  });
+
+  it("rejects plugin files when plugins.lock is missing", async () => {
+    await writeFile(join(tmpDir, "valid.mjs"), VALID_PLUGIN_CODE);
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "valid.mjs",
+      error: "plugins.lock not found",
+    });
+  });
+
+  it("rejects plugin files whose hashes do not match plugins.lock", async () => {
+    await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE, "0".repeat(64));
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "valid.mjs",
+      error: "plugins.lock hash mismatch",
+    });
+  });
+
+  it("rejects invalid plugins.lock files before importing plugins", async () => {
+    globalThis.TEST_PLUGIN_SIDE_EFFECT = false;
+    await writeFile(join(tmpDir, "valid.mjs"), SIDE_EFFECT_PLUGIN_CODE);
+    await writeFile(join(tmpDir, "plugins.lock"), "{ invalid json");
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(globalThis.TEST_PLUGIN_SIDE_EFFECT).toBe(false);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]?.file).toBe("plugins.lock");
+  });
+
+  it("rejects schema-invalid plugins.lock files before importing plugins", async () => {
+    globalThis.TEST_PLUGIN_SIDE_EFFECT = false;
+    await writeFile(join(tmpDir, "valid.mjs"), SIDE_EFFECT_PLUGIN_CODE);
+    await writeFile(
+      join(tmpDir, "plugins.lock"),
+      JSON.stringify({
+        plugins: {
+          "valid.mjs": "not-a-sha256",
+        },
+      }),
+    );
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(globalThis.TEST_PLUGIN_SIDE_EFFECT).toBe(false);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "plugins.lock",
+      error: "plugins.lock has an invalid schema",
+    });
+  });
+
+  it("rejects plugins.lock entries that are not bare plugin filenames", async () => {
+    await writeFile(join(tmpDir, "valid.mjs"), VALID_PLUGIN_CODE);
+    await writeFile(
+      join(tmpDir, "plugins.lock"),
+      JSON.stringify({
+        plugins: {
+          "./valid.mjs": sha256(VALID_PLUGIN_CODE),
+        },
+      }),
+    );
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "plugins.lock",
+      error: "plugins.lock has an invalid schema",
+    });
+  });
+
+  it("preserves existing lock entries when writing multiple locked plugins", async () => {
+    const secondPlugin = VALID_PLUGIN_CODE.replaceAll(
+      "test_provider",
+      "second_provider",
+    ).replaceAll("Test Provider", "Second Provider");
+    await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE);
+    await writeLockedPlugin("second.mjs", secondPlugin);
+
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins.map((plugin) => plugin.name).sort()).toEqual([
+      "second_provider",
+      "test_provider",
+    ]);
+  });
+
+  it("refuses to load plugins from group or other writable directories", async () => {
+    await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE);
+    await chmod(tmpDir, 0o777);
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    await chmod(tmpDir, 0o700);
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(false);
   });
 });

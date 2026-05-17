@@ -59,6 +59,7 @@
 
 ### R3-C4. バリデーションプラグインの任意コード実行（RCE）— ハッシュ検証欠如
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #36、`gh-review-hook` exit 0）
 - **対象:** `packages/integrations/src/plugin-loader.ts:31,165-179`
 - **問題:** `loadPluginFromSpecifier` は `VALIDATION_PLUGINS_DIR` 内の任意の `.js`/`.mjs` を無条件に `import` 実行する。`realpath`+`relative` のチェックはシンボリックリンク脱出を防ぐのみで、**ファイル内容は一切検証しない**。SHA-256 はログ出力しているだけで許可リスト照合も署名検証もない。`VALIDATION_PLUGINS_DIR` に書き込み権限を持つ者は API・Worker 両プロセスでコード実行が可能（旧 R2-H5 のドキュメント整備では未解決）。
 - **修正内容:**
