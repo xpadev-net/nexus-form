@@ -220,6 +220,35 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
     ).rejects.toThrow();
   });
 
+  it("resolves for non-expired share-link token when the role matches", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [
+        {
+          id: "link-active",
+          role: "EDITOR",
+          isActive: true,
+          formId: FORM_ID,
+          expiresAt: new Date("2999-01-01T00:00:00.000Z"),
+        },
+      ],
+    ]);
+
+    const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    const activeShareLinkCtx: DualAuthContext = {
+      user_id: "anon:tok-active",
+      auth_type: "api_token",
+      token_id: "tok-active",
+      scopes: ["read", "write"],
+      share_link_id: "link-active",
+    };
+
+    await expect(
+      checkFormPermissionLevel(activeShareLinkCtx, FORM_ID, "EDITOR"),
+    ).resolves.toBeUndefined();
+  });
+
   it("throws for expired share-link token even when the role matches", async () => {
     const { db } = await import("@nexus-form/database");
     mockDbSelectChain(db, [
