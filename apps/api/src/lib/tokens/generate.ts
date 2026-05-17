@@ -8,7 +8,7 @@ import {
 import { and, count, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
-import { parseStoredApiTokenJson } from "./stored-json";
+import { requireStoredApiTokenJson } from "./stored-json";
 
 /**
  * セキュアなAPIトークンを生成する
@@ -121,24 +121,18 @@ export async function getUserApiTokens(
     db.select({ total: count() }).from(apiToken).where(whereCondition),
   ]);
 
-  // Keep pagination bounded at the DB layer; malformed legacy rows are hidden
-  // from the current page while total remains the stored active-token count.
-  const mappedTokens = tokens.flatMap((token) => {
-    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
-    if (!parsedJson) return [];
-
-    return [
-      {
-        id: token.id,
-        name: token.name,
-        scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds,
-        expires_at: token.expiresAt?.toISOString(),
-        last_used_at: token.lastUsedAt?.toISOString(),
-        created_at: token.createdAt.toISOString(),
-        is_active: token.isActive,
-      },
-    ];
+  const mappedTokens = tokens.map((token) => {
+    const parsedJson = requireStoredApiTokenJson(token, "getUserApiTokens");
+    return {
+      id: token.id,
+      name: token.name,
+      scopes: parsedJson.scopes,
+      form_ids: parsedJson.formIds,
+      expires_at: token.expiresAt?.toISOString(),
+      last_used_at: token.lastUsedAt?.toISOString(),
+      created_at: token.createdAt.toISOString(),
+      is_active: token.isActive,
+    };
   });
   const total = totalResult[0]?.total ?? 0;
 

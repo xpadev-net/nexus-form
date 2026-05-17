@@ -19,7 +19,11 @@ import {
   SuspendedTokenOwnerError,
   validateApiTokenForUser,
 } from "../lib/tokens";
-import { parseStoredApiTokenJson } from "../lib/tokens/stored-json";
+import {
+  MalformedStoredApiTokenJsonError,
+  parseStoredApiTokenJson,
+  requireStoredApiTokenJson,
+} from "../lib/tokens/stored-json";
 import {
   CreateTokenResponse,
   DeleteTokenResponse,
@@ -96,14 +100,20 @@ export const tokensRouter = createHonoApp()
       db.select({ total: count() }).from(apiToken).where(where),
     ]);
 
-    // Keep pagination bounded at the DB layer; malformed legacy rows are hidden
-    // from the current page while total remains the stored active-token count.
-    const responseTokens = tokens.flatMap((token) => {
-      const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
-      if (!parsedJson) return [];
-
-      return [
-        {
+    let responseTokens: Array<{
+      id: string;
+      name: string;
+      scopes: string[];
+      form_ids: string[] | undefined;
+      expires_at: string | undefined;
+      last_used_at: string | undefined;
+      created_at: string;
+      is_active: boolean;
+    }>;
+    try {
+      responseTokens = tokens.map((token) => {
+        const parsedJson = requireStoredApiTokenJson(token, "tokens.list");
+        return {
           id: token.id,
           name: token.name,
           scopes: parsedJson.scopes,
@@ -112,9 +122,14 @@ export const tokensRouter = createHonoApp()
           last_used_at: token.lastUsedAt?.toISOString(),
           created_at: token.createdAt.toISOString(),
           is_active: token.isActive,
-        },
-      ];
-    });
+        };
+      });
+    } catch (error) {
+      if (error instanceof MalformedStoredApiTokenJsonError) {
+        return c.json({ error: "Stored token data is malformed" }, 500);
+      }
+      throw error;
+    }
     const total = totalRows[0]?.total ?? 0;
 
     const listResponse = GetTokensResponse.parse({

@@ -17,6 +17,16 @@ export type ParsedApiTokenJson = {
   formIds: ApiTokenFormIds | undefined;
 };
 
+export class MalformedStoredApiTokenJsonError extends Error {
+  constructor(
+    public readonly tokenId: string,
+    public readonly operation: string,
+  ) {
+    super("Stored API token JSON is malformed");
+    this.name = "MalformedStoredApiTokenJsonError";
+  }
+}
+
 export function parseStoredApiTokenJson(
   token: StoredApiTokenJson,
   operation: string,
@@ -34,4 +44,15 @@ export function parseStoredApiTokenJson(
     });
     return null;
   }
+}
+
+export function requireStoredApiTokenJson(
+  token: StoredApiTokenJson,
+  operation: string,
+): ParsedApiTokenJson {
+  const parsedJson = parseStoredApiTokenJson(token, operation);
+  if (!parsedJson) {
+    throw new MalformedStoredApiTokenJsonError(token.id, operation);
+  }
+  return parsedJson;
 }
