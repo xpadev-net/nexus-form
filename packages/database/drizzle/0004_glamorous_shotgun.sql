@@ -1,0 +1,1 @@
+CREATE INDEX `FormResponse_formId_submittedAt_id_idx` ON `FormResponse` (`formId`,`submittedAt`,`id`);

@@ -94,14 +94,27 @@ function responseRow(
   };
 }
 
-function loadByCursor<T extends { id: string }>(
+function formatCursorMarker(row: {
+  id: string;
+  submittedAt: Date | string;
+}): string {
+  return `${String(row.submittedAt)}:${row.id}`;
+}
+
+function loadByCursor<T extends { id: string; submittedAt: Date | string }>(
   rows: T[],
   seenCursors: string[] = [],
-): (cursor: { id: string } | undefined, limit: number) => Promise<T[]> {
+): (
+  cursor: { id: string; submittedAt: Date | string } | undefined,
+  limit: number,
+) => Promise<T[]> {
   return async (cursor, limit) => {
-    seenCursors.push(cursor?.id ?? "START");
+    seenCursors.push(cursor ? formatCursorMarker(cursor) : "START");
     const start = cursor
-      ? rows.findIndex((row) => row.id === cursor.id) + 1
+      ? rows.findIndex(
+          (row) =>
+            row.id === cursor.id && row.submittedAt === cursor.submittedAt,
+        ) + 1
       : 0;
     return rows.slice(start, start + limit);
   };
@@ -124,8 +137,42 @@ describe("aggregateAllBlocksInBatches", () => {
       loadByCursor(responses, seenCursors),
       { batchSize: 2 },
     );
+    const secondResponse = responses[1];
+    const fourthResponse = responses[3];
+    if (!secondResponse || !fourthResponse) {
+      throw new Error("test fixture is missing expected cursor rows");
+    }
 
-    expect(seenCursors).toEqual(["START", "response-2", "response-4"]);
+    expect(seenCursors).toEqual([
+      "START",
+      formatCursorMarker(secondResponse),
+      formatCursorMarker(fourthResponse),
+    ]);
+    expect(actual).toEqual(expected);
+  });
+
+  it("uses the composite submittedAt and id cursor when timestamps tie", async () => {
+    const submittedAt = new Date("2026-05-17T01:00:00.000Z");
+    const responses = [
+      { ...responseRow("response-c", 1, "a"), submittedAt },
+      { ...responseRow("response-b", 2, "bb"), submittedAt },
+      { ...responseRow("response-a", 3, "ccc"), submittedAt },
+    ];
+    const expected = aggregateAllBlocks("form-1", blocks, responses);
+    const seenCursors: string[] = [];
+
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      blocks,
+      loadByCursor(responses, seenCursors),
+      { batchSize: 2 },
+    );
+    const secondResponse = responses[1];
+    if (!secondResponse) {
+      throw new Error("test fixture is missing expected cursor row");
+    }
+
+    expect(seenCursors).toEqual(["START", formatCursorMarker(secondResponse)]);
     expect(actual).toEqual(expected);
   });
 

@@ -153,6 +153,13 @@ type RawBlock = {
 
 type ResponseBatchCursor = Pick<RawResponseRow, "id" | "submittedAt">;
 
+/**
+ * Loads one page of responses sorted by `submittedAt DESC, id DESC`.
+ *
+ * When `cursor` is present, it is the last row returned by the previous page.
+ * The next page must start strictly after that cursor in the same sort order
+ * and must not include the cursor row again.
+ */
 type ResponseBatchLoader = (
   cursor: ResponseBatchCursor | undefined,
   limit: number,
@@ -968,15 +975,36 @@ function recalculatePercentages(
   }
 }
 
+function normalizePositiveInteger(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(1, Math.floor(value)) : fallback;
+}
+
+function normalizeNonNegativeInteger(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
+}
+
+/**
+ * Aggregates block analytics from cursor-paginated response batches.
+ *
+ * `loadBatch` must return rows sorted by `submittedAt DESC, id DESC`. The
+ * cursor passed to each subsequent call is the last row from the previous page;
+ * callers must return only rows after that cursor in the same order and must
+ * not return the cursor row again.
+ */
 export async function aggregateAllBlocksInBatches(
   formId: string,
   blocks: RawBlock[],
   loadBatch: ResponseBatchLoader,
   options: AggregateBatchOptions = {},
 ): Promise<BlockAnalyticsResult[]> {
-  const batchSize = options.batchSize ?? DEFAULT_AGGREGATION_BATCH_SIZE;
-  const detailResponseLimit =
-    options.detailResponseLimit ?? DEFAULT_DETAIL_RESPONSE_LIMIT;
+  const batchSize = normalizePositiveInteger(
+    options.batchSize ?? DEFAULT_AGGREGATION_BATCH_SIZE,
+    DEFAULT_AGGREGATION_BATCH_SIZE,
+  );
+  const detailResponseLimit = normalizeNonNegativeInteger(
+    options.detailResponseLimit ?? DEFAULT_DETAIL_RESPONSE_LIMIT,
+    DEFAULT_DETAIL_RESPONSE_LIMIT,
+  );
   const mergedResults = new Map<string, BlockAnalyticsResult>();
   const textMergeStats = new Map<string, TextMergeStats>();
   let cursor: ResponseBatchCursor | undefined;
