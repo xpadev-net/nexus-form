@@ -639,20 +639,64 @@ function isGridAnalytics(data: unknown): data is GridAnalytics {
 }
 
 function isDateAnalytics(data: unknown): data is DateAnalytics {
+  const candidate = data as {
+    block_id?: unknown;
+    form_id?: unknown;
+    total_responses?: unknown;
+    distribution?: unknown;
+    responses?: unknown;
+  };
   return (
     typeof data === "object" &&
     data !== null &&
-    "distribution" in data &&
-    "responses" in data
+    typeof candidate.block_id === "string" &&
+    typeof candidate.form_id === "string" &&
+    typeof candidate.total_responses === "number" &&
+    Array.isArray(candidate.distribution) &&
+    candidate.distribution.every(
+      (point) =>
+        typeof point === "object" &&
+        point !== null &&
+        typeof (point as { date?: unknown }).date === "string",
+    ) &&
+    Array.isArray(candidate.responses) &&
+    candidate.responses.every(
+      (response) =>
+        typeof response === "object" &&
+        response !== null &&
+        typeof (response as { date?: unknown }).date === "string",
+    )
   );
 }
 
 function isTimeAnalytics(data: unknown): data is TimeAnalytics {
+  const candidate = data as {
+    block_id?: unknown;
+    form_id?: unknown;
+    total_responses?: unknown;
+    distribution?: unknown;
+    responses?: unknown;
+  };
   return (
     typeof data === "object" &&
     data !== null &&
-    "distribution" in data &&
-    "responses" in data
+    typeof candidate.block_id === "string" &&
+    typeof candidate.form_id === "string" &&
+    typeof candidate.total_responses === "number" &&
+    Array.isArray(candidate.distribution) &&
+    candidate.distribution.every(
+      (point) =>
+        typeof point === "object" &&
+        point !== null &&
+        typeof (point as { time?: unknown }).time === "string",
+    ) &&
+    Array.isArray(candidate.responses) &&
+    candidate.responses.every(
+      (response) =>
+        typeof response === "object" &&
+        response !== null &&
+        typeof (response as { time?: unknown }).time === "string",
+    )
   );
 }
 
@@ -660,6 +704,8 @@ function isTextAnalytics(data: unknown): data is TextAnalytics {
   return (
     typeof data === "object" &&
     data !== null &&
+    !("block_id" in data) &&
+    !("form_id" in data) &&
     "total_responses" in data &&
     "responses" in data &&
     Array.isArray((data as { responses?: unknown }).responses)
@@ -781,6 +827,23 @@ function mergeTextAnalytics(
   target.responses.push(...incoming.responses);
   if (target.responses.length > detailResponseLimit) {
     target.responses.length = detailResponseLimit;
+  }
+}
+
+function capDetailResponses(
+  result: BlockAnalyticsResult,
+  detailResponseLimit: number,
+): void {
+  const data = result.analytics_data;
+
+  if (
+    (result.block_type === "date" && isDateAnalytics(data)) ||
+    (result.block_type === "time" && isTimeAnalytics(data)) ||
+    isTextAnalytics(data)
+  ) {
+    if (data.responses.length > detailResponseLimit) {
+      data.responses.length = detailResponseLimit;
+    }
   }
 }
 
@@ -928,8 +991,9 @@ export async function aggregateAllBlocksInBatches(
     for (const result of batchResults) {
       const existing = mergedResults.get(result.block_id);
       if (!existing) {
-        mergedResults.set(result.block_id, result);
         initializeTextMergeStats(result, textMergeStats);
+        capDetailResponses(result, detailResponseLimit);
+        mergedResults.set(result.block_id, result);
       } else {
         mergeBlockAnalyticsResult(
           existing,

@@ -197,4 +197,39 @@ describe("aggregateAllBlocksInBatches", () => {
       },
     });
   });
+
+  it("caps detail response lists even when the first batch exceeds the cap", async () => {
+    const responses = [
+      responseRow("response-1", 1, "a"),
+      responseRow("response-2", 2, "bb"),
+      responseRow("response-3", 3, "ccc"),
+    ];
+
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      blocks,
+      async (offset, limit) => responses.slice(offset, offset + limit),
+      { batchSize: 10, detailResponseLimit: 2 },
+    );
+
+    const textBlock = actual.find((block) => block.block_id === "text-block");
+    expect(textBlock?.analytics_data).toMatchObject({
+      total_responses: 3,
+      responses: [
+        {
+          response_id: "response-1",
+          value: "a",
+        },
+        {
+          response_id: "response-2",
+          value: "bb",
+        },
+      ],
+      word_count_stats: {
+        average: 2,
+        min: 1,
+        max: 3,
+      },
+    });
+  });
 });
