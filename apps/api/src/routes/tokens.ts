@@ -1,6 +1,12 @@
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
+import {
+  apiTokenFormIdsSchema,
+  apiTokenScopesSchema,
+  parseApiTokenScopes,
+  parseStoredApiTokenFormIds,
+} from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
@@ -27,19 +33,16 @@ import {
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
-  scopes: z.array(z.enum(["read", "write", "admin"])).min(1),
-  form_ids: z.array(z.string()).optional(),
+  scopes: apiTokenScopesSchema,
+  form_ids: apiTokenFormIdsSchema.optional(),
   expires_at: z.string().datetime().optional(),
 });
 
 const patchTokenSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
-    scopes: z
-      .array(z.enum(["read", "write", "admin"]))
-      .min(1)
-      .optional(),
-    form_ids: z.array(z.string()).optional(),
+    scopes: apiTokenScopesSchema.optional(),
+    form_ids: apiTokenFormIdsSchema.optional(),
     expires_at: z.string().datetime().nullable().optional(),
     is_active: z.boolean().optional(),
   })
@@ -99,8 +102,8 @@ export const tokensRouter = createHonoApp()
       tokens: tokens.map((token) => ({
         id: token.id,
         name: token.name,
-        scopes: token.scopes,
-        form_ids: token.formIds,
+        scopes: parseApiTokenScopes(token.scopes),
+        form_ids: parseStoredApiTokenFormIds(token.formIds),
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -165,8 +168,8 @@ export const tokensRouter = createHonoApp()
       token: {
         id: token.id,
         name: token.name,
-        scopes: token.scopes,
-        form_ids: token.formIds,
+        scopes: parseApiTokenScopes(token.scopes),
+        form_ids: parseStoredApiTokenFormIds(token.formIds),
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -183,7 +186,7 @@ export const tokensRouter = createHonoApp()
     const payload = c.req.valid("json");
     const patch: {
       name?: string;
-      scopes?: unknown;
+      scopes?: string[];
       formIds?: string[];
       expiresAt?: Date | null;
       isActive?: boolean;
@@ -227,8 +230,8 @@ export const tokensRouter = createHonoApp()
       token: {
         id: updated.id,
         name: updated.name,
-        scopes: updated.scopes,
-        form_ids: updated.formIds,
+        scopes: parseApiTokenScopes(updated.scopes),
+        form_ids: parseStoredApiTokenFormIds(updated.formIds),
         expires_at: updated.expiresAt?.toISOString(),
         last_used_at: updated.lastUsedAt?.toISOString(),
         created_at: updated.createdAt.toISOString(),

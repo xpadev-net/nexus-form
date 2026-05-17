@@ -1,6 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
+import {
+  parseApiTokenScopes,
+  parseStoredApiTokenFormIds,
+} from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
@@ -45,6 +49,8 @@ export async function createApiToken(
 
   // 有効期限の処理
   const expiresAt = params.expires_at ? new Date(params.expires_at) : undefined;
+  const scopes = parseApiTokenScopes(params.scopes);
+  const formIds = parseStoredApiTokenFormIds(params.form_ids);
 
   // データベースに保存
   const id = crypto.randomUUID();
@@ -56,8 +62,8 @@ export async function createApiToken(
     name: params.name,
     tokenHash,
     lookupHash,
-    scopes: params.scopes,
-    formIds: params.form_ids ?? undefined,
+    scopes,
+    formIds,
     expiresAt,
     createdAt: now,
     updatedAt: now,
@@ -68,8 +74,8 @@ export async function createApiToken(
     name: params.name,
     token: plainToken, // プレーンテキストは作成時のみ返す
     tokenHash,
-    scopes: params.scopes as TokenScope[],
-    formIds: params.form_ids,
+    scopes,
+    formIds,
     expiresAt,
     createdAt: now,
   };
@@ -119,8 +125,8 @@ export async function getUserApiTokens(
   const mappedTokens = tokens.map((token) => ({
     id: token.id,
     name: token.name,
-    scopes: token.scopes as TokenScope[],
-    form_ids: token.formIds as string[] | undefined,
+    scopes: parseApiTokenScopes(token.scopes),
+    form_ids: parseStoredApiTokenFormIds(token.formIds),
     expires_at: token.expiresAt?.toISOString(),
     last_used_at: token.lastUsedAt?.toISOString(),
     created_at: token.createdAt.toISOString(),

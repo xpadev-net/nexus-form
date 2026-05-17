@@ -1,5 +1,9 @@
 import { db, user as userTable } from "@nexus-form/database";
 import { apiToken, formShareLink } from "@nexus-form/database/schema";
+import {
+  parseApiTokenScopes,
+  parseStoredApiTokenFormIds,
+} from "@nexus-form/shared";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { AuthContext, TokenScope } from "../../types/api/auth";
 import { logError } from "../logger";
@@ -82,6 +86,9 @@ async function buildAuthContextFromTokenRecord(
     throw new SuspendedTokenOwnerError();
   }
 
+  const scopes = parseApiTokenScopes(tokenRecord.scopes);
+  const formIds = parseStoredApiTokenFormIds(tokenRecord.formIds);
+
   if (options.updateLastUsedAt ?? true) {
     void db
       .update(apiToken)
@@ -112,8 +119,8 @@ async function buildAuthContextFromTokenRecord(
   return {
     user_id: tokenRecord.userId ?? null,
     token_id: tokenRecord.id,
-    scopes: (tokenRecord.scopes as TokenScope[]) ?? [],
-    form_ids: (tokenRecord.formIds as string[] | undefined) ?? undefined,
+    scopes,
+    form_ids: formIds,
     is_admin: false,
   };
 }

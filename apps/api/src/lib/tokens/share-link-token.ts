@@ -1,5 +1,11 @@
 import { db } from "@nexus-form/database";
 import { apiToken, formShareLink } from "@nexus-form/database/schema";
+import {
+  type ApiTokenFormIds,
+  type ApiTokenScopes,
+  parseApiTokenScopes,
+  parseStoredApiTokenFormIds,
+} from "@nexus-form/shared";
 import { eq } from "drizzle-orm";
 import { generateSecureToken } from "./generate";
 import { hashToken } from "./hash";
@@ -11,8 +17,8 @@ export type IssuedShareLinkApiToken = {
     userId: string | null;
     name: string;
     tokenHash: string;
-    scopes: unknown;
-    formIds: unknown;
+    scopes: ApiTokenScopes;
+    formIds: ApiTokenFormIds | undefined;
     type: string;
     isActive: boolean;
     expiresAt: Date | null;
@@ -93,7 +99,10 @@ export async function createApiTokenForShareLink(
   const formTitle = shareLinkResult.form.title ?? "Untitled";
 
   // スコープの決定（VIEWER: read のみ / EDITOR: read, write）
-  const scopes = role === "EDITOR" ? ["read", "write"] : ["read"];
+  const scopes = parseApiTokenScopes(
+    role === "EDITOR" ? ["read", "write"] : ["read"],
+  );
+  const formIds = parseStoredApiTokenFormIds([formId]);
 
   // プレーンテキストトークン生成とハッシュ化
   const plainToken = generateSecureToken();
@@ -114,7 +123,7 @@ export async function createApiTokenForShareLink(
     name: `Share Link: ${formTitle}`,
     tokenHash,
     scopes,
-    formIds: [formId],
+    formIds,
     type: "SHARE_LINK",
     shareLinkId,
     expiresAt,
@@ -145,8 +154,8 @@ export async function createApiTokenForShareLink(
     apiToken: {
       ...createdToken,
       type: createdToken.type as string,
-      scopes: createdToken.scopes,
-      formIds: createdToken.formIds,
+      scopes: parseApiTokenScopes(createdToken.scopes),
+      formIds: parseStoredApiTokenFormIds(createdToken.formIds),
       shareLink: shareLink ?? null,
     },
   };
