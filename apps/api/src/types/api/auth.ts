@@ -57,8 +57,16 @@ export const PaginationInfo = z.object({
 export type PaginationInfo = z.infer<typeof PaginationInfo>;
 
 // APIトークン一覧取得レスポンス
+export const MalformedTokenSummary = z.object({
+  id: z.string(),
+  error: z.literal("MALFORMED_STORED_JSON"),
+});
+
+export type MalformedTokenSummary = z.infer<typeof MalformedTokenSummary>;
+
 export const GetTokensResponse = z.object({
   tokens: z.array(ApiToken),
+  malformed_tokens: z.array(MalformedTokenSummary).optional(),
   total: z.number(),
   pagination: PaginationInfo.optional(),
 });

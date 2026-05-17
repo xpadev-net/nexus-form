@@ -8,7 +8,7 @@ import {
 import { and, count, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
-import { requireStoredApiTokenJson } from "./stored-json";
+import { parseStoredApiTokenJson } from "./stored-json";
 
 /**
  * セキュアなAPIトークンを生成する
@@ -121,23 +121,38 @@ export async function getUserApiTokens(
     db.select({ total: count() }).from(apiToken).where(whereCondition),
   ]);
 
-  const mappedTokens = tokens.map((token) => {
-    const parsedJson = requireStoredApiTokenJson(token, "getUserApiTokens");
-    return {
-      id: token.id,
-      name: token.name,
-      scopes: parsedJson.scopes,
-      form_ids: parsedJson.formIds,
-      expires_at: token.expiresAt?.toISOString(),
-      last_used_at: token.lastUsedAt?.toISOString(),
-      created_at: token.createdAt.toISOString(),
-      is_active: token.isActive,
-    };
+  const malformedTokens: Array<{
+    id: string;
+    error: "MALFORMED_STORED_JSON";
+  }> = [];
+  const mappedTokens = tokens.flatMap((token) => {
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
+    if (!parsedJson) {
+      malformedTokens.push({
+        id: token.id,
+        error: "MALFORMED_STORED_JSON",
+      });
+      return [];
+    }
+
+    return [
+      {
+        id: token.id,
+        name: token.name,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds,
+        expires_at: token.expiresAt?.toISOString(),
+        last_used_at: token.lastUsedAt?.toISOString(),
+        created_at: token.createdAt.toISOString(),
+        is_active: token.isActive,
+      },
+    ];
   });
   const total = totalResult[0]?.total ?? 0;
 
   return {
     tokens: mappedTokens,
+    malformed_tokens: malformedTokens.length > 0 ? malformedTokens : undefined,
     pagination: {
       page,
       pageSize,

@@ -19,11 +19,7 @@ import {
   SuspendedTokenOwnerError,
   validateApiTokenForUser,
 } from "../lib/tokens";
-import {
-  MalformedStoredApiTokenJsonError,
-  parseStoredApiTokenJson,
-  requireStoredApiTokenJson,
-} from "../lib/tokens/stored-json";
+import { parseStoredApiTokenJson } from "../lib/tokens/stored-json";
 import {
   CreateTokenResponse,
   DeleteTokenResponse,
@@ -100,7 +96,7 @@ export const tokensRouter = createHonoApp()
       db.select({ total: count() }).from(apiToken).where(where),
     ]);
 
-    let responseTokens: Array<{
+    const responseTokens: Array<{
       id: string;
       name: string;
       scopes: string[];
@@ -109,31 +105,39 @@ export const tokensRouter = createHonoApp()
       last_used_at: string | undefined;
       created_at: string;
       is_active: boolean;
-    }>;
-    try {
-      responseTokens = tokens.map((token) => {
-        const parsedJson = requireStoredApiTokenJson(token, "tokens.list");
-        return {
+    }> = [];
+    const malformedTokens: Array<{
+      id: string;
+      error: "MALFORMED_STORED_JSON";
+    }> = [];
+
+    for (const token of tokens) {
+      const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
+      if (!parsedJson) {
+        malformedTokens.push({
           id: token.id,
-          name: token.name,
-          scopes: parsedJson.scopes,
-          form_ids: parsedJson.formIds,
-          expires_at: token.expiresAt?.toISOString(),
-          last_used_at: token.lastUsedAt?.toISOString(),
-          created_at: token.createdAt.toISOString(),
-          is_active: token.isActive,
-        };
-      });
-    } catch (error) {
-      if (error instanceof MalformedStoredApiTokenJsonError) {
-        return c.json({ error: "Stored token data is malformed" }, 500);
+          error: "MALFORMED_STORED_JSON",
+        });
+        continue;
       }
-      throw error;
+
+      responseTokens.push({
+        id: token.id,
+        name: token.name,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds,
+        expires_at: token.expiresAt?.toISOString(),
+        last_used_at: token.lastUsedAt?.toISOString(),
+        created_at: token.createdAt.toISOString(),
+        is_active: token.isActive,
+      });
     }
     const total = totalRows[0]?.total ?? 0;
 
     const listResponse = GetTokensResponse.parse({
       tokens: responseTokens,
+      malformed_tokens:
+        malformedTokens.length > 0 ? malformedTokens : undefined,
       total,
       pagination: {
         page,
