@@ -160,6 +160,7 @@
 
 ### R3-H3. 公開フォーム送信の検証順序（captcha 前に回答バリデーション・DB 操作）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #46）
 - **対象:** `apps/api/src/routes/forms-public.ts:288, 302`
 - **問題:** 回答バリデーション（`validateResponseData`, L288）が hCaptcha 検証（L302）より先に実行される。未認証の攻撃者が captcha コストを払わず「フィールド構造が妥当か」のフィードバックを得られ、`processFormSchedule` を含む DB 操作も captcha 前に走る。
 - **修正内容:** hCaptcha 検証を最優先に実行し、その後に回答バリデーション・スケジュール処理を行う。
