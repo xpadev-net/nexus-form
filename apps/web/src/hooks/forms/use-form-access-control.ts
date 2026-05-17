@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client, rpc } from "@/lib/api";
+import {
+  formAccessControlStructureQueryKey,
+  formLogicStructureQueryKey,
+} from "./form-structure-query-keys";
 
 interface PasswordProtectionState {
   enabled: boolean;
@@ -18,7 +22,7 @@ export const useFormAccessControl = (formId: string) => {
   const queryClient = useQueryClient();
 
   const structureQuery = useQuery({
-    queryKey: ["formStructure", formId],
+    queryKey: formAccessControlStructureQueryKey(formId),
     queryFn: () =>
       rpc(client.api.forms[":id"].structure.$get({ param: { id: formId } })),
     enabled: !!formId,
@@ -53,9 +57,14 @@ export const useFormAccessControl = (formId: string) => {
         }),
       ),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["formStructure", formId],
-      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: formAccessControlStructureQueryKey(formId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: formLogicStructureQueryKey(formId),
+        }),
+      ]);
     },
   });
 

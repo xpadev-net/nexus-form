@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import { client, rpc } from "@/lib/api";
+import {
+  formAccessControlStructureQueryKey,
+  formLogicStructureQueryKey,
+} from "./form-structure-query-keys";
 
 async function fetchStructure(formId: string) {
   return rpc(client.api.forms[":id"].structure.$get({ param: { id: formId } }));
@@ -12,15 +16,14 @@ type LogicRuleEntry = NonNullable<
   FetchedStructure["structure"]["logic"]
 >[number];
 
-async function saveStructure(
+async function saveLogic(
   formId: string,
-  structure: FetchedStructure["structure"],
-  changeLog?: string,
+  logic: NonNullable<FetchedStructure["structure"]["logic"]>,
 ) {
   return rpc(
-    client.api.forms[":id"].structure.$put({
+    client.api.forms[":id"].structure.logic.$patch({
       param: { id: formId },
-      json: { structure, changeLog },
+      json: { logic },
     }),
   );
 }
@@ -36,38 +39,36 @@ export const useFormLogicManagement = (formId: string) => {
   };
 
   const structureQuery = useQuery({
-    queryKey: ["formStructure", formId],
+    queryKey: formLogicStructureQueryKey(formId),
     queryFn: () => fetchStructure(formId),
     enabled: !!formId,
   });
 
   const rules = structureQuery.data?.structure.logic ?? [];
 
-  const freshFetch = () =>
-    queryClient.fetchQuery({
-      queryKey: ["formStructure", formId],
-      queryFn: () => fetchStructure(formId),
-      staleTime: 0,
+  const invalidateStructureQueries = () => {
+    void queryClient.invalidateQueries({
+      queryKey: formLogicStructureQueryKey(formId),
     });
+    void queryClient.invalidateQueries({
+      queryKey: formAccessControlStructureQueryKey(formId),
+    });
+  };
 
   const createRule = useMutation({
     mutationFn: (rule: Omit<LogicRuleEntry, "id">) =>
       serialized(async () => {
-        const current = await freshFetch();
+        const current = await fetchStructure(formId);
         const existingRules = current.structure.logic ?? [];
         const newRule = {
           ...rule,
           id: crypto.randomUUID(),
         };
-        const updatedStructure = {
-          ...current.structure,
-          logic: [...existingRules, newRule],
-        };
-        await saveStructure(formId, updatedStructure, "Add logic rule");
+        await saveLogic(formId, [...existingRules, newRule]);
         return newRule;
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["formStructure", formId] });
+      invalidateStructureQueries();
     },
   });
 
@@ -78,7 +79,7 @@ export const useFormLogicManagement = (formId: string) => {
       ...data
     }: Partial<LogicRuleEntry> & { ruleId: string }) =>
       serialized(async () => {
-        const current = await freshFetch();
+        const current = await fetchStructure(formId);
         const existingRules = current.structure.logic ?? [];
         if (!existingRules.some((r) => r.id === ruleId)) {
           throw new Error(`Logic rule ${ruleId} not found`);
@@ -87,30 +88,25 @@ export const useFormLogicManagement = (formId: string) => {
         const updatedRules = existingRules.map((r) =>
           r.id === ruleId ? { ...r, ...data, id: ruleId } : r,
         );
-        const updatedStructure = {
-          ...current.structure,
-          logic: updatedRules,
-        };
-        await saveStructure(formId, updatedStructure, "Update logic rule");
+        await saveLogic(formId, updatedRules);
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["formStructure", formId] });
+      invalidateStructureQueries();
     },
   });
 
   const deleteRule = useMutation({
     mutationFn: (ruleId: string) =>
       serialized(async () => {
-        const current = await freshFetch();
+        const current = await fetchStructure(formId);
         const existingRules = current.structure.logic ?? [];
-        const updatedStructure = {
-          ...current.structure,
-          logic: existingRules.filter((r) => r.id !== ruleId),
-        };
-        await saveStructure(formId, updatedStructure, "Delete logic rule");
+        await saveLogic(
+          formId,
+          existingRules.filter((r) => r.id !== ruleId),
+        );
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["formStructure", formId] });
+      invalidateStructureQueries();
     },
   });
 

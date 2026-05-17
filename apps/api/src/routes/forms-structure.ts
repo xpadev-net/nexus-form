@@ -20,6 +20,7 @@ import {
   activateSnapshot,
   restoreFromSnapshotVersion,
 } from "../lib/forms/snapshot-repository";
+import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
 import { hashPassword } from "../lib/security/password";
 import {
@@ -30,6 +31,7 @@ import {
   ActivateSnapshotResponseSchema,
   RestoreEditResponseSchema,
 } from "../types/domain/form-snapshot";
+import { StoredLogicRuleSchema } from "../types/validation/form";
 
 const structureUpdateSchema = z.object({
   structure: FormStructure,
@@ -59,6 +61,10 @@ const accessControlUpdateSchema = z.object({
     password: z.string().min(8).optional(),
     password_hint: z.string().max(200).optional(),
   }),
+});
+
+const logicUpdateSchema = z.object({
+  logic: z.array(StoredLogicRuleSchema),
 });
 
 const futureDatetime = z
@@ -193,11 +199,8 @@ export const formsStructureRouter = createHonoApp()
         };
       }
 
-      const result = await saveFormStructure(
-        formId,
-        structure,
-        auth.user_id,
-        payload.changeLog,
+      const result = await withFormStructureMutationLock(formId, () =>
+        saveFormStructure(formId, structure, auth.user_id, payload.changeLog),
       );
       return c.json({ structure: result });
     },
@@ -245,6 +248,50 @@ export const formsStructureRouter = createHonoApp()
     },
   )
   .patch(
+    "/:id/structure/logic",
+    withDualFormAuth("EDITOR"),
+    zValidator("json", logicUpdateSchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      const payload = c.req.valid("json");
+
+      const result = await withFormStructureMutationLock(formId, async () => {
+        let currentStructure: FormStructureType;
+        try {
+          currentStructure = await getFormStructure(formId);
+        } catch (error) {
+          if (error instanceof FormStructureNotFoundError) {
+            throw error;
+          }
+          throw error;
+        }
+
+        return saveFormStructure(
+          formId,
+          {
+            ...currentStructure,
+            logic: payload.logic,
+          },
+          auth.user_id,
+          "Update logic rules",
+        );
+      }).catch((error) => {
+        if (error instanceof FormStructureNotFoundError) {
+          return null;
+        }
+        throw error;
+      });
+
+      if (!result) {
+        return c.json({ error: "Form structure not found" }, 404);
+      }
+
+      return c.json({ structure: result });
+    },
+  )
+  .patch(
     "/:id/structure/access-control",
     withDualFormAuth("EDITOR"),
     zValidator("json", accessControlUpdateSchema),
@@ -254,64 +301,79 @@ export const formsStructureRouter = createHonoApp()
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
       const payload = c.req.valid("json");
 
-      let currentStructure: FormStructureType;
-      try {
-        currentStructure = await getFormStructure(formId);
-      } catch (error) {
-        if (error instanceof FormStructureNotFoundError) {
-          return c.json({ error: "Form structure not found" }, 404);
-        }
-        throw error;
-      }
-      const currentAc = currentStructure.access_control ?? {
-        require_authentication: false,
-      };
-      const currentPp = currentAc.password_protection;
-
-      const newPassword = payload.password_protection.password
+      const hashedPassword = payload.password_protection.password
         ? await hashPassword(payload.password_protection.password)
-        : currentPp?.password;
+        : undefined;
 
-      if (payload.password_protection.enabled && !newPassword) {
-        return c.json(
-          { error: "パスワードを設定してから保護を有効にしてください" },
-          400,
+      const result = await withFormStructureMutationLock(formId, async () => {
+        let currentStructure: FormStructureType;
+        try {
+          currentStructure = await getFormStructure(formId);
+        } catch (error) {
+          if (error instanceof FormStructureNotFoundError) {
+            return null;
+          }
+          throw error;
+        }
+
+        const currentAc = currentStructure.access_control ?? {
+          require_authentication: false,
+        };
+        const currentPp = currentAc.password_protection;
+
+        const newPassword = hashedPassword ?? currentPp?.password;
+
+        if (payload.password_protection.enabled && !newPassword) {
+          return {
+            error: "パスワードを設定してから保護を有効にしてください",
+          };
+        }
+
+        // 空文字列は「ヒントを削除」として扱い、undefined は既存値を保持する
+        const newHint =
+          payload.password_protection.password_hint === ""
+            ? undefined
+            : (payload.password_protection.password_hint ??
+              currentPp?.password_hint);
+
+        const updatedStructure = {
+          ...currentStructure,
+          access_control: {
+            ...currentAc,
+            password_protection: {
+              enabled: payload.password_protection.enabled,
+              password: newPassword,
+              password_hint: newHint,
+            },
+          },
+        };
+
+        await saveFormStructure(
+          formId,
+          updatedStructure,
+          auth.user_id,
+          "Update password protection settings",
         );
-      }
 
-      // 空文字列は「ヒントを削除」として扱い、undefined は既存値を保持する
-      const newHint =
-        payload.password_protection.password_hint === ""
-          ? undefined
-          : (payload.password_protection.password_hint ??
-            currentPp?.password_hint);
-
-      const updatedStructure = {
-        ...currentStructure,
-        access_control: {
-          ...currentAc,
-          password_protection: {
+        return {
+          passwordProtection: {
             enabled: payload.password_protection.enabled,
-            password: newPassword,
+            has_password: !!newPassword,
             password_hint: newHint,
           },
-        },
-      };
+        };
+      });
 
-      await saveFormStructure(
-        formId,
-        updatedStructure,
-        auth.user_id,
-        "Update password protection settings",
-      );
+      if (result === null) {
+        return c.json({ error: "Form structure not found" }, 404);
+      }
+      if ("error" in result) {
+        return c.json({ error: result.error }, 400);
+      }
 
       return c.json({
         ok: true,
-        password_protection: {
-          enabled: payload.password_protection.enabled,
-          has_password: !!newPassword,
-          password_hint: newHint,
-        },
+        password_protection: result.passwordProtection,
       });
     },
   )
