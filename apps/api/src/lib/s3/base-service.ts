@@ -187,12 +187,17 @@ export class S3BaseService {
     backupKey?: string,
   ): Promise<void> {
     assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
+    const prodKey =
+      bucket === this.tmpBucket
+        ? backupKey || key.replace("tmp/", "prod/")
+        : undefined;
+    if (prodKey !== undefined) {
+      assertS3ObjectKeyPrefix(prodKey, "prod/");
+    }
 
     try {
       // 本番バケットにファイルが存在することを確認してから削除
-      if (bucket === this.tmpBucket) {
-        const prodKey = backupKey || key.replace("tmp/", "prod/");
-        assertS3ObjectKeyPrefix(prodKey, "prod/");
+      if (bucket === this.tmpBucket && prodKey !== undefined) {
         const prodExists = await this.objectExists(prodKey, this.prodBucket);
 
         if (!prodExists) {

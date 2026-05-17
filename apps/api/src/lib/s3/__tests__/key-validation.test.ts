@@ -87,6 +87,13 @@ describe("S3 object key validation", () => {
     await expect(
       service.deleteObject("tmp/users/user-1/file.png", S3_BUCKETS.PROD),
     ).rejects.toThrow("Object key must start with prod/");
+    await expect(
+      service.safeDeleteObject(
+        "tmp/users/user-1/file.png",
+        S3_BUCKETS.TMP,
+        "tmp/users/user-1/file.png",
+      ),
+    ).rejects.toThrow("Object key must start with prod/");
   });
 
   it("requires processAndMoveImage source and destination prefixes", async () => {
