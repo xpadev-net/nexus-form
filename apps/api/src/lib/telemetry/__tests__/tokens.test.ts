@@ -22,7 +22,9 @@ function setEnv(name: "TELEMETRY_IP_SALT" | "AUTH_SECRET", value?: string) {
 }
 
 function expectedHash(ip: string, salt: string): string {
-  return createHash("sha256").update(`${ip}:${salt}`).digest("hex");
+  return createHash("sha256")
+    .update(ip + salt)
+    .digest("hex");
 }
 
 function authSecretDerivedSalt(authSecret: string): string {
@@ -48,6 +50,15 @@ describe("hashIPAddress", () => {
 
   it("falls back to an AUTH_SECRET-derived salt when telemetry salt is absent", () => {
     setEnv("TELEMETRY_IP_SALT");
+    setEnv("AUTH_SECRET", "auth-secret-a");
+
+    expect(hashIPAddress("203.0.113.10")).toBe(
+      expectedHash("203.0.113.10", authSecretDerivedSalt("auth-secret-a")),
+    );
+  });
+
+  it("treats an empty TELEMETRY_IP_SALT as absent", () => {
+    setEnv("TELEMETRY_IP_SALT", "");
     setEnv("AUTH_SECRET", "auth-secret-a");
 
     expect(hashIPAddress("203.0.113.10")).toBe(

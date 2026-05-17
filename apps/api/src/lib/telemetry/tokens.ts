@@ -5,7 +5,7 @@ import { and, gt, inArray, isNull } from "drizzle-orm";
 
 function resolveTelemetryIpSalt(): string {
   const telemetrySalt = process.env.TELEMETRY_IP_SALT;
-  if (telemetrySalt) return telemetrySalt;
+  if (telemetrySalt !== undefined && telemetrySalt !== "") return telemetrySalt;
 
   const authSecret = process.env.AUTH_SECRET;
   if (!authSecret) {
@@ -21,7 +21,9 @@ function resolveTelemetryIpSalt(): string {
 
 export function hashIPAddress(ip: string): string {
   const salt = resolveTelemetryIpSalt();
-  return createHash("sha256").update(`${ip}:${salt}`).digest("hex");
+  return createHash("sha256")
+    .update(ip + salt)
+    .digest("hex");
 }
 
 export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
