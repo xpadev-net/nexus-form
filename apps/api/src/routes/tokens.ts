@@ -5,7 +5,7 @@ import {
   apiTokenFormIdsSchema,
   apiTokenScopesSchema,
 } from "@nexus-form/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { ERROR_CODES } from "../lib/constants/error-codes";
@@ -76,22 +76,29 @@ export const tokensRouter = createHonoApp()
       eq(apiToken.userId, user.userId),
       eq(apiToken.isActive, true),
     );
-    const tokens = await db
-      .select({
-        id: apiToken.id,
-        name: apiToken.name,
-        scopes: apiToken.scopes,
-        formIds: apiToken.formIds,
-        expiresAt: apiToken.expiresAt,
-        lastUsedAt: apiToken.lastUsedAt,
-        createdAt: apiToken.createdAt,
-        isActive: apiToken.isActive,
-      })
-      .from(apiToken)
-      .where(where)
-      .orderBy(desc(apiToken.createdAt));
+    const [tokens, totalRows] = await Promise.all([
+      db
+        .select({
+          id: apiToken.id,
+          name: apiToken.name,
+          scopes: apiToken.scopes,
+          formIds: apiToken.formIds,
+          expiresAt: apiToken.expiresAt,
+          lastUsedAt: apiToken.lastUsedAt,
+          createdAt: apiToken.createdAt,
+          isActive: apiToken.isActive,
+        })
+        .from(apiToken)
+        .where(where)
+        .orderBy(desc(apiToken.createdAt))
+        .offset(offset)
+        .limit(pageSize),
+      db.select({ total: count() }).from(apiToken).where(where),
+    ]);
 
-    const validTokens = tokens.flatMap((token) => {
+    // Keep pagination bounded at the DB layer; malformed legacy rows are hidden
+    // from the current page while total remains the stored active-token count.
+    const responseTokens = tokens.flatMap((token) => {
       const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
       if (!parsedJson) return [];
 
@@ -108,8 +115,7 @@ export const tokensRouter = createHonoApp()
         },
       ];
     });
-    const total = validTokens.length;
-    const responseTokens = validTokens.slice(offset, offset + pageSize);
+    const total = totalRows[0]?.total ?? 0;
 
     const listResponse = GetTokensResponse.parse({
       tokens: responseTokens,
