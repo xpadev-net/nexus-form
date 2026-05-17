@@ -171,6 +171,7 @@ export class S3BaseService {
     key: string,
     bucket: string = this.prodBucket,
   ): Promise<void> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     await deleteObject(bucket, key);
   }
 
@@ -185,10 +186,13 @@ export class S3BaseService {
     bucket: string,
     backupKey?: string,
   ): Promise<void> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
+
     try {
       // 本番バケットにファイルが存在することを確認してから削除
       if (bucket === this.tmpBucket) {
         const prodKey = backupKey || key.replace("tmp/", "prod/");
+        assertS3ObjectKeyPrefix(prodKey, "prod/");
         const prodExists = await this.objectExists(prodKey, this.prodBucket);
 
         if (!prodExists) {

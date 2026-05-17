@@ -84,6 +84,9 @@ describe("S3 object key validation", () => {
     await expect(
       service.generateUploadUrl("prod/users/user-1/file.png", S3_BUCKETS.TMP),
     ).rejects.toThrow("Object key must start with tmp/");
+    await expect(
+      service.deleteObject("tmp/users/user-1/file.png", S3_BUCKETS.PROD),
+    ).rejects.toThrow("Object key must start with prod/");
   });
 
   it("requires processAndMoveImage source and destination prefixes", async () => {
