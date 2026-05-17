@@ -51,6 +51,22 @@ const blocks = [
       },
     },
   },
+  {
+    blockId: "date-block",
+    type: "date",
+    content: {
+      title: "Date",
+      validation: {},
+    },
+  },
+  {
+    blockId: "time-block",
+    type: "time",
+    content: {
+      title: "Time",
+      validation: {},
+    },
+  },
 ];
 
 function responseRow(
@@ -89,6 +105,16 @@ function responseRow(
           "row-a": "column-a",
           "row-b": "column-b",
         },
+      },
+      {
+        question_id: "date-block",
+        question_type: "date",
+        value: `2026-05-${String(rating).padStart(2, "0")}`,
+      },
+      {
+        question_id: "time-block",
+        question_type: "time",
+        value: `09:${String(rating).padStart(2, "0")}`,
       },
     ]),
   };
@@ -295,6 +321,34 @@ describe("aggregateAllBlocksInBatches", () => {
         min: 1,
         max: 3,
       },
+    });
+
+    const dateBlock = actual.find((block) => block.block_id === "date-block");
+    expect(dateBlock?.analytics_data).toMatchObject({
+      total_responses: 3,
+      distribution: [
+        { date: "2026-05-01", count: 1 },
+        { date: "2026-05-02", count: 1 },
+        { date: "2026-05-03", count: 1 },
+      ],
+      responses: [
+        { response_id: "response-1", date: "2026-05-01" },
+        { response_id: "response-2", date: "2026-05-02" },
+      ],
+    });
+
+    const timeBlock = actual.find((block) => block.block_id === "time-block");
+    expect(timeBlock?.analytics_data).toMatchObject({
+      total_responses: 3,
+      distribution: [
+        { time: "09:01", count: 1 },
+        { time: "09:02", count: 1 },
+        { time: "09:03", count: 1 },
+      ],
+      responses: [
+        { response_id: "response-1", time: "09:01" },
+        { response_id: "response-2", time: "09:02" },
+      ],
     });
   });
 });
