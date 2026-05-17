@@ -91,7 +91,7 @@ describe("POST /api/tokens/validate", () => {
       body: JSON.stringify({ token: "ct_other" }),
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(401);
     await expect(res.json()).resolves.toEqual({ valid: false });
     expect(validateApiTokenForUser).toHaveBeenCalledWith(
       "ct_other",
@@ -100,5 +100,18 @@ describe("POST /api/tokens/validate", () => {
         updateLastUsedAt: false,
       },
     );
+  });
+
+  it("returns 401 without validating a token when there is no session user", async () => {
+    getSession.mockResolvedValue(null);
+
+    const res = await tokensRouter.request("/validate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: "ct_without_session" }),
+    });
+
+    expect(res.status).toBe(401);
+    expect(validateApiTokenForUser).not.toHaveBeenCalled();
   });
 });

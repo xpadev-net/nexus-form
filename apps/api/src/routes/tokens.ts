@@ -276,7 +276,7 @@ export const tokensRouter = createHonoApp()
     });
 
     if (!authContext) {
-      return c.json(ValidateTokenResponse.parse({ valid: false }));
+      return c.json(ValidateTokenResponse.parse({ valid: false }), 401);
     }
 
     return c.json(
