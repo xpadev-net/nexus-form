@@ -29,6 +29,20 @@
       "when": 1778955682197,
       "tag": "0003_flippant_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1779040895213,
+      "tag": "0004_glamorous_shotgun",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "5",
+      "when": 1779043363165,
+      "tag": "0005_fine_risque",
+      "breakpoints": true
     }
   ]
 }

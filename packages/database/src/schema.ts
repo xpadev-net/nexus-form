@@ -393,9 +393,10 @@ export const formResponse = mysqlTable(
     index("FormResponse_formId_idx").on(table.formId),
     index("FormResponse_submittedAt_idx").on(table.submittedAt),
     index("FormResponse_updatedAt_idx").on(table.updatedAt),
-    index("FormResponse_formId_submittedAt_idx").on(
+    index("FormResponse_formId_submittedAt_id_idx").on(
       table.formId,
       table.submittedAt,
+      table.id,
     ),
     index("FormResponse_formId_updatedAt_idx").on(
       table.formId,
