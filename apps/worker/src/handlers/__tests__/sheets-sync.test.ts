@@ -56,7 +56,7 @@ import {
   withRedisLock,
 } from "../../lib/redis-lock";
 import { safeParseResponseData } from "../../lib/response-data-extractor";
-import { handleSheetsSync } from "../sheets-sync";
+import { DONE_IDEMPOTENCY_TTL_SECONDS, handleSheetsSync } from "../sheets-sync";
 
 const mockDb = vi.mocked(db);
 const mockGetIdempotencyKeyValue = vi.mocked(getIdempotencyKeyValue);
@@ -88,7 +88,6 @@ const TOKEN = {
   refreshToken: "refresh",
   expiresAt: null,
 };
-const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 function makeJob(
   data: { formId: string; integrationId: string; responseId: string } = {

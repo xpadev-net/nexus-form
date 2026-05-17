@@ -35,7 +35,7 @@ export type SheetsSyncJob = {
 
 const RESPONSE_ID_HEADER = "Response ID";
 const PENDING_IDEMPOTENCY_TTL_SECONDS = 90;
-const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
+export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const GoogleSheetsIntegrationSettingSchema = z.object({
   spreadsheetId: z.string().min(1),
