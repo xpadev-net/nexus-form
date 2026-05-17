@@ -4,7 +4,12 @@ import { hc } from "hono/client";
 export const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
 export function apiUrl(path: string): string {
-  return new URL(path, baseUrl).toString();
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(path)) {
+    return path;
+  }
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${normalizedBaseUrl}${normalizedPath}`;
 }
 
 export const client: ReturnType<typeof hc<AppType>> = hc<AppType>(baseUrl, {

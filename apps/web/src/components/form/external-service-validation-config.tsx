@@ -18,7 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { apiUrl } from "@/lib/api";
+import { apiUrl, baseUrl } from "@/lib/api";
 import { getValidationProviderRule } from "@/lib/validation/validation-providers";
 
 type ProviderConfig = Record<string, unknown>;
@@ -139,7 +139,10 @@ const fetchOptions = async (
   if (formId) {
     url.searchParams.set("formId", formId);
   }
-  const response = await fetch(url, { credentials: "include" });
+  const shouldIncludeCredentials = url.origin === new URL(baseUrl).origin;
+  const response = await fetch(url, {
+    credentials: shouldIncludeCredentials ? "include" : "omit",
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch field options: ${response.status}`);
   }
