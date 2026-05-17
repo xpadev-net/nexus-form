@@ -241,8 +241,18 @@ export const formsPublicRouter = createHonoApp()
     zValidator("json", publicSubmitSchema),
     async (c) => {
       const publicId = c.req.param("publicId");
+      const payload = c.req.valid("json");
+      const { ip } = extractClientIP(c.req.raw, { strategy: "general" });
 
-      // 1. Look up form
+      // 1. Verify hCaptcha before any form-specific work.
+      const captchaValid = await verifyHCaptcha(payload.captchaToken, {
+        remoteip: ip,
+      });
+      if (!captchaValid) {
+        return c.json({ error: "Captcha verification failed" }, 403);
+      }
+
+      // 2. Look up form
       const [target] = await db
         .select({
           id: form.id,
@@ -263,14 +273,10 @@ export const formsPublicRouter = createHonoApp()
       if (submitStatus !== "PUBLISHED")
         return c.json({ error: "Form not found" }, 404);
 
-      const [payload, activeSnapshot] = [
-        c.req.valid("json"),
-        await getLatestSnapshot(target.id),
-      ];
-      const { ip } = extractClientIP(c.req.raw, { strategy: "general" });
+      const activeSnapshot = await getLatestSnapshot(target.id);
 
-      // 2. Answer validation against active snapshot's plateContent-derived questions.
-      // Run before quota/rate-limit checks to reject malformed payloads cheaply.
+      // 3. Answer validation against active snapshot's plateContent-derived questions.
+      // Run before quota checks to reject malformed payloads cheaply.
       const publishedContent =
         activeSnapshot?.plateContent ?? target.plateContent;
       if (!publishedContent) {
@@ -296,14 +302,6 @@ export const formsPublicRouter = createHonoApp()
           errors: answerValidation.errors,
         });
         return c.json({ error: "Invalid response data" }, 400);
-      }
-
-      // 3. Verify hCaptcha
-      const captchaValid = await verifyHCaptcha(payload.captchaToken, {
-        remoteip: ip,
-      });
-      if (!captchaValid) {
-        return c.json({ error: "Captcha verification failed" }, 403);
       }
 
       // 4. Verify and consume telemetry tokens
