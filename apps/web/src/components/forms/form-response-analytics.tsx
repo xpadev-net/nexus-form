@@ -7,17 +7,34 @@ interface FormResponseAnalyticsProps {
   formId: string;
 }
 
+const ANALYTICS_PAGE_SIZE = 100;
+
+async function fetchAllResponseAnalytics(formId: string) {
+  const timeline = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"].responses.analytics.$get({
+        param: { id: formId },
+        query: { page: String(page), pageSize: String(ANALYTICS_PAGE_SIZE) },
+      }),
+    );
+    timeline.push(...res.timeline);
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return { timeline };
+}
+
 export const FormResponseAnalytics: FC<FormResponseAnalyticsProps> = ({
   formId,
 }) => {
   const analyticsQuery = useQuery({
     queryKey: ["formResponseAnalytics", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses.analytics.$get({
-          param: { id: formId },
-        }),
-      ),
+    queryFn: () => fetchAllResponseAnalytics(formId),
     enabled: !!formId,
   });
 

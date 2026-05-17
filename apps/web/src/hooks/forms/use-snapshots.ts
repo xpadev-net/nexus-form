@@ -1,6 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
+const SNAPSHOT_PAGE_SIZE = 100;
+
+async function fetchAllSnapshots(formId: string) {
+  const snapshots = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"].snapshots.$get({
+        param: { id: formId },
+        query: { page: String(page), pageSize: String(SNAPSHOT_PAGE_SIZE) },
+      }),
+    );
+    snapshots.push(...res.snapshots);
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return { snapshots };
+}
+
 export const useSnapshots = (formId: string | null | undefined) => {
   const queryClient = useQueryClient();
 
@@ -8,12 +30,7 @@ export const useSnapshots = (formId: string | null | undefined) => {
     queryKey: ["snapshots", formId],
     enabled: Boolean(formId),
     staleTime: 60_000,
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].snapshots.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: () => fetchAllSnapshots(formId as string),
   });
 
   const latestSnapshotQuery = useQuery({

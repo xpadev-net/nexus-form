@@ -262,6 +262,53 @@ interface ScheduleManagerProps {
   formId: string;
 }
 
+const SCHEDULE_PAGE_SIZE = 100;
+const SNAPSHOT_PAGE_SIZE = 100;
+
+async function fetchAllSchedules(formId: string): Promise<{
+  schedules: ScheduleEntry[];
+}> {
+  const schedules: ScheduleEntry[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"].schedule.$get({
+        param: { id: formId },
+        query: { page: String(page), pageSize: String(SCHEDULE_PAGE_SIZE) },
+      }),
+    );
+    schedules.push(...(res.schedules as ScheduleEntry[]));
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return { schedules };
+}
+
+async function fetchAllSnapshots(formId: string): Promise<{
+  snapshots: Snapshot[];
+}> {
+  const snapshots: Snapshot[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"].snapshots.$get({
+        param: { id: formId },
+        query: { page: String(page), pageSize: String(SNAPSHOT_PAGE_SIZE) },
+      }),
+    );
+    snapshots.push(...(res.snapshots as Snapshot[]));
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return { snapshots };
+}
+
 export function ScheduleManager({ formId }: ScheduleManagerProps) {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
@@ -269,19 +316,13 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
 
   const schedulesQuery = useQuery({
     queryKey: ["formSchedules", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].schedule.$get({ param: { id: formId } }),
-      ) as Promise<{ schedules: ScheduleEntry[] }>,
+    queryFn: () => fetchAllSchedules(formId),
     enabled: !!formId,
   });
 
   const snapshotsQuery = useQuery({
     queryKey: ["snapshots", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].snapshots.$get({ param: { id: formId } }),
-      ) as Promise<{ snapshots: Snapshot[] }>,
+    queryFn: () => fetchAllSnapshots(formId),
     enabled: !!formId,
   });
 

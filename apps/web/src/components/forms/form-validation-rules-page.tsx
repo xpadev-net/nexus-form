@@ -38,13 +38,30 @@ interface BlockOption {
   title: string;
 }
 
+const VALIDATION_RULE_PAGE_SIZE = 100;
+
 async function fetchRules(formId: string): Promise<RuleDto[]> {
-  const res = await rpc(
-    client.api.forms[":id"]["validation-rules"].$get({
-      param: { id: formId },
-    }),
-  );
-  return (res as { rules: RuleDto[] }).rules;
+  const rules: RuleDto[] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const res = await rpc(
+      client.api.forms[":id"]["validation-rules"].$get({
+        param: { id: formId },
+        query: {
+          page: String(page),
+          pageSize: String(VALIDATION_RULE_PAGE_SIZE),
+        },
+      }),
+    );
+    const pageRules = (res as { rules: RuleDto[] }).rules;
+    rules.push(...pageRules);
+    totalPages = res.pagination.totalPages;
+    page++;
+  } while (page <= totalPages);
+
+  return rules;
 }
 
 interface Props {

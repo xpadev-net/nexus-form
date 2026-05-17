@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { formSchedule, formSnapshot } from "@nexus-form/database/schema";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   FormStructureNotFoundError,
@@ -44,6 +45,17 @@ const historyQuerySchema = z.object({
   sortBy: z.enum(["version", "createdAt"]).optional(),
   sortOrder: z.enum(["asc", "desc"]).optional(),
 });
+
+const limitedListQuerySchema = paginationQuerySchema;
+
+function paginationMetadata(page: number, pageSize: number, total: number) {
+  return {
+    page,
+    pageSize,
+    total,
+    totalPages: Math.ceil(total / pageSize),
+  };
+}
 
 const diffQuerySchema = z.object({
   fromVersion: z.coerce.number().int().min(1),
@@ -376,26 +388,44 @@ export const formsStructureRouter = createHonoApp()
       });
     },
   )
-  .get("/:id/snapshots", async (c) => {
-    const formId = c.req.param("id");
-    const snapshots = await db
-      .select({
-        id: formSnapshot.id,
-        formId: formSnapshot.formId,
-        version: formSnapshot.version,
-        isActive: formSnapshot.isActive,
-        publishedBy: formSnapshot.publishedBy,
-        publishedAt: formSnapshot.publishedAt,
-        changeLog: formSnapshot.changeLog,
-        title: formSnapshot.title,
-        description: formSnapshot.description,
-        parentVersion: formSnapshot.parentVersion,
-      })
-      .from(formSnapshot)
-      .where(eq(formSnapshot.formId, formId))
-      .orderBy(desc(formSnapshot.version));
-    return c.json({ snapshots });
-  })
+  .get(
+    "/:id/snapshots",
+    zValidator("query", limitedListQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const [snapshots, totalResult] = await Promise.all([
+        db
+          .select({
+            id: formSnapshot.id,
+            formId: formSnapshot.formId,
+            version: formSnapshot.version,
+            isActive: formSnapshot.isActive,
+            publishedBy: formSnapshot.publishedBy,
+            publishedAt: formSnapshot.publishedAt,
+            changeLog: formSnapshot.changeLog,
+            title: formSnapshot.title,
+            description: formSnapshot.description,
+            parentVersion: formSnapshot.parentVersion,
+          })
+          .from(formSnapshot)
+          .where(eq(formSnapshot.formId, formId))
+          .orderBy(desc(formSnapshot.version))
+          .offset(offset)
+          .limit(pageSize),
+        db
+          .select({ count: count() })
+          .from(formSnapshot)
+          .where(eq(formSnapshot.formId, formId)),
+      ]);
+      const total = totalResult[0]?.count ?? 0;
+      return c.json({
+        snapshots,
+        pagination: paginationMetadata(page, pageSize, total),
+      });
+    },
+  )
   .get(
     "/:id/snapshots/diff",
     zValidator("query", diffQuerySchema),
@@ -527,15 +557,33 @@ export const formsStructureRouter = createHonoApp()
       }
     },
   )
-  .get("/:id/schedule", async (c) => {
-    const formId = c.req.param("id");
-    const schedules = await db
-      .select()
-      .from(formSchedule)
-      .where(eq(formSchedule.formId, formId))
-      .orderBy(asc(formSchedule.triggerAt));
-    return c.json({ schedules });
-  })
+  .get(
+    "/:id/schedule",
+    zValidator("query", limitedListQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const [schedules, totalResult] = await Promise.all([
+        db
+          .select()
+          .from(formSchedule)
+          .where(eq(formSchedule.formId, formId))
+          .orderBy(asc(formSchedule.triggerAt), asc(formSchedule.id))
+          .offset(offset)
+          .limit(pageSize),
+        db
+          .select({ count: count() })
+          .from(formSchedule)
+          .where(eq(formSchedule.formId, formId)),
+      ]);
+      const total = totalResult[0]?.count ?? 0;
+      return c.json({
+        schedules,
+        pagination: paginationMetadata(page, pageSize, total),
+      });
+    },
+  )
   .post(
     "/:id/schedule",
     withDualFormAuth("EDITOR"),

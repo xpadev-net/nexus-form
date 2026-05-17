@@ -16,6 +16,13 @@ export const ResponsesListResponseSchema = z.object({
 });
 export type ResponsesListResponse = z.infer<typeof ResponsesListResponseSchema>;
 
+const PaginationMetadataSchema = z.object({
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+  total: z.number().int().min(0),
+  totalPages: z.number().int().min(0),
+});
+
 /** POST /:id/responses / PUT /:id/responses/:responseId のレスポンス。 */
 export const ResponseMutationResponseSchema = z.object({
   response: FormResponseRowSchema.nullable(),
@@ -27,6 +34,7 @@ export type ResponseMutationResponse = z.infer<
 /** GET /:id/responses/ids のレスポンス。 */
 export const ResponseIdsResponseSchema = z.object({
   responseIds: z.array(z.string()),
+  pagination: PaginationMetadataSchema,
 });
 export type ResponseIdsResponse = z.infer<typeof ResponseIdsResponseSchema>;
 
@@ -61,6 +69,7 @@ export const ResponseAnalyticsResponseSchema = z.object({
       count: z.number().int(),
     }),
   ),
+  pagination: PaginationMetadataSchema,
 });
 export type ResponseAnalyticsResponse = z.infer<
   typeof ResponseAnalyticsResponseSchema
