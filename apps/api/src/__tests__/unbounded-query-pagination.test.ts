@@ -176,6 +176,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
   it("requires editor access for response data routes", async () => {
     await import("../routes/forms-responses");
+    await import("../routes/forms-sse");
 
     expect(mocks.formAuthRoles).toContain("EDITOR");
     expect(mocks.formAuthRoles).not.toContain("VIEWER");
