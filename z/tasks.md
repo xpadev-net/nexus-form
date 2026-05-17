@@ -80,6 +80,7 @@
 
 ### R3-C6. `apiToken.scopes` / `apiToken.formIds` が型なし `json` で zod 検証なし
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #38、`gh-review-hook` exit 0）
 - **対象:** `packages/database/src/schema.ts:199-200`、`packages/shared`
 - **問題:** `scopes` / `formIds` は API トークン認可（dual-auth）の中核データだが `json` 型のままで、`packages/shared` に検証スキーマが無い。プロジェクト規約「すべての共有データ契約を zod で検証」「`json` カラムは読み出し時に再パース」に違反。不正形状が DB に入ると認可ロジックが予期せぬ挙動になる（権限昇格リスク）。`googleOAuthToken.scopes`、`formValidationRule.configJson`、`systemSetting.value`、`formSnapshot.validationRulesJson`/`plateContent` も同様に未検証。
 - **修正内容:** `packages/shared` に `apiTokenScopesSchema` / `apiTokenFormIdsSchema`（`z.array(z.string())` 等）を定義し、書き込み・読み出し双方で `parse` する。上記の他 `json` カラムにも専用スキーマを定義する。
