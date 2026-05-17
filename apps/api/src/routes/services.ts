@@ -6,6 +6,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import { eq, like } from "drizzle-orm";
 import { z } from "zod";
 import { getRedisClient } from "../lib/cache/redis-client";
+import { deleteRedisKeysByPattern } from "../lib/cache/redis-key-cleanup";
 import { withDualAuth } from "../lib/dual-auth";
 import { getCacheStats } from "../lib/forms/response-counter";
 import { createHonoApp } from "../lib/hono";
@@ -281,8 +282,10 @@ export const servicesRouter = createHonoApp()
     }
 
     if (payload.service) {
-      const keys = await redis.keys(`service:cache:${payload.service}:*`);
-      const deleted = keys.length > 0 ? await redis.del(...keys) : 0;
+      const deleted = await deleteRedisKeysByPattern(
+        redis,
+        `service:cache:${payload.service}:*`,
+      );
       return c.json(
         CacheClearResponseSchema.parse({
           success: true,
@@ -298,11 +301,11 @@ export const servicesRouter = createHonoApp()
       );
     }
 
-    await redis.flushdb();
+    const deleted = await deleteRedisKeysByPattern(redis, "service:cache:*");
     return c.json(
       CacheClearResponseSchema.parse({
         success: true,
-        data: { cleared: true, allServices: true },
+        data: { cleared: true, allServices: true, deleted },
       }),
     );
   })
