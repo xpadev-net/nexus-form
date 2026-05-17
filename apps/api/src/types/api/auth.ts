@@ -57,6 +57,13 @@ export const PaginationInfo = z.object({
 export type PaginationInfo = z.infer<typeof PaginationInfo>;
 
 // APIトークン一覧取得レスポンス
+/**
+ * Public API summary for token rows whose stored JSON could not be parsed.
+ *
+ * `id` is the stored token identifier. `error` is always
+ * `"MALFORMED_STORED_JSON"` and indicates that stored scopes or formIds failed
+ * the API token JSON contract.
+ */
 export const MalformedTokenSummary = z.object({
   id: z.string(),
   error: z.literal("MALFORMED_STORED_JSON"),

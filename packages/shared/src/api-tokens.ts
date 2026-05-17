@@ -1,17 +1,24 @@
 import { z } from "zod";
 
+/** Supported API token scope values. */
 export const apiTokenScopeSchema = z.enum(["read", "write", "admin"]);
 
+/** A single supported API token scope. */
 export type ApiTokenScope = z.infer<typeof apiTokenScopeSchema>;
 
+/** One or more API token scopes. */
 export const apiTokenScopesSchema = z.array(apiTokenScopeSchema).min(1);
 
+/** Non-empty API token scope list. */
 export type ApiTokenScopes = z.infer<typeof apiTokenScopesSchema>;
 
+/** One or more non-empty form IDs used to restrict a token. */
 export const apiTokenFormIdsSchema = z.array(z.string().min(1)).min(1);
 
+/** Non-empty form ID restriction list. */
 export type ApiTokenFormIds = z.infer<typeof apiTokenFormIdsSchema>;
 
+/** Stored form IDs, with nullish database values normalized to undefined. */
 export const storedApiTokenFormIdsSchema = apiTokenFormIdsSchema
   .nullish()
   .transform((value) => value ?? undefined);

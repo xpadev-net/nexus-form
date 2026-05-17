@@ -174,6 +174,7 @@ export async function getUserApiTokens(
   return {
     tokens: mappedTokens,
     malformed_tokens: malformedTokens.length > 0 ? malformedTokens : undefined,
+    total,
     pagination: {
       page,
       pageSize,

@@ -5,7 +5,7 @@ import {
   apiTokenFormIdsSchema,
   apiTokenScopesSchema,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { ERROR_CODES } from "../lib/constants/error-codes";
@@ -15,6 +15,7 @@ import { createHonoApp } from "../lib/hono";
 import {
   createApiToken,
   deleteApiToken,
+  getUserApiTokens,
   revokeApiToken,
   SuspendedTokenOwnerError,
   validateApiTokenForUser,
@@ -70,104 +71,9 @@ export const tokensRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const { page, pageSize } = c.req.valid("query");
-    const offset = (page - 1) * pageSize;
-
-    const where = and(
-      eq(apiToken.userId, user.userId),
-      eq(apiToken.isActive, true),
+    const listResponse = GetTokensResponse.parse(
+      await getUserApiTokens(user.userId, page, pageSize),
     );
-    const tokenIndexRows = await db
-      .select({
-        id: apiToken.id,
-        scopes: apiToken.scopes,
-        formIds: apiToken.formIds,
-      })
-      .from(apiToken)
-      .where(where)
-      .orderBy(desc(apiToken.createdAt));
-
-    const responseTokens: Array<{
-      id: string;
-      name: string;
-      scopes: string[];
-      form_ids: string[] | null;
-      expires_at: string | undefined;
-      last_used_at: string | undefined;
-      created_at: string;
-      is_active: boolean;
-    }> = [];
-    const malformedTokens: Array<{
-      id: string;
-      error: "MALFORMED_STORED_JSON";
-    }> = [];
-    const validTokenIds: string[] = [];
-
-    for (const token of tokenIndexRows) {
-      const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
-      if (!parsedJson) {
-        malformedTokens.push({
-          id: token.id,
-          error: "MALFORMED_STORED_JSON",
-        });
-        continue;
-      }
-      validTokenIds.push(token.id);
-    }
-
-    const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
-    const pageTokens =
-      pageTokenIds.length > 0
-        ? await db
-            .select({
-              id: apiToken.id,
-              name: apiToken.name,
-              scopes: apiToken.scopes,
-              formIds: apiToken.formIds,
-              expiresAt: apiToken.expiresAt,
-              lastUsedAt: apiToken.lastUsedAt,
-              createdAt: apiToken.createdAt,
-              isActive: apiToken.isActive,
-            })
-            .from(apiToken)
-            .where(and(where, inArray(apiToken.id, pageTokenIds)))
-        : [];
-    const pageTokenById = new Map(
-      pageTokens.map((token) => [token.id, token] as const),
-    );
-
-    for (const tokenId of pageTokenIds) {
-      const token = pageTokenById.get(tokenId);
-      if (!token) continue;
-      const parsedJson = parseStoredApiTokenJson(token, "tokens.list.page");
-      if (!parsedJson) continue;
-
-      responseTokens.push({
-        id: token.id,
-        name: token.name,
-        scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds ?? null,
-        expires_at: token.expiresAt?.toISOString(),
-        last_used_at: token.lastUsedAt?.toISOString(),
-        created_at: token.createdAt.toISOString(),
-        is_active: token.isActive,
-      });
-    }
-    const total = validTokenIds.length;
-
-    const listResponse = GetTokensResponse.parse({
-      tokens: responseTokens,
-      malformed_tokens:
-        malformedTokens.length > 0 ? malformedTokens : undefined,
-      total,
-      pagination: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-        hasNext: page * pageSize < total,
-        hasPrev: page > 1,
-      },
-    });
     return c.json(listResponse);
   })
   .post("/", zValidator("json", createTokenSchema), async (c) => {
