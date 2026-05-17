@@ -46,14 +46,15 @@ export const useFormLogicManagement = (formId: string) => {
 
   const rules = structureQuery.data?.structure.logic ?? [];
 
-  const invalidateStructureQueries = () => {
-    void queryClient.invalidateQueries({
-      queryKey: formLogicStructureQueryKey(formId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: formAccessControlStructureQueryKey(formId),
-    });
-  };
+  const invalidateStructureQueries = () =>
+    Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: formLogicStructureQueryKey(formId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: formAccessControlStructureQueryKey(formId),
+      }),
+    ]);
 
   const createRule = useMutation({
     mutationFn: (rule: Omit<LogicRuleEntry, "id">) =>
@@ -67,8 +68,8 @@ export const useFormLogicManagement = (formId: string) => {
         await saveLogic(formId, [...existingRules, newRule]);
         return newRule;
       }),
-    onSuccess: () => {
-      invalidateStructureQueries();
+    onSuccess: async () => {
+      await invalidateStructureQueries();
     },
   });
 
@@ -90,8 +91,8 @@ export const useFormLogicManagement = (formId: string) => {
         );
         await saveLogic(formId, updatedRules);
       }),
-    onSuccess: () => {
-      invalidateStructureQueries();
+    onSuccess: async () => {
+      await invalidateStructureQueries();
     },
   });
 
@@ -105,8 +106,8 @@ export const useFormLogicManagement = (formId: string) => {
           existingRules.filter((r) => r.id !== ruleId),
         );
       }),
-    onSuccess: () => {
-      invalidateStructureQueries();
+    onSuccess: async () => {
+      await invalidateStructureQueries();
     },
   });
 
