@@ -1,13 +1,10 @@
 import { db, user as userTable } from "@nexus-form/database";
 import { apiToken, formShareLink } from "@nexus-form/database/schema";
-import {
-  parseApiTokenScopes,
-  parseStoredApiTokenFormIds,
-} from "@nexus-form/shared";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { AuthContext, TokenScope } from "../../types/api/auth";
 import { logError } from "../logger";
 import { computeLookupHash, verifyToken } from "./hash";
+import { parseStoredApiTokenJson } from "./stored-json";
 
 /**
  * APIトークンを検証し、認証コンテキストを返す
@@ -86,8 +83,11 @@ async function buildAuthContextFromTokenRecord(
     throw new SuspendedTokenOwnerError();
   }
 
-  const scopes = parseApiTokenScopes(tokenRecord.scopes);
-  const formIds = parseStoredApiTokenFormIds(tokenRecord.formIds);
+  const parsedJson = parseStoredApiTokenJson(
+    tokenRecord,
+    "buildAuthContextFromTokenRecord",
+  );
+  if (!parsedJson) return null;
 
   if (options.updateLastUsedAt ?? true) {
     void db
@@ -119,8 +119,8 @@ async function buildAuthContextFromTokenRecord(
   return {
     user_id: tokenRecord.userId ?? null,
     token_id: tokenRecord.id,
-    scopes,
-    form_ids: formIds,
+    scopes: parsedJson.scopes,
+    form_ids: parsedJson.formIds,
     is_admin: false,
   };
 }
