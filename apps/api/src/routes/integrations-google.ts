@@ -11,7 +11,6 @@ import {
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
 import {
-  GoogleCallbackResponseSchema,
   GoogleSheetsResponseSchema,
   GoogleSpreadsheetsResponseSchema,
 } from "../types/domain/integrations-google";
@@ -20,6 +19,7 @@ const authorizeQuerySchema = z.object({
   state: z.string().optional(),
   scope: z.string().optional(),
   prompt: z.string().optional(),
+  app_origin: z.string().optional(),
 });
 
 const googleTokenRefreshResponseSchema = z.object({
@@ -40,6 +40,169 @@ const callbackQuerySchema = z.object({
   state: z.string().optional(),
   error: z.string().optional(),
 });
+
+function getCookieValue(cookie: string, name: string): string | undefined {
+  const part = cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+  return part?.split("=").slice(1).join("=");
+}
+
+function buildTrustedAppOrigins(): Set<string> {
+  const origins: string[] = [];
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    origins.push("http://localhost:3000");
+  }
+  if (process.env.TRUSTED_ORIGINS) {
+    origins.push(
+      ...process.env.TRUSTED_ORIGINS.split(",").map((origin) => origin.trim()),
+    );
+  }
+  if (process.env.VITE_BASE_URL) {
+    origins.push(process.env.VITE_BASE_URL);
+  }
+  return new Set(
+    origins
+      .map((origin) => normalizeHttpOrigin(origin))
+      .filter((origin): origin is string => origin !== null),
+  );
+}
+
+let trustedAppOrigins: Set<string> | null = null;
+
+function getTrustedAppOrigins(): Set<string> {
+  trustedAppOrigins ??= buildTrustedAppOrigins();
+  return trustedAppOrigins;
+}
+
+export function resetTrustedAppOriginsForTesting(): void {
+  trustedAppOrigins = null;
+}
+
+function normalizeHttpOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function decodeCookieValue(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveAppOrigin(c: Context, requestedOrigin: string | undefined) {
+  const trustedOrigins = getTrustedAppOrigins();
+  const headerOrigin = c.req.header("origin");
+  const origin = normalizeHttpOrigin(requestedOrigin ?? headerOrigin);
+  if (origin && trustedOrigins.has(origin)) return origin;
+  if (!requestedOrigin && !headerOrigin && trustedOrigins.size === 1) {
+    return [...trustedOrigins][0];
+  }
+  return null;
+}
+
+function getCallbackTargetOrigin(cookie: string): string | null {
+  const trustedOrigins = getTrustedAppOrigins();
+  const encodedOrigin = getCookieValue(cookie, "google_oauth_app_origin");
+  const storedOrigin = encodedOrigin
+    ? normalizeHttpOrigin(decodeCookieValue(encodedOrigin) ?? undefined)
+    : null;
+  if (storedOrigin && trustedOrigins.has(storedOrigin)) return storedOrigin;
+  const configuredDefaultOrigin = normalizeHttpOrigin(
+    process.env.VITE_BASE_URL,
+  );
+  if (configuredDefaultOrigin && trustedOrigins.has(configuredDefaultOrigin)) {
+    return configuredDefaultOrigin;
+  }
+  const [onlyTrustedOrigin] = trustedOrigins;
+  if (trustedOrigins.size === 1 && onlyTrustedOrigin) return onlyTrustedOrigin;
+  return null;
+}
+
+function escapeScriptJson(json: string): string {
+  return json
+    .replace(/&/g, "\\u0026")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function buildOAuthCallbackHtml(params: {
+  status: "error" | "success";
+  targetOrigin: string | null;
+  message?: string;
+}): string {
+  if (!params.targetOrigin) {
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><p>${escapeHtml(params.message ?? "Google OAuth callback origin is not configured.")}</p><script>window.close();</script></body></html>`;
+  }
+  const payload = escapeScriptJson(
+    JSON.stringify({
+      source: "google-oauth",
+      status: params.status,
+      message: params.message,
+    }),
+  );
+  const targetOrigin = escapeScriptJson(JSON.stringify(params.targetOrigin));
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><script>window.opener?.postMessage(${payload}, ${targetOrigin});window.close();</script></body></html>`;
+}
+
+function googleOAuthCookie(
+  name: string,
+  value: string,
+  maxAge: number,
+): string {
+  return [
+    `${name}=${value}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    process.env.NODE_ENV === "production" ? "Secure" : null,
+    `Max-Age=${maxAge}`,
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function clearGoogleOAuthCookies(c: Context): void {
+  c.header("Set-Cookie", googleOAuthCookie("google_oauth_state", "", 0));
+  c.header("Set-Cookie", googleOAuthCookie("google_oauth_app_origin", "", 0), {
+    append: true,
+  });
+}
+
+function oauthCallbackResponse(
+  c: Context,
+  targetOrigin: string | null,
+  status: "error" | "success",
+  message?: string,
+  clearCookies = true,
+): Response {
+  if (clearCookies) {
+    clearGoogleOAuthCookies(c);
+  }
+  c.header("Content-Type", "text/html; charset=utf-8");
+  return c.html(buildOAuthCallbackHtml({ status, targetOrigin, message }));
+}
 
 function buildAuthorizeUrl(params: {
   clientId: string;
@@ -200,23 +363,22 @@ export const integrationsGoogleRouter = createHonoApp()
       "/api/integrations/google/callback",
       baseUrl,
     ).toString();
+    const appOrigin = resolveAppOrigin(c, parsed.data.app_origin);
+    if (!appOrigin) return c.json({ error: "Invalid app origin" }, 400);
     const state =
       parsed.data.state && /^[A-Za-z0-9_-]{32,128}$/.test(parsed.data.state)
         ? parsed.data.state
         : randomUUID().replace(/-/g, "");
 
+    c.header("Set-Cookie", googleOAuthCookie("google_oauth_state", state, 600));
     c.header(
       "Set-Cookie",
-      [
-        `google_oauth_state=${state}`,
-        "Path=/",
-        "HttpOnly",
-        "SameSite=Lax",
-        process.env.NODE_ENV === "production" ? "Secure" : null,
-        "Max-Age=600",
-      ]
-        .filter(Boolean)
-        .join("; "),
+      googleOAuthCookie(
+        "google_oauth_app_origin",
+        encodeURIComponent(appOrigin),
+        600,
+      ),
+      { append: true },
     );
     return c.redirect(
       buildAuthorizeUrl({
@@ -230,31 +392,72 @@ export const integrationsGoogleRouter = createHonoApp()
     );
   })
   .get("/callback", async (c) => {
-    const user = requireSessionUser(c);
-    if (!user.ok) return user.response;
+    const cookie = c.req.header("cookie") ?? "";
+    const callbackTargetOrigin = getCallbackTargetOrigin(cookie);
 
     const parsed = callbackQuerySchema.safeParse(c.req.query());
     if (!parsed.success)
-      return c.json({ error: "Invalid callback query" }, 400);
-    if (parsed.data.error) return c.json({ error: "OAuth was denied" }, 401);
-    if (!parsed.data.code || !parsed.data.state) {
-      return c.json({ error: "Missing code/state" }, 400);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Invalid callback query",
+        false,
+      );
+    if (!parsed.data.state) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Missing OAuth state",
+        false,
+      );
     }
 
-    const cookie = c.req.header("cookie") ?? "";
-    const expectedState = cookie
-      .split(";")
-      .map((part) => part.trim())
-      .find((part) => part.startsWith("google_oauth_state="))
-      ?.split("=")[1];
+    const expectedState = getCookieValue(cookie, "google_oauth_state");
     if (!expectedState || expectedState !== parsed.data.state) {
-      return c.json({ error: "Invalid OAuth state" }, 401);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Invalid OAuth state",
+        false,
+      );
+    }
+    const user = requireSessionUser(c);
+    if (!user.ok) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Session expired. Please try connecting again.",
+      );
+    }
+    if (parsed.data.error)
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "OAuth was denied",
+      );
+    if (!parsed.data.code) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Missing OAuth code",
+      );
     }
 
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
-      return c.json({ error: "Google OAuth is not configured" }, 503);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Google OAuth is not configured",
+      );
     }
 
     const origin = c.req.header("origin") || new URL(c.req.url).origin;
@@ -277,19 +480,34 @@ export const integrationsGoogleRouter = createHonoApp()
       body,
     });
     if (!response.ok) {
-      return c.json({ error: "Failed to exchange token" }, 502);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Failed to exchange token",
+      );
     }
 
     const tokenParsed = googleTokenExchangeResponseSchema.safeParse(
       await response.json(),
     );
     if (!tokenParsed.success) {
-      return c.json({ error: "Unexpected token response format" }, 502);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Unexpected token response format",
+      );
     }
     const json = tokenParsed.data;
 
     if (!json.refresh_token) {
-      return c.json({ error: "refresh_token not returned" }, 502);
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "refresh_token not returned",
+      );
     }
 
     await saveStoredToken({
@@ -300,11 +518,7 @@ export const integrationsGoogleRouter = createHonoApp()
       scopes: json.scope ? json.scope.split(" ") : [],
     });
 
-    c.header(
-      "Set-Cookie",
-      `google_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === "production" ? "; Secure" : ""}`,
-    );
-    return c.json(GoogleCallbackResponseSchema.parse({ success: true }));
+    return oauthCallbackResponse(c, callbackTargetOrigin, "success");
   })
   .get("/spreadsheets", async (c) => {
     const user = requireSessionUser(c);

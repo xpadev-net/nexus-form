@@ -26,7 +26,16 @@ export async function fetchJson<T = undefined>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(input, init);
+  const { credentials: initCredentials, ...restInit } = init ?? {};
+  const requestCredentials =
+    typeof Request !== "undefined" && input instanceof Request
+      ? input.credentials
+      : undefined;
+  const credentials = initCredentials ?? requestCredentials ?? "same-origin";
+  const response = await fetch(input, {
+    ...restInit,
+    credentials,
+  });
 
   if (!response.ok) {
     const body = await parseResponseBody(response).catch(() => undefined);

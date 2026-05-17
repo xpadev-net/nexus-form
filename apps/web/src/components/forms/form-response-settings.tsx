@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { type FC, useState } from "react";
 import { z } from "zod";
+import { apiUrl } from "@/lib/api";
 
 // NOTE: This component initialises its local state from `initialSettings` once
 // on mount. Callers must pass `key={formId}` (or another value that changes
@@ -26,12 +27,15 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
   const saveMutation = useMutation({
     // NOTE: PATCH /:id/settings/responses はサーバー側に未定義のため raw fetch を使用
     mutationFn: async () => {
-      const res = await fetch(`/api/forms/${formId}/settings/responses`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(settings),
-      });
+      const res = await fetch(
+        apiUrl(`/api/forms/${formId}/settings/responses`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(settings),
+        },
+      );
       const json: unknown = await res.json();
       if (!res.ok) {
         const err = json as { error?: string; message?: string } | null;

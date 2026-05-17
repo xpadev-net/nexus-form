@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiUrl, baseUrl } from "@/lib/api";
 import { getValidationProviderRule } from "@/lib/validation/validation-providers";
 
 type ProviderConfig = Record<string, unknown>;
@@ -134,12 +135,14 @@ const fetchOptions = async (
   endpoint: string,
   formId: string | undefined,
 ): Promise<DynamicOption[]> => {
-  let url = endpoint;
+  const url = new URL(apiUrl(endpoint));
   if (formId) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}formId=${encodeURIComponent(formId)}`;
+    url.searchParams.set("formId", formId);
   }
-  const response = await fetch(url, { credentials: "include" });
+  const shouldIncludeCredentials = url.origin === new URL(baseUrl).origin;
+  const response = await fetch(url, {
+    credentials: shouldIncludeCredentials ? "include" : "omit",
+  });
   if (!response.ok) {
     throw new Error(`Failed to fetch field options: ${response.status}`);
   }
