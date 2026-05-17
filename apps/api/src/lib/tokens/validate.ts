@@ -15,6 +15,8 @@ type ValidateApiTokenOptions = {
 };
 
 export class SuspendedTokenOwnerError extends Error {
+  static readonly MESSAGE = "Your account has been suspended";
+
   constructor() {
     super("Token owner account is suspended");
     this.name = "SuspendedTokenOwnerError";

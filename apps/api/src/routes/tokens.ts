@@ -283,7 +283,7 @@ export const tokensRouter = createHonoApp()
         return c.json(
           {
             error: {
-              message: "Your account has been suspended",
+              message: SuspendedTokenOwnerError.MESSAGE,
               code: ERROR_CODES.FORBIDDEN,
             },
           },

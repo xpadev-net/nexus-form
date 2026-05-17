@@ -51,7 +51,7 @@ const ERROR_MESSAGES = {
   INVALID_TOKEN: "Invalid or expired token",
   INSUFFICIENT_PERMISSIONS: "Insufficient permissions",
   FORM_ACCESS_DENIED: "Access denied to this form",
-  ACCOUNT_SUSPENDED: "Your account has been suspended",
+  ACCOUNT_SUSPENDED: SuspendedTokenOwnerError.MESSAGE,
   AUTH_FAILED: "Authentication failed",
 } as const;
 

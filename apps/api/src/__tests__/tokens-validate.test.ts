@@ -5,7 +5,9 @@ vi.mock("../load-env", () => ({}));
 const getSession = vi.fn();
 const validateApiTokenForUser = vi.fn();
 
-class MockSuspendedTokenOwnerError extends Error {}
+class MockSuspendedTokenOwnerError extends Error {
+  static readonly MESSAGE = "Your account has been suspended";
+}
 
 vi.mock("../lib/auth", () => ({
   auth: {
@@ -132,7 +134,7 @@ describe("POST /api/tokens/validate", () => {
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({
       error: {
-        message: "Your account has been suspended",
+        message: MockSuspendedTokenOwnerError.MESSAGE,
         code: "FORBIDDEN",
       },
     });
