@@ -187,6 +187,7 @@
 
 ### R3-H19. `getShareLinkRole` が共有リンクの有効期限を検証しない（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/dual-auth.ts:373-391`
 - **問題:** `getShareLinkRole`（`withDualFormAuth` / `checkFormAccess` から共有リンク API トークン経由で呼ばれる）は `isActive` と `formId` 一致のみ確認し `expiresAt` を検証しない。一方 `permission-service.ts` の `validateShareLink` および `share-link-token.ts:57` の `validateShareLinkInternal` は `expiresAt` を判定している。結果、**期限切れの共有リンクに紐づく API トークンでフォームへアクセスし続けられる**（ロジック不整合）。
 - **修正内容:** `getShareLinkRole` の SELECT に `expiresAt` を加え、`if (link.expiresAt && link.expiresAt <= new Date()) return null;` を追加する。

@@ -430,6 +430,7 @@ async function getShareLinkRole(
       role: formShareLink.role,
       isActive: formShareLink.isActive,
       formId: formShareLink.formId,
+      expiresAt: formShareLink.expiresAt,
     })
     .from(formShareLink)
     .where(eq(formShareLink.id, shareLinkId))
@@ -437,6 +438,7 @@ async function getShareLinkRole(
 
   if (!link?.isActive) return null;
   if (link.formId !== expectedFormId) return null;
+  if (link.expiresAt && link.expiresAt <= new Date()) return null;
   return link.role as "EDITOR" | "VIEWER";
 }
 

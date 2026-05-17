@@ -219,6 +219,61 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
       checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
     ).rejects.toThrow();
   });
+
+  it("throws for expired share-link token even when the role matches", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [
+        {
+          id: "link-expired",
+          role: "EDITOR",
+          isActive: true,
+          formId: FORM_ID,
+          expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        },
+      ],
+    ]);
+
+    const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    const expiredShareLinkCtx: DualAuthContext = {
+      user_id: "anon:tok-expired",
+      auth_type: "api_token",
+      token_id: "tok-expired",
+      scopes: ["read", "write"],
+      share_link_id: "link-expired",
+    };
+
+    await expect(
+      checkFormPermissionLevel(expiredShareLinkCtx, FORM_ID, "EDITOR"),
+    ).rejects.toThrow();
+  });
+
+  it("returns false for expired share-link token form access", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [
+        {
+          id: "link-expired",
+          role: "VIEWER",
+          isActive: true,
+          formId: FORM_ID,
+          expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+        },
+      ],
+    ]);
+
+    const { checkFormAccess } = await import("../lib/dual-auth");
+    const expiredShareLinkCtx: DualAuthContext = {
+      user_id: "anon:tok-expired",
+      auth_type: "api_token",
+      token_id: "tok-expired",
+      scopes: ["read"],
+      share_link_id: "link-expired",
+    };
+
+    expect(await checkFormAccess(expiredShareLinkCtx, FORM_ID)).toBe(false);
+  });
 });
 
 // ── R2-H1: Fingerprint save is gated to EDITOR ──────────────────────────────
