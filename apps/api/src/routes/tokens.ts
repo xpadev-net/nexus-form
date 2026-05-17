@@ -231,7 +231,7 @@ export const tokensRouter = createHonoApp()
       {
         id: existing.id,
         scopes: payload.scopes ?? existing.scopes,
-        formIds: payload.form_ids ?? existing.formIds,
+        formIds: "form_ids" in payload ? payload.form_ids : existing.formIds,
       },
       "tokens.patch.preflight",
     );
