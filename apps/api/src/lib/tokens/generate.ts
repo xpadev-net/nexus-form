@@ -5,7 +5,7 @@ import {
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
@@ -101,39 +101,60 @@ export async function getUserApiTokens(
     eq(apiToken.isActive, true),
   );
 
-  const [tokens, totalResult] = await Promise.all([
-    db
-      .select({
-        id: apiToken.id,
-        name: apiToken.name,
-        scopes: apiToken.scopes,
-        formIds: apiToken.formIds,
-        expiresAt: apiToken.expiresAt,
-        lastUsedAt: apiToken.lastUsedAt,
-        createdAt: apiToken.createdAt,
-        isActive: apiToken.isActive,
-      })
-      .from(apiToken)
-      .where(whereCondition)
-      .orderBy(desc(apiToken.createdAt))
-      .offset(offset)
-      .limit(pageSize),
-    db.select({ total: count() }).from(apiToken).where(whereCondition),
-  ]);
+  const tokenIndexRows = await db
+    .select({
+      id: apiToken.id,
+      scopes: apiToken.scopes,
+      formIds: apiToken.formIds,
+    })
+    .from(apiToken)
+    .where(whereCondition)
+    .orderBy(desc(apiToken.createdAt));
 
   const malformedTokens: Array<{
     id: string;
     error: "MALFORMED_STORED_JSON";
   }> = [];
-  const mappedTokens = tokens.flatMap((token) => {
+  const validTokenIds: string[] = [];
+
+  for (const token of tokenIndexRows) {
     const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
     if (!parsedJson) {
       malformedTokens.push({
         id: token.id,
         error: "MALFORMED_STORED_JSON",
       });
-      return [];
+      continue;
     }
+    validTokenIds.push(token.id);
+  }
+
+  const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
+  const pageTokens =
+    pageTokenIds.length > 0
+      ? await db
+          .select({
+            id: apiToken.id,
+            name: apiToken.name,
+            scopes: apiToken.scopes,
+            formIds: apiToken.formIds,
+            expiresAt: apiToken.expiresAt,
+            lastUsedAt: apiToken.lastUsedAt,
+            createdAt: apiToken.createdAt,
+            isActive: apiToken.isActive,
+          })
+          .from(apiToken)
+          .where(and(whereCondition, inArray(apiToken.id, pageTokenIds)))
+      : [];
+  const pageTokenById = new Map(
+    pageTokens.map((token) => [token.id, token] as const),
+  );
+
+  const mappedTokens = pageTokenIds.flatMap((tokenId) => {
+    const token = pageTokenById.get(tokenId);
+    if (!token) return [];
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
+    if (!parsedJson) return [];
 
     return [
       {
@@ -148,7 +169,7 @@ export async function getUserApiTokens(
       },
     ];
   });
-  const total = totalResult[0]?.total ?? 0;
+  const total = validTokenIds.length;
 
   return {
     tokens: mappedTokens,

@@ -5,7 +5,7 @@ import {
   apiTokenFormIdsSchema,
   apiTokenScopesSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { ERROR_CODES } from "../lib/constants/error-codes";
@@ -76,25 +76,15 @@ export const tokensRouter = createHonoApp()
       eq(apiToken.userId, user.userId),
       eq(apiToken.isActive, true),
     );
-    const [tokens, totalRows] = await Promise.all([
-      db
-        .select({
-          id: apiToken.id,
-          name: apiToken.name,
-          scopes: apiToken.scopes,
-          formIds: apiToken.formIds,
-          expiresAt: apiToken.expiresAt,
-          lastUsedAt: apiToken.lastUsedAt,
-          createdAt: apiToken.createdAt,
-          isActive: apiToken.isActive,
-        })
-        .from(apiToken)
-        .where(where)
-        .orderBy(desc(apiToken.createdAt))
-        .offset(offset)
-        .limit(pageSize),
-      db.select({ total: count() }).from(apiToken).where(where),
-    ]);
+    const tokenIndexRows = await db
+      .select({
+        id: apiToken.id,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+      })
+      .from(apiToken)
+      .where(where)
+      .orderBy(desc(apiToken.createdAt));
 
     const responseTokens: Array<{
       id: string;
@@ -110,8 +100,9 @@ export const tokensRouter = createHonoApp()
       id: string;
       error: "MALFORMED_STORED_JSON";
     }> = [];
+    const validTokenIds: string[] = [];
 
-    for (const token of tokens) {
+    for (const token of tokenIndexRows) {
       const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
       if (!parsedJson) {
         malformedTokens.push({
@@ -120,6 +111,35 @@ export const tokensRouter = createHonoApp()
         });
         continue;
       }
+      validTokenIds.push(token.id);
+    }
+
+    const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
+    const pageTokens =
+      pageTokenIds.length > 0
+        ? await db
+            .select({
+              id: apiToken.id,
+              name: apiToken.name,
+              scopes: apiToken.scopes,
+              formIds: apiToken.formIds,
+              expiresAt: apiToken.expiresAt,
+              lastUsedAt: apiToken.lastUsedAt,
+              createdAt: apiToken.createdAt,
+              isActive: apiToken.isActive,
+            })
+            .from(apiToken)
+            .where(and(where, inArray(apiToken.id, pageTokenIds)))
+        : [];
+    const pageTokenById = new Map(
+      pageTokens.map((token) => [token.id, token] as const),
+    );
+
+    for (const tokenId of pageTokenIds) {
+      const token = pageTokenById.get(tokenId);
+      if (!token) continue;
+      const parsedJson = parseStoredApiTokenJson(token, "tokens.list.page");
+      if (!parsedJson) continue;
 
       responseTokens.push({
         id: token.id,
@@ -132,7 +152,7 @@ export const tokensRouter = createHonoApp()
         is_active: token.isActive,
       });
     }
-    const total = totalRows[0]?.total ?? 0;
+    const total = validTokenIds.length;
 
     const listResponse = GetTokensResponse.parse({
       tokens: responseTokens,
