@@ -20,23 +20,6 @@ export type ParsedApiTokenJson = {
 };
 
 /**
- * Error thrown when a stored API token JSON field cannot satisfy the shared
- * token contract.
- *
- * `tokenId` identifies the malformed token row, and `operation` identifies the
- * read path that encountered it.
- */
-export class MalformedStoredApiTokenJsonError extends Error {
-  constructor(
-    public readonly tokenId: string,
-    public readonly operation: string,
-  ) {
-    super("Stored API token JSON is malformed");
-    this.name = "MalformedStoredApiTokenJsonError";
-  }
-}
-
-/**
  * Parses stored API token JSON fields and logs malformed values with context.
  *
  * @param token Stored token fields that include id, scopes, and formIds.
@@ -60,23 +43,4 @@ export function parseStoredApiTokenJson(
     });
     return null;
   }
-}
-
-/**
- * Parses stored API token JSON fields and requires them to be valid.
- *
- * @param token Stored token fields that include id, scopes, and formIds.
- * @param operation Read path name used in structured logs.
- * @returns Parsed token JSON.
- * @throws MalformedStoredApiTokenJsonError when stored JSON is malformed.
- */
-export function requireStoredApiTokenJson(
-  token: StoredApiTokenJson,
-  operation: string,
-): ParsedApiTokenJson {
-  const parsedJson = parseStoredApiTokenJson(token, operation);
-  if (!parsedJson) {
-    throw new MalformedStoredApiTokenJsonError(token.id, operation);
-  }
-  return parsedJson;
 }

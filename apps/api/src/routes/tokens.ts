@@ -41,7 +41,7 @@ const patchTokenSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
     scopes: apiTokenScopesSchema.optional(),
-    form_ids: apiTokenFormIdsSchema.optional(),
+    form_ids: apiTokenFormIdsSchema.nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
     is_active: z.boolean().optional(),
   })
@@ -240,7 +240,7 @@ export const tokensRouter = createHonoApp()
     const patch: {
       name?: string;
       scopes?: string[];
-      formIds?: string[];
+      formIds?: string[] | null;
       expiresAt?: Date | null;
       isActive?: boolean;
       revokedAt?: Date | null;
