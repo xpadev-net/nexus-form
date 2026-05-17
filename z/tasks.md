@@ -151,6 +151,7 @@
 
 ### R3-H2. `POST /services/cache/clear` が `redis.flushdb()` で Redis DB 全体を破壊
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #45）
 - **対象:** `apps/api/src/routes/services.ts:301`
 - **問題:** `force=true` 分岐で `redis.flushdb()` を呼び、BullMQ ジョブ・SSE Pub/Sub・レートリミットキー・テレメトリトークン等を含む Redis DB 全体を消去する。admin + `force` でガードされていても破壊範囲が過大。
 - **修正内容:** `service:cache:*` 等のプレフィックスに限定した `SCAN`+`DEL` に変更し、`flushdb` を廃止する。
