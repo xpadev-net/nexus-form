@@ -15,7 +15,7 @@ import {
   putObject,
   S3_BUCKETS,
 } from "./utils";
-import { assertS3ObjectKeyPrefix } from "./validation";
+import { assertS3ObjectKeyPrefix, SecurityValidationError } from "./validation";
 
 /**
  * S3基本サービスクラス
@@ -213,6 +213,9 @@ export class S3BaseService {
       await deleteObject(bucket, key);
       logInfo("Successfully deleted object", "storage", { key, bucket });
     } catch (error) {
+      if (error instanceof SecurityValidationError) {
+        throw error;
+      }
       logError("Failed to delete object", "storage", { key, bucket, error });
       // 削除失敗は警告のみ（データ損失を防ぐため）
       throw new S3Error(

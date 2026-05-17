@@ -5,7 +5,7 @@ import { S3Error } from "../../types/s3";
 import { logWarn } from "../logger";
 import { S3BaseService } from "./base-service";
 import { putObject } from "./utils";
-import { assertS3ObjectKeyPrefix } from "./validation";
+import { assertS3ObjectKeyPrefix, SecurityValidationError } from "./validation";
 
 /**
  * S3画像処理サービスクラス
@@ -183,6 +183,9 @@ export class S3ImageService extends S3BaseService {
         contentType,
       };
     } catch (error) {
+      if (error instanceof SecurityValidationError) {
+        throw error;
+      }
       throw new S3Error(
         `Image processing pipeline failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         "IMAGE_PROCESSING_PIPELINE_ERROR",
