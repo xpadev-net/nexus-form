@@ -260,6 +260,10 @@ export const fingerprintRouter = createHonoApp()
           ).map((row) => row.id)
         : [];
 
+      if (formId && responseIds.length === 0) {
+        return c.json(FingerprintDeleteResponseSchema.parse({ deleted: 0 }));
+      }
+
       const deleted = await db
         .delete(fingerprintDetail)
         .where(
@@ -267,7 +271,7 @@ export const fingerprintRouter = createHonoApp()
             responseId
               ? eq(fingerprintDetail.responseId, responseId)
               : undefined,
-            formId && responseIds.length > 0
+            formId
               ? inArray(fingerprintDetail.responseId, responseIds)
               : undefined,
             before
