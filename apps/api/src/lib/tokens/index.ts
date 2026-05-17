@@ -20,5 +20,6 @@ export {
 export {
   validateApiToken,
   validateApiTokenForForm,
+  validateApiTokenForUser,
   validateApiTokenWithScopes,
 } from "./validate";
