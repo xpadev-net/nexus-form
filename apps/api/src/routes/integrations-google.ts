@@ -190,8 +190,11 @@ function oauthCallbackResponse(
   targetOrigin: string | null,
   status: "error" | "success",
   message?: string,
+  clearCookies = true,
 ): Response {
-  clearGoogleOAuthCookies(c);
+  if (clearCookies) {
+    clearGoogleOAuthCookies(c);
+  }
   c.header("Content-Type", "text/html; charset=utf-8");
   return c.html(buildOAuthCallbackHtml({ status, targetOrigin, message }));
 }
@@ -386,15 +389,6 @@ export const integrationsGoogleRouter = createHonoApp()
   .get("/callback", async (c) => {
     const cookie = c.req.header("cookie") ?? "";
     const callbackTargetOrigin = getCallbackTargetOrigin(cookie);
-    const user = requireSessionUser(c);
-    if (!user.ok) {
-      return oauthCallbackResponse(
-        c,
-        callbackTargetOrigin,
-        "error",
-        "Session expired. Please try connecting again.",
-      );
-    }
 
     const parsed = callbackQuerySchema.safeParse(c.req.query());
     if (!parsed.success)
@@ -403,20 +397,15 @@ export const integrationsGoogleRouter = createHonoApp()
         callbackTargetOrigin,
         "error",
         "Invalid callback query",
+        false,
       );
-    if (parsed.data.error)
+    if (!parsed.data.state) {
       return oauthCallbackResponse(
         c,
         callbackTargetOrigin,
         "error",
-        "OAuth was denied",
-      );
-    if (!parsed.data.code || !parsed.data.state) {
-      return oauthCallbackResponse(
-        c,
-        callbackTargetOrigin,
-        "error",
-        "Missing code/state",
+        "Missing OAuth state",
+        false,
       );
     }
 
@@ -427,6 +416,31 @@ export const integrationsGoogleRouter = createHonoApp()
         callbackTargetOrigin,
         "error",
         "Invalid OAuth state",
+        false,
+      );
+    }
+    const user = requireSessionUser(c);
+    if (!user.ok) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Session expired. Please try connecting again.",
+      );
+    }
+    if (parsed.data.error)
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "OAuth was denied",
+      );
+    if (!parsed.data.code) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Missing OAuth code",
       );
     }
 
