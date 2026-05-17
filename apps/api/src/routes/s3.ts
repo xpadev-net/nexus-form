@@ -11,6 +11,7 @@ import { getS3Client } from "../lib/s3/client";
 import { s3ImageService as s3Service } from "../lib/s3/image-service";
 import { S3_BUCKETS } from "../lib/s3/utils";
 import {
+  assertS3ObjectKeyPrefix,
   DEFAULT_VALIDATION_CONFIG,
   SecurityValidationError,
   validateFileExtension,
@@ -77,12 +78,28 @@ function resolveBucketName(bucket?: string): string {
   );
 }
 
+function s3ValidationErrorResponse(error: SecurityValidationError) {
+  return {
+    error: error.message,
+    validationErrors: error.validationErrors,
+  };
+}
+
+function assertKeyMatchesBucket(key: string, bucket: string): void {
+  assertS3ObjectKeyPrefix(key, bucket === S3_BUCKETS.TMP ? "tmp/" : "prod/");
+}
+
 /**
  * key が指定ユーザーの名前空間（`tmp/users/{userId}/` または `prod/users/{userId}/`）に
  * 属するか検証する。パストラバーサル文字が含まれる場合も false を返す。
  */
 function isKeyOwnedBy(userId: string, key: string): boolean {
-  if (key.includes("..") || key.includes("//")) return false;
+  if (
+    key.split("/").some((segment) => segment === "..") ||
+    key.includes("//")
+  ) {
+    return false;
+  }
   return (
     key.startsWith(`tmp/users/${userId}/`) ||
     key.startsWith(`prod/users/${userId}/`)
@@ -105,6 +122,15 @@ export const s3Router = createHonoApp()
       }
 
       const bucket = resolveBucketName(query.bucket);
+      try {
+        assertKeyMatchesBucket(query.key, bucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
       const expiresIn = query.expiresIn ?? 3600;
       const type = query.type ?? "download";
 
@@ -236,6 +262,14 @@ export const s3Router = createHonoApp()
       }
 
       const resolvedBucket = resolveBucketName(bucket ?? "tmp");
+      try {
+        assertKeyMatchesBucket(key, resolvedBucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
 
       const exists = await s3Service.objectExists(key, resolvedBucket);
       if (!exists) {
@@ -273,32 +307,51 @@ export const s3Router = createHonoApp()
         return c.json({ error: "Access denied to key" }, 403);
       }
 
+      try {
+        assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+        if (finalKey !== undefined) {
+          assertS3ObjectKeyPrefix(finalKey, "prod/");
+        }
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
       const exists = await s3Service.objectExists(tmpKey, S3_BUCKETS.TMP);
       if (!exists) {
         return c.json({ error: "File not found in temporary bucket" }, 404);
       }
 
-      const result = await s3Service.processAndMoveImage(
-        tmpKey,
-        {
-          ...DEFAULT_IMAGE_PROCESSING_CONFIG,
-          ...(processingConfig ?? {}),
-        },
-        finalKey,
-      );
+      try {
+        const result = await s3Service.processAndMoveImage(
+          tmpKey,
+          {
+            ...DEFAULT_IMAGE_PROCESSING_CONFIG,
+            ...(processingConfig ?? {}),
+          },
+          finalKey,
+        );
 
-      return c.json({
-        success: true,
-        data: {
-          key: result.key,
-          bucket: result.bucket,
-          url: result.url,
-          size: result.size,
-          contentType: result.contentType,
-          message:
-            "Image processed and moved to production bucket successfully",
-        },
-      });
+        return c.json({
+          success: true,
+          data: {
+            key: result.key,
+            bucket: result.bucket,
+            url: result.url,
+            size: result.size,
+            contentType: result.contentType,
+            message:
+              "Image processed and moved to production bucket successfully",
+          },
+        });
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
     },
   )
   .post(
@@ -319,8 +372,27 @@ export const s3Router = createHonoApp()
         return c.json({ error: "Access denied to key" }, 403);
       }
 
-      const data = await s3Service.moveToProd(tmpKey, finalKey);
-      return c.json({ success: true, data });
+      try {
+        assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+        if (finalKey !== undefined) {
+          assertS3ObjectKeyPrefix(finalKey, "prod/");
+        }
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
+      try {
+        const data = await s3Service.moveToProd(tmpKey, finalKey);
+        return c.json({ success: true, data });
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
     },
   )
   .delete(
@@ -338,7 +410,17 @@ export const s3Router = createHonoApp()
         return c.json({ error: "Access denied to key" }, 403);
       }
 
-      await s3Service.deleteObject(key, resolveBucketName(bucket));
+      const resolvedBucket = resolveBucketName(bucket);
+      try {
+        assertKeyMatchesBucket(key, resolvedBucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
+      await s3Service.deleteObject(key, resolvedBucket);
       return c.json({ success: true, message: "Object deleted successfully" });
     },
   )
@@ -419,7 +501,11 @@ export const s3Router = createHonoApp()
         );
       }
 
-      if (!key || key.includes("..") || key.includes("//")) {
+      if (
+        !key ||
+        key.split("/").some((segment) => segment === "..") ||
+        key.includes("//")
+      ) {
         return c.json({ error: "Invalid key format" }, 400);
       }
 

@@ -5,6 +5,7 @@ import { S3Error } from "../../types/s3";
 import { logWarn } from "../logger";
 import { S3BaseService } from "./base-service";
 import { putObject } from "./utils";
+import { assertS3ObjectKeyPrefix, SecurityValidationError } from "./validation";
 
 /**
  * S3画像処理サービスクラス
@@ -139,6 +140,10 @@ export class S3ImageService extends S3BaseService {
     processingConfig: ImageProcessingConfig,
     finalKey?: string,
   ): Promise<UploadResult> {
+    assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+    const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
+    assertS3ObjectKeyPrefix(prodKey, "prod/");
+
     try {
       // 1. 一時バケットから画像データを取得
       const originalImageData = await this.getObject(tmpKey, this.tmpBucket);
@@ -150,8 +155,6 @@ export class S3ImageService extends S3BaseService {
       );
 
       // 3. 最終キーを決定
-      const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
-
       // 4. 処理された画像を本番バケットにアップロード
       const contentType =
         processingConfig.format === "webp"
@@ -180,6 +183,9 @@ export class S3ImageService extends S3BaseService {
         contentType,
       };
     } catch (error) {
+      if (error instanceof SecurityValidationError) {
+        throw error;
+      }
       throw new S3Error(
         `Image processing pipeline failed: ${error instanceof Error ? error.message : "Unknown error"}`,
         "IMAGE_PROCESSING_PIPELINE_ERROR",

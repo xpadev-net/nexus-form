@@ -29,6 +29,12 @@ export interface FileValidationConfig {
   fileTypeSizeLimits?: FileTypeSizeLimits; // ファイルタイプ別のサイズ制限
 }
 
+const allowedObjectKeyPrefixes = ["tmp/", "prod/"] as const;
+
+function hasUnsafeObjectKeyPathSegment(key: string): boolean {
+  return key.split("/").some((segment) => segment === "..");
+}
+
 /**
  * デフォルトの検証設定
  */
@@ -131,6 +137,80 @@ export function validateFileName(fileName: string): FileValidationResult {
     isValid: errors.length === 0,
     errors,
   };
+}
+
+/**
+ * S3 オブジェクトキーが署名・削除対象として安全な名前空間にあるか検証する。
+ *
+ * @param key - 検証する S3 オブジェクトキー。`tmp/` または `prod/` で始まる必要がある。
+ * @returns `FileValidationResult`。`..` パスセグメント、連続スラッシュ、バックスラッシュ、制御文字を含む場合は invalid。
+ */
+export function validateS3ObjectKey(key: string): FileValidationResult {
+  const errors: string[] = [];
+
+  if (key.length === 0) {
+    errors.push("Object key cannot be empty");
+  }
+
+  if (!allowedObjectKeyPrefixes.some((prefix) => key.startsWith(prefix))) {
+    errors.push("Object key must start with tmp/ or prod/");
+  }
+
+  if (
+    key.startsWith("/") ||
+    hasUnsafeObjectKeyPathSegment(key) ||
+    key.includes("//") ||
+    key.includes("\\")
+  ) {
+    errors.push("Object key contains unsafe path segments");
+  }
+
+  for (let i = 0; i < key.length; i++) {
+    if (key.charCodeAt(i) < 32) {
+      errors.push("Object key contains control characters");
+      break;
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+  };
+}
+
+/**
+ * S3 オブジェクトキーが安全でない場合に例外を投げる。
+ *
+ * @param key - 検証する S3 オブジェクトキー。`tmp/` または `prod/` 名前空間のみ許可する。
+ * @throws SecurityValidationError `validateS3ObjectKey` が invalid を返した場合。
+ */
+export function assertValidS3ObjectKey(key: string): void {
+  const validation = validateS3ObjectKey(key);
+  if (!validation.isValid) {
+    throw new SecurityValidationError(
+      "Object key validation failed",
+      validation.errors,
+    );
+  }
+}
+
+/**
+ * S3 オブジェクトキーが安全で、期待する名前空間 prefix に属することを検証する。
+ *
+ * @param key - 検証する S3 オブジェクトキー。
+ * @param prefix - 期待する名前空間 prefix。`tmp/` または `prod/` のみ指定できる。
+ * @throws SecurityValidationError キー自体が unsafe、または指定 prefix と一致しない場合。
+ */
+export function assertS3ObjectKeyPrefix(
+  key: string,
+  prefix: (typeof allowedObjectKeyPrefixes)[number],
+): void {
+  assertValidS3ObjectKey(key);
+  if (!key.startsWith(prefix)) {
+    throw new SecurityValidationError(`Object key must start with ${prefix}`, [
+      `Object key must start with ${prefix}`,
+    ]);
+  }
 }
 
 /**

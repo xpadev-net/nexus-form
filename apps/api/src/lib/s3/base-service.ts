@@ -15,6 +15,7 @@ import {
   putObject,
   S3_BUCKETS,
 } from "./utils";
+import { assertS3ObjectKeyPrefix, SecurityValidationError } from "./validation";
 
 /**
  * S3基本サービスクラス
@@ -77,7 +78,9 @@ export class S3BaseService {
    * @returns 移動結果
    */
   async moveToProd(tmpKey: string, finalKey?: string): Promise<UploadResult> {
+    assertS3ObjectKeyPrefix(tmpKey, "tmp/");
     const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
+    assertS3ObjectKeyPrefix(prodKey, "prod/");
 
     // 一時バケットから本番バケットに移動
     await moveObject(this.tmpBucket, tmpKey, this.prodBucket, prodKey);
@@ -103,6 +106,7 @@ export class S3BaseService {
     bucket: string = this.prodBucket,
     expiresIn: number = 3600,
   ): Promise<PresignedUrlResult> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUrl(bucket, key, expiresIn);
 
     return {
@@ -124,6 +128,7 @@ export class S3BaseService {
     bucket: string = this.tmpBucket,
     expiresIn: number = 3600,
   ): Promise<PresignedUrlResult> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUploadUrl(bucket, key, expiresIn);
 
     return {
@@ -147,6 +152,7 @@ export class S3BaseService {
     expiresIn: number = 900, // 15分
     bucket: string = this.tmpBucket,
   ): Promise<string> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     const url = await generatePresignedUploadUrl(
       bucket,
       key,
@@ -165,6 +171,7 @@ export class S3BaseService {
     key: string,
     bucket: string = this.prodBucket,
   ): Promise<void> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
     await deleteObject(bucket, key);
   }
 
@@ -179,10 +186,18 @@ export class S3BaseService {
     bucket: string,
     backupKey?: string,
   ): Promise<void> {
+    assertS3ObjectKeyPrefix(key, bucket === this.tmpBucket ? "tmp/" : "prod/");
+    const prodKey =
+      bucket === this.tmpBucket
+        ? backupKey || key.replace("tmp/", "prod/")
+        : undefined;
+    if (prodKey !== undefined) {
+      assertS3ObjectKeyPrefix(prodKey, "prod/");
+    }
+
     try {
       // 本番バケットにファイルが存在することを確認してから削除
-      if (bucket === this.tmpBucket) {
-        const prodKey = backupKey || key.replace("tmp/", "prod/");
+      if (bucket === this.tmpBucket && prodKey !== undefined) {
         const prodExists = await this.objectExists(prodKey, this.prodBucket);
 
         if (!prodExists) {
@@ -198,6 +213,9 @@ export class S3BaseService {
       await deleteObject(bucket, key);
       logInfo("Successfully deleted object", "storage", { key, bucket });
     } catch (error) {
+      if (error instanceof SecurityValidationError) {
+        throw error;
+      }
       logError("Failed to delete object", "storage", { key, bucket, error });
       // 削除失敗は警告のみ（データ損失を防ぐため）
       throw new S3Error(
