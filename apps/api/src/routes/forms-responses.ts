@@ -17,7 +17,7 @@ import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
-import { aggregateAllBlocks } from "../lib/forms/response-analytics";
+import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
 import { validateResponseData } from "../lib/forms/response-validator";
 import { getLatestSnapshotByVersion } from "../lib/forms/snapshot-repository";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
@@ -438,21 +438,11 @@ export const formsResponsesRouter = createHonoApp()
   .get("/:id/responses/block-analytics", async (c) => {
     const formId = c.req.param("id");
 
-    const [[formRecord], responses] = await Promise.all([
-      db
-        .select({ plateContent: form.plateContent })
-        .from(form)
-        .where(eq(form.id, formId))
-        .limit(1),
-      db
-        .select({
-          id: formResponse.id,
-          submittedAt: formResponse.submittedAt,
-          responseDataJson: formResponse.responseDataJson,
-        })
-        .from(formResponse)
-        .where(eq(formResponse.formId, formId)),
-    ]);
+    const [formRecord] = await db
+      .select({ plateContent: form.plateContent })
+      .from(form)
+      .where(eq(form.id, formId))
+      .limit(1);
 
     let blocks: Array<{ blockId: string; type: string; content: unknown }> = [];
     if (formRecord?.plateContent) {
@@ -470,7 +460,22 @@ export const formsResponsesRouter = createHonoApp()
       }
     }
 
-    const analytics = aggregateAllBlocks(formId, blocks, responses);
+    const analytics = await aggregateAllBlocksInBatches(
+      formId,
+      blocks,
+      (offset, limit) =>
+        db
+          .select({
+            id: formResponse.id,
+            submittedAt: formResponse.submittedAt,
+            responseDataJson: formResponse.responseDataJson,
+          })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId))
+          .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+          .limit(limit)
+          .offset(offset),
+    );
     return c.json(BlockAnalyticsResponseSchema.parse({ blocks: analytics }));
   })
   .get("/:id/responses/:responseId", async (c) => {

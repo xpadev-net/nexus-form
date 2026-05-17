@@ -139,6 +139,43 @@ interface TextAnalytics {
   };
 }
 
+type RawResponseRow = {
+  id: string;
+  submittedAt: Date | string;
+  responseDataJson: string;
+};
+
+type RawBlock = {
+  blockId: string;
+  type: string;
+  content: unknown;
+};
+
+type ResponseBatchLoader = (
+  offset: number,
+  limit: number,
+) => Promise<RawResponseRow[]>;
+
+interface AggregateBatchOptions {
+  batchSize?: number;
+  detailResponseLimit?: number;
+}
+
+const DEFAULT_AGGREGATION_BATCH_SIZE = 500;
+const DEFAULT_DETAIL_RESPONSE_LIMIT = 1000;
+
+interface TextMergeStats {
+  total: number;
+  characterSum: number;
+  min?: number;
+  max?: number;
+}
+
+interface AggregateBlocksResult {
+  results: BlockAnalyticsResult[];
+  totalResponseCount: number;
+}
+
 // ===== 回答データ解析 =====
 
 interface ParsedResponse {
@@ -504,17 +541,17 @@ const SKIP_TYPES = new Set(["section_separator"]);
 
 export function aggregateAllBlocks(
   formId: string,
-  blocks: Array<{
-    blockId: string;
-    type: string;
-    content: unknown;
-  }>,
-  rawResponses: Array<{
-    id: string;
-    submittedAt: Date | string;
-    responseDataJson: string;
-  }>,
+  blocks: RawBlock[],
+  rawResponses: RawResponseRow[],
 ): BlockAnalyticsResult[] {
+  return aggregateBlocksWithParsedCount(formId, blocks, rawResponses).results;
+}
+
+function aggregateBlocksWithParsedCount(
+  formId: string,
+  blocks: RawBlock[],
+  rawResponses: RawResponseRow[],
+): AggregateBlocksResult {
   const parsedResponses = rawResponses
     .map((r) => parseResponseData(r.id, r.submittedAt, r.responseDataJson))
     .filter((r): r is ParsedResponse => r !== null);
@@ -578,5 +615,340 @@ export function aggregateAllBlocks(
     });
   }
 
+  return { results, totalResponseCount };
+}
+
+function isChoiceAnalytics(data: unknown): data is ChoiceAnalytics {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "total_responses" in data &&
+    "options" in data &&
+    Array.isArray((data as { options?: unknown }).options)
+  );
+}
+
+function isGridAnalytics(data: unknown): data is GridAnalytics {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "grid_type" in data &&
+    "columns" in data &&
+    "row_analytics" in data
+  );
+}
+
+function isDateAnalytics(data: unknown): data is DateAnalytics {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "distribution" in data &&
+    "responses" in data
+  );
+}
+
+function isTimeAnalytics(data: unknown): data is TimeAnalytics {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "distribution" in data &&
+    "responses" in data
+  );
+}
+
+function isTextAnalytics(data: unknown): data is TextAnalytics {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    "total_responses" in data &&
+    "responses" in data &&
+    Array.isArray((data as { responses?: unknown }).responses)
+  );
+}
+
+function mergeChoiceAnalytics(
+  target: ChoiceAnalytics,
+  incoming: ChoiceAnalytics,
+): void {
+  target.total_responses += incoming.total_responses;
+
+  for (const [index, incomingOption] of incoming.options.entries()) {
+    const existing = target.options[index];
+    if (existing) {
+      existing.count += incomingOption.count;
+    } else {
+      target.options.push({ ...incomingOption });
+    }
+  }
+}
+
+function mergeGridAnalytics(
+  target: GridAnalytics,
+  incoming: GridAnalytics,
+): void {
+  target.total_responses += incoming.total_responses;
+
+  for (const [rowIndex, incomingRow] of incoming.row_analytics.entries()) {
+    const existingRow = target.row_analytics[rowIndex];
+    if (!existingRow) {
+      target.row_analytics.push({
+        row_label: incomingRow.row_label,
+        column_counts: incomingRow.column_counts.map((count) => ({ ...count })),
+      });
+      continue;
+    }
+
+    for (const [
+      columnIndex,
+      incomingColumn,
+    ] of incomingRow.column_counts.entries()) {
+      const existingColumn = existingRow.column_counts[columnIndex];
+      if (existingColumn) {
+        existingColumn.count += incomingColumn.count;
+      } else {
+        existingRow.column_counts.push({ ...incomingColumn });
+      }
+    }
+  }
+}
+
+function mergeDateAnalytics(
+  target: DateAnalytics,
+  incoming: DateAnalytics,
+  detailResponseLimit: number,
+): void {
+  target.total_responses += incoming.total_responses;
+  target.responses.push(...incoming.responses);
+  if (target.responses.length > detailResponseLimit) {
+    target.responses.length = detailResponseLimit;
+  }
+
+  for (const incomingPoint of incoming.distribution) {
+    const existing = target.distribution.find(
+      (point) => point.date === incomingPoint.date,
+    );
+    if (existing) {
+      existing.count += incomingPoint.count;
+    } else {
+      target.distribution.push({ ...incomingPoint });
+    }
+  }
+}
+
+function mergeTimeAnalytics(
+  target: TimeAnalytics,
+  incoming: TimeAnalytics,
+  detailResponseLimit: number,
+): void {
+  target.total_responses += incoming.total_responses;
+  target.responses.push(...incoming.responses);
+  if (target.responses.length > detailResponseLimit) {
+    target.responses.length = detailResponseLimit;
+  }
+
+  for (const incomingPoint of incoming.distribution) {
+    const existing = target.distribution.find(
+      (point) => point.time === incomingPoint.time,
+    );
+    if (existing) {
+      existing.count += incomingPoint.count;
+    } else {
+      target.distribution.push({ ...incomingPoint });
+    }
+  }
+}
+
+function updateTextMergeStats(
+  stats: TextMergeStats,
+  analytics: TextAnalytics,
+): void {
+  stats.total += analytics.total_responses;
+
+  for (const response of analytics.responses) {
+    const length = response.value.length;
+    stats.characterSum += length;
+    stats.min = stats.min === undefined ? length : Math.min(stats.min, length);
+    stats.max = stats.max === undefined ? length : Math.max(stats.max, length);
+  }
+}
+
+function mergeTextAnalytics(
+  target: TextAnalytics,
+  incoming: TextAnalytics,
+  detailResponseLimit: number,
+): void {
+  target.total_responses += incoming.total_responses;
+  target.responses.push(...incoming.responses);
+  if (target.responses.length > detailResponseLimit) {
+    target.responses.length = detailResponseLimit;
+  }
+}
+
+function mergeBlockAnalyticsResult(
+  target: BlockAnalyticsResult,
+  incoming: BlockAnalyticsResult,
+  detailResponseLimit: number,
+  textMergeStats: Map<string, TextMergeStats>,
+): void {
+  target.total_responses += incoming.total_responses;
+
+  const targetData = target.analytics_data;
+  const incomingData = incoming.analytics_data;
+
+  if (isChoiceAnalytics(targetData) && isChoiceAnalytics(incomingData)) {
+    mergeChoiceAnalytics(targetData, incomingData);
+    return;
+  }
+
+  if (isGridAnalytics(targetData) && isGridAnalytics(incomingData)) {
+    mergeGridAnalytics(targetData, incomingData);
+    return;
+  }
+
+  if (
+    target.block_type === "date" &&
+    isDateAnalytics(targetData) &&
+    isDateAnalytics(incomingData)
+  ) {
+    mergeDateAnalytics(targetData, incomingData, detailResponseLimit);
+    return;
+  }
+
+  if (
+    target.block_type === "time" &&
+    isTimeAnalytics(targetData) &&
+    isTimeAnalytics(incomingData)
+  ) {
+    mergeTimeAnalytics(targetData, incomingData, detailResponseLimit);
+    return;
+  }
+
+  if (isTextAnalytics(targetData) && isTextAnalytics(incomingData)) {
+    mergeTextAnalytics(targetData, incomingData, detailResponseLimit);
+    const stats = textMergeStats.get(target.block_id);
+    if (stats) updateTextMergeStats(stats, incomingData);
+  }
+}
+
+function initializeTextMergeStats(
+  analytics: BlockAnalyticsResult,
+  textMergeStats: Map<string, TextMergeStats>,
+): void {
+  const data = analytics.analytics_data;
+  if (!isTextAnalytics(data)) return;
+
+  const stats: TextMergeStats = {
+    total: 0,
+    characterSum: 0,
+  };
+  updateTextMergeStats(stats, data);
+  textMergeStats.set(analytics.block_id, stats);
+}
+
+function recalculatePercentages(
+  results: BlockAnalyticsResult[],
+  totalResponseCount: number,
+  textMergeStats: Map<string, TextMergeStats>,
+): void {
+  for (const result of results) {
+    result.response_rate =
+      totalResponseCount > 0
+        ? Math.round((result.total_responses / totalResponseCount) * 10000) /
+          10000
+        : 0;
+
+    const data = result.analytics_data;
+
+    if (isChoiceAnalytics(data)) {
+      for (const option of data.options) {
+        option.percentage =
+          data.total_responses > 0
+            ? Math.round((option.count / data.total_responses) * 10000) / 100
+            : 0;
+      }
+    } else if (isGridAnalytics(data)) {
+      data.response_rate =
+        totalResponseCount > 0
+          ? Math.round((data.total_responses / totalResponseCount) * 10000) /
+            10000
+          : 0;
+    } else if (result.block_type === "date" && isDateAnalytics(data)) {
+      data.distribution.sort((a, b) => a.date.localeCompare(b.date));
+      for (const point of data.distribution) {
+        point.percentage =
+          data.total_responses > 0
+            ? Math.round((point.count / data.total_responses) * 10000) / 100
+            : 0;
+      }
+    } else if (result.block_type === "time" && isTimeAnalytics(data)) {
+      data.distribution.sort((a, b) => a.time.localeCompare(b.time));
+      for (const point of data.distribution) {
+        point.percentage =
+          data.total_responses > 0
+            ? Math.round((point.count / data.total_responses) * 10000) / 100
+            : 0;
+      }
+    } else if (isTextAnalytics(data)) {
+      const stats = textMergeStats.get(result.block_id);
+      if (!stats || stats.total === 0) {
+        data.word_count_stats = undefined;
+      } else {
+        data.word_count_stats = {
+          average: Math.round((stats.characterSum / stats.total) * 100) / 100,
+          min: stats.min ?? 0,
+          max: stats.max ?? 0,
+        };
+      }
+    }
+  }
+}
+
+export async function aggregateAllBlocksInBatches(
+  formId: string,
+  blocks: RawBlock[],
+  loadBatch: ResponseBatchLoader,
+  options: AggregateBatchOptions = {},
+): Promise<BlockAnalyticsResult[]> {
+  const batchSize = options.batchSize ?? DEFAULT_AGGREGATION_BATCH_SIZE;
+  const detailResponseLimit =
+    options.detailResponseLimit ?? DEFAULT_DETAIL_RESPONSE_LIMIT;
+  const mergedResults = new Map<string, BlockAnalyticsResult>();
+  const textMergeStats = new Map<string, TextMergeStats>();
+  let offset = 0;
+  let totalResponseCount = 0;
+
+  while (true) {
+    const batch = await loadBatch(offset, batchSize);
+    if (batch.length === 0) break;
+
+    const { results: batchResults, totalResponseCount: batchResponseCount } =
+      aggregateBlocksWithParsedCount(formId, blocks, batch);
+    totalResponseCount += batchResponseCount;
+
+    for (const result of batchResults) {
+      const existing = mergedResults.get(result.block_id);
+      if (!existing) {
+        mergedResults.set(result.block_id, result);
+        initializeTextMergeStats(result, textMergeStats);
+      } else {
+        mergeBlockAnalyticsResult(
+          existing,
+          result,
+          detailResponseLimit,
+          textMergeStats,
+        );
+      }
+    }
+
+    if (batch.length < batchSize) break;
+    offset += batchSize;
+  }
+
+  if (mergedResults.size === 0) {
+    return aggregateAllBlocks(formId, blocks, []);
+  }
+
+  const results = [...mergedResults.values()];
+  recalculatePercentages(results, totalResponseCount, textMergeStats);
   return results;
 }
