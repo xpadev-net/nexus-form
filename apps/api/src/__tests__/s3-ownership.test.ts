@@ -1,4 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { s3ImageService } from "../lib/s3/image-service";
+import { SecurityValidationError } from "../lib/s3/validation";
 
 vi.mock("../load-env", () => ({}));
 
@@ -298,6 +300,29 @@ describe("S3 key ownership enforcement (H-1)", () => {
         error: "Object key must start with prod/",
       });
     });
+
+    it("returns 400 when service defense-in-depth rejects move keys", async () => {
+      vi.mocked(s3ImageService.moveToProd).mockRejectedValueOnce(
+        new SecurityValidationError("Object key validation failed", [
+          "Object key contains unsafe path segments",
+        ]),
+      );
+      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+
+      const res = await app.request("/api/s3/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tmpKey: `tmp/users/${USER_A_ID}/file.jpg`,
+          finalKey: `prod/users/${USER_A_ID}/file.jpg`,
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: "Object key validation failed",
+      });
+    });
   });
 
   describe("GET /api/s3/list", () => {
@@ -326,6 +351,25 @@ describe("S3 key ownership enforcement (H-1)", () => {
 });
 
 describe("R3-H22: S3 route rejects bucket/key role mismatches", () => {
+  it("returns 400 when upload-complete checks a prod key in the tmp bucket", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request("/api/s3/upload-complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: `prod/users/${USER_A_ID}/file.jpg`,
+        bucket: "tmp",
+        size: 123,
+        contentType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Object key must start with tmp/",
+    });
+  });
+
   it("returns 400 when a prod presigned URL is requested for a tmp key", async () => {
     mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
     const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
@@ -350,6 +394,29 @@ describe("R3-H22: S3 route rejects bucket/key role mismatches", () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toMatchObject({
       error: "Object key must start with tmp/",
+    });
+  });
+
+  it("returns 400 when service defense-in-depth rejects process-image keys", async () => {
+    vi.mocked(s3ImageService.processAndMoveImage).mockRejectedValueOnce(
+      new SecurityValidationError("Object key validation failed", [
+        "Object key contains unsafe path segments",
+      ]),
+    );
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tmpKey: `tmp/users/${USER_A_ID}/file.jpg`,
+        finalKey: `prod/users/${USER_A_ID}/file.jpg`,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Object key validation failed",
     });
   });
 });

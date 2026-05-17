@@ -262,6 +262,14 @@ export const s3Router = createHonoApp()
       }
 
       const resolvedBucket = resolveBucketName(bucket ?? "tmp");
+      try {
+        assertKeyMatchesBucket(key, resolvedBucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
 
       const exists = await s3Service.objectExists(key, resolvedBucket);
       if (!exists) {
@@ -316,27 +324,34 @@ export const s3Router = createHonoApp()
         return c.json({ error: "File not found in temporary bucket" }, 404);
       }
 
-      const result = await s3Service.processAndMoveImage(
-        tmpKey,
-        {
-          ...DEFAULT_IMAGE_PROCESSING_CONFIG,
-          ...(processingConfig ?? {}),
-        },
-        finalKey,
-      );
+      try {
+        const result = await s3Service.processAndMoveImage(
+          tmpKey,
+          {
+            ...DEFAULT_IMAGE_PROCESSING_CONFIG,
+            ...(processingConfig ?? {}),
+          },
+          finalKey,
+        );
 
-      return c.json({
-        success: true,
-        data: {
-          key: result.key,
-          bucket: result.bucket,
-          url: result.url,
-          size: result.size,
-          contentType: result.contentType,
-          message:
-            "Image processed and moved to production bucket successfully",
-        },
-      });
+        return c.json({
+          success: true,
+          data: {
+            key: result.key,
+            bucket: result.bucket,
+            url: result.url,
+            size: result.size,
+            contentType: result.contentType,
+            message:
+              "Image processed and moved to production bucket successfully",
+          },
+        });
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
     },
   )
   .post(
@@ -369,8 +384,15 @@ export const s3Router = createHonoApp()
         throw error;
       }
 
-      const data = await s3Service.moveToProd(tmpKey, finalKey);
-      return c.json({ success: true, data });
+      try {
+        const data = await s3Service.moveToProd(tmpKey, finalKey);
+        return c.json({ success: true, data });
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
     },
   )
   .delete(
