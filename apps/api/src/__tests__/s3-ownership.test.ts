@@ -222,6 +222,22 @@ describe("S3 key ownership enforcement (H-1)", () => {
       expect(res.status).not.toBe(403);
     });
 
+    it("returns 400 when deleting a tmp key from the prod bucket", async () => {
+      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+      const res = await app.request("/api/s3/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: `tmp/users/${USER_A_ID}/file.jpg`,
+          bucket: "prod",
+        }),
+      });
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toMatchObject({
+        error: "Object key must start with prod/",
+      });
+    });
+
     it("returns 401 when unauthenticated", async () => {
       mockGetSession.mockResolvedValueOnce(null);
       const res = await app.request("/api/s3/delete", {

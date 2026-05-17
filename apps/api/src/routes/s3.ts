@@ -388,7 +388,17 @@ export const s3Router = createHonoApp()
         return c.json({ error: "Access denied to key" }, 403);
       }
 
-      await s3Service.deleteObject(key, resolveBucketName(bucket));
+      const resolvedBucket = resolveBucketName(bucket);
+      try {
+        assertKeyMatchesBucket(key, resolvedBucket);
+      } catch (error) {
+        if (error instanceof SecurityValidationError) {
+          return c.json(s3ValidationErrorResponse(error), 400);
+        }
+        throw error;
+      }
+
+      await s3Service.deleteObject(key, resolvedBucket);
       return c.json({ success: true, message: "Object deleted successfully" });
     },
   )
