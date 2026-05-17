@@ -7,15 +7,65 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
+import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
 
 const VALID_PLUGIN_EXTENSIONS = [".js", ".mjs"];
+const PLUGIN_LOCK_FILE = "plugins.lock";
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const pluginLockSchema = z
+  .object({
+    plugins: z.record(z.string().min(1), sha256Schema),
+  })
+  .strict();
+
+type PluginLock = z.infer<typeof pluginLockSchema>;
 
 function isValidPluginFile(filename: string): boolean {
   const dotIndex = filename.lastIndexOf(".");
   if (dotIndex === -1) return false;
   const ext = filename.substring(dotIndex);
   return VALID_PLUGIN_EXTENSIONS.includes(ext) && !filename.startsWith(".");
+}
+
+function hasUnsafeDirectoryPermissions(mode: number): boolean {
+  return (mode & 0o022) !== 0;
+}
+
+async function readPluginLock(resolvedDir: string): Promise<PluginLock | null> {
+  let rawLock: string;
+  try {
+    rawLock = await readFile(join(resolvedDir, PLUGIN_LOCK_FILE), "utf8");
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+
+  let parsedLock: unknown;
+  try {
+    parsedLock = JSON.parse(rawLock);
+  } catch {
+    throw new Error(`${PLUGIN_LOCK_FILE} must contain valid JSON`);
+  }
+
+  const result = pluginLockSchema.safeParse(parsedLock);
+  if (!result.success) {
+    throw new Error(`${PLUGIN_LOCK_FILE} has an invalid schema`);
+  }
+  return result.data;
+}
+
+async function computeSha256(path: string): Promise<string | null> {
+  return readFile(path)
+    .then((buf) => createHash("sha256").update(buf).digest("hex"))
+    .catch(() => null);
 }
 
 export type PluginLoadOutcome =
@@ -137,6 +187,12 @@ export class PluginLoader {
         console.warn(`[PluginLoader] Not a directory: ${this.pluginsDir}`);
         return [];
       }
+      if (hasUnsafeDirectoryPermissions(dirStat.mode)) {
+        console.error(
+          `[PluginLoader] Refusing to load plugins from group/other writable directory: ${this.pluginsDir}`,
+        );
+        return [];
+      }
       resolvedDir = await realpath(this.pluginsDir);
     } catch {
       console.warn(
@@ -147,6 +203,17 @@ export class PluginLoader {
 
     const files = await readdir(resolvedDir).catch(() => []);
     const plugins: ValidationProvider[] = [];
+    let pluginLock: PluginLock | null;
+    try {
+      pluginLock = await readPluginLock(resolvedDir);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `[PluginLoader] Failed to read ${PLUGIN_LOCK_FILE}: ${message}`,
+      );
+      this.failedPlugins.push({ file: PLUGIN_LOCK_FILE, error: message });
+      return [];
+    }
 
     for (const file of files) {
       if (!isValidPluginFile(file)) continue;
@@ -170,9 +237,30 @@ export class PluginLoader {
         continue;
       }
 
-      const hash = await readFile(resolvedPath)
-        .then((buf) => createHash("sha256").update(buf).digest("hex"))
-        .catch(() => "<unreadable>");
+      const hash = await computeSha256(resolvedPath);
+      if (!hash) {
+        const error = "Cannot read plugin file for SHA-256 verification";
+        console.error(`[PluginLoader] ${error}: ${file}`);
+        this.failedPlugins.push({ file, error });
+        continue;
+      }
+
+      const expectedHash = pluginLock?.plugins[file];
+      if (!expectedHash) {
+        const error = `${PLUGIN_LOCK_FILE} does not list plugin`;
+        console.error(`[PluginLoader] ${error}: ${file} sha256=${hash}`);
+        this.failedPlugins.push({ file, error });
+        continue;
+      }
+      if (expectedHash !== hash) {
+        const error = `${PLUGIN_LOCK_FILE} hash mismatch`;
+        console.error(
+          `[PluginLoader] ${error}: ${file} expected=${expectedHash} actual=${hash}`,
+        );
+        this.failedPlugins.push({ file, error });
+        continue;
+      }
+
       const outcome = await loadPluginFromSpecifier(resolvedPath);
       if (outcome.kind === "ok") {
         console.info(

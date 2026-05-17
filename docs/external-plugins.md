@@ -113,11 +113,36 @@ bundle した自己完結 `.mjs`** を配置するのが推奨です。組み込
 - 拡張子は `.js` または `.mjs` のみ
 - ドット始まりのファイルは無視
 - シンボリックリンクは拒否
+- プラグインディレクトリが group/other writable でないこと
+- `plugins.lock` にファイル名と SHA-256 が登録されていること
+- 実ファイルの SHA-256 が `plugins.lock` の期待値と一致すること
 - export オブジェクトが上記インタフェースを満たすこと
 - `name` が `/^[a-z][a-z0-9_]*$/` かつ 64 文字以下
 
 ローダー失敗は致命的エラーにはならず、`PluginLoader.getFailedPlugins()` に
 記録されるだけです。プロセスは残りのプラグインで起動します。
+
+### `plugins.lock` の形式
+
+外部プラグインをロードするには、`VALIDATION_PLUGINS_DIR` 直下に
+`plugins.lock` を配置してください。ローダーはこの JSON マニフェストに
+登録された SHA-256 と実ファイルの内容が一致する場合だけ import します。
+マニフェストが無い、ファイル名が未登録、またはハッシュ不一致のプラグインは
+実行前に拒否されます。
+
+```json
+{
+  "plugins": {
+    "acme-discord.mjs": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}
+```
+
+ハッシュは配置する `.mjs` / `.js` の最終成果物に対して計算してください。
+
+```bash
+sha256sum plugins/validation/acme-discord.mjs
+```
 
 ## 4. レジストリと override 動作
 
@@ -195,7 +220,7 @@ worker:
   command: ["pnpm", "--filter", "@nexus-form/worker", "exec", "tsx", "src/index.ts"]
 ```
 
-`plugins/validation/` は API と Worker **両方** に同一内容で提供してください。
+`plugins/validation/` は `plugins.lock` を含め、API と Worker **両方** に同一内容で提供してください。
 両者が drift すると API が enqueue したジョブを Worker 側で捌けない／API が
 即時 FAILED にする、といった事故が起きます。
 
@@ -230,10 +255,15 @@ worker:
    # Docker では :ro マウント推奨（上記の docker-compose.yml 例を参照）
    ```
 
-2. **信頼できるソースから取得したプラグインのみを配置** してください。
-   配置前にコードを必ずレビューしてください。
+2. **プラグインディレクトリは読み取り専用マウントにしてください。**
+   本番では `:ro` マウントを必須とし、アプリ実行ユーザーが起動後に
+   `.mjs` や `plugins.lock` を差し替えられないようにしてください。
 
-3. **起動ログのプラグイン一覧とハッシュを確認** してください。プロセス起動時に
+3. **信頼できるソースから取得したプラグインのみを配置** してください。
+   配置前にコードを必ずレビューし、レビュー済み成果物の SHA-256 を
+   `plugins.lock` に登録してください。
+
+4. **起動ログのプラグイン一覧とハッシュを確認** してください。プロセス起動時に
    `[PluginLoader] Loaded plugin "<name>" path=... sha256=...` 形式でログが出力
    されます。予期しないプラグインが表示された場合は直ちに調査してください。
 
