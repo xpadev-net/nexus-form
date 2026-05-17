@@ -4,7 +4,11 @@ import { extractClientIP } from "../index";
 const originalTrustedProxyCount = process.env.TRUSTED_PROXY_COUNT;
 
 afterEach(() => {
-  process.env.TRUSTED_PROXY_COUNT = originalTrustedProxyCount;
+  if (originalTrustedProxyCount === undefined) {
+    delete process.env.TRUSTED_PROXY_COUNT;
+  } else {
+    process.env.TRUSTED_PROXY_COUNT = originalTrustedProxyCount;
+  }
 });
 
 describe("extractClientIP", () => {
@@ -156,7 +160,7 @@ describe("extractClientIP", () => {
       expect(result.source).toBe("unknown");
     });
 
-    it("should fallback to x-real-ip when a trusted proxy is configured", () => {
+    it("should ignore x-real-ip even when a trusted proxy is configured", () => {
       const request = new Request("http://localhost", {
         headers: {
           "x-real-ip": "10.0.0.1",
@@ -167,11 +171,11 @@ describe("extractClientIP", () => {
         strategy: "general",
         trustedProxyCount: 1,
       });
-      expect(result.ip).toBe("10.0.0.1");
-      expect(result.source).toBe("x-real-ip");
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
     });
 
-    it("should fallback to cf-connecting-ip when a trusted proxy is configured", () => {
+    it("should ignore cf-connecting-ip even when a trusted proxy is configured", () => {
       const request = new Request("http://localhost", {
         headers: {
           "cf-connecting-ip": "203.0.113.10",
@@ -182,8 +186,8 @@ describe("extractClientIP", () => {
         strategy: "general",
         trustedProxyCount: 1,
       });
-      expect(result.ip).toBe("203.0.113.10");
-      expect(result.source).toBe("cf-connecting-ip");
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
     });
 
     it("should reject invalid forwarded IP values", () => {

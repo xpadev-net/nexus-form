@@ -8,7 +8,6 @@ export interface IPExtractionOptions {
 export type IPSource =
   | "x-nginx-forwarded-for"
   | "x-forwarded-for"
-  | "cf-connecting-ip"
   | "x-real-ip"
   | "unknown";
 

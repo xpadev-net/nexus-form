@@ -75,24 +75,6 @@ function extractGeneralIP(
     };
   }
 
-  if (trustedProxyCount > 0) {
-    const cfIp = normalizeIp(request.headers.get("cf-connecting-ip"));
-    if (cfIp) {
-      return {
-        ip: cfIp,
-        source: "cf-connecting-ip",
-      };
-    }
-
-    const realIp = normalizeIp(request.headers.get("x-real-ip"));
-    if (realIp) {
-      return {
-        ip: realIp,
-        source: "x-real-ip",
-      };
-    }
-  }
-
   return {
     ip: "unknown",
     source: "unknown",
