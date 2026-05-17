@@ -260,6 +260,10 @@ export const fingerprintRouter = createHonoApp()
           ).map((row) => row.id)
         : [];
 
+      if (formId && responseIds.length === 0) {
+        return c.json(FingerprintDeleteResponseSchema.parse({ deleted: 0 }));
+      }
+
       const deleted = await db
         .delete(fingerprintDetail)
         .where(
