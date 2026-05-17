@@ -469,7 +469,11 @@ export const s3Router = createHonoApp()
         );
       }
 
-      if (!key || key.includes("..") || key.includes("//")) {
+      if (
+        !key ||
+        key.split("/").some((segment) => segment === "..") ||
+        key.includes("//")
+      ) {
         return c.json({ error: "Invalid key format" }, 400);
       }
 

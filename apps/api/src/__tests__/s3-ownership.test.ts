@@ -374,6 +374,14 @@ describe("C-2: S3 proxy route requires authentication and ownership (regression)
     expect(res.status).toBe(302);
   });
 
+  it("redirects (302) for double-dot filenames in own namespace via proxy", async () => {
+    mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file..backup.jpg`,
+    );
+    expect(res.status).toBe(302);
+  });
+
   it("returns 400 for invalid bucket alias via proxy", async () => {
     mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
     const res = await app.request(
