@@ -102,7 +102,7 @@
 
 ### R3-C8. フィンガープリント一括削除 API が WHERE 句喪失で全件削除しうる（再レビュー新規）
 - **重要度:** 🔴 Critical
-- **対応状況:** ✅ 完了（PR #40）
+- **対応状況:** ✅ 完了（PR #40、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/routes/fingerprint.ts:243-284`（DELETE `/manage`）
 - **問題:** ガード（L250）は `!responseId && !formId && !before` のみを弾くため `formId` 指定があれば通過する。だが `formId` 指定フォームの回答が 0 件のとき `responseIds` が空配列になり、`formId && responseIds.length > 0` 分岐が `undefined` を返す。`responseId`・`before` も未指定なら `and(undefined, undefined, undefined)` で WHERE 句が消滅し、`db.delete(fingerprintDetail)` が **`fingerprintDetail` テーブル全行を削除**する。admin 専用だが回復不能なデータ損失。実ファイルで再現確認済み。
 - **修正内容:** `formId` 指定かつ `responseIds.length === 0` の場合は削除を実行せず `{ deleted: 0 }` を返す。または絞り込み句が常に 1 つ以上残ることを保証する（例: `inArray(..., responseIds.length ? responseIds : ["__none__"])`）。最低限、生成された `where` が `undefined` でないことを実行前にアサートする。
