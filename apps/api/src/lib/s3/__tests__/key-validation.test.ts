@@ -33,6 +33,11 @@ describe("S3 object key validation", () => {
     expect(validateS3ObjectKey("prod/users/user-1/file.png")).toMatchObject({
       isValid: true,
     });
+    expect(
+      validateS3ObjectKey("prod/users/user-1/file..backup.png"),
+    ).toMatchObject({
+      isValid: true,
+    });
   });
 
   it("rejects traversal and missing namespace prefixes", () => {

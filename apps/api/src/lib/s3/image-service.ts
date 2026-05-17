@@ -140,11 +140,11 @@ export class S3ImageService extends S3BaseService {
     processingConfig: ImageProcessingConfig,
     finalKey?: string,
   ): Promise<UploadResult> {
-    try {
-      assertS3ObjectKeyPrefix(tmpKey, "tmp/");
-      const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
-      assertS3ObjectKeyPrefix(prodKey, "prod/");
+    assertS3ObjectKeyPrefix(tmpKey, "tmp/");
+    const prodKey = finalKey || tmpKey.replace("tmp/", "prod/");
+    assertS3ObjectKeyPrefix(prodKey, "prod/");
 
+    try {
       // 1. 一時バケットから画像データを取得
       const originalImageData = await this.getObject(tmpKey, this.tmpBucket);
 

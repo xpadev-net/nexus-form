@@ -94,7 +94,12 @@ function assertKeyMatchesBucket(key: string, bucket: string): void {
  * 属するか検証する。パストラバーサル文字が含まれる場合も false を返す。
  */
 function isKeyOwnedBy(userId: string, key: string): boolean {
-  if (key.includes("..") || key.includes("//")) return false;
+  if (
+    key.split("/").some((segment) => segment === "..") ||
+    key.includes("//")
+  ) {
+    return false;
+  }
   return (
     key.startsWith(`tmp/users/${userId}/`) ||
     key.startsWith(`prod/users/${userId}/`)

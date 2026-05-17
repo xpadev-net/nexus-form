@@ -210,6 +210,18 @@ describe("S3 key ownership enforcement (H-1)", () => {
       expect(res.status).not.toBe(403);
     });
 
+    it("proceeds (not 403) for double-dot filenames in own namespace", async () => {
+      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+      const res = await app.request("/api/s3/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: `prod/users/${USER_A_ID}/file..backup.jpg`,
+        }),
+      });
+      expect(res.status).not.toBe(403);
+    });
+
     it("returns 401 when unauthenticated", async () => {
       mockGetSession.mockResolvedValueOnce(null);
       const res = await app.request("/api/s3/delete", {

@@ -31,6 +31,10 @@ export interface FileValidationConfig {
 
 const allowedObjectKeyPrefixes = ["tmp/", "prod/"] as const;
 
+function hasUnsafeObjectKeyPathSegment(key: string): boolean {
+  return key.split("/").some((segment) => segment === "..");
+}
+
 /**
  * デフォルトの検証設定
  */
@@ -148,7 +152,7 @@ export function validateS3ObjectKey(key: string): FileValidationResult {
 
   if (
     key.startsWith("/") ||
-    key.includes("..") ||
+    hasUnsafeObjectKeyPathSegment(key) ||
     key.includes("//") ||
     key.includes("\\")
   ) {
