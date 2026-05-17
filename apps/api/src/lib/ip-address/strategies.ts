@@ -1,4 +1,39 @@
+import { isIP } from "node:net";
 import type { IPExtractionResult } from "./types";
+
+function parseTrustedProxyCount(
+  value: string | undefined = process.env.TRUSTED_PROXY_COUNT,
+): number {
+  if (!value) return 0;
+  if (!/^\d+$/.test(value)) return 0;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+function normalizeIp(value: string | null | undefined): string | null {
+  const ip = value?.trim();
+  if (!ip || isIP(ip) === 0) return null;
+  return ip;
+}
+
+function getTrustedForwardedIp(
+  forwardedFor: string | null,
+  trustedProxyCount: number,
+): string | null {
+  // Misconfigured proxy counts deliberately collapse to unknown instead of
+  // trusting a spoofable left-side XFF value.
+  if (trustedProxyCount <= 0 || !forwardedFor) return null;
+
+  const forwardedIps = forwardedFor
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const targetIndex = forwardedIps.length - trustedProxyCount;
+  if (targetIndex < 0) return null;
+
+  return normalizeIp(forwardedIps[targetIndex]);
+}
 
 /**
  * テレメトリ戦略: x-nginx-forwarded-for → unknown
@@ -24,28 +59,21 @@ function extractTelemetryIP(
 }
 
 /**
- * 一般戦略: x-forwarded-for → x-real-ip → unknown
+ * 一般戦略: x-forwarded-for → unknown
  * 用途: レート制限、CAPTCHA、回答送信
  */
 function extractGeneralIP(
   request: Request | { headers: Headers },
+  trustedProxyCount: number = parseTrustedProxyCount(),
 ): IPExtractionResult {
-  // x-forwarded-forを優先的にチェック
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    const firstIp = forwardedFor.split(",")[0]?.trim() ?? "unknown";
+  const forwardedIp = getTrustedForwardedIp(
+    request.headers.get("x-forwarded-for"),
+    trustedProxyCount,
+  );
+  if (forwardedIp) {
     return {
-      ip: firstIp,
+      ip: forwardedIp,
       source: "x-forwarded-for",
-    };
-  }
-
-  // x-real-ipをフォールバックとしてチェック
-  const realIp = request.headers.get("x-real-ip");
-  if (realIp) {
-    return {
-      ip: realIp.trim(),
-      source: "x-real-ip",
     };
   }
 
@@ -61,13 +89,14 @@ function extractGeneralIP(
 export function extractIPByStrategy(
   request: Request | { headers: Headers },
   strategy: "telemetry" | "general",
+  trustedProxyCount?: number,
 ): IPExtractionResult {
   switch (strategy) {
     case "telemetry": {
       return extractTelemetryIP(request);
     }
     case "general": {
-      return extractGeneralIP(request);
+      return extractGeneralIP(request, trustedProxyCount);
     }
   }
 }

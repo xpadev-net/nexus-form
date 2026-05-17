@@ -11,5 +11,9 @@ export function extractClientIP(
   request: Request | { headers: Headers },
   options: IPExtractionOptions,
 ): IPExtractionResult {
-  return extractIPByStrategy(request, options.strategy);
+  return extractIPByStrategy(
+    request,
+    options.strategy,
+    options.trustedProxyCount,
+  );
 }

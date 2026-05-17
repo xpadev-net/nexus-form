@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler, Next } from "hono";
 import { getRedisClient } from "./cache/redis-client";
+import { extractClientIP } from "./ip-address";
 import { logError, logWarn } from "./logger";
 
 interface RateLimitConfig {
@@ -17,9 +18,7 @@ interface RateLimitEntry {
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 export function getClientIp(c: Context): string {
-  const forwarded = c.req.header("x-forwarded-for");
-  const cfIp = c.req.header("cf-connecting-ip");
-  return cfIp || forwarded?.split(",")[0]?.trim() || "unknown";
+  return extractClientIP(c.req.raw, { strategy: "general" }).ip;
 }
 
 function getDefaultKey(c: Context): string {

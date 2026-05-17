@@ -205,6 +205,7 @@
 
 ### R3-H21. 信頼できないヘッダーからの無検証 IP 採用でレート制限・CAPTCHA を回避可能（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/rate-limit.ts:19-23`（`getClientIp`）、`apps/api/src/lib/ip-address/strategies.ts:30-56`
 - **問題:** `x-forwarded-for` / `x-real-ip` / `cf-connecting-ip` を無条件・無検証で先頭値採用する。リバースプロキシがこれらを上書きしない構成では、攻撃者が任意の `X-Forwarded-For` を送るだけでレート制限キーを変え放題になり、`auth_action`（15 分 10 回）のブルートフォース制限を完全に回避できる。hCaptcha の `remoteip`、テレメトリ IP ハッシュにも波及する。
 - **修正内容:** 信頼するプロキシ段数を env（`TRUSTED_PROXY_COUNT`）で持ち、`x-forwarded-for` を分割して末尾から N 番目を採用する。`net.isIP()` で検証し不正値は `unknown` 扱い。プロキシ無し構成ではソケットの remote address を使う。
