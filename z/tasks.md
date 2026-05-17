@@ -178,6 +178,7 @@
 
 ### R3-H5. ページネーション無しの無制限クエリ
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #48）
 - **対象:** `apps/api/src/routes/forms-responses.ts:375-387`（`/responses/ids`）, `:425-436`（`/responses/analytics`）、`forms-structure.ts:318-336`（`/snapshots`）, `:467-474`（`/schedule`）、`forms-validation-rules.ts:29-33`（`/validation-rules`）
 - **問題:** いずれも `limit` 無しで全件返却。レコード増加に伴いメモリ・帯域・レイテンシが線形悪化。
 - **修正内容:** `limit`/`offset`（またはカーソル）ベースのページネーションを導入する。
