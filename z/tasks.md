@@ -196,6 +196,7 @@
 
 ### R3-H20. VIEWER 共有リンク保持者が全回答・分析データを閲覧できる（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/dual-auth.ts:476` 付近、`apps/api/src/routes/forms-responses.ts:262` ほか VIEWER ゲートのルート群
 - **問題:** `dual-auth.ts` の共有リンク分岐は `requiredRole === "VIEWER"` のとき role 不問で許可 (`return`) する。`/:id/responses*` 系は `withDualFormAuth("VIEWER")` で保護されているため、**VIEWER 共有リンクの保持者がそのフォームの全回答・回答詳細・ID 一覧・分析データを閲覧可能**になる。同じ懸念が `forms-snapshots.ts`/`forms-structure.ts`/`forms-validation-rules.ts`/`forms-detail.ts` の VIEWER ゲートにも及ぶ。
 - **修正内容:** 回答閲覧系エンドポイントは最低でも `EDITOR` を要求するか、共有リンク分岐に「回答閲覧は OWNER/EDITOR の DB 権限を要する」専用判定を追加する。VIEWER 共有リンクの製品仕様（フォーム閲覧・回答のみを意図しているか）をチームで確認のうえ決定する。

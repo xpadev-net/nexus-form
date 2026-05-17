@@ -276,7 +276,7 @@ async function enqueueValidationRetries(
 }
 
 export const formsResponsesRouter = createHonoApp()
-  .use("/:id/responses*", withDualFormAuth("VIEWER"))
+  .use("/:id/responses*", withDualFormAuth("EDITOR"))
   .get(
     "/:id/responses",
     zValidator("query", listResponsesQuerySchema),
