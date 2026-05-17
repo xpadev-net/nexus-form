@@ -271,7 +271,7 @@ export const fingerprintRouter = createHonoApp()
             responseId
               ? eq(fingerprintDetail.responseId, responseId)
               : undefined,
-            formId && responseIds.length > 0
+            formId
               ? inArray(fingerprintDetail.responseId, responseIds)
               : undefined,
             before

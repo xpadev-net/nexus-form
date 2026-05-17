@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => {
     db,
     mockGetSession: vi.fn(),
     deleteWhere: vi.fn(),
+    eq: vi.fn((left, right) => ({ op: "eq", left, right })),
+    and: vi.fn((...conditions) => ({ op: "and", conditions })),
+    inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
+    lt: vi.fn((left, right) => ({ op: "lt", left, right })),
   };
 });
 
@@ -78,10 +82,10 @@ vi.mock("pino", () => {
 });
 
 vi.mock("drizzle-orm", () => ({
-  eq: vi.fn((left, right) => ({ op: "eq", left, right })),
-  and: vi.fn((...conditions) => ({ op: "and", conditions })),
-  inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
-  lt: vi.fn((left, right) => ({ op: "lt", left, right })),
+  eq: mocks.eq,
+  and: mocks.and,
+  inArray: mocks.inArray,
+  lt: mocks.lt,
 }));
 
 function adminSession() {
@@ -133,5 +137,36 @@ describe("DELETE /manage fingerprint cleanup", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ deleted: 0 });
     expect(mocks.db.delete).not.toHaveBeenCalled();
+  });
+
+  it("deletes fingerprints for response ids resolved from formId", async () => {
+    mockFormResponses([{ id: "response-1" }, { id: "response-2" }]);
+    const { fingerprintRouter } = await import("../routes/fingerprint");
+
+    const res = await fingerprintRouter.request("/manage", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ formId: "form-with-responses" }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ deleted: 1 });
+    expect(mocks.db.delete).toHaveBeenCalledOnce();
+    expect(mocks.inArray).toHaveBeenCalledWith("fingerprintDetail.responseId", [
+      "response-1",
+      "response-2",
+    ]);
+    expect(mocks.deleteWhere).toHaveBeenCalledWith({
+      op: "and",
+      conditions: [
+        undefined,
+        {
+          op: "inArray",
+          left: "fingerprintDetail.responseId",
+          values: ["response-1", "response-2"],
+        },
+        undefined,
+      ],
+    });
   });
 });
