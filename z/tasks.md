@@ -120,7 +120,7 @@
 
 ### R3-C10. `formStructure` query key 衝突で autosave とアクセス制御更新が相互上書き（再レビュー新規）
 - **重要度:** 🔴 Critical
-- **対応状況:** ✅ 完了（PR #42）
+- **対応状況:** ✅ 完了（PR #42、`gh-review-hook` exit 0）
 - **対象:** `apps/web/src/hooks/forms/use-form-logic-management.ts:39,48,70,97,113`、`apps/web/src/hooks/forms/use-form-access-control.ts:21,57`
 - **問題:** 2 つのフックが同一の query key `["formStructure", formId]` を共有する。`useFormLogicManagement` はロジック編集のたびに `structure` 全体を再取得し `saveStructure` でそのまま PUT し、同キーを invalidate する。`useFormAccessControl` も同キーを読み・invalidate する。両フックが同一画面でマウントされていると、ロジック保存とアクセス制御（パスワード保護等）更新が交差したとき、**古いキャッシュ済み構造で PUT してもう片方の変更を上書き**しうる。フック内 mutex はフック間競合を防げない。実ファイルでキー共有を確認済み。
 - **修正内容:** サーバ側 `structure` 更新を version 付き楽観ロックにするのが本筋。短期対策として、(1) ロジックとアクセス制御の更新を別 query key・別 API ルート（差分パッチ）に分離する、(2) 保存前の再取得を `gcTime: 0` で確実にネットワークから取得する。
