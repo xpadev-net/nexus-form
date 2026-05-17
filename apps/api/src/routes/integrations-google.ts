@@ -49,7 +49,7 @@ function getCookieValue(cookie: string, name: string): string | undefined {
   return part?.split("=").slice(1).join("=");
 }
 
-function getTrustedAppOrigins(): Set<string> {
+function buildTrustedAppOrigins(): Set<string> {
   const origins: string[] = [];
   if (
     process.env.NODE_ENV === "development" ||
@@ -70,6 +70,12 @@ function getTrustedAppOrigins(): Set<string> {
       .map((origin) => normalizeHttpOrigin(origin))
       .filter((origin): origin is string => origin !== null),
   );
+}
+
+const trustedAppOrigins = buildTrustedAppOrigins();
+
+function getTrustedAppOrigins(): Set<string> {
+  return trustedAppOrigins;
 }
 
 function normalizeHttpOrigin(value: string | undefined): string | null {
