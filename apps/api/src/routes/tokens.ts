@@ -5,7 +5,7 @@ import {
   apiTokenFormIdsSchema,
   apiTokenScopesSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { ERROR_CODES } from "../lib/constants/error-codes";
@@ -76,28 +76,22 @@ export const tokensRouter = createHonoApp()
       eq(apiToken.userId, user.userId),
       eq(apiToken.isActive, true),
     );
-    const [tokens, totalRows] = await Promise.all([
-      db
-        .select({
-          id: apiToken.id,
-          name: apiToken.name,
-          scopes: apiToken.scopes,
-          formIds: apiToken.formIds,
-          expiresAt: apiToken.expiresAt,
-          lastUsedAt: apiToken.lastUsedAt,
-          createdAt: apiToken.createdAt,
-          isActive: apiToken.isActive,
-        })
-        .from(apiToken)
-        .where(where)
-        .orderBy(desc(apiToken.createdAt))
-        .offset(offset)
-        .limit(pageSize),
-      db.select({ total: count() }).from(apiToken).where(where),
-    ]);
+    const tokens = await db
+      .select({
+        id: apiToken.id,
+        name: apiToken.name,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+        expiresAt: apiToken.expiresAt,
+        lastUsedAt: apiToken.lastUsedAt,
+        createdAt: apiToken.createdAt,
+        isActive: apiToken.isActive,
+      })
+      .from(apiToken)
+      .where(where)
+      .orderBy(desc(apiToken.createdAt));
 
-    const total = totalRows[0]?.total ?? 0;
-    const responseTokens = tokens.flatMap((token) => {
+    const validTokens = tokens.flatMap((token) => {
       const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
       if (!parsedJson) return [];
 
@@ -114,6 +108,8 @@ export const tokensRouter = createHonoApp()
         },
       ];
     });
+    const total = validTokens.length;
+    const responseTokens = validTokens.slice(offset, offset + pageSize);
 
     const listResponse = GetTokensResponse.parse({
       tokens: responseTokens,
@@ -194,6 +190,28 @@ export const tokensRouter = createHonoApp()
 
     const id = c.req.param("id");
     const payload = c.req.valid("json");
+    const [existing] = await db
+      .select({
+        id: apiToken.id,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+      })
+      .from(apiToken)
+      .where(and(eq(apiToken.id, id), eq(apiToken.userId, user.userId)))
+      .limit(1);
+
+    if (!existing) return c.json({ error: "Token not found" }, 404);
+
+    const nextJson = parseStoredApiTokenJson(
+      {
+        id: existing.id,
+        scopes: payload.scopes ?? existing.scopes,
+        formIds: payload.form_ids ?? existing.formIds,
+      },
+      "tokens.patch.preflight",
+    );
+    if (!nextJson) return c.json({ error: "Token not found" }, 404);
+
     const patch: {
       name?: string;
       scopes?: string[];

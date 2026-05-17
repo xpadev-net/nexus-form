@@ -5,7 +5,7 @@ import {
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
@@ -101,29 +101,22 @@ export async function getUserApiTokens(
     eq(apiToken.isActive, true),
   );
 
-  const [tokens, totalResult] = await Promise.all([
-    db
-      .select({
-        id: apiToken.id,
-        name: apiToken.name,
-        scopes: apiToken.scopes,
-        formIds: apiToken.formIds,
-        expiresAt: apiToken.expiresAt,
-        lastUsedAt: apiToken.lastUsedAt,
-        createdAt: apiToken.createdAt,
-        isActive: apiToken.isActive,
-      })
-      .from(apiToken)
-      .where(whereCondition)
-      .orderBy(desc(apiToken.createdAt))
-      .offset(offset)
-      .limit(pageSize),
-    db.select({ total: count() }).from(apiToken).where(whereCondition),
-  ]);
+  const tokens = await db
+    .select({
+      id: apiToken.id,
+      name: apiToken.name,
+      scopes: apiToken.scopes,
+      formIds: apiToken.formIds,
+      expiresAt: apiToken.expiresAt,
+      lastUsedAt: apiToken.lastUsedAt,
+      createdAt: apiToken.createdAt,
+      isActive: apiToken.isActive,
+    })
+    .from(apiToken)
+    .where(whereCondition)
+    .orderBy(desc(apiToken.createdAt));
 
-  const total = totalResult[0]?.total ?? 0;
-
-  const mappedTokens = tokens.flatMap((token) => {
+  const validTokens = tokens.flatMap((token) => {
     const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
     if (!parsedJson) return [];
 
@@ -140,6 +133,8 @@ export async function getUserApiTokens(
       },
     ];
   });
+  const total = validTokens.length;
+  const mappedTokens = validTokens.slice(offset, offset + pageSize);
 
   return {
     tokens: mappedTokens,
