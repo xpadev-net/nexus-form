@@ -126,4 +126,25 @@ describe("validateApiToken owner suspension", () => {
     });
     expect(update).toHaveBeenCalled();
   });
+
+  it("treats tokens with missing owners as invalid instead of suspended", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "missing-user",
+          scopes: ["read"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [],
+    ]);
+
+    await expect(validateApiToken("ct_token")).resolves.toBeNull();
+    expect(update).not.toHaveBeenCalled();
+  });
 });

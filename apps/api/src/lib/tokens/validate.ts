@@ -49,8 +49,12 @@ function getActiveTokenCondition() {
   );
 }
 
-async function isSuspendedTokenOwner(userId: string | null): Promise<boolean> {
-  if (!userId) return false;
+type TokenOwnerStatus = "active" | "missing" | "none" | "suspended";
+
+async function getTokenOwnerStatus(
+  userId: string | null,
+): Promise<TokenOwnerStatus> {
+  if (!userId) return "none";
 
   const [owner] = await db
     .select({ isSuspended: userTable.isSuspended })
@@ -58,7 +62,8 @@ async function isSuspendedTokenOwner(userId: string | null): Promise<boolean> {
     .where(eq(userTable.id, userId))
     .limit(1);
 
-  return owner?.isSuspended !== false;
+  if (!owner) return "missing";
+  return owner.isSuspended ? "suspended" : "active";
 }
 
 async function buildAuthContextFromTokenRecord(
@@ -69,7 +74,9 @@ async function buildAuthContextFromTokenRecord(
   const isValid = await verifyToken(token, tokenRecord.tokenHash);
   if (!isValid) return null;
 
-  if (await isSuspendedTokenOwner(tokenRecord.userId)) {
+  const ownerStatus = await getTokenOwnerStatus(tokenRecord.userId);
+  if (ownerStatus === "missing") return null;
+  if (ownerStatus === "suspended") {
     throw new SuspendedTokenOwnerError();
   }
 
