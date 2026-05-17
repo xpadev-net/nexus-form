@@ -31,7 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { apiUrl } from "@/lib/api";
+import { apiUrl, baseUrl } from "@/lib/api";
 import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
 import type {
@@ -345,9 +345,13 @@ export function GoogleSheetsIntegration({
       const height = 700;
       const left = window.screen.width / 2 - width / 2;
       const top = window.screen.height / 2 - height / 2;
+      const authorizeUrl = new URL(
+        apiUrl("/api/integrations/google/authorize"),
+      );
+      authorizeUrl.searchParams.set("app_origin", window.location.origin);
 
       const authWindow = window.open(
-        apiUrl("/api/integrations/google/authorize"),
+        authorizeUrl.toString(),
         "GoogleAuth",
         `width=${width},height=${height},left=${left},top=${top}`,
       );
@@ -386,8 +390,13 @@ export function GoogleSheetsIntegration({
   }, [queryClient]);
 
   useEffect(() => {
+    const allowedMessageOrigins = new Set([
+      window.location.origin,
+      new URL(baseUrl).origin,
+    ]);
+
     const handleMessage = (event: MessageEvent<unknown>) => {
-      if (event.origin !== window.location.origin) return;
+      if (!allowedMessageOrigins.has(event.origin)) return;
       if (!isGoogleOAuthMessage(event.data)) return;
 
       if (popupIntervalRef.current) {

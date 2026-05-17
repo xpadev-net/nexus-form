@@ -3,6 +3,13 @@ import { hc } from "hono/client";
 
 export const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+/**
+ * Returns an absolute API URL, preserving absolute inputs and normalizing
+ * relative paths against the configured `baseUrl`.
+ *
+ * @param path - Absolute URL or API path to resolve.
+ * @returns Absolute URL string for use with browser fetch APIs.
+ */
 export function apiUrl(path: string): string {
   if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(path)) {
     return path;
