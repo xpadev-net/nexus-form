@@ -142,6 +142,7 @@
 
 ### R3-H1. `block-analytics` が全回答行をメモリにロードし OOM リスク
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #44）
 - **対象:** `apps/api/src/routes/forms-responses.ts:438-475`（`GET /:id/responses/block-analytics`）
 - **問題:** 全回答行を `responseDataJson` 付きでメモリにロードし `aggregateAllBlocks` で集計する。回答数が多いフォームで OOM。
 - **修正内容:** 集計を SQL 側（`GROUP BY`）へ寄せる、または回答件数の上限/サンプリングを設ける。
