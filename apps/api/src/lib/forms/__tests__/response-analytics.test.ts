@@ -94,6 +94,19 @@ function responseRow(
   };
 }
 
+function loadByCursor<T extends { id: string }>(
+  rows: T[],
+  seenCursors: string[] = [],
+): (cursor: { id: string } | undefined, limit: number) => Promise<T[]> {
+  return async (cursor, limit) => {
+    seenCursors.push(cursor?.id ?? "START");
+    const start = cursor
+      ? rows.findIndex((row) => row.id === cursor.id) + 1
+      : 0;
+    return rows.slice(start, start + limit);
+  };
+}
+
 describe("aggregateAllBlocksInBatches", () => {
   it("matches the non-batched aggregate across multiple response batches", async () => {
     const responses = [
@@ -103,19 +116,16 @@ describe("aggregateAllBlocksInBatches", () => {
       responseRow("response-4", 5, "dddd", "choice-b"),
     ];
     const expected = aggregateAllBlocks("form-1", blocks, responses);
-    const loadedOffsets: number[] = [];
+    const seenCursors: string[] = [];
 
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
       blocks,
-      async (offset, limit) => {
-        loadedOffsets.push(offset);
-        return responses.slice(offset, offset + limit);
-      },
+      loadByCursor(responses, seenCursors),
       { batchSize: 2 },
     );
 
-    expect(loadedOffsets).toEqual([0, 2, 4]);
+    expect(seenCursors).toEqual(["START", "response-2", "response-4"]);
     expect(actual).toEqual(expected);
   });
 
@@ -134,7 +144,7 @@ describe("aggregateAllBlocksInBatches", () => {
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
       blocks,
-      async (offset, limit) => responses.slice(offset, offset + limit),
+      loadByCursor(responses),
       { batchSize: 1 },
     );
 
@@ -155,7 +165,7 @@ describe("aggregateAllBlocksInBatches", () => {
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
       blocks,
-      async (offset, limit) => responses.slice(offset, offset + limit),
+      loadByCursor(responses),
       { batchSize: 3 },
     );
 
@@ -172,7 +182,7 @@ describe("aggregateAllBlocksInBatches", () => {
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
       blocks,
-      async (offset, limit) => responses.slice(offset, offset + limit),
+      loadByCursor(responses),
       { batchSize: 1, detailResponseLimit: 2 },
     );
 
@@ -208,7 +218,7 @@ describe("aggregateAllBlocksInBatches", () => {
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
       blocks,
-      async (offset, limit) => responses.slice(offset, offset + limit),
+      loadByCursor(responses),
       { batchSize: 10, detailResponseLimit: 2 },
     );
 

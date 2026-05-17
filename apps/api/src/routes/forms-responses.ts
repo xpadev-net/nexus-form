@@ -13,7 +13,7 @@ import {
   extractQuestionsFromPlateContent,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
@@ -463,18 +463,37 @@ export const formsResponsesRouter = createHonoApp()
     const analytics = await aggregateAllBlocksInBatches(
       formId,
       blocks,
-      (offset, limit) =>
-        db
+      (cursor, limit) => {
+        const cursorSubmittedAt = cursor
+          ? cursor.submittedAt instanceof Date
+            ? cursor.submittedAt
+            : new Date(cursor.submittedAt)
+          : undefined;
+
+        return db
           .select({
             id: formResponse.id,
             submittedAt: formResponse.submittedAt,
             responseDataJson: formResponse.responseDataJson,
           })
           .from(formResponse)
-          .where(eq(formResponse.formId, formId))
+          .where(
+            and(
+              eq(formResponse.formId, formId),
+              cursor && cursorSubmittedAt
+                ? or(
+                    lt(formResponse.submittedAt, cursorSubmittedAt),
+                    and(
+                      eq(formResponse.submittedAt, cursorSubmittedAt),
+                      lt(formResponse.id, cursor.id),
+                    ),
+                  )
+                : undefined,
+            ),
+          )
           .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
-          .limit(limit)
-          .offset(offset),
+          .limit(limit);
+      },
     );
     return c.json(BlockAnalyticsResponseSchema.parse({ blocks: analytics }));
   })

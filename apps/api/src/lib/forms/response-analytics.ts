@@ -151,8 +151,10 @@ type RawBlock = {
   content: unknown;
 };
 
+type ResponseBatchCursor = Pick<RawResponseRow, "id" | "submittedAt">;
+
 type ResponseBatchLoader = (
-  offset: number,
+  cursor: ResponseBatchCursor | undefined,
   limit: number,
 ) => Promise<RawResponseRow[]>;
 
@@ -977,11 +979,11 @@ export async function aggregateAllBlocksInBatches(
     options.detailResponseLimit ?? DEFAULT_DETAIL_RESPONSE_LIMIT;
   const mergedResults = new Map<string, BlockAnalyticsResult>();
   const textMergeStats = new Map<string, TextMergeStats>();
-  let offset = 0;
+  let cursor: ResponseBatchCursor | undefined;
   let totalResponseCount = 0;
 
   while (true) {
-    const batch = await loadBatch(offset, batchSize);
+    const batch = await loadBatch(cursor, batchSize);
     if (batch.length === 0) break;
 
     const { results: batchResults, totalResponseCount: batchResponseCount } =
@@ -1005,7 +1007,10 @@ export async function aggregateAllBlocksInBatches(
     }
 
     if (batch.length < batchSize) break;
-    offset += batchSize;
+    const lastRow = batch.at(-1);
+    cursor = lastRow
+      ? { id: lastRow.id, submittedAt: lastRow.submittedAt }
+      : undefined;
   }
 
   if (mergedResults.size === 0) {
