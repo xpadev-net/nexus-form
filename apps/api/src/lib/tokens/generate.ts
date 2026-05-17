@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
-import { and, count, desc, eq } from "drizzle-orm";
+import {
+  parseApiTokenScopes,
+  parseStoredApiTokenFormIds,
+} from "@nexus-form/shared";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
+import { parseStoredApiTokenJson } from "./stored-json";
 
 /**
  * セキュアなAPIトークンを生成する
@@ -45,6 +50,8 @@ export async function createApiToken(
 
   // 有効期限の処理
   const expiresAt = params.expires_at ? new Date(params.expires_at) : undefined;
+  const scopes = parseApiTokenScopes(params.scopes);
+  const formIds = parseStoredApiTokenFormIds(params.form_ids);
 
   // データベースに保存
   const id = crypto.randomUUID();
@@ -56,8 +63,8 @@ export async function createApiToken(
     name: params.name,
     tokenHash,
     lookupHash,
-    scopes: params.scopes,
-    formIds: params.form_ids ?? undefined,
+    scopes,
+    formIds,
     expiresAt,
     createdAt: now,
     updatedAt: now,
@@ -68,8 +75,8 @@ export async function createApiToken(
     name: params.name,
     token: plainToken, // プレーンテキストは作成時のみ返す
     tokenHash,
-    scopes: params.scopes as TokenScope[],
-    formIds: params.form_ids,
+    scopes,
+    formIds,
     expiresAt,
     createdAt: now,
   };
@@ -94,41 +101,80 @@ export async function getUserApiTokens(
     eq(apiToken.isActive, true),
   );
 
-  const [tokens, totalResult] = await Promise.all([
-    db
-      .select({
-        id: apiToken.id,
-        name: apiToken.name,
-        scopes: apiToken.scopes,
-        formIds: apiToken.formIds,
-        expiresAt: apiToken.expiresAt,
-        lastUsedAt: apiToken.lastUsedAt,
-        createdAt: apiToken.createdAt,
-        isActive: apiToken.isActive,
-      })
-      .from(apiToken)
-      .where(whereCondition)
-      .orderBy(desc(apiToken.createdAt))
-      .offset(offset)
-      .limit(pageSize),
-    db.select({ total: count() }).from(apiToken).where(whereCondition),
-  ]);
+  const tokenIndexRows = await db
+    .select({
+      id: apiToken.id,
+      scopes: apiToken.scopes,
+      formIds: apiToken.formIds,
+    })
+    .from(apiToken)
+    .where(whereCondition)
+    .orderBy(desc(apiToken.createdAt));
 
-  const total = totalResult[0]?.total ?? 0;
+  const malformedTokens: Array<{
+    id: string;
+    error: "MALFORMED_STORED_JSON";
+  }> = [];
+  const validTokenIds: string[] = [];
 
-  const mappedTokens = tokens.map((token) => ({
-    id: token.id,
-    name: token.name,
-    scopes: token.scopes as TokenScope[],
-    form_ids: token.formIds as string[] | undefined,
-    expires_at: token.expiresAt?.toISOString(),
-    last_used_at: token.lastUsedAt?.toISOString(),
-    created_at: token.createdAt.toISOString(),
-    is_active: token.isActive,
-  }));
+  for (const token of tokenIndexRows) {
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
+    if (!parsedJson) {
+      malformedTokens.push({
+        id: token.id,
+        error: "MALFORMED_STORED_JSON",
+      });
+      continue;
+    }
+    validTokenIds.push(token.id);
+  }
+
+  const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
+  const pageTokens =
+    pageTokenIds.length > 0
+      ? await db
+          .select({
+            id: apiToken.id,
+            name: apiToken.name,
+            scopes: apiToken.scopes,
+            formIds: apiToken.formIds,
+            expiresAt: apiToken.expiresAt,
+            lastUsedAt: apiToken.lastUsedAt,
+            createdAt: apiToken.createdAt,
+            isActive: apiToken.isActive,
+          })
+          .from(apiToken)
+          .where(and(whereCondition, inArray(apiToken.id, pageTokenIds)))
+      : [];
+  const pageTokenById = new Map(
+    pageTokens.map((token) => [token.id, token] as const),
+  );
+
+  const mappedTokens = pageTokenIds.flatMap((tokenId) => {
+    const token = pageTokenById.get(tokenId);
+    if (!token) return [];
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
+    if (!parsedJson) return [];
+
+    return [
+      {
+        id: token.id,
+        name: token.name,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds ?? null,
+        expires_at: token.expiresAt?.toISOString(),
+        last_used_at: token.lastUsedAt?.toISOString(),
+        created_at: token.createdAt.toISOString(),
+        is_active: token.isActive,
+      },
+    ];
+  });
+  const total = validTokenIds.length;
 
   return {
     tokens: mappedTokens,
+    malformed_tokens: malformedTokens.length > 0 ? malformedTokens : undefined,
+    total,
     pagination: {
       page,
       pageSize,

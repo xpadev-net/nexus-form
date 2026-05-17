@@ -127,6 +127,50 @@ describe("validateApiToken owner suspension", () => {
     expect(update).toHaveBeenCalled();
   });
 
+  it("rejects tokens with malformed stored scopes without updating lastUsedAt", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "active-user",
+          scopes: ["read", "delete"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false }],
+    ]);
+
+    await expect(validateApiToken("ct_token")).resolves.toBeNull();
+    expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("rejects tokens with malformed stored formIds without updating lastUsedAt", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "active-user",
+          scopes: ["read"],
+          formIds: ["form-id", ""],
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false }],
+    ]);
+
+    await expect(validateApiToken("ct_token")).resolves.toBeNull();
+    expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it("treats tokens with missing owners as invalid instead of suspended", async () => {
     verifyToken.mockResolvedValueOnce(true);
     mockSelectResults([

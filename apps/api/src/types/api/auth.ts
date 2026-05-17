@@ -1,7 +1,12 @@
+import {
+  apiTokenFormIdsSchema,
+  apiTokenScopeSchema,
+  apiTokenScopesSchema,
+} from "@nexus-form/shared";
 import { z } from "zod";
 
 // APIトークンの権限スコープ
-export const TokenScope = z.enum(["read", "write", "admin"]);
+export const TokenScope = apiTokenScopeSchema;
 
 export type TokenScope = z.infer<typeof TokenScope>;
 
@@ -10,9 +15,9 @@ export const ApiToken = z.object({
   id: z.string(),
   name: z.string().min(1).max(100),
   token: z.string().optional(), // 作成時のみ返される
-  scopes: z.array(TokenScope),
+  scopes: apiTokenScopesSchema,
   // 特定フォームのみアクセス可能な場合。DB の json 列は未設定時 null を返す。
-  form_ids: z.array(z.string()).nullish(),
+  form_ids: apiTokenFormIdsSchema.nullish(),
   expires_at: z.string().optional(), // ISO datetime
   created_at: z.string(), // ISO datetime
   last_used_at: z.string().optional(), // ISO datetime
@@ -24,8 +29,8 @@ export type ApiToken = z.infer<typeof ApiToken>;
 // APIトークン作成リクエスト
 export const CreateTokenRequest = z.object({
   name: z.string().min(1).max(100),
-  scopes: z.array(TokenScope).min(1),
-  form_ids: z.array(z.string()).optional(),
+  scopes: apiTokenScopesSchema,
+  form_ids: apiTokenFormIdsSchema.optional(),
   expires_at: z.string().optional(), // ISO datetime
 });
 
@@ -52,8 +57,23 @@ export const PaginationInfo = z.object({
 export type PaginationInfo = z.infer<typeof PaginationInfo>;
 
 // APIトークン一覧取得レスポンス
+/**
+ * Public API summary for token rows whose stored JSON could not be parsed.
+ *
+ * `id` is the stored token identifier. `error` is always
+ * `"MALFORMED_STORED_JSON"` and indicates that stored scopes or formIds failed
+ * the API token JSON contract.
+ */
+export const MalformedTokenSummary = z.object({
+  id: z.string(),
+  error: z.literal("MALFORMED_STORED_JSON"),
+});
+
+export type MalformedTokenSummary = z.infer<typeof MalformedTokenSummary>;
+
 export const GetTokensResponse = z.object({
   tokens: z.array(ApiToken),
+  malformed_tokens: z.array(MalformedTokenSummary).optional(),
   total: z.number(),
   pagination: PaginationInfo.optional(),
 });
@@ -81,7 +101,7 @@ export const ValidateTokenResponse = z.discriminatedUnion("valid", [
     valid: z.literal(true),
     // share-link トークン等は user スコープを持たず user_id が null になりうる。
     user_id: z.string().nullable(),
-    scopes: z.array(TokenScope),
+    scopes: apiTokenScopesSchema,
   }),
   z.object({
     valid: z.literal(false),
@@ -136,8 +156,8 @@ export type AuthError = z.infer<typeof AuthError>;
 export const AuthContext = z.object({
   user_id: z.string().nullable(),
   token_id: z.string().optional(),
-  scopes: z.array(TokenScope),
-  form_ids: z.array(z.string()).optional(),
+  scopes: apiTokenScopesSchema,
+  form_ids: apiTokenFormIdsSchema.optional(),
   is_admin: z.boolean(),
 });
 

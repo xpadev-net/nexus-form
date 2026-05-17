@@ -1,7 +1,11 @@
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
-import { and, count, desc, eq } from "drizzle-orm";
+import {
+  apiTokenFormIdsSchema,
+  apiTokenScopesSchema,
+} from "@nexus-form/shared";
+import { and, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { ERROR_CODES } from "../lib/constants/error-codes";
@@ -11,10 +15,12 @@ import { createHonoApp } from "../lib/hono";
 import {
   createApiToken,
   deleteApiToken,
+  getUserApiTokens,
   revokeApiToken,
   SuspendedTokenOwnerError,
   validateApiTokenForUser,
 } from "../lib/tokens";
+import { parseStoredApiTokenJson } from "../lib/tokens/stored-json";
 import {
   CreateTokenResponse,
   DeleteTokenResponse,
@@ -27,19 +33,16 @@ import {
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
-  scopes: z.array(z.enum(["read", "write", "admin"])).min(1),
-  form_ids: z.array(z.string()).optional(),
+  scopes: apiTokenScopesSchema,
+  form_ids: apiTokenFormIdsSchema.optional(),
   expires_at: z.string().datetime().optional(),
 });
 
 const patchTokenSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
-    scopes: z
-      .array(z.enum(["read", "write", "admin"]))
-      .min(1)
-      .optional(),
-    form_ids: z.array(z.string()).optional(),
+    scopes: apiTokenScopesSchema.optional(),
+    form_ids: apiTokenFormIdsSchema.nullable().optional(),
     expires_at: z.string().datetime().nullable().optional(),
     is_active: z.boolean().optional(),
   })
@@ -68,54 +71,9 @@ export const tokensRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const { page, pageSize } = c.req.valid("query");
-    const offset = (page - 1) * pageSize;
-
-    const where = and(
-      eq(apiToken.userId, user.userId),
-      eq(apiToken.isActive, true),
+    const listResponse = GetTokensResponse.parse(
+      await getUserApiTokens(user.userId, page, pageSize),
     );
-    const [tokens, totalRows] = await Promise.all([
-      db
-        .select({
-          id: apiToken.id,
-          name: apiToken.name,
-          scopes: apiToken.scopes,
-          formIds: apiToken.formIds,
-          expiresAt: apiToken.expiresAt,
-          lastUsedAt: apiToken.lastUsedAt,
-          createdAt: apiToken.createdAt,
-          isActive: apiToken.isActive,
-        })
-        .from(apiToken)
-        .where(where)
-        .orderBy(desc(apiToken.createdAt))
-        .offset(offset)
-        .limit(pageSize),
-      db.select({ total: count() }).from(apiToken).where(where),
-    ]);
-
-    const total = totalRows[0]?.total ?? 0;
-    const listResponse = GetTokensResponse.parse({
-      tokens: tokens.map((token) => ({
-        id: token.id,
-        name: token.name,
-        scopes: token.scopes,
-        form_ids: token.formIds,
-        expires_at: token.expiresAt?.toISOString(),
-        last_used_at: token.lastUsedAt?.toISOString(),
-        created_at: token.createdAt.toISOString(),
-        is_active: token.isActive,
-      })),
-      total,
-      pagination: {
-        page,
-        pageSize,
-        total,
-        totalPages: Math.ceil(total / pageSize),
-        hasNext: page * pageSize < total,
-        hasPrev: page > 1,
-      },
-    });
     return c.json(listResponse);
   })
   .post("/", zValidator("json", createTokenSchema), async (c) => {
@@ -130,7 +88,7 @@ export const tokensRouter = createHonoApp()
         name: created.name,
         token: created.token,
         scopes: created.scopes,
-        form_ids: created.formIds,
+        form_ids: created.formIds ?? null,
         expires_at: created.expiresAt?.toISOString(),
         created_at: created.createdAt.toISOString(),
         is_active: true,
@@ -160,13 +118,17 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!token) return c.json({ error: "Token not found" }, 404);
+    const parsedJson = parseStoredApiTokenJson(token, "tokens.get");
+    if (!parsedJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
 
     const detailResponse = GetTokenResponse.parse({
       token: {
         id: token.id,
         name: token.name,
-        scopes: token.scopes,
-        form_ids: token.formIds,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -181,10 +143,34 @@ export const tokensRouter = createHonoApp()
 
     const id = c.req.param("id");
     const payload = c.req.valid("json");
+    const [existing] = await db
+      .select({
+        id: apiToken.id,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+      })
+      .from(apiToken)
+      .where(and(eq(apiToken.id, id), eq(apiToken.userId, user.userId)))
+      .limit(1);
+
+    if (!existing) return c.json({ error: "Token not found" }, 404);
+
+    const nextJson = parseStoredApiTokenJson(
+      {
+        id: existing.id,
+        scopes: payload.scopes ?? existing.scopes,
+        formIds: "form_ids" in payload ? payload.form_ids : existing.formIds,
+      },
+      "tokens.patch.preflight",
+    );
+    if (!nextJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
+
     const patch: {
       name?: string;
-      scopes?: unknown;
-      formIds?: string[];
+      scopes?: string[];
+      formIds?: string[] | null;
       expiresAt?: Date | null;
       isActive?: boolean;
       revokedAt?: Date | null;
@@ -223,12 +209,17 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!updated) return c.json({ error: "Token not found" }, 404);
+    const parsedJson = parseStoredApiTokenJson(updated, "tokens.patch");
+    if (!parsedJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
+
     const updateResponse = UpdateTokenResponse.parse({
       token: {
         id: updated.id,
         name: updated.name,
-        scopes: updated.scopes,
-        form_ids: updated.formIds,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: updated.expiresAt?.toISOString(),
         last_used_at: updated.lastUsedAt?.toISOString(),
         created_at: updated.createdAt.toISOString(),

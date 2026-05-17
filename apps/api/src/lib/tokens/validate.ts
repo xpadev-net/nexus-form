@@ -4,6 +4,7 @@ import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { AuthContext, TokenScope } from "../../types/api/auth";
 import { logError } from "../logger";
 import { computeLookupHash, verifyToken } from "./hash";
+import { parseStoredApiTokenJson } from "./stored-json";
 
 /**
  * APIトークンを検証し、認証コンテキストを返す
@@ -82,6 +83,12 @@ async function buildAuthContextFromTokenRecord(
     throw new SuspendedTokenOwnerError();
   }
 
+  const parsedJson = parseStoredApiTokenJson(
+    tokenRecord,
+    "buildAuthContextFromTokenRecord",
+  );
+  if (!parsedJson) return null;
+
   if (options.updateLastUsedAt ?? true) {
     void db
       .update(apiToken)
@@ -112,8 +119,8 @@ async function buildAuthContextFromTokenRecord(
   return {
     user_id: tokenRecord.userId ?? null,
     token_id: tokenRecord.id,
-    scopes: (tokenRecord.scopes as TokenScope[]) ?? [],
-    form_ids: (tokenRecord.formIds as string[] | undefined) ?? undefined,
+    scopes: parsedJson.scopes,
+    form_ids: parsedJson.formIds,
     is_admin: false,
   };
 }
