@@ -13,9 +13,13 @@ import type { ValidationProvider } from "./plugin-interface";
 const VALID_PLUGIN_EXTENSIONS = [".js", ".mjs"];
 const PLUGIN_LOCK_FILE = "plugins.lock";
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
+const pluginLockFilenameSchema = z
+  .string()
+  .regex(/^[^.][^/\\]*\.(?:js|mjs)$/)
+  .refine((value) => value === value.trim());
 const pluginLockSchema = z
   .object({
-    plugins: z.record(z.string().min(1), sha256Schema),
+    plugins: z.record(pluginLockFilenameSchema, sha256Schema),
   })
   .strict();
 

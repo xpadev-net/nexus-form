@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -97,7 +97,15 @@ async function writeLockedPlugin(
   expectedHash = sha256(content),
 ): Promise<void> {
   await writeFile(join(tmpDir, filename), content);
-  await writePluginLock({ [filename]: expectedHash });
+  const existingLock = await readFile(join(tmpDir, "plugins.lock"), "utf8")
+    .then(
+      (content) => JSON.parse(content) as { plugins?: Record<string, string> },
+    )
+    .catch(() => ({ plugins: {} }));
+  await writePluginLock({
+    ...(existingLock.plugins ?? {}),
+    [filename]: expectedHash,
+  });
 }
 
 beforeEach(async () => {
@@ -283,6 +291,42 @@ ${VALID_RULE}
       file: "plugins.lock",
       error: "plugins.lock has an invalid schema",
     });
+  });
+
+  it("rejects plugins.lock entries that are not bare plugin filenames", async () => {
+    await writeFile(join(tmpDir, "valid.mjs"), VALID_PLUGIN_CODE);
+    await writeFile(
+      join(tmpDir, "plugins.lock"),
+      JSON.stringify({
+        plugins: {
+          "./valid.mjs": sha256(VALID_PLUGIN_CODE),
+        },
+      }),
+    );
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins).toEqual([]);
+    expect(loader.hasFailedPlugins()).toBe(true);
+    expect(loader.getFailedPlugins()[0]).toMatchObject({
+      file: "plugins.lock",
+      error: "plugins.lock has an invalid schema",
+    });
+  });
+
+  it("preserves existing lock entries when writing multiple locked plugins", async () => {
+    const secondPlugin = VALID_PLUGIN_CODE.replaceAll(
+      "test_provider",
+      "second_provider",
+    ).replaceAll("Test Provider", "Second Provider");
+    await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE);
+    await writeLockedPlugin("second.mjs", secondPlugin);
+
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    expect(plugins.map((plugin) => plugin.name).sort()).toEqual([
+      "second_provider",
+      "test_provider",
+    ]);
   });
 
   it("refuses to load plugins from group or other writable directories", async () => {
