@@ -407,6 +407,7 @@ export function GoogleSheetsIntegration({
 
     const handleMessage = (event: MessageEvent<unknown>) => {
       if (!allowedMessageOrigins.has(event.origin)) return;
+      if (event.source !== authWindowRef.current) return;
       if (!isGoogleOAuthMessage(event.data)) return;
 
       if (popupIntervalRef.current) {

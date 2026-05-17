@@ -26,7 +26,12 @@ export async function fetchJson<T = undefined>(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<T> {
-  const { credentials = "same-origin", ...restInit } = init ?? {};
+  const { credentials: initCredentials, ...restInit } = init ?? {};
+  const requestCredentials =
+    typeof Request !== "undefined" && input instanceof Request
+      ? input.credentials
+      : undefined;
+  const credentials = initCredentials ?? requestCredentials ?? "same-origin";
   const response = await fetch(input, {
     ...restInit,
     credentials,

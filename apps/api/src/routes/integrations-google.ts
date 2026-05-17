@@ -384,11 +384,17 @@ export const integrationsGoogleRouter = createHonoApp()
     );
   })
   .get("/callback", async (c) => {
-    const user = requireSessionUser(c);
-    if (!user.ok) return user.response;
-
     const cookie = c.req.header("cookie") ?? "";
     const callbackTargetOrigin = getCallbackTargetOrigin(cookie);
+    const user = requireSessionUser(c);
+    if (!user.ok) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Session expired. Please try connecting again.",
+      );
+    }
 
     const parsed = callbackQuerySchema.safeParse(c.req.query());
     if (!parsed.success)
