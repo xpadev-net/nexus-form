@@ -67,9 +67,12 @@ async function readPluginLock(resolvedDir: string): Promise<PluginLock | null> {
 }
 
 async function computeSha256(path: string): Promise<string | null> {
-  return readFile(path)
-    .then((buf) => createHash("sha256").update(buf).digest("hex"))
-    .catch(() => null);
+  try {
+    const buf = await readFile(path);
+    return createHash("sha256").update(buf).digest("hex");
+  } catch {
+    return null;
+  }
 }
 
 export type PluginLoadOutcome =
@@ -186,7 +189,8 @@ export class PluginLoader {
   async loadPlugins(): Promise<ValidationProvider[]> {
     let resolvedDir: string;
     try {
-      const dirStat = await stat(this.pluginsDir);
+      resolvedDir = await realpath(this.pluginsDir);
+      const dirStat = await stat(resolvedDir);
       if (!dirStat.isDirectory()) {
         console.warn(`[PluginLoader] Not a directory: ${this.pluginsDir}`);
         return [];
@@ -197,7 +201,6 @@ export class PluginLoader {
         );
         return [];
       }
-      resolvedDir = await realpath(this.pluginsDir);
     } catch {
       console.warn(
         `[PluginLoader] Directory does not exist or cannot be resolved: ${this.pluginsDir}`,
