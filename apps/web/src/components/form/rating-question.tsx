@@ -174,6 +174,7 @@ const RatingQuestionBase: FC<RatingQuestionProps> = ({
         >
           {ratingValues.map((ratingValue) => {
             const isActive = ratingValue <= currentValue;
+            const isSelected = ratingValue === currentValue;
             const isHovered = false; // ホバー状態はCSSで管理
 
             return (
@@ -189,7 +190,7 @@ const RatingQuestionBase: FC<RatingQuestionProps> = ({
                   type="radio"
                   name={`${block.blockId}-rating`}
                   value={ratingValue}
-                  checked={isActive}
+                  checked={isSelected}
                   onChange={() => handleRatingChange(ratingValue)}
                   disabled={disabled}
                   className="sr-only"

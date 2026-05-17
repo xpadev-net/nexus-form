@@ -129,6 +129,7 @@
 
 ### R3-C11. 評価質問のラジオグループで複数の `checked` が同時に true（再レビュー新規）
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #43、`gh-review-hook` exit 0）
 - **対象:** `apps/web/src/components/form/rating-question.tsx:176,192`
 - **問題:** 評価アイコンを同一 `name` の `<input type="radio">` で実装しているが、`checked={isActive}` の `isActive` が `ratingValue <= currentValue`（L176）。「3」を選ぶと 1・2・3 すべての radio が `checked` になる。同一グループ内で複数 radio を制御 `checked` にするのは React の制約違反で、コンソール警告が出るうえ DOM 実選択状態と乖離する。実ファイルで確認済み。
 - **修正内容:** input の選択状態は `checked={ratingValue === currentValue}` とする。塗りつぶし表現（`ratingValue <= currentValue`）はアイコンの見た目 prop（`renderIcon` の `isActive`）にのみ用い、選択状態と視覚状態を分離する。
