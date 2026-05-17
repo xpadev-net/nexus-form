@@ -5,11 +5,7 @@ export interface IPExtractionOptions {
   trustedProxyCount?: number;
 }
 
-export type IPSource =
-  | "x-nginx-forwarded-for"
-  | "x-forwarded-for"
-  | "x-real-ip"
-  | "unknown";
+export type IPSource = "x-nginx-forwarded-for" | "x-forwarded-for" | "unknown";
 
 export interface IPExtractionResult {
   ip: string;

@@ -2,7 +2,7 @@ import { isIP } from "node:net";
 import type { IPExtractionResult } from "./types";
 
 function parseTrustedProxyCount(
-  value = process.env.TRUSTED_PROXY_COUNT,
+  value: string | undefined = process.env.TRUSTED_PROXY_COUNT,
 ): number {
   if (!value) return 0;
   if (!/^\d+$/.test(value)) return 0;
@@ -21,6 +21,8 @@ function getTrustedForwardedIp(
   forwardedFor: string | null,
   trustedProxyCount: number,
 ): string | null {
+  // Misconfigured proxy counts deliberately collapse to unknown instead of
+  // trusting a spoofable left-side XFF value.
   if (trustedProxyCount <= 0 || !forwardedFor) return null;
 
   const forwardedIps = forwardedFor
@@ -57,12 +59,12 @@ function extractTelemetryIP(
 }
 
 /**
- * 一般戦略: x-forwarded-for → x-real-ip → unknown
+ * 一般戦略: x-forwarded-for → unknown
  * 用途: レート制限、CAPTCHA、回答送信
  */
 function extractGeneralIP(
   request: Request | { headers: Headers },
-  trustedProxyCount = parseTrustedProxyCount(),
+  trustedProxyCount: number = parseTrustedProxyCount(),
 ): IPExtractionResult {
   const forwardedIp = getTrustedForwardedIp(
     request.headers.get("x-forwarded-for"),

@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { extractClientIP } from "../index";
 
 const originalTrustedProxyCount = process.env.TRUSTED_PROXY_COUNT;
+
+beforeEach(() => {
+  delete process.env.TRUSTED_PROXY_COUNT;
+});
 
 afterEach(() => {
   if (originalTrustedProxyCount === undefined) {
