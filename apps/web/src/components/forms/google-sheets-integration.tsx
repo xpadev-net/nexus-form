@@ -386,7 +386,6 @@ export function GoogleSheetsIntegration({
             window.clearInterval(popupIntervalRef.current);
             popupIntervalRef.current = null;
           }
-          authWindowRef.current = null;
           void queryClient.invalidateQueries({
             queryKey: ["google-connection"],
           });
