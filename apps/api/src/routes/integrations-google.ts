@@ -109,7 +109,15 @@ function getCallbackTargetOrigin(c: Context, cookie: string): string {
     ? normalizeHttpOrigin(decodeCookieValue(encodedOrigin) ?? undefined)
     : null;
   if (storedOrigin && trustedOrigins.has(storedOrigin)) return storedOrigin;
-  return [...trustedOrigins][0] ?? new URL(c.req.url).origin;
+  const configuredDefaultOrigin = normalizeHttpOrigin(
+    process.env.VITE_BASE_URL,
+  );
+  if (configuredDefaultOrigin && trustedOrigins.has(configuredDefaultOrigin)) {
+    return configuredDefaultOrigin;
+  }
+  const [onlyTrustedOrigin] = trustedOrigins;
+  if (trustedOrigins.size === 1 && onlyTrustedOrigin) return onlyTrustedOrigin;
+  return new URL(c.req.url).origin;
 }
 
 function escapeScriptJson(json: string): string {
