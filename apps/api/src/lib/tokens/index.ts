@@ -18,6 +18,7 @@ export {
 } from "./scopes";
 // トークン検証機能
 export {
+  SuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
   validateApiTokenForUser,

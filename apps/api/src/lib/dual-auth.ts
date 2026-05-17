@@ -23,6 +23,7 @@ import {
   type FormPermissionRole,
 } from "./permissions/constants";
 import {
+  SuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
   validateApiTokenWithScopes,
@@ -50,6 +51,7 @@ const ERROR_MESSAGES = {
   INVALID_TOKEN: "Invalid or expired token",
   INSUFFICIENT_PERMISSIONS: "Insufficient permissions",
   FORM_ACCESS_DENIED: "Access denied to this form",
+  ACCOUNT_SUSPENDED: SuspendedTokenOwnerError.MESSAGE,
   AUTH_FAILED: "Authentication failed",
 } as const;
 
@@ -63,6 +65,25 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (!scheme || scheme.toLowerCase() !== "bearer") return null;
   const token = rest.join(" ");
   return token || null;
+}
+
+function isSuspendedSessionContext(context: DualAuthContext): boolean {
+  return (
+    context.auth_type === "session" &&
+    context.session?.user?.isSuspended === true
+  );
+}
+
+function suspendedAccountResponse(c: Context): Response {
+  return c.json(
+    {
+      error: {
+        message: ERROR_MESSAGES.ACCOUNT_SUSPENDED,
+        code: ERROR_CODES.FORBIDDEN,
+      },
+    },
+    403,
+  );
 }
 
 /**
@@ -132,6 +153,9 @@ async function authenticateWithApiToken(
       auth_type: "api_token",
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      throw error;
+    }
     logError("API token authentication failed", "authentication", {
       error,
       operation: "apiTokenAuthentication",
@@ -187,6 +211,13 @@ export async function authenticateDual(
       : await authenticateWithSession(c);
 
     if (context) {
+      if (isSuspendedSessionContext(context)) {
+        return {
+          error: true,
+          response: suspendedAccountResponse(c),
+        };
+      }
+
       // Validate scopes for session auth (API token scopes are checked in authenticateWithApiToken)
       if (
         requiredScopes.length > 0 &&
@@ -236,6 +267,12 @@ export async function authenticateDual(
       ),
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      return {
+        error: true,
+        response: suspendedAccountResponse(c),
+      };
+    }
     logError("Dual authentication failed", "authentication", {
       error,
       operation: "authenticateDual",
@@ -272,6 +309,13 @@ export async function authenticateDualForForm(
       : await authenticateWithSession(c);
 
     if (context) {
+      if (isSuspendedSessionContext(context)) {
+        return {
+          error: true,
+          response: suspendedAccountResponse(c),
+        };
+      }
+
       // Validate scopes for session auth (API token scopes are checked in authenticateWithApiToken)
       if (
         requiredScopes.length > 0 &&
@@ -321,6 +365,12 @@ export async function authenticateDualForForm(
       ),
     };
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) {
+      return {
+        error: true,
+        response: suspendedAccountResponse(c),
+      };
+    }
     logError("Dual authentication for form failed", "authentication", {
       error,
       operation: "authenticateDualForForm",

@@ -1,4 +1,4 @@
-import { db } from "@nexus-form/database";
+import { db, user as userTable } from "@nexus-form/database";
 import { apiToken, formShareLink } from "@nexus-form/database/schema";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { AuthContext, TokenScope } from "../../types/api/auth";
@@ -13,6 +13,15 @@ import { computeLookupHash, verifyToken } from "./hash";
 type ValidateApiTokenOptions = {
   updateLastUsedAt?: boolean;
 };
+
+export class SuspendedTokenOwnerError extends Error {
+  static readonly MESSAGE = "Your account has been suspended";
+
+  constructor() {
+    super("Token owner account is suspended");
+    this.name = "SuspendedTokenOwnerError";
+  }
+}
 
 const selectTokenFields = {
   id: apiToken.id,
@@ -42,6 +51,23 @@ function getActiveTokenCondition() {
   );
 }
 
+type TokenOwnerStatus = "active" | "missing" | "none" | "suspended";
+
+async function getTokenOwnerStatus(
+  userId: string | null,
+): Promise<TokenOwnerStatus> {
+  if (!userId) return "none";
+
+  const [owner] = await db
+    .select({ isSuspended: userTable.isSuspended })
+    .from(userTable)
+    .where(eq(userTable.id, userId))
+    .limit(1);
+
+  if (!owner) return "missing";
+  return owner.isSuspended ? "suspended" : "active";
+}
+
 async function buildAuthContextFromTokenRecord(
   token: string,
   tokenRecord: TokenRecord,
@@ -49,6 +75,12 @@ async function buildAuthContextFromTokenRecord(
 ): Promise<AuthContext | null> {
   const isValid = await verifyToken(token, tokenRecord.tokenHash);
   if (!isValid) return null;
+
+  const ownerStatus = await getTokenOwnerStatus(tokenRecord.userId);
+  if (ownerStatus === "missing") return null;
+  if (ownerStatus === "suspended") {
+    throw new SuspendedTokenOwnerError();
+  }
 
   if (options.updateLastUsedAt ?? true) {
     void db
@@ -109,6 +141,7 @@ export async function validateApiToken(
 
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) throw error;
     logError("Token validation error", "authentication", { error });
     return null;
   }
@@ -141,6 +174,7 @@ export async function validateApiTokenForUser(
 
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
+    if (error instanceof SuspendedTokenOwnerError) throw error;
     logError("User token validation error", "authentication", { error });
     return null;
   }
