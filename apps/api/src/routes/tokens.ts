@@ -213,7 +213,9 @@ export const tokensRouter = createHonoApp()
 
     if (!token) return c.json({ error: "Token not found" }, 404);
     const parsedJson = parseStoredApiTokenJson(token, "tokens.get");
-    if (!parsedJson) return c.json({ error: "Token not found" }, 404);
+    if (!parsedJson) {
+      return c.json({ error: "Stored token data is malformed" }, 422);
+    }
 
     const detailResponse = GetTokenResponse.parse({
       token: {
