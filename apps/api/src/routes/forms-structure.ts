@@ -514,7 +514,9 @@ export const formsStructureRouter = createHonoApp()
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
       try {
-        await restoreFromSnapshotVersion(formId, version);
+        await withFormStructureMutationLock(formId, () =>
+          restoreFromSnapshotVersion(formId, version),
+        );
         const response = RestoreEditResponseSchema.parse({ ok: true });
         return c.json(response);
       } catch (error) {

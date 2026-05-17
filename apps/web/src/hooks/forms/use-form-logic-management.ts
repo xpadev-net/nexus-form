@@ -33,8 +33,8 @@ export const useFormLogicManagement = (formId: string) => {
   const mutexRef = useRef<Promise<unknown>>(Promise.resolve());
 
   const serialized = <T>(fn: () => Promise<T>): Promise<T> => {
-    const next = mutexRef.current.then(fn, fn);
-    mutexRef.current = next;
+    const next = mutexRef.current.catch(() => undefined).then(fn);
+    mutexRef.current = next.catch(() => undefined);
     return next;
   };
 
