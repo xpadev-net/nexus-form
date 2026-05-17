@@ -19,7 +19,7 @@ const authorizeQuerySchema = z.object({
   state: z.string().optional(),
   scope: z.string().optional(),
   prompt: z.string().optional(),
-  app_origin: z.string().url().optional(),
+  app_origin: z.string().optional(),
 });
 
 const googleTokenRefreshResponseSchema = z.object({
@@ -49,17 +49,89 @@ function getCookieValue(cookie: string, name: string): string | undefined {
     ?.split("=")[1];
 }
 
+function getTrustedAppOrigins(): Set<string> {
+  const origins: string[] = [];
+  if (
+    process.env.NODE_ENV === "development" ||
+    process.env.NODE_ENV === "test"
+  ) {
+    origins.push("http://localhost:3000");
+  }
+  if (process.env.TRUSTED_ORIGINS) {
+    origins.push(
+      ...process.env.TRUSTED_ORIGINS.split(",").map((origin) => origin.trim()),
+    );
+  }
+  if (process.env.VITE_BASE_URL) {
+    origins.push(process.env.VITE_BASE_URL);
+  }
+  return new Set(
+    origins
+      .map((origin) => normalizeHttpOrigin(origin))
+      .filter((origin): origin is string => origin !== null),
+  );
+}
+
+function normalizeHttpOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function decodeCookieValue(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
+}
+
+function resolveAppOrigin(c: Context, requestedOrigin: string | undefined) {
+  const trustedOrigins = getTrustedAppOrigins();
+  const headerOrigin = c.req.header("origin");
+  const origin = normalizeHttpOrigin(requestedOrigin ?? headerOrigin);
+  if (origin && trustedOrigins.has(origin)) return origin;
+  if (!requestedOrigin && !headerOrigin && trustedOrigins.size === 1) {
+    return [...trustedOrigins][0];
+  }
+  return null;
+}
+
+function getCallbackTargetOrigin(c: Context, cookie: string): string {
+  const trustedOrigins = getTrustedAppOrigins();
+  const encodedOrigin = getCookieValue(cookie, "google_oauth_app_origin");
+  const storedOrigin = encodedOrigin
+    ? normalizeHttpOrigin(decodeCookieValue(encodedOrigin) ?? undefined)
+    : null;
+  if (storedOrigin && trustedOrigins.has(storedOrigin)) return storedOrigin;
+  return [...trustedOrigins][0] ?? new URL(c.req.url).origin;
+}
+
+function escapeScriptJson(json: string): string {
+  return json
+    .replace(/&/g, "\\u0026")
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e");
+}
+
 function buildOAuthCallbackHtml(params: {
   status: "error" | "success";
   targetOrigin: string;
   message?: string;
 }): string {
-  const payload = JSON.stringify({
-    source: "google-oauth",
-    status: params.status,
-    message: params.message,
-  });
-  const targetOrigin = JSON.stringify(params.targetOrigin);
+  const payload = escapeScriptJson(
+    JSON.stringify({
+      source: "google-oauth",
+      status: params.status,
+      message: params.message,
+    }),
+  );
+  const targetOrigin = escapeScriptJson(JSON.stringify(params.targetOrigin));
   return `<!doctype html><html><head><meta charset="utf-8"><title>Google OAuth</title></head><body><script>window.opener?.postMessage(${payload}, ${targetOrigin});window.close();</script></body></html>`;
 }
 
@@ -257,6 +329,8 @@ export const integrationsGoogleRouter = createHonoApp()
       "/api/integrations/google/callback",
       baseUrl,
     ).toString();
+    const appOrigin = resolveAppOrigin(c, parsed.data.app_origin);
+    if (!appOrigin) return c.json({ error: "Invalid app origin" }, 400);
     const state =
       parsed.data.state && /^[A-Za-z0-9_-]{32,128}$/.test(parsed.data.state)
         ? parsed.data.state
@@ -267,7 +341,7 @@ export const integrationsGoogleRouter = createHonoApp()
       "Set-Cookie",
       googleOAuthCookie(
         "google_oauth_app_origin",
-        encodeURIComponent(parsed.data.app_origin ?? origin),
+        encodeURIComponent(appOrigin),
         600,
       ),
       { append: true },
@@ -288,11 +362,7 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const cookie = c.req.header("cookie") ?? "";
-    const storedTargetOrigin = decodeURIComponent(
-      getCookieValue(cookie, "google_oauth_app_origin") ?? "",
-    );
-    const callbackTargetOrigin =
-      storedTargetOrigin || new URL(c.req.url).origin;
+    const callbackTargetOrigin = getCallbackTargetOrigin(c, cookie);
 
     const parsed = callbackQuerySchema.safeParse(c.req.query());
     if (!parsed.success)
