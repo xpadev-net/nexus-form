@@ -26,7 +26,10 @@ import {
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
-import { paginationQuerySchema } from "../lib/constants/pagination";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
@@ -410,12 +413,7 @@ export const formsResponsesRouter = createHonoApp()
       return c.json(
         ResponseIdsResponseSchema.parse({
           responseIds: rows.map((row) => row.id),
-          pagination: {
-            page,
-            pageSize,
-            total,
-            totalPages: Math.ceil(total / pageSize),
-          },
+          pagination: paginationMetadata(page, pageSize, total),
         }),
       );
     },
@@ -488,12 +486,7 @@ export const formsResponsesRouter = createHonoApp()
       return c.json(
         ResponseAnalyticsResponseSchema.parse({
           timeline,
-          pagination: {
-            page,
-            pageSize,
-            total,
-            totalPages: Math.ceil(total / pageSize),
-          },
+          pagination: paginationMetadata(page, pageSize, total),
         }),
       );
     },
