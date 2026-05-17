@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { apiUrl } from "@/lib/api";
 import { getValidationProviderRule } from "@/lib/validation/validation-providers";
 
 type ProviderConfig = Record<string, unknown>;
@@ -134,10 +135,9 @@ const fetchOptions = async (
   endpoint: string,
   formId: string | undefined,
 ): Promise<DynamicOption[]> => {
-  let url = endpoint;
+  const url = new URL(apiUrl(endpoint));
   if (formId) {
-    const separator = url.includes("?") ? "&" : "?";
-    url = `${url}${separator}formId=${encodeURIComponent(formId)}`;
+    url.searchParams.set("formId", formId);
   }
   const response = await fetch(url, { credentials: "include" });
   if (!response.ok) {

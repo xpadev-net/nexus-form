@@ -3,6 +3,10 @@ import { hc } from "hono/client";
 
 export const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
 
+export function apiUrl(path: string): string {
+  return new URL(path, baseUrl).toString();
+}
+
 export const client: ReturnType<typeof hc<AppType>> = hc<AppType>(baseUrl, {
   fetch: (input: RequestInfo | URL, init?: RequestInit) =>
     fetch(input, {

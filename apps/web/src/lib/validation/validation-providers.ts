@@ -6,6 +6,7 @@ import {
   type ValidationProviderRuleItem,
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
+import { apiUrl } from "@/lib/api";
 import {
   ALL_TEMPLATE_OPTIONS,
   type ValidationPatternTemplate,
@@ -13,7 +14,7 @@ import {
 
 const fetchValidationProviders =
   async (): Promise<ListValidationProvidersResponse> => {
-    const response = await fetch("/api/validation-providers", {
+    const response = await fetch(apiUrl("/api/validation-providers"), {
       credentials: "include",
     });
     if (!response.ok) {
