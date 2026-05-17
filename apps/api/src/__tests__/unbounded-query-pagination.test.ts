@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   limitCalls: [] as number[],
   listValidationRules: vi.fn(),
   countValidationRules: vi.fn(),
+  formAuthRoles: [] as Array<unknown>,
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -57,8 +58,12 @@ vi.mock("@nexus-form/database/schema", () => ({
 }));
 
 vi.mock("../lib/dual-auth", () => ({
-  withDualFormAuth: () => async (_c: unknown, next: () => Promise<void>) =>
-    next(),
+  withDualFormAuth: (requiredRole?: unknown) => {
+    mocks.formAuthRoles.push(requiredRole);
+    return async (_c: unknown, next: () => Promise<void>) => {
+      await next();
+    };
+  },
 }));
 
 vi.mock("../lib/forms/validation-rule-repository", () => ({
@@ -166,6 +171,15 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     mocks.db.select.mockReset();
     mocks.offsetCalls.length = 0;
     mocks.limitCalls.length = 0;
+    mocks.formAuthRoles.length = 0;
+  });
+
+  it("requires editor access for response data routes", async () => {
+    await import("../routes/forms-responses");
+    await import("../routes/forms-sse");
+
+    expect(mocks.formAuthRoles).toContain("EDITOR");
+    expect(mocks.formAuthRoles).not.toContain("VIEWER");
   });
 
   it("applies limit and offset to response id lists", async () => {

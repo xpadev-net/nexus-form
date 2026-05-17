@@ -112,7 +112,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
 
 export const formsSSERouter = createHonoApp()
   // バリデーション SSE: form:validation:{formId}
-  .get("/:id/responses/events", withDualFormAuth("VIEWER"), async (c) => {
+  .get("/:id/responses/events", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const channel = getValidationChannel(formId);
     return createSSEStream(c, channel);
