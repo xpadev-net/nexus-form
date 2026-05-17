@@ -100,7 +100,7 @@ export const tokensRouter = createHonoApp()
       id: string;
       name: string;
       scopes: string[];
-      form_ids: string[] | undefined;
+      form_ids: string[] | null;
       expires_at: string | undefined;
       last_used_at: string | undefined;
       created_at: string;
@@ -125,7 +125,7 @@ export const tokensRouter = createHonoApp()
         id: token.id,
         name: token.name,
         scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -162,7 +162,7 @@ export const tokensRouter = createHonoApp()
         name: created.name,
         token: created.token,
         scopes: created.scopes,
-        form_ids: created.formIds,
+        form_ids: created.formIds ?? null,
         expires_at: created.expiresAt?.toISOString(),
         created_at: created.createdAt.toISOString(),
         is_active: true,
@@ -200,7 +200,7 @@ export const tokensRouter = createHonoApp()
         id: token.id,
         name: token.name,
         scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -287,7 +287,7 @@ export const tokensRouter = createHonoApp()
         id: updated.id,
         name: updated.name,
         scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: updated.expiresAt?.toISOString(),
         last_used_at: updated.lastUsedAt?.toISOString(),
         created_at: updated.createdAt.toISOString(),

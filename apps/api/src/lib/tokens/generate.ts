@@ -140,7 +140,7 @@ export async function getUserApiTokens(
         id: token.id,
         name: token.name,
         scopes: parsedJson.scopes,
-        form_ids: parsedJson.formIds,
+        form_ids: parsedJson.formIds ?? null,
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
