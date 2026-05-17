@@ -88,6 +88,7 @@ const TOKEN = {
   refreshToken: "refresh",
   expiresAt: null,
 };
+const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 function makeJob(
   data: { formId: string; integrationId: string; responseId: string } = {
@@ -145,6 +146,17 @@ function setupHappyPathMocks() {
   } as never);
 }
 
+function getInvocationCallOrder(
+  mock: { mock: { invocationCallOrder: number[] } },
+  index: number,
+): number {
+  const callOrder = mock.mock.invocationCallOrder[index];
+  if (callOrder === undefined) {
+    throw new Error(`Expected invocation call order at index ${index}`);
+  }
+  return callOrder;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -170,9 +182,88 @@ describe("handleSheetsSync — idempotency states", () => {
   it('throws a retry error when idempotency key is "pending"', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockReadRange.mockResolvedValueOnce({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
 
     await expect(handleSheetsSync(makeJob())).rejects.toThrow(
       "[sheets-sync] Concurrent write in progress",
+    );
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+  });
+
+  it('promotes "pending" to "done" when the response row already exists', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockReadRange.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        values: [
+          ["Response ID", "block-1"],
+          ["response-1", "hello"],
+        ],
+      },
+    } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    );
+  });
+
+  it("skips append when the idempotency key expired but the response row already exists", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        values: [
+          ["Response ID", "block-1"],
+          ["response-1", "hello"],
+        ],
+      },
+    } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    );
+  });
+
+  it("fails closed when the pre-append idempotency sheet check fails", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "internal", message: "Sheets unavailable" },
+    } as never);
+
+    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+      "Failed to read sheet for idempotency check",
     );
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
@@ -203,17 +294,15 @@ describe("handleSheetsSync — idempotency states", () => {
     // "done" must be set AFTER appendRows (second setIdempotencyKey call)
     expect(secondCall).toEqual([
       "sheets-written:integration-1:response-1",
-      86_400,
+      DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     ]);
     // Verify ordering: pending → appendRows → done
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    expect(mockSetIdempotencyKey.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockAppendRows.mock.invocationCallOrder[0]!,
+    expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
+      getInvocationCallOrder(mockAppendRows, 0),
     );
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    expect(mockAppendRows.mock.invocationCallOrder[0]!).toBeLessThan(
-      mockSetIdempotencyKey.mock.invocationCallOrder[1]!,
+    expect(getInvocationCallOrder(mockAppendRows, 0)).toBeLessThan(
+      getInvocationCallOrder(mockSetIdempotencyKey, 1),
     );
   });
 

@@ -15,7 +15,11 @@ import {
   readRange,
   updateRange,
 } from "../lib/google-sheets-client";
-import { getOAuthToken, refreshTokenIfNeeded } from "../lib/oauth-token-store";
+import {
+  getOAuthToken,
+  type OAuthToken,
+  refreshTokenIfNeeded,
+} from "../lib/oauth-token-store";
 import {
   getIdempotencyKeyValue,
   setIdempotencyKey,
@@ -30,6 +34,8 @@ export type SheetsSyncJob = {
 };
 
 const RESPONSE_ID_HEADER = "Response ID";
+const PENDING_IDEMPOTENCY_TTL_SECONDS = 90;
+const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const GoogleSheetsIntegrationSettingSchema = z.object({
   spreadsheetId: z.string().min(1),
@@ -150,12 +156,50 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         };
       }
 
+      const markDuplicateWritten = async () => {
+        await setIdempotencyKey(
+          idempotencyKey,
+          DONE_IDEMPOTENCY_TTL_SECONDS,
+          "done",
+        ).catch((e: unknown) => {
+          console.warn(
+            `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+          );
+        });
+        return {
+          ok: true,
+          skipped: true,
+          reason: "duplicate",
+          provider: "google-sheets",
+          jobId: job.id,
+        };
+      };
+
       if (keyValue === "pending") {
+        const rowAlreadyWritten = await hasResponseIdInSheet(token, {
+          spreadsheetId,
+          sheetName,
+          responseId: response.id,
+        });
+        if (rowAlreadyWritten) {
+          return markDuplicateWritten();
+        }
+
         // The lock TTL expired while another job's critical section is still in
-        // progress.  Throw so BullMQ retries after the 90s "pending" TTL expires.
+        // progress, or the prior attempt crashed before the row was written.
+        // Throw so BullMQ retries after the short "pending" TTL expires.
         throw new Error(
           `[sheets-sync] Concurrent write in progress for ${idempotencyKey}; will retry`,
         );
+      }
+
+      const rowAlreadyWritten = await hasResponseIdInSheet(token, {
+        spreadsheetId,
+        sheetName,
+        responseId: response.id,
+      });
+      if (rowAlreadyWritten) {
+        return markDuplicateWritten();
       }
 
       // 5. ヘッダー行を読み取り
@@ -215,7 +259,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       // Mark as "pending" BEFORE appendRows — fail-closed: if Redis is unavailable
       // here, throw so the job retries rather than proceeding without the guard.
       // TTL (90 s) slightly exceeds the lock TTL (60 s) so the window is covered.
-      await setIdempotencyKey(idempotencyKey, 90, "pending");
+      await setIdempotencyKey(
+        idempotencyKey,
+        PENDING_IDEMPOTENCY_TTL_SECONDS,
+        "pending",
+      );
 
       // 9. 行を追記
       const appendResult = await appendRows(token, {
@@ -233,16 +281,19 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         }
         throw new Error(`Failed to append rows: ${appendResult.error.message}`);
       }
-      // Promote "pending" → "done" (24 h TTL) BEFORE updateProgress so a
+      // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
-      // that would duplicate the row.  Best-effort: do NOT throw on failure.
-      await setIdempotencyKey(idempotencyKey, 86_400, "done").catch(
-        (e: unknown) => {
-          console.warn(
-            `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-          );
-        },
-      );
+      // that would duplicate the row. Keep it for the manual retry window.
+      // Best-effort: do NOT throw on failure.
+      await setIdempotencyKey(
+        idempotencyKey,
+        DONE_IDEMPOTENCY_TTL_SECONDS,
+        "done",
+      ).catch((e: unknown) => {
+        console.warn(
+          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+        );
+      });
 
       await job.updateProgress(100).catch(() => {
         // Best-effort progress update; job result is what matters.
@@ -261,6 +312,38 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     { ttlMs: 60_000, waitTimeoutMs: 65_000 },
   );
 };
+
+async function hasResponseIdInSheet(
+  token: OAuthToken,
+  params: {
+    spreadsheetId: string;
+    sheetName: string;
+    responseId: string;
+  },
+): Promise<boolean> {
+  const sheetData = await readRange(token, {
+    spreadsheetId: params.spreadsheetId,
+    rangeA1: params.sheetName,
+  });
+  if (!sheetData.ok) {
+    throw new Error(
+      `Failed to read sheet for idempotency check: ${sheetData.error.message}`,
+    );
+  }
+  if (sheetData.data.values.length === 0) {
+    return false;
+  }
+
+  const headers = sheetData.data.values[0] ?? [];
+  const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
+  if (responseIdIndex === -1) {
+    return false;
+  }
+
+  return sheetData.data.values
+    .slice(1)
+    .some((row) => row[responseIdIndex] === params.responseId);
+}
 
 /**
  * レスポンスデータからシート行を構築する
