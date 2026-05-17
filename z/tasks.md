@@ -89,6 +89,7 @@
 
 ### R3-C7. バリデーションフックのレース未対策・`useCharacterCount` の stale 化
 - **重要度:** 🔴 Critical
+- **対応状況:** ✅ 完了（PR #39、`gh-review-hook` exit 0）
 - **対象:** `apps/web/src/components/form/hooks/useDateValidation.ts:28-77`、`apps/web/src/hooks/forms/useShortTextValidation.ts:27-73`、`apps/web/src/components/form/hooks/useTimeValidation.ts:28-77`、`apps/web/src/components/form/hooks/useCharacterCount.ts:28`
 - **問題:**
   1. `useGenericValidation`（`useGenericValidation.ts:35-86`）は `currentRequestId` ref で「最新リクエストのみ state 更新」のレース対策を実装済みだが、上記 3 フックは debounce 後の非同期検証にリクエスト ID 追跡が無い。debounce 由来の古い検証と blur 由来の新しい検証が交差すると古い `setValidationError` が後勝ちし、誤エラー表示・エラー取りこぼしが起きる。

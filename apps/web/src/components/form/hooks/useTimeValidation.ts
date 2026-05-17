@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Block } from "@/types/domain/form-block";
 import { validateTime } from "@/utils/validation/question-validators";
 import { FormErrorMessages } from "../utils/error-messages";
@@ -18,6 +18,7 @@ export const useTimeValidation = (
 ) => {
   const [validationError, setValidationError] = useState<string | undefined>();
   const [isValidating, setIsValidating] = useState(false);
+  const currentRequestId = useRef(0);
 
   /**
    * 入力値のバリデーションを実行
@@ -27,7 +28,13 @@ export const useTimeValidation = (
    */
   const validateValue = useCallback(
     async (inputValue: string) => {
-      if (!question.validation) return { isValid: true, error: undefined };
+      const requestId = ++currentRequestId.current;
+
+      if (!question.validation) {
+        setValidationError(undefined);
+        setIsValidating(false);
+        return { isValid: true, error: undefined };
+      }
 
       setIsValidating(true);
 
@@ -45,10 +52,14 @@ export const useTimeValidation = (
           const errorMessage = firstError
             ? firstError.message
             : "バリデーションエラー";
-          setValidationError(errorMessage);
+          if (requestId === currentRequestId.current) {
+            setValidationError(errorMessage);
+          }
           return { isValid: false, error: errorMessage };
         } else {
-          setValidationError(undefined);
+          if (requestId === currentRequestId.current) {
+            setValidationError(undefined);
+          }
           return { isValid: true, error: undefined };
         }
       } catch (error) {
@@ -56,10 +67,14 @@ export const useTimeValidation = (
           error instanceof Error
             ? FormErrorMessages.TIME_VALIDATION_ERROR
             : FormErrorMessages.TIME_INVALID_FORMAT;
-        setValidationError(errorMessage);
+        if (requestId === currentRequestId.current) {
+          setValidationError(errorMessage);
+        }
         return { isValid: false, error: errorMessage };
       } finally {
-        setIsValidating(false);
+        if (requestId === currentRequestId.current) {
+          setIsValidating(false);
+        }
       }
     },
     [question],
@@ -67,7 +82,13 @@ export const useTimeValidation = (
 
   // デバウンス処理用のuseEffect
   useEffect(() => {
-    if (!question.validation) return;
+    currentRequestId.current += 1;
+
+    if (!question.validation) {
+      setValidationError(undefined);
+      setIsValidating(false);
+      return;
+    }
 
     const timeoutId = window.setTimeout(() => {
       validateValue(value);

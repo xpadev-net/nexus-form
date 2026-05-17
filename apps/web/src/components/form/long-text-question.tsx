@@ -84,11 +84,10 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
       warningThreshold,
     });
 
-  const { updateLength, isOverLimit, getCharacterCountDisplay } =
-    useCharacterCount({
-      initialValue: value,
-      maxLength: block.validation?.maxLength,
-    });
+  const { isOverLimit, getCharacterCountDisplay } = useCharacterCount({
+    value,
+    maxLength: block.validation?.maxLength,
+  });
 
   // 文字数制限の取得
   const maxLength = block.validation?.maxLength;
@@ -106,7 +105,6 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
     (newValue: string) => {
       try {
         const sanitizedValue = sanitizeInput(newValue);
-        updateLength(sanitizedValue);
         onChange(sanitizedValue);
         triggerValidation(sanitizedValue);
       } catch (error) {
@@ -116,7 +114,7 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
         onChange(sanitizedValue);
       }
     },
-    [onChange, updateLength, triggerValidation, sanitizeInput],
+    [onChange, triggerValidation, sanitizeInput],
   );
 
   // 文字数制限の表示

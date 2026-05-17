@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Block } from "@/types/domain/form-block";
 import { validateShortText } from "@/utils/validation/question-validators";
 
@@ -17,6 +17,7 @@ export const useShortTextValidation = (
 ) => {
   const [localError, setLocalError] = useState<string | undefined>();
   const [isValidating, setIsValidating] = useState(false);
+  const currentRequestId = useRef(0);
 
   /**
    * 入力値のバリデーションを実行
@@ -26,7 +27,13 @@ export const useShortTextValidation = (
    */
   const validateValue = useCallback(
     async (inputValue: string) => {
-      if (!question.validation) return { isValid: true, error: undefined };
+      const requestId = ++currentRequestId.current;
+
+      if (!question.validation) {
+        setLocalError(undefined);
+        setIsValidating(false);
+        return { isValid: true, error: undefined };
+      }
 
       setIsValidating(true);
 
@@ -44,18 +51,26 @@ export const useShortTextValidation = (
           const errorMessage = firstError
             ? firstError.message
             : "バリデーションエラー";
-          setLocalError(errorMessage);
+          if (requestId === currentRequestId.current) {
+            setLocalError(errorMessage);
+          }
           return { isValid: false, error: errorMessage };
         } else {
-          setLocalError(undefined);
+          if (requestId === currentRequestId.current) {
+            setLocalError(undefined);
+          }
           return { isValid: true, error: undefined };
         }
       } catch {
         const errorMessage = "バリデーション中にエラーが発生しました";
-        setLocalError(errorMessage);
+        if (requestId === currentRequestId.current) {
+          setLocalError(errorMessage);
+        }
         return { isValid: false, error: errorMessage };
       } finally {
-        setIsValidating(false);
+        if (requestId === currentRequestId.current) {
+          setIsValidating(false);
+        }
       }
     },
     [question],
@@ -63,7 +78,13 @@ export const useShortTextValidation = (
 
   // デバウンス処理用のuseEffect
   useEffect(() => {
-    if (!question.validation) return;
+    currentRequestId.current += 1;
+
+    if (!question.validation) {
+      setLocalError(undefined);
+      setIsValidating(false);
+      return;
+    }
 
     const timeoutId = window.setTimeout(() => {
       validateValue(value);
