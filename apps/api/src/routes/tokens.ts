@@ -4,8 +4,6 @@ import { apiToken } from "@nexus-form/database/schema";
 import {
   apiTokenFormIdsSchema,
   apiTokenScopesSchema,
-  parseApiTokenScopes,
-  parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
@@ -21,6 +19,7 @@ import {
   SuspendedTokenOwnerError,
   validateApiTokenForUser,
 } from "../lib/tokens";
+import { parseStoredApiTokenJson } from "../lib/tokens/stored-json";
 import {
   CreateTokenResponse,
   DeleteTokenResponse,
@@ -98,17 +97,26 @@ export const tokensRouter = createHonoApp()
     ]);
 
     const total = totalRows[0]?.total ?? 0;
+    const responseTokens = tokens.flatMap((token) => {
+      const parsedJson = parseStoredApiTokenJson(token, "tokens.list");
+      if (!parsedJson) return [];
+
+      return [
+        {
+          id: token.id,
+          name: token.name,
+          scopes: parsedJson.scopes,
+          form_ids: parsedJson.formIds,
+          expires_at: token.expiresAt?.toISOString(),
+          last_used_at: token.lastUsedAt?.toISOString(),
+          created_at: token.createdAt.toISOString(),
+          is_active: token.isActive,
+        },
+      ];
+    });
+
     const listResponse = GetTokensResponse.parse({
-      tokens: tokens.map((token) => ({
-        id: token.id,
-        name: token.name,
-        scopes: parseApiTokenScopes(token.scopes),
-        form_ids: parseStoredApiTokenFormIds(token.formIds),
-        expires_at: token.expiresAt?.toISOString(),
-        last_used_at: token.lastUsedAt?.toISOString(),
-        created_at: token.createdAt.toISOString(),
-        is_active: token.isActive,
-      })),
+      tokens: responseTokens,
       total,
       pagination: {
         page,
@@ -163,13 +171,15 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!token) return c.json({ error: "Token not found" }, 404);
+    const parsedJson = parseStoredApiTokenJson(token, "tokens.get");
+    if (!parsedJson) return c.json({ error: "Token not found" }, 404);
 
     const detailResponse = GetTokenResponse.parse({
       token: {
         id: token.id,
         name: token.name,
-        scopes: parseApiTokenScopes(token.scopes),
-        form_ids: parseStoredApiTokenFormIds(token.formIds),
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds,
         expires_at: token.expiresAt?.toISOString(),
         last_used_at: token.lastUsedAt?.toISOString(),
         created_at: token.createdAt.toISOString(),
@@ -226,12 +236,15 @@ export const tokensRouter = createHonoApp()
       .limit(1);
 
     if (!updated) return c.json({ error: "Token not found" }, 404);
+    const parsedJson = parseStoredApiTokenJson(updated, "tokens.patch");
+    if (!parsedJson) return c.json({ error: "Token not found" }, 404);
+
     const updateResponse = UpdateTokenResponse.parse({
       token: {
         id: updated.id,
         name: updated.name,
-        scopes: parseApiTokenScopes(updated.scopes),
-        form_ids: parseStoredApiTokenFormIds(updated.formIds),
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds,
         expires_at: updated.expiresAt?.toISOString(),
         last_used_at: updated.lastUsedAt?.toISOString(),
         created_at: updated.createdAt.toISOString(),

@@ -8,7 +8,7 @@ export const apiTokenScopesSchema = z.array(apiTokenScopeSchema).min(1);
 
 export type ApiTokenScopes = z.infer<typeof apiTokenScopesSchema>;
 
-export const apiTokenFormIdsSchema = z.array(z.string().min(1));
+export const apiTokenFormIdsSchema = z.array(z.string().min(1)).min(1);
 
 export type ApiTokenFormIds = z.infer<typeof apiTokenFormIdsSchema>;
 

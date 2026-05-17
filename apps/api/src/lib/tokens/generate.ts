@@ -8,6 +8,7 @@ import {
 import { and, count, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
+import { parseStoredApiTokenJson } from "./stored-json";
 
 /**
  * セキュアなAPIトークンを生成する
@@ -122,16 +123,23 @@ export async function getUserApiTokens(
 
   const total = totalResult[0]?.total ?? 0;
 
-  const mappedTokens = tokens.map((token) => ({
-    id: token.id,
-    name: token.name,
-    scopes: parseApiTokenScopes(token.scopes),
-    form_ids: parseStoredApiTokenFormIds(token.formIds),
-    expires_at: token.expiresAt?.toISOString(),
-    last_used_at: token.lastUsedAt?.toISOString(),
-    created_at: token.createdAt.toISOString(),
-    is_active: token.isActive,
-  }));
+  const mappedTokens = tokens.flatMap((token) => {
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
+    if (!parsedJson) return [];
+
+    return [
+      {
+        id: token.id,
+        name: token.name,
+        scopes: parsedJson.scopes,
+        form_ids: parsedJson.formIds,
+        expires_at: token.expiresAt?.toISOString(),
+        last_used_at: token.lastUsedAt?.toISOString(),
+        created_at: token.createdAt.toISOString(),
+        is_active: token.isActive,
+      },
+    ];
+  });
 
   return {
     tokens: mappedTokens,
