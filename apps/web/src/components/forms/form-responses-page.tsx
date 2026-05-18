@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, List, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
@@ -34,6 +34,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           },
         }),
       ),
+    placeholderData: keepPreviousData,
   });
 
   const data = responsesQuery.data;
@@ -130,6 +131,9 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             {/* 読み込み中 */}
             {responsesQuery.isLoading && (
               <p className="text-sm text-muted-foreground">読み込み中...</p>
+            )}
+            {responsesQuery.isFetching && !responsesQuery.isLoading && (
+              <p className="text-xs text-muted-foreground">更新中...</p>
             )}
 
             {/* エラー */}
