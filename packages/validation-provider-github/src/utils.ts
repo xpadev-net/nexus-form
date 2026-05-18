@@ -123,7 +123,7 @@ export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
 
 export function parseGitHubError(error: unknown): string {
   const message = getStringProperty(error, "message");
-  if (message) return message;
+  if (message !== null) return message;
   const data = getGitHubErrorData(error);
   const responseMessage = getStringProperty(data, "message");
   if (responseMessage) return responseMessage;

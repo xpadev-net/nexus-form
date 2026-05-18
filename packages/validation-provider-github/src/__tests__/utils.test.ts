@@ -28,20 +28,22 @@ describe("GitHub error utilities", () => {
 
   it("reads retry-after milliseconds from reset headers", () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-05-19T00:00:00.000Z"));
-    const resetSeconds = Math.floor(Date.now() / 1000) + 90;
-    const error = {
-      status: 403,
-      response: {
-        headers: {
-          "X-RateLimit-Reset": String(resetSeconds),
+    try {
+      vi.setSystemTime(new Date("2026-05-19T00:00:00.000Z"));
+      const resetSeconds = Math.floor(Date.now() / 1000) + 90;
+      const error = {
+        status: 403,
+        response: {
+          headers: {
+            "X-RateLimit-Reset": String(resetSeconds),
+          },
         },
-      },
-    };
+      };
 
-    expect(getGitHubRateLimitRetryAfter(error)).toBe(90_000);
-
-    vi.useRealTimers();
+      expect(getGitHubRateLimitRetryAfter(error)).toBe(90_000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("parses nested GitHub response messages and validation errors", () => {
