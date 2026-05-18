@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { fingerprintDetail, formResponse } from "@nexus-form/database/schema";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   checkFormAccess,
@@ -128,16 +128,16 @@ export const fingerprintRouter = createHonoApp()
       const context = c.get("dualAuthContext");
       if (!context) return c.json({ error: "Unauthorized" }, 401);
 
-      if (!responseId && !formId) {
-        return c.json({ error: "responseId or formId is required" }, 400);
-      }
-
+      let fingerprintWhere: SQL;
       // フォームアクセス権チェック
       if (formId) {
         const hasAccess = await checkFormAccess(context, formId);
         if (!hasAccess) {
           return c.json({ error: "Access denied to this form" }, 403);
         }
+        fingerprintWhere = responseId
+          ? eq(fingerprintDetail.responseId, responseId)
+          : eq(formResponse.formId, formId);
       } else if (responseId) {
         const [resp] = await db
           .select({ formId: formResponse.formId })
@@ -151,6 +151,9 @@ export const fingerprintRouter = createHonoApp()
         if (!hasAccess) {
           return c.json({ error: "Access denied to this form" }, 403);
         }
+        fingerprintWhere = eq(fingerprintDetail.responseId, responseId);
+      } else {
+        return c.json({ error: "responseId or formId is required" }, 400);
       }
 
       const rows = await db
@@ -168,11 +171,7 @@ export const fingerprintRouter = createHonoApp()
           formResponse,
           eq(formResponse.id, fingerprintDetail.responseId),
         )
-        .where(
-          responseId
-            ? eq(fingerprintDetail.responseId, responseId)
-            : eq(formResponse.formId, formId as string),
-        );
+        .where(fingerprintWhere);
 
       return c.json(FingerprintGetResponseSchema.parse({ fingerprints: rows }));
     },
