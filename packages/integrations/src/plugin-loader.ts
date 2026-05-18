@@ -72,13 +72,15 @@ type VerifiedPluginSource = {
   source: string;
 };
 
+function resolveReadablePluginPath(path: string): string {
+  return path.startsWith("file://") ? fileURLToPath(path) : path;
+}
+
 async function readPluginSource(
   path: string,
 ): Promise<VerifiedPluginSource | null> {
   try {
-    const readablePath = path.startsWith("file://")
-      ? fileURLToPath(path)
-      : path;
+    const readablePath = resolveReadablePluginPath(path);
     const buf = await readFile(readablePath);
     return {
       hash: createHash("sha256").update(buf).digest("hex"),
@@ -89,20 +91,52 @@ async function readPluginSource(
   }
 }
 
-export async function hashPluginFile(path: string): Promise<string | null> {
-  const source = await readPluginSource(path);
-  return source?.hash ?? null;
-}
-
 export type PluginLoadOutcome =
   | { kind: "ok"; provider: ValidationProvider }
   | { kind: "skipped"; reason: string }
   | { kind: "failed"; error: string };
 
+export type HashedPluginLoadOutcome =
+  | { kind: "ok"; provider: ValidationProvider; hash: string }
+  | { kind: "skipped"; reason: string; hash: string }
+  | { kind: "failed"; error: string; hash?: string };
+
 export async function loadPluginFromSpecifier(
   specifier: string,
 ): Promise<PluginLoadOutcome> {
   return loadPluginModule(specifier);
+}
+
+export async function loadPluginFromFile(
+  path: string,
+): Promise<HashedPluginLoadOutcome> {
+  const verifiedSource = await readPluginSource(path);
+  if (!verifiedSource) {
+    return {
+      kind: "failed",
+      error: "Cannot read plugin file for SHA-256 calculation",
+    };
+  }
+
+  const outcome = await loadPluginFromVerifiedSource(
+    verifiedSource.source,
+    resolveReadablePluginPath(path),
+  );
+  if (outcome.kind === "ok") {
+    return {
+      kind: "ok",
+      provider: outcome.provider,
+      hash: verifiedSource.hash,
+    };
+  }
+  if (outcome.kind === "skipped") {
+    return {
+      kind: "skipped",
+      reason: outcome.reason,
+      hash: verifiedSource.hash,
+    };
+  }
+  return { kind: "failed", error: outcome.error, hash: verifiedSource.hash };
 }
 
 async function loadPluginFromVerifiedSource(

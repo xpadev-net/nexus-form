@@ -1,10 +1,6 @@
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
-import {
-  hashPluginFile,
-  loadPluginFromSpecifier,
-  PluginLoader,
-} from "./plugin-loader";
+import { loadPluginFromFile, PluginLoader } from "./plugin-loader";
 import type { ValidationProviderRegistry } from "./provider-registry";
 
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
@@ -218,19 +214,14 @@ export async function startupPlugins(
   const pluginHashes: string[] = [];
 
   for (const specifier of builtinPlugins) {
-    const hash = await hashPluginFile(specifier);
-    const outcome = await loadPluginFromSpecifier(specifier);
+    const outcome = await loadPluginFromFile(specifier);
     if (outcome.kind === "ok") {
       registerOrOverride(registry, outcome.provider, specifier, logPrefix);
-      if (hash) {
-        pluginHashes.push(hash);
-      } else {
-        console.warn(
-          `[${logPrefix}] Could not calculate SHA-256 for built-in plugin: ${specifier}`,
-        );
-      }
+      pluginHashes.push(outcome.hash);
     } else if (outcome.kind === "skipped") {
-      console.warn(`[${logPrefix}] ${outcome.reason} in: ${specifier}`);
+      console.warn(
+        `[${logPrefix}] ${outcome.reason} in: ${specifier} sha256=${outcome.hash}`,
+      );
     } else {
       console.error(
         `[${logPrefix}] Failed to load built-in plugin ${specifier}: ${outcome.error}`,
