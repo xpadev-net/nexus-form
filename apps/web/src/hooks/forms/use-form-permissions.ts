@@ -58,8 +58,8 @@ export const useFormPermissions = (
         client.api.forms[":id"].permissions.$get({
           param: { id: formId as string },
           query: toStringRecord({
-            page: permissionsParams?.page,
-            limit: permissionsParams?.limit,
+            page: permissionsPage ?? undefined,
+            limit: permissionsLimit ?? undefined,
           }),
         }),
       ),
@@ -79,9 +79,9 @@ export const useFormPermissions = (
         client.api.forms[":id"].invitations.$get({
           param: { id: formId as string },
           query: toStringRecord({
-            page: invitationsParams?.page,
-            limit: invitationsParams?.limit,
-            status: invitationsParams?.status,
+            page: invitationsPage ?? undefined,
+            limit: invitationsLimit ?? undefined,
+            status: invitationsStatus ?? undefined,
           }),
         }),
       ),
