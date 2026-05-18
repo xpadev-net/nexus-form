@@ -50,76 +50,111 @@ export function useEditorSSE(
     if (!formId) return;
 
     const url = `${baseUrl}/api/forms/${formId}/editor/events`;
-    const eventSource = new EventSource(url, { withCredentials: true });
-    let consecutiveErrors = 0;
+    let eventSource: EventSource | null = null;
+    let stoppedAfterErrors = false;
 
-    eventSource.addEventListener("open", () => {
-      consecutiveErrors = 0;
-    });
+    const closeEventSource = () => {
+      eventSource?.close();
+      eventSource = null;
+    };
 
-    eventSource.addEventListener("error", () => {
-      consecutiveErrors++;
-      if (
-        eventSource.readyState === EventSource.CLOSED ||
-        consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
-      ) {
-        eventSource.close();
-      }
-    });
+    const connect = () => {
+      if (document.hidden || eventSource !== null || stoppedAfterErrors) return;
 
-    eventSource.addEventListener("message", (e: MessageEvent<string>) => {
-      consecutiveErrors = 0;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(e.data);
-      } catch {
+      const source = new EventSource(url, { withCredentials: true });
+      eventSource = source;
+      let consecutiveErrors = 0;
+
+      source.addEventListener("open", () => {
+        consecutiveErrors = 0;
+      });
+
+      source.addEventListener("error", () => {
+        consecutiveErrors++;
+        const reachedErrorLimit =
+          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS;
+        if (source.readyState === EventSource.CLOSED || reachedErrorLimit) {
+          stoppedAfterErrors = reachedErrorLimit;
+          if (eventSource === source) {
+            closeEventSource();
+          } else {
+            source.close();
+          }
+        }
+      });
+
+      source.addEventListener("message", (e: MessageEvent<string>) => {
+        consecutiveErrors = 0;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+
+        const result = EditorSSEEventSchema.safeParse(parsed);
+        if (!result.success) return;
+
+        const event: EditorSSEEvent = result.data;
+
+        // コールバックがあれば呼び出す
+        onEventRef.current?.(event);
+
+        // イベント種別に応じてキャッシュを無効化
+        if (event.type === "document_changed") {
+          const lastSavedRef = lastSavedVersionRefRef.current;
+          const lastSavedVersion = lastSavedRef?.current ?? null;
+          // 自分自身の保存によるエコーをスキップ（完全一致のみ）。
+          if (
+            lastSavedRef != null &&
+            lastSavedVersion != null &&
+            event.version === lastSavedVersion
+          ) {
+            lastSavedRef.current = null; // 一度消費したらリセット
+            return;
+          }
+          // コンフリクト解決中は document_changed を無視する。
+          // refetch するとエディタ内容が書き換わり、解決 UI の状態と齟齬が生じる。
+          if (isConflictActiveRefRef.current?.current) {
+            return;
+          }
+          const pendingVal = pendingValueRefRef.current;
+          // debounce 中の未保存編集がある場合、3-way merge を試行する。
+          // merge コールバックが未設定の場合は従来通り抑制する。
+          if (pendingVal?.current != null) {
+            onMergeNeededRef.current?.();
+            return;
+          }
+          void queryClient.invalidateQueries({
+            queryKey: ["formContent", formId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["formDiff", formId],
+          });
+        }
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        closeEventSource();
         return;
       }
+      void queryClient.invalidateQueries({
+        queryKey: ["formContent", formId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["formDiff", formId],
+      });
+      connect();
+    };
 
-      const result = EditorSSEEventSchema.safeParse(parsed);
-      if (!result.success) return;
-
-      const event: EditorSSEEvent = result.data;
-
-      // コールバックがあれば呼び出す
-      onEventRef.current?.(event);
-
-      // イベント種別に応じてキャッシュを無効化
-      if (event.type === "document_changed") {
-        const lastSavedRef = lastSavedVersionRefRef.current;
-        const lastSavedVersion = lastSavedRef?.current ?? null;
-        // 自分自身の保存によるエコーをスキップ（完全一致のみ）。
-        if (
-          lastSavedRef != null &&
-          lastSavedVersion != null &&
-          event.version === lastSavedVersion
-        ) {
-          lastSavedRef.current = null; // 一度消費したらリセット
-          return;
-        }
-        // コンフリクト解決中は document_changed を無視する。
-        // refetch するとエディタ内容が書き換わり、解決 UI の状態と齟齬が生じる。
-        if (isConflictActiveRefRef.current?.current) {
-          return;
-        }
-        const pendingVal = pendingValueRefRef.current;
-        // debounce 中の未保存編集がある場合、3-way merge を試行する。
-        // merge コールバックが未設定の場合は従来通り抑制する。
-        if (pendingVal?.current != null) {
-          onMergeNeededRef.current?.();
-          return;
-        }
-        void queryClient.invalidateQueries({
-          queryKey: ["formContent", formId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: ["formDiff", formId],
-        });
-      }
-    });
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      eventSource.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      closeEventSource();
     };
   }, [formId, queryClient]);
 }
