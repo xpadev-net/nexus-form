@@ -19,6 +19,27 @@ const updateContentSchema = z.object({
   expectedVersion: z.number().int().min(0),
 });
 
+export const FormContentResponseSchema = z.object({
+  plateContent: z.string(),
+  plateContentVersion: z.number().int().min(0),
+});
+export type FormContentResponse = z.infer<typeof FormContentResponseSchema>;
+
+export const FormContentSaveResponseSchema = z.object({
+  plateContentVersion: z.number().int().min(0),
+});
+export type FormContentSaveResponse = z.infer<
+  typeof FormContentSaveResponseSchema
+>;
+
+export const FormContentConflictResponseSchema = z.object({
+  error: z.literal("Version conflict"),
+  currentVersion: z.number().int().min(0),
+});
+export type FormContentConflictResponse = z.infer<
+  typeof FormContentConflictResponseSchema
+>;
+
 export const formsContentRouter = createHonoApp()
   // GET /forms/:id/content — fetch plate document content
   .get("/:id/content", withDualFormAuth("VIEWER"), async (c) => {
@@ -34,10 +55,12 @@ export const formsContentRouter = createHonoApp()
 
     if (!target) return c.json({ error: "Form not found" }, 404);
 
-    return c.json({
-      plateContent: target.plateContent ?? "[]",
-      plateContentVersion: target.plateContentVersion,
-    });
+    return c.json(
+      FormContentResponseSchema.parse({
+        plateContent: target.plateContent ?? "[]",
+        plateContentVersion: target.plateContentVersion,
+      }),
+    );
   })
 
   // PUT /forms/:id/content — save plate document content with optimistic lock
@@ -83,10 +106,10 @@ export const formsContentRouter = createHonoApp()
         if (!current) return c.json({ error: "Form not found" }, 404);
 
         return c.json(
-          {
+          FormContentConflictResponseSchema.parse({
             error: "Version conflict",
             currentVersion: current.plateContentVersion,
-          },
+          }),
           409,
         );
       }
@@ -104,8 +127,10 @@ export const formsContentRouter = createHonoApp()
         timestamp: new Date().toISOString(),
       });
 
-      return c.json({
-        plateContentVersion: expectedVersion + 1,
-      });
+      return c.json(
+        FormContentSaveResponseSchema.parse({
+          plateContentVersion: expectedVersion + 1,
+        }),
+      );
     },
   );

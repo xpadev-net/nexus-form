@@ -1,10 +1,31 @@
 import { db } from "@nexus-form/database";
 import { form, formInvitation } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
 import { acceptInvitation } from "../lib/forms/permission-service";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
+import { FormPermission } from "../types/domain/form-permission";
+
+export const InviteLookupResponseSchema = z.object({
+  invitation: z.object({
+    id: z.string(),
+    formId: z.string(),
+    formTitle: z.string(),
+    email: z.string().email(),
+    role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
+    status: z.enum(["PENDING", "ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED"]),
+    message: z.string().nullable(),
+    expiresAt: z.date(),
+  }),
+});
+export type InviteLookupResponse = z.infer<typeof InviteLookupResponseSchema>;
+
+export const InviteAcceptResponseSchema = z.object({
+  permission: FormPermission,
+});
+export type InviteAcceptResponse = z.infer<typeof InviteAcceptResponseSchema>;
 
 export const formsInvitesRouter = createHonoApp()
   .get(
@@ -33,7 +54,7 @@ export const formsInvitesRouter = createHonoApp()
         .limit(1);
 
       if (!invitation) return c.json({ error: "Invitation not found" }, 404);
-      return c.json({ invitation });
+      return c.json(InviteLookupResponseSchema.parse({ invitation }));
     },
   )
   .post(
@@ -49,6 +70,6 @@ export const formsInvitesRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
       const permission = await acceptInvitation(token, auth.user_id);
-      return c.json({ permission });
+      return c.json(InviteAcceptResponseSchema.parse({ permission }));
     },
   );

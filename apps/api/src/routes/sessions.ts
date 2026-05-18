@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
@@ -6,6 +7,11 @@ import {
   extractJwtFromRequest,
   resolveSessionIdOrCreate,
 } from "../lib/sessions/jwt";
+
+export const SessionEnsureResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type SessionEnsureResponse = z.infer<typeof SessionEnsureResponseSchema>;
 
 export const sessionsRouter = createHonoApp()
   .use("/*", withDualAuth())
@@ -36,6 +42,6 @@ export const sessionsRouter = createHonoApp()
           .join("; "),
       );
 
-      return c.json({ ok: true });
+      return c.json(SessionEnsureResponseSchema.parse({ ok: true }));
     },
   );

@@ -1,4 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   GoogleSheetsIntegrationSettingSchema,
@@ -8,12 +9,52 @@ import {
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
 
+const FormIntegrationRecordSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  ownerUserId: z.string(),
+  userId: z.string().nullable(),
+  config: GoogleSheetsIntegrationSettingSchema,
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export const FormIntegrationResponseSchema = z.object({
+  integration: FormIntegrationRecordSchema.nullable(),
+});
+export type FormIntegrationResponse = z.infer<
+  typeof FormIntegrationResponseSchema
+>;
+
+export const GoogleSheetsSyncUnsupportedResponseSchema = z.object({
+  error: z.literal("Manual Google Sheets sync is not supported"),
+  message: z.string(),
+});
+export type GoogleSheetsSyncUnsupportedResponse = z.infer<
+  typeof GoogleSheetsSyncUnsupportedResponseSchema
+>;
+
+export const GoogleSheetsSyncJobResponseSchema = z.object({
+  job: z.object({
+    id: z.string().optional(),
+    name: z.string(),
+    state: z.string(),
+    progress: z.unknown(),
+    attemptsMade: z.number().int().min(0),
+    failedReason: z.string().optional(),
+    result: z.unknown(),
+  }),
+});
+export type GoogleSheetsSyncJobResponse = z.infer<
+  typeof GoogleSheetsSyncJobResponseSchema
+>;
+
 export const formsIntegrationsRouter = createHonoApp()
   .use("/:id/integrations*", withDualFormAuth("OWNER"))
   .get("/:id/integrations/google-sheets", async (c) => {
     const formId = c.req.param("id");
     const integration = await getFormIntegration(formId);
-    return c.json({ integration });
+    return c.json(FormIntegrationResponseSchema.parse({ integration }));
   })
   .post(
     "/:id/integrations/google-sheets",
@@ -31,7 +72,7 @@ export const formsIntegrationsRouter = createHonoApp()
         config,
       });
 
-      return c.json({ integration });
+      return c.json(FormIntegrationResponseSchema.parse({ integration }));
     },
   )
   .post("/:id/integrations/google-sheets/sync", async (c) => {
@@ -42,11 +83,11 @@ export const formsIntegrationsRouter = createHonoApp()
     }
 
     return c.json(
-      {
+      GoogleSheetsSyncUnsupportedResponseSchema.parse({
         error: "Manual Google Sheets sync is not supported",
         message:
           "Google Sheets sync jobs are queued automatically for each submitted response.",
-      },
+      }),
       501,
     );
   })
@@ -62,15 +103,17 @@ export const formsIntegrationsRouter = createHonoApp()
     if (!job) return c.json({ error: "Job not found" }, 404);
 
     const state = await job.getState();
-    return c.json({
-      job: {
-        id: job.id,
-        name: job.name,
-        state,
-        progress: job.progress,
-        attemptsMade: job.attemptsMade,
-        failedReason: job.failedReason,
-        result: job.returnvalue,
-      },
-    });
+    return c.json(
+      GoogleSheetsSyncJobResponseSchema.parse({
+        job: {
+          id: job.id,
+          name: job.name,
+          state,
+          progress: job.progress,
+          attemptsMade: job.attemptsMade,
+          failedReason: job.failedReason,
+          result: job.returnvalue,
+        },
+      }),
+    );
   });
