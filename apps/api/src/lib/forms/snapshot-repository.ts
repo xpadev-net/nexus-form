@@ -190,7 +190,9 @@ export async function publishSnapshot(
   return result;
 }
 
-export async function restoreFromSnapshot(formId: string): Promise<void> {
+export async function restoreFromSnapshot(
+  formId: string,
+): Promise<{ plateContent: string; plateContentVersion: number }> {
   const snapshot = await getLatestSnapshot(formId);
   if (!snapshot) throw new SnapshotNotFoundError(formId);
 
@@ -207,12 +209,23 @@ export async function restoreFromSnapshot(formId: string): Promise<void> {
     formId,
     rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
   });
+
+  const [updated] = await db
+    .select({ plateContentVersion: form.plateContentVersion })
+    .from(form)
+    .where(eq(form.id, formId))
+    .limit(1);
+
+  return {
+    plateContent: snapshot.plateContent,
+    plateContentVersion: updated?.plateContentVersion ?? 0,
+  };
 }
 
 export async function restoreFromSnapshotVersion(
   formId: string,
   version: number,
-): Promise<void> {
+): Promise<{ plateContent: string; plateContentVersion: number }> {
   const snapshot = await getSnapshotByVersion(formId, version);
   if (!snapshot) throw new SnapshotNotFoundError(formId, version);
 
@@ -229,6 +242,17 @@ export async function restoreFromSnapshotVersion(
     formId,
     rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
   });
+
+  const [updated] = await db
+    .select({ plateContentVersion: form.plateContentVersion })
+    .from(form)
+    .where(eq(form.id, formId))
+    .limit(1);
+
+  return {
+    plateContent: snapshot.plateContent,
+    plateContentVersion: updated?.plateContentVersion ?? 0,
+  };
 }
 
 // ── Diff / unpublished-changes ──────────────────────────────────────

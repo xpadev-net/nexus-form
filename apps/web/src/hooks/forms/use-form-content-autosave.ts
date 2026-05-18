@@ -3,9 +3,9 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
-import { RESTORE_EDIT_EVENT } from "@/hooks/forms/use-snapshots";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
 
 const pendingSaveSchema = z.object({
@@ -198,8 +198,15 @@ export function useFormContentAutosave({
 
   useEffect(() => {
     const handleRestoreEdit = (event: Event) => {
-      const detail = (event as CustomEvent<{ formId?: string }>).detail;
+      const detail = (
+        event as CustomEvent<{
+          formId?: string;
+          plateContent?: string;
+          plateContentVersion?: number;
+        }>
+      ).detail;
       if (detail?.formId !== formId) return;
+      const restoredContent = detail.plateContent ?? baseContentRef.current;
 
       restoreGenerationRef.current++;
       if (saveTimerRef.current != null) {
@@ -212,8 +219,12 @@ export function useFormContentAutosave({
       isConflictActiveRef.current = false;
       resetMergeState();
       setConflictResolutions({});
-      editorValueRef.current = baseContentRef.current;
-      setDraftContent(baseContentRef.current);
+      if (detail.plateContentVersion != null) {
+        versionRef.current = detail.plateContentVersion;
+      }
+      baseContentRef.current = restoredContent;
+      editorValueRef.current = restoredContent;
+      setDraftContent(restoredContent);
       setIsSaving(false);
     };
 
