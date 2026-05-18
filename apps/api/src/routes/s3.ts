@@ -673,13 +673,12 @@ export const s3Router = createHonoApp()
         }),
       );
     } catch (error) {
-      return c.json(
-        UnhealthyResponseSchema.parse({
-          status: "unhealthy",
-          error: error instanceof Error ? error.message : "Unknown error",
-          timestamp: new Date().toISOString(),
-        }),
-        503,
-      );
+      const response: z.input<typeof UnhealthyResponseSchema> = {
+        status: "unhealthy",
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      };
+      const parsed = UnhealthyResponseSchema.safeParse(response);
+      return c.json(parsed.success ? parsed.data : response, 503);
     }
   });
