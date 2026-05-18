@@ -22,20 +22,23 @@ export function FormResponsesContent({ formId }: { formId: string }) {
   );
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const limit = 20;
-  const searchKeyword = debouncedKeyword;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      setDebouncedKeyword(keyword.trim());
+      const nextKeyword = keyword.trim();
+      setDebouncedKeyword(nextKeyword);
+      if (nextKeyword !== debouncedKeyword) {
+        setPage(1);
+      }
     }, 300);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [keyword]);
+  }, [keyword, debouncedKeyword]);
 
   const responsesQuery = useQuery({
-    queryKey: ["formResponses", formId, page, limit, searchKeyword],
+    queryKey: ["formResponses", formId, page, limit, debouncedKeyword],
     queryFn: () =>
       rpc(
         client.api.forms[":id"].responses.$get({
@@ -43,7 +46,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           query: {
             page: String(page),
             limit: String(limit),
-            ...(searchKeyword ? { keyword: searchKeyword } : {}),
+            ...(debouncedKeyword ? { keyword: debouncedKeyword } : {}),
           },
         }),
       ),
@@ -68,7 +71,6 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const handleKeywordChange = useCallback((value: string) => {
     setKeyword(value);
-    setPage(1);
     setSelectedResponseId(null);
   }, []);
 
@@ -160,7 +162,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                 {data.responses.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
                     <p className="text-sm">
-                      {searchKeyword
+                      {debouncedKeyword
                         ? "検索条件に一致する回答はありません。"
                         : "回答はまだありません。"}
                     </p>
