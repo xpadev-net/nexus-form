@@ -1,5 +1,4 @@
 import { zValidator } from "@hono/zod-validator";
-import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   GoogleSheetsIntegrationSettingSchema,
@@ -8,10 +7,6 @@ import {
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
-
-const syncPayloadSchema = z.object({
-  force: z.boolean().optional(),
-});
 
 export const formsIntegrationsRouter = createHonoApp()
   .use("/:id/integrations*", withDualFormAuth("OWNER"))
@@ -39,26 +34,22 @@ export const formsIntegrationsRouter = createHonoApp()
       return c.json({ integration });
     },
   )
-  .post(
-    "/:id/integrations/google-sheets/sync",
-    zValidator("json", syncPayloadSchema),
-    async (c) => {
-      const formId = c.req.param("id");
-      const integration = await getFormIntegration(formId);
-      if (!integration) {
-        return c.json({ error: "Integration not configured" }, 404);
-      }
+  .post("/:id/integrations/google-sheets/sync", async (c) => {
+    const formId = c.req.param("id");
+    const integration = await getFormIntegration(formId);
+    if (!integration) {
+      return c.json({ error: "Integration not configured" }, 404);
+    }
 
-      return c.json(
-        {
-          error: "Manual Google Sheets sync is not supported",
-          message:
-            "Google Sheets sync jobs are queued automatically for each submitted response.",
-        },
-        501,
-      );
-    },
-  )
+    return c.json(
+      {
+        error: "Manual Google Sheets sync is not supported",
+        message:
+          "Google Sheets sync jobs are queued automatically for each submitted response.",
+      },
+      501,
+    );
+  })
   .get("/:id/integrations/google-sheets/sync/:jobId", async (c) => {
     const formId = c.req.param("id");
     const jobId = c.req.param("jobId");
