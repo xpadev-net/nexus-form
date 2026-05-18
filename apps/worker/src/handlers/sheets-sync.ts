@@ -42,6 +42,8 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
   sheetName: z.string().min(1),
 });
 
+const IntegrationConfigSchema = z.record(z.string(), z.unknown());
+
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const { formId, integrationId, responseId } = sheetsSyncJobDataSchema.parse(
     job.data,
@@ -63,18 +65,26 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     throw new Error("Form integration config_json is empty");
   }
 
-  let rawConfig: Record<string, unknown>;
+  let parsedConfig: unknown;
   try {
-    rawConfig = JSON.parse(configJson) as Record<string, unknown>;
+    parsedConfig = JSON.parse(configJson);
   } catch {
     throw new Error("Form integration config_json is not valid JSON");
   }
-  const googleSheetsConfig = (rawConfig.googleSheets ?? rawConfig) as Record<
-    string,
-    unknown
-  >;
-  const settingResult =
-    GoogleSheetsIntegrationSettingSchema.safeParse(googleSheetsConfig);
+  const rawConfigResult = IntegrationConfigSchema.safeParse(parsedConfig);
+  if (!rawConfigResult.success) {
+    throw new Error("Form integration config_json must be an object");
+  }
+  const rawConfig = rawConfigResult.data;
+  const googleSheetsConfigResult = IntegrationConfigSchema.safeParse(
+    rawConfig.googleSheets ?? rawConfig,
+  );
+  if (!googleSheetsConfigResult.success) {
+    throw new Error("Google Sheets integration setting must be an object");
+  }
+  const settingResult = GoogleSheetsIntegrationSettingSchema.safeParse(
+    googleSheetsConfigResult.data,
+  );
 
   if (!settingResult.success) {
     const paths = settingResult.error.issues.map((i) => i.path.join("."));
