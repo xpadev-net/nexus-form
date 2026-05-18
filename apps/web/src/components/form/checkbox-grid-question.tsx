@@ -4,7 +4,6 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { deepEqual } from "@/lib/utils/deep-equal";
 import type { CheckboxGridFormBlock } from "@/types/domain/form-block";
 import { ErrorBoundary } from "./error-boundary";
 import { useValidationMessages } from "./hooks/useValidationMessages";
@@ -127,9 +126,9 @@ const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
               <th className="border border-border p-2 text-left font-medium bg-muted/50">
                 {/* 空のヘッダー（行ラベル用） */}
               </th>
-              {block.validation.columns.map((column, columnIndex) => (
+              {block.validation.columns.map((column) => (
                 <th
-                  key={`${block.blockId}-column-${columnIndex}`}
+                  key={column.id}
                   className="border border-border p-2 text-center font-medium bg-muted/50"
                 >
                   {column.label}
@@ -138,15 +137,15 @@ const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
             </tr>
           </thead>
           <tbody>
-            {block.validation.rows.map((row, rowIndex) => (
-              <tr key={`${block.blockId}-row-${rowIndex}`}>
+            {block.validation.rows.map((row) => (
+              <tr key={row.id}>
                 <td className="border border-border p-2 font-medium bg-muted/30">
                   {row.label}
                 </td>
-                {block.validation.columns.map((column, columnIndex) => {
+                {block.validation.columns.map((column) => {
                   const rowValues = value[row.id] || [];
                   const isChecked = rowValues.includes(column.id);
-                  const inputId = `${block.blockId}-${rowIndex}-${columnIndex}`;
+                  const inputId = `${block.blockId}-${row.id}-${column.id}`;
 
                   return (
                     <td
@@ -257,81 +256,4 @@ const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
 };
 
 // memoでパフォーマンス最適化
-export const CheckboxGridQuestionComponent = memo(
-  CheckboxGridQuestionInner,
-  (prevProps, nextProps) => {
-    // 基本的なプロップの比較
-    if (
-      prevProps.block.blockId !== nextProps.block.blockId ||
-      prevProps.error !== nextProps.error ||
-      prevProps.disabled !== nextProps.disabled ||
-      prevProps.className !== nextProps.className
-    ) {
-      return false;
-    }
-
-    // 値の比較（オブジェクトの深い比較）
-    const prevValue = prevProps.value || {};
-    const nextValue = nextProps.value || {};
-
-    const prevValueKeys = Object.keys(prevValue);
-    const nextValueKeys = Object.keys(nextValue);
-
-    if (prevValueKeys.length !== nextValueKeys.length) {
-      return false;
-    }
-
-    for (const key of prevValueKeys) {
-      const prevArray = prevValue[key] || [];
-      const nextArray = nextValue[key] || [];
-
-      if (prevArray.length !== nextArray.length) {
-        return false;
-      }
-
-      for (let i = 0; i < prevArray.length; i++) {
-        if (prevArray[i] !== nextArray[i]) {
-          return false;
-        }
-      }
-    }
-
-    // ブロックオブジェクトの詳細比較
-    if (
-      prevProps.block.type !== nextProps.block.type ||
-      prevProps.block.title !== nextProps.block.title ||
-      prevProps.block.description !== nextProps.block.description ||
-      prevProps.block.order !== nextProps.block.order
-    ) {
-      return false;
-    }
-
-    // バリデーション設定の比較
-    const prevValidation = prevProps.block.validation as {
-      required: boolean;
-      rows: unknown[];
-      columns: unknown[];
-      minSelectionsPerRow?: number;
-      maxSelectionsPerRow?: number;
-    };
-    const nextValidation = nextProps.block.validation as {
-      required: boolean;
-      rows: unknown[];
-      columns: unknown[];
-      minSelectionsPerRow?: number;
-      maxSelectionsPerRow?: number;
-    };
-
-    if (!prevValidation && !nextValidation) return true;
-    if (!prevValidation || !nextValidation) return false;
-
-    return (
-      prevValidation.required === nextValidation.required &&
-      deepEqual(prevValidation.rows, nextValidation.rows) &&
-      deepEqual(prevValidation.columns, nextValidation.columns) &&
-      prevValidation.minSelectionsPerRow ===
-        nextValidation.minSelectionsPerRow &&
-      prevValidation.maxSelectionsPerRow === nextValidation.maxSelectionsPerRow
-    );
-  },
-);
+export const CheckboxGridQuestionComponent = memo(CheckboxGridQuestionInner);
