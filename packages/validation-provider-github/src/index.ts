@@ -8,9 +8,11 @@ export {
 export { GitHubErrorCode } from "./error-codes";
 export { default, githubProvider } from "./plugin";
 export {
+  GitHubProviderError,
   getGitHubErrorCode,
   getGitHubRateLimitRetryAfter,
   isGitHubAuthError,
+  isGitHubProviderError,
   isGitHubRateLimitError,
   isGitHubUserNotFoundError,
   type OctokitRequestError,
