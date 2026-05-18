@@ -184,12 +184,14 @@ export function FormEditorPage() {
   const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
 
   useEffect(() => {
-    if (!formIdForStatus || formStatusResult.success) return;
+    if (!formIdForStatus || FormStatus.safeParse(rawFormStatus).success) {
+      return;
+    }
     logWarn("Unrecognized form status received in editor", "forms", {
       formId: formIdForStatus,
       status: rawFormStatus,
     });
-  }, [formIdForStatus, rawFormStatus, formStatusResult.success]);
+  }, [formIdForStatus, rawFormStatus]);
 
   if (formQuery.isLoading || contentQuery.isLoading) {
     return (
