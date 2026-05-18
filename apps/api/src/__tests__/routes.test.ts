@@ -139,6 +139,41 @@ describe("API Route Integration Tests", () => {
       const body = (await res.json()) as { error: string };
       expect(body.error).toBeDefined();
     });
+
+    it("should allow null display names and serialize user dates", async () => {
+      const { auth } = await import("../lib/auth");
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
+        user: {
+          id: "user-1",
+          email: "user@example.com",
+          name: null,
+          role: "user",
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+          emailVerified: true,
+          image: null,
+          isSuspended: false,
+        },
+        session: {
+          id: "session-1",
+          userId: "user-1",
+          token: "session-token",
+          expiresAt: new Date("2026-02-01T00:00:00.000Z"),
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          updatedAt: new Date("2026-01-02T00:00:00.000Z"),
+        },
+      } as unknown as Awaited<ReturnType<typeof auth.api.getSession>>);
+
+      const res = await app.request("/api/auth-ext/me");
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as {
+        user: { name: string | null; createdAt: string; updatedAt: string };
+      };
+      expect(body.user.name).toBeNull();
+      expect(body.user.createdAt).toBe("2026-01-01T00:00:00.000Z");
+      expect(body.user.updatedAt).toBe("2026-01-02T00:00:00.000Z");
+    });
   });
 
   describe("POST /api/auth-ext/me", () => {
