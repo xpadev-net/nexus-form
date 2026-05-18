@@ -16,6 +16,8 @@ interface FormResponseSettingsProps {
   onSaved?: () => void;
 }
 
+type SaveResponseSettingsResult = { success: true };
+
 export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
   formId,
   initialSettings,
@@ -24,7 +26,7 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
   const [settings, setSettings] = useState(initialSettings);
 
   const saveMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (): Promise<SaveResponseSettingsResult> =>
       rpc(
         client.api.forms[":id"].settings.responses.$patch({
           param: { id: formId },

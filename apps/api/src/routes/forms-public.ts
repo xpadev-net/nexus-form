@@ -375,6 +375,7 @@ export const formsPublicRouter = createHonoApp()
       if (requireFingerprint && payload.fingerprints.length === 0) {
         return c.json({ error: "Fingerprint data is required" }, 400);
       }
+      const fingerprints = requireFingerprint ? payload.fingerprints : [];
 
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
@@ -422,9 +423,9 @@ export const formsPublicRouter = createHonoApp()
           countryCode: null,
         });
 
-        if (payload.fingerprints.length > 0) {
+        if (fingerprints.length > 0) {
           await tx.insert(fingerprintDetail).values(
-            payload.fingerprints.map((fp) => ({
+            fingerprints.map((fp) => ({
               id: randomUUID(),
               responseId,
               fingerprintType: fp.type,

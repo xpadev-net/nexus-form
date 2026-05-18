@@ -1,15 +1,17 @@
+import { form } from "@nexus-form/database";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
 
 const mocks = vi.hoisted(() => ({
   db: {
-    update: vi.fn(),
+    transaction: vi.fn(),
   },
-  updateSet: vi.fn(),
-  updateWhere: vi.fn(),
+  formUpdateSet: vi.fn(),
+  insertValues: vi.fn(),
+  structureUpdateSet: vi.fn(),
+  where: vi.fn(),
   getFormStructure: vi.fn(),
-  saveFormStructure: vi.fn(),
   formAuthRoles: [] as Array<unknown>,
 }));
 
@@ -33,7 +35,11 @@ vi.mock("@nexus-form/database/schema", () => ({
   formSchedule: {},
   formShareLink: {},
   formSnapshot: {},
-  formStructure: {},
+  formStructure: {
+    formId: "formStructure.formId",
+    isActive: "formStructure.isActive",
+    version: "formStructure.version",
+  },
   formValidationRule: {},
   formValidationRuleBlock: {},
 }));
@@ -56,7 +62,6 @@ vi.mock("../lib/dual-auth", () => ({
 
 vi.mock("../lib/forms/form-structure-service", () => ({
   getFormStructure: mocks.getFormStructure,
-  saveFormStructure: mocks.saveFormStructure,
 }));
 
 vi.mock("../lib/forms/structure-mutation-lock", () => ({
@@ -93,9 +98,28 @@ describe("PATCH /:id/settings/responses", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.formAuthRoles.length = 0;
-    mocks.updateWhere.mockResolvedValue(undefined);
-    mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
-    mocks.db.update.mockReturnValue({ set: mocks.updateSet });
+    mocks.where.mockResolvedValue(undefined);
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn().mockReturnThis(),
+        where: vi.fn().mockReturnThis(),
+        orderBy: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockResolvedValue([{ version: 2 }]),
+      })),
+      update: vi.fn((table: unknown) => ({
+        set:
+          table === form
+            ? mocks.formUpdateSet.mockReturnValue({ where: mocks.where })
+            : mocks.structureUpdateSet.mockReturnValue({ where: mocks.where }),
+      })),
+      insert: vi.fn(() => ({
+        values: mocks.insertValues.mockResolvedValue(undefined),
+      })),
+    };
+    mocks.db.transaction.mockImplementation(
+      async (callback: (transaction: typeof tx) => Promise<unknown>) =>
+        callback(tx),
+    );
   });
 
   it("requires editor access and saves response settings through the shared structure contract", async () => {
@@ -125,24 +149,67 @@ describe("PATCH /:id/settings/responses", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ success: true });
     expect(mocks.formAuthRoles).toContain("EDITOR");
-    expect(mocks.updateSet).toHaveBeenCalledWith({ allowEditResponses: true });
-    expect(mocks.saveFormStructure).toHaveBeenCalledWith(
-      "form-1",
-      {
-        version: 2,
-        settings: {
-          allow_edit_responses: true,
-          require_fingerprint: true,
-          response_limit: {
-            enabled: true,
-            max_responses: 100,
-            message: "Full",
-          },
+    expect(mocks.formUpdateSet).toHaveBeenCalledWith({
+      allowEditResponses: true,
+    });
+    expect(mocks.db.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: "form-1",
+        version: 3,
+        createdBy: "user-1",
+        changeLog: "Update response settings",
+        parentVersion: 2,
+      }),
+    );
+    const inserted = mocks.insertValues.mock.calls[0]?.[0] as
+      | { structureJson: string }
+      | undefined;
+    expect(inserted).toBeDefined();
+    expect(JSON.parse(inserted?.structureJson ?? "{}")).toEqual({
+      version: 2,
+      settings: {
+        allow_edit_responses: true,
+        require_fingerprint: true,
+        response_limit: {
+          enabled: true,
+          max_responses: 100,
+          message: "Full",
         },
       },
-      "user-1",
-      "Update response settings",
-    );
+    });
+  });
+
+  it("persists require_fingerprint false when fingerprint collection is disabled", async () => {
+    mocks.getFormStructure.mockResolvedValue({
+      version: 2,
+      settings: {
+        allow_edit_responses: true,
+      },
+    });
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const res = await formsDetailRouter.request("/form-1/settings/responses", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        allowEdit: true,
+        maxResponses: null,
+        requireFingerprint: false,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const inserted = mocks.insertValues.mock.calls[0]?.[0] as
+      | { structureJson: string }
+      | undefined;
+    expect(JSON.parse(inserted?.structureJson ?? "{}")).toEqual({
+      version: 2,
+      settings: {
+        allow_edit_responses: true,
+        require_fingerprint: false,
+      },
+    });
   });
 
   it("removes the response limit when the payload requests unlimited responses", async () => {
@@ -169,17 +236,15 @@ describe("PATCH /:id/settings/responses", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(mocks.saveFormStructure).toHaveBeenCalledWith(
-      "form-1",
-      {
-        version: 2,
-        settings: {
-          allow_edit_responses: false,
-          require_fingerprint: true,
-        },
+    const inserted = mocks.insertValues.mock.calls[0]?.[0] as
+      | { structureJson: string }
+      | undefined;
+    expect(JSON.parse(inserted?.structureJson ?? "{}")).toEqual({
+      version: 2,
+      settings: {
+        allow_edit_responses: false,
+        require_fingerprint: true,
       },
-      "user-1",
-      "Update response settings",
-    );
+    });
   });
 });

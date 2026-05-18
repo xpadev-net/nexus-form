@@ -20,17 +20,17 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
-import {
-  getFormStructure,
-  saveFormStructure,
-} from "../lib/forms/form-structure-service";
+import { getFormStructure } from "../lib/forms/form-structure-service";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
-import type { FormStructure } from "../types/domain/form";
+import {
+  type FormStructure,
+  FormStructure as FormStructureSchema,
+} from "../types/domain/form";
 import {
   FormCreateResponseSchema,
   FormDetailResponseSchema,
@@ -150,16 +150,42 @@ export const formsDetailRouter = createHonoApp()
           delete updatedStructure.settings.response_limit;
         }
 
-        await db
-          .update(form)
-          .set({ allowEditResponses: payload.allowEdit })
-          .where(eq(form.id, id));
-        await saveFormStructure(
-          id,
-          updatedStructure,
-          authCtx?.user_id ?? "unknown",
-          "Update response settings",
-        );
+        const validatedStructure = FormStructureSchema.parse(updatedStructure);
+        const createdBy = authCtx?.user_id ?? "unknown";
+
+        await db.transaction(async (tx) => {
+          const [latestStructure] = await tx
+            .select({ version: formStructure.version })
+            .from(formStructure)
+            .where(eq(formStructure.formId, id))
+            .orderBy(desc(formStructure.version))
+            .limit(1);
+          const currentVersion = latestStructure?.version ?? 0;
+          const nextVersion = currentVersion + 1;
+
+          await tx
+            .update(formStructure)
+            .set({ isActive: false })
+            .where(
+              and(
+                eq(formStructure.formId, id),
+                eq(formStructure.isActive, true),
+              ),
+            );
+          await tx.insert(formStructure).values({
+            id: randomUUID(),
+            formId: id,
+            structureJson: JSON.stringify(validatedStructure),
+            version: nextVersion,
+            createdBy,
+            changeLog: "Update response settings",
+            parentVersion: currentVersion > 0 ? currentVersion : null,
+          });
+          await tx
+            .update(form)
+            .set({ allowEditResponses: payload.allowEdit })
+            .where(eq(form.id, id));
+        });
       });
 
       return c.json(
