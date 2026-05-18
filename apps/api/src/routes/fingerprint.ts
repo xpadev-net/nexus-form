@@ -63,6 +63,16 @@ const retentionConfigSchema = z.object({
   cleanupSchedule: z.string().optional(),
 });
 
+function getFingerprintLookupCondition(responseId?: string, formId?: string) {
+  if (responseId) {
+    return eq(fingerprintDetail.responseId, responseId);
+  }
+  if (formId) {
+    return eq(formResponse.formId, formId);
+  }
+  return null;
+}
+
 export const fingerprintRouter = createHonoApp()
   .post(
     "/save",
@@ -153,6 +163,14 @@ export const fingerprintRouter = createHonoApp()
         }
       }
 
+      const fingerprintWhere = getFingerprintLookupCondition(
+        responseId,
+        formId,
+      );
+      if (!fingerprintWhere) {
+        return c.json({ error: "responseId or formId is required" }, 400);
+      }
+
       const rows = await db
         .select({
           id: fingerprintDetail.id,
@@ -168,11 +186,7 @@ export const fingerprintRouter = createHonoApp()
           formResponse,
           eq(formResponse.id, fingerprintDetail.responseId),
         )
-        .where(
-          responseId
-            ? eq(fingerprintDetail.responseId, responseId)
-            : eq(formResponse.formId, formId as string),
-        );
+        .where(fingerprintWhere);
 
       return c.json(FingerprintGetResponseSchema.parse({ fingerprints: rows }));
     },
