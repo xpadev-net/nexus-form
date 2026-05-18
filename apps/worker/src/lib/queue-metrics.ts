@@ -31,8 +31,14 @@ function collectQueueNames(): string[] {
 }
 
 const queueCache = new Map<string, Queue>();
+const inFlightCollections = new Set<Promise<void>>();
+let metricsClosing = false;
 
 function getOrCreateQueue(name: string): Queue {
+  if (metricsClosing) {
+    throw new Error("Queue metrics collection is closing");
+  }
+
   let queue = queueCache.get(name);
   if (!queue) {
     queue = new Queue(name, { connection: redisConnection });
@@ -41,24 +47,56 @@ function getOrCreateQueue(name: string): Queue {
   return queue;
 }
 
+/**
+ * メトリクス収集用に作成した Queue 接続を閉じる。
+ * グレースフルシャットダウン時に呼び、Redis 接続リークを防ぐ。
+ */
+export async function closeMetricsQueues(): Promise<void> {
+  metricsClosing = true;
+  await Promise.all(inFlightCollections);
+
+  const queues = Array.from(queueCache.entries());
+  queueCache.clear();
+
+  await Promise.all(
+    queues.map(async ([name, queue]) => {
+      try {
+        await queue.close();
+      } catch (error) {
+        console.error(
+          `[queue-metrics] failed to close queue ${name}:`,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }),
+  );
+}
+
 // 前回のメトリクスを保存
 const previousMetrics = new Map<
   string,
   { completed: number; failed: number }
 >();
 
+export function resetQueueMetricsStateForTests(): void {
+  if (process.env.NODE_ENV !== "test") return;
+  queueCache.clear();
+  inFlightCollections.clear();
+  previousMetrics.clear();
+  metricsClosing = false;
+}
+
 // 異常検知の閾値
 const DELTA_FAILED_THRESHOLD = 50;
 const DELTA_FAILED_RATIO_THRESHOLD = 0.3;
 const WAITING_THRESHOLD = 1000;
 
-export async function collectQueueMetrics(): Promise<QueueMetrics[]> {
+async function collectQueueMetricsOnce(): Promise<QueueMetrics[]> {
   const metrics: QueueMetrics[] = [];
 
   for (const name of collectQueueNames()) {
-    const queue = getOrCreateQueue(name);
-
     try {
+      const queue = getOrCreateQueue(name);
       const [waiting, active, completed, failed, delayed, isPaused] =
         await Promise.all([
           queue.getWaitingCount(),
@@ -103,6 +141,24 @@ export async function collectQueueMetrics(): Promise<QueueMetrics[]> {
   }
 
   return metrics;
+}
+
+export async function collectQueueMetrics(): Promise<QueueMetrics[]> {
+  if (metricsClosing) {
+    return [];
+  }
+
+  const collection = collectQueueMetricsOnce();
+  const trackedCollection = collection.then(
+    () => undefined,
+    () => undefined,
+  );
+  inFlightCollections.add(trackedCollection);
+  trackedCollection.finally(() => {
+    inFlightCollections.delete(trackedCollection);
+  });
+
+  return collection;
 }
 
 export function detectAnomalies(

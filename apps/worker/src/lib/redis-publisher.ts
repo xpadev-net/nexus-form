@@ -26,6 +26,24 @@ function getPublisher(): Redis {
 }
 
 /**
+ * Pub/Sub 用 Redis publisher を閉じる。
+ * グレースフルシャットダウン時に呼び、接続リークを防ぐ。
+ */
+export async function closePublisher(): Promise<void> {
+  if (!publisher) return;
+  try {
+    await publisher.quit();
+  } catch (error) {
+    console.error(
+      "[redis-publisher] failed to close publisher:",
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    publisher = null;
+  }
+}
+
+/**
  * バリデーションステータス変更イベントを publish する
  *
  * publish 失敗時はログのみ出力し、メインのバリデーション処理に影響させない

@@ -9,9 +9,13 @@ import {
   createGracefulShutdown,
   registerShutdownHandlers,
 } from "./lib/graceful-shutdown";
-import { startQueueMetricsCollection } from "./lib/queue-metrics";
+import {
+  closeMetricsQueues,
+  startQueueMetricsCollection,
+} from "./lib/queue-metrics";
 import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
+import { closePublisher } from "./lib/redis-publisher";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { createWorker } from "./lib/worker-factory";
 
@@ -94,6 +98,8 @@ async function main() {
     workers,
     metricsInterval,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    closeMetricsQueues,
+    closePublisher,
     closeLockClient,
     flushSentry,
     captureError,

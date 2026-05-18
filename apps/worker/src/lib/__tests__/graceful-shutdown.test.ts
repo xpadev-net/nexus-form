@@ -67,6 +67,8 @@ function createDeferred(): {
 describe("createGracefulShutdown", () => {
   it("closes workers, lock client, and exits with the requested code", async () => {
     const worker = { close: vi.fn().mockResolvedValue(undefined) };
+    const closeMetricsQueues = vi.fn().mockResolvedValue(undefined);
+    const closePublisher = vi.fn().mockResolvedValue(undefined);
     const closeLockClient = vi.fn().mockResolvedValue(undefined);
     const flushSentry = vi.fn().mockResolvedValue(undefined);
     const captureError = vi.fn();
@@ -76,6 +78,8 @@ describe("createGracefulShutdown", () => {
       workers: [worker],
       metricsInterval: null,
       timeoutMs: 30_000,
+      closeMetricsQueues,
+      closePublisher,
       closeLockClient,
       flushSentry,
       captureError,
@@ -86,6 +90,8 @@ describe("createGracefulShutdown", () => {
     await shutdown({ trigger: "unhandledRejection", exitCode: 1 });
 
     expect(worker.close).toHaveBeenCalledTimes(1);
+    expect(closeMetricsQueues).toHaveBeenCalledTimes(1);
+    expect(closePublisher).toHaveBeenCalledTimes(1);
     expect(closeLockClient).toHaveBeenCalledTimes(1);
     expect(flushSentry).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(1);
@@ -98,6 +104,8 @@ describe("createGracefulShutdown", () => {
       workers: [{ close: vi.fn().mockResolvedValue(undefined) }],
       metricsInterval: null,
       timeoutMs: 30_000,
+      closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
+      closePublisher: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),
       captureError,
@@ -123,6 +131,8 @@ describe("createGracefulShutdown", () => {
       workers: [{ close: vi.fn().mockReturnValue(workerClose.promise) }],
       metricsInterval: null,
       timeoutMs: 30_000,
+      closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
+      closePublisher: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),
       captureError,
