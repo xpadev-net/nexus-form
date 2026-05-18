@@ -245,6 +245,7 @@
 
 ### R3-H6. プロバイダーの `retryAfter` がバックオフに反映されない
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/worker/src/handlers/generic-validation.ts:263-265`
 - **問題:** レート制限時にプロバイダーが返す `result.retryAfter`（秒）を、ハンドラは `throw new Error("Rate limited, retry after Ns")` するだけ。BullMQ は `defaultJobOptions.backoff`（指数 30 秒）で再試行するため、プロバイダー指定の待機時間が完全に破棄される（Discord/GitHub の意図したバックオフが無視される）。
 - **修正内容:** `job.moveToDelayed(Date.now() + retryAfter * 1000, token)` を使う、または `retryAfter` をエラーに乗せて BullMQ のカスタムバックオフ関数で読み取る。

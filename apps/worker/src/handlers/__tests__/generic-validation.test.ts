@@ -3,7 +3,7 @@ import {
   type ValidationProvider,
   type ValidationProviderRule,
 } from "@nexus-form/integrations";
-import type { Job } from "bullmq";
+import { DELAYED_ERROR, type Job } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleGenericValidation } from "../generic-validation";
 
@@ -66,6 +66,7 @@ function makeJob(data: {
       snapshotConfigJson: { raw: "value" },
       ...data,
     },
+    moveToDelayed: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
 }
 
@@ -259,7 +260,7 @@ describe("handleGenericValidation", () => {
     );
   });
 
-  it("retryAfterが設定されている場合はエラーをスローしてリトライさせる", async () => {
+  it("retryAfterが設定されている場合は指定秒数だけ遅延して再試行させる", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({ isValid: false, retryAfter: 30 }),
     });
@@ -269,10 +270,18 @@ describe("handleGenericValidation", () => {
       ruleId: "rule-1",
       referencedBlockId: "block-a",
     });
+    const before = Date.now();
 
-    await expect(handleGenericValidation(job)).rejects.toThrow(
-      "Rate limited, retry after 30s",
+    await expect(handleGenericValidation(job, "lock-token")).rejects.toThrow(
+      DELAYED_ERROR,
     );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    const delayedUntil = vi.mocked(job.moveToDelayed).mock.calls[0]?.[0];
+    expect(delayedUntil).toBeGreaterThanOrEqual(before + 30_000);
+    expect(delayedUntil).toBeLessThanOrEqual(Date.now() + 30_000);
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 

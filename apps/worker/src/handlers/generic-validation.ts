@@ -9,7 +9,7 @@ import {
   providerRegistry,
   validationProviderResultSchema,
 } from "@nexus-form/integrations";
-import type { Job } from "bullmq";
+import { DelayedError, type Job } from "bullmq";
 import { ZodError } from "zod";
 import {
   getValidationContext,
@@ -62,6 +62,7 @@ export type GenericValidationJob = {
 
 export const handleGenericValidation = async (
   job: Job<GenericValidationJob>,
+  token?: string,
 ) => {
   const { responseId, ruleId, referencedBlockId } = job.data;
 
@@ -261,7 +262,8 @@ export const handleGenericValidation = async (
   const result = resultParse.data;
 
   if (result.retryAfter) {
-    throw new Error(`Rate limited, retry after ${result.retryAfter}s`);
+    await job.moveToDelayed(Date.now() + result.retryAfter * 1000, token);
+    throw new DelayedError();
   }
 
   let validatedMetadata: Record<string, unknown> | undefined;
