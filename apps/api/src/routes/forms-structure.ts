@@ -202,7 +202,7 @@ const SnapshotListItemResponseSchema = z.object({
   changeLog: z.string().nullish(),
   title: z.string(),
   description: z.string().nullish(),
-  parentVersion: z.number().int().min(1).nullish(),
+  parentVersion: z.number().int().nullish(),
 });
 
 const SnapshotListResponseSchema = z.object({
