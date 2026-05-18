@@ -44,11 +44,11 @@ export type PaginatedFormValidationRulesResponse = z.infer<
   typeof PaginatedFormValidationRulesResponseSchema
 >;
 
-export const FormValidationRuleResponseSchema = z.object({
+export const FormValidationRuleWireResponseSchema = z.object({
   rule: FormValidationRuleWireSchema,
 });
-export type FormValidationRuleResponse = z.infer<
-  typeof FormValidationRuleResponseSchema
+export type FormValidationRuleWireResponse = z.infer<
+  typeof FormValidationRuleWireResponseSchema
 >;
 
 function configErrorResponse(error: unknown): { error: string } | null {
@@ -88,7 +88,10 @@ export const formsValidationRulesRouter = createHonoApp()
       const payload = c.req.valid("json");
       try {
         const rule = await createValidationRule({ formId, payload });
-        return c.json(FormValidationRuleResponseSchema.parse({ rule }), 201);
+        return c.json(
+          FormValidationRuleWireResponseSchema.parse({ rule }),
+          201,
+        );
       } catch (error) {
         const response = configErrorResponse(error);
         if (response) return c.json(response, 400);
@@ -112,7 +115,7 @@ export const formsValidationRulesRouter = createHonoApp()
     const ruleId = c.req.param("ruleId");
     const rule = await getValidationRule(formId, ruleId);
     if (!rule) return c.json({ error: "Validation rule not found" }, 404);
-    return c.json(FormValidationRuleResponseSchema.parse({ rule }));
+    return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
   })
   .put(
     "/:id/validation-rules/:ruleId",
@@ -124,7 +127,7 @@ export const formsValidationRulesRouter = createHonoApp()
       const payload = c.req.valid("json");
       try {
         const rule = await updateValidationRule({ formId, ruleId, payload });
-        return c.json(FormValidationRuleResponseSchema.parse({ rule }));
+        return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
       } catch (error) {
         if (error instanceof ValidationRuleNotFoundError) {
           return c.json({ error: error.message }, 404);
