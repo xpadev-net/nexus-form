@@ -43,8 +43,11 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 });
 
 const IntegrationConfigSchema = z.record(z.string(), z.unknown());
+type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
 
-function resolveGoogleSheetsConfig(rawConfig: Record<string, unknown>) {
+function resolveGoogleSheetsConfig(
+  rawConfig: IntegrationConfig,
+): IntegrationConfig {
   if (rawConfig.googleSheets == null) {
     return rawConfig;
   }
