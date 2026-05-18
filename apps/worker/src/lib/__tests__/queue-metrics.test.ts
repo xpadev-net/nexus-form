@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../load-env", () => ({}));
 
@@ -8,8 +8,8 @@ vi.mock("@nexus-form/integrations", () => ({
   },
 }));
 
-vi.mock("bullmq", () => ({
-  Queue: vi.fn().mockImplementation(() => ({
+function createQueueMock() {
+  return {
     getWaitingCount: vi.fn().mockResolvedValue(0),
     getActiveCount: vi.fn().mockResolvedValue(0),
     getCompletedCount: vi.fn().mockResolvedValue(0),
@@ -18,7 +18,11 @@ vi.mock("bullmq", () => ({
     isPaused: vi.fn().mockResolvedValue(false),
     getCompleted: vi.fn().mockResolvedValue([]),
     close: vi.fn().mockResolvedValue(undefined),
-  })),
+  };
+}
+
+vi.mock("bullmq", () => ({
+  Queue: vi.fn().mockImplementation(createQueueMock),
 }));
 
 vi.mock("ioredis", () => {
@@ -31,7 +35,14 @@ vi.mock("ioredis", () => {
   return { default: RedisMock, Redis: RedisMock };
 });
 
-import { detectAnomalies, type QueueMetrics } from "../queue-metrics";
+import { providerRegistry } from "@nexus-form/integrations";
+import { Queue } from "bullmq";
+import {
+  closeMetricsQueues,
+  collectQueueMetrics,
+  detectAnomalies,
+  type QueueMetrics,
+} from "../queue-metrics";
 
 function makeMetric(overrides: Partial<QueueMetrics> = {}): QueueMetrics {
   return {
@@ -45,6 +56,23 @@ function makeMetric(overrides: Partial<QueueMetrics> = {}): QueueMetrics {
     ...overrides,
   };
 }
+
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
+}
+
+afterEach(() => {
+  vi.mocked(providerRegistry.getNames).mockReturnValue([]);
+  vi.mocked(Queue).mockClear();
+});
 
 describe("detectAnomalies (T-WORKER-TEST: queue-metrics anomaly detection)", () => {
   it("returns no anomalies for healthy metrics", () => {
@@ -131,5 +159,30 @@ describe("detectAnomalies (T-WORKER-TEST: queue-metrics anomaly detection)", () 
       .map((a) => a.queue);
     expect(backlogQueues).toContain("q-backlog");
     expect(backlogQueues).not.toContain("q-healthy");
+  });
+});
+
+describe("closeMetricsQueues", () => {
+  it("waits for in-flight collection and prevents new queues during shutdown", async () => {
+    vi.mocked(providerRegistry.getNames).mockReturnValue(["first", "second"]);
+    const waitingCount = createDeferred<number>();
+    const firstQueue = createQueueMock();
+    firstQueue.getWaitingCount.mockReturnValue(waitingCount.promise);
+    vi.mocked(Queue).mockImplementationOnce(
+      () => firstQueue as unknown as InstanceType<typeof Queue>,
+    );
+
+    const metricsPromise = collectQueueMetrics();
+    await vi.waitFor(() => {
+      expect(Queue).toHaveBeenCalledTimes(1);
+    });
+
+    const closePromise = closeMetricsQueues();
+    waitingCount.resolve(0);
+
+    await Promise.all([metricsPromise, closePromise]);
+
+    expect(Queue).toHaveBeenCalledTimes(1);
+    expect(firstQueue.close).toHaveBeenCalledTimes(1);
   });
 });

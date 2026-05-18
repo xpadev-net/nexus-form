@@ -17,6 +17,10 @@ export interface GracefulShutdownOptions {
   metricsInterval: ReturnType<typeof setInterval> | null;
   /** Default forced-exit timeout in milliseconds. */
   timeoutMs: number;
+  /** Closes BullMQ Queue instances used only for metrics collection. */
+  closeMetricsQueues: () => Promise<void>;
+  /** Closes the shared Redis publisher after workers have drained. */
+  closePublisher: () => Promise<void>;
   /** Closes the shared Redis lock client after workers have drained. */
   closeLockClient: () => Promise<void>;
   /** Flushes pending Sentry events before process exit. */
@@ -79,6 +83,8 @@ export function createGracefulShutdown({
   workers,
   metricsInterval,
   timeoutMs,
+  closeMetricsQueues,
+  closePublisher,
   closeLockClient,
   flushSentry,
   captureError,
@@ -134,6 +140,8 @@ export function createGracefulShutdown({
 
       try {
         await Promise.all(workers.map((worker) => worker.close()));
+        await closeMetricsQueues();
+        await closePublisher();
         await closeLockClient();
         logger.log("[worker] All workers closed gracefully");
         await flushSentry();
