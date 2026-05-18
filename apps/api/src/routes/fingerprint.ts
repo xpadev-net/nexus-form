@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { fingerprintDetail, formResponse } from "@nexus-form/database/schema";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, inArray, lt, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
   checkFormAccess,
@@ -62,16 +62,6 @@ const retentionConfigSchema = z.object({
   autoCleanupEnabled: z.boolean().optional(),
   cleanupSchedule: z.string().optional(),
 });
-
-function getFingerprintLookupCondition(responseId?: string, formId?: string) {
-  if (responseId) {
-    return eq(fingerprintDetail.responseId, responseId);
-  }
-  if (formId) {
-    return eq(formResponse.formId, formId);
-  }
-  return null;
-}
 
 export const fingerprintRouter = createHonoApp()
   .post(
@@ -138,16 +128,16 @@ export const fingerprintRouter = createHonoApp()
       const context = c.get("dualAuthContext");
       if (!context) return c.json({ error: "Unauthorized" }, 401);
 
-      if (!responseId && !formId) {
-        return c.json({ error: "responseId or formId is required" }, 400);
-      }
-
+      let fingerprintWhere: SQL;
       // フォームアクセス権チェック
       if (formId) {
         const hasAccess = await checkFormAccess(context, formId);
         if (!hasAccess) {
           return c.json({ error: "Access denied to this form" }, 403);
         }
+        fingerprintWhere = responseId
+          ? eq(fingerprintDetail.responseId, responseId)
+          : eq(formResponse.formId, formId);
       } else if (responseId) {
         const [resp] = await db
           .select({ formId: formResponse.formId })
@@ -161,13 +151,8 @@ export const fingerprintRouter = createHonoApp()
         if (!hasAccess) {
           return c.json({ error: "Access denied to this form" }, 403);
         }
-      }
-
-      const fingerprintWhere = getFingerprintLookupCondition(
-        responseId,
-        formId,
-      );
-      if (!fingerprintWhere) {
+        fingerprintWhere = eq(fingerprintDetail.responseId, responseId);
+      } else {
         return c.json({ error: "responseId or formId is required" }, 400);
       }
 
