@@ -1,5 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  DISCORD_CONFIG_DEFAULTS,
+  getDiscordApiTimeoutMs,
+  MAX_TIMER_MS,
+} from "../config";
 import { discordProvider } from "../plugin";
+import { getGuild } from "../requests";
+import { ZDiscordGuildId, ZDiscordToken } from "../types";
+
+afterEach(() => {
+  delete process.env.DISCORD_API_TIMEOUT_MS;
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("discordProvider.rules.guild_member.configSchema", () => {
   it("accepts valid Discord snowflake IDs", () => {
@@ -35,5 +48,110 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     });
 
     expect(result?.success).toBe(false);
+  });
+});
+
+describe("Discord API timeout", () => {
+  it("uses DISCORD_API_TIMEOUT_MS when it is a positive integer", () => {
+    process.env.DISCORD_API_TIMEOUT_MS = "2500";
+
+    expect(getDiscordApiTimeoutMs()).toBe(2500);
+  });
+
+  it("falls back to the default timeout for invalid values", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.DISCORD_API_TIMEOUT_MS = "invalid";
+
+    expect(getDiscordApiTimeoutMs()).toBe(DISCORD_CONFIG_DEFAULTS.API_TIMEOUT);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("DISCORD_API_TIMEOUT_MS"),
+    );
+  });
+
+  it("falls back to the default timeout for values above the timer max", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.DISCORD_API_TIMEOUT_MS = String(MAX_TIMER_MS + 1);
+
+    expect(getDiscordApiTimeoutMs()).toBe(DISCORD_CONFIG_DEFAULTS.API_TIMEOUT);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("DISCORD_API_TIMEOUT_MS"),
+    );
+  });
+
+  it("passes DISCORD_API_TIMEOUT_MS to Discord API requests", async () => {
+    process.env.DISCORD_API_TIMEOUT_MS = "1500";
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => new AbortController().signal);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        id: "123456789012345678",
+        name: "Test Guild",
+        icon: null,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getGuild(
+      ZDiscordToken.parse("bot-token"),
+      ZDiscordGuildId.parse("123456789012345678"),
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(timeoutSpy).toHaveBeenCalledWith(1500);
+  });
+
+  it("attaches a fresh timeout signal to each retry attempt", async () => {
+    process.env.DISCORD_API_TIMEOUT_MS = "1500";
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation(() => new AbortController().signal);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: vi.fn().mockResolvedValue({
+          message: "rate limited",
+          retry_after: 0,
+          global: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: vi.fn().mockResolvedValue({
+          message: "rate limited again",
+          retry_after: 0,
+          global: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({
+          id: "123456789012345678",
+          name: "Test Guild",
+          icon: null,
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getGuild(
+      ZDiscordToken.parse("bot-token"),
+      ZDiscordGuildId.parse("123456789012345678"),
+    );
+
+    const signals = fetchMock.mock.calls.map(
+      (call) => (call[1] as RequestInit).signal,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(timeoutSpy).toHaveBeenCalledTimes(3);
+    expect(timeoutSpy).toHaveBeenCalledWith(1500);
+    expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
+    expect(new Set(signals).size).toBe(3);
   });
 });

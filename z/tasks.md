@@ -254,7 +254,7 @@
 
 ### R3-H7. `ConcurrentDeleteError` が無限リトライ対象になる
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #56、gh-review-hook exit 0、merged）
 - **対象:** `apps/worker/src/handlers/generic-validation.ts:97-103`、`apps/worker/src/lib/validation-helpers.ts:225-238`
 - **問題:** `markValidationProcessing` は対象行が並行削除されると `ConcurrentDeleteError` を throw するが、`handleGenericValidation` はこれを catch しない。行削除済み（恒久状態）にもかかわらず `attempts: 3` で 3 回再試行される。
 - **修正内容:** `markValidationProcessing` 呼び出しを try/catch で囲み、`ConcurrentDeleteError` の場合は `writeValidationResult` を行わず `return { ok: false, error: "Result row deleted" }` で正常終了する。
@@ -263,6 +263,7 @@
 
 ### R3-H8. Discord の fetch にタイムアウトが無い
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `packages/validation-provider-discord/src/requests.ts:32-56`、`plugin.ts:142-156`（`fetchUserGuilds`）
 - **問題:** `discordFetchWithRetry` / `fetchUserGuilds` の `fetch` が `AbortSignal` を設定しておらず、Discord 接続がハングすると Worker の concurrency スロット（5）を無期限に占有する。Google Sheets クライアントや `pingDiscordApi` が timeout を設定しているのと非対称。
 - **修正内容:** `signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS)` を全 `fetch` に追加。タイムアウト値は env から読む（`parsePositiveIntEnv` を共有化）。

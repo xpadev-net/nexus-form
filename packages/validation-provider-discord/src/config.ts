@@ -10,15 +10,20 @@ export interface DiscordConfig {
   retryAttempts: number;
   retryDelay: number;
   cacheTimeout: number;
+  apiTimeout?: number;
 }
+
+export const MAX_TIMER_MS = 2_147_483_647;
 
 export const DISCORD_CONFIG_DEFAULTS = {
   RETRY_ATTEMPTS: 3,
   RETRY_DELAY: 1000,
   CACHE_TIMEOUT: 300000,
+  API_TIMEOUT: 10000,
   MIN_RETRY_ATTEMPTS: 1,
   MIN_RETRY_DELAY: 100,
   MIN_CACHE_TIMEOUT: 1000,
+  MIN_API_TIMEOUT: 100,
 } as const;
 
 export const DEFAULT_DISCORD_CONFIG = {
@@ -27,7 +32,37 @@ export const DEFAULT_DISCORD_CONFIG = {
   retryAttempts: DISCORD_CONFIG_DEFAULTS.RETRY_ATTEMPTS,
   retryDelay: DISCORD_CONFIG_DEFAULTS.RETRY_DELAY,
   cacheTimeout: DISCORD_CONFIG_DEFAULTS.CACHE_TIMEOUT,
+  apiTimeout: DISCORD_CONFIG_DEFAULTS.API_TIMEOUT,
 } as const;
+
+export function parsePositiveIntEnv(
+  name: string,
+  defaultValue: number,
+  max: number = Number.MAX_SAFE_INTEGER,
+): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0 || parsed > max) {
+    console.warn(
+      `[discord-config] ${name}="${raw}" is not a positive integer<=${max}; falling back to ${defaultValue}`,
+    );
+    return defaultValue;
+  }
+  return parsed;
+}
+
+export function getDiscordApiTimeoutMs(): number {
+  return Math.max(
+    DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT,
+    parsePositiveIntEnv(
+      "DISCORD_API_TIMEOUT_MS",
+      DISCORD_CONFIG_DEFAULTS.API_TIMEOUT,
+      MAX_TIMER_MS,
+    ),
+  );
+}
 
 export function getDiscordConfig(): DiscordConfig {
   const botToken = process.env.DISCORD_BOT_TOKEN;
@@ -71,6 +106,7 @@ export function getDiscordConfig(): DiscordConfig {
         10,
       ) || DISCORD_CONFIG_DEFAULTS.CACHE_TIMEOUT,
     ),
+    apiTimeout: getDiscordApiTimeoutMs(),
   };
 }
 
@@ -96,6 +132,10 @@ export function validateDiscordConfig(config: DiscordConfig): {
 
   if (config.cacheTimeout < 0) {
     errors.push("Cache timeout must be non-negative");
+  }
+
+  if (config.apiTimeout !== undefined && config.apiTimeout < 0) {
+    errors.push("API timeout must be non-negative");
   }
 
   return {

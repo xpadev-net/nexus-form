@@ -1,6 +1,7 @@
 import pLimit from "p-limit";
 import { z } from "zod";
 
+import { getDiscordApiTimeoutMs } from "./config";
 import {
   type DiscordApplication,
   type DiscordGuild,
@@ -25,22 +26,32 @@ const sleep = (ms: number): Promise<void> =>
 
 const limit = pLimit(3);
 
+export const discordApiFetch = (
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> => {
+  return fetch(url, {
+    ...init,
+    signal: AbortSignal.timeout(getDiscordApiTimeoutMs()),
+  });
+};
+
 const discordFetchWithRetry = async (
   url: string,
   init: RequestInit,
 ): Promise<Response> => {
   return limit(async () => {
-    const response = await fetch(url, init);
+    const response = await discordApiFetch(url, init);
     if (response.status === 429) {
       const data = ZDiscordRateLimitResponse.parse(await response.json());
       await sleep(data.retry_after * 1000 * 1.5);
-      const retryResponse = await fetch(url, init);
+      const retryResponse = await discordApiFetch(url, init);
       if (retryResponse.status === 429) {
         const retryData = ZDiscordRateLimitResponse.parse(
           await retryResponse.json(),
         );
         await sleep(retryData.retry_after * 1000 * 2);
-        const finalResponse = await fetch(url, init);
+        const finalResponse = await discordApiFetch(url, init);
         if (finalResponse.status === 429) {
           await finalResponse.body?.cancel();
           throw new DiscordHttpError(
