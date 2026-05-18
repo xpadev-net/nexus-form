@@ -357,6 +357,7 @@
 
 ### R3-H14. `restore-edit` スナップショット復元が autosave のローカル編集と競合
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #67、subagent review 通過、local validation 通過）
 - **対象:** `apps/web/src/hooks/forms/use-snapshots.ts:104`、`apps/web/src/hooks/forms/use-form-content-autosave.ts:82-106`
 - **問題:** `restoreEditFromSnapshotMutation` の `onSuccess` で `["formContent", formId]` を無効化・再取得するが、autosave フックは `hasLocalEdits` が true だとローカル編集を守るため、ユーザーが直前に編集していると復元したサーバー内容が反映されない（リストア操作の意図と矛盾）。
 - **修正内容:** `restore-edit` 実行時は autosave のローカル編集状態をリセット（`editorValueRef.current = baseContentRef.current` 相当）してから無効化する。

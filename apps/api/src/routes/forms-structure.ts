@@ -538,10 +538,13 @@ export const formsStructureRouter = createHonoApp()
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
 
       try {
-        await withFormStructureMutationLock(formId, () =>
+        const restored = await withFormStructureMutationLock(formId, () =>
           restoreFromSnapshotVersion(formId, version),
         );
-        const response = RestoreEditResponseSchema.parse({ ok: true });
+        const response = RestoreEditResponseSchema.parse({
+          ok: true,
+          plateContent: restored.plateContent,
+        });
         return c.json(response);
       } catch (error) {
         if (error instanceof SnapshotNotFoundError) {

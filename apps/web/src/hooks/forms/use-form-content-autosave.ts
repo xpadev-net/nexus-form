@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
+import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
@@ -15,6 +16,12 @@ const pendingSaveSchema = z.object({
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
+}
+
+interface ContentSaveInput {
+  plateContent: string;
+  expectedVersion: number;
+  restoreGeneration: number;
 }
 
 interface UseFormContentAutosaveOptions {
@@ -64,46 +71,15 @@ export function useFormContentAutosave({
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
-  const mutateRef = useRef<
-    (data: { plateContent: string; expectedVersion: number }) => void
-  >(() => {});
+  const restoreGenerationRef = useRef(0);
+  const suspendAutosaveRef = useRef(false);
+  const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
   const refetchRef = useRef(contentRefetch);
   refetchRef.current = contentRefetch;
   const getActiveTabRef = useRef(getActiveTab);
   getActiveTabRef.current = getActiveTab;
-
-  // Initialize refs and draft from server data.
-  // Guard: if the editor has unsaved local edits, only update version and
-  // baseContent — do NOT overwrite the live editor value or draft. This
-  // prevents background refetches (window-focus, invalidation) from silently
-  // discarding in-progress typing.
-  useEffect(() => {
-    if (!contentData) return;
-    versionRef.current = contentData.plateContentVersion;
-    const raw = contentData.plateContent ?? "[]";
-    let canonical: string;
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        ensureNodeIds(parsed);
-        canonical = JSON.stringify(parsed);
-      } else {
-        canonical = raw;
-      }
-    } catch {
-      canonical = raw;
-    }
-    const hasLocalEdits =
-      editorValueRef.current !== baseContentRef.current ||
-      pendingValueRef.current != null;
-    baseContentRef.current = canonical;
-    if (!hasLocalEdits) {
-      editorValueRef.current = canonical;
-      setDraftContent(canonical);
-    }
-  }, [contentData]);
 
   const handleMergeSuccess = useCallback(
     (mergedContent: string, newVersion: number, mergeLocalContent: string) => {
@@ -137,6 +113,7 @@ export function useFormContentAutosave({
           mutateRef.current({
             plateContent: pendingValue,
             expectedVersion: versionRef.current,
+            restoreGeneration: restoreGenerationRef.current,
           });
         }, 2000);
       }
@@ -178,6 +155,7 @@ export function useFormContentAutosave({
     isMerging,
     isMergingRef,
     conflictState,
+    resetMergeState,
   } = usePlateMerge({
     formId,
     baseContentRef,
@@ -187,6 +165,108 @@ export function useFormContentAutosave({
     onConflict: handleConflict,
     onMergeFallback: handleMergeFallback,
   });
+
+  // Initialize refs and draft from server data.
+  // Guard: if the editor has unsaved local edits, only update version and
+  // baseContent — do NOT overwrite the live editor value or draft. This
+  // prevents background refetches (window-focus, invalidation) from silently
+  // discarding in-progress typing.
+  useEffect(() => {
+    if (!contentData) return;
+    versionRef.current = contentData.plateContentVersion;
+    const raw = contentData.plateContent ?? "[]";
+    let canonical: string;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        ensureNodeIds(parsed);
+        canonical = JSON.stringify(parsed);
+      } else {
+        canonical = raw;
+      }
+    } catch {
+      canonical = raw;
+    }
+    const hasLocalEdits =
+      editorValueRef.current !== baseContentRef.current ||
+      pendingValueRef.current != null;
+    baseContentRef.current = canonical;
+    if (!hasLocalEdits) {
+      editorValueRef.current = canonical;
+      setDraftContent(canonical);
+    }
+
+    if (!suspendAutosaveRef.current) return;
+    suspendAutosaveRef.current = false;
+    const pendingValue = pendingValueRef.current;
+    if (
+      pendingValue == null ||
+      pendingValue === baseContentRef.current ||
+      isConflictActiveRef.current ||
+      isMergingRef.current
+    ) {
+      if (pendingValue === baseContentRef.current) {
+        pendingValueRef.current = null;
+        setIsSaving(false);
+      }
+      return;
+    }
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      if (isMergingRef.current || isConflictActiveRef.current) {
+        saveTimerRef.current = null;
+        return;
+      }
+      const valueToSave = pendingValueRef.current;
+      saveTimerRef.current = null;
+      if (valueToSave == null) return;
+      inFlightValueRef.current = valueToSave;
+      pendingValueRef.current = null;
+      lastSavedVersionRef.current = versionRef.current + 1;
+      mutateRef.current({
+        plateContent: valueToSave,
+        expectedVersion: versionRef.current,
+        restoreGeneration: restoreGenerationRef.current,
+      });
+    }, 2000);
+  }, [contentData, isMergingRef]);
+
+  useEffect(() => {
+    const handleRestoreEdit = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          formId?: string;
+          plateContent?: string;
+        }>
+      ).detail;
+      if (detail?.formId !== formId) return;
+      const restoredContent = detail.plateContent ?? baseContentRef.current;
+
+      restoreGenerationRef.current++;
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingValueRef.current = null;
+      inFlightValueRef.current = null;
+      lastSavedVersionRef.current = null;
+      isConflictActiveRef.current = false;
+      suspendAutosaveRef.current = true;
+      resetMergeState();
+      setConflictResolutions({});
+      baseContentRef.current = restoredContent;
+      editorValueRef.current = restoredContent;
+      setDraftContent(restoredContent);
+      setIsSaving(false);
+    };
+
+    window.addEventListener(RESTORE_EDIT_EVENT, handleRestoreEdit);
+    return () => {
+      window.removeEventListener(RESTORE_EDIT_EVENT, handleRestoreEdit);
+    };
+  }, [formId, resetMergeState]);
 
   // Reset resolutions when a new conflict arrives
   useEffect(() => {
@@ -205,14 +285,15 @@ export function useFormContentAutosave({
 
   // Content save mutation
   const contentMutation = useMutation({
-    mutationFn: (data: { plateContent: string; expectedVersion: number }) =>
+    mutationFn: ({ plateContent, expectedVersion }: ContentSaveInput) =>
       rpc(
         client.api.forms[":id"].content.$put({
           param: { id: formId },
-          json: data,
+          json: { plateContent, expectedVersion },
         }),
       ),
     onSuccess: (data, variables) => {
+      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
@@ -222,7 +303,8 @@ export function useFormContentAutosave({
       void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       setIsSaving(false);
     },
-    onError: (err) => {
+    onError: (err, variables) => {
+      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
@@ -252,6 +334,13 @@ export function useFormContentAutosave({
     }
     setIsSaving(true);
     pendingValueRef.current = value;
+    if (suspendAutosaveRef.current) {
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      return;
+    }
     if (saveTimerRef.current != null) {
       window.clearTimeout(saveTimerRef.current);
     }
@@ -269,6 +358,7 @@ export function useFormContentAutosave({
       mutateRef.current({
         plateContent: pendingValue,
         expectedVersion: versionRef.current,
+        restoreGeneration: restoreGenerationRef.current,
       });
     }, 2000);
   }, []);

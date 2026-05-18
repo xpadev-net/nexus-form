@@ -70,8 +70,11 @@ export const formsSnapshotsRouter = createHonoApp()
     const auth = c.get("dualAuthContext");
     if (!auth) return c.json({ error: "Unauthorized" }, 401);
     try {
-      await restoreFromSnapshot(formId);
-      const response = RestoreEditResponseSchema.parse({ ok: true });
+      const restored = await restoreFromSnapshot(formId);
+      const response = RestoreEditResponseSchema.parse({
+        ok: true,
+        plateContent: restored.plateContent,
+      });
       return c.json(response);
     } catch (error) {
       if (error instanceof SnapshotNotFoundError) {

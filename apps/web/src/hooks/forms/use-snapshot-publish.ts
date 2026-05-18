@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 
 export const useSnapshotPublish = (formId: string | null | undefined) => {
@@ -57,7 +58,16 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
         }),
       );
     },
-    onSuccess: async () => {
+    onSuccess: async (data) => {
+      await queryClient.cancelQueries({ queryKey: ["formContent", formId] });
+      window.dispatchEvent(
+        new CustomEvent(RESTORE_EDIT_EVENT, {
+          detail: {
+            formId,
+            plateContent: data.plateContent,
+          },
+        }),
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
         queryClient.invalidateQueries({ queryKey: ["formContent", formId] }),

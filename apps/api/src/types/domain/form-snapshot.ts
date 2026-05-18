@@ -30,6 +30,7 @@ export type ActivateSnapshotResponse = z.infer<
 
 export const RestoreEditResponseSchema = z.object({
   ok: z.boolean(),
+  plateContent: z.string(),
 });
 export type RestoreEditResponse = z.infer<typeof RestoreEditResponseSchema>;
 

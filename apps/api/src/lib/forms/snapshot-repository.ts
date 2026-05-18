@@ -190,45 +190,61 @@ export async function publishSnapshot(
   return result;
 }
 
-export async function restoreFromSnapshot(formId: string): Promise<void> {
+export async function restoreFromSnapshot(
+  formId: string,
+): Promise<{ plateContent: string }> {
   const snapshot = await getLatestSnapshot(formId);
   if (!snapshot) throw new SnapshotNotFoundError(formId);
 
-  await db
-    .update(form)
-    .set({
-      plateContent: snapshot.plateContent,
-      plateContentVersion: sql`${form.plateContentVersion} + 1`,
-      baseSnapshotVersion: snapshot.version,
-    })
-    .where(eq(form.id, formId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(form)
+      .set({
+        plateContent: snapshot.plateContent,
+        plateContentVersion: sql`${form.plateContentVersion} + 1`,
+        baseSnapshotVersion: snapshot.version,
+      })
+      .where(eq(form.id, formId));
 
-  await replaceValidationRulesFromSnapshot({
-    formId,
-    rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
+    await replaceValidationRulesFromSnapshot({
+      formId,
+      rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
+      tx,
+    });
   });
+
+  return {
+    plateContent: snapshot.plateContent,
+  };
 }
 
 export async function restoreFromSnapshotVersion(
   formId: string,
   version: number,
-): Promise<void> {
+): Promise<{ plateContent: string }> {
   const snapshot = await getSnapshotByVersion(formId, version);
   if (!snapshot) throw new SnapshotNotFoundError(formId, version);
 
-  await db
-    .update(form)
-    .set({
-      plateContent: snapshot.plateContent,
-      plateContentVersion: sql`${form.plateContentVersion} + 1`,
-      baseSnapshotVersion: version,
-    })
-    .where(eq(form.id, formId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(form)
+      .set({
+        plateContent: snapshot.plateContent,
+        plateContentVersion: sql`${form.plateContentVersion} + 1`,
+        baseSnapshotVersion: version,
+      })
+      .where(eq(form.id, formId));
 
-  await replaceValidationRulesFromSnapshot({
-    formId,
-    rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
+    await replaceValidationRulesFromSnapshot({
+      formId,
+      rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
+      tx,
+    });
   });
+
+  return {
+    plateContent: snapshot.plateContent,
+  };
 }
 
 // ── Diff / unpublished-changes ──────────────────────────────────────
@@ -368,7 +384,7 @@ function diffNodes(
  *
  * 原子性注意: TX1(isActive + form 更新) と TX2(バリデーションルール置換) は別トランザクション。
  * 二つの間は plateContent のみ新しく、ルールは旧状態になる極短い窓が存在する。
- * restoreFromSnapshotVersion と同じ設計上の制約。
+ * restore 系は編集内容の巻き戻しなので、フォーム更新とルール置換を同一 TX にしている。
  */
 export async function activateSnapshot(
   formId: string,

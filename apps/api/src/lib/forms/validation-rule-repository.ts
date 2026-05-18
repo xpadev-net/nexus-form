@@ -16,6 +16,7 @@ import type {
   UpdateFormValidationRule,
 } from "../../types/domain/validation-rule";
 import { getPlateBlocksForForm } from "./plate-blocks";
+import type { TransactionClient } from "./types";
 
 export class ValidationRuleNotFoundError extends Error {
   constructor(ruleId: string) {
@@ -476,8 +477,11 @@ export function parseValidationRuleSnapshot(
 export async function replaceValidationRulesFromSnapshot(input: {
   formId: string;
   rules: ValidationRuleSnapshotEntry[];
+  tx?: TransactionClient;
 }): Promise<void> {
-  await db.transaction(async (tx) => {
+  const replaceWithClient = async (
+    tx: TransactionClient | typeof db,
+  ): Promise<void> => {
     const existing = await tx
       .select({ id: formValidationRule.id })
       .from(formValidationRule)
@@ -517,5 +521,12 @@ export async function replaceValidationRulesFromSnapshot(input: {
         );
       }
     }
-  });
+  };
+
+  if (input.tx) {
+    await replaceWithClient(input.tx);
+    return;
+  }
+
+  await db.transaction(replaceWithClient);
 }
