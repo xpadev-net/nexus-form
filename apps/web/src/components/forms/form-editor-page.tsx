@@ -344,10 +344,7 @@ export function FormEditorPage() {
       {/* 検証タブ */}
       {activeTab === "validation" && (
         <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <FormValidationRulesPage
-            formId={id}
-            plateContent={draftContent ?? plateContent}
-          />
+          <FormValidationRulesPage formId={id} plateContent={plateContent} />
         </section>
       )}
 
