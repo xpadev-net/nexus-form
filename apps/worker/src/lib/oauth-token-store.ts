@@ -7,6 +7,7 @@
 
 import { db, googleOAuthToken } from "@nexus-form/database";
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import { decryptFromBase64, encryptToBase64 } from "./field-encryption";
 import { withRedisLock } from "./redis-lock";
@@ -20,6 +21,15 @@ const REFRESH_TIMEOUT_MS = parsePositiveIntEnv(
 
 /** 期限切れ判定の安全マージン (ms)。 */
 const EXPIRY_SKEW_MS = 60_000;
+
+const OAuthScopesSchema = z.array(z.string());
+
+const GoogleTokenRefreshResponseSchema = z.object({
+  access_token: z.string().min(1),
+  expires_in: z.number().positive(),
+  scope: z.string().optional(),
+  token_type: z.string().optional(),
+});
 
 export interface OAuthToken {
   userId: string;
@@ -45,13 +55,14 @@ export async function getOAuthToken(
 
   const accessToken = decryptFromBase64(row.accessTokenEnc);
   const refreshToken = decryptFromBase64(row.refreshTokenEnc);
+  const scopesResult = OAuthScopesSchema.safeParse(row.scopes);
 
   return {
     userId,
     accessToken,
     refreshToken,
     expiryDate: row.expiryDate.toISOString(),
-    scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+    scopes: scopesResult.success ? scopesResult.data : [],
   };
 }
 
@@ -131,12 +142,7 @@ async function performTokenRefresh(token: OAuthToken): Promise<OAuthToken> {
     throw new Error(`Google token refresh failed: ${res.status}`);
   }
 
-  const json = (await res.json()) as {
-    access_token: string;
-    expires_in: number;
-    scope?: string;
-    token_type: string;
-  };
+  const json = GoogleTokenRefreshResponseSchema.parse(await res.json());
 
   const newExpiry = new Date(Date.now() + json.expires_in * 1000).toISOString();
   const scopes = json.scope ? json.scope.split(" ") : token.scopes;
