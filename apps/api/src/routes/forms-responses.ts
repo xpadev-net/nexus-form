@@ -11,6 +11,7 @@ import {
 import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
+  genericValidationJobDataSchema,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
 import {
@@ -206,18 +207,18 @@ async function enqueueValidationRetries(
 
     let job: { id?: string };
     try {
-      job = await queue.add(
-        `validate-${result.service}`,
-        {
-          responseId: result.responseId,
-          ruleId: result.ruleId,
-          referencedBlockId: result.referencedBlockId,
-          snapshotProviderName: result.service,
-          snapshotRuleType: ruleType,
-          snapshotConfigJson: configJson,
-        },
-        { removeOnComplete: 100, removeOnFail: 100 },
-      );
+      const jobData = genericValidationJobDataSchema.parse({
+        responseId: result.responseId,
+        ruleId: result.ruleId,
+        referencedBlockId: result.referencedBlockId,
+        snapshotProviderName: result.service,
+        snapshotRuleType: ruleType,
+        snapshotConfigJson: configJson,
+      });
+      job = await queue.add(`validate-${result.service}`, jobData, {
+        removeOnComplete: 100,
+        removeOnFail: 100,
+      });
     } catch {
       // enqueue に失敗した場合のみ FAILED に設定
       try {

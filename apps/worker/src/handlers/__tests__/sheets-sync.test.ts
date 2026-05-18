@@ -11,9 +11,13 @@ vi.mock("@nexus-form/database/schema", () => ({
   form: {},
 }));
 
-vi.mock("@nexus-form/shared", () => ({
-  extractQuestionsFromPlateContent: vi.fn().mockReturnValue([]),
-}));
+vi.mock("@nexus-form/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@nexus-form/shared")>();
+  return {
+    ...actual,
+    extractQuestionsFromPlateContent: vi.fn().mockReturnValue([]),
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
@@ -161,6 +165,18 @@ beforeEach(() => {
 });
 
 describe("handleSheetsSync — idempotency states", () => {
+  it("job.data が不正な形状の場合はDBアクセス前に弾く", async () => {
+    await expect(
+      handleSheetsSync({
+        id: "job-1",
+        data: { formId: "form-1", integrationId: "integration-1" },
+        updateProgress: vi.fn(),
+      } as unknown as Job),
+    ).rejects.toThrow();
+
+    expect(mockDb.select).not.toHaveBeenCalled();
+  });
+
   it('returns {skipped, reason:"duplicate"} when idempotency key is "done"', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("done");

@@ -9,6 +9,10 @@ import {
   providerRegistry,
   validationProviderResultSchema,
 } from "@nexus-form/integrations";
+import {
+  type GenericValidationJobData,
+  genericValidationJobDataSchema,
+} from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError } from "zod";
 import {
@@ -52,20 +56,14 @@ const RETRYABLE_CODES = new Set([
   "GITHUB_API_RATE_LIMIT",
 ]);
 
-export type GenericValidationJob = {
-  responseId: string;
-  ruleId: string;
-  referencedBlockId: string;
-  snapshotProviderName: string;
-  snapshotRuleType: string;
-  snapshotConfigJson: Record<string, unknown>;
-};
+export type GenericValidationJob = GenericValidationJobData;
 
 export const handleGenericValidation = async (
   job: Job<GenericValidationJob>,
   token?: string,
 ) => {
-  const { responseId, ruleId, referencedBlockId } = job.data;
+  const jobData = genericValidationJobDataSchema.parse(job.data);
+  const { responseId, ruleId, referencedBlockId } = jobData;
 
   let context: Awaited<ReturnType<typeof getValidationContext>>;
   try {
@@ -93,8 +91,8 @@ export const handleGenericValidation = async (
 
   const { response, referencedValue } = context;
   const formId = response.formId;
-  const serviceType = job.data.snapshotProviderName;
-  const ruleType = job.data.snapshotRuleType;
+  const serviceType = jobData.snapshotProviderName;
+  const ruleType = jobData.snapshotRuleType;
 
   try {
     await markValidationProcessing({
@@ -130,7 +128,7 @@ export const handleGenericValidation = async (
     return { ok: false, error: "Provider rule not found" };
   }
 
-  const rawProviderConfig = job.data.snapshotConfigJson;
+  const rawProviderConfig = jobData.snapshotConfigJson;
   const sanitizedConfig = providerRule.sanitizeConfig
     ? providerRule.sanitizeConfig(rawProviderConfig)
     : rawProviderConfig;

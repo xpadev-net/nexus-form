@@ -12,7 +12,9 @@ import {
 import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
+  genericValidationJobDataSchema,
   responsePayloadItemSchema,
+  sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -715,18 +717,18 @@ async function queueExternalValidations(
       try {
         // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
         const queue = getValidationQueue(pair.providerName);
-        const job = await queue.add(
-          `validate-${pair.providerName}`,
-          {
-            responseId,
-            ruleId: pair.ruleId,
-            referencedBlockId: pair.referencedBlockId,
-            snapshotProviderName: pair.providerName,
-            snapshotRuleType: pair.ruleType,
-            snapshotConfigJson: pair.configJson,
-          },
-          { removeOnComplete: 100, removeOnFail: 100 },
-        );
+        const jobData = genericValidationJobDataSchema.parse({
+          responseId,
+          ruleId: pair.ruleId,
+          referencedBlockId: pair.referencedBlockId,
+          snapshotProviderName: pair.providerName,
+          snapshotRuleType: pair.ruleType,
+          snapshotConfigJson: pair.configJson,
+        });
+        const job = await queue.add(`validate-${pair.providerName}`, jobData, {
+          removeOnComplete: 100,
+          removeOnFail: 100,
+        });
         // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
         // トラッキング/キャンセルを可能にする。失敗しても Worker 側が
         // 処理時に jobId を設定するため致命的ではない。
@@ -782,18 +784,15 @@ async function queueSheetsSyncIfNeeded(
     .limit(1);
 
   if (integration) {
-    await getSheetsSyncQueue().add(
-      "auto-sync",
-      {
-        formId,
-        integrationId: integration.id,
-        responseId,
-      },
-      {
-        removeOnComplete: 100,
-        removeOnFail: 100,
-        jobId: `sheets:${integration.id}:${responseId}`,
-      },
-    );
+    const jobData = sheetsSyncJobDataSchema.parse({
+      formId,
+      integrationId: integration.id,
+      responseId,
+    });
+    await getSheetsSyncQueue().add("auto-sync", jobData, {
+      removeOnComplete: 100,
+      removeOnFail: 100,
+      jobId: `sheets:${integration.id}:${responseId}`,
+    });
   }
 }

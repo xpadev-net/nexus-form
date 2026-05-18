@@ -290,7 +290,7 @@
 
 ### R3-H25. `isTokenExpired` が破損 `expiryDate` でリフレッシュを無効化する（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR #60、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #60、gh-review-hook exit 0、merged）
 - **対象:** `apps/worker/src/lib/oauth-token-store.ts:98-102`
 - **問題:** `isTokenExpired` は `Date.parse` が `NaN` のとき `false`（＝期限内）を返す。`expiryDate` が破損していると **OAuth トークンが永久にリフレッシュされず**、Google Sheets API 呼び出しが 401 で失敗し続ける。
 - **修正内容:** 解釈不能な `expiryDate` は期限切れ扱い（`true`）にするか、明示的にエラーを投げる。
@@ -299,6 +299,7 @@
 
 ### R3-H26. BullMQ ジョブペイロードが zod 検証されていない（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #61、subagent review 通過、local validation 通過）
 - **対象:** `apps/worker/src/handlers/generic-validation.ts:54-66`、`apps/worker/src/handlers/sheets-sync.ts:26-40`
 - **問題:** `GenericValidationJob` / `SheetsSyncJob` は TypeScript の型注釈のみで、ハンドラ境界で `job.data` を zod 検証していない。ジョブペイロードは Worker にとってのリクエスト境界であり、CLAUDE.md「全リクエスト/レスポンスを zod スキーマで検証」に違反する。enqueue 側のバグや旧形式のジョブが残ると `undefined` が下流へ流れる。R3-C6（DB の `json` カラム検証）とは別問題。
 - **修正内容:** 各ジョブの zod スキーマを定義し、ハンドラ冒頭で `schema.parse(job.data)` する。`@nexus-form/shared` に置けば enqueue 側（API）と共有できる。
