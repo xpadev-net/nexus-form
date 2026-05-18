@@ -259,6 +259,9 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       .mocked(sql)
       .mock.calls.filter((call) => String(call[0][0]).includes("instr("));
     expect(instrCalls).toHaveLength(3);
+    expect(
+      instrCalls.every((call) => String(call[0][0]).includes("lower(")),
+    ).toBe(true);
     expect(instrCalls.map((call) => call[1])).toEqual([
       "formResponse.id",
       "formResponse.respondentUuid",

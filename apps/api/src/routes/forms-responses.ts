@@ -293,9 +293,9 @@ export const formsResponsesRouter = createHonoApp()
         ? and(
             eq(formResponse.formId, formId),
             or(
-              sql`instr(${formResponse.id}, ${keyword}) > 0`,
-              sql`instr(${formResponse.respondentUuid}, ${keyword}) > 0`,
-              sql`instr(${formResponse.countryCode}, ${keyword}) > 0`,
+              sql`instr(lower(${formResponse.id}), lower(${keyword})) > 0`,
+              sql`instr(lower(${formResponse.respondentUuid}), lower(${keyword})) > 0`,
+              sql`instr(lower(${formResponse.countryCode}), lower(${keyword})) > 0`,
             ),
           )
         : eq(formResponse.formId, formId);

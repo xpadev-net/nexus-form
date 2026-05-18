@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, List, X } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
 import { ResponseExport } from "@/components/forms/response-export";
@@ -16,12 +16,23 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [selectedResponseId, setSelectedResponseId] = useState<string | null>(
     null,
   );
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const limit = 20;
-  const searchKeyword = keyword.trim();
+  const searchKeyword = debouncedKeyword;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedKeyword(keyword.trim());
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [keyword]);
 
   const responsesQuery = useQuery({
     queryKey: ["formResponses", formId, page, limit, searchKeyword],
