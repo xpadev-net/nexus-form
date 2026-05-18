@@ -19,50 +19,80 @@ export function useValidationSSE(formId: string | null | undefined): void {
     if (!formId) return;
 
     const url = `${baseUrl}/api/forms/${formId}/responses/events`;
-    const eventSource = new EventSource(url, { withCredentials: true });
-    let consecutiveErrors = 0;
+    let eventSource: EventSource | null = null;
+    let stoppedAfterErrors = false;
 
-    eventSource.addEventListener("open", () => {
-      consecutiveErrors = 0;
-    });
+    const closeEventSource = () => {
+      eventSource?.close();
+      eventSource = null;
+    };
 
-    eventSource.addEventListener("error", () => {
-      consecutiveErrors++;
-      if (
-        eventSource.readyState === EventSource.CLOSED ||
-        consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
-      ) {
-        eventSource.close();
-      }
-    });
+    const connect = () => {
+      if (document.hidden || eventSource !== null || stoppedAfterErrors) return;
 
-    eventSource.addEventListener("message", (e: MessageEvent<string>) => {
-      consecutiveErrors = 0;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(e.data);
-      } catch {
+      const source = new EventSource(url, { withCredentials: true });
+      eventSource = source;
+      let consecutiveErrors = 0;
+
+      source.addEventListener("open", () => {
+        consecutiveErrors = 0;
+      });
+
+      source.addEventListener("error", () => {
+        consecutiveErrors++;
+        if (
+          source.readyState === EventSource.CLOSED ||
+          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
+        ) {
+          stoppedAfterErrors = true;
+          if (eventSource === source) {
+            closeEventSource();
+          } else {
+            source.close();
+          }
+        }
+      });
+
+      source.addEventListener("message", (e: MessageEvent<string>) => {
+        consecutiveErrors = 0;
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+
+        const result = ValidationSSEEventSchema.safeParse(parsed);
+        if (!result.success) return;
+
+        const event: ValidationSSEEvent = result.data;
+
+        // バリデーション結果キャッシュを無効化
+        void queryClient.invalidateQueries({
+          queryKey: ["validationResults", formId, event.responseId],
+        });
+
+        // ステータス集計キャッシュを無効化
+        void queryClient.invalidateQueries({
+          queryKey: ["responseStatuses", formId],
+        });
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        closeEventSource();
         return;
       }
+      connect();
+    };
 
-      const result = ValidationSSEEventSchema.safeParse(parsed);
-      if (!result.success) return;
-
-      const event: ValidationSSEEvent = result.data;
-
-      // バリデーション結果キャッシュを無効化
-      void queryClient.invalidateQueries({
-        queryKey: ["validationResults", formId, event.responseId],
-      });
-
-      // ステータス集計キャッシュを無効化
-      void queryClient.invalidateQueries({
-        queryKey: ["responseStatuses", formId],
-      });
-    });
+    connect();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      eventSource.close();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      closeEventSource();
     };
   }, [formId, queryClient]);
 }
