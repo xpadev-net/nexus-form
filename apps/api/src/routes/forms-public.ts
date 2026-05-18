@@ -68,15 +68,13 @@ const publicSubmitSchema = z.object({
     .refine((data) => data.v4Token || data.v6Token, {
       message: "At least one telemetry token is required",
     }),
-  fingerprints: z
-    .array(
-      z.object({
-        type: z.enum(["fingerprintjs", "thumbmarkjs", "browser"]),
-        name: z.string(),
-        value_hash: z.string(),
-      }),
-    )
-    .min(1, "Fingerprint data is required"),
+  fingerprints: z.array(
+    z.object({
+      type: z.enum(["fingerprintjs", "thumbmarkjs", "browser"]),
+      name: z.string(),
+      value_hash: z.string(),
+    }),
+  ),
 });
 
 const verifyPasswordSchema = z.object({
@@ -105,7 +103,10 @@ const ParsedStructureSchema = z
   .object({
     version: z.number().optional(),
     settings: z
-      .object({ response_limit: ResponseLimitSchema.optional() })
+      .object({
+        require_fingerprint: z.boolean().optional(),
+        response_limit: ResponseLimitSchema.optional(),
+      })
       .passthrough()
       .optional(),
     access_control: z
@@ -369,6 +370,12 @@ export const formsPublicRouter = createHonoApp()
 
       // 7. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure?.settings?.response_limit;
+      const requireFingerprint =
+        parsedStructure?.settings?.require_fingerprint ?? true;
+      if (requireFingerprint && payload.fingerprints.length === 0) {
+        return c.json({ error: "Fingerprint data is required" }, 400);
+      }
+      const fingerprints = requireFingerprint ? payload.fingerprints : [];
 
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
@@ -416,9 +423,9 @@ export const formsPublicRouter = createHonoApp()
           countryCode: null,
         });
 
-        if (payload.fingerprints.length > 0) {
+        if (fingerprints.length > 0) {
           await tx.insert(fingerprintDetail).values(
-            payload.fingerprints.map((fp) => ({
+            fingerprints.map((fp) => ({
               id: randomUUID(),
               responseId,
               fingerprintType: fp.type,

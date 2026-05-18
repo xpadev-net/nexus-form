@@ -19,11 +19,18 @@ import {
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
+import { FormStructureNotFoundError } from "../lib/errors/form-errors";
+import { getFormStructure } from "../lib/forms/form-structure-service";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
+import {
+  type FormStructure,
+  FormStructure as FormStructureSchema,
+} from "../types/domain/form";
 import {
   FormCreateResponseSchema,
   FormDetailResponseSchema,
@@ -39,9 +46,38 @@ const updateFormSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
 });
 
+const updateResponseSettingsSchema = z.object({
+  allowEdit: z.boolean(),
+  maxResponses: z.number().int().min(0).max(100000).nullable(),
+  requireFingerprint: z.boolean(),
+});
+
+export const UpdateResponseSettingsResponseSchema = z.object({
+  success: z.literal(true),
+});
+export type UpdateResponseSettingsResponse = z.infer<
+  typeof UpdateResponseSettingsResponseSchema
+>;
+
 const transferOwnerSchema = z.object({
   newOwnerUserId: z.string().min(1),
 });
+
+async function getCurrentOrDefaultStructure(
+  formId: string,
+): Promise<FormStructure> {
+  try {
+    return await getFormStructure(formId);
+  } catch (error) {
+    if (error instanceof FormStructureNotFoundError) {
+      return {
+        version: 1,
+        settings: { allow_edit_responses: false },
+      };
+    }
+    throw error;
+  }
+}
 
 export const formsDetailRouter = createHonoApp()
   .get("/:id", withDualFormAuth("VIEWER"), async (c) => {
@@ -75,6 +111,85 @@ export const formsDetailRouter = createHonoApp()
         .limit(1);
       return c.json(
         FormNullableResponseSchema.parse({ form: updated ?? null }),
+      );
+    },
+  )
+  .patch(
+    "/:id/settings/responses",
+    withDualFormAuth("EDITOR"),
+    zValidator("json", updateResponseSettingsSchema),
+    async (c) => {
+      const id = c.req.param("id");
+      const payload = c.req.valid("json");
+      const authCtx = c.get("dualAuthContext");
+
+      await withFormStructureMutationLock(id, async () => {
+        const currentStructure = await getCurrentOrDefaultStructure(id);
+        const currentResponseLimit = currentStructure.settings.response_limit;
+        const responseLimit =
+          payload.maxResponses && payload.maxResponses > 0
+            ? {
+                enabled: true,
+                max_responses: payload.maxResponses,
+                ...(currentResponseLimit?.message
+                  ? { message: currentResponseLimit.message }
+                  : {}),
+              }
+            : undefined;
+
+        const updatedStructure: FormStructure = {
+          ...currentStructure,
+          settings: {
+            ...currentStructure.settings,
+            allow_edit_responses: payload.allowEdit,
+            require_fingerprint: payload.requireFingerprint,
+            ...(responseLimit ? { response_limit: responseLimit } : {}),
+          },
+        };
+        if (!responseLimit) {
+          delete updatedStructure.settings.response_limit;
+        }
+
+        const validatedStructure = FormStructureSchema.parse(updatedStructure);
+        const createdBy = authCtx?.user_id ?? "unknown";
+
+        await db.transaction(async (tx) => {
+          const [latestStructure] = await tx
+            .select({ version: formStructure.version })
+            .from(formStructure)
+            .where(eq(formStructure.formId, id))
+            .orderBy(desc(formStructure.version))
+            .limit(1);
+          const currentVersion = latestStructure?.version ?? 0;
+          const nextVersion = currentVersion + 1;
+
+          await tx
+            .update(formStructure)
+            .set({ isActive: false })
+            .where(
+              and(
+                eq(formStructure.formId, id),
+                eq(formStructure.isActive, true),
+              ),
+            );
+          await tx.insert(formStructure).values({
+            id: randomUUID(),
+            formId: id,
+            structureJson: JSON.stringify(validatedStructure),
+            version: nextVersion,
+            createdBy,
+            changeLog: "Update response settings",
+            parentVersion: currentVersion > 0 ? currentVersion : null,
+          });
+          await tx
+            .update(form)
+            .set({ allowEditResponses: payload.allowEdit })
+            .where(eq(form.id, id));
+        });
+      });
+
+      return c.json(
+        UpdateResponseSettingsResponseSchema.parse({ success: true }),
       );
     },
   )
