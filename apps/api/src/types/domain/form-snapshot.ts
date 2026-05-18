@@ -52,26 +52,3 @@ export const FormDiffResultSchema = z.object({
   lastChecked: z.date(),
 });
 export type FormDiffResult = z.infer<typeof FormDiffResultSchema>;
-
-export const SnapshotLatestResponseSchema = z.object({
-  snapshot: FormSnapshotListItemSchema.nullable(),
-  hasActiveSnapshot: z.boolean(),
-  activeSnapshotVersion: z.number().int().nullable(),
-});
-export type SnapshotLatestResponse = z.infer<
-  typeof SnapshotLatestResponseSchema
->;
-
-export const PublishSnapshotResponseSchema = z.object({
-  version: z.number().int().min(1),
-  publishedAt: z.date(),
-});
-export type PublishSnapshotResponse = z.infer<
-  typeof PublishSnapshotResponseSchema
->;
-
-export const FormDiffResponseSchema = z.object({
-  success: z.boolean(),
-  data: FormDiffResultSchema,
-});
-export type FormDiffResponse = z.infer<typeof FormDiffResponseSchema>;

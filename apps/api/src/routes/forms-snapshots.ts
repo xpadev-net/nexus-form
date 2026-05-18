@@ -14,13 +14,67 @@ import {
   restoreFromSnapshot,
 } from "../lib/forms/snapshot-repository";
 import { createHonoApp } from "../lib/hono";
-import {
-  FormDiffResponseSchema,
-  PublishSnapshotResponseSchema,
-  RestoreEditResponseSchema,
-  SnapshotLatestResponseSchema,
-  UnpublishedChangesInfoSchema,
-} from "../types/domain/form-snapshot";
+import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
+import { isoDate } from "../types/domain/iso-date";
+
+const SnapshotListItemResponseSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  version: z.number().int().min(1),
+  isActive: z.boolean(),
+  publishedBy: z.string(),
+  publishedAt: isoDate,
+  changeLog: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  parentVersion: z.number().int().nullish(),
+});
+
+const SnapshotLatestResponseSchema = z.object({
+  snapshot: SnapshotListItemResponseSchema.nullable(),
+  hasActiveSnapshot: z.boolean(),
+  activeSnapshotVersion: z.number().int().nullable(),
+});
+export type SnapshotLatestResponse = z.infer<
+  typeof SnapshotLatestResponseSchema
+>;
+
+const PublishSnapshotResponseSchema = z.object({
+  version: z.number().int().min(1),
+  publishedAt: isoDate,
+});
+export type PublishSnapshotResponse = z.infer<
+  typeof PublishSnapshotResponseSchema
+>;
+
+const UnpublishedChangesInfoResponseSchema = z.object({
+  hasChanges: z.boolean(),
+  hasValidationRuleChanges: z.boolean(),
+  lastPublishedAt: isoDate.nullable(),
+});
+export type UnpublishedChangesInfoResponse = z.infer<
+  typeof UnpublishedChangesInfoResponseSchema
+>;
+
+const NodeDiffResponseSchema = z.object({
+  nodeId: z.string(),
+  nodeType: z.string().nullable(),
+  diffType: z.enum(["added", "removed", "modified"]),
+});
+
+const FormDiffResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    formId: z.string(),
+    hasUnpublishedChanges: z.boolean(),
+    hasChangesFromActive: z.boolean(),
+    hasValidationRuleChanges: z.boolean(),
+    nodes: z.array(NodeDiffResponseSchema),
+    totalChanges: z.number().int(),
+    lastChecked: isoDate,
+  }),
+});
+export type FormDiffResponse = z.infer<typeof FormDiffResponseSchema>;
 
 export const formsSnapshotsRouter = createHonoApp()
   .use("/:id/snapshots*", withDualFormAuth("VIEWER"))
@@ -97,6 +151,6 @@ export const formsSnapshotsRouter = createHonoApp()
   .get("/:id/unpublished-changes", async (c) => {
     const formId = c.req.param("id");
     const changes = await checkUnpublishedChanges(formId);
-    const response = UnpublishedChangesInfoSchema.parse(changes);
+    const response = UnpublishedChangesInfoResponseSchema.parse(changes);
     return c.json(response);
   });
