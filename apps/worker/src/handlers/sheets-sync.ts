@@ -44,6 +44,20 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 
 const IntegrationConfigSchema = z.record(z.string(), z.unknown());
 
+function resolveGoogleSheetsConfig(rawConfig: Record<string, unknown>) {
+  if (rawConfig.googleSheets == null) {
+    return rawConfig;
+  }
+
+  const googleSheetsConfigResult = IntegrationConfigSchema.safeParse(
+    rawConfig.googleSheets,
+  );
+  if (!googleSheetsConfigResult.success) {
+    throw new Error("Google Sheets integration setting must be an object");
+  }
+  return googleSheetsConfigResult.data;
+}
+
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const { formId, integrationId, responseId } = sheetsSyncJobDataSchema.parse(
     job.data,
@@ -76,15 +90,9 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     throw new Error("Form integration config_json must be an object");
   }
   const rawConfig = rawConfigResult.data;
-  const googleSheetsConfigResult = IntegrationConfigSchema.safeParse(
-    rawConfig.googleSheets ?? rawConfig,
-  );
-  if (!googleSheetsConfigResult.success) {
-    throw new Error("Google Sheets integration setting must be an object");
-  }
-  const settingResult = GoogleSheetsIntegrationSettingSchema.safeParse(
-    googleSheetsConfigResult.data,
-  );
+  const googleSheetsConfig = resolveGoogleSheetsConfig(rawConfig);
+  const settingResult =
+    GoogleSheetsIntegrationSettingSchema.safeParse(googleSheetsConfig);
 
   if (!settingResult.success) {
     const paths = settingResult.error.issues.map((i) => i.path.join("."));
