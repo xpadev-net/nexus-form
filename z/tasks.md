@@ -281,7 +281,7 @@
 
 ### R3-H10. グローバル例外ハンドラが graceful shutdown を経由しない
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR #59、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #59、gh-review-hook exit 0、merged）
 - **対象:** `apps/worker/src/index.ts:78-88`
 - **問題:** `unhandledRejection` / `uncaughtException` ハンドラが `gracefulShutdown` を呼ばず `process.exit(1)` する。実行中の BullMQ ジョブが `worker.close()` でドレインされず、Redis 上で stalled job として `lockDuration` 経過まで残る。
 - **修正内容:** ハンドラ内で `gracefulShutdown` を呼ぶ（`uncaughtException` 後はプロセス状態不定のため短いタイムアウトで強制終了するのは現状維持で可）。最低限 `unhandledRejection` は graceful path を試みる。
@@ -290,6 +290,7 @@
 
 ### R3-H25. `isTokenExpired` が破損 `expiryDate` でリフレッシュを無効化する（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #60、subagent review / local validation 済み）
 - **対象:** `apps/worker/src/lib/oauth-token-store.ts:98-102`
 - **問題:** `isTokenExpired` は `Date.parse` が `NaN` のとき `false`（＝期限内）を返す。`expiryDate` が破損していると **OAuth トークンが永久にリフレッシュされず**、Google Sheets API 呼び出しが 401 で失敗し続ける。
 - **修正内容:** 解釈不能な `expiryDate` は期限切れ扱い（`true`）にするか、明示的にエラーを投げる。
