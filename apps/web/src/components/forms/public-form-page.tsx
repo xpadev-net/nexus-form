@@ -40,7 +40,7 @@ function PublicFormPageInner() {
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
   const { fingerprint, collect: collectFingerprint } = useFingerprint({
-    autoCollect: true,
+    autoCollect: false,
   });
 
   const {
@@ -57,6 +57,8 @@ function PublicFormPageInner() {
   });
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
+  const requireFingerprint =
+    formData?.structure?.settings?.require_fingerprint !== false;
 
   const handleCaptchaVerify = useCallback((token: string) => {
     setCaptchaToken(token);
@@ -114,19 +116,21 @@ function PublicFormPageInner() {
           );
         }
 
-        // フィンガープリントの収集（未収集の場合のみ）
+        // フィンガープリントの収集（設定で要求されている場合のみ）
         let fpData = fingerprint;
-        if (!fpData) {
+        if (requireFingerprint && !fpData) {
           fpData = await collectFingerprint();
         }
 
-        const fingerprints = (fpData?.components ?? []).map((comp) => ({
-          type: "browser" as const,
-          name: comp.componentName,
-          value_hash: comp.componentValueHash,
-        }));
+        const fingerprints = requireFingerprint
+          ? (fpData?.components ?? []).map((comp) => ({
+              type: "browser" as const,
+              name: comp.componentName,
+              value_hash: comp.componentValueHash,
+            }))
+          : [];
 
-        if (fingerprints.length === 0) {
+        if (requireFingerprint && fingerprints.length === 0) {
           throw new Error(
             "フィンガープリントの収集に失敗しました。ページを再読み込みしてください。",
           );
@@ -172,6 +176,7 @@ function PublicFormPageInner() {
       answers,
       captchaToken,
       fingerprint,
+      requireFingerprint,
       collectFingerprint,
       publicId,
       clearAnswers,
