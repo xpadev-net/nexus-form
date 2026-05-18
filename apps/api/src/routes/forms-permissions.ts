@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
-import { db } from "@nexus-form/database";
+import { db, user } from "@nexus-form/database";
 import {
   formInvitation,
   formPermission,
@@ -35,10 +35,8 @@ import {
   FormPermissionWithUser,
   FormShareLink,
   FormShareLinkListResponse,
-  FormShareRole,
 } from "../types/domain/form-permission";
 import { OkResponseSchema } from "../types/domain/form-row";
-import { isoDate } from "../types/domain/iso-date";
 
 const createPermissionSchema = z.object({
   userId: z.string().min(1),
@@ -99,20 +97,6 @@ export type UserFormPermissionResponse = z.infer<
   typeof UserFormPermissionResponseSchema
 >;
 
-const FormInvitationRecordResponseSchema = z.object({
-  id: z.string(),
-  formId: z.string(),
-  email: z.string().email(),
-  role: FormPermissionType,
-  token: z.string(),
-  status: FormInvitationStatus,
-  message: z.string().nullable(),
-  expiresAt: isoDate,
-  createdAt: isoDate,
-  updatedAt: isoDate,
-  invitedBy: z.string(),
-});
-
 export const FormInvitationResponseSchema = z.object({
   invitation: FormInvitationWithInviter,
 });
@@ -120,36 +104,10 @@ export type FormInvitationResponse = z.infer<
   typeof FormInvitationResponseSchema
 >;
 
-export const FormInvitationRecordResponseEnvelopeSchema = z.object({
-  invitation: FormInvitationRecordResponseSchema,
-});
-export type FormInvitationRecordResponseEnvelope = z.infer<
-  typeof FormInvitationRecordResponseEnvelopeSchema
->;
-
-const FormShareLinkRecordResponseSchema = z.object({
-  id: z.string(),
-  formId: z.string(),
-  token: z.string(),
-  role: FormShareRole,
-  isActive: z.boolean(),
-  expiresAt: isoDate.nullable(),
-  createdAt: isoDate,
-  updatedAt: isoDate,
-  createdBy: z.string(),
-});
-
 export const FormShareLinkResponseSchema = z.object({
   shareLink: FormShareLink,
 });
 export type FormShareLinkResponse = z.infer<typeof FormShareLinkResponseSchema>;
-
-export const FormShareLinkRecordResponseEnvelopeSchema = z.object({
-  shareLink: FormShareLinkRecordResponseSchema,
-});
-export type FormShareLinkRecordResponseEnvelope = z.infer<
-  typeof FormShareLinkRecordResponseEnvelopeSchema
->;
 
 export const formsPermissionsRouter = createHonoApp()
   .use("/:id/permissions*", withDualFormAuth("VIEWER"))
@@ -338,8 +296,42 @@ export const formsPermissionsRouter = createHonoApp()
         )
         .limit(1);
       if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+      const [inviter] = await db
+        .select({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        })
+        .from(user)
+        .where(eq(user.id, invitation.invitedBy))
+        .limit(1);
+      if (!inviter) {
+        throw new Error("Inviter not found");
+      }
       return c.json(
-        FormInvitationRecordResponseEnvelopeSchema.parse({ invitation }),
+        FormInvitationResponseSchema.parse({
+          invitation: {
+            id: invitation.id,
+            form_id: invitation.formId,
+            email: invitation.email,
+            role: invitation.role,
+            token: invitation.token,
+            status: FormInvitationStatus.parse(invitation.status),
+            message: invitation.message ?? undefined,
+            expires_at: invitation.expiresAt.toISOString(),
+            created_at: invitation.createdAt.toISOString(),
+            updated_at: invitation.updatedAt.toISOString(),
+            invited_by: invitation.invitedBy,
+            inviter: {
+              id: inviter.id,
+              name: inviter.name,
+              email: inviter.email,
+              discord_id: null,
+              created_at: "",
+              updated_at: "",
+            },
+          },
+        }),
       );
     },
   )
@@ -409,7 +401,19 @@ export const formsPermissionsRouter = createHonoApp()
       .limit(1);
     if (!link) return c.json({ error: "Share link not found" }, 404);
     return c.json(
-      FormShareLinkRecordResponseEnvelopeSchema.parse({ shareLink: link }),
+      FormShareLinkResponseSchema.parse({
+        shareLink: {
+          id: link.id,
+          form_id: link.formId,
+          token: link.token,
+          role: link.role,
+          is_active: link.isActive,
+          expires_at: link.expiresAt?.toISOString(),
+          created_at: link.createdAt.toISOString(),
+          updated_at: link.updatedAt.toISOString(),
+          created_by: link.createdBy,
+        },
+      }),
     );
   })
   .put(
