@@ -242,6 +242,7 @@ export default {
         },
       }),
     ).rejects.toThrow("expected worker manifest");
+    expect(store.values.has("test:plugins:api")).toBe(false);
   });
 
   it.each([
