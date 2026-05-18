@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { MutableRefObject } from "react";
 import { useEffect, useRef } from "react";
 import { baseUrl } from "@/lib/api";
+import { logWarn } from "@/lib/logger";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
 
@@ -93,7 +94,15 @@ export function useEditorSSE(
         }
 
         const result = EditorSSEEventSchema.safeParse(parsed);
-        if (!result.success) return;
+        if (!result.success) {
+          if (import.meta.env.DEV) {
+            logWarn("Invalid editor SSE event received", "sse", {
+              formId,
+              issues: result.error.issues,
+            });
+          }
+          return;
+        }
 
         const event: EditorSSEEvent = result.data;
 

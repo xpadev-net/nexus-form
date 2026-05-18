@@ -3,6 +3,7 @@ import { ValidationSSEEventSchema } from "@nexus-form/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { baseUrl } from "@/lib/api";
+import { logWarn } from "@/lib/logger";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
 
@@ -62,7 +63,15 @@ export function useValidationSSE(formId: string | null | undefined): void {
         }
 
         const result = ValidationSSEEventSchema.safeParse(parsed);
-        if (!result.success) return;
+        if (!result.success) {
+          if (import.meta.env.DEV) {
+            logWarn("Invalid validation SSE event received", "sse", {
+              formId,
+              issues: result.error.issues,
+            });
+          }
+          return;
+        }
 
         const event: ValidationSSEEvent = result.data;
 
