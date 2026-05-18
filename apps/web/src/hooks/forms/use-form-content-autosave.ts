@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
+import { RESTORE_EDIT_EVENT } from "@/hooks/forms/use-snapshots";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
 
 const pendingSaveSchema = z.object({
@@ -15,6 +16,12 @@ const pendingSaveSchema = z.object({
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
+}
+
+interface ContentSaveInput {
+  plateContent: string;
+  expectedVersion: number;
+  restoreGeneration: number;
 }
 
 interface UseFormContentAutosaveOptions {
@@ -64,9 +71,8 @@ export function useFormContentAutosave({
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
-  const mutateRef = useRef<
-    (data: { plateContent: string; expectedVersion: number }) => void
-  >(() => {});
+  const restoreGenerationRef = useRef(0);
+  const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
   const refetchRef = useRef(contentRefetch);
@@ -137,6 +143,7 @@ export function useFormContentAutosave({
           mutateRef.current({
             plateContent: pendingValue,
             expectedVersion: versionRef.current,
+            restoreGeneration: restoreGenerationRef.current,
           });
         }, 2000);
       }
@@ -178,6 +185,7 @@ export function useFormContentAutosave({
     isMerging,
     isMergingRef,
     conflictState,
+    resetMergeState,
   } = usePlateMerge({
     formId,
     baseContentRef,
@@ -187,6 +195,33 @@ export function useFormContentAutosave({
     onConflict: handleConflict,
     onMergeFallback: handleMergeFallback,
   });
+
+  useEffect(() => {
+    const handleRestoreEdit = (event: Event) => {
+      const detail = (event as CustomEvent<{ formId?: string }>).detail;
+      if (detail?.formId !== formId) return;
+
+      restoreGenerationRef.current++;
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      pendingValueRef.current = null;
+      inFlightValueRef.current = null;
+      lastSavedVersionRef.current = null;
+      isConflictActiveRef.current = false;
+      resetMergeState();
+      setConflictResolutions({});
+      editorValueRef.current = baseContentRef.current;
+      setDraftContent(baseContentRef.current);
+      setIsSaving(false);
+    };
+
+    window.addEventListener(RESTORE_EDIT_EVENT, handleRestoreEdit);
+    return () => {
+      window.removeEventListener(RESTORE_EDIT_EVENT, handleRestoreEdit);
+    };
+  }, [formId, resetMergeState]);
 
   // Reset resolutions when a new conflict arrives
   useEffect(() => {
@@ -205,14 +240,15 @@ export function useFormContentAutosave({
 
   // Content save mutation
   const contentMutation = useMutation({
-    mutationFn: (data: { plateContent: string; expectedVersion: number }) =>
+    mutationFn: ({ plateContent, expectedVersion }: ContentSaveInput) =>
       rpc(
         client.api.forms[":id"].content.$put({
           param: { id: formId },
-          json: data,
+          json: { plateContent, expectedVersion },
         }),
       ),
     onSuccess: (data, variables) => {
+      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
@@ -222,7 +258,8 @@ export function useFormContentAutosave({
       void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       setIsSaving(false);
     },
-    onError: (err) => {
+    onError: (err, variables) => {
+      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
@@ -269,6 +306,7 @@ export function useFormContentAutosave({
       mutateRef.current({
         plateContent: pendingValue,
         expectedVersion: versionRef.current,
+        restoreGeneration: restoreGenerationRef.current,
       });
     }, 2000);
   }, []);

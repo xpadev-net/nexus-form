@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
 const SNAPSHOT_PAGE_SIZE = 100;
+export const RESTORE_EDIT_EVENT = "nexus-form:restore-edit";
 
 async function fetchAllSnapshots(formId: string) {
   const snapshots = [];
@@ -110,6 +111,9 @@ export const useSnapshots = (formId: string | null | undefined) => {
       );
     },
     onSuccess: async () => {
+      window.dispatchEvent(
+        new CustomEvent(RESTORE_EDIT_EVENT, { detail: { formId } }),
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
         queryClient.invalidateQueries({
