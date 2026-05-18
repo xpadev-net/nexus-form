@@ -41,6 +41,41 @@ vi.mock("../redis-lock", () => ({
   ): Promise<T> => operation(),
 }));
 
+describe("getOAuthToken", () => {
+  beforeEach(() => {
+    selectResults.length = 0;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns an empty scope list when stored scopes are malformed", async () => {
+    selectResults.push([
+      {
+        id: "token-id",
+        userId: "user-1",
+        accessTokenEnc: "access-token",
+        refreshTokenEnc: "refresh-token",
+        expiryDate: new Date("2030-01-01T00:00:00.000Z"),
+        scopes: ["scope-a", 123],
+      },
+    ]);
+
+    const { getOAuthToken } = await import("../oauth-token-store");
+
+    const result = await getOAuthToken("user-1");
+
+    expect(result).toEqual({
+      userId: "user-1",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expiryDate: "2030-01-01T00:00:00.000Z",
+      scopes: [],
+    });
+  });
+});
+
 describe("refreshTokenIfNeeded", () => {
   beforeEach(() => {
     selectResults.length = 0;
@@ -110,5 +145,43 @@ describe("refreshTokenIfNeeded", () => {
         refreshTokenEnc: "enc:refresh-token",
       }),
     );
+  });
+
+  it("rejects malformed Google refresh responses before saving", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          access_token: "new-access-token",
+          token_type: "Bearer",
+        }),
+      })),
+    );
+    selectResults.push([
+      {
+        id: "token-id",
+        userId: "user-1",
+        accessTokenEnc: "old-access-token",
+        refreshTokenEnc: "refresh-token",
+        expiryDate: new Date("2000-01-01T00:00:00.000Z"),
+        scopes: ["old-scope"],
+      },
+    ]);
+
+    const { refreshTokenIfNeeded } = await import("../oauth-token-store");
+
+    await expect(
+      refreshTokenIfNeeded({
+        userId: "user-1",
+        accessToken: "stale-access-token",
+        refreshToken: "refresh-token",
+        expiryDate: "2000-01-01T00:00:00.000Z",
+        scopes: ["old-scope"],
+      }),
+    ).rejects.toThrow();
+
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
   });
 });
