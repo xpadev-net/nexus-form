@@ -1,4 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import {
   paginationMetadata,
   paginationQuerySchema,
@@ -16,11 +17,40 @@ import {
   ValidationRuleNotFoundError,
 } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
+import { OkResponseSchema } from "../types/domain/form-row";
+import { isoDate } from "../types/domain/iso-date";
 import {
   CreateFormValidationRuleSchema,
+  FormValidationRuleSchema,
   ReorderFormValidationRulesSchema,
   UpdateFormValidationRuleSchema,
 } from "../types/domain/validation-rule";
+
+const FormValidationRuleWireSchema = FormValidationRuleSchema.extend({
+  referencedBlockIds: z.array(z.string().min(1)),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
+export const PaginatedFormValidationRulesResponseSchema = z.object({
+  rules: z.array(FormValidationRuleWireSchema),
+  pagination: z.object({
+    page: z.number().int().min(1),
+    pageSize: z.number().int().min(1),
+    total: z.number().int().nonnegative(),
+    totalPages: z.number().int().nonnegative(),
+  }),
+});
+export type PaginatedFormValidationRulesResponse = z.infer<
+  typeof PaginatedFormValidationRulesResponseSchema
+>;
+
+export const FormValidationRuleWireResponseSchema = z.object({
+  rule: FormValidationRuleWireSchema,
+});
+export type FormValidationRuleWireResponse = z.infer<
+  typeof FormValidationRuleWireResponseSchema
+>;
 
 function configErrorResponse(error: unknown): { error: string } | null {
   if (error instanceof ValidationRuleConfigError) {
@@ -42,10 +72,12 @@ export const formsValidationRulesRouter = createHonoApp()
         listValidationRules(formId, { limit: pageSize, offset }),
         countValidationRules(formId),
       ]);
-      return c.json({
-        rules,
-        pagination: paginationMetadata(page, pageSize, total),
-      });
+      return c.json(
+        PaginatedFormValidationRulesResponseSchema.parse({
+          rules,
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
     },
   )
   .post(
@@ -57,7 +89,10 @@ export const formsValidationRulesRouter = createHonoApp()
       const payload = c.req.valid("json");
       try {
         const rule = await createValidationRule({ formId, payload });
-        return c.json({ rule }, 201);
+        return c.json(
+          FormValidationRuleWireResponseSchema.parse({ rule }),
+          201,
+        );
       } catch (error) {
         const response = configErrorResponse(error);
         if (response) return c.json(response, 400);
@@ -73,7 +108,7 @@ export const formsValidationRulesRouter = createHonoApp()
       const formId = c.req.param("id");
       const { orderings } = c.req.valid("json");
       await reorderValidationRules({ formId, orderings });
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
   .get("/:id/validation-rules/:ruleId", async (c) => {
@@ -81,7 +116,7 @@ export const formsValidationRulesRouter = createHonoApp()
     const ruleId = c.req.param("ruleId");
     const rule = await getValidationRule(formId, ruleId);
     if (!rule) return c.json({ error: "Validation rule not found" }, 404);
-    return c.json({ rule });
+    return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
   })
   .put(
     "/:id/validation-rules/:ruleId",
@@ -93,7 +128,7 @@ export const formsValidationRulesRouter = createHonoApp()
       const payload = c.req.valid("json");
       try {
         const rule = await updateValidationRule({ formId, ruleId, payload });
-        return c.json({ rule });
+        return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
       } catch (error) {
         if (error instanceof ValidationRuleNotFoundError) {
           return c.json({ error: error.message }, 404);
@@ -112,6 +147,6 @@ export const formsValidationRulesRouter = createHonoApp()
       const ruleId = c.req.param("ruleId");
       const ok = await deleteValidationRule({ formId, ruleId });
       if (!ok) return c.json({ error: "Validation rule not found" }, 404);
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );

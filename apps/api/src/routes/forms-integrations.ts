@@ -1,4 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   GoogleSheetsIntegrationSettingSchema,
@@ -7,13 +8,69 @@ import {
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
+import { isoDate } from "../types/domain/iso-date";
+
+const FormIntegrationRecordSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  ownerUserId: z.string(),
+  userId: z.string().nullable(),
+  config: GoogleSheetsIntegrationSettingSchema,
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
+/**
+ * Google Sheets integration read/save response for 200 OK endpoints.
+ * @remarks `integration` is nullable when the form has not configured Google Sheets.
+ */
+export const FormIntegrationResponseSchema = z.object({
+  integration: FormIntegrationRecordSchema.nullable(),
+});
+/** Inferred TypeScript type for `FormIntegrationResponseSchema`. */
+export type FormIntegrationResponse = z.infer<
+  typeof FormIntegrationResponseSchema
+>;
+
+/**
+ * Manual Google Sheets sync unsupported response returned with 501.
+ * @remarks `error` is a stable literal and `message` explains automatic sync behavior.
+ */
+export const GoogleSheetsSyncUnsupportedResponseSchema = z.object({
+  error: z.literal("Manual Google Sheets sync is not supported"),
+  message: z.string(),
+});
+/** Inferred TypeScript type for `GoogleSheetsSyncUnsupportedResponseSchema`. */
+export type GoogleSheetsSyncUnsupportedResponse = z.infer<
+  typeof GoogleSheetsSyncUnsupportedResponseSchema
+>;
+
+/**
+ * Google Sheets sync job status response returned with 200 OK.
+ * @remarks The `job` object exposes BullMQ status fields including progress, result, attempts, and failure reason.
+ */
+export const GoogleSheetsSyncJobResponseSchema = z.object({
+  job: z.object({
+    id: z.string().optional(),
+    name: z.string(),
+    state: z.string(),
+    progress: z.unknown(),
+    attemptsMade: z.number().int().min(0),
+    failedReason: z.string().optional(),
+    result: z.unknown(),
+  }),
+});
+/** Inferred TypeScript type for `GoogleSheetsSyncJobResponseSchema`. */
+export type GoogleSheetsSyncJobResponse = z.infer<
+  typeof GoogleSheetsSyncJobResponseSchema
+>;
 
 export const formsIntegrationsRouter = createHonoApp()
   .use("/:id/integrations*", withDualFormAuth("OWNER"))
   .get("/:id/integrations/google-sheets", async (c) => {
     const formId = c.req.param("id");
     const integration = await getFormIntegration(formId);
-    return c.json({ integration });
+    return c.json(FormIntegrationResponseSchema.parse({ integration }));
   })
   .post(
     "/:id/integrations/google-sheets",
@@ -31,7 +88,7 @@ export const formsIntegrationsRouter = createHonoApp()
         config,
       });
 
-      return c.json({ integration });
+      return c.json(FormIntegrationResponseSchema.parse({ integration }));
     },
   )
   .post("/:id/integrations/google-sheets/sync", async (c) => {
@@ -42,11 +99,11 @@ export const formsIntegrationsRouter = createHonoApp()
     }
 
     return c.json(
-      {
+      GoogleSheetsSyncUnsupportedResponseSchema.parse({
         error: "Manual Google Sheets sync is not supported",
         message:
           "Google Sheets sync jobs are queued automatically for each submitted response.",
-      },
+      }),
       501,
     );
   })
@@ -62,15 +119,17 @@ export const formsIntegrationsRouter = createHonoApp()
     if (!job) return c.json({ error: "Job not found" }, 404);
 
     const state = await job.getState();
-    return c.json({
-      job: {
-        id: job.id,
-        name: job.name,
-        state,
-        progress: job.progress,
-        attemptsMade: job.attemptsMade,
-        failedReason: job.failedReason,
-        result: job.returnvalue,
-      },
-    });
+    return c.json(
+      GoogleSheetsSyncJobResponseSchema.parse({
+        job: {
+          id: job.id,
+          name: job.name,
+          state,
+          progress: job.progress,
+          attemptsMade: job.attemptsMade,
+          failedReason: job.failedReason,
+          result: job.returnvalue,
+        },
+      }),
+    );
   });

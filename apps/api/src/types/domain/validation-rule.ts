@@ -59,17 +59,3 @@ export const ReorderFormValidationRulesSchema = z.object({
 export type ReorderFormValidationRules = z.infer<
   typeof ReorderFormValidationRulesSchema
 >;
-
-export const FormValidationRulesResponseSchema = z.object({
-  rules: z.array(FormValidationRuleSchema),
-});
-export type FormValidationRulesResponse = z.infer<
-  typeof FormValidationRulesResponseSchema
->;
-
-export const FormValidationRuleResponseSchema = z.object({
-  rule: FormValidationRuleSchema,
-});
-export type FormValidationRuleResponse = z.infer<
-  typeof FormValidationRuleResponseSchema
->;

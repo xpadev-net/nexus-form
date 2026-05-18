@@ -276,7 +276,21 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("passes pagination to validation rule listing", async () => {
-    mocks.listValidationRules.mockResolvedValue([{ id: "rule-1" }]);
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    mocks.listValidationRules.mockResolvedValue([
+      {
+        id: "rule-1",
+        formId: "form-1",
+        name: "Rule 1",
+        providerName: "builtin_discord",
+        ruleType: "guild_member",
+        referencedBlockIds: [],
+        configJson: {},
+        orderIndex: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
     mocks.countValidationRules.mockResolvedValue(11);
     const { formsValidationRulesRouter } = await import(
       "../routes/forms-validation-rules"
