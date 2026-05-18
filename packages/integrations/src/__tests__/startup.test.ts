@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ValidationProvider } from "../plugin-interface";
@@ -117,6 +121,61 @@ describe("startupPlugins plugin drift guard", () => {
     expect(warnSpy).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringContaining("Plugin drift guard matched worker"),
+    );
+  });
+
+  it("records built-in plugin file hashes in the runtime manifest", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginSource = `
+const passthroughSchema = {
+  parse: (value) => value,
+  safeParse: (value) => ({ success: true, data: value }),
+};
+
+export default {
+  name: "builtin_discord",
+  label: "Builtin Discord",
+  description: "Builtin Discord provider",
+  rules: {
+    default: {
+      name: "default",
+      label: "Default",
+      description: "Default rule",
+      inputHint: "Enter value",
+      inputSchema: passthroughSchema,
+      configSchema: passthroughSchema,
+      metadataSchema: passthroughSchema,
+      validate: async () => ({ isValid: true }),
+    },
+  },
+};
+`;
+    const pluginPath = join(pluginDir, "builtin-discord.mjs");
+    await writeFile(pluginPath, pluginSource);
+    const expectedHash = createHash("sha256")
+      .update(pluginSource)
+      .digest("hex");
+    const registry = new ValidationProviderRegistry();
+    const store = new MemoryDriftStore();
+
+    await startupPlugins(registry, {
+      builtinPlugins: [pluginPath],
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+      },
+    });
+
+    const rawManifest = store.values.get("test:plugins:api");
+    expect(JSON.parse(rawManifest ?? "{}")).toMatchObject({
+      providers: ["builtin_discord"],
+      pluginHashes: [expectedHash],
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not find worker manifest"),
     );
   });
 
@@ -268,5 +327,31 @@ describe("startupPlugins plugin drift guard", () => {
 
     expect(store.values.has("test:plugins:api")).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(warning));
+  });
+
+  it("warns and continues when peer manifest read fails with failOnMismatch=false", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.get = async () => {
+      throw new Error("Redis unavailable");
+    };
+
+    await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        failOnMismatch: false,
+      },
+    });
+
+    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("warning-only check failed"),
+      expect.any(Error),
+    );
   });
 });

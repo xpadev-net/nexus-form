@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
 
@@ -76,7 +76,10 @@ async function readPluginSource(
   path: string,
 ): Promise<VerifiedPluginSource | null> {
   try {
-    const buf = await readFile(path);
+    const readablePath = path.startsWith("file://")
+      ? fileURLToPath(path)
+      : path;
+    const buf = await readFile(readablePath);
     return {
       hash: createHash("sha256").update(buf).digest("hex"),
       source: buf.toString("utf8"),
@@ -84,6 +87,11 @@ async function readPluginSource(
   } catch {
     return null;
   }
+}
+
+export async function hashPluginFile(path: string): Promise<string | null> {
+  const source = await readPluginSource(path);
+  return source?.hash ?? null;
 }
 
 export type PluginLoadOutcome =

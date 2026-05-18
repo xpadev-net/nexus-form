@@ -1,6 +1,10 @@
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
-import { loadPluginFromSpecifier, PluginLoader } from "./plugin-loader";
+import {
+  hashPluginFile,
+  loadPluginFromSpecifier,
+  PluginLoader,
+} from "./plugin-loader";
 import type { ValidationProviderRegistry } from "./provider-registry";
 
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
@@ -159,15 +163,21 @@ async function publishAndAssertPluginManifest(
     }
     console.warn(`[${logPrefix}] ${message}`);
   } catch (error) {
-    try {
-      await guard.store.del(currentKey);
-    } catch (cleanupError) {
-      console.warn(
-        `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
-        cleanupError,
-      );
+    if (guard.failOnMismatch ?? true) {
+      try {
+        await guard.store.del(currentKey);
+      } catch (cleanupError) {
+        console.warn(
+          `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
+          cleanupError,
+        );
+      }
+      throw error;
     }
-    throw error;
+    console.warn(
+      `[${logPrefix}] Plugin drift guard warning-only check failed:`,
+      error,
+    );
   }
 }
 
@@ -208,9 +218,17 @@ export async function startupPlugins(
   const pluginHashes: string[] = [];
 
   for (const specifier of builtinPlugins) {
+    const hash = await hashPluginFile(specifier);
     const outcome = await loadPluginFromSpecifier(specifier);
     if (outcome.kind === "ok") {
       registerOrOverride(registry, outcome.provider, specifier, logPrefix);
+      if (hash) {
+        pluginHashes.push(hash);
+      } else {
+        console.warn(
+          `[${logPrefix}] Could not calculate SHA-256 for built-in plugin: ${specifier}`,
+        );
+      }
     } else if (outcome.kind === "skipped") {
       console.warn(`[${logPrefix}] ${outcome.reason} in: ${specifier}`);
     } else {
