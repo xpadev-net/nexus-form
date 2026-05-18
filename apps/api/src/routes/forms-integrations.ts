@@ -8,6 +8,7 @@ import {
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
+import { isoDate } from "../types/domain/iso-date";
 
 const FormIntegrationRecordSchema = z.object({
   id: z.string(),
@@ -15,8 +16,8 @@ const FormIntegrationRecordSchema = z.object({
   ownerUserId: z.string(),
   userId: z.string().nullable(),
   config: GoogleSheetsIntegrationSettingSchema,
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
 });
 
 export const FormIntegrationResponseSchema = z.object({

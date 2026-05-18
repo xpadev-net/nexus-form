@@ -7,6 +7,7 @@ import { acceptInvitation } from "../lib/forms/permission-service";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { FormPermissionWithUser } from "../types/domain/form-permission";
+import { isoDate } from "../types/domain/iso-date";
 
 export const InviteLookupResponseSchema = z.object({
   invitation: z.object({
@@ -17,7 +18,7 @@ export const InviteLookupResponseSchema = z.object({
     role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
     status: z.enum(["PENDING", "ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED"]),
     message: z.string().nullable(),
-    expiresAt: z.date(),
+    expiresAt: isoDate,
   }),
 });
 export type InviteLookupResponse = z.infer<typeof InviteLookupResponseSchema>;
