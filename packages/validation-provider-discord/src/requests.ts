@@ -30,9 +30,13 @@ export const discordApiFetch = (
   url: string,
   init: RequestInit = {},
 ): Promise<Response> => {
+  const timeoutSignal = AbortSignal.timeout(getDiscordApiTimeoutMs());
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
   return fetch(url, {
     ...init,
-    signal: AbortSignal.timeout(getDiscordApiTimeoutMs()),
+    signal,
   });
 };
 

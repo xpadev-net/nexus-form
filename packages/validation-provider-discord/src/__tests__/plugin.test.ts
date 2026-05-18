@@ -5,7 +5,7 @@ import {
   MAX_TIMER_MS,
 } from "../config";
 import { discordProvider } from "../plugin";
-import { getGuild } from "../requests";
+import { discordApiFetch, getGuild } from "../requests";
 import { ZDiscordGuildId, ZDiscordToken } from "../types";
 
 afterEach(() => {
@@ -102,6 +102,32 @@ describe("Discord API timeout", () => {
     const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
     expect(timeoutSpy).toHaveBeenCalledWith(1500);
+  });
+
+  it("composes caller-provided signals with the timeout signal", async () => {
+    process.env.DISCORD_API_TIMEOUT_MS = "1500";
+    const callerSignal = new AbortController().signal;
+    const timeoutSignal = new AbortController().signal;
+    const composedSignal = new AbortController().signal;
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeoutSignal);
+    const anySpy = vi.spyOn(AbortSignal, "any").mockReturnValue(composedSignal);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await discordApiFetch("https://discord.com/api/v10/test", {
+      signal: callerSignal,
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(1500);
+    expect(anySpy).toHaveBeenCalledWith([callerSignal, timeoutSignal]);
+    expect(fetchMock).toHaveBeenCalledWith("https://discord.com/api/v10/test", {
+      signal: composedSignal,
+    });
   });
 
   it("attaches a fresh timeout signal to each retry attempt", async () => {

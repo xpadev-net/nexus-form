@@ -10,7 +10,6 @@ export interface DiscordConfig {
   retryAttempts: number;
   retryDelay: number;
   cacheTimeout: number;
-  apiTimeout?: number;
 }
 
 export const MAX_TIMER_MS = 2_147_483_647;
@@ -32,7 +31,6 @@ export const DEFAULT_DISCORD_CONFIG = {
   retryAttempts: DISCORD_CONFIG_DEFAULTS.RETRY_ATTEMPTS,
   retryDelay: DISCORD_CONFIG_DEFAULTS.RETRY_DELAY,
   cacheTimeout: DISCORD_CONFIG_DEFAULTS.CACHE_TIMEOUT,
-  apiTimeout: DISCORD_CONFIG_DEFAULTS.API_TIMEOUT,
 } as const;
 
 export function parsePositiveIntEnv(
@@ -106,7 +104,6 @@ export function getDiscordConfig(): DiscordConfig {
         10,
       ) || DISCORD_CONFIG_DEFAULTS.CACHE_TIMEOUT,
     ),
-    apiTimeout: getDiscordApiTimeoutMs(),
   };
 }
 
@@ -132,10 +129,6 @@ export function validateDiscordConfig(config: DiscordConfig): {
 
   if (config.cacheTimeout < 0) {
     errors.push("Cache timeout must be non-negative");
-  }
-
-  if (config.apiTimeout !== undefined && config.apiTimeout < 0) {
-    errors.push("API timeout must be non-negative");
   }
 
   return {
