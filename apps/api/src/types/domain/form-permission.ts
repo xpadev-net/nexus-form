@@ -34,7 +34,7 @@ export const FormShareLink = z.object({
   form_id: z.string(),
   token: z.string(),
   role: FormShareRole,
-  is_active: z.boolean().default(true),
+  is_active: z.boolean(),
   expires_at: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
