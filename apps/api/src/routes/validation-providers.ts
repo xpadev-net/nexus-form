@@ -9,6 +9,10 @@ import type {
   ValidationProviderItem,
   ValidationProviderRuleItem,
 } from "@nexus-form/shared";
+import {
+  getValidationProviderResponseSchema,
+  listValidationProvidersResponseSchema,
+} from "@nexus-form/shared";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
 
@@ -47,7 +51,7 @@ export const validationProvidersRouter = createHonoApp()
       success: true,
       data: providers.map(toProviderResponseItem),
     };
-    return c.json(response);
+    return c.json(listValidationProvidersResponseSchema.parse(response));
   })
   .get("/:name", async (c) => {
     const name = c.req.param("name");
@@ -67,5 +71,5 @@ export const validationProvidersRouter = createHonoApp()
       success: true,
       data: toProviderResponseItem(provider),
     };
-    return c.json(response);
+    return c.json(getValidationProviderResponseSchema.parse(response));
   });

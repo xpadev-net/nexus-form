@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
 import { cors } from "hono/cors";
+import { z } from "zod";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { createRateLimit } from "../lib/rate-limit";
@@ -53,6 +54,15 @@ const telemetryRateLimit = createRateLimit({
   },
 });
 
+const TelemetryTokenResponseSchema = z.object({
+  success: z.literal(true),
+  token: z.string(),
+  version: z.enum(["v4", "v6"]),
+});
+export type TelemetryTokenResponse = z.infer<
+  typeof TelemetryTokenResponseSchema
+>;
+
 export const telemetryRouter = createHonoApp()
   .use(
     "*",
@@ -76,7 +86,13 @@ export const telemetryRouter = createHonoApp()
     }
 
     const token = await issueTelemetryToken(ip, "V4");
-    return c.json({ success: true, token, version: "v4" });
+    return c.json(
+      TelemetryTokenResponseSchema.parse({
+        success: true,
+        token,
+        version: "v4",
+      }),
+    );
   })
   .post("/v6", telemetryRateLimit, async (c) => {
     const { ip } = extractClientIP(c.req.raw, { strategy: "telemetry" });
@@ -92,5 +108,11 @@ export const telemetryRouter = createHonoApp()
     }
 
     const token = await issueTelemetryToken(ip, "V6");
-    return c.json({ success: true, token, version: "v6" });
+    return c.json(
+      TelemetryTokenResponseSchema.parse({
+        success: true,
+        token,
+        version: "v6",
+      }),
+    );
   });

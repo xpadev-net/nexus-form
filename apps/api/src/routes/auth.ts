@@ -7,6 +7,7 @@ import { z } from "zod";
 import { constantTimeEqual } from "../lib/crypto/field-encryption";
 import { createHonoApp } from "../lib/hono";
 import { authMiddleware, requireAuth } from "../lib/middleware";
+import { isoDate } from "../types/domain/iso-date";
 
 const updateMeSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -17,11 +18,50 @@ const signInWithInvitationSchema = z.object({
   code: z.string().min(1),
 });
 
+const AuthSessionUserSchema = z.object({
+  id: z.string(),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: z.string(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  emailVerified: z.boolean(),
+  image: z.string().nullable().optional(),
+  isSuspended: z.boolean(),
+});
+
+const AuthMeResponseSchema = z.object({
+  user: AuthSessionUserSchema,
+});
+export type AuthMeResponse = z.infer<typeof AuthMeResponseSchema>;
+
+const AuthUpdatedUserSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  email: z.string().email(),
+  image: z.string().nullable(),
+  role: z.string(),
+  isSuspended: z.boolean(),
+});
+
+const AuthUpdateMeResponseSchema = z.object({
+  user: AuthUpdatedUserSchema.nullable(),
+});
+export type AuthUpdateMeResponse = z.infer<typeof AuthUpdateMeResponseSchema>;
+
+const SignInWithInvitationResponseSchema = z.object({
+  ok: z.literal(true),
+  redirectUrl: z.string(),
+});
+export type SignInWithInvitationResponse = z.infer<
+  typeof SignInWithInvitationResponseSchema
+>;
+
 export const authRouter = createHonoApp()
   .use("*", authMiddleware)
   .get("/me", requireAuth, async (c) => {
     const currentUser = c.get("user");
-    return c.json({ user: currentUser });
+    return c.json(AuthMeResponseSchema.parse({ user: currentUser }));
   })
   .put("/me", requireAuth, zValidator("json", updateMeSchema), async (c) => {
     const currentUser = c.get("user");
@@ -50,7 +90,7 @@ export const authRouter = createHonoApp()
       .where(eq(user.id, currentUser.id))
       .limit(1);
 
-    return c.json({ user: updated ?? null });
+    return c.json(AuthUpdateMeResponseSchema.parse({ user: updated ?? null }));
   })
   .post(
     "/signin-with-invitation",
@@ -94,9 +134,11 @@ export const authRouter = createHonoApp()
           .join("; "),
       );
 
-      return c.json({
-        ok: true,
-        redirectUrl: "/api/auth/sign-in/social",
-      });
+      return c.json(
+        SignInWithInvitationResponseSchema.parse({
+          ok: true,
+          redirectUrl: "/api/auth/sign-in/social",
+        }),
+      );
     },
   );
