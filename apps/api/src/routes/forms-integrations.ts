@@ -49,7 +49,6 @@ export const formsIntegrationsRouter = createHonoApp()
         return c.json({ error: "Integration not configured" }, 404);
       }
 
-      c.req.valid("json");
       return c.json(
         {
           error: "Manual Google Sheets sync is not supported",
