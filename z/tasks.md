@@ -348,6 +348,7 @@
 
 ### R3-H13. 検証タブが未保存 draft コンテンツを使い、サーバー保存済みルールと不整合
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #66、subagent review 通過、local validation 通過）
 - **対象:** `apps/web/src/components/forms/form-editor-page.tsx:345-352`
 - **問題:** `FormValidationRulesPage` に `plateContent={draftContent ?? plateContent}` を渡す。検証ルールは `referencedBlockIds` でブロックを参照するが、autosave のデバウンス（2 秒）中にルールを作成・編集すると未保存ブロック ID を参照したルールや、削除済みブロックを参照したルールが生まれる。
 - **修正内容:** 検証タブを開く際に編集内容を確実にサーバー保存してから保存済み `contentQuery.data` を渡す。または編集中は検証タブで保存待ちの注意を表示する。
