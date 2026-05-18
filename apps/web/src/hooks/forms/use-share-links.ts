@@ -31,16 +31,20 @@ export const useShareLinks = (
   params: z.infer<typeof querySchema> = {},
 ) => {
   const queryClient = useQueryClient();
+  const parsedParams = querySchema.parse(params);
+  const page = parsedParams.page ?? null;
+  const limit = parsedParams.limit ?? null;
+  const isActive = parsedParams.isActive ?? null;
 
   const shareLinksQuery = useQuery({
-    queryKey: ["shareLinks", formId, params],
+    queryKey: ["shareLinks", formId, page, limit, isActive],
     enabled: Boolean(formId),
     staleTime: 60_000,
     queryFn: () =>
       rpc(
         client.api.forms[":id"]["share-links"].$get({
           param: { id: formId as string },
-          query: toQueryStrings(querySchema.parse(params)),
+          query: toQueryStrings(parsedParams),
         }),
       ),
   });

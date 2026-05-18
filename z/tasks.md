@@ -366,6 +366,7 @@
 
 ### R3-H15. React Query のキーに不安定なオブジェクト参照を使用し refetch ストーム
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成予定、subagent review 通過、local validation 通過）
 - **対象:** `apps/web/src/hooks/forms/use-share-links.ts:36`、`apps/web/src/hooks/forms/use-form-permissions.ts:48, 64`
 - **問題:** `queryKey: ["shareLinks", formId, params]` のように呼び出し側が毎レンダー生成するオブジェクトをキーに入れている。`undefined` プロパティの有無や順序差で別キー扱いとなりキャッシュミス・refetch ストームの原因になる。
 - **修正内容:** キーにはプリミティブのみ、または正規化済みの安定値を入れる（例: `[formId, params.page ?? null, params.limit ?? null, params.isActive ?? null]`）。

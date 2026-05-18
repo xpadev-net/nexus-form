@@ -43,9 +43,14 @@ export const useFormPermissions = (
   invitationsParams?: InvitationsParams,
 ) => {
   const queryClient = useQueryClient();
+  const permissionsPage = permissionsParams?.page ?? null;
+  const permissionsLimit = permissionsParams?.limit ?? null;
+  const invitationsPage = invitationsParams?.page ?? null;
+  const invitationsLimit = invitationsParams?.limit ?? null;
+  const invitationsStatus = invitationsParams?.status ?? null;
 
   const permissionsQuery = useQuery({
-    queryKey: ["formPermissions", formId, permissionsParams],
+    queryKey: ["formPermissions", formId, permissionsPage, permissionsLimit],
     enabled: Boolean(formId),
     staleTime: 60_000,
     queryFn: () =>
@@ -61,7 +66,13 @@ export const useFormPermissions = (
   });
 
   const invitationsQuery = useQuery({
-    queryKey: ["formInvitations", formId, invitationsParams],
+    queryKey: [
+      "formInvitations",
+      formId,
+      invitationsPage,
+      invitationsLimit,
+      invitationsStatus,
+    ],
     enabled: Boolean(formId),
     queryFn: () =>
       rpc(
