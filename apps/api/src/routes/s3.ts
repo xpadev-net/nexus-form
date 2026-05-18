@@ -349,10 +349,7 @@ export const s3Router = createHonoApp()
             400,
           );
         }
-        return c.json(
-          { error: "Failed to generate presigned upload URL" },
-          400,
-        );
+        throw error;
       }
     },
   )
