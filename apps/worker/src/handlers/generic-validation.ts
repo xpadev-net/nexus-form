@@ -261,7 +261,7 @@ export const handleGenericValidation = async (
   }
   const result = resultParse.data;
 
-  if (result.retryAfter) {
+  if (result.retryAfter != null && result.retryAfter > 0) {
     await job.moveToDelayed(Date.now() + result.retryAfter * 1000, token);
     throw new DelayedError();
   }
