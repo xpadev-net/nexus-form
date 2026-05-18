@@ -70,6 +70,114 @@ const listQuerySchema = z.object({
   maxKeys: z.coerce.number().int().positive().max(1000).optional(),
 });
 
+const PresignedUrlResultSchema = z.object({
+  url: z.string().url(),
+  key: z.string(),
+  expiresIn: z.number().int().positive(),
+});
+
+const PresignedUrlResponseSchema = z.object({
+  success: z.literal(true),
+  data: PresignedUrlResultSchema,
+});
+export type PresignedUrlResponse = z.infer<typeof PresignedUrlResponseSchema>;
+
+const PresignedUploadResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    presignedUrl: z.string().url(),
+    key: z.string(),
+    expiresIn: z.number().int().positive(),
+    contentType: z.string(),
+    maxFileSize: z.number().int().positive(),
+  }),
+});
+export type PresignedUploadResponse = z.infer<
+  typeof PresignedUploadResponseSchema
+>;
+
+const UploadCompleteResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    key: z.string(),
+    bucket: z.string(),
+    size: z.number().positive(),
+    contentType: z.string(),
+    etag: z.string().optional(),
+    message: z.string(),
+  }),
+});
+export type UploadCompleteResponse = z.infer<
+  typeof UploadCompleteResponseSchema
+>;
+
+const UploadResultResponseSchema = z.object({
+  key: z.string(),
+  bucket: z.string(),
+  url: z.string(),
+  size: z.number().nonnegative(),
+  contentType: z.string(),
+});
+
+const ProcessImageResponseSchema = z.object({
+  success: z.literal(true),
+  data: UploadResultResponseSchema.extend({
+    message: z.string(),
+  }),
+});
+export type ProcessImageResponse = z.infer<typeof ProcessImageResponseSchema>;
+
+const MoveResponseSchema = z.object({
+  success: z.literal(true),
+  data: UploadResultResponseSchema,
+});
+export type MoveResponse = z.infer<typeof MoveResponseSchema>;
+
+const DeleteResponseSchema = z.object({
+  success: z.literal(true),
+  message: z.string(),
+});
+export type DeleteResponse = z.infer<typeof DeleteResponseSchema>;
+
+const ListResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    images: z.array(
+      z.object({
+        key: z.string(),
+        name: z.string(),
+        size: z.number().nonnegative(),
+        lastModified: z.string().datetime().nullable(),
+        url: z.string(),
+      }),
+    ),
+    bucket: z.string(),
+    prefix: z.string(),
+    maxKeys: z.number().int().positive(),
+    count: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    nextContinuationToken: z.string().optional(),
+  }),
+});
+export type ListResponse = z.infer<typeof ListResponseSchema>;
+
+const HealthResponseSchema = z.object({
+  status: z.literal("healthy"),
+  timestamp: z.string().datetime(),
+  buckets: z.object({
+    tmp: z.string(),
+    prod: z.string(),
+  }),
+});
+export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+const UnhealthyResponseSchema = z.object({
+  status: z.literal("unhealthy"),
+  error: z.string(),
+  timestamp: z.string().datetime(),
+});
+export type UnhealthyResponse = z.infer<typeof UnhealthyResponseSchema>;
+
 function resolveBucketName(bucket?: string): string {
   if (!bucket || bucket === "prod") return S3_BUCKETS.PROD;
   if (bucket === "tmp") return S3_BUCKETS.TMP;
@@ -139,7 +247,7 @@ export const s3Router = createHonoApp()
           ? await s3Service.generateUploadUrl(query.key, bucket, expiresIn)
           : await s3Service.generateDownloadUrl(query.key, bucket, expiresIn);
 
-      return c.json({ success: true, data });
+      return c.json(PresignedUrlResponseSchema.parse({ success: true, data }));
     },
   )
   .post(
@@ -217,18 +325,20 @@ export const s3Router = createHonoApp()
           15 * 60,
         );
 
-        return c.json({
-          success: true,
-          data: {
-            presignedUrl,
-            key: uniqueKey,
-            expiresIn: 15 * 60,
-            contentType: mimeType,
-            maxFileSize:
-              DEFAULT_VALIDATION_CONFIG.fileTypeSizeLimits?.[mimeType] ||
-              DEFAULT_VALIDATION_CONFIG.maxSize,
-          },
-        });
+        return c.json(
+          PresignedUploadResponseSchema.parse({
+            success: true,
+            data: {
+              presignedUrl,
+              key: uniqueKey,
+              expiresIn: 15 * 60,
+              contentType: mimeType,
+              maxFileSize:
+                DEFAULT_VALIDATION_CONFIG.fileTypeSizeLimits?.[mimeType] ||
+                DEFAULT_VALIDATION_CONFIG.maxSize,
+            },
+          }),
+        );
       } catch (error) {
         if (error instanceof SecurityValidationError) {
           return c.json(
@@ -276,17 +386,19 @@ export const s3Router = createHonoApp()
         return c.json({ error: "File not found in S3" }, 404);
       }
 
-      return c.json({
-        success: true,
-        data: {
-          key,
-          bucket: resolvedBucket,
-          size,
-          contentType,
-          etag,
-          message: "Upload completed successfully",
-        },
-      });
+      return c.json(
+        UploadCompleteResponseSchema.parse({
+          success: true,
+          data: {
+            key,
+            bucket: resolvedBucket,
+            size,
+            contentType,
+            etag,
+            message: "Upload completed successfully",
+          },
+        }),
+      );
     },
   )
   .post(
@@ -334,18 +446,20 @@ export const s3Router = createHonoApp()
           finalKey,
         );
 
-        return c.json({
-          success: true,
-          data: {
-            key: result.key,
-            bucket: result.bucket,
-            url: result.url,
-            size: result.size,
-            contentType: result.contentType,
-            message:
-              "Image processed and moved to production bucket successfully",
-          },
-        });
+        return c.json(
+          ProcessImageResponseSchema.parse({
+            success: true,
+            data: {
+              key: result.key,
+              bucket: result.bucket,
+              url: result.url,
+              size: result.size,
+              contentType: result.contentType,
+              message:
+                "Image processed and moved to production bucket successfully",
+            },
+          }),
+        );
       } catch (error) {
         if (error instanceof SecurityValidationError) {
           return c.json(s3ValidationErrorResponse(error), 400);
@@ -386,7 +500,7 @@ export const s3Router = createHonoApp()
 
       try {
         const data = await s3Service.moveToProd(tmpKey, finalKey);
-        return c.json({ success: true, data });
+        return c.json(MoveResponseSchema.parse({ success: true, data }));
       } catch (error) {
         if (error instanceof SecurityValidationError) {
           return c.json(s3ValidationErrorResponse(error), 400);
@@ -421,7 +535,12 @@ export const s3Router = createHonoApp()
       }
 
       await s3Service.deleteObject(key, resolvedBucket);
-      return c.json({ success: true, message: "Object deleted successfully" });
+      return c.json(
+        DeleteResponseSchema.parse({
+          success: true,
+          message: "Object deleted successfully",
+        }),
+      );
     },
   )
   .get(
@@ -469,18 +588,20 @@ export const s3Router = createHonoApp()
         };
       });
 
-      return c.json({
-        success: true,
-        data: {
-          images,
-          bucket,
-          prefix,
-          maxKeys,
-          count: images.length,
-          truncated: result.IsTruncated ?? false,
-          nextContinuationToken: result.NextContinuationToken,
-        },
-      });
+      return c.json(
+        ListResponseSchema.parse({
+          success: true,
+          data: {
+            images,
+            bucket,
+            prefix,
+            maxKeys,
+            count: images.length,
+            truncated: result.IsTruncated ?? false,
+            nextContinuationToken: result.NextContinuationToken,
+          },
+        }),
+      );
     },
   )
   .get(
@@ -541,21 +662,23 @@ export const s3Router = createHonoApp()
         new HeadBucketCommand({ Bucket: S3_BUCKETS.PROD }),
       );
 
-      return c.json({
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        buckets: {
-          tmp: S3_BUCKETS.TMP,
-          prod: S3_BUCKETS.PROD,
-        },
-      });
+      return c.json(
+        HealthResponseSchema.parse({
+          status: "healthy",
+          timestamp: new Date().toISOString(),
+          buckets: {
+            tmp: S3_BUCKETS.TMP,
+            prod: S3_BUCKETS.PROD,
+          },
+        }),
+      );
     } catch (error) {
       return c.json(
-        {
+        UnhealthyResponseSchema.parse({
           status: "unhealthy",
           error: error instanceof Error ? error.message : "Unknown error",
           timestamp: new Date().toISOString(),
-        },
+        }),
         503,
       );
     }
