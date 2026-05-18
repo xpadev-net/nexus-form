@@ -220,6 +220,7 @@ export default {
         },
       }),
     ).rejects.toThrow("pluginHashes");
+    expect(store.values.has("test:plugins:api")).toBe(false);
   });
 
   it("fails startup when the peer manifest role does not match the key", async () => {

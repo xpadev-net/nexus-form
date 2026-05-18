@@ -267,9 +267,8 @@ export async function startupPlugins(
   const pluginHashes: string[] = [];
 
   for (const specifier of builtinPlugins) {
-    // loadPluginFromFile imports the already-hashed source via data: URL, so
-    // import.meta.url inside the plugin is also a data: URL. This matches the
-    // directory-scanned PluginLoader path.
+    // loadPluginFromFile adds the content hash to the file URL query so Node's
+    // module cache cannot hide same-path plugin changes between deployments.
     const outcome = await loadPluginFromFile(specifier);
     if (outcome.kind === "ok") {
       registerOrOverride(registry, outcome.provider, specifier, logPrefix);

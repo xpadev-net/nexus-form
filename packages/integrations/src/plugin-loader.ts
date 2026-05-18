@@ -76,6 +76,12 @@ function resolveReadablePluginPath(path: string): string {
   return path.startsWith("file://") ? fileURLToPath(path) : path;
 }
 
+function versionedFileSpecifier(path: string, hash: string): string {
+  const url = pathToFileURL(resolveReadablePluginPath(path));
+  url.searchParams.set("sha256", hash);
+  return url.href;
+}
+
 async function readPluginSource(
   path: string,
 ): Promise<VerifiedPluginSource | null> {
@@ -97,8 +103,7 @@ export type PluginLoadOutcome =
   | { kind: "failed"; error: string };
 
 /**
- * Result of reading, hashing, and loading a plugin file from the same source
- * bytes.
+ * Result of hashing and loading a plugin file from a stable file snapshot.
  *
  * `kind: "ok"` includes the loaded provider and a guaranteed SHA-256 `hash`.
  * `kind: "skipped"` includes a validation `reason` and a guaranteed `hash`
@@ -118,12 +123,13 @@ export async function loadPluginFromSpecifier(
 }
 
 /**
- * Loads a plugin from a filesystem path or `file://` URL by reading the source
- * once, computing its SHA-256, and importing those exact bytes through a data
- * URL. Returns `kind: "ok"` with `provider` and `hash` for valid providers,
- * `kind: "skipped"` with `reason` and `hash` for readable files that do not
- * expose a valid provider, and `kind: "failed"` with `error` when reading or
- * importing fails. Failed results include `hash` only when the file was read.
+ * Loads a plugin from a filesystem path or `file://` URL by hashing the file,
+ * importing it through a cache-busted file URL, then verifying the hash is
+ * unchanged. Returns `kind: "ok"` with `provider` and `hash` for valid
+ * providers, `kind: "skipped"` with `reason` and `hash` for readable files
+ * that do not expose a valid provider, and `kind: "failed"` with `error` when
+ * reading, importing, or stability verification fails. Failed results include
+ * `hash` only when the file was read.
  */
 export async function loadPluginFromFile(
   path: string,
@@ -136,10 +142,25 @@ export async function loadPluginFromFile(
     };
   }
 
-  const outcome = await loadPluginFromVerifiedSource(
-    verifiedSource.source,
-    resolveReadablePluginPath(path),
+  const outcome = await loadPluginModule(
+    versionedFileSpecifier(path, verifiedSource.hash),
   );
+  const loadedSource = await readPluginSource(path);
+  if (!loadedSource) {
+    return {
+      kind: "failed",
+      error: "Cannot read plugin file after loading",
+      hash: verifiedSource.hash,
+    };
+  }
+  if (loadedSource.hash !== verifiedSource.hash) {
+    return {
+      kind: "failed",
+      error: "Plugin file changed during load",
+      hash: verifiedSource.hash,
+    };
+  }
+
   if (outcome.kind === "ok") {
     return {
       kind: "ok",
