@@ -26,7 +26,7 @@ vi.mock("../../lib/validation-helpers", () => {
       public readonly referencedBlockId: string,
     ) {
       super(
-        `Validation result was deleted while marking processing: response=${responseId}, rule=${ruleId}, block=${referencedBlockId}`,
+        `markValidationProcessing: row deleted concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
       );
       this.name = "ConcurrentDeleteError";
     }
