@@ -292,9 +292,15 @@ export const handleGenericValidation = async (
       const metadataRecordParsed = metadataRecordSchema.safeParse(
         metadataParsed.data,
       );
-      validatedMetadata = metadataRecordParsed.success
-        ? metadataRecordParsed.data
-        : undefined;
+      if (metadataRecordParsed.success) {
+        validatedMetadata = metadataRecordParsed.data;
+      } else {
+        console.warn(
+          `[generic-validation] Metadata must be an object for ${provider.name}.${providerRule.name}:`,
+          metadataRecordParsed.error.message,
+        );
+        validatedMetadata = undefined;
+      }
     } else {
       console.warn(
         `[generic-validation] Metadata schema validation failed for ${provider.name}.${providerRule.name}:`,
