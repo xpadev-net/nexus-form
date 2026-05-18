@@ -40,11 +40,10 @@ export function useValidationSSE(formId: string | null | undefined): void {
 
       source.addEventListener("error", () => {
         consecutiveErrors++;
-        if (
-          source.readyState === EventSource.CLOSED ||
-          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
-        ) {
-          stoppedAfterErrors = true;
+        const reachedErrorLimit =
+          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS;
+        if (source.readyState === EventSource.CLOSED || reachedErrorLimit) {
+          stoppedAfterErrors = reachedErrorLimit;
           if (eventSource === source) {
             closeEventSource();
           } else {
@@ -84,6 +83,12 @@ export function useValidationSSE(formId: string | null | undefined): void {
         closeEventSource();
         return;
       }
+      void queryClient.invalidateQueries({
+        queryKey: ["validationResults", formId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["responseStatuses", formId],
+      });
       connect();
     };
 

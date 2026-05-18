@@ -71,11 +71,10 @@ export function useEditorSSE(
 
       source.addEventListener("error", () => {
         consecutiveErrors++;
-        if (
-          source.readyState === EventSource.CLOSED ||
-          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
-        ) {
-          stoppedAfterErrors = true;
+        const reachedErrorLimit =
+          consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS;
+        if (source.readyState === EventSource.CLOSED || reachedErrorLimit) {
+          stoppedAfterErrors = reachedErrorLimit;
           if (eventSource === source) {
             closeEventSource();
           } else {
@@ -141,6 +140,12 @@ export function useEditorSSE(
         closeEventSource();
         return;
       }
+      void queryClient.invalidateQueries({
+        queryKey: ["formContent", formId],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["formDiff", formId],
+      });
       connect();
     };
 
