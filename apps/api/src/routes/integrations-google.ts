@@ -35,6 +35,35 @@ const googleTokenExchangeResponseSchema = z.object({
   scope: z.string().optional(),
 });
 
+const googleOAuthScopesSchema = z.array(z.string());
+
+const googleDriveFilesResponseSchema = z.object({
+  files: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        name: z.string().optional(),
+      }),
+    )
+    .optional(),
+  nextPageToken: z.string().optional(),
+});
+
+const googleSpreadsheetSheetsResponseSchema = z.object({
+  sheets: z
+    .array(
+      z.object({
+        properties: z
+          .object({
+            sheetId: z.number().optional(),
+            title: z.string().optional(),
+          })
+          .optional(),
+      }),
+    )
+    .optional(),
+});
+
 const callbackQuerySchema = z.object({
   code: z.string().optional(),
   state: z.string().optional(),
@@ -245,7 +274,7 @@ async function getStoredToken(
     accessToken: decryptFromBase64(row.accessTokenEnc),
     refreshToken: decryptFromBase64(row.refreshTokenEnc),
     expiryDate: row.expiryDate.toISOString(),
-    scopes: Array.isArray(row.scopes) ? (row.scopes as string[]) : [],
+    scopes: googleOAuthScopesSchema.catch([]).parse(row.scopes),
   };
 }
 
@@ -551,13 +580,15 @@ export const integrationsGoogleRouter = createHonoApp()
     );
     if (!response.ok)
       return c.json({ error: "Failed to fetch spreadsheet list" }, 502);
-    const raw = (await response.json()) as {
-      files?: Array<{ id?: string; name?: string }>;
-      nextPageToken?: string;
-    };
-    const spreadsheets = (raw.files ?? [])
-      .filter((file) => typeof file.id === "string")
-      .map((file) => ({ id: file.id as string, name: file.name }));
+    const rawParsed = googleDriveFilesResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (!rawParsed.success)
+      return c.json({ error: "Unexpected response from Google API" }, 502);
+    const raw = rawParsed.data;
+    const spreadsheets = (raw.files ?? []).flatMap((file) =>
+      typeof file.id === "string" ? [{ id: file.id, name: file.name }] : [],
+    );
 
     const parsed = GoogleSpreadsheetsResponseSchema.safeParse({
       spreadsheets,
@@ -589,9 +620,12 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!response.ok)
       return c.json({ error: "Failed to fetch sheets list" }, 502);
 
-    const raw = (await response.json()) as {
-      sheets?: Array<{ properties?: { sheetId?: number; title?: string } }>;
-    };
+    const rawParsed = googleSpreadsheetSheetsResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (!rawParsed.success)
+      return c.json({ error: "Unexpected response from Google API" }, 502);
+    const raw = rawParsed.data;
 
     const sheets = (raw.sheets ?? [])
       .map((entry) => ({
