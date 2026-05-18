@@ -63,6 +63,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(20),
+  keyword: z.string().max(200).optional(),
   sort: z.enum(["submittedAt", "updatedAt"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
 });
@@ -287,6 +288,17 @@ export const formsResponsesRouter = createHonoApp()
       const sortField = query.sort ?? "submittedAt";
       const sortOrder = query.order ?? "desc";
       const offset = (query.page - 1) * query.limit;
+      const keyword = query.keyword?.trim();
+      const whereCondition = keyword
+        ? and(
+            eq(formResponse.formId, formId),
+            or(
+              sql`instr(${formResponse.id}, ${keyword}) > 0`,
+              sql`instr(${formResponse.respondentUuid}, ${keyword}) > 0`,
+              sql`instr(${formResponse.countryCode}, ${keyword}) > 0`,
+            ),
+          )
+        : eq(formResponse.formId, formId);
 
       const [responses, totalResult] = await Promise.all([
         db
@@ -301,7 +313,7 @@ export const formsResponsesRouter = createHonoApp()
             countryCode: formResponse.countryCode,
           })
           .from(formResponse)
-          .where(eq(formResponse.formId, formId))
+          .where(whereCondition)
           .orderBy(
             sortOrder === "asc"
               ? sortField === "updatedAt"
@@ -313,10 +325,7 @@ export const formsResponsesRouter = createHonoApp()
           )
           .offset(offset)
           .limit(query.limit),
-        db
-          .select({ count: count() })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId)),
+        db.select({ count: count() }).from(formResponse).where(whereCondition),
       ]);
 
       return c.json(
