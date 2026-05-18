@@ -4,6 +4,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { baseUrl } from "@/lib/api";
 
+const MAX_CONSECUTIVE_SSE_ERRORS = 3;
+
 /**
  * バリデーション結果のリアルタイム更新を SSE で受信し、
  * 関連する TanStack Query キャッシュを自動的に無効化するフック
@@ -18,8 +20,24 @@ export function useValidationSSE(formId: string | null | undefined): void {
 
     const url = `${baseUrl}/api/forms/${formId}/responses/events`;
     const eventSource = new EventSource(url, { withCredentials: true });
+    let consecutiveErrors = 0;
+
+    eventSource.addEventListener("open", () => {
+      consecutiveErrors = 0;
+    });
+
+    eventSource.addEventListener("error", () => {
+      consecutiveErrors++;
+      if (
+        eventSource.readyState === EventSource.CLOSED ||
+        consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
+      ) {
+        eventSource.close();
+      }
+    });
 
     eventSource.addEventListener("message", (e: MessageEvent<string>) => {
+      consecutiveErrors = 0;
       let parsed: unknown;
       try {
         parsed = JSON.parse(e.data);

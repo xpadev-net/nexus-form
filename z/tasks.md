@@ -330,6 +330,7 @@
 
 ### R3-H11. SSE のエラー時に無限再接続が発生する
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #64、subagent review 通過、local validation 通過）
 - **対象:** `apps/web/src/hooks/use-editor-sse.ts:53-55`、`apps/web/src/hooks/use-validation-sse.ts`
 - **問題:** `EventSource` はエラー時にブラウザが自動再接続するが、API が 401/403/404（権限喪失・フォーム削除）を返し続けても止まらず数秒ごとに再接続を試み続ける。`use-validation-sse.ts` には `error` リスナーすら無く、`use-editor-sse.ts` の `error` ハンドラは空。
 - **修正内容:** `error` イベントで `readyState === EventSource.CLOSED` を検知し、恒久エラー（認証失敗等）なら明示的に `close()` する。または再接続回数の上限/バックオフを設ける。`use-validation-sse.ts` にも `error` ハンドラを追加。
