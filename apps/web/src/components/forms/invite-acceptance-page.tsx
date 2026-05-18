@@ -15,6 +15,7 @@ export function InviteAcceptancePage() {
     queryFn: () =>
       rpc(client.api.forms.invites[":token"].$get({ param: { token } })),
     retry: false,
+    staleTime: Infinity,
   });
   const notFound =
     invitationQuery.error instanceof RpcError &&

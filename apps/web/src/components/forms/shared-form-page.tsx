@@ -10,6 +10,7 @@ export function SharedFormPage() {
     queryFn: () =>
       rpc(client.api.forms.shared[":token"].$get({ param: { token } })),
     retry: false,
+    staleTime: Infinity,
   });
   const notFound =
     sharedFormQuery.error instanceof RpcError &&
