@@ -26,6 +26,19 @@ import {
   updateShareLink,
 } from "../lib/forms/permission-service";
 import { createHonoApp } from "../lib/hono";
+import {
+  FormInvitationListResponse,
+  FormInvitationStatus,
+  FormInvitationWithInviter,
+  FormPermissionListResponse,
+  FormPermissionType,
+  FormPermissionWithUser,
+  FormShareLink,
+  FormShareLinkListResponse,
+  FormShareRole,
+} from "../types/domain/form-permission";
+import { OkResponseSchema } from "../types/domain/form-row";
+import { isoDate } from "../types/domain/iso-date";
 
 const createPermissionSchema = z.object({
   userId: z.string().min(1),
@@ -65,6 +78,79 @@ const shareLinksQuerySchema = paginationQuerySchema.extend({
   isActive: z.coerce.boolean().optional(),
 });
 
+export const FormPermissionResponseSchema = z.object({
+  permission: FormPermissionWithUser,
+});
+export type FormPermissionResponse = z.infer<
+  typeof FormPermissionResponseSchema
+>;
+
+export const NullableFormPermissionResponseSchema = z.object({
+  permission: FormPermissionWithUser.nullable(),
+});
+export type NullableFormPermissionResponse = z.infer<
+  typeof NullableFormPermissionResponseSchema
+>;
+
+export const UserFormPermissionResponseSchema = z.object({
+  role: FormPermissionType.nullable(),
+});
+export type UserFormPermissionResponse = z.infer<
+  typeof UserFormPermissionResponseSchema
+>;
+
+const FormInvitationRecordResponseSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  email: z.string().email(),
+  role: FormPermissionType,
+  token: z.string(),
+  status: FormInvitationStatus,
+  message: z.string().nullable(),
+  expiresAt: isoDate,
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  invitedBy: z.string(),
+});
+
+export const FormInvitationResponseSchema = z.object({
+  invitation: FormInvitationWithInviter,
+});
+export type FormInvitationResponse = z.infer<
+  typeof FormInvitationResponseSchema
+>;
+
+export const FormInvitationRecordResponseEnvelopeSchema = z.object({
+  invitation: FormInvitationRecordResponseSchema,
+});
+export type FormInvitationRecordResponseEnvelope = z.infer<
+  typeof FormInvitationRecordResponseEnvelopeSchema
+>;
+
+const FormShareLinkRecordResponseSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  token: z.string(),
+  role: FormShareRole,
+  isActive: z.boolean(),
+  expiresAt: isoDate.nullable(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  createdBy: z.string(),
+});
+
+export const FormShareLinkResponseSchema = z.object({
+  shareLink: FormShareLink,
+});
+export type FormShareLinkResponse = z.infer<typeof FormShareLinkResponseSchema>;
+
+export const FormShareLinkRecordResponseEnvelopeSchema = z.object({
+  shareLink: FormShareLinkRecordResponseSchema,
+});
+export type FormShareLinkRecordResponseEnvelope = z.infer<
+  typeof FormShareLinkRecordResponseEnvelopeSchema
+>;
+
 export const formsPermissionsRouter = createHonoApp()
   .use("/:id/permissions*", withDualFormAuth("VIEWER"))
   .use("/:id/invitations*", withDualFormAuth("VIEWER"))
@@ -81,7 +167,7 @@ export const formsPermissionsRouter = createHonoApp()
         page: query.page,
         limit: query.pageSize,
       });
-      return c.json(result);
+      return c.json(FormPermissionListResponse.parse(result));
     },
   )
   .post(
@@ -120,7 +206,12 @@ export const formsPermissionsRouter = createHonoApp()
         user_id: payload.userId,
       });
 
-      return c.json({ permission: created.permissions[0] ?? null }, 201);
+      return c.json(
+        NullableFormPermissionResponseSchema.parse({
+          permission: created.permissions[0] ?? null,
+        }),
+        201,
+      );
     },
   )
   .get("/:id/permissions/me", async (c) => {
@@ -131,7 +222,7 @@ export const formsPermissionsRouter = createHonoApp()
       auth_type: auth.auth_type,
       form_ids: auth.form_ids,
     });
-    return c.json({ role });
+    return c.json(UserFormPermissionResponseSchema.parse({ role }));
   })
   .get("/:id/permissions/:userId", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
@@ -144,7 +235,7 @@ export const formsPermissionsRouter = createHonoApp()
     });
     const permission = result.permissions[0];
     if (!permission) return c.json({ error: "Permission not found" }, 404);
-    return c.json({ permission });
+    return c.json(FormPermissionResponseSchema.parse({ permission }));
   })
   .put(
     "/:id/permissions/:userId",
@@ -159,7 +250,7 @@ export const formsPermissionsRouter = createHonoApp()
         userId,
         payload.role,
       );
-      return c.json({ permission });
+      return c.json(FormPermissionResponseSchema.parse({ permission }));
     },
   )
   .delete("/:id/permissions/:userId", withDualFormAuth("OWNER"), async (c) => {
@@ -179,7 +270,7 @@ export const formsPermissionsRouter = createHonoApp()
     if (!target) return c.json({ error: "Permission not found" }, 404);
 
     await db.delete(formPermission).where(eq(formPermission.id, target.id));
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post(
     "/:id/permissions/transfer-owner",
@@ -191,7 +282,7 @@ export const formsPermissionsRouter = createHonoApp()
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
       const payload = c.req.valid("json");
       await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
   .get(
@@ -207,7 +298,7 @@ export const formsPermissionsRouter = createHonoApp()
         query.pageSize,
         query.status,
       );
-      return c.json(invitations);
+      return c.json(FormInvitationListResponse.parse(invitations));
     },
   )
   .post(
@@ -227,7 +318,7 @@ export const formsPermissionsRouter = createHonoApp()
         payload.message,
         payload.expiresAt ? new Date(payload.expiresAt) : undefined,
       );
-      return c.json({ invitation }, 201);
+      return c.json(FormInvitationResponseSchema.parse({ invitation }), 201);
     },
   )
   .get(
@@ -247,7 +338,9 @@ export const formsPermissionsRouter = createHonoApp()
         )
         .limit(1);
       if (!invitation) return c.json({ error: "Invitation not found" }, 404);
-      return c.json({ invitation });
+      return c.json(
+        FormInvitationRecordResponseEnvelopeSchema.parse({ invitation }),
+      );
     },
   )
   .delete(
@@ -259,7 +352,7 @@ export const formsPermissionsRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
       await cancelInvitation(invitationId, auth.user_id, formId);
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
   .get(
@@ -274,7 +367,7 @@ export const formsPermissionsRouter = createHonoApp()
         query.pageSize,
         query.isActive,
       );
-      return c.json(links);
+      return c.json(FormShareLinkListResponse.parse(links));
     },
   )
   .post(
@@ -298,7 +391,10 @@ export const formsPermissionsRouter = createHonoApp()
         auth.user_id,
         payload.expiresAt ? new Date(payload.expiresAt) : undefined,
       );
-      return c.json({ shareLink: link }, 201);
+      return c.json(
+        FormShareLinkResponseSchema.parse({ shareLink: link }),
+        201,
+      );
     },
   )
   .get("/:id/share-links/:linkId", async (c) => {
@@ -312,7 +408,9 @@ export const formsPermissionsRouter = createHonoApp()
       )
       .limit(1);
     if (!link) return c.json({ error: "Share link not found" }, 404);
-    return c.json({ shareLink: link });
+    return c.json(
+      FormShareLinkRecordResponseEnvelopeSchema.parse({ shareLink: link }),
+    );
   })
   .put(
     "/:id/share-links/:linkId",
@@ -326,14 +424,14 @@ export const formsPermissionsRouter = createHonoApp()
         isActive: payload.isActive,
         expiresAt: payload.expiresAt ? new Date(payload.expiresAt) : undefined,
       });
-      return c.json({ shareLink: link });
+      return c.json(FormShareLinkResponseSchema.parse({ shareLink: link }));
     },
   )
   .delete("/:id/share-links/:linkId", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const linkId = c.req.param("linkId");
     await deleteShareLink(linkId, formId);
-    return c.json({ ok: true });
+    return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post(
     "/:id/invitations/:token/accept",
@@ -343,6 +441,6 @@ export const formsPermissionsRouter = createHonoApp()
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
       const token = c.req.param("token");
       const permission = await acceptInvitation(token, auth.user_id);
-      return c.json({ permission });
+      return c.json(FormPermissionResponseSchema.parse({ permission }));
     },
   );
