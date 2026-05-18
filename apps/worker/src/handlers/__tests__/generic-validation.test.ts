@@ -19,6 +19,19 @@ vi.mock("@nexus-form/integrations", async (importOriginal) => {
 });
 
 vi.mock("../../lib/validation-helpers", () => {
+  class ConcurrentDeleteError extends Error {
+    constructor(
+      public readonly responseId: string,
+      public readonly ruleId: string,
+      public readonly referencedBlockId: string,
+    ) {
+      super(
+        `Validation result was deleted while marking processing: response=${responseId}, rule=${ruleId}, block=${referencedBlockId}`,
+      );
+      this.name = "ConcurrentDeleteError";
+    }
+  }
+
   class ReferencedBlockMissingError extends Error {
     constructor(
       public readonly formId: string,
@@ -34,11 +47,13 @@ vi.mock("../../lib/validation-helpers", () => {
     getValidationContext: vi.fn(),
     markValidationProcessing: vi.fn(),
     writeValidationResult: vi.fn(),
+    ConcurrentDeleteError,
     ReferencedBlockMissingError,
   };
 });
 
 import {
+  ConcurrentDeleteError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -140,6 +155,38 @@ describe("handleGenericValidation", () => {
       }),
     );
     expect(mockMarkValidationProcessing).not.toHaveBeenCalled();
+  });
+
+  it("markValidationProcessingがConcurrentDeleteErrorをスローした場合は結果を書かずに終端化する", async () => {
+    mockMarkValidationProcessing.mockRejectedValue(
+      new ConcurrentDeleteError("r-1", "rule-1", "block-a"),
+    );
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Result row deleted" });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    expect(mockProviderRegistryGet).not.toHaveBeenCalled();
+  });
+
+  it("markValidationProcessingがConcurrentDeleteError以外をスローした場合は再スローする", async () => {
+    mockMarkValidationProcessing.mockRejectedValue(new Error("db unavailable"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "db unavailable",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    expect(mockProviderRegistryGet).not.toHaveBeenCalled();
   });
 
   it("プロバイダーが見つからない場合にエラーを返す", async () => {

@@ -12,6 +12,7 @@ import {
 import { DelayedError, type Job } from "bullmq";
 import { ZodError } from "zod";
 import {
+  ConcurrentDeleteError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -95,13 +96,20 @@ export const handleGenericValidation = async (
   const serviceType = job.data.snapshotProviderName;
   const ruleType = job.data.snapshotRuleType;
 
-  await markValidationProcessing({
-    responseId,
-    ruleId,
-    referencedBlockId,
-    formId,
-    service: serviceType,
-  });
+  try {
+    await markValidationProcessing({
+      responseId,
+      ruleId,
+      referencedBlockId,
+      formId,
+      service: serviceType,
+    });
+  } catch (error) {
+    if (error instanceof ConcurrentDeleteError) {
+      return { ok: false, error: "Result row deleted" };
+    }
+    throw error;
+  }
 
   const provider = providerRegistry.get(serviceType);
   const providerRule = provider?.rules[ruleType];
