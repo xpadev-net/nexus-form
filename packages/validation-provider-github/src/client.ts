@@ -2,6 +2,7 @@ import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import { GitHubErrorCode } from "./error-codes";
 import {
+  GitHubProviderError,
   getGitHubErrorCode,
   getGitHubRateLimitRetryAfter,
   isGitHubUserNotFoundError,
@@ -79,17 +80,14 @@ export class GitHubApiClient {
           retryAfter !== null
             ? `${errorMessage} (Retry after ${Math.ceil(retryAfter / 1000)}s)`
             : errorMessage;
-        const enhancedError = new Error(enhancedMessage);
-        (enhancedError as { code?: string; retryAfter?: number }).code =
-          errorCode;
-        (enhancedError as { code?: string; retryAfter?: number }).retryAfter =
-          retryAfter ?? undefined;
-        throw enhancedError;
+        throw new GitHubProviderError(
+          enhancedMessage,
+          errorCode,
+          retryAfter ?? undefined,
+        );
       }
 
-      const enhancedError = new Error(errorMessage);
-      (enhancedError as { code?: string }).code = errorCode;
-      throw enhancedError;
+      throw new GitHubProviderError(errorMessage, errorCode);
     }
   }
 

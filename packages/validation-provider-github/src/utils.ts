@@ -11,37 +11,105 @@ export interface OctokitRequestError extends Error {
   };
 }
 
+export class GitHubProviderError extends Error {
+  readonly code: GitHubErrorCode;
+  readonly retryAfter?: number;
+
+  constructor(message: string, code: GitHubErrorCode, retryAfter?: number) {
+    super(message);
+    this.name = "GitHubProviderError";
+    this.code = code;
+    this.retryAfter = retryAfter;
+  }
+}
+
+export function isGitHubProviderError(
+  error: unknown,
+): error is GitHubProviderError {
+  return error instanceof GitHubProviderError;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function getRecordProperty(
+  value: unknown,
+  key: string,
+): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  const property = value[key];
+  return isRecord(property) ? property : null;
+}
+
+function getStringProperty(value: unknown, key: string): string | null {
+  if (!isRecord(value)) return null;
+  const property = value[key];
+  return typeof property === "string" ? property : null;
+}
+
+function getNumberProperty(value: unknown, key: string): number | null {
+  if (!isRecord(value)) return null;
+  const property = value[key];
+  return typeof property === "number" ? property : null;
+}
+
+function getStringOrNumberProperty(
+  value: unknown,
+  key: string,
+): string | number | null {
+  if (!isRecord(value)) return null;
+  const property = value[key];
+  return typeof property === "string" || typeof property === "number"
+    ? property
+    : null;
+}
+
+function getHeaderValue(
+  headers: Record<string, unknown> | null,
+  names: string[],
+): string | null {
+  if (!headers) return null;
+  for (const name of names) {
+    const value = headers[name];
+    if (typeof value === "string") return value;
+  }
+  return null;
+}
+
+function getGitHubErrorHeaders(error: unknown): Record<string, unknown> | null {
+  return getRecordProperty(getRecordProperty(error, "response"), "headers");
+}
+
+function getGitHubErrorData(error: unknown): Record<string, unknown> | null {
+  return getRecordProperty(getRecordProperty(error, "response"), "data");
+}
+
 export function isGitHubRateLimitError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  const err = error as OctokitRequestError;
-  if (err.status !== 403) return false;
-  const headers = err.response?.headers || {};
-  const remaining =
-    headers["x-ratelimit-remaining"] ||
-    headers["X-RateLimit-Remaining"] ||
-    headers["X-RATELIMIT-REMAINING"];
-  if (remaining === undefined) return false;
+  if (getNumberProperty(error, "status") !== 403) return false;
+  const remaining = getHeaderValue(getGitHubErrorHeaders(error), [
+    "x-ratelimit-remaining",
+    "X-RateLimit-Remaining",
+    "X-RATELIMIT-REMAINING",
+  ]);
+  if (remaining === null) return false;
   return remaining === "0";
 }
 
 export function isGitHubAuthError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  return (error as OctokitRequestError).status === 401;
+  return getNumberProperty(error, "status") === 401;
 }
 
 export function isGitHubUserNotFoundError(error: unknown): boolean {
-  if (!error || typeof error !== "object") return false;
-  return (error as OctokitRequestError).status === 404;
+  return getNumberProperty(error, "status") === 404;
 }
 
 export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
-  if (!error || typeof error !== "object") return null;
-  const err = error as OctokitRequestError;
-  const headers = err.response?.headers || {};
-  const resetHeader =
-    headers["x-ratelimit-reset"] ||
-    headers["X-RateLimit-Reset"] ||
-    headers["X-RATELIMIT-RESET"];
+  const resetHeader = getHeaderValue(getGitHubErrorHeaders(error), [
+    "x-ratelimit-reset",
+    "X-RateLimit-Reset",
+    "X-RATELIMIT-RESET",
+  ]);
   if (!resetHeader) return null;
   try {
     const resetTime = Number.parseInt(resetHeader, 10);
@@ -54,14 +122,15 @@ export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
 }
 
 export function parseGitHubError(error: unknown): string {
-  if (!error || typeof error !== "object") return "Unknown GitHub API error";
-  if ("message" in error && typeof error.message === "string")
-    return error.message;
-  const err = error as OctokitRequestError;
-  if (err.response?.data?.message) return err.response.data.message;
-  if (err.response?.data?.errors && Array.isArray(err.response.data.errors)) {
-    const messages = err.response.data.errors
-      .map((e) => e.message)
+  const message = getStringProperty(error, "message");
+  if (message) return message;
+  const data = getGitHubErrorData(error);
+  const responseMessage = getStringProperty(data, "message");
+  if (responseMessage) return responseMessage;
+  const errors = data?.errors;
+  if (Array.isArray(errors)) {
+    const messages = errors
+      .map((entry) => getStringProperty(entry, "message"))
       .filter((msg): msg is string => typeof msg === "string");
     if (messages.length > 0) return messages.join("; ");
   }
@@ -79,10 +148,11 @@ export function getGitHubErrorCode(error: unknown): GitHubErrorCode {
     typeof error === "object" &&
     ("code" in error || "errno" in error)
   ) {
-    const err = error as { code?: string; errno?: string | number };
-    if (err.code === "ECONNREFUSED" || err.code === "ENOTFOUND")
+    const code = getStringProperty(error, "code");
+    const errno = getStringOrNumberProperty(error, "errno");
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND")
       return GitHubErrorCode.NETWORK_ERROR;
-    if (err.code === "ETIMEDOUT" || err.errno === "ETIMEDOUT")
+    if (code === "ETIMEDOUT" || errno === "ETIMEDOUT")
       return GitHubErrorCode.TIMEOUT;
   }
   return GitHubErrorCode.GITHUB_API_ERROR;

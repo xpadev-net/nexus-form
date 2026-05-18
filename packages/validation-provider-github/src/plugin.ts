@@ -7,6 +7,7 @@ import { z } from "zod";
 import { getGitHubClient } from "./client";
 import { getGitHubConfig } from "./config";
 import { GitHubErrorCode } from "./error-codes";
+import { isGitHubProviderError } from "./utils";
 
 const GitHubInputSchema = z
   .string()
@@ -98,16 +99,13 @@ const userExistsRule: ValidationProviderRule = {
         },
       };
     } catch (error) {
-      const structured = error as {
-        code?: string;
-        retryAfter?: number;
-        message?: string;
-      };
-
-      if (structured.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
-        // structured.retryAfter is in milliseconds (from getGitHubRateLimitRetryAfter);
+      if (
+        isGitHubProviderError(error) &&
+        error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
+      ) {
+        // error.retryAfter is in milliseconds (from getGitHubRateLimitRetryAfter);
         // ValidationProviderResult.retryAfter expects seconds.
-        const retryAfterMs = structured.retryAfter;
+        const retryAfterMs = error.retryAfter;
         return {
           isValid: false,
           errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
