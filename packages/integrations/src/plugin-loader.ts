@@ -283,6 +283,7 @@ export class PluginLoader {
 
   async loadPlugins(): Promise<ValidationProvider[]> {
     this.loadedPluginHashes = [];
+    this.failedPlugins = [];
     let resolvedDir: string;
     try {
       resolvedDir = await realpath(this.pluginsDir);

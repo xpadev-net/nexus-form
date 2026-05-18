@@ -189,6 +189,20 @@ describe("PluginLoader", () => {
     expect(loader.getFailedPlugins()[0]?.file).toBe("broken.js");
   });
 
+  it("resets failed plugin state on each load", async () => {
+    await writeLockedPlugin("broken.js", "this is not valid js }{{{");
+    const loader = new PluginLoader(tmpDir);
+    await loader.loadPlugins();
+    expect(loader.hasFailedPlugins()).toBe(true);
+
+    await rm(join(tmpDir, "broken.js"));
+    await writePluginLock({});
+    await loader.loadPlugins();
+
+    expect(loader.hasFailedPlugins()).toBe(false);
+    expect(loader.getFailedPlugins()).toEqual([]);
+  });
+
   it("loads a valid plugin from a .mjs file", async () => {
     await writeLockedPlugin("valid.mjs", VALID_PLUGIN_CODE);
     const loader = new PluginLoader(tmpDir);
