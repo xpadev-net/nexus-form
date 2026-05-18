@@ -1,4 +1,4 @@
-import type { ChangeEvent } from "react";
+import { type ChangeEvent, useId } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -164,12 +164,14 @@ interface BlockValidationEditorInternalProps<T extends BlockType> {
   question: BlockByType<T>;
   onValidationChange: (validation: BlockByType<T>["validation"]) => void;
   disabled?: boolean;
+  idPrefix: string;
 }
 
 const BlockValidationEditorInner = <T extends BlockType>({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
   const getValidationTitle = (): string => {
     const titles: Record<BlockType, string> = {
@@ -201,6 +203,7 @@ const BlockValidationEditorInner = <T extends BlockType>({
           question={question}
           onValidationChange={onValidationChange}
           disabled={disabled}
+          idPrefix={idPrefix}
         />
       )}
 
@@ -211,6 +214,7 @@ const BlockValidationEditorInner = <T extends BlockType>({
           question={question}
           onValidationChange={onValidationChange}
           disabled={disabled}
+          idPrefix={idPrefix}
         />
       )}
 
@@ -219,6 +223,7 @@ const BlockValidationEditorInner = <T extends BlockType>({
           question={question}
           onValidationChange={onValidationChange}
           disabled={disabled}
+          idPrefix={idPrefix}
         />
       )}
 
@@ -228,6 +233,7 @@ const BlockValidationEditorInner = <T extends BlockType>({
           question={question}
           onValidationChange={onValidationChange}
           disabled={disabled}
+          idPrefix={idPrefix}
         />
       )}
 
@@ -236,6 +242,7 @@ const BlockValidationEditorInner = <T extends BlockType>({
           question={question}
           onValidationChange={onValidationChange}
           disabled={disabled}
+          idPrefix={idPrefix}
         />
       )}
     </div>
@@ -253,11 +260,14 @@ export const BlockValidationEditor = <T extends BlockType>({
   onValidationChange,
   disabled = false,
 }: BlockValidationEditorProps<T>) => {
+  const idPrefix = useId();
+
   return (
     <BlockValidationEditorInner<T>
       question={block}
       onValidationChange={onValidationChange}
       disabled={disabled}
+      idPrefix={idPrefix}
     />
   );
 };
@@ -268,7 +278,16 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
+  const fieldId = (field: string) => `${idPrefix}-${field}`;
+  const minLengthId = fieldId("min-length");
+  const maxLengthId = fieldId("max-length");
+  const patternTemplateId = fieldId("pattern-template");
+  const patternId = fieldId("pattern");
+  const allowPatternMismatchId = fieldId("allow-pattern-mismatch");
+  const shortTextPlaceholderId = fieldId("short-text-placeholder");
+
   const isShortText = question.type === "short_text";
   const { data: validationProvidersData } = useValidationProviders();
   const validationProviders = validationProvidersData?.data ?? [];
@@ -391,9 +410,9 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="min-length">最小文字数</Label>
+          <Label htmlFor={minLengthId}>最小文字数</Label>
           <Input
-            id="min-length"
+            id={minLengthId}
             type="number"
             value={question.validation.minLength || ""}
             onChange={(e) =>
@@ -410,9 +429,9 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="max-length">最大文字数</Label>
+          <Label htmlFor={maxLengthId}>最大文字数</Label>
           <Input
-            id="max-length"
+            id={maxLengthId}
             type="number"
             value={question.validation.maxLength || ""}
             onChange={(e) =>
@@ -433,13 +452,13 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
       {question.type === "short_text" && shortTextValidation && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="pattern-template">パターンテンプレート</Label>
+            <Label htmlFor={patternTemplateId}>パターンテンプレート</Label>
             <Select
               value={selectedTemplateValue}
               onValueChange={handlePatternTemplateChange}
               disabled={disabled}
             >
-              <SelectTrigger>
+              <SelectTrigger id={patternTemplateId}>
                 <SelectValue placeholder="テンプレートを選択してください" />
               </SelectTrigger>
               <SelectContent>
@@ -461,9 +480,9 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="pattern">正規表現パターン</Label>
+            <Label htmlFor={patternId}>正規表現パターン</Label>
             <Input
-              id="pattern"
+              id={patternId}
               value={shortTextValidation.pattern?.toString() || ""}
               onChange={(e) => handleCustomPatternChange(e.target.value)}
               placeholder={
@@ -490,7 +509,7 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
             <div className="space-y-2">
               <div className="flex items-center space-x-2">
                 <Switch
-                  id="allow-pattern-mismatch"
+                  id={allowPatternMismatchId}
                   checked={shortTextValidation.allowPatternMismatch || false}
                   onCheckedChange={(checked) =>
                     updateShortTextValidation((current) => ({
@@ -500,7 +519,7 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
                   }
                   disabled={disabled}
                 />
-                <Label htmlFor="allow-pattern-mismatch">
+                <Label htmlFor={allowPatternMismatchId}>
                   パターン不一致を許容
                 </Label>
               </div>
@@ -511,9 +530,9 @@ const TextValidationRenderer = <T extends "short_text" | "long_text">({
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="short-text-placeholder">プレースホルダー</Label>
+            <Label htmlFor={shortTextPlaceholderId}>プレースホルダー</Label>
             <Input
-              id="short-text-placeholder"
+              id={shortTextPlaceholderId}
               value={placeholderDisplayValue}
               onChange={(event) => handlePlaceholderChange(event.target.value)}
               placeholder="例: ご希望のユーザー名"
@@ -535,7 +554,14 @@ const ChoiceValidationRenderer = <T extends "checkbox" | "radio" | "dropdown">({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
+  const fieldId = (field: string) => `${idPrefix}-${field}`;
+  const minSelectionsId = fieldId("min-selections");
+  const maxSelectionsId = fieldId("max-selections");
+  const allowOtherId = fieldId("allow-other");
+  const otherLabelId = fieldId("other-label");
+
   const renderCheckboxRangeControls = () => {
     if (question.type !== "checkbox") {
       return null;
@@ -584,9 +610,9 @@ const ChoiceValidationRenderer = <T extends "checkbox" | "radio" | "dropdown">({
     return (
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="min-selections">最小選択数</Label>
+          <Label htmlFor={minSelectionsId}>最小選択数</Label>
           <Input
-            id="min-selections"
+            id={minSelectionsId}
             type="number"
             value={checkboxValidation.minSelections ?? ""}
             onChange={handleMinSelectionsChange}
@@ -596,9 +622,9 @@ const ChoiceValidationRenderer = <T extends "checkbox" | "radio" | "dropdown">({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="max-selections">最大選択数</Label>
+          <Label htmlFor={maxSelectionsId}>最大選択数</Label>
           <Input
-            id="max-selections"
+            id={maxSelectionsId}
             type="number"
             value={checkboxValidation.maxSelections ?? ""}
             onChange={handleMaxSelectionsChange}
@@ -618,7 +644,7 @@ const ChoiceValidationRenderer = <T extends "checkbox" | "radio" | "dropdown">({
       <div className="space-y-2">
         <div className="flex items-center space-x-2">
           <Switch
-            id="allow-other"
+            id={allowOtherId}
             checked={question.validation.allowOther || false}
             onCheckedChange={(checked) =>
               onValidationChange({
@@ -628,13 +654,13 @@ const ChoiceValidationRenderer = <T extends "checkbox" | "radio" | "dropdown">({
             }
             disabled={disabled}
           />
-          <Label htmlFor="allow-other">「その他」オプションを追加</Label>
+          <Label htmlFor={allowOtherId}>「その他」オプションを追加</Label>
         </div>
         {question.validation.allowOther && (
           <div className="space-y-2">
-            <Label htmlFor="other-label">「その他」ラベル</Label>
+            <Label htmlFor={otherLabelId}>「その他」ラベル</Label>
             <Input
-              id="other-label"
+              id={otherLabelId}
               value={question.validation.otherLabel || "その他"}
               onChange={(e) =>
                 onValidationChange({
@@ -656,7 +682,17 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
+  const fieldId = (field: string) => `${idPrefix}-${field}`;
+  const scaleMinId = fieldId("scale-min");
+  const scaleMaxId = fieldId("scale-max");
+  const minLabelId = fieldId("min-label");
+  const maxLabelId = fieldId("max-label");
+  const stepId = fieldId("step");
+  const maxRatingId = fieldId("max-rating");
+  const ratingIconId = fieldId("rating-icon");
+
   if (question.type === "linear_scale") {
     const linearValidation = question.validation;
 
@@ -708,9 +744,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="scale-min">最小値</Label>
+            <Label htmlFor={scaleMinId}>最小値</Label>
             <Input
-              id="scale-min"
+              id={scaleMinId}
               type="number"
               value={linearValidation.min}
               onChange={handleMinChange}
@@ -718,9 +754,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="scale-max">最大値</Label>
+            <Label htmlFor={scaleMaxId}>最大値</Label>
             <Input
-              id="scale-max"
+              id={scaleMaxId}
               type="number"
               value={linearValidation.max}
               onChange={handleMaxChange}
@@ -731,9 +767,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="min-label">最小値ラベル</Label>
+            <Label htmlFor={minLabelId}>最小値ラベル</Label>
             <Input
-              id="min-label"
+              id={minLabelId}
               value={linearValidation.minLabel || ""}
               onChange={(event) =>
                 onValidationChange({
@@ -746,9 +782,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max-label">最大値ラベル</Label>
+            <Label htmlFor={maxLabelId}>最大値ラベル</Label>
             <Input
-              id="max-label"
+              id={maxLabelId}
               value={linearValidation.maxLabel || ""}
               onChange={(event) =>
                 onValidationChange({
@@ -763,9 +799,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="step">ステップ</Label>
+          <Label htmlFor={stepId}>ステップ</Label>
           <Input
-            id="step"
+            id={stepId}
             type="number"
             value={linearValidation.step || 1}
             onChange={handleStepChange}
@@ -782,9 +818,9 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
     return (
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="max-rating">最大評価</Label>
+          <Label htmlFor={maxRatingId}>最大評価</Label>
           <Input
-            id="max-rating"
+            id={maxRatingId}
             type="number"
             value={question.validation.maxRating || 5}
             onChange={(e) =>
@@ -799,7 +835,7 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="rating-icon">アイコン</Label>
+          <Label htmlFor={ratingIconId}>アイコン</Label>
           <Select
             value={question.validation.icon || "star"}
             onValueChange={(value) =>
@@ -810,7 +846,7 @@ const ScaleValidationRenderer = <T extends "linear_scale" | "rating">({
             }
             disabled={disabled}
           >
-            <SelectTrigger>
+            <SelectTrigger id={ratingIconId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -831,7 +867,11 @@ const GridValidationRenderer = <T extends "choice_grid" | "checkbox_grid">({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
+  const fieldId = (field: string) => `${idPrefix}-${field}`;
+  const minSelectionsPerRowId = fieldId("min-selections-per-row");
+  const maxSelectionsPerRowId = fieldId("max-selections-per-row");
   const validation = question.validation;
 
   if (question.type === "checkbox_grid") {
@@ -874,9 +914,9 @@ const GridValidationRenderer = <T extends "choice_grid" | "checkbox_grid">({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="min-selections-per-row">行あたり最小選択数</Label>
+            <Label htmlFor={minSelectionsPerRowId}>行あたり最小選択数</Label>
             <Input
-              id="min-selections-per-row"
+              id={minSelectionsPerRowId}
               type="number"
               value={checkboxGridValidation.minSelectionsPerRow ?? ""}
               onChange={handleMinPerRowChange}
@@ -886,9 +926,9 @@ const GridValidationRenderer = <T extends "choice_grid" | "checkbox_grid">({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max-selections-per-row">行あたり最大選択数</Label>
+            <Label htmlFor={maxSelectionsPerRowId}>行あたり最大選択数</Label>
             <Input
-              id="max-selections-per-row"
+              id={maxSelectionsPerRowId}
               type="number"
               value={checkboxGridValidation.maxSelectionsPerRow ?? ""}
               onChange={handleMaxPerRowChange}
@@ -909,7 +949,16 @@ const DateValidationRenderer = <T extends "date" | "time">({
   question,
   onValidationChange,
   disabled = false,
+  idPrefix,
 }: BlockValidationEditorInternalProps<T>) => {
+  const fieldId = (field: string) => `${idPrefix}-${field}`;
+  const minDateId = fieldId("min-date");
+  const maxDateId = fieldId("max-date");
+  const dateFormatId = fieldId("date-format");
+  const minTimeId = fieldId("min-time");
+  const maxTimeId = fieldId("max-time");
+  const timeFormatId = fieldId("time-format");
+
   if (question.type === "date") {
     const dateValidation: DateValidationConfig = question.validation;
 
@@ -937,9 +986,9 @@ const DateValidationRenderer = <T extends "date" | "time">({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="min-date">最小日付</Label>
+            <Label htmlFor={minDateId}>最小日付</Label>
             <Input
-              id="min-date"
+              id={minDateId}
               type="date"
               value={dateValidation.minDate || ""}
               onChange={handleMinDateChange}
@@ -948,9 +997,9 @@ const DateValidationRenderer = <T extends "date" | "time">({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max-date">最大日付</Label>
+            <Label htmlFor={maxDateId}>最大日付</Label>
             <Input
-              id="max-date"
+              id={maxDateId}
               type="date"
               value={dateValidation.maxDate || ""}
               onChange={handleMaxDateChange}
@@ -961,7 +1010,7 @@ const DateValidationRenderer = <T extends "date" | "time">({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="date-format">日付形式</Label>
+          <Label htmlFor={dateFormatId}>日付形式</Label>
           <Select
             value={question.validation.format || "YYYY-MM-DD"}
             onValueChange={(value) => {
@@ -971,7 +1020,7 @@ const DateValidationRenderer = <T extends "date" | "time">({
               });
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger id={dateFormatId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1012,9 +1061,9 @@ const DateValidationRenderer = <T extends "date" | "time">({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="min-time">最小時刻</Label>
+            <Label htmlFor={minTimeId}>最小時刻</Label>
             <Input
-              id="min-time"
+              id={minTimeId}
               type="time"
               value={timeValidation.minTime || ""}
               onChange={handleMinTimeChange}
@@ -1023,9 +1072,9 @@ const DateValidationRenderer = <T extends "date" | "time">({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max-time">最大時刻</Label>
+            <Label htmlFor={maxTimeId}>最大時刻</Label>
             <Input
-              id="max-time"
+              id={maxTimeId}
               type="time"
               value={timeValidation.maxTime || ""}
               onChange={handleMaxTimeChange}
@@ -1036,7 +1085,7 @@ const DateValidationRenderer = <T extends "date" | "time">({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="time-format">時刻形式</Label>
+          <Label htmlFor={timeFormatId}>時刻形式</Label>
           <Select
             value={question.validation.format || "24h"}
             onValueChange={(value) =>
@@ -1046,7 +1095,7 @@ const DateValidationRenderer = <T extends "date" | "time">({
               })
             }
           >
-            <SelectTrigger>
+            <SelectTrigger id={timeFormatId}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
