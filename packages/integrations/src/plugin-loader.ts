@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
 
@@ -72,11 +72,22 @@ type VerifiedPluginSource = {
   source: string;
 };
 
+function resolveReadablePluginPath(path: string): string {
+  return path.startsWith("file://") ? fileURLToPath(path) : path;
+}
+
+function versionedFileSpecifier(path: string, hash: string): string {
+  const url = pathToFileURL(resolveReadablePluginPath(path));
+  url.searchParams.set("sha256", hash);
+  return url.href;
+}
+
 async function readPluginSource(
   path: string,
 ): Promise<VerifiedPluginSource | null> {
   try {
-    const buf = await readFile(path);
+    const readablePath = resolveReadablePluginPath(path);
+    const buf = await readFile(readablePath);
     return {
       hash: createHash("sha256").update(buf).digest("hex"),
       source: buf.toString("utf8"),
@@ -91,10 +102,80 @@ export type PluginLoadOutcome =
   | { kind: "skipped"; reason: string }
   | { kind: "failed"; error: string };
 
+/**
+ * Result of hashing and loading a plugin file from a stable file snapshot.
+ *
+ * `kind: "ok"` includes the loaded provider and a guaranteed SHA-256 `hash`.
+ * `kind: "skipped"` includes a validation `reason` and a guaranteed `hash`
+ * because the file was readable but did not export a valid provider.
+ * `kind: "failed"` includes an `error`; `hash` is present only when the file
+ * was readable and loading failed after hashing.
+ */
+export type HashedPluginLoadOutcome =
+  | { kind: "ok"; provider: ValidationProvider; hash: string }
+  | { kind: "skipped"; reason: string; hash: string }
+  | { kind: "failed"; error: string; hash?: string };
+
 export async function loadPluginFromSpecifier(
   specifier: string,
 ): Promise<PluginLoadOutcome> {
   return loadPluginModule(specifier);
+}
+
+/**
+ * Loads a plugin from a filesystem path or `file://` URL by hashing the file,
+ * importing it through a cache-busted file URL, then verifying the hash is
+ * unchanged. Returns `kind: "ok"` with `provider` and `hash` for valid
+ * providers, `kind: "skipped"` with `reason` and `hash` for readable files
+ * that do not expose a valid provider, and `kind: "failed"` with `error` when
+ * reading, importing, or stability verification fails. Failed results include
+ * `hash` only when the file was read.
+ */
+export async function loadPluginFromFile(
+  path: string,
+): Promise<HashedPluginLoadOutcome> {
+  const verifiedSource = await readPluginSource(path);
+  if (!verifiedSource) {
+    return {
+      kind: "failed",
+      error: "Cannot read plugin file for SHA-256 calculation",
+    };
+  }
+
+  const outcome = await loadPluginModule(
+    versionedFileSpecifier(path, verifiedSource.hash),
+  );
+  const loadedSource = await readPluginSource(path);
+  if (!loadedSource) {
+    return {
+      kind: "failed",
+      error: "Cannot read plugin file after loading",
+      hash: verifiedSource.hash,
+    };
+  }
+  if (loadedSource.hash !== verifiedSource.hash) {
+    return {
+      kind: "failed",
+      error: "Plugin file changed during load",
+      hash: verifiedSource.hash,
+    };
+  }
+
+  if (outcome.kind === "ok") {
+    return {
+      kind: "ok",
+      provider: outcome.provider,
+      hash: verifiedSource.hash,
+    };
+  }
+  if (outcome.kind === "skipped") {
+    return {
+      kind: "skipped",
+      reason: outcome.reason,
+      hash: verifiedSource.hash,
+    };
+  }
+  return { kind: "failed", error: outcome.error, hash: verifiedSource.hash };
 }
 
 async function loadPluginFromVerifiedSource(
@@ -198,6 +279,7 @@ function isValidationProvider(obj: unknown): obj is ValidationProvider {
 export class PluginLoader {
   private pluginsDir: string;
   private failedPlugins: Array<{ file: string; error: string }> = [];
+  private loadedPluginHashes: string[] = [];
 
   constructor(pluginsDir: string) {
     this.pluginsDir = pluginsDir;
@@ -211,7 +293,18 @@ export class PluginLoader {
     return this.failedPlugins.length > 0;
   }
 
+  /**
+   * Returns SHA-256 hashes for plugins successfully loaded by the most recent
+   * `loadPlugins()` call. The returned array is a copy and includes only
+   * `kind: "ok"` plugin files that passed lockfile verification.
+   */
+  getLoadedPluginHashes(): string[] {
+    return [...this.loadedPluginHashes];
+  }
+
   async loadPlugins(): Promise<ValidationProvider[]> {
+    this.loadedPluginHashes = [];
+    this.failedPlugins = [];
     let resolvedDir: string;
     try {
       resolvedDir = await realpath(this.pluginsDir);
@@ -307,6 +400,7 @@ export class PluginLoader {
         console.info(
           `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${verifiedSource.hash}`,
         );
+        this.loadedPluginHashes.push(verifiedSource.hash);
         plugins.push(outcome.provider);
       } else if (outcome.kind === "skipped") {
         console.warn(

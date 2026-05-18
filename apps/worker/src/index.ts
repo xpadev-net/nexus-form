@@ -2,9 +2,11 @@ import "./load-env";
 import { fileURLToPath } from "node:url";
 import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
+import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleSheetsSync } from "./handlers/sheets-sync";
 import { startQueueMetricsCollection } from "./lib/queue-metrics";
+import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { createWorker } from "./lib/worker-factory";
@@ -90,11 +92,27 @@ async function main() {
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
   );
-  await startupPlugins(providerRegistry, {
-    builtinPlugins,
-    pluginsDirs: [VALIDATION_PLUGINS_DIR],
-    logPrefix: "worker",
-  });
+  const pluginDriftStore = new Redis(getPublisherConnectionOptions());
+  try {
+    await startupPlugins(providerRegistry, {
+      builtinPlugins,
+      pluginsDirs: [VALIDATION_PLUGINS_DIR],
+      logPrefix: "worker",
+      pluginDriftGuard: {
+        role: "worker",
+        store: pluginDriftStore,
+      },
+    });
+  } finally {
+    try {
+      await pluginDriftStore.quit();
+    } catch (error) {
+      console.warn(
+        "[worker] Failed to close plugin drift Redis client:",
+        error,
+      );
+    }
+  }
 
   const workers: Worker[] = [];
 
