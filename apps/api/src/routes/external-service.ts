@@ -10,6 +10,10 @@ import { createHonoApp } from "../lib/hono";
 const providerNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/);
 const apiNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/);
 const externalServiceApiResponseSchema = z.record(z.string(), z.unknown());
+const formPermissionErrorStatusSchema = z.union([
+  z.literal(403),
+  z.literal(404),
+]);
 
 async function getLinkedAccount(userId: string, providerId: string) {
   const [linkedAccount] = await db
@@ -40,6 +44,10 @@ async function resolveEffectiveUserId(
     .limit(1);
 
   return formRecord?.creatorId ?? authUserId;
+}
+
+function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {
+  return formPermissionErrorStatusSchema.catch(403).parse(error.statusCode);
 }
 
 export const externalServiceRouter = createHonoApp()
@@ -79,7 +87,7 @@ export const externalServiceRouter = createHonoApp()
               details: error.details,
             },
           },
-          error.statusCode as 403 | 404,
+          formPermissionErrorStatus(error),
         );
       }
       throw error;
