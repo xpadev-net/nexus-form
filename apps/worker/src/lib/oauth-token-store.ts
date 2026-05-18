@@ -28,7 +28,7 @@ const GoogleTokenRefreshResponseSchema = z.object({
   access_token: z.string().min(1),
   expires_in: z.number().positive(),
   scope: z.string().optional(),
-  token_type: z.string(),
+  token_type: z.string().optional(),
 });
 
 export interface OAuthToken {

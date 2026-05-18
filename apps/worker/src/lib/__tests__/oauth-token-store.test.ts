@@ -184,4 +184,49 @@ describe("refreshTokenIfNeeded", () => {
     expect(updateSet).not.toHaveBeenCalled();
     expect(insertValues).not.toHaveBeenCalled();
   });
+
+  it("refreshes when Google omits the unused token_type field", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          access_token: "new-access-token",
+          expires_in: 3600,
+          scope: "scope-a scope-b",
+        }),
+      })),
+    );
+    selectResults.push(
+      [
+        {
+          id: "token-id",
+          userId: "user-1",
+          accessTokenEnc: "old-access-token",
+          refreshTokenEnc: "refresh-token",
+          expiryDate: new Date("2000-01-01T00:00:00.000Z"),
+          scopes: ["old-scope"],
+        },
+      ],
+      [{ id: "token-id" }],
+    );
+
+    const { refreshTokenIfNeeded } = await import("../oauth-token-store");
+
+    const result = await refreshTokenIfNeeded({
+      userId: "user-1",
+      accessToken: "stale-access-token",
+      refreshToken: "refresh-token",
+      expiryDate: "2000-01-01T00:00:00.000Z",
+      scopes: ["old-scope"],
+    });
+
+    expect(result.accessToken).toBe("new-access-token");
+    expect(result.scopes).toEqual(["scope-a", "scope-b"]);
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessTokenEnc: "enc:new-access-token",
+      }),
+    );
+  });
 });
