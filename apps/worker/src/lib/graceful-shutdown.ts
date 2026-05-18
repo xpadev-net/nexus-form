@@ -140,8 +140,7 @@ export function createGracefulShutdown({
 
       try {
         await Promise.all(workers.map((worker) => worker.close()));
-        await closeMetricsQueues();
-        await closePublisher();
+        await Promise.all([closeMetricsQueues(), closePublisher()]);
         await closeLockClient();
         logger.log("[worker] All workers closed gracefully");
         await flushSentry();

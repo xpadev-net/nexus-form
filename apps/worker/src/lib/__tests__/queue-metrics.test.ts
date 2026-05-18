@@ -42,6 +42,7 @@ import {
   collectQueueMetrics,
   detectAnomalies,
   type QueueMetrics,
+  resetQueueMetricsStateForTests,
 } from "../queue-metrics";
 
 function makeMetric(overrides: Partial<QueueMetrics> = {}): QueueMetrics {
@@ -69,7 +70,9 @@ function createDeferred<T>(): {
   return { promise, resolve };
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await closeMetricsQueues();
+  resetQueueMetricsStateForTests();
   vi.mocked(providerRegistry.getNames).mockReturnValue([]);
   vi.mocked(Queue).mockClear();
 });

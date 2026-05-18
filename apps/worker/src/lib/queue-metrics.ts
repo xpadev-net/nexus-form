@@ -78,6 +78,14 @@ const previousMetrics = new Map<
   { completed: number; failed: number }
 >();
 
+export function resetQueueMetricsStateForTests(): void {
+  if (process.env.NODE_ENV !== "test") return;
+  queueCache.clear();
+  inFlightCollections.clear();
+  previousMetrics.clear();
+  metricsClosing = false;
+}
+
 // 異常検知の閾値
 const DELTA_FAILED_THRESHOLD = 50;
 const DELTA_FAILED_RATIO_THRESHOLD = 0.3;
