@@ -31,10 +31,8 @@ import {
   FormStructure,
   type FormStructure as FormStructureType,
 } from "../types/domain/form";
-import {
-  ActivateSnapshotResponseSchema,
-  RestoreEditResponseSchema,
-} from "../types/domain/form-snapshot";
+import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
+import { isoDate } from "../types/domain/iso-date";
 import { StoredLogicRuleSchema } from "../types/validation/form";
 
 const structureUpdateSchema = z.object({
@@ -107,6 +105,173 @@ const scheduleUpdateSchema = z
     { message: "snapshotVersion is required for SWITCH_SNAPSHOT action" },
   );
 
+const routePaginationSchema = z.object({
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+const servicePaginationSchema = z.object({
+  page: z.number().int().min(1),
+  limit: z.number().int().min(1),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+  hasNext: z.boolean(),
+  hasPrev: z.boolean(),
+});
+
+const FormStructureEnvelopeSchema = z.object({
+  structure: FormStructure,
+});
+export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
+
+const FormStructureVersionSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  version: z.number().int().min(1),
+  createdAt: isoDate,
+  changeLog: z.string().nullable(),
+  parentVersion: z.number().int().min(1).nullable(),
+});
+
+const FormStructureVersionResponseSchema = z.object({
+  structure: FormStructureVersionSchema,
+});
+export type FormStructureVersionResponse = z.infer<
+  typeof FormStructureVersionResponseSchema
+>;
+
+const FormStructureHistoryResponseSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      version: z.number().int().min(1),
+      createdAt: z.string().datetime(),
+      createdBy: z.string(),
+      changeLog: z.string().nullable(),
+      isActive: z.boolean(),
+      parentVersion: z.number().int().min(1).nullable(),
+    }),
+  ),
+  pagination: servicePaginationSchema,
+});
+export type FormStructureHistoryResponse = z.infer<
+  typeof FormStructureHistoryResponseSchema
+>;
+
+const StructureDiffChangeSchema = z.object({
+  type: z.enum(["added", "removed", "modified"]),
+  path: z.string(),
+  from: z.unknown().optional(),
+  to: z.unknown().optional(),
+});
+
+const FormStructureDiffResponseSchema = z.object({
+  fromVersion: z.number().int().min(1),
+  toVersion: z.number().int().min(1),
+  changes: z.array(StructureDiffChangeSchema),
+  metadata: z.object({
+    memoryUsedMB: z.number(),
+    calculationTime: z.number().int(),
+  }),
+});
+export type FormStructureDiffResponse = z.infer<
+  typeof FormStructureDiffResponseSchema
+>;
+
+const AccessControlUpdateResponseSchema = z.object({
+  ok: z.literal(true),
+  password_protection: z.object({
+    enabled: z.boolean(),
+    has_password: z.boolean(),
+    password_hint: z.string().optional(),
+  }),
+});
+export type AccessControlUpdateResponse = z.infer<
+  typeof AccessControlUpdateResponseSchema
+>;
+
+const SnapshotListItemResponseSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  version: z.number().int().min(1),
+  isActive: z.boolean(),
+  publishedBy: z.string(),
+  publishedAt: isoDate,
+  changeLog: z.string().nullish(),
+  title: z.string(),
+  description: z.string().nullish(),
+  parentVersion: z.number().int().nullish(),
+});
+
+const SnapshotListResponseSchema = z.object({
+  snapshots: z.array(SnapshotListItemResponseSchema),
+  pagination: routePaginationSchema,
+});
+export type SnapshotListResponse = z.infer<typeof SnapshotListResponseSchema>;
+
+const SnapshotDiffResponseSchema = z.object({
+  fromVersion: z.number().int().min(1),
+  toVersion: z.number().int().min(1),
+  changed: z.boolean(),
+  fromPlateContent: z.string(),
+  toPlateContent: z.string(),
+});
+export type SnapshotDiffResponse = z.infer<typeof SnapshotDiffResponseSchema>;
+
+const SnapshotContentResponseSchema = z.object({
+  plateContent: z.string(),
+  version: z.number().int().min(1),
+  publishedAt: isoDate,
+});
+export type SnapshotContentResponse = z.infer<
+  typeof SnapshotContentResponseSchema
+>;
+
+const ActivateSnapshotResponseSchema = z.object({
+  ok: z.literal(true),
+  snapshot: SnapshotListItemResponseSchema.extend({
+    plateContent: z.string(),
+  }),
+});
+export type ActivateSnapshotResponse = z.infer<
+  typeof ActivateSnapshotResponseSchema
+>;
+
+const FormScheduleResponseSchema = z.object({
+  id: z.string(),
+  formId: z.string(),
+  triggerAt: isoDate,
+  action: z.enum(["PUBLISH", "UNPUBLISH", "SWITCH_SNAPSHOT"]),
+  snapshotVersion: z.number().int().min(1).nullable(),
+  processedAt: isoDate.nullable(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
+const FormScheduleEnvelopeSchema = z.object({
+  schedule: FormScheduleResponseSchema,
+});
+export type FormScheduleEnvelope = z.infer<typeof FormScheduleEnvelopeSchema>;
+
+const NullableFormScheduleEnvelopeSchema = z.object({
+  schedule: FormScheduleResponseSchema.nullable(),
+});
+export type NullableFormScheduleEnvelope = z.infer<
+  typeof NullableFormScheduleEnvelopeSchema
+>;
+
+const FormScheduleListResponseSchema = z.object({
+  schedules: z.array(FormScheduleResponseSchema),
+  pagination: routePaginationSchema,
+});
+export type FormScheduleListResponse = z.infer<
+  typeof FormScheduleListResponseSchema
+>;
+
+const OkResponseSchema = z.object({ ok: z.literal(true) });
+
 export const formsStructureRouter = createHonoApp()
   .use("/:id/structure*", withDualFormAuth("VIEWER"))
   .use("/:id/snapshots*", withDualFormAuth("VIEWER"))
@@ -126,20 +291,22 @@ export const formsStructureRouter = createHonoApp()
     const ac = structure.access_control;
     if (ac?.password_protection) {
       const { password, ...ppWithoutHash } = ac.password_protection;
-      return c.json({
-        structure: {
-          ...structure,
-          access_control: {
-            ...ac,
-            password_protection: {
-              ...ppWithoutHash,
-              has_password: !!password,
+      return c.json(
+        FormStructureEnvelopeSchema.parse({
+          structure: {
+            ...structure,
+            access_control: {
+              ...ac,
+              password_protection: {
+                ...ppWithoutHash,
+                has_password: !!password,
+              },
             },
           },
-        },
-      });
+        }),
+      );
     }
-    return c.json({ structure });
+    return c.json(FormStructureEnvelopeSchema.parse({ structure }));
   })
   .put(
     "/:id/structure",
@@ -213,7 +380,9 @@ export const formsStructureRouter = createHonoApp()
       if (!result) {
         return c.json({ error: "Form structure not found" }, 404);
       }
-      return c.json({ structure: result });
+      return c.json(
+        FormStructureVersionResponseSchema.parse({ structure: result }),
+      );
     },
   )
   .get(
@@ -223,7 +392,7 @@ export const formsStructureRouter = createHonoApp()
       const formId = c.req.param("id");
       const query = c.req.valid("query");
       const history = await getFormStructureHistory(formId, query);
-      return c.json(history);
+      return c.json(FormStructureHistoryResponseSchema.parse(history));
     },
   )
   .get(
@@ -237,7 +406,7 @@ export const formsStructureRouter = createHonoApp()
         query.fromVersion,
         query.toVersion,
       );
-      return c.json(diff);
+      return c.json(FormStructureDiffResponseSchema.parse(diff));
     },
   )
   .post(
@@ -257,7 +426,9 @@ export const formsStructureRouter = createHonoApp()
           payload.changeLog,
         ),
       );
-      return c.json({ structure: restored });
+      return c.json(
+        FormStructureVersionResponseSchema.parse({ structure: restored }),
+      );
     },
   )
   .patch(
@@ -293,7 +464,9 @@ export const formsStructureRouter = createHonoApp()
         return c.json({ error: "Form structure not found" }, 404);
       }
 
-      return c.json({ structure: result });
+      return c.json(
+        FormStructureVersionResponseSchema.parse({ structure: result }),
+      );
     },
   )
   .patch(
@@ -376,10 +549,12 @@ export const formsStructureRouter = createHonoApp()
         return c.json({ error: result.error }, 400);
       }
 
-      return c.json({
-        ok: true,
-        password_protection: result.passwordProtection,
-      });
+      return c.json(
+        AccessControlUpdateResponseSchema.parse({
+          ok: true,
+          password_protection: result.passwordProtection,
+        }),
+      );
     },
   )
   .get(
@@ -414,10 +589,12 @@ export const formsStructureRouter = createHonoApp()
           .where(eq(formSnapshot.formId, formId)),
       ]);
       const total = totalResult[0]?.count ?? 0;
-      return c.json({
-        snapshots,
-        pagination: paginationMetadata(page, pageSize, total),
-      });
+      return c.json(
+        SnapshotListResponseSchema.parse({
+          snapshots,
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
     },
   )
   .get(
@@ -461,15 +638,17 @@ export const formsStructureRouter = createHonoApp()
       const to = toSnapshotRows[0];
       if (!from || !to) return c.json({ error: "Snapshot not found" }, 404);
 
-      return c.json({
-        fromVersion,
-        toVersion,
-        changed:
-          from.plateContent !== to.plateContent ||
-          from.validationRulesJson !== to.validationRulesJson,
-        fromPlateContent: from.plateContent,
-        toPlateContent: to.plateContent,
-      });
+      return c.json(
+        SnapshotDiffResponseSchema.parse({
+          fromVersion,
+          toVersion,
+          changed:
+            from.plateContent !== to.plateContent ||
+            from.validationRulesJson !== to.validationRulesJson,
+          fromPlateContent: from.plateContent,
+          toPlateContent: to.plateContent,
+        }),
+      );
     },
   )
   .get("/:id/snapshots/:version/content", async (c) => {
@@ -495,11 +674,7 @@ export const formsStructureRouter = createHonoApp()
       return c.json({ error: "Snapshot not found" }, 404);
     }
 
-    return c.json({
-      plateContent: snapshot.plateContent,
-      version: snapshot.version,
-      publishedAt: snapshot.publishedAt,
-    });
+    return c.json(SnapshotContentResponseSchema.parse(snapshot));
   })
   .post(
     "/:id/snapshots/:version/activate",
@@ -575,10 +750,12 @@ export const formsStructureRouter = createHonoApp()
           .where(eq(formSchedule.formId, formId)),
       ]);
       const total = totalResult[0]?.count ?? 0;
-      return c.json({
-        schedules,
-        pagination: paginationMetadata(page, pageSize, total),
-      });
+      return c.json(
+        FormScheduleListResponseSchema.parse({
+          schedules,
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
     },
   )
   .post(
@@ -602,7 +779,7 @@ export const formsStructureRouter = createHonoApp()
         .from(formSchedule)
         .where(eq(formSchedule.id, id))
         .limit(1);
-      return c.json({ schedule }, 201);
+      return c.json(FormScheduleEnvelopeSchema.parse({ schedule }), 201);
     },
   )
   .get("/:id/schedule/:scheduleId", async (c) => {
@@ -616,7 +793,7 @@ export const formsStructureRouter = createHonoApp()
       )
       .limit(1);
     if (!schedule) return c.json({ error: "Schedule not found" }, 404);
-    return c.json({ schedule });
+    return c.json(FormScheduleEnvelopeSchema.parse({ schedule }));
   })
   .put(
     "/:id/schedule/:scheduleId",
@@ -680,7 +857,9 @@ export const formsStructureRouter = createHonoApp()
         .where(eq(formSchedule.id, scheduleId))
         .limit(1);
 
-      return c.json({ schedule: updated ?? null });
+      return c.json(
+        NullableFormScheduleEnvelopeSchema.parse({ schedule: updated ?? null }),
+      );
     },
   )
   .delete(
@@ -698,6 +877,6 @@ export const formsStructureRouter = createHonoApp()
         .limit(1);
       if (!target) return c.json({ error: "Schedule not found" }, 404);
       await db.delete(formSchedule).where(eq(formSchedule.id, scheduleId));
-      return c.json({ ok: true });
+      return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );

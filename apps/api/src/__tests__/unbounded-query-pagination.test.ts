@@ -238,8 +238,24 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("applies limit and offset to snapshot lists", async () => {
+    const publishedAt = new Date("2026-01-01T00:00:00.000Z");
     mocks.db.select
-      .mockReturnValueOnce(limitedQuery([{ id: "snapshot-1", version: 4 }]))
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "snapshot-1",
+            formId: "form-1",
+            version: 4,
+            isActive: true,
+            publishedBy: "user-1",
+            publishedAt,
+            changeLog: null,
+            title: "Snapshot 1",
+            description: null,
+            parentVersion: null,
+          },
+        ]),
+      )
       .mockReturnValueOnce(countQuery(6));
     const { formsStructureRouter } = await import("../routes/forms-structure");
 
@@ -257,8 +273,22 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("applies limit and offset to form schedule lists", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
     mocks.db.select
-      .mockReturnValueOnce(limitedQuery([{ id: "schedule-1" }]))
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "schedule-1",
+            formId: "form-1",
+            triggerAt: now,
+            action: "PUBLISH",
+            snapshotVersion: null,
+            processedAt: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]),
+      )
       .mockReturnValueOnce(countQuery(5));
     const { formsStructureRouter } = await import("../routes/forms-structure");
 

@@ -20,14 +20,6 @@ export const FormSnapshotSchema = FormSnapshotListItemSchema.extend({
 
 export type FormSnapshot = z.infer<typeof FormSnapshotSchema>;
 
-export const ActivateSnapshotResponseSchema = z.object({
-  ok: z.boolean(),
-  snapshot: FormSnapshotListItemSchema.extend({ plateContent: z.string() }),
-});
-export type ActivateSnapshotResponse = z.infer<
-  typeof ActivateSnapshotResponseSchema
->;
-
 export const RestoreEditResponseSchema = z.object({
   ok: z.boolean(),
   plateContent: z.string(),
