@@ -132,3 +132,11 @@ export {
   FormStatus,
   StoredLogicRuleSchema,
 } from "./validation/shared";
+export type {
+  GenericValidationJobData,
+  SheetsSyncJobData,
+} from "./worker-jobs";
+export {
+  genericValidationJobDataSchema,
+  sheetsSyncJobDataSchema,
+} from "./worker-jobs";

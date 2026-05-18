@@ -134,6 +134,22 @@ beforeEach(() => {
 });
 
 describe("handleGenericValidation", () => {
+  it("job.data が不正な形状の場合は処理境界で弾く", async () => {
+    await expect(
+      handleGenericValidation(
+        makeJob({
+          responseId: "r-1",
+          ruleId: "",
+          referencedBlockId: "block-a",
+        }),
+      ),
+    ).rejects.toThrow();
+
+    expect(mockGetValidationContext).not.toHaveBeenCalled();
+    expect(mockMarkValidationProcessing).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("getValidationContextがReferencedBlockMissingErrorをスローした場合にMISSINGを書き込んでok:falseを返す", async () => {
     mockGetValidationContext.mockRejectedValue(
       new ReferencedBlockMissingError("form-1", "r-1", "rule-1", "block-a"),

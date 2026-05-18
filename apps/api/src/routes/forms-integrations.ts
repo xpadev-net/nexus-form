@@ -49,21 +49,15 @@ export const formsIntegrationsRouter = createHonoApp()
         return c.json({ error: "Integration not configured" }, 404);
       }
 
-      const payload = c.req.valid("json");
-      const job = await getSheetsSyncQueue().add(
-        "manual-sync",
+      c.req.valid("json");
+      return c.json(
         {
-          formId,
-          integrationId: integration.id,
-          force: payload.force ?? false,
+          error: "Manual Google Sheets sync is not supported",
+          message:
+            "Google Sheets sync jobs are queued automatically for each submitted response.",
         },
-        {
-          removeOnComplete: 100,
-          removeOnFail: 100,
-        },
+        501,
       );
-
-      return c.json({ jobId: job.id, status: "queued" }, 202);
     },
   )
   .get("/:id/integrations/google-sheets/sync/:jobId", async (c) => {

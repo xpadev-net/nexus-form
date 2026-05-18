@@ -6,7 +6,11 @@
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
 import { form } from "@nexus-form/database/schema";
-import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import {
+  extractQuestionsFromPlateContent,
+  type SheetsSyncJobData,
+  sheetsSyncJobDataSchema,
+} from "@nexus-form/shared";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -27,11 +31,7 @@ import {
 } from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
 
-export type SheetsSyncJob = {
-  formId: string;
-  integrationId: string;
-  responseId: string;
-};
+export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
 const PENDING_IDEMPOTENCY_TTL_SECONDS = 90;
@@ -43,7 +43,9 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 });
 
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
-  const { formId, integrationId, responseId } = job.data;
+  const { formId, integrationId, responseId } = sheetsSyncJobDataSchema.parse(
+    job.data,
+  );
 
   // 1. Integration設定を取得
   const [integration] = await db
