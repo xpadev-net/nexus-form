@@ -20,7 +20,7 @@ const signInWithInvitationSchema = z.object({
 
 const AuthSessionUserSchema = z.object({
   id: z.string(),
-  email: z.string().email(),
+  email: z.string(),
   name: z.string().nullable(),
   role: z.string(),
   createdAt: isoDate,
@@ -38,7 +38,7 @@ export type AuthMeResponse = z.infer<typeof AuthMeResponseSchema>;
 const AuthUpdatedUserSchema = z.object({
   id: z.string(),
   name: z.string().nullable(),
-  email: z.string().email(),
+  email: z.string(),
   image: z.string().nullable(),
   role: z.string(),
   isSuspended: z.boolean(),

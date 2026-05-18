@@ -140,13 +140,13 @@ describe("API Route Integration Tests", () => {
       expect(body.error).toBeDefined();
     });
 
-    it("should allow authenticated users with a null display name", async () => {
+    it("should allow null display names and serialize user dates", async () => {
       const { auth } = await import("../lib/auth");
-      const sessionResult = {
+      vi.mocked(auth.api.getSession).mockResolvedValueOnce({
         user: {
           id: "user-1",
           email: "user@example.com",
-          name: "",
+          name: null,
           role: "user",
           createdAt: new Date("2026-01-01T00:00:00.000Z"),
           updatedAt: new Date("2026-01-02T00:00:00.000Z"),
@@ -162,9 +162,7 @@ describe("API Route Integration Tests", () => {
           createdAt: new Date("2026-01-01T00:00:00.000Z"),
           updatedAt: new Date("2026-01-02T00:00:00.000Z"),
         },
-      };
-      Object.defineProperty(sessionResult.user, "name", { value: null });
-      vi.mocked(auth.api.getSession).mockResolvedValueOnce(sessionResult);
+      } as unknown as Awaited<ReturnType<typeof auth.api.getSession>>);
 
       const res = await app.request("/api/auth-ext/me");
       expect(res.status).toBe(200);
