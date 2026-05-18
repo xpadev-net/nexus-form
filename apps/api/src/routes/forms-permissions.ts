@@ -301,6 +301,8 @@ export const formsPermissionsRouter = createHonoApp()
           id: user.id,
           name: user.name,
           email: user.email,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
         })
         .from(user)
         .where(eq(user.id, invitation.invitedBy))
@@ -327,8 +329,8 @@ export const formsPermissionsRouter = createHonoApp()
               name: inviter.name,
               email: inviter.email,
               discord_id: null,
-              created_at: "",
-              updated_at: "",
+              created_at: inviter.createdAt.toISOString(),
+              updated_at: inviter.updatedAt.toISOString(),
             },
           },
         }),
