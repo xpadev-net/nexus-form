@@ -41,7 +41,6 @@ export interface AnonymizedFingerprintStats {
 
 export class FingerprintAnonymizer {
   private static instance: FingerprintAnonymizer;
-  private anonymizedIdMap: Map<string, string> = new Map();
 
   private constructor() {}
 
@@ -55,15 +54,18 @@ export class FingerprintAnonymizer {
   /**
    * フィンガープリントハッシュを匿名化IDに変換
    */
-  private anonymizeFingerprintHash(fingerprintHash: string): string {
-    const existingId = this.anonymizedIdMap.get(fingerprintHash);
+  private anonymizeFingerprintHash(
+    fingerprintHash: string,
+    anonymizedIdMap: Map<string, string>,
+  ): string {
+    const existingId = anonymizedIdMap.get(fingerprintHash);
     if (existingId) {
       return existingId;
     }
 
     // UUIDベースの匿名化IDを生成
     const anonymizedId = randomUUID();
-    this.anonymizedIdMap.set(fingerprintHash, anonymizedId);
+    anonymizedIdMap.set(fingerprintHash, anonymizedId);
     return anonymizedId;
   }
 
@@ -109,6 +111,7 @@ export class FingerprintAnonymizer {
       // 重複チェック用のマップ
       const fingerprintHashMap = new Map<string, number>();
       const duplicateMap = new Map<string, boolean>();
+      const anonymizedIdMap = new Map<string, string>();
 
       // フィンガープリントハッシュの重複をチェック
       for (const row of rows) {
@@ -129,7 +132,7 @@ export class FingerprintAnonymizer {
             id: row.id,
             responseId: row.responseId,
             fingerprintType: row.fingerprintType,
-            anonymizedId: this.anonymizeFingerprintHash(hash),
+            anonymizedId: this.anonymizeFingerprintHash(hash, anonymizedIdMap),
             isDuplicate,
             duplicateCount,
             collectedAt: row.collectedAt,
@@ -202,6 +205,13 @@ export class FingerprintAnonymizer {
 
   /**
    * 特定のフィンガープリントの匿名化情報を取得
+   *
+   * anonymizedId は呼び出しごとに randomUUID() で新規生成されるため、
+   * 同じ fingerprintId を複数回取得しても一致するとは限りません。
+   *
+   * @returns 見つかった場合は AnonymizedFingerprint、存在しない場合は null。
+   * 返却値には fingerprint の id/responseId/fingerprintType/anonymizedId/
+   * collectedAt と response の id/formId/submittedAt/respondentUuid を含みます。
    */
   async getAnonymizedFingerprintById(
     fingerprintId: string,
@@ -246,7 +256,7 @@ export class FingerprintAnonymizer {
         id: row.id,
         responseId: row.responseId,
         fingerprintType: row.fingerprintType,
-        anonymizedId: this.anonymizeFingerprintHash(row.componentValueHash),
+        anonymizedId: randomUUID(),
         isDuplicate: duplicateCount > 1,
         duplicateCount,
         collectedAt: row.collectedAt,
@@ -269,14 +279,14 @@ export class FingerprintAnonymizer {
    * 匿名化マップをリセット（テスト用）
    */
   resetAnonymizationMap(): void {
-    this.anonymizedIdMap.clear();
+    // Kept for compatibility; anonymization state is now scoped per request.
   }
 
   /**
    * 匿名化マップのサイズを取得
    */
   getAnonymizationMapSize(): number {
-    return this.anonymizedIdMap.size;
+    return 0;
   }
 }
 
