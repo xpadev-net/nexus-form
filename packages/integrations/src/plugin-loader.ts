@@ -96,6 +96,16 @@ export type PluginLoadOutcome =
   | { kind: "skipped"; reason: string }
   | { kind: "failed"; error: string };
 
+/**
+ * Result of reading, hashing, and loading a plugin file from the same source
+ * bytes.
+ *
+ * `kind: "ok"` includes the loaded provider and a guaranteed SHA-256 `hash`.
+ * `kind: "skipped"` includes a validation `reason` and a guaranteed `hash`
+ * because the file was readable but did not export a valid provider.
+ * `kind: "failed"` includes an `error`; `hash` is present only when the file
+ * was readable and loading failed after hashing.
+ */
 export type HashedPluginLoadOutcome =
   | { kind: "ok"; provider: ValidationProvider; hash: string }
   | { kind: "skipped"; reason: string; hash: string }
@@ -107,6 +117,14 @@ export async function loadPluginFromSpecifier(
   return loadPluginModule(specifier);
 }
 
+/**
+ * Loads a plugin from a filesystem path or `file://` URL by reading the source
+ * once, computing its SHA-256, and importing those exact bytes through a data
+ * URL. Returns `kind: "ok"` with `provider` and `hash` for valid providers,
+ * `kind: "skipped"` with `reason` and `hash` for readable files that do not
+ * expose a valid provider, and `kind: "failed"` with `error` when reading or
+ * importing fails. Failed results include `hash` only when the file was read.
+ */
 export async function loadPluginFromFile(
   path: string,
 ): Promise<HashedPluginLoadOutcome> {
@@ -254,6 +272,11 @@ export class PluginLoader {
     return this.failedPlugins.length > 0;
   }
 
+  /**
+   * Returns SHA-256 hashes for plugins successfully loaded by the most recent
+   * `loadPlugins()` call. The returned array is a copy and includes only
+   * `kind: "ok"` plugin files that passed lockfile verification.
+   */
   getLoadedPluginHashes(): string[] {
     return [...this.loadedPluginHashes];
   }

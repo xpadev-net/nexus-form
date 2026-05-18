@@ -16,25 +16,73 @@ const pluginManifestSchema = z
   })
   .strict();
 
+/**
+ * Runtime identity used by the plugin drift guard. Only the API process and
+ * Worker process publish manifests, and each compares itself against the other
+ * role.
+ */
 export type PluginRuntimeRole = z.infer<typeof pluginRuntimeRoleSchema>;
+
+/**
+ * Versioned manifest describing the validation plugins loaded by one runtime.
+ * `providers` and `pluginHashes` are sorted, de-duplicated snapshots so API and
+ * Worker manifests can be compared deterministically.
+ */
 export type PluginRuntimeManifest = z.infer<typeof pluginManifestSchema>;
 
+/**
+ * Minimal Redis-like store used by the plugin drift guard.
+ */
 export interface PluginDriftStore {
+  /**
+   * Reads a manifest value by key, returning `null` when the key is absent.
+   */
   get(key: string): Promise<string | null>;
+  /**
+   * Stores a manifest value with Redis `EX` expiration semantics.
+   *
+   * @param key Manifest key to write.
+   * @param value Serialized manifest JSON.
+   * @param mode Expiration mode; currently only `EX` is supported.
+   * @param ttlSeconds Expiration time in seconds.
+   */
   set(
     key: string,
     value: string,
     mode: "EX",
     ttlSeconds: number,
   ): Promise<unknown>;
+  /**
+   * Deletes a manifest key. The return value is store-specific and ignored.
+   */
   del(key: string): Promise<unknown>;
 }
 
+/**
+ * Options for publishing and comparing API/Worker plugin manifests.
+ */
 export interface PluginDriftGuardOptions {
+  /**
+   * Current runtime role; determines both the current manifest key and peer key.
+   */
   role: PluginRuntimeRole;
+  /**
+   * Required Redis-like store used for manifest exchange.
+   */
   store: PluginDriftStore;
+  /**
+   * Optional Redis key prefix. Defaults to
+   * `nexus-form:validation-plugin-manifest`.
+   */
   keyPrefix?: string;
+  /**
+   * Optional manifest TTL in seconds. Defaults to 300 seconds.
+   */
   ttlSeconds?: number;
+  /**
+   * When true or omitted, drift and store errors fail startup. When false, the
+   * guard logs warnings and lets startup continue.
+   */
   failOnMismatch?: boolean;
 }
 
@@ -112,9 +160,14 @@ async function publishAndAssertPluginManifest(
   const currentKey = `${keyPrefix}:${guard.role}`;
   const peerKey = `${keyPrefix}:${peerRole}`;
 
-  await guard.store.set(currentKey, JSON.stringify(current), "EX", ttlSeconds);
-
   try {
+    await guard.store.set(
+      currentKey,
+      JSON.stringify(current),
+      "EX",
+      ttlSeconds,
+    );
+
     const peerRaw = await guard.store.get(peerKey);
     if (!peerRaw) {
       console.warn(
@@ -214,6 +267,9 @@ export async function startupPlugins(
   const pluginHashes: string[] = [];
 
   for (const specifier of builtinPlugins) {
+    // loadPluginFromFile imports the already-hashed source via data: URL, so
+    // import.meta.url inside the plugin is also a data: URL. This matches the
+    // directory-scanned PluginLoader path.
     const outcome = await loadPluginFromFile(specifier);
     if (outcome.kind === "ok") {
       registerOrOverride(registry, outcome.provider, specifier, logPrefix);

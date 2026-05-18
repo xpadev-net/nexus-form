@@ -354,4 +354,30 @@ export default {
       expect.any(Error),
     );
   });
+
+  it("warns and continues when current manifest write fails with failOnMismatch=false", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.set = async () => {
+      throw new Error("Redis write unavailable");
+    };
+
+    await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        failOnMismatch: false,
+      },
+    });
+
+    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("warning-only check failed"),
+      expect.any(Error),
+    );
+  });
 });
