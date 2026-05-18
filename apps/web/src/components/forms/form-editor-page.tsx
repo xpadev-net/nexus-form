@@ -31,17 +31,23 @@ import { Button } from "@/components/ui/button";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
-import type { FormStatus } from "@/types/validation/shared";
+import { FormStatus } from "@/types/validation/shared";
 
-type EditorTab = "editor" | "settings" | "validation" | "sharing" | "responses";
-
-const EDITOR_TABS: EditorTab[] = [
+const EDITOR_TABS = [
   "editor",
   "settings",
   "validation",
   "sharing",
   "responses",
-];
+] as const;
+
+type EditorTab = (typeof EDITOR_TABS)[number];
+
+const EDITOR_TAB_VALUES: ReadonlySet<string> = new Set(EDITOR_TABS);
+
+function isEditorTab(value: unknown): value is EditorTab {
+  return typeof value === "string" && EDITOR_TAB_VALUES.has(value);
+}
 
 export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
@@ -50,7 +56,7 @@ export function FormEditorPage() {
   const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
 
   const [activeTab, setActiveTab] = useState<EditorTab>(() =>
-    EDITOR_TABS.includes(tab as EditorTab) ? (tab as EditorTab) : "editor",
+    isEditorTab(tab) ? tab : "editor",
   );
   const [responsesEverActive, setResponsesEverActive] = useState(
     tab === "responses",
@@ -185,6 +191,8 @@ export function FormEditorPage() {
   }
 
   const formData = formQuery.data?.form;
+  const formStatusResult = FormStatus.safeParse(formData?.status);
+  const formStatus = formStatusResult.success ? formStatusResult.data : null;
   const plateContent = contentQuery.data?.plateContent ?? "[]";
 
   const tabs: { key: EditorTab; label: string; icon: LucideIcon }[] = [
@@ -236,10 +244,10 @@ export function FormEditorPage() {
                   プレビュー
                 </Link>
               </Button>
-              {formData && (
+              {formData && formStatus && (
                 <FormPublishMenu
                   formId={id}
-                  formStatus={formData.status as FormStatus}
+                  formStatus={formStatus}
                   onStatusChange={() => void formQuery.refetch()}
                   onResetSuccess={() => void contentQuery.refetch()}
                 />

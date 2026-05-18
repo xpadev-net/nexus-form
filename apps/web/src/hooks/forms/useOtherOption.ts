@@ -15,7 +15,7 @@ export const useOtherOption = (
 ) => {
   const hasOtherOption =
     question.type === "radio" || question.type === "checkbox"
-      ? (question.validation as { allowOther?: boolean }).allowOther || false
+      ? question.validation.allowOther
       : false;
   const isOtherSelected = Array.isArray(value)
     ? value.includes("other")
