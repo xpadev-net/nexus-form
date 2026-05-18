@@ -339,6 +339,7 @@
 
 ### R3-H12. SSE 接続がタブ非アクティブ時も維持されリソースを浪費
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #65、subagent review 通過、local validation 通過）
 - **対象:** `apps/web/src/hooks/use-editor-sse.ts:47-110`、`apps/web/src/hooks/use-validation-sse.ts:16-49`
 - **問題:** `formId` がある限り `EventSource` を開きっぱなし。回答タブが一度開くと `hidden` で保持されるため、タブを離れても validation SSE 接続が残り、editor SSE と合わせ 2 本が常時開く。`visibilitychange` での一時停止が無い。
 - **修正内容:** `document.visibilitychange` で非表示時に `close()`、復帰時に再接続する。非アクティブな回答タブでは `useValidationSSE` を実質無効化する（`formId` を条件付きで渡す）。
