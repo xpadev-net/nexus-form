@@ -27,6 +27,7 @@ import {
 } from "../types/domain/validation-rule";
 
 const FormValidationRuleWireSchema = FormValidationRuleSchema.extend({
+  referencedBlockIds: z.array(z.string().min(1)),
   createdAt: isoDate,
   updatedAt: isoDate,
 });

@@ -284,7 +284,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         name: "Rule 1",
         providerName: "builtin_discord",
         ruleType: "guild_member",
-        referencedBlockIds: ["block-1"],
+        referencedBlockIds: [],
         configJson: {},
         orderIndex: 0,
         createdAt: now,
