@@ -93,28 +93,19 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
   const maxLength = block.validation?.maxLength;
   const minLength = block.validation?.minLength;
 
-  // 入力値のサニタイゼーション
-  const sanitizeInput = useCallback((value: string): string => {
-    // 基本的なサニタイゼーション
-    // 実際のアプリケーションでは、より厳密なサニタイゼーションが必要な場合があります
-    return value.trim();
-  }, []);
-
   // 入力値の変更ハンドラー
   const handleChange = useCallback(
     (newValue: string) => {
       try {
-        const sanitizedValue = sanitizeInput(newValue);
-        onChange(sanitizedValue);
-        triggerValidation(sanitizedValue);
+        onChange(newValue);
+        triggerValidation(newValue);
       } catch (error) {
         logError("Error in handleChange:", "ui", { error: error });
         // エラーが発生した場合でも基本的な機能は維持
-        const sanitizedValue = sanitizeInput(newValue);
-        onChange(sanitizedValue);
+        onChange(newValue);
       }
     },
-    [onChange, triggerValidation, sanitizeInput],
+    [onChange, triggerValidation],
   );
 
   // 文字数制限の表示
