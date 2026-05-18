@@ -308,6 +308,7 @@
 
 ### R3-H27. バリデーションプロバイダーの `inputSchema` が文字種を検証しない（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #62、subagent review 通過、local validation 通過）
 - **対象:** `packages/validation-provider-discord/src/plugin.ts:23`、`packages/validation-provider-github/src/plugin.ts:11`、`packages/validation-provider-twitter/src/plugin.ts:11`
 - **問題:** `DiscordInputSchema` 等は `z.string().min().max()` で**長さのみ**検証する。Worker は `inputSchema.parse` → `normalizeInput` → 再 `inputSchema.parse` の順で処理する（`generic-validation.ts`）ため、`patternTemplate.pattern`（`^[a-zA-Z0-9_.]{2,32}$` 等）はサーバーサイドで一切適用されない。結果、`searchGuildMembers` のクエリや GitHub の URL パスへ任意文字種の回答者入力が到達する（Twitter は `validate()` 冒頭の `isValidTwitterUsername` で救済されるが Discord/GitHub は無防備）。
 - **修正内容:** 各 `inputSchema` を `z.string().regex(...)` で `patternTemplate.pattern` と同一の文字種制約にする。Twitter のインライン検証も `inputSchema` に統合し一貫させる。

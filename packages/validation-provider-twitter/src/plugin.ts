@@ -8,7 +8,7 @@ import { getTwitterClient } from "./client";
 import { TwitterErrorCode } from "./error-codes";
 import { parseTwitterError } from "./utils";
 
-const TwitterInputSchema = z.string().min(1).max(15);
+const TwitterInputSchema = z.string().regex(/^[a-zA-Z0-9_]{1,15}$/);
 
 const TwitterConfigSchema = z.object({}).strict();
 
@@ -34,10 +34,6 @@ function normalizeTwitterUsername(username: string): string {
   return normalized;
 }
 
-function isValidTwitterUsername(username: string): boolean {
-  return /^[a-z0-9_]{1,15}$/.test(username);
-}
-
 const userExistsRule: ValidationProviderRule = {
   name: "user_exists",
   label: "ユーザー存在検証",
@@ -61,14 +57,6 @@ const userExistsRule: ValidationProviderRule = {
   metadataSchema: TwitterMetadataSchema,
 
   async validate(input, _config): Promise<ValidationProviderResult> {
-    if (!isValidTwitterUsername(input)) {
-      return {
-        isValid: false,
-        errorCode: TwitterErrorCode.INVALID_INPUT,
-        errorMessage: "無効なTwitterユーザー名形式です",
-      };
-    }
-
     try {
       const client = getTwitterClient();
       const userInfo = await client.getUserByUsername(input);

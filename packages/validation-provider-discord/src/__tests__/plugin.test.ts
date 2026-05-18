@@ -51,6 +51,43 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
   });
 });
 
+describe("discordProvider.rules.guild_member.inputSchema", () => {
+  it("accepts usernames matching the advertised Discord pattern", () => {
+    const result =
+      discordProvider.rules.guild_member?.inputSchema.safeParse("user.name_1");
+
+    expect(result?.success).toBe(true);
+  });
+
+  it("accepts usernames at the minimum and maximum Discord lengths", () => {
+    const schema = discordProvider.rules.guild_member?.inputSchema;
+
+    expect(schema?.safeParse("ab").success).toBe(true);
+    expect(schema?.safeParse("a".repeat(32)).success).toBe(true);
+  });
+
+  it("rejects usernames outside the Discord length boundaries", () => {
+    const schema = discordProvider.rules.guild_member?.inputSchema;
+
+    expect(schema?.safeParse("a").success).toBe(false);
+    expect(schema?.safeParse("a".repeat(33)).success).toBe(false);
+  });
+
+  it("rejects usernames containing characters outside the advertised pattern", () => {
+    const result =
+      discordProvider.rules.guild_member?.inputSchema.safeParse("user/name");
+
+    expect(result?.success).toBe(false);
+  });
+
+  it("rejects legacy discriminator usernames before Discord API lookup", () => {
+    const result =
+      discordProvider.rules.guild_member?.inputSchema.safeParse("user#1234");
+
+    expect(result?.success).toBe(false);
+  });
+});
+
 describe("Discord API timeout", () => {
   it("uses DISCORD_API_TIMEOUT_MS when it is a positive integer", () => {
     process.env.DISCORD_API_TIMEOUT_MS = "2500";

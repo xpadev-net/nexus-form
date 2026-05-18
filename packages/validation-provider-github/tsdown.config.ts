@@ -4,7 +4,7 @@ export default defineConfig([
   // Library output: file-per-source (unbundle) so other workspace packages
   // can statically import named exports.
   {
-    entry: ["src/**/*.ts", "!src/**/*.d.ts"],
+    entry: ["src/**/*.ts", "!src/**/*.d.ts", "!src/**/__tests__/**/*.test.ts"],
     format: "esm",
     platform: "node",
     target: "node20",
