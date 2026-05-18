@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import type { ValidationProvider } from "../plugin-interface";
 import { ValidationProviderRegistry } from "../provider-registry";
@@ -61,6 +61,10 @@ function makeManifest(
 }
 
 describe("startupPlugins plugin drift guard", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("records the current runtime manifest when the peer is not present", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const registry = new ValidationProviderRegistry();
@@ -151,5 +155,54 @@ describe("startupPlugins plugin drift guard", () => {
         },
       }),
     ).rejects.toThrow("expected worker manifest");
+  });
+
+  it.each([
+    {
+      label: "non-JSON peer manifest",
+      peerManifest: "not-json",
+      warning: "non-JSON worker manifest",
+    },
+    {
+      label: "invalid peer manifest",
+      peerManifest: JSON.stringify({
+        version: 1,
+        role: "worker",
+        providers: ["discord"],
+      }),
+      warning: "invalid worker manifest",
+    },
+    {
+      label: "wrong peer role",
+      peerManifest: JSON.stringify(makeManifest("api", ["discord"])),
+      warning: "expected worker manifest",
+    },
+    {
+      label: "provider drift",
+      peerManifest: JSON.stringify(makeManifest("worker", ["github"])),
+      warning: "Plugin drift detected",
+    },
+  ])("warns and continues with failOnMismatch=false for $label", async ({
+    peerManifest,
+    warning,
+  }) => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.values.set("test:plugins:worker", peerManifest);
+
+    await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        failOnMismatch: false,
+      },
+    });
+
+    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(warning));
   });
 });

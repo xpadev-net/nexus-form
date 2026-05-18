@@ -104,7 +104,14 @@ async function main() {
       },
     });
   } finally {
-    await pluginDriftStore.quit();
+    try {
+      await pluginDriftStore.quit();
+    } catch (error) {
+      console.warn(
+        "[worker] Failed to close plugin drift Redis client:",
+        error,
+      );
+    }
   }
 
   const workers: Worker[] = [];
