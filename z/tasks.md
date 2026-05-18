@@ -187,7 +187,7 @@
 
 ### R3-H19. `getShareLinkRole` が共有リンクの有効期限を検証しない（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #49、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/dual-auth.ts:373-391`
 - **問題:** `getShareLinkRole`（`withDualFormAuth` / `checkFormAccess` から共有リンク API トークン経由で呼ばれる）は `isActive` と `formId` 一致のみ確認し `expiresAt` を検証しない。一方 `permission-service.ts` の `validateShareLink` および `share-link-token.ts:57` の `validateShareLinkInternal` は `expiresAt` を判定している。結果、**期限切れの共有リンクに紐づく API トークンでフォームへアクセスし続けられる**（ロジック不整合）。
 - **修正内容:** `getShareLinkRole` の SELECT に `expiresAt` を加え、`if (link.expiresAt && link.expiresAt <= new Date()) return null;` を追加する。
@@ -196,7 +196,7 @@
 
 ### R3-H20. VIEWER 共有リンク保持者が全回答・分析データを閲覧できる（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #50、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/dual-auth.ts:476` 付近、`apps/api/src/routes/forms-responses.ts:262` ほか VIEWER ゲートのルート群
 - **問題:** `dual-auth.ts` の共有リンク分岐は `requiredRole === "VIEWER"` のとき role 不問で許可 (`return`) する。`/:id/responses*` 系は `withDualFormAuth("VIEWER")` で保護されているため、**VIEWER 共有リンクの保持者がそのフォームの全回答・回答詳細・ID 一覧・分析データを閲覧可能**になる。同じ懸念が `forms-snapshots.ts`/`forms-structure.ts`/`forms-validation-rules.ts`/`forms-detail.ts` の VIEWER ゲートにも及ぶ。
 - **修正内容:** 回答閲覧系エンドポイントは最低でも `EDITOR` を要求するか、共有リンク分岐に「回答閲覧は OWNER/EDITOR の DB 権限を要する」専用判定を追加する。VIEWER 共有リンクの製品仕様（フォーム閲覧・回答のみを意図しているか）をチームで確認のうえ決定する。
@@ -205,7 +205,7 @@
 
 ### R3-H21. 信頼できないヘッダーからの無検証 IP 採用でレート制限・CAPTCHA を回避可能（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #51、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/rate-limit.ts:19-23`（`getClientIp`）、`apps/api/src/lib/ip-address/strategies.ts:30-56`
 - **問題:** `x-forwarded-for` / `x-real-ip` / `cf-connecting-ip` を無条件・無検証で先頭値採用する。リバースプロキシがこれらを上書きしない構成では、攻撃者が任意の `X-Forwarded-For` を送るだけでレート制限キーを変え放題になり、`auth_action`（15 分 10 回）のブルートフォース制限を完全に回避できる。hCaptcha の `remoteip`、テレメトリ IP ハッシュにも波及する。
 - **修正内容:** 信頼するプロキシ段数を env（`TRUSTED_PROXY_COUNT`）で持ち、`x-forwarded-for` を分割して末尾から N 番目を採用する。`net.isIP()` で検証し不正値は `unknown` 扱い。プロキシ無し構成ではソケットの remote address を使う。
@@ -214,7 +214,7 @@
 
 ### R3-H22. S3 プリサインド URL 生成にキー/バケット検証が無くパストラバーサルの恐れ（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #52、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/s3/client.ts:64-98`（`generatePresignedUrl`/`generatePresignedUploadUrl`）、`apps/api/src/lib/s3/base-service.ts`（`generateDownloadUrl`/`generatePresignedPutUrl`）
 - **問題:** 引数 `key` を一切検証せず `GetObjectCommand`/`PutObjectCommand` に渡す。`key` がユーザー入力由来の経路では `prod/../other-tenant/...` のようなキーや他フォームのキーを指定して **任意オブジェクトの署名付き URL を取得**しうる。`moveToProd` の `tmpKey.replace("tmp/", "prod/")` も `tmp/` を含まないキーで無変換のまま本番バケットへ書き込む。
 - **修正内容:** プリサインド URL 系関数の入口で `key` を検証する（許可プレフィックス `tmp/` または `prod/` で始まる、`..` を含まない、想定 form/user スコープに一致）。`base-service` 側でキー所有権をルートのコンテキストと突き合わせる。
@@ -223,7 +223,7 @@
 
 ### R3-H23. テレメトリ IP ソルトの開発デフォルトが固定値で IP を逆引き可能（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #53、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/telemetry/tokens.ts:6-18`（`hashIPAddress`）
 - **問題:** 本番では `TELEMETRY_IP_SALT` 必須だが、非本番では `"default-salt-change-in-production"` の固定値を使う。SHA-256(ip + 既知ソルト) は全 IPv4 空間の総当たりで即座に逆引き可能で、ステージング等で IP（個人情報）が事実上平文同等になる。`sessions/jwt.ts:hashIp` は `AUTH_SECRET` 由来ソルトにフォールバックしており、こちらの方が安全。
 - **修正内容:** テレメトリも `AUTH_SECRET` 派生ソルトにフォールバックするか、全環境でランダムソルトを必須にする。
@@ -232,6 +232,7 @@
 
 ### R3-H24. `FingerprintAnonymizer` のシングルトン Map が無制限蓄積し相関リーク（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/api/src/lib/fingerprint/anonymizer.ts:44` 付近
 - **問題:** プロセス常駐シングルトンが `anonymizedIdMap: Map<string,string>` にフィンガープリントハッシュごとのエントリを永続蓄積する。削除も上限も無く長時間稼働で OOM。さらにリクエスト/フォーム横断でマップが共有されるため、同一フィンガープリントに同じ匿名 UUID が一貫して付与され、**異なるフォーム間で同一回答者の相関が取れてしまう**情報リーク。
 - **修正内容:** マップをメソッド呼び出しスコープのローカル変数にする（`getAnonymizedFingerprints` 内で `new Map()`）。シングルトンに横断状態を持たせない。

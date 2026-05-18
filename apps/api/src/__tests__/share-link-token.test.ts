@@ -74,9 +74,9 @@ describe("createApiTokenForShareLink", () => {
   });
 
   it("stores lookupHash so the issued share-link token can be validated by O(1) lookup", async () => {
-    const createdAt = new Date("2026-05-17T00:00:00.000Z");
-    const updatedAt = new Date("2026-05-17T00:00:01.000Z");
-    const expiresAt = new Date("2026-05-18T00:00:00.000Z");
+    const createdAt = new Date("2999-05-17T00:00:00.000Z");
+    const updatedAt = new Date("2999-05-17T00:00:01.000Z");
+    const expiresAt = new Date("2999-05-18T00:00:00.000Z");
     mockSelectResults([
       [
         {
