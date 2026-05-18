@@ -14,7 +14,7 @@ import {
   genericValidationJobDataSchema,
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -55,6 +55,21 @@ const RETRYABLE_CODES = new Set([
   "TIMEOUT",
   "GITHUB_API_RATE_LIMIT",
 ]);
+
+const providerErrorSchema = z
+  .object({
+    code: z.string().optional(),
+    status: z.number().optional(),
+    retryAfter: z.number().optional(),
+    response: z
+      .object({
+        status: z.number().optional(),
+      })
+      .optional(),
+  })
+  .passthrough();
+
+const metadataRecordSchema = z.record(z.string(), z.unknown());
 
 export type GenericValidationJob = GenericValidationJobData;
 
@@ -199,19 +214,16 @@ export const handleGenericValidation = async (
   try {
     rawResult = await providerRule.validate(validatedInput, providerConfig);
   } catch (error) {
-    const errObj =
-      error !== null && typeof error === "object"
-        ? (error as Record<string, unknown>)
-        : null;
-    const errorCode =
-      typeof errObj?.code === "string" ? errObj.code : undefined;
-    const responseStatus = (
-      errObj?.response as Record<string, unknown> | undefined
-    )?.status;
+    const providerErrorParse = providerErrorSchema.safeParse(error);
+    const providerError = providerErrorParse.success
+      ? providerErrorParse.data
+      : null;
+    const errorCode = providerError?.code;
+    const responseStatus = providerError?.response?.status;
     const errorStatus =
-      typeof errObj?.status === "number"
-        ? errObj.status
-        : typeof responseStatus === "number"
+      providerError?.status !== undefined
+        ? providerError.status
+        : responseStatus !== undefined
           ? responseStatus
           : undefined;
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -220,8 +232,7 @@ export const handleGenericValidation = async (
     // (used by validation-provider-github for rate-limit back-off). Zero is
     // treated as unset to avoid retrying on accidental default values.
     const hasRetryAfter =
-      typeof errObj?.retryAfter === "number" &&
-      (errObj.retryAfter as number) > 0;
+      providerError?.retryAfter !== undefined && providerError.retryAfter > 0;
     const isRetryable =
       (errorCode !== undefined && RETRYABLE_CODES.has(errorCode)) ||
       (errorStatus !== undefined && RETRYABLE_HTTP_STATUSES.has(errorStatus)) ||
@@ -278,7 +289,12 @@ export const handleGenericValidation = async (
       result.metadata,
     );
     if (metadataParsed.success) {
-      validatedMetadata = metadataParsed.data as Record<string, unknown>;
+      const metadataRecordParsed = metadataRecordSchema.safeParse(
+        metadataParsed.data,
+      );
+      validatedMetadata = metadataRecordParsed.success
+        ? metadataRecordParsed.data
+        : undefined;
     } else {
       console.warn(
         `[generic-validation] Metadata schema validation failed for ${provider.name}.${providerRule.name}:`,
