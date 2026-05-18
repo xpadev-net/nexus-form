@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, List, X } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
 import { ResponseExport } from "@/components/forms/response-export";
@@ -16,14 +16,31 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const [page, setPage] = useState(1);
   const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [selectedResponseId, setSelectedResponseId] = useState<string | null>(
     null,
   );
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const limit = 20;
+  const debouncedKeywordRef = useRef(debouncedKeyword);
+  debouncedKeywordRef.current = debouncedKeyword;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      const nextKeyword = keyword.trim();
+      setDebouncedKeyword(nextKeyword);
+      if (nextKeyword !== debouncedKeywordRef.current) {
+        setPage(1);
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [keyword]);
 
   const responsesQuery = useQuery({
-    queryKey: ["formResponses", formId, page, limit],
+    queryKey: ["formResponses", formId, page, limit, debouncedKeyword],
     queryFn: () =>
       rpc(
         client.api.forms[":id"].responses.$get({
@@ -31,6 +48,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           query: {
             page: String(page),
             limit: String(limit),
+            ...(debouncedKeyword ? { keyword: debouncedKeyword } : {}),
           },
         }),
       ),
@@ -39,19 +57,6 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const data = responsesQuery.data;
   const totalPages = data ? Math.max(1, Math.ceil(data.total / limit)) : 1;
-
-  // クライアントサイドでキーワードフィルタ
-  const filteredResponses = useMemo(() => {
-    if (!data?.responses) return [];
-    if (!keyword.trim()) return data.responses;
-    const lower = keyword.toLowerCase();
-    return data.responses.filter(
-      (r) =>
-        r.id.toLowerCase().includes(lower) ||
-        r.respondentUuid?.toLowerCase().includes(lower) ||
-        r.countryCode?.toLowerCase().includes(lower),
-    );
-  }, [data?.responses, keyword]);
 
   const handleSelectResponse = useCallback((responseId: string) => {
     setSelectedResponseId(responseId);
@@ -63,6 +68,11 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const handlePageChange = useCallback((newPage: number) => {
     setPage(newPage);
+    setSelectedResponseId(null);
+  }, []);
+
+  const handleKeywordChange = useCallback((value: string) => {
+    setKeyword(value);
     setSelectedResponseId(null);
   }, []);
 
@@ -125,7 +135,10 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           >
             {/* フィルタ */}
             <div className="mb-4">
-              <ResponseFilter keyword={keyword} onKeywordChange={setKeyword} />
+              <ResponseFilter
+                keyword={keyword}
+                onKeywordChange={handleKeywordChange}
+              />
             </div>
 
             {/* 読み込み中 */}
@@ -148,13 +161,17 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             {/* 回答リスト */}
             {data && (
               <>
-                {filteredResponses.length === 0 ? (
+                {data.responses.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
-                    <p className="text-sm">回答はまだありません。</p>
+                    <p className="text-sm">
+                      {debouncedKeyword
+                        ? "検索条件に一致する回答はありません。"
+                        : "回答はまだありません。"}
+                    </p>
                   </div>
                 ) : (
                   <ul className="space-y-2">
-                    {filteredResponses.map((response) => (
+                    {data.responses.map((response) => (
                       <li key={response.id}>
                         <button
                           type="button"

@@ -36,6 +36,11 @@ vi.mock("@nexus-form/database/schema", () => ({
     id: "formResponse.id",
     formId: "formResponse.formId",
     submittedAt: "formResponse.submittedAt",
+    updatedAt: "formResponse.updatedAt",
+    respondentUuid: "formResponse.respondentUuid",
+    userAgent: "formResponse.userAgent",
+    sessionId: "formResponse.sessionId",
+    countryCode: "formResponse.countryCode",
   },
   formSchedule: {
     id: "formSchedule.id",
@@ -216,6 +221,59 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     });
     expect(mocks.offsetCalls).toContain(0);
     expect(mocks.limitCalls).toContain(20);
+  });
+
+  it("applies keyword filters before paginating response lists", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-alpha",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(countQuery(1));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?page=2&limit=5&keyword=alpha",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      responses: [{ id: "response-1", respondentUuid: "respondent-alpha" }],
+      total: 1,
+      page: 2,
+      limit: 5,
+    });
+    const instrCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => String(call[0][0]).includes("instr("));
+    expect(instrCalls).toHaveLength(3);
+    expect(
+      instrCalls.every((call) => String(call[0][0]).includes("lower(")),
+    ).toBe(true);
+    expect(instrCalls.map((call) => call[1])).toEqual([
+      "formResponse.id",
+      "formResponse.respondentUuid",
+      "formResponse.countryCode",
+    ]);
+    expect(instrCalls.map((call) => call[2])).toEqual([
+      "alpha",
+      "alpha",
+      "alpha",
+    ]);
+    expect(mocks.offsetCalls).toContain(5);
+    expect(mocks.limitCalls).toContain(5);
   });
 
   it("applies limit and offset to response analytics timelines", async () => {
