@@ -16,4 +16,11 @@ export {
   providerRegistry,
   ValidationProviderRegistry,
 } from "./provider-registry";
-export { type StartupPluginsOptions, startupPlugins } from "./startup";
+export {
+  type PluginDriftGuardOptions,
+  type PluginDriftStore,
+  type PluginRuntimeManifest,
+  type PluginRuntimeRole,
+  type StartupPluginsOptions,
+  startupPlugins,
+} from "./startup";

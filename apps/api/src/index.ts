@@ -10,6 +10,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import { ZodError } from "zod";
 import { auth } from "./lib/auth";
+import { getRedisClient } from "./lib/cache/redis-client";
 import { logError } from "./lib/logger";
 import { authRouteRateLimiter } from "./lib/rate-limit";
 import { captureError, initSentry } from "./lib/sentry";
@@ -175,10 +176,22 @@ async function startServer() {
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
   );
+  const pluginDriftStore = getRedisClient();
+  if (!pluginDriftStore) {
+    console.warn(
+      "[api] Plugin drift guard skipped because Redis is not configured",
+    );
+  }
   await startupPlugins(providerRegistry, {
     builtinPlugins,
     pluginsDirs: [VALIDATION_PLUGINS_DIR],
     logPrefix: "api",
+    pluginDriftGuard: pluginDriftStore
+      ? {
+          role: "api",
+          store: pluginDriftStore,
+        }
+      : undefined,
   });
 
   // Sentry 初期化

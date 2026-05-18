@@ -198,6 +198,7 @@ function isValidationProvider(obj: unknown): obj is ValidationProvider {
 export class PluginLoader {
   private pluginsDir: string;
   private failedPlugins: Array<{ file: string; error: string }> = [];
+  private loadedPluginHashes: string[] = [];
 
   constructor(pluginsDir: string) {
     this.pluginsDir = pluginsDir;
@@ -211,7 +212,12 @@ export class PluginLoader {
     return this.failedPlugins.length > 0;
   }
 
+  getLoadedPluginHashes(): string[] {
+    return [...this.loadedPluginHashes];
+  }
+
   async loadPlugins(): Promise<ValidationProvider[]> {
+    this.loadedPluginHashes = [];
     let resolvedDir: string;
     try {
       resolvedDir = await realpath(this.pluginsDir);
@@ -307,6 +313,7 @@ export class PluginLoader {
         console.info(
           `[PluginLoader] Loaded plugin "${outcome.provider.name}" path=${resolvedPath} sha256=${verifiedSource.hash}`,
         );
+        this.loadedPluginHashes.push(verifiedSource.hash);
         plugins.push(outcome.provider);
       } else if (outcome.kind === "skipped") {
         console.warn(
