@@ -544,7 +544,6 @@ export const formsStructureRouter = createHonoApp()
         const response = RestoreEditResponseSchema.parse({
           ok: true,
           plateContent: restored.plateContent,
-          plateContentVersion: restored.plateContentVersion,
         });
         return c.json(response);
       } catch (error) {

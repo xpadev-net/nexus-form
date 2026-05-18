@@ -117,14 +117,9 @@ export const useSnapshots = (formId: string | null | undefined) => {
           detail: {
             formId,
             plateContent: data.plateContent,
-            plateContentVersion: data.plateContentVersion,
           },
         }),
       );
-      queryClient.setQueryData(["formContent", formId], {
-        plateContent: data.plateContent,
-        plateContentVersion: data.plateContentVersion,
-      });
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
         queryClient.invalidateQueries({

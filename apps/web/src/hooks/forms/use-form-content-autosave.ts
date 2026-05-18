@@ -202,7 +202,6 @@ export function useFormContentAutosave({
         event as CustomEvent<{
           formId?: string;
           plateContent?: string;
-          plateContentVersion?: number;
         }>
       ).detail;
       if (detail?.formId !== formId) return;
@@ -219,9 +218,6 @@ export function useFormContentAutosave({
       isConflictActiveRef.current = false;
       resetMergeState();
       setConflictResolutions({});
-      if (detail.plateContentVersion != null) {
-        versionRef.current = detail.plateContentVersion;
-      }
       baseContentRef.current = restoredContent;
       editorValueRef.current = restoredContent;
       setDraftContent(restoredContent);
