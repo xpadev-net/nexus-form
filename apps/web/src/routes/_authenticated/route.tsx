@@ -1,27 +1,15 @@
 import {
   createFileRoute,
-  isRedirect,
   Outlet,
-  redirect,
   useRouterState,
 } from "@tanstack/react-router";
 import { Footer } from "@/components/layout/footer";
 import { Navigation } from "@/components/layout/navigation";
 import { NavigationDrawer } from "@/components/layout/navigation-drawer";
-import { authClient } from "@/lib/auth-client";
+import { requireAuth } from "@/lib/require-auth";
 
 export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: async () => {
-    try {
-      const { data } = await authClient.getSession();
-      if (!data?.session) {
-        throw redirect({ to: "/login" });
-      }
-    } catch (error) {
-      if (isRedirect(error)) throw error;
-      throw redirect({ to: "/login" });
-    }
-  },
+  beforeLoad: requireAuth,
   component: AuthenticatedLayout,
 });
 
