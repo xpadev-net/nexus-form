@@ -317,6 +317,7 @@
 
 ### R3-H28. Redis チャンネル名ヘルパーが `formId` を無検証で連結（再レビュー新規）
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR #63、subagent review 通過、local validation 通過）
 - **対象:** `packages/shared/src/sse-events.ts:48-54`（`getValidationChannel`/`getEditorChannel`）
 - **問題:** 任意文字列を受け取り長さ・文字種の制約なしに `form:validation:${formId}` を生成する。共有ユーティリティとして export される以上、呼び出し側がサーバー生成 ID を渡す前提に依存すべきでない。`formId` に `*` や改行が含まれると `PSUBSCRIBE` パターン汚染や別チャンネル混入のリスク。
 - **修正内容:** ヘルパー内で `z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/).parse(formId)` 相当の検証を行い、不正値で例外を投げる。

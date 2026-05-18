@@ -45,10 +45,12 @@ export type EditorSSEEvent = z.infer<typeof EditorSSEEventSchema>;
 export const VALIDATION_CHANNEL_PREFIX = "form:validation:";
 export const EDITOR_CHANNEL_PREFIX = "form:editor:";
 
+const RedisChannelFormIdSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
+
 export function getValidationChannel(formId: string): string {
-  return `${VALIDATION_CHANNEL_PREFIX}${formId}`;
+  return `${VALIDATION_CHANNEL_PREFIX}${RedisChannelFormIdSchema.parse(formId)}`;
 }
 
 export function getEditorChannel(formId: string): string {
-  return `${EDITOR_CHANNEL_PREFIX}${formId}`;
+  return `${EDITOR_CHANNEL_PREFIX}${RedisChannelFormIdSchema.parse(formId)}`;
 }
