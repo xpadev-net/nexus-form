@@ -528,6 +528,27 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("response が null の provider error でも retryable code を保持する", async () => {
+    const domainErr = Object.assign(new Error("Provider connection refused"), {
+      code: "ECONNREFUSED",
+      response: null,
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(domainErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Provider connection refused",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("retryAfterプロパティを持つエラーはリトライさせる (コードもステータスも一致しない場合のみhasRetryAfterが有効)", async () => {
     // Uses an unrecognised code so the test would fail if hasRetryAfter were removed.
     const rateLimitErr = Object.assign(

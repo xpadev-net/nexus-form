@@ -58,14 +58,18 @@ const RETRYABLE_CODES = new Set([
 
 const providerErrorSchema = z
   .object({
-    code: z.string().optional(),
-    status: z.number().optional(),
-    retryAfter: z.number().optional(),
-    response: z
-      .object({
-        status: z.number().optional(),
-      })
-      .optional(),
+    code: z.string().optional().catch(undefined),
+    status: z.number().optional().catch(undefined),
+    retryAfter: z.number().optional().catch(undefined),
+    response: z.preprocess(
+      (value) => (value === null ? undefined : value),
+      z
+        .object({
+          status: z.number().optional().catch(undefined),
+        })
+        .optional()
+        .catch(undefined),
+    ),
   })
   .passthrough();
 
