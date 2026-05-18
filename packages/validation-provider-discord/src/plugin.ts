@@ -6,6 +6,7 @@ import type {
 import { z } from "zod";
 import { DiscordErrorCode } from "./error-codes";
 import {
+  discordApiFetch,
   getGuildRoles as fetchGuildRoles,
   getBelongGuilds,
   getGuild,
@@ -140,11 +141,14 @@ function buildGuildIconUrl(
 }
 
 async function fetchUserGuilds(accessToken: string) {
-  const response = await fetch("https://discord.com/api/v10/users/@me/guilds", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
+  const response = await discordApiFetch(
+    "https://discord.com/api/v10/users/@me/guilds",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
     },
-  });
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -456,18 +460,13 @@ export const discordProvider: ValidationProvider = {
 };
 
 async function pingDiscordApi(): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch("https://discord.com/api/v10/gateway", {
+    const res = await discordApiFetch("https://discord.com/api/v10/gateway", {
       method: "GET",
-      signal: controller.signal,
     });
     return res.ok || res.status === 401 || res.status === 403;
   } catch {
     return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 

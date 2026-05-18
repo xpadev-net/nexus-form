@@ -1,6 +1,7 @@
 import pLimit from "p-limit";
 import { z } from "zod";
 
+import { getDiscordApiTimeoutMs } from "./config";
 import {
   type DiscordApplication,
   type DiscordGuild,
@@ -25,22 +26,47 @@ const sleep = (ms: number): Promise<void> =>
 
 const limit = pLimit(3);
 
+/**
+ * Fetches a Discord API URL with the configured timeout applied.
+ *
+ * @param url - Discord API URL to request.
+ * @param init - Optional `RequestInit` values spread into the underlying fetch.
+ * @returns The underlying `fetch` promise.
+ *
+ * The timeout comes from `AbortSignal.timeout(getDiscordApiTimeoutMs())`. When
+ * `init.signal` is provided, it is combined with the timeout via
+ * `AbortSignal.any()`, so the request aborts when either signal fires.
+ */
+export const discordApiFetch = (
+  url: string,
+  init: RequestInit = {},
+): Promise<Response> => {
+  const timeoutSignal = AbortSignal.timeout(getDiscordApiTimeoutMs());
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(url, {
+    ...init,
+    signal,
+  });
+};
+
 const discordFetchWithRetry = async (
   url: string,
   init: RequestInit,
 ): Promise<Response> => {
   return limit(async () => {
-    const response = await fetch(url, init);
+    const response = await discordApiFetch(url, init);
     if (response.status === 429) {
       const data = ZDiscordRateLimitResponse.parse(await response.json());
       await sleep(data.retry_after * 1000 * 1.5);
-      const retryResponse = await fetch(url, init);
+      const retryResponse = await discordApiFetch(url, init);
       if (retryResponse.status === 429) {
         const retryData = ZDiscordRateLimitResponse.parse(
           await retryResponse.json(),
         );
         await sleep(retryData.retry_after * 1000 * 2);
-        const finalResponse = await fetch(url, init);
+        const finalResponse = await discordApiFetch(url, init);
         if (finalResponse.status === 429) {
           await finalResponse.body?.cancel();
           throw new DiscordHttpError(
