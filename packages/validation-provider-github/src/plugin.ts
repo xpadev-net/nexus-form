@@ -8,7 +8,9 @@ import { getGitHubClient } from "./client";
 import { getGitHubConfig } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 
-const GitHubInputSchema = z.string().min(1).max(39);
+const GitHubInputSchema = z
+  .string()
+  .regex(/^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/);
 
 const GitHubConfigSchema = z.object({}).strict();
 

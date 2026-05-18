@@ -21,7 +21,7 @@ import {
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
-const DiscordInputSchema = z.string().min(2).max(32);
+const DiscordInputSchema = z.string().regex(/^[a-zA-Z0-9_.]{2,32}$/);
 
 const DiscordConfigSchema = z.object({
   guildId: ZDiscordGuildId.optional(),
