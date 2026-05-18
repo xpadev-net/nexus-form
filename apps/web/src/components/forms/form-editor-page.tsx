@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PlateEditor } from "@/components/editor/plate-editor";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
+import { logWarn } from "@/lib/logger";
 import { FormStatus } from "@/types/validation/shared";
 
 const EDITOR_TABS = [
@@ -176,6 +177,20 @@ export function FormEditorPage() {
     },
   });
 
+  const formData = formQuery.data?.form;
+  const formIdForStatus = formData?.id;
+  const rawFormStatus = formData?.status;
+  const formStatusResult = FormStatus.safeParse(rawFormStatus);
+  const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
+
+  useEffect(() => {
+    if (!formIdForStatus || formStatusResult.success) return;
+    logWarn("Unrecognized form status received in editor", "forms", {
+      formId: formIdForStatus,
+      status: rawFormStatus,
+    });
+  }, [formIdForStatus, rawFormStatus, formStatusResult.success]);
+
   if (formQuery.isLoading || contentQuery.isLoading) {
     return (
       <section className="rounded-lg border bg-card p-6">読み込み中...</section>
@@ -190,9 +205,6 @@ export function FormEditorPage() {
     );
   }
 
-  const formData = formQuery.data?.form;
-  const formStatusResult = FormStatus.safeParse(formData?.status);
-  const formStatus = formStatusResult.success ? formStatusResult.data : null;
   const plateContent = contentQuery.data?.plateContent ?? "[]";
 
   const tabs: { key: EditorTab; label: string; icon: LucideIcon }[] = [
@@ -216,7 +228,7 @@ export function FormEditorPage() {
           titleSaveFailureCount={updateTitleMutation.failureCount}
           action={
             <div className="flex items-center gap-2">
-              {formData && <FormStatusBadge status={formData.status} />}
+              {formData && <FormStatusBadge status={formStatus} />}
               {isSaving && (
                 <span className="text-xs text-muted-foreground">保存中...</span>
               )}
@@ -244,7 +256,7 @@ export function FormEditorPage() {
                   プレビュー
                 </Link>
               </Button>
-              {formData && formStatus && (
+              {formData && (
                 <FormPublishMenu
                   formId={id}
                   formStatus={formStatus}
@@ -321,7 +333,7 @@ export function FormEditorPage() {
             <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
             <div className="flex flex-wrap gap-2">
               <FormArchiveManager
-                isArchived={formData?.status === "ARCHIVED"}
+                isArchived={formStatus === "ARCHIVED"}
                 isLoading={
                   archiveMutation.isPending || unarchiveMutation.isPending
                 }
