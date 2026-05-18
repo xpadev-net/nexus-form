@@ -12,6 +12,10 @@ export interface DiscordConfig {
   cacheTimeout: number;
 }
 
+/**
+ * Maximum millisecond delay accepted by Node.js timers and
+ * `AbortSignal.timeout()` before values can overflow or fire unexpectedly.
+ */
 export const MAX_TIMER_MS = 2_147_483_647;
 
 export const DISCORD_CONFIG_DEFAULTS = {
@@ -33,6 +37,17 @@ export const DEFAULT_DISCORD_CONFIG = {
   cacheTimeout: DISCORD_CONFIG_DEFAULTS.CACHE_TIMEOUT,
 } as const;
 
+/**
+ * Reads a positive integer environment variable.
+ *
+ * @param name - Environment variable name to read.
+ * @param defaultValue - Fallback value used when the variable is missing or invalid.
+ * @param max - Largest accepted value, inclusive.
+ * @returns A valid positive integer, or `defaultValue` after logging a warning.
+ *
+ * Values must be integer milliseconds greater than zero. Empty, non-integer,
+ * non-positive, and over-`max` values are treated as invalid.
+ */
 export function parsePositiveIntEnv(
   name: string,
   defaultValue: number,
@@ -51,15 +66,28 @@ export function parsePositiveIntEnv(
   return parsed;
 }
 
+/**
+ * Resolves the Discord API fetch timeout from `DISCORD_API_TIMEOUT_MS`.
+ *
+ * @returns Timeout in milliseconds, clamped to the configured minimum and
+ * capped by `MAX_TIMER_MS`.
+ *
+ * Invalid or missing values fall back to the default. Values below the minimum
+ * are clamped with a warning, for example `50` becomes `100`.
+ */
 export function getDiscordApiTimeoutMs(): number {
-  return Math.max(
-    DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT,
-    parsePositiveIntEnv(
-      "DISCORD_API_TIMEOUT_MS",
-      DISCORD_CONFIG_DEFAULTS.API_TIMEOUT,
-      MAX_TIMER_MS,
-    ),
+  const parsed = parsePositiveIntEnv(
+    "DISCORD_API_TIMEOUT_MS",
+    DISCORD_CONFIG_DEFAULTS.API_TIMEOUT,
+    MAX_TIMER_MS,
   );
+  if (parsed < DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT) {
+    console.warn(
+      `[discord-config] DISCORD_API_TIMEOUT_MS="${parsed}" is below the minimum of ${DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT}ms; clamping to ${DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT}ms`,
+    );
+    return DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT;
+  }
+  return parsed;
 }
 
 export function getDiscordConfig(): DiscordConfig {

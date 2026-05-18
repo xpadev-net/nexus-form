@@ -26,6 +26,17 @@ const sleep = (ms: number): Promise<void> =>
 
 const limit = pLimit(3);
 
+/**
+ * Fetches a Discord API URL with the configured timeout applied.
+ *
+ * @param url - Discord API URL to request.
+ * @param init - Optional `RequestInit` values spread into the underlying fetch.
+ * @returns The underlying `fetch` promise.
+ *
+ * The timeout comes from `AbortSignal.timeout(getDiscordApiTimeoutMs())`. When
+ * `init.signal` is provided, it is combined with the timeout via
+ * `AbortSignal.any()`, so the request aborts when either signal fires.
+ */
 export const discordApiFetch = (
   url: string,
   init: RequestInit = {},

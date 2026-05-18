@@ -263,7 +263,7 @@
 
 ### R3-H8. Discord の fetch にタイムアウトが無い
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #57（open）、subagent review / local validation 済み）
 - **対象:** `packages/validation-provider-discord/src/requests.ts:32-56`、`plugin.ts:142-156`（`fetchUserGuilds`）
 - **問題:** `discordFetchWithRetry` / `fetchUserGuilds` の `fetch` が `AbortSignal` を設定しておらず、Discord 接続がハングすると Worker の concurrency スロット（5）を無期限に占有する。Google Sheets クライアントや `pingDiscordApi` が timeout を設定しているのと非対称。
 - **修正内容:** `signal: AbortSignal.timeout(DISCORD_API_TIMEOUT_MS)` を全 `fetch` に追加。タイムアウト値は env から読む（`parsePositiveIntEnv` を共有化）。

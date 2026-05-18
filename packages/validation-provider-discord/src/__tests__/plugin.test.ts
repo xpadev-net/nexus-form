@@ -78,6 +78,18 @@ describe("Discord API timeout", () => {
     );
   });
 
+  it("warns and clamps values below the minimum timeout", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.DISCORD_API_TIMEOUT_MS = "50";
+
+    expect(getDiscordApiTimeoutMs()).toBe(
+      DISCORD_CONFIG_DEFAULTS.MIN_API_TIMEOUT,
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("below the minimum"),
+    );
+  });
+
   it("passes DISCORD_API_TIMEOUT_MS to Discord API requests", async () => {
     process.env.DISCORD_API_TIMEOUT_MS = "1500";
     const timeoutSpy = vi
