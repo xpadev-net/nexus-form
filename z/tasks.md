@@ -272,7 +272,7 @@
 
 ### R3-H9. API/Worker のプラグインドリフトに実行時ガードが無い（旧 R2-M7 継続）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR `#58`、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #58、gh-review-hook exit 0、merged）
 - **対象:** `apps/worker/src/index.ts`、`packages/integrations/src/startup.ts:49-83`
 - **問題:** CLAUDE.md は API と Worker が同一プラグインを読むことを必須とするが、`startupPlugins` はマニフェスト比較・ハッシュ交換・起動時アサーションを一切行わない。片側のみにプラグインを追加/再起動すると、API が `${provider}-validation` キューに enqueue しても Worker が該当 Worker を生成せずジョブが無言で滞留する。
 - **修正内容:** 起動時に登録プロバイダー名 + 各 `.mjs` の SHA-256 のセットを Redis に記録し、API/Worker 間で照合。不一致なら起動失敗または警告/メトリクス化する。
