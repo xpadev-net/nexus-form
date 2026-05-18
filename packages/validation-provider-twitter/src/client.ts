@@ -133,14 +133,9 @@ export class TwitterApiClient {
   async cleanup(): Promise<void> {}
 }
 
-let twitterClient: TwitterApiClient | null = null;
-
 export function getTwitterClient(config?: TwitterConfig): TwitterApiClient {
   if (config) {
     return new TwitterApiClient(config);
   }
-  if (!twitterClient) {
-    twitterClient = new TwitterApiClient(getTwitterConfig());
-  }
-  return twitterClient;
+  return new TwitterApiClient(getTwitterConfig());
 }
