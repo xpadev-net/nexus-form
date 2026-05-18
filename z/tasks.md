@@ -245,7 +245,7 @@
 
 ### R3-H6. プロバイダーの `retryAfter` がバックオフに反映されない
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #55、gh-review-hook exit 0、merged）
 - **対象:** `apps/worker/src/handlers/generic-validation.ts:263-265`
 - **問題:** レート制限時にプロバイダーが返す `result.retryAfter`（秒）を、ハンドラは `throw new Error("Rate limited, retry after Ns")` するだけ。BullMQ は `defaultJobOptions.backoff`（指数 30 秒）で再試行するため、プロバイダー指定の待機時間が完全に破棄される（Discord/GitHub の意図したバックオフが無視される）。
 - **修正内容:** `job.moveToDelayed(Date.now() + retryAfter * 1000, token)` を使う、または `retryAfter` をエラーに乗せて BullMQ のカスタムバックオフ関数で読み取る。
@@ -254,6 +254,7 @@
 
 ### R3-H7. `ConcurrentDeleteError` が無限リトライ対象になる
 - **重要度:** 🟠 High
+- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
 - **対象:** `apps/worker/src/handlers/generic-validation.ts:97-103`、`apps/worker/src/lib/validation-helpers.ts:225-238`
 - **問題:** `markValidationProcessing` は対象行が並行削除されると `ConcurrentDeleteError` を throw するが、`handleGenericValidation` はこれを catch しない。行削除済み（恒久状態）にもかかわらず `attempts: 3` で 3 回再試行される。
 - **修正内容:** `markValidationProcessing` 呼び出しを try/catch で囲み、`ConcurrentDeleteError` の場合は `writeValidationResult` を行わず `return { ok: false, error: "Result row deleted" }` で正常終了する。
