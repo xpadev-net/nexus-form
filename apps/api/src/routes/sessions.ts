@@ -9,7 +9,7 @@ import {
 } from "../lib/sessions/jwt";
 
 export const SessionEnsureResponseSchema = z.object({
-  ok: z.boolean(),
+  ok: z.literal(true),
 });
 export type SessionEnsureResponse = z.infer<typeof SessionEnsureResponseSchema>;
 

@@ -6,7 +6,7 @@ import { withDualAuth } from "../lib/dual-auth";
 import { acceptInvitation } from "../lib/forms/permission-service";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
-import { FormPermission } from "../types/domain/form-permission";
+import { FormPermissionWithUser } from "../types/domain/form-permission";
 
 export const InviteLookupResponseSchema = z.object({
   invitation: z.object({
@@ -23,7 +23,7 @@ export const InviteLookupResponseSchema = z.object({
 export type InviteLookupResponse = z.infer<typeof InviteLookupResponseSchema>;
 
 export const InviteAcceptResponseSchema = z.object({
-  permission: FormPermission,
+  permission: FormPermissionWithUser,
 });
 export type InviteAcceptResponse = z.infer<typeof InviteAcceptResponseSchema>;
 
