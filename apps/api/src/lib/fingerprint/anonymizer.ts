@@ -205,6 +205,13 @@ export class FingerprintAnonymizer {
 
   /**
    * 特定のフィンガープリントの匿名化情報を取得
+   *
+   * anonymizedId は呼び出しごとに randomUUID() で新規生成されるため、
+   * 同じ fingerprintId を複数回取得しても一致するとは限りません。
+   *
+   * @returns 見つかった場合は AnonymizedFingerprint、存在しない場合は null。
+   * 返却値には fingerprint の id/responseId/fingerprintType/anonymizedId/
+   * collectedAt と response の id/formId/submittedAt/respondentUuid を含みます。
    */
   async getAnonymizedFingerprintById(
     fingerprintId: string,

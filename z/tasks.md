@@ -232,7 +232,7 @@
 
 ### R3-H24. `FingerprintAnonymizer` のシングルトン Map が無制限蓄積し相関リーク（再レビュー新規）
 - **重要度:** 🟠 High
-- **対応状況:** ✅ 完了（PR 作成前、subagent review / local validation 済み）
+- **対応状況:** ✅ 完了（PR #54、`gh-review-hook` exit 0）
 - **対象:** `apps/api/src/lib/fingerprint/anonymizer.ts:44` 付近
 - **問題:** プロセス常駐シングルトンが `anonymizedIdMap: Map<string,string>` にフィンガープリントハッシュごとのエントリを永続蓄積する。削除も上限も無く長時間稼働で OOM。さらにリクエスト/フォーム横断でマップが共有されるため、同一フィンガープリントに同じ匿名 UUID が一貫して付与され、**異なるフォーム間で同一回答者の相関が取れてしまう**情報リーク。
 - **修正内容:** マップをメソッド呼び出しスコープのローカル変数にする（`getAnonymizedFingerprints` 内で `new Map()`）。シングルトンに横断状態を持たせない。

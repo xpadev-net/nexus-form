@@ -186,7 +186,6 @@ describe("FingerprintAnonymizer", () => {
 
     const first =
       await anonymizer.getAnonymizedFingerprintById("fingerprint-a");
-    anonymizer.resetAnonymizationMap();
     const second =
       await anonymizer.getAnonymizedFingerprintById("fingerprint-b");
 
@@ -196,6 +195,7 @@ describe("FingerprintAnonymizer", () => {
     expect(first?.isDuplicate).toBe(true);
     expect(second?.duplicateCount).toBe(2);
     expect(randomUUIDMock).toHaveBeenCalledTimes(2);
+    anonymizer.resetAnonymizationMap();
     expect(anonymizer.getAnonymizationMapSize()).toBe(0);
   });
 });
