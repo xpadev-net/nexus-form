@@ -10,6 +10,12 @@ import { client, RpcError, rpc } from "@/lib/api";
 
 const MAX_MERGE_RETRIES = 3;
 
+interface ConflictState {
+  result: MergePlateResult;
+  remoteVersion: number;
+  generation: number;
+}
+
 interface UsePlateMergeOptions {
   formId: string;
   /** The last server-confirmed content (common ancestor for 3-way merge) */
@@ -44,21 +50,26 @@ export function usePlateMerge({
   // Ref-based guard to avoid stale-closure issues with the state value
   // inside the recursive retry path of attemptMerge.
   const isMergingRef = useRef(false);
-  const [conflictState, setConflictState] = useState<{
-    result: MergePlateResult;
-    remoteVersion: number;
-  } | null>(null);
+  const [conflictState, setConflictState] = useState<ConflictState | null>(
+    null,
+  );
+  const conflictStateRef = useRef<ConflictState | null>(null);
 
   const retryCountRef = useRef(0);
   const mergeGenerationRef = useRef(0);
+
+  const setCurrentConflictState = useCallback((state: ConflictState | null) => {
+    conflictStateRef.current = state;
+    setConflictState(state);
+  }, []);
 
   const resetMergeState = useCallback(() => {
     mergeGenerationRef.current += 1;
     retryCountRef.current = 0;
     isMergingRef.current = false;
     setIsMerging(false);
-    setConflictState(null);
-  }, []);
+    setCurrentConflictState(null);
+  }, [setCurrentConflictState]);
 
   // Direct rpc() call instead of contentQuery.refetch() — the merge needs a
   // guaranteed fresh read that is NOT deduplicated or cached by React Query,
@@ -142,9 +153,10 @@ export function usePlateMerge({
       if (mergeResult.hasConflict) {
         // Reset retry budget so post-resolution saves get a fresh count
         retryCountRef.current = 0;
-        setConflictState({
+        setCurrentConflictState({
           result: mergeResult,
           remoteVersion: remote.version,
+          generation: mergeGeneration,
         });
         onConflict();
         return;
@@ -220,6 +232,7 @@ export function usePlateMerge({
     onMergeSuccess,
     onConflict,
     onMergeFallback,
+    setCurrentConflictState,
   ]);
 
   /**
@@ -227,9 +240,18 @@ export function usePlateMerge({
    */
   const resolveConflicts = useCallback(
     async (resolutions: Record<string, "local" | "remote">) => {
-      if (!conflictState || isMergingRef.current) return;
-      const mergeGeneration = mergeGenerationRef.current;
-      const isStaleMerge = () => mergeGeneration !== mergeGenerationRef.current;
+      const currentConflictState = conflictStateRef.current;
+      if (
+        !currentConflictState ||
+        currentConflictState.generation !== mergeGenerationRef.current ||
+        isMergingRef.current
+      ) {
+        return;
+      }
+      const mergeGeneration = currentConflictState.generation;
+      const isStaleMerge = () =>
+        mergeGeneration !== mergeGenerationRef.current ||
+        conflictStateRef.current !== currentConflictState;
       isMergingRef.current = true;
       setIsMerging(true);
 
@@ -239,18 +261,18 @@ export function usePlateMerge({
       let mergedJson = "";
       try {
         const resolved = applyConflictResolutions(
-          conflictState.result,
+          currentConflictState.result,
           resolutions,
         );
         mergedJson = JSON.stringify(resolved);
         if (isStaleMerge()) return;
         const saveResult = await saveContent(
           mergedJson,
-          conflictState.remoteVersion,
+          currentConflictState.remoteVersion,
         );
         if (isStaleMerge()) return;
         if (saveResult && "plateContentVersion" in saveResult) {
-          setConflictState(null);
+          setCurrentConflictState(null);
           onMergeSuccess(
             mergedJson,
             saveResult.plateContentVersion,
@@ -259,7 +281,7 @@ export function usePlateMerge({
           toast.success("競合を解決しました");
         } else {
           // Unexpected response format — dismiss stale banner before refetch
-          setConflictState(null);
+          setCurrentConflictState(null);
           onMergeFallback();
           toast.error("保存に失敗しました");
         }
@@ -273,7 +295,7 @@ export function usePlateMerge({
           // changes made *after* the resolution, not re-conflicts from the
           // first remote.
           baseContentRef.current = mergedJson;
-          setConflictState(null);
+          setCurrentConflictState(null);
           // Release guard before recursive call
           isMergingRef.current = false;
           setIsMerging(false);
@@ -289,8 +311,8 @@ export function usePlateMerge({
       }
     },
     [
-      conflictState,
       saveContent,
+      setCurrentConflictState,
       setCurrentEditorValue,
       onMergeSuccess,
       attemptMerge,
@@ -300,9 +322,9 @@ export function usePlateMerge({
   );
 
   const dismissConflict = useCallback(() => {
-    setConflictState(null);
+    setCurrentConflictState(null);
     onMergeFallback();
-  }, [onMergeFallback]);
+  }, [onMergeFallback, setCurrentConflictState]);
 
   return {
     attemptMerge,
