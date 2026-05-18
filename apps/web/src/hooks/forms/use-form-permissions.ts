@@ -43,9 +43,14 @@ export const useFormPermissions = (
   invitationsParams?: InvitationsParams,
 ) => {
   const queryClient = useQueryClient();
+  const permissionsPage = permissionsParams?.page ?? null;
+  const permissionsLimit = permissionsParams?.limit ?? null;
+  const invitationsPage = invitationsParams?.page ?? null;
+  const invitationsLimit = invitationsParams?.limit ?? null;
+  const invitationsStatus = invitationsParams?.status ?? null;
 
   const permissionsQuery = useQuery({
-    queryKey: ["formPermissions", formId, permissionsParams],
+    queryKey: ["formPermissions", formId, permissionsPage, permissionsLimit],
     enabled: Boolean(formId),
     staleTime: 60_000,
     queryFn: () =>
@@ -53,24 +58,30 @@ export const useFormPermissions = (
         client.api.forms[":id"].permissions.$get({
           param: { id: formId as string },
           query: toStringRecord({
-            page: permissionsParams?.page,
-            limit: permissionsParams?.limit,
+            page: permissionsPage ?? undefined,
+            limit: permissionsLimit ?? undefined,
           }),
         }),
       ),
   });
 
   const invitationsQuery = useQuery({
-    queryKey: ["formInvitations", formId, invitationsParams],
+    queryKey: [
+      "formInvitations",
+      formId,
+      invitationsPage,
+      invitationsLimit,
+      invitationsStatus,
+    ],
     enabled: Boolean(formId),
     queryFn: () =>
       rpc(
         client.api.forms[":id"].invitations.$get({
           param: { id: formId as string },
           query: toStringRecord({
-            page: invitationsParams?.page,
-            limit: invitationsParams?.limit,
-            status: invitationsParams?.status,
+            page: invitationsPage ?? undefined,
+            limit: invitationsLimit ?? undefined,
+            status: invitationsStatus ?? undefined,
           }),
         }),
       ),
