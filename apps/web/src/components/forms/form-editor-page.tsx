@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PlateEditor } from "@/components/editor/plate-editor";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
@@ -31,17 +31,24 @@ import { Button } from "@/components/ui/button";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
-import type { FormStatus } from "@/types/validation/shared";
+import { logWarn } from "@/lib/logger";
+import { FormStatus } from "@/types/validation/shared";
 
-type EditorTab = "editor" | "settings" | "validation" | "sharing" | "responses";
-
-const EDITOR_TABS: EditorTab[] = [
+const EDITOR_TABS = [
   "editor",
   "settings",
   "validation",
   "sharing",
   "responses",
-];
+] as const;
+
+type EditorTab = (typeof EDITOR_TABS)[number];
+
+const EDITOR_TAB_VALUES: ReadonlySet<string> = new Set(EDITOR_TABS);
+
+function isEditorTab(value: unknown): value is EditorTab {
+  return typeof value === "string" && EDITOR_TAB_VALUES.has(value);
+}
 
 export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
@@ -50,7 +57,7 @@ export function FormEditorPage() {
   const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
 
   const [activeTab, setActiveTab] = useState<EditorTab>(() =>
-    EDITOR_TABS.includes(tab as EditorTab) ? (tab as EditorTab) : "editor",
+    isEditorTab(tab) ? tab : "editor",
   );
   const [responsesEverActive, setResponsesEverActive] = useState(
     tab === "responses",
@@ -170,6 +177,22 @@ export function FormEditorPage() {
     },
   });
 
+  const formData = formQuery.data?.form;
+  const formIdForStatus = formData?.id;
+  const rawFormStatus = formData?.status;
+  const formStatusResult = FormStatus.safeParse(rawFormStatus);
+  const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
+
+  useEffect(() => {
+    if (!formIdForStatus || FormStatus.safeParse(rawFormStatus).success) {
+      return;
+    }
+    logWarn("Unrecognized form status received in editor", "forms", {
+      formId: formIdForStatus,
+      status: rawFormStatus,
+    });
+  }, [formIdForStatus, rawFormStatus]);
+
   if (formQuery.isLoading || contentQuery.isLoading) {
     return (
       <section className="rounded-lg border bg-card p-6">読み込み中...</section>
@@ -184,7 +207,6 @@ export function FormEditorPage() {
     );
   }
 
-  const formData = formQuery.data?.form;
   const plateContent = contentQuery.data?.plateContent ?? "[]";
 
   const tabs: { key: EditorTab; label: string; icon: LucideIcon }[] = [
@@ -208,7 +230,7 @@ export function FormEditorPage() {
           titleSaveFailureCount={updateTitleMutation.failureCount}
           action={
             <div className="flex items-center gap-2">
-              {formData && <FormStatusBadge status={formData.status} />}
+              {formData && <FormStatusBadge status={formStatus} />}
               {isSaving && (
                 <span className="text-xs text-muted-foreground">保存中...</span>
               )}
@@ -239,7 +261,7 @@ export function FormEditorPage() {
               {formData && (
                 <FormPublishMenu
                   formId={id}
-                  formStatus={formData.status as FormStatus}
+                  formStatus={formStatus}
                   onStatusChange={() => void formQuery.refetch()}
                   onResetSuccess={() => void contentQuery.refetch()}
                 />
@@ -313,7 +335,7 @@ export function FormEditorPage() {
             <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
             <div className="flex flex-wrap gap-2">
               <FormArchiveManager
-                isArchived={formData?.status === "ARCHIVED"}
+                isArchived={formStatus === "ARCHIVED"}
                 isLoading={
                   archiveMutation.isPending || unarchiveMutation.isPending
                 }
