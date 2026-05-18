@@ -20,21 +20,35 @@ const FormIntegrationRecordSchema = z.object({
   updatedAt: isoDate,
 });
 
+/**
+ * Google Sheets integration read/save response for 200 OK endpoints.
+ * @remarks `integration` is nullable when the form has not configured Google Sheets.
+ */
 export const FormIntegrationResponseSchema = z.object({
   integration: FormIntegrationRecordSchema.nullable(),
 });
+/** Inferred TypeScript type for `FormIntegrationResponseSchema`. */
 export type FormIntegrationResponse = z.infer<
   typeof FormIntegrationResponseSchema
 >;
 
+/**
+ * Manual Google Sheets sync unsupported response returned with 501.
+ * @remarks `error` is a stable literal and `message` explains automatic sync behavior.
+ */
 export const GoogleSheetsSyncUnsupportedResponseSchema = z.object({
   error: z.literal("Manual Google Sheets sync is not supported"),
   message: z.string(),
 });
+/** Inferred TypeScript type for `GoogleSheetsSyncUnsupportedResponseSchema`. */
 export type GoogleSheetsSyncUnsupportedResponse = z.infer<
   typeof GoogleSheetsSyncUnsupportedResponseSchema
 >;
 
+/**
+ * Google Sheets sync job status response returned with 200 OK.
+ * @remarks The `job` object exposes BullMQ status fields including progress, result, attempts, and failure reason.
+ */
 export const GoogleSheetsSyncJobResponseSchema = z.object({
   job: z.object({
     id: z.string().optional(),
@@ -46,6 +60,7 @@ export const GoogleSheetsSyncJobResponseSchema = z.object({
     result: z.unknown(),
   }),
 });
+/** Inferred TypeScript type for `GoogleSheetsSyncJobResponseSchema`. */
 export type GoogleSheetsSyncJobResponse = z.infer<
   typeof GoogleSheetsSyncJobResponseSchema
 >;

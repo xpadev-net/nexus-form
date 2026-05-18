@@ -18,16 +18,21 @@ import {
 } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { OkResponseSchema } from "../types/domain/form-row";
+import { isoDate } from "../types/domain/iso-date";
 import {
   CreateFormValidationRuleSchema,
-  FormValidationRuleResponseSchema,
   FormValidationRuleSchema,
   ReorderFormValidationRulesSchema,
   UpdateFormValidationRuleSchema,
 } from "../types/domain/validation-rule";
 
+const FormValidationRuleWireSchema = FormValidationRuleSchema.extend({
+  createdAt: isoDate,
+  updatedAt: isoDate,
+});
+
 export const PaginatedFormValidationRulesResponseSchema = z.object({
-  rules: z.array(FormValidationRuleSchema),
+  rules: z.array(FormValidationRuleWireSchema),
   pagination: z.object({
     page: z.number().int().min(1),
     pageSize: z.number().int().min(1),
@@ -37,6 +42,13 @@ export const PaginatedFormValidationRulesResponseSchema = z.object({
 });
 export type PaginatedFormValidationRulesResponse = z.infer<
   typeof PaginatedFormValidationRulesResponseSchema
+>;
+
+export const FormValidationRuleResponseSchema = z.object({
+  rule: FormValidationRuleWireSchema,
+});
+export type FormValidationRuleResponse = z.infer<
+  typeof FormValidationRuleResponseSchema
 >;
 
 function configErrorResponse(error: unknown): { error: string } | null {
