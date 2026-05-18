@@ -93,11 +93,11 @@ export async function saveOAuthToken(
 
 /**
  * トークンが期限切れ（安全マージン込み）かどうかを判定する。
- * expiryDate が解釈不能な場合はリフレッシュ対象外とみなす。
+ * expiryDate が解釈不能な場合は安全側に倒して期限切れ扱いにする。
  */
 function isTokenExpired(token: OAuthToken): boolean {
   const expiryMs = Date.parse(token.expiryDate);
-  if (Number.isNaN(expiryMs)) return false;
+  if (Number.isNaN(expiryMs)) return true;
   return expiryMs - EXPIRY_SKEW_MS <= Date.now();
 }
 
