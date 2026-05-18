@@ -1,80 +1,32 @@
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { z } from "zod";
+import { useState } from "react";
 import { client, RpcError, rpc } from "@/lib/api";
 import { FormNotFoundPage } from "./form-not-found-page";
-
-const invitationSchema = z.object({
-  invitation: z.object({
-    id: z.string(),
-    formId: z.string(),
-    formTitle: z.string(),
-    email: z.string().email(),
-    role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
-    status: z.string(),
-    message: z.string().nullable().optional(),
-    expiresAt: z.string(),
-  }),
-});
-
-const _acceptSchema = z.object({
-  permission: z.object({
-    form_id: z.string(),
-    role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
-  }),
-});
 
 export function InviteAcceptancePage() {
   const navigate = useNavigate();
   const { token } = useParams({ from: "/forms/invites/$token" });
-  const [isLoading, setIsLoading] = useState(true);
   const [isAccepting, setIsAccepting] = useState(false);
-  const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [data, setData] = useState<z.infer<typeof invitationSchema> | null>(
-    null,
-  );
-
-  useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-        const result = await rpc(
-          client.api.forms.invites[":token"].$get({ param: { token } }),
-        );
-
-        if (active) {
-          setData(result);
-        }
-      } catch (loadError) {
-        if (active) {
-          if (loadError instanceof RpcError && loadError.status === 404) {
-            setNotFound(true);
-          } else {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "不明なエラーが発生しました",
-            );
-          }
-        }
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      active = false;
-    };
-  }, [token]);
+  const invitationQuery = useQuery({
+    queryKey: ["formInvite", token],
+    queryFn: () =>
+      rpc(client.api.forms.invites[":token"].$get({ param: { token } })),
+    retry: false,
+    staleTime: Infinity,
+  });
+  const notFound =
+    invitationQuery.error instanceof RpcError &&
+    invitationQuery.error.status === 404;
+  const loadErrorMessage =
+    invitationQuery.isError && !notFound
+      ? invitationQuery.error instanceof Error
+        ? invitationQuery.error.message
+        : "不明なエラーが発生しました"
+      : null;
+  const data = invitationQuery.data;
 
   const handleAccept = async () => {
     try {
@@ -102,7 +54,7 @@ export function InviteAcceptancePage() {
     }
   };
 
-  if (isLoading) {
+  if (invitationQuery.isLoading) {
     return <section className="p-6">読み込み中...</section>;
   }
 
@@ -131,7 +83,9 @@ export function InviteAcceptancePage() {
       >
         {isAccepting ? "承諾中..." : "招待を承諾"}
       </button>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error || loadErrorMessage ? (
+        <p className="text-sm text-destructive">{error ?? loadErrorMessage}</p>
+      ) : null}
       {success ? <p className="text-sm text-emerald-600">{success}</p> : null}
     </section>
   );

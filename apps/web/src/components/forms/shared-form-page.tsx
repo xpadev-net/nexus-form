@@ -1,72 +1,29 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { z } from "zod";
 import { client, RpcError, rpc } from "@/lib/api";
 import { FormNotFoundPage } from "./form-not-found-page";
 
-const sharedFormSchema = z.object({
-  form: z.object({
-    id: z.string(),
-    title: z.string(),
-    description: z.string().optional(),
-  }),
-  role: z.enum(["EDITOR", "VIEWER"]),
-  share_link: z.object({
-    expires_at: z.string().nullable().optional(),
-  }),
-});
-
 export function SharedFormPage() {
   const { token } = useParams({ from: "/forms/shared/$token" });
-  const [isLoading, setIsLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [data, setData] = useState<z.infer<typeof sharedFormSchema> | null>(
-    null,
-  );
+  const sharedFormQuery = useQuery({
+    queryKey: ["sharedForm", token],
+    queryFn: () =>
+      rpc(client.api.forms.shared[":token"].$get({ param: { token } })),
+    retry: false,
+    staleTime: Infinity,
+  });
+  const notFound =
+    sharedFormQuery.error instanceof RpcError &&
+    sharedFormQuery.error.status === 404;
+  const error =
+    sharedFormQuery.isError && !notFound
+      ? sharedFormQuery.error instanceof Error
+        ? sharedFormQuery.error.message
+        : "不明なエラーが発生しました"
+      : null;
+  const data = sharedFormQuery.data;
 
-  useEffect(() => {
-    let active = true;
-
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
-
-        const result = await rpc(
-          client.api.forms.shared[":token"].$get({ param: { token } }),
-        );
-
-        if (active) {
-          setData(result);
-        }
-      } catch (loadError) {
-        if (active) {
-          if (loadError instanceof RpcError && loadError.status === 404) {
-            setNotFound(true);
-          } else {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "不明なエラーが発生しました",
-            );
-          }
-        }
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    void load();
-
-    return () => {
-      active = false;
-    };
-  }, [token]);
-
-  if (isLoading) {
+  if (sharedFormQuery.isLoading) {
     return <section className="p-6">読み込み中...</section>;
   }
 
