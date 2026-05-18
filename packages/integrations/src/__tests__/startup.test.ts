@@ -93,6 +93,33 @@ describe("startupPlugins plugin drift guard", () => {
     );
   });
 
+  it("passes startup when the peer manifest matches providers and plugin hashes", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["discord"])),
+    );
+
+    await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+      },
+    });
+
+    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Plugin drift guard matched worker"),
+    );
+  });
+
   it("fails startup when the peer manifest has different providers", async () => {
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
@@ -155,6 +182,43 @@ describe("startupPlugins plugin drift guard", () => {
         },
       }),
     ).rejects.toThrow("expected worker manifest");
+  });
+
+  it.each([
+    {
+      label: "non-JSON peer manifest",
+      peerManifest: "not-json",
+      error: "non-JSON worker manifest",
+    },
+    {
+      label: "invalid peer manifest",
+      peerManifest: JSON.stringify({
+        version: 1,
+        role: "worker",
+        providers: ["discord"],
+      }),
+      error: "invalid worker manifest",
+    },
+  ])("cleans up current manifest after $label", async ({
+    peerManifest,
+    error,
+  }) => {
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.values.set("test:plugins:worker", peerManifest);
+
+    await expect(
+      startupPlugins(registry, {
+        logPrefix: "api",
+        pluginDriftGuard: {
+          role: "api",
+          store,
+          keyPrefix: "test:plugins",
+        },
+      }),
+    ).rejects.toThrow(error);
+    expect(store.values.has("test:plugins:api")).toBe(false);
   });
 
   it.each([
