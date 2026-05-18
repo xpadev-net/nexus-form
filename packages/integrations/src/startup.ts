@@ -27,6 +27,7 @@ export interface PluginDriftStore {
     mode: "EX",
     ttlSeconds: number,
   ): Promise<unknown>;
+  del(key: string): Promise<unknown>;
 }
 
 export interface PluginDriftGuardOptions {
@@ -113,49 +114,61 @@ async function publishAndAssertPluginManifest(
 
   await guard.store.set(currentKey, JSON.stringify(current), "EX", ttlSeconds);
 
-  const peerRaw = await guard.store.get(peerKey);
-  if (!peerRaw) {
-    console.warn(
-      `[${logPrefix}] Plugin drift guard could not find ${peerRole} manifest; comparison will run when both runtimes have started.`,
-    );
-    return;
-  }
-
-  let peerJson: unknown;
   try {
-    peerJson = JSON.parse(peerRaw);
-  } catch {
-    const message = `Plugin drift guard found non-JSON ${peerRole} manifest`;
-    if (guard.failOnMismatch ?? true) throw new Error(message);
-    console.warn(`[${logPrefix}] ${message}`);
-    return;
-  }
+    const peerRaw = await guard.store.get(peerKey);
+    if (!peerRaw) {
+      console.warn(
+        `[${logPrefix}] Plugin drift guard could not find ${peerRole} manifest; comparison will run when both runtimes have started.`,
+      );
+      return;
+    }
 
-  const peerParse = pluginManifestSchema.safeParse(peerJson);
-  if (!peerParse.success) {
-    const message = `Plugin drift guard found invalid ${peerRole} manifest`;
-    if (guard.failOnMismatch ?? true) throw new Error(message);
-    console.warn(`[${logPrefix}] ${message}`);
-    return;
-  }
-  if (peerParse.data.role !== peerRole) {
-    const message = `Plugin drift guard expected ${peerRole} manifest but found ${peerParse.data.role}`;
-    if (guard.failOnMismatch ?? true) throw new Error(message);
-    console.warn(`[${logPrefix}] ${message}`);
-    return;
-  }
+    let peerJson: unknown;
+    try {
+      peerJson = JSON.parse(peerRaw);
+    } catch {
+      const message = `Plugin drift guard found non-JSON ${peerRole} manifest`;
+      if (guard.failOnMismatch ?? true) throw new Error(message);
+      console.warn(`[${logPrefix}] ${message}`);
+      return;
+    }
 
-  const differences = compareManifests(current, peerParse.data);
-  if (differences.length === 0) {
-    console.log(`[${logPrefix}] Plugin drift guard matched ${peerRole}`);
-    return;
-  }
+    const peerParse = pluginManifestSchema.safeParse(peerJson);
+    if (!peerParse.success) {
+      const message = `Plugin drift guard found invalid ${peerRole} manifest`;
+      if (guard.failOnMismatch ?? true) throw new Error(message);
+      console.warn(`[${logPrefix}] ${message}`);
+      return;
+    }
+    if (peerParse.data.role !== peerRole) {
+      const message = `Plugin drift guard expected ${peerRole} manifest but found ${peerParse.data.role}`;
+      if (guard.failOnMismatch ?? true) throw new Error(message);
+      console.warn(`[${logPrefix}] ${message}`);
+      return;
+    }
 
-  const message = `Plugin drift detected between ${guard.role} and ${peerRole}: ${differences.join("; ")}`;
-  if (guard.failOnMismatch ?? true) {
-    throw new Error(message);
+    const differences = compareManifests(current, peerParse.data);
+    if (differences.length === 0) {
+      console.log(`[${logPrefix}] Plugin drift guard matched ${peerRole}`);
+      return;
+    }
+
+    const message = `Plugin drift detected between ${guard.role} and ${peerRole}: ${differences.join("; ")}`;
+    if (guard.failOnMismatch ?? true) {
+      throw new Error(message);
+    }
+    console.warn(`[${logPrefix}] ${message}`);
+  } catch (error) {
+    try {
+      await guard.store.del(currentKey);
+    } catch (cleanupError) {
+      console.warn(
+        `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
+        cleanupError,
+      );
+    }
+    throw error;
   }
-  console.warn(`[${logPrefix}] ${message}`);
 }
 
 function registerOrOverride(

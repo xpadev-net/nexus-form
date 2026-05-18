@@ -21,6 +21,10 @@ class MemoryDriftStore implements PluginDriftStore {
     this.values.set(key, value);
     return "OK";
   }
+
+  async del(key: string): Promise<number> {
+    return this.values.delete(key) ? 1 : 0;
+  }
 }
 
 function makeProvider(name: string): ValidationProvider {
@@ -104,6 +108,7 @@ describe("startupPlugins plugin drift guard", () => {
         },
       }),
     ).rejects.toThrow("Plugin drift detected");
+    expect(store.values.has("test:plugins:api")).toBe(false);
   });
 
   it("fails startup when the peer manifest has different plugin hashes", async () => {
