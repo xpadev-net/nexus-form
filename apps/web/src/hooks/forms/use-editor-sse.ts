@@ -5,6 +5,8 @@ import type { MutableRefObject } from "react";
 import { useEffect, useRef } from "react";
 import { baseUrl } from "@/lib/api";
 
+const MAX_CONSECUTIVE_SSE_ERRORS = 3;
+
 type EditorSSEOptions = {
   /** イベント受信時のコールバック（useQuery を使わないコンポーネント向け） */
   onEvent?: (event: EditorSSEEvent) => void;
@@ -49,12 +51,24 @@ export function useEditorSSE(
 
     const url = `${baseUrl}/api/forms/${formId}/editor/events`;
     const eventSource = new EventSource(url, { withCredentials: true });
+    let consecutiveErrors = 0;
+
+    eventSource.addEventListener("open", () => {
+      consecutiveErrors = 0;
+    });
 
     eventSource.addEventListener("error", () => {
-      // Reconnection is handled automatically by EventSource
+      consecutiveErrors++;
+      if (
+        eventSource.readyState === EventSource.CLOSED ||
+        consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS
+      ) {
+        eventSource.close();
+      }
     });
 
     eventSource.addEventListener("message", (e: MessageEvent<string>) => {
+      consecutiveErrors = 0;
       let parsed: unknown;
       try {
         parsed = JSON.parse(e.data);
