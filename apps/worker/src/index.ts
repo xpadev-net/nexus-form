@@ -5,6 +5,10 @@ import type { Worker } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleSheetsSync } from "./handlers/sheets-sync";
+import {
+  createGracefulShutdown,
+  registerShutdownHandlers,
+} from "./lib/graceful-shutdown";
 import { startQueueMetricsCollection } from "./lib/queue-metrics";
 import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
@@ -29,65 +33,13 @@ const SHUTDOWN_TIMEOUT_MS =
   Number.isFinite(shutdownTimeoutEnv) && shutdownTimeoutEnv > 0
     ? shutdownTimeoutEnv
     : 30_000;
-
-let shuttingDown = false;
-
-/**
- * 実行中ジョブをドレインしてからプロセスを終了する。
- * SIGTERM / SIGINT の両方から呼ばれ、二重実行はガードする。
- */
-async function gracefulShutdown(
-  signal: NodeJS.Signals,
-  workers: Worker[],
-  metricsInterval: ReturnType<typeof setInterval> | null,
-): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-
-  console.log(`[worker] Received ${signal}, draining in-flight jobs...`);
-  if (metricsInterval) clearInterval(metricsInterval);
-
-  const forceExit = setTimeout(() => {
-    console.error(
-      `[worker] Graceful shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms, forcing exit`,
-    );
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-  // タイマーがイベントループを延命しないようにする。
-  forceExit.unref();
-
-  try {
-    await Promise.all(workers.map((worker) => worker.close()));
-    await closeLockClient();
-    clearTimeout(forceExit);
-    console.log("[worker] All workers closed gracefully");
-    await flushSentry();
-    process.exit(0);
-  } catch (err) {
-    clearTimeout(forceExit);
-    console.error("[worker] Error during graceful shutdown:", err);
-    captureError(err);
-    await flushSentry();
-    process.exit(1);
-  }
-}
+const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
+  SHUTDOWN_TIMEOUT_MS,
+  5_000,
+);
 
 async function main() {
   await initSentry();
-
-  // unhandledRejection はプロセス状態が不定になりうるため、Node v15+ の
-  // デフォルト挙動と同様に、Sentry へ送信したうえで終了する。
-  process.on("unhandledRejection", (reason) => {
-    console.error("[worker] Unhandled promise rejection:", reason);
-    captureError(reason);
-    void flushSentry().finally(() => process.exit(1));
-  });
-  // uncaughtException 後はプロセス状態が不定なため、Sentry へ送信したうえで終了する。
-  process.on("uncaughtException", (error) => {
-    console.error("[worker] Uncaught exception:", error);
-    captureError(error);
-    void flushSentry().finally(() => process.exit(1));
-  });
 
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
@@ -138,12 +90,24 @@ async function main() {
   );
 
   const metricsInterval = startQueueMetricsCollection();
+  const { shutdown } = createGracefulShutdown({
+    workers,
+    metricsInterval,
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    closeLockClient,
+    flushSentry,
+    captureError,
+    exit: process.exit.bind(process),
+    logger: console,
+  });
 
-  for (const signal of ["SIGTERM", "SIGINT"] as const) {
-    process.on(signal, () => {
-      void gracefulShutdown(signal, workers, metricsInterval);
-    });
-  }
+  registerShutdownHandlers({
+    process,
+    shutdown,
+    captureError,
+    logger: console,
+    uncaughtExceptionTimeoutMs: UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS,
+  });
 }
 
 main().catch(async (error) => {
