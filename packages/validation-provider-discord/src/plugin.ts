@@ -21,7 +21,7 @@ import {
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
-const DiscordInputSchema = z.string().regex(/^[a-zA-Z0-9_.]{2,32}$/);
+const DiscordInputSchema = z.string().regex(/^[a-z0-9_.]{2,32}$/);
 
 const DiscordConfigSchema = z.object({
   guildId: ZDiscordGuildId.optional(),
@@ -185,11 +185,11 @@ const guildMemberRule: ValidationProviderRule = {
   label: "サーバーメンバー検証",
   description: "Discordサーバーへの参加状況（必要に応じてロール）を検証します",
   inputHint: "Discordユーザー名を入力してください（@不要）",
-  inputPattern: "^[a-zA-Z0-9_.]{2,32}$",
+  inputPattern: "^[a-z0-9_.]{2,32}$",
   patternTemplate: {
     id: "discord",
     displayName: "Discord",
-    pattern: "^[a-zA-Z0-9_.]{2,32}$",
+    pattern: "^[a-z0-9_.]{2,32}$",
     errorMessage:
       "Discordのユーザー名形式で入力してください（2-32文字の英数字、アンダースコア、ピリオド）",
     placeholder: "username",

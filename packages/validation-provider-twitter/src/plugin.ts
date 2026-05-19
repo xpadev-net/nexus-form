@@ -9,6 +9,8 @@ import { TwitterErrorCode } from "./error-codes";
 import { parseTwitterError } from "./utils";
 
 const TwitterInputSchema = z.string().regex(/^[a-zA-Z0-9_]{1,15}$/);
+const TWITTER_HEALTH_CHECK_URL =
+  "https://api.twitter.com/2/users/by/username/TwitterDev";
 
 const TwitterConfigSchema = z.object({}).strict();
 
@@ -128,11 +130,11 @@ async function pingTwitterApi(): Promise<boolean> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const res = await fetch("https://api.twitter.com/2/openapi.json", {
+    const res = await fetch(TWITTER_HEALTH_CHECK_URL, {
       method: "GET",
       signal: controller.signal,
     });
-    return res.ok || res.status === 401 || res.status === 403;
+    return res.ok || [401, 403, 429].includes(res.status);
   } catch {
     return false;
   } finally {

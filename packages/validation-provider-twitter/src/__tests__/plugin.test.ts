@@ -15,6 +15,7 @@ vi.mock("../client", () => ({
 
 beforeEach(() => {
   getUserByUsernameMock.mockReset();
+  vi.unstubAllGlobals();
 });
 
 describe("twitterProvider.rules.user_exists.inputSchema", () => {
@@ -95,6 +96,35 @@ describe("twitterProvider.rules.user_exists.validate", () => {
       errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
       retryAfter: 60,
     });
+  });
+});
+
+describe("twitterProvider.healthCheck", () => {
+  it("uses the Twitter user lookup endpoint and treats auth failures as reachable", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    vi.stubGlobal("fetch", fetchMock);
+    const healthCheck = twitterProvider.healthCheck;
+
+    if (!healthCheck) throw new Error("healthCheck is not defined");
+
+    await expect(healthCheck()).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.twitter.com/2/users/by/username/TwitterDev",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("treats server errors as an unhealthy Twitter API check", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 500 }),
+    );
+    const healthCheck = twitterProvider.healthCheck;
+
+    if (!healthCheck) throw new Error("healthCheck is not defined");
+
+    await expect(healthCheck()).resolves.toBe(false);
   });
 });
 
