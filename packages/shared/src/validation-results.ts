@@ -16,10 +16,11 @@ function hashValidationResultIdentity(
     params.ruleId,
     params.referencedBlockId,
   ]);
+  const inputBytes = new TextEncoder().encode(input);
   let hash = FNV_128_OFFSET_BASIS;
 
-  for (let index = 0; index < input.length; index += 1) {
-    hash ^= BigInt(input.charCodeAt(index));
+  for (const byte of inputBytes) {
+    hash ^= BigInt(byte);
     hash = (hash * FNV_128_PRIME) & FNV_128_MASK;
   }
 

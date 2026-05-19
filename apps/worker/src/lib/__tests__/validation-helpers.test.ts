@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractReferencedValueFromJson } from "../response-data-extractor";
 import {
+  ConcurrentDeleteError,
   markValidationProcessing,
   writeValidationResult,
 } from "../validation-helpers";
@@ -171,6 +172,20 @@ describe("markValidationProcessing", () => {
         status: "PROCESSING",
       }),
     );
+  });
+
+  it("throws ConcurrentDeleteError when the processing row disappears before update", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+      }),
+    ).rejects.toBeInstanceOf(ConcurrentDeleteError);
   });
 });
 
