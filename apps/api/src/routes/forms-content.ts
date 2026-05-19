@@ -40,6 +40,27 @@ export type FormContentConflictResponse = z.infer<
   typeof FormContentConflictResponseSchema
 >;
 
+export const FormContentNotFoundResponseSchema = z.object({
+  error: z.literal("Form not found"),
+});
+export type FormContentNotFoundResponse = z.infer<
+  typeof FormContentNotFoundResponseSchema
+>;
+
+export const FormContentInvalidPlateResponseSchema = z.object({
+  error: z.literal("Invalid Plate content structure"),
+});
+export type FormContentInvalidPlateResponse = z.infer<
+  typeof FormContentInvalidPlateResponseSchema
+>;
+
+export const FormContentInvalidJsonResponseSchema = z.object({
+  error: z.literal("Invalid JSON"),
+});
+export type FormContentInvalidJsonResponse = z.infer<
+  typeof FormContentInvalidJsonResponseSchema
+>;
+
 export const formsContentRouter = createHonoApp()
   // GET /forms/:id/content — fetch plate document content
   .get("/:id/content", withDualFormAuth("VIEWER"), async (c) => {
@@ -53,7 +74,14 @@ export const formsContentRouter = createHonoApp()
       .where(eq(form.id, id))
       .limit(1);
 
-    if (!target) return c.json({ error: "Form not found" }, 404);
+    if (!target) {
+      return c.json(
+        FormContentNotFoundResponseSchema.parse({
+          error: "Form not found",
+        }),
+        404,
+      );
+    }
 
     return c.json(
       FormContentResponseSchema.parse({
@@ -76,10 +104,20 @@ export const formsContentRouter = createHonoApp()
       try {
         const parsed = JSON.parse(plateContent);
         if (!validatePlateContent(parsed)) {
-          return c.json({ error: "Invalid Plate content structure" }, 400);
+          return c.json(
+            FormContentInvalidPlateResponseSchema.parse({
+              error: "Invalid Plate content structure",
+            }),
+            400,
+          );
         }
       } catch {
-        return c.json({ error: "Invalid JSON" }, 400);
+        return c.json(
+          FormContentInvalidJsonResponseSchema.parse({
+            error: "Invalid JSON",
+          }),
+          400,
+        );
       }
 
       // Optimistic lock: only update if version matches
@@ -103,7 +141,14 @@ export const formsContentRouter = createHonoApp()
           .where(eq(form.id, id))
           .limit(1);
 
-        if (!current) return c.json({ error: "Form not found" }, 404);
+        if (!current) {
+          return c.json(
+            FormContentNotFoundResponseSchema.parse({
+              error: "Form not found",
+            }),
+            404,
+          );
+        }
 
         return c.json(
           FormContentConflictResponseSchema.parse({
