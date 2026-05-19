@@ -139,6 +139,18 @@ describe("twitterProvider.healthCheck", () => {
     await expect(healthCheck()).resolves.toBe(true);
   });
 
+  it("treats missing probe users as a reachable Twitter API check", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 404 }),
+    );
+    const healthCheck = twitterProvider.healthCheck;
+
+    if (!healthCheck) throw new Error("healthCheck is not defined");
+
+    await expect(healthCheck()).resolves.toBe(true);
+  });
+
   it("treats server errors as an unhealthy Twitter API check", async () => {
     vi.stubGlobal(
       "fetch",
