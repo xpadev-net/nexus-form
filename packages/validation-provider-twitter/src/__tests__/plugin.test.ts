@@ -1,5 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TwitterErrorCode } from "../error-codes";
 import { twitterProvider } from "../plugin";
+import { parseTwitterError } from "../utils";
+
+const { getUserByUsernameMock } = vi.hoisted(() => ({
+  getUserByUsernameMock: vi.fn(),
+}));
+
+vi.mock("../client", () => ({
+  getTwitterClient: () => ({
+    getUserByUsername: getUserByUsernameMock,
+  }),
+}));
+
+beforeEach(() => {
+  getUserByUsernameMock.mockReset();
+});
 
 describe("twitterProvider.rules.user_exists.inputSchema", () => {
   it("accepts usernames matching the advertised Twitter pattern", () => {
@@ -36,5 +52,65 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
       );
 
     expect(result?.success).toBe(false);
+  });
+});
+
+describe("twitterProvider.rules.user_exists.validate", () => {
+  it("uses Twitter retry-after headers for rate limits", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce({
+      response: {
+        status: 429,
+        headers: { "retry-after": "45" },
+        data: { title: "Too Many Requests" },
+      },
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
+      retryAfter: 45,
+    });
+  });
+
+  it("falls back to sixty seconds when Twitter reports zero retry_after", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce({
+      response: {
+        status: 429,
+        data: { title: "Too Many Requests", retry_after: 0 },
+      },
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
+      retryAfter: 60,
+    });
+  });
+});
+
+describe("parseTwitterError", () => {
+  it("prefers Twitter retry_after body seconds for rate limits", () => {
+    expect(
+      parseTwitterError({
+        response: {
+          status: 429,
+          headers: { "retry-after": "45" },
+          data: { title: "Too Many Requests", retry_after: 30 },
+        },
+      }),
+    ).toMatchObject({
+      code: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
+      retryAfterSeconds: 30,
+    });
   });
 });

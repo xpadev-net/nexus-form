@@ -99,19 +99,21 @@ const userExistsRule: ValidationProviderRule = {
         },
       };
     } catch (error) {
-      if (
-        isGitHubProviderError(error) &&
-        error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
-      ) {
-        // error.retryAfter is in milliseconds (from getGitHubRateLimitRetryAfter);
-        // ValidationProviderResult.retryAfter expects seconds.
-        const retryAfterMs = error.retryAfter;
+      if (isGitHubProviderError(error)) {
+        const retryAfterMs =
+          error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
+            ? error.retryAfter
+            : undefined;
         return {
           isValid: false,
-          errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
-          errorMessage: "GitHub API rate limit exceeded",
-          retryAfter:
-            retryAfterMs != null ? Math.ceil(retryAfterMs / 1000) : 60,
+          errorCode: error.code,
+          errorMessage: error.message,
+          ...(error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
+            ? {
+                retryAfter:
+                  retryAfterMs != null ? Math.ceil(retryAfterMs / 1000) : 60,
+              }
+            : {}),
         };
       }
 
