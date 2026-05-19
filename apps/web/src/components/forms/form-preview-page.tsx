@@ -139,24 +139,29 @@ export function FormPreviewPage() {
             )}
             {form && <FormStatusBadge status={form.status} />}
             {form?.publicId && (
-              <Link
-                to="/forms/public/$publicId"
-                params={{ publicId: form.publicId }}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                asChild
               >
-                <Button variant="outline" size="sm" className="h-7 text-xs">
+                <Link
+                  to="/forms/public/$publicId"
+                  params={{ publicId: form.publicId }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <ExternalLink className="mr-1 h-3 w-3" />
                   公開フォーム
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
-            <Link to="/forms/$id/edit" params={{ id }}>
-              <Button variant="outline" size="sm" className="h-7 text-xs">
+            <Button variant="outline" size="sm" className="h-7 text-xs" asChild>
+              <Link to="/forms/$id/edit" params={{ id }}>
                 <ArrowLeft className="mr-1 h-3 w-3" />
                 エディタに戻る
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           </div>
         </div>
       </div>
