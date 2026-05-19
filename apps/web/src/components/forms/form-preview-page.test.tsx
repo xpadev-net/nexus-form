@@ -16,7 +16,12 @@ vi.mock("@tanstack/react-router", () => ({
     params?: Record<string, string>;
     to: string;
   } & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a href={to.replace("$id", params?.id ?? "form-1")} {...props}>
+    <a
+      href={to
+        .replace("$id", params?.id ?? "form-1")
+        .replace("$publicId", params?.publicId ?? "public-1")}
+      {...props}
+    >
       {children}
     </a>
   ),
@@ -87,6 +92,8 @@ describe("FormPreviewPage links", () => {
     expect(html).not.toContain("<button");
     expect(html).toContain("公開フォーム");
     expect(html).toContain("エディタに戻る");
+    expect(html).toContain('href="/forms/public/public-1"');
+    expect(html).toContain('href="/forms/form-1/edit"');
     expect(html).toContain('target="_blank"');
   });
 });
