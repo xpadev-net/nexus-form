@@ -11,6 +11,10 @@ class MockSuspendedTokenOwnerError extends Error {
   static readonly MESSAGE = "Your account has been suspended";
 }
 
+class MockNonAdminTokenOwnerError extends Error {
+  static readonly MESSAGE = "Admin scope requires an active admin owner";
+}
+
 vi.mock("../lib/auth", () => ({
   auth: {
     api: {
@@ -20,6 +24,7 @@ vi.mock("../lib/auth", () => ({
 }));
 
 vi.mock("../lib/tokens", () => ({
+  NonAdminTokenOwnerError: MockNonAdminTokenOwnerError,
   SuspendedTokenOwnerError: MockSuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
@@ -111,6 +116,55 @@ describe("suspended users in dual auth", () => {
         message: MockSuspendedTokenOwnerError.MESSAGE,
       },
     });
+  });
+
+  it("returns 403 when an admin scoped token owner is no longer an admin", async () => {
+    validateApiTokenWithScopes.mockRejectedValueOnce(
+      new MockNonAdminTokenOwnerError(),
+    );
+    const app = createHonoApp()
+      .use("/admin", withDualAuth(["admin"]))
+      .get("/admin", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/admin", {
+      headers: {
+        authorization: "Bearer ct_demoted_admin",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+      },
+    });
+  });
+
+  it("returns 403 on form auth when an admin scoped token owner is no longer an admin", async () => {
+    validateApiTokenForForm.mockRejectedValueOnce(
+      new MockNonAdminTokenOwnerError(),
+    );
+    const app = createHonoApp()
+      .use("/forms/:id", withDualFormAuth("OWNER", ["admin"]))
+      .get("/forms/:id", (c) => c.json({ ok: true }));
+
+    const res = await app.request("/forms/form-id", {
+      headers: {
+        authorization: "Bearer ct_demoted_admin",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+      },
+    });
+    expect(validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_demoted_admin",
+      "form-id",
+      { rejectAdminOwnerMismatch: true },
+    );
   });
 
   it("rejects suspended API token owners for form routes with 403", async () => {

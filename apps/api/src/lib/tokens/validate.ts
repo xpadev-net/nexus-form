@@ -13,6 +13,7 @@ import { parseStoredApiTokenJson } from "./stored-json";
  */
 type ValidateApiTokenOptions = {
   updateLastUsedAt?: boolean;
+  rejectAdminOwnerMismatch?: boolean;
 };
 
 export class SuspendedTokenOwnerError extends Error {
@@ -21,6 +22,15 @@ export class SuspendedTokenOwnerError extends Error {
   constructor() {
     super("Token owner account is suspended");
     this.name = "SuspendedTokenOwnerError";
+  }
+}
+
+export class NonAdminTokenOwnerError extends Error {
+  static readonly MESSAGE = "Admin scope requires an active admin owner";
+
+  constructor() {
+    super("Admin scoped token owner is not an admin");
+    this.name = "NonAdminTokenOwnerError";
   }
 }
 
@@ -52,21 +62,22 @@ function getActiveTokenCondition() {
   );
 }
 
-type TokenOwnerStatus = "active" | "missing" | "none" | "suspended";
+type TokenOwner =
+  | { status: "active"; role: string | null }
+  | { status: "missing" | "none" | "suspended"; role?: undefined };
 
-async function getTokenOwnerStatus(
-  userId: string | null,
-): Promise<TokenOwnerStatus> {
-  if (!userId) return "none";
+async function getTokenOwner(userId: string | null): Promise<TokenOwner> {
+  if (!userId) return { status: "none" };
 
   const [owner] = await db
-    .select({ isSuspended: userTable.isSuspended })
+    .select({ isSuspended: userTable.isSuspended, role: userTable.role })
     .from(userTable)
     .where(eq(userTable.id, userId))
     .limit(1);
 
-  if (!owner) return "missing";
-  return owner.isSuspended ? "suspended" : "active";
+  if (!owner) return { status: "missing" };
+  if (owner.isSuspended) return { status: "suspended" };
+  return { status: "active", role: owner.role };
 }
 
 async function buildAuthContextFromTokenRecord(
@@ -77,17 +88,27 @@ async function buildAuthContextFromTokenRecord(
   const isValid = await verifyToken(token, tokenRecord.tokenHash);
   if (!isValid) return null;
 
-  const ownerStatus = await getTokenOwnerStatus(tokenRecord.userId);
-  if (ownerStatus === "missing") return null;
-  if (ownerStatus === "suspended") {
-    throw new SuspendedTokenOwnerError();
-  }
-
   const parsedJson = parseStoredApiTokenJson(
     tokenRecord,
     "buildAuthContextFromTokenRecord",
   );
   if (!parsedJson) return null;
+
+  const owner = await getTokenOwner(tokenRecord.userId);
+  if (owner.status === "missing") return null;
+  if (owner.status === "suspended") {
+    throw new SuspendedTokenOwnerError();
+  }
+
+  if (
+    parsedJson.scopes.includes("admin") &&
+    (owner.status !== "active" || owner.role !== "admin")
+  ) {
+    if (options.rejectAdminOwnerMismatch) {
+      throw new NonAdminTokenOwnerError();
+    }
+    return null;
+  }
 
   if (options.updateLastUsedAt ?? true) {
     void db
@@ -149,6 +170,7 @@ export async function validateApiToken(
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
     if (error instanceof SuspendedTokenOwnerError) throw error;
+    if (error instanceof NonAdminTokenOwnerError) throw error;
     logError("Token validation error", "authentication", { error });
     return null;
   }
@@ -182,6 +204,7 @@ export async function validateApiTokenForUser(
     return await buildAuthContextFromTokenRecord(token, tokenRecord, options);
   } catch (error) {
     if (error instanceof SuspendedTokenOwnerError) throw error;
+    if (error instanceof NonAdminTokenOwnerError) throw error;
     logError("User token validation error", "authentication", { error });
     return null;
   }
@@ -194,7 +217,9 @@ export async function validateApiTokenWithScopes(
   token: string,
   requiredScopes: TokenScope[],
 ): Promise<AuthContext | null> {
-  const authContext = await validateApiToken(token);
+  const authContext = await validateApiToken(token, {
+    rejectAdminOwnerMismatch: requiredScopes.includes("admin"),
+  });
   if (!authContext) {
     return null;
   }
@@ -218,8 +243,9 @@ export async function validateApiTokenWithScopes(
 export async function validateApiTokenForForm(
   token: string,
   formId: string,
+  options: ValidateApiTokenOptions = {},
 ): Promise<AuthContext | null> {
-  const authContext = await validateApiToken(token);
+  const authContext = await validateApiToken(token, options);
   if (!authContext) {
     return null;
   }

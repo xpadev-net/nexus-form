@@ -76,12 +76,29 @@ const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
 
 function requireSessionUser(
   c: Context,
-): { ok: true; userId: string } | { ok: false; response: Response } {
+):
+  | { ok: true; userId: string; isAdmin: boolean }
+  | { ok: false; response: Response } {
   const auth = c.get("dualAuthContext");
   if (!auth || auth.auth_type !== "session") {
     return { ok: false, response: c.json(errorResponse("Unauthorized"), 401) };
   }
-  return { ok: true, userId: auth.user_id };
+  return {
+    ok: true,
+    userId: auth.user_id,
+    isAdmin: auth.session?.user?.role === "admin",
+  };
+}
+
+function rejectNonAdminScope(
+  c: Context,
+  scopes: readonly string[],
+  isAdmin: boolean,
+): Response | null {
+  if (!isAdmin && scopes.includes("admin")) {
+    return c.json(errorResponse("Admin scope requires an admin session"), 403);
+  }
+  return null;
 }
 
 export const tokensRouter = createHonoApp()
@@ -101,6 +118,13 @@ export const tokensRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const payload = c.req.valid("json");
+    const adminScopeError = rejectNonAdminScope(
+      c,
+      payload.scopes,
+      user.isAdmin,
+    );
+    if (adminScopeError) return adminScopeError;
+
     const created = await createApiToken(user.userId, payload);
     const createResponse = CreateTokenResponse.parse({
       token: {
@@ -186,6 +210,12 @@ export const tokensRouter = createHonoApp()
     if (!nextJson) {
       return c.json(errorResponse("Stored token data is malformed"), 422);
     }
+    const adminScopeError = rejectNonAdminScope(
+      c,
+      nextJson.scopes,
+      user.isAdmin,
+    );
+    if (adminScopeError) return adminScopeError;
 
     const patch: {
       name?: string;

@@ -16,6 +16,7 @@ vi.mock("@nexus-form/database", () => ({
   user: {
     id: "user.id",
     isSuspended: "user.isSuspended",
+    role: "user.role",
   },
 }));
 
@@ -53,9 +54,13 @@ vi.mock("../lib/tokens/hash", () => ({
   verifyToken,
 }));
 
-const { SuspendedTokenOwnerError, validateApiToken } = await import(
-  "../lib/tokens/validate"
-);
+const {
+  NonAdminTokenOwnerError,
+  SuspendedTokenOwnerError,
+  validateApiToken,
+  validateApiTokenForForm,
+  validateApiTokenWithScopes,
+} = await import("../lib/tokens/validate");
 
 function mockSelectResults(resultSets: unknown[][]): void {
   let callIndex = 0;
@@ -92,7 +97,7 @@ describe("validateApiToken owner suspension", () => {
           shareLinkId: null,
         },
       ],
-      [{ isSuspended: true }],
+      [{ isSuspended: true, role: "user" }],
     ]);
 
     await expect(validateApiToken("ct_token")).rejects.toThrow(
@@ -116,7 +121,7 @@ describe("validateApiToken owner suspension", () => {
           shareLinkId: null,
         },
       ],
-      [{ isSuspended: false }],
+      [{ isSuspended: false, role: "user" }],
     ]);
 
     await expect(validateApiToken("ct_token")).resolves.toMatchObject({
@@ -141,7 +146,7 @@ describe("validateApiToken owner suspension", () => {
           shareLinkId: null,
         },
       ],
-      [{ isSuspended: false }],
+      [{ isSuspended: false, role: "user" }],
     ]);
 
     await expect(validateApiToken("ct_token")).resolves.toBeNull();
@@ -163,7 +168,7 @@ describe("validateApiToken owner suspension", () => {
           shareLinkId: null,
         },
       ],
-      [{ isSuspended: false }],
+      [{ isSuspended: false, role: "user" }],
     ]);
 
     await expect(validateApiToken("ct_token")).resolves.toBeNull();
@@ -190,5 +195,102 @@ describe("validateApiToken owner suspension", () => {
 
     await expect(validateApiToken("ct_token")).resolves.toBeNull();
     expect(update).not.toHaveBeenCalled();
+  });
+
+  it("rejects admin scope tokens owned by non-admin users", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "regular-user",
+          scopes: ["admin"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false, role: "user" }],
+    ]);
+
+    await expect(validateApiToken("ct_token")).resolves.toBeNull();
+    expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("throws for required admin scope tokens owned by non-admin users", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "regular-user",
+          scopes: ["admin"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false, role: "user" }],
+    ]);
+
+    await expect(
+      validateApiTokenWithScopes("ct_token", ["admin"]),
+    ).rejects.toThrow(NonAdminTokenOwnerError);
+    expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("throws for form admin scope checks owned by non-admin users", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "regular-user",
+          scopes: ["admin"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false, role: "user" }],
+    ]);
+
+    await expect(
+      validateApiTokenForForm("ct_token", "form-id", {
+        rejectAdminOwnerMismatch: true,
+      }),
+    ).rejects.toThrow(NonAdminTokenOwnerError);
+    expect(verifyToken).toHaveBeenCalledWith("ct_token", "hashed-token");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("accepts admin scope tokens owned by current admin users", async () => {
+    verifyToken.mockResolvedValueOnce(true);
+    mockSelectResults([
+      [
+        {
+          id: "token-id",
+          tokenHash: "hashed-token",
+          userId: "admin-user",
+          scopes: ["admin"],
+          formIds: null,
+          type: "USER",
+          shareLinkId: null,
+        },
+      ],
+      [{ isSuspended: false, role: "admin" }],
+    ]);
+
+    await expect(validateApiToken("ct_token")).resolves.toMatchObject({
+      user_id: "admin-user",
+      token_id: "token-id",
+      scopes: ["admin"],
+    });
+    expect(update).toHaveBeenCalled();
   });
 });
