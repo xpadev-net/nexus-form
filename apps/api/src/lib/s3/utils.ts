@@ -61,10 +61,16 @@ export const S3_BUCKETS = {
   PROD: getBucketName("S3_BUCKET_PROD", "prod-bucket"),
 } as const;
 
+/**
+ * Checks whether a value is a non-null, non-array object.
+ */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Reads a string property from an object-shaped error.
+ */
 function getStringProperty(
   value: Record<string, unknown>,
   property: string,
@@ -73,6 +79,9 @@ function getStringProperty(
   return typeof propertyValue === "string" ? propertyValue : undefined;
 }
 
+/**
+ * Extracts the numeric AWS SDK HTTP status code from error metadata.
+ */
 function getHttpStatusCode(error: Record<string, unknown>): number | undefined {
   const metadata = error.$metadata;
   if (!isRecord(metadata)) {
@@ -84,6 +93,9 @@ function getHttpStatusCode(error: Record<string, unknown>): number | undefined {
     : undefined;
 }
 
+/**
+ * Returns true only for S3 not-found responses from HeadObject.
+ */
 function isS3NotFoundError(error: unknown): boolean {
   if (!isRecord(error)) {
     return false;

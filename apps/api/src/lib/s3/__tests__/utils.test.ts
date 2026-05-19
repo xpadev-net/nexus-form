@@ -51,6 +51,35 @@ describe("S3 utils", () => {
       ).resolves.toBe(false);
     });
 
+    it("returns false for S3 NotFound error codes", async () => {
+      sendMock.mockRejectedValueOnce({ Code: "NotFound" });
+
+      await expect(
+        objectExists("prod-bucket", "prod/missing.png"),
+      ).resolves.toBe(false);
+    });
+
+    it("rethrows errors with malformed metadata", async () => {
+      const error = { $metadata: "not metadata" };
+      sendMock.mockRejectedValueOnce(error);
+
+      await expect(objectExists("prod-bucket", "prod/file.png")).rejects.toBe(
+        error,
+      );
+    });
+
+    it("rethrows null and primitive errors", async () => {
+      sendMock.mockRejectedValueOnce(null);
+      await expect(
+        objectExists("prod-bucket", "prod/file.png"),
+      ).rejects.toBeNull();
+
+      sendMock.mockRejectedValueOnce("error");
+      await expect(objectExists("prod-bucket", "prod/file.png")).rejects.toBe(
+        "error",
+      );
+    });
+
     it("rethrows non-404 S3 errors", async () => {
       const error = new Error("S3 credentials are invalid");
       sendMock.mockRejectedValueOnce(error);
