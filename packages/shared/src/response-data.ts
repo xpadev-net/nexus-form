@@ -64,6 +64,7 @@ export interface ValidatorQuestion {
 }
 
 export const MAX_RESPONSE_ITEMS = 500;
+export const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
 export const MAX_RESPONSE_DATA_JSON_BYTES = 65_535;
 export const MAX_RESPONSE_ID_LENGTH = 200;
 export const MAX_RESPONSE_TITLE_LENGTH = 1_000;

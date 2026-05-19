@@ -1,4 +1,5 @@
 import { createMiddleware } from "hono/factory";
+import type { MiddlewareHandler } from "hono/types";
 import { errorResponse } from "../types/domain/common";
 import type { Env } from "./hono";
 
@@ -6,9 +7,23 @@ type RequestBodySizeLimitOptions = {
   maxBytes: number;
 };
 
+function toBlobPart(chunk: Uint8Array): BlobPart {
+  if (chunk.buffer instanceof ArrayBuffer) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+
+  return chunk.slice();
+}
+
+/**
+ * Creates middleware that rejects request bodies larger than maxBytes.
+ *
+ * @param options.maxBytes - Maximum request body size in bytes.
+ * @returns Hono middleware that returns 413 when the body exceeds the limit.
+ */
 export function createRequestBodySizeLimit({
   maxBytes,
-}: RequestBodySizeLimitOptions) {
+}: RequestBodySizeLimitOptions): MiddlewareHandler<Env> {
   return createMiddleware<Env>(async (c, next) => {
     const contentLength = c.req.header("content-length");
     if (contentLength) {
@@ -24,7 +39,7 @@ export function createRequestBodySizeLimit({
     const originalBody = c.req.raw.body;
     if (originalBody) {
       const reader = originalBody.getReader();
-      const chunks: ArrayBuffer[] = [];
+      const chunks: BlobPart[] = [];
       let bytesRead = 0;
       try {
         while (true) {
@@ -37,9 +52,7 @@ export function createRequestBodySizeLimit({
             return c.json(errorResponse("Request body too large"), 413);
           }
 
-          const chunk = new Uint8Array(value.byteLength);
-          chunk.set(value);
-          chunks.push(chunk.buffer);
+          chunks.push(toBlobPart(value));
         }
       } finally {
         reader.releaseLock();

@@ -14,6 +14,7 @@ import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
   getValidationResultId,
+  MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
@@ -64,7 +65,6 @@ import {
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
-const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
 const MAX_FINGERPRINTS = 20;
 const MAX_FINGERPRINT_VALUE_LENGTH = 255;
 const MAX_TOKEN_LENGTH = 4_096;
@@ -450,6 +450,14 @@ export const formsPublicRouter = createHonoApp()
       }
       const fingerprints = requireFingerprint ? payload.fingerprints : [];
 
+      // 7+9+10. Atomically enforce response limit and persist response/fingerprints
+      const responseId = randomUUID();
+      const respondentUuid = payload.respondentUuid ?? randomUUID();
+      const responseDataJson = stringifyResponseDataJson(payload.responses);
+      if (!responseDataJson) {
+        return c.json(errorResponse("Response payload is too large"), 400);
+      }
+
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
       if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
@@ -461,14 +469,6 @@ export const formsPublicRouter = createHonoApp()
         jwtToken,
         { ip, ua: userAgent },
       );
-
-      // 7+9+10. Atomically enforce response limit and persist response/fingerprints
-      const responseId = randomUUID();
-      const respondentUuid = payload.respondentUuid ?? randomUUID();
-      const responseDataJson = stringifyResponseDataJson(payload.responses);
-      if (!responseDataJson) {
-        return c.json(errorResponse("Response payload is too large"), 400);
-      }
 
       const insertResult = await db.transaction(async (tx) => {
         if (responseLimit?.enabled && responseLimit.max_responses) {

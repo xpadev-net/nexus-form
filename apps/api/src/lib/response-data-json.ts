@@ -3,6 +3,12 @@ import {
   type ResponseDataItem,
 } from "@nexus-form/shared";
 
+/**
+ * Serializes response data while enforcing the database TEXT column limit.
+ *
+ * @param responses - Validated response payload items to store on FormResponse.
+ * @returns JSON string, or null when the UTF-8 byte length exceeds the limit.
+ */
 export function stringifyResponseDataJson(
   responses: ResponseDataItem[],
 ): string | null {

@@ -12,6 +12,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
+  MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
@@ -67,7 +68,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
+const MAX_USER_AGENT_LENGTH = 512;
+const MAX_SESSION_ID_LENGTH = 128;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
@@ -85,8 +87,8 @@ const limitedListQuerySchema = paginationQuerySchema;
 const createResponseSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
   respondentUuid: z.string().max(MAX_RESPONSE_ID_LENGTH).optional(),
-  userAgent: z.string().max(512).optional(),
-  sessionId: z.string().max(128).optional(),
+  userAgent: z.string().max(MAX_USER_AGENT_LENGTH).optional(),
+  sessionId: z.string().max(MAX_SESSION_ID_LENGTH).optional(),
   countryCode: z.string().max(10).optional(),
 });
 
