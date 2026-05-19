@@ -5,6 +5,7 @@ import type { Worker } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleSheetsSync } from "./handlers/sheets-sync";
+import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/field-encryption";
 import {
   createGracefulShutdown,
   registerShutdownHandlers,
@@ -44,6 +45,7 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
 
 async function main() {
   await initSentry();
+  assertGoogleOAuthEncryptionKeyConfigured();
 
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),

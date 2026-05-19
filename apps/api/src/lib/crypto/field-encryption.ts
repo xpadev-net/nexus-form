@@ -10,10 +10,16 @@ const KEY_LEN = 32; // AES-256
 const IV_LEN = 12; // GCM recommended 12 bytes
 const AUTH_TAG_LEN = 16;
 
+export function assertGoogleOAuthEncryptionKeyConfigured(): string {
+  const base = process.env.GOOGLE_OAUTH_ENC_KEY?.trim();
+  if (!base) {
+    throw new Error("GOOGLE_OAUTH_ENC_KEY environment variable is required");
+  }
+  return base;
+}
+
 function getRawKey(): Buffer {
-  const specific = process.env.GOOGLE_OAUTH_ENC_KEY;
-  const base = specific || process.env.AUTH_SECRET || "";
-  if (!base) throw new Error("Encryption key is not configured");
+  const base = assertGoogleOAuthEncryptionKeyConfigured();
   // Derive a fixed length key using scrypt
   return scryptSync(base, "google-oauth-field-encryption", KEY_LEN);
 }

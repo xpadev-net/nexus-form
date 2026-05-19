@@ -11,14 +11,20 @@ const AUTH_TAG_LEN = 16;
 
 let cachedRawKey: Buffer | undefined;
 
+export function assertGoogleOAuthEncryptionKeyConfigured(): string {
+  const base = process.env.GOOGLE_OAUTH_ENC_KEY?.trim();
+  if (!base) {
+    throw new Error("GOOGLE_OAUTH_ENC_KEY environment variable is required");
+  }
+  return base;
+}
+
 function getRawKey(): Buffer {
   // Worker processes must be restarted to pick up encryption key rotations.
   // The cache avoids repeated synchronous KDF work on OAuth token hot paths.
   if (cachedRawKey) return cachedRawKey;
 
-  const specific = process.env.GOOGLE_OAUTH_ENC_KEY;
-  const base = specific || process.env.AUTH_SECRET || "";
-  if (!base) throw new Error("Encryption key is not configured");
+  const base = assertGoogleOAuthEncryptionKeyConfigured();
   cachedRawKey = scryptSync(base, "google-oauth-field-encryption", KEY_LEN);
   return cachedRawKey;
 }

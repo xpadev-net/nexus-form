@@ -11,6 +11,7 @@ import { logger } from "hono/logger";
 import { ZodError } from "zod";
 import { auth } from "./lib/auth";
 import { getRedisClient } from "./lib/cache/redis-client";
+import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
 import { logError } from "./lib/logger";
 import { authRouteRateLimiter } from "./lib/rate-limit";
 import { captureError, initSentry } from "./lib/sentry";
@@ -173,6 +174,8 @@ export default app;
 export type AppType = typeof app;
 
 async function startServer() {
+  assertGoogleOAuthEncryptionKeyConfigured();
+
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
   );
