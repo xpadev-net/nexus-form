@@ -1,10 +1,14 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { s3ImageService } from "../lib/s3/image-service";
 import { SecurityValidationError } from "../lib/s3/validation";
+import type { TokenScope } from "../types/api/auth";
 
 vi.mock("../load-env", () => ({}));
 
 const mockGetSession = vi.fn();
+const tokenMocks = vi.hoisted(() => ({
+  validateApiToken: vi.fn(),
+}));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -89,6 +93,14 @@ vi.mock("../lib/rate-limit", () => {
   };
 });
 
+vi.mock("../lib/tokens", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/tokens")>();
+  return {
+    ...actual,
+    validateApiToken: tokenMocks.validateApiToken,
+  };
+});
+
 // Mock S3 services so no real AWS calls are made
 vi.mock("../lib/s3/image-service", () => ({
   s3ImageService: {
@@ -101,16 +113,20 @@ vi.mock("../lib/s3/image-service", () => ({
       contentType: "",
     }),
     objectExists: vi.fn().mockResolvedValue(true),
-    generateDownloadUrl: vi.fn().mockResolvedValue({
-      url: "https://s3.example.com/file",
-      key: "prod/users/user-a/file.jpg",
-      expiresIn: 3600,
-    }),
-    generateUploadUrl: vi.fn().mockResolvedValue({
-      url: "https://s3.example.com/file",
-      key: "tmp/users/user-a/file.jpg",
-      expiresIn: 3600,
-    }),
+    generateDownloadUrl: vi.fn(
+      async (key: string, _bucket: string, expiresIn: number) => ({
+        url: "https://s3.example.com/file",
+        key,
+        expiresIn,
+      }),
+    ),
+    generateUploadUrl: vi.fn(
+      async (key: string, _bucket: string, expiresIn: number) => ({
+        url: "https://s3.example.com/file",
+        key,
+        expiresIn,
+      }),
+    ),
     processAndMoveImage: vi.fn().mockResolvedValue({
       key: "prod/users/user-a/file.jpg",
       bucket: "prod-bucket",
@@ -174,11 +190,26 @@ function sessionFor(userId: string) {
   };
 }
 
+function apiTokenFor(scopes: TokenScope[]) {
+  tokenMocks.validateApiToken.mockResolvedValueOnce({
+    user_id: USER_A_ID,
+    token_id: `token-${scopes.join("-")}`,
+    scopes,
+    form_ids: undefined,
+    is_admin: scopes.includes("admin"),
+  });
+}
+
 let app: Awaited<typeof import("../index")>["default"];
 
 beforeAll(async () => {
   const mod = await import("../index");
   app = mod.default;
+});
+
+beforeEach(() => {
+  mockGetSession.mockReset();
+  tokenMocks.validateApiToken.mockReset();
 });
 
 describe("S3 key ownership enforcement (H-1)", () => {
@@ -351,6 +382,283 @@ describe("S3 key ownership enforcement (H-1)", () => {
       );
       expect(res.status).not.toBe(403);
     });
+  });
+});
+
+describe("R5-H1: S3 API token scopes", () => {
+  it("allows read tokens to request download presigned URLs", async () => {
+    apiTokenFor(["read"]);
+    const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
+
+    const res = await app.request(`/api/s3/presigned-url?key=${key}`, {
+      headers: { authorization: "Bearer ct_read" },
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects read tokens for upload presigned URLs", async () => {
+    apiTokenFor(["read"]);
+    const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
+
+    const res = await app.request(
+      `/api/s3/presigned-url?type=upload&bucket=tmp&key=${key}`,
+      {
+        headers: { authorization: "Bearer ct_read" },
+      },
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it("clamps download presigned URL expiration for read tokens", async () => {
+    apiTokenFor(["read"]);
+    const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
+
+    const res = await app.request(
+      `/api/s3/presigned-url?expiresIn=99999&key=${key}`,
+      {
+        headers: { authorization: "Bearer ct_read" },
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(s3ImageService.generateDownloadUrl).toHaveBeenCalledWith(
+      `prod/users/${USER_A_ID}/file.jpg`,
+      expect.any(String),
+      60 * 60,
+    );
+    await expect(res.json()).resolves.toMatchObject({
+      data: { expiresIn: 60 * 60 },
+    });
+  });
+
+  it("clamps upload presigned URL expiration for write tokens", async () => {
+    apiTokenFor(["write"]);
+    const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
+
+    const res = await app.request(
+      `/api/s3/presigned-url?type=upload&bucket=tmp&expiresIn=99999&key=${key}`,
+      {
+        headers: { authorization: "Bearer ct_write" },
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(s3ImageService.generateUploadUrl).toHaveBeenCalledWith(
+      `tmp/users/${USER_A_ID}/file.jpg`,
+      expect.any(String),
+      15 * 60,
+    );
+    await expect(res.json()).resolves.toMatchObject({
+      data: { expiresIn: 15 * 60 },
+    });
+  });
+
+  it("rejects read tokens for presigned uploads", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_read",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows write tokens for presigned uploads", async () => {
+    apiTokenFor(["write"]);
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects read tokens for upload completion", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request("/api/s3/upload-complete", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_read",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: `tmp/users/${USER_A_ID}/file.jpg`,
+        bucket: "tmp",
+        size: 123,
+        contentType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows write tokens for upload completion", async () => {
+    apiTokenFor(["write"]);
+
+    const res = await app.request("/api/s3/upload-complete", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: `tmp/users/${USER_A_ID}/file.jpg`,
+        bucket: "tmp",
+        size: 123,
+        contentType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects read tokens for image processing", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_read",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows write tokens for image processing", async () => {
+    apiTokenFor(["write"]);
+
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects read tokens for moves", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request("/api/s3/move", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_read",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows write tokens for moves", async () => {
+    apiTokenFor(["write"]);
+
+    const res = await app.request("/api/s3/move", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows admin tokens for moves through scope hierarchy", async () => {
+    apiTokenFor(["admin"]);
+
+    const res = await app.request("/api/s3/move", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_admin",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects write tokens for deletes", async () => {
+    apiTokenFor(["write"]);
+
+    const res = await app.request("/api/s3/delete", {
+      method: "DELETE",
+      headers: {
+        authorization: "Bearer ct_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ key: `prod/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("allows admin tokens for deletes", async () => {
+    apiTokenFor(["admin"]);
+
+    const res = await app.request("/api/s3/delete", {
+      method: "DELETE",
+      headers: {
+        authorization: "Bearer ct_admin",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ key: `prod/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows read tokens for list", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request("/api/s3/list", {
+      headers: { authorization: "Bearer ct_read" },
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("allows read tokens for proxy downloads", async () => {
+    apiTokenFor(["read"]);
+
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file.jpg`,
+      {
+        headers: { authorization: "Bearer ct_read" },
+      },
+    );
+
+    expect(res.status).toBe(302);
   });
 });
 
