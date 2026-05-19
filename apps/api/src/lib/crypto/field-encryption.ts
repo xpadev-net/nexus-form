@@ -25,6 +25,8 @@ export function assertGoogleOAuthEncryptionKeyConfigured(): void {
 }
 
 function getRawKey(): Buffer {
+  // API processes must be restarted to pick up encryption key rotations.
+  // The cache avoids repeated synchronous KDF work on OAuth token hot paths.
   if (cachedRawKey) return cachedRawKey;
   const base = getGoogleOAuthEncryptionSecret();
   // Derive a fixed length key using scrypt
