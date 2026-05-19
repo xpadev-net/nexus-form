@@ -535,8 +535,20 @@ export const formsPublicRouter = createHonoApp()
 
       const pwProtection = getPasswordProtection(parsed);
 
-      if (!pwProtection?.enabled || !pwProtection.password) {
+      if (!pwProtection?.enabled) {
         return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
+      }
+
+      if (!pwProtection.password) {
+        logError(
+          "Password protection is enabled without a password hash",
+          "forms-public",
+          { formId: target.id, publicId },
+        );
+        return c.json(
+          { error: "Form password protection is misconfigured" },
+          500,
+        );
       }
 
       const valid = await verifyPassword(

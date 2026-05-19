@@ -563,6 +563,41 @@ describe("R3-M21: password protected public submit fails closed", () => {
     expect(transactionSpy).not.toHaveBeenCalled();
     transactionSpy.mockRestore();
   });
+
+  it("rejects password verification when protection is enabled without a password hash", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID }],
+      [
+        {
+          structureJson: JSON.stringify({
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password_hint: "hint",
+              },
+            },
+          }),
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "candidate-password" }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form password protection is misconfigured",
+    });
+  });
 });
 
 // ── R2-H3: Permissions and Invitations require EDITOR, not VIEWER ────────────
