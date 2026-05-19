@@ -140,6 +140,15 @@ export type RetentionUpdateResponse = z.infer<
   typeof RetentionUpdateResponseSchema
 >;
 
+/** POST /fingerprint/retention の設定検証エラーレスポンス。 */
+export const RetentionConfigErrorResponseSchema = z.object({
+  error: z.literal("Invalid config"),
+  details: z.array(z.string()),
+});
+export type RetentionConfigErrorResponse = z.infer<
+  typeof RetentionConfigErrorResponseSchema
+>;
+
 /** PUT /fingerprint/retention のレスポンス。 */
 export const RetentionCleanupResponseSchema = z.object({
   result: CleanupResultSchema,
