@@ -56,6 +56,13 @@ const ERROR_MESSAGES = {
   AUTH_FAILED: "Authentication failed",
 } as const;
 
+class InsufficientTokenScopeError extends Error {
+  constructor() {
+    super("API token does not have the required scope");
+    this.name = "InsufficientTokenScopeError";
+  }
+}
+
 /**
  * Bearer トークンを抽出する
  */
@@ -87,6 +94,24 @@ function suspendedAccountResponse(c: Context): Response {
   );
 }
 
+function deriveFormAuthScopes(
+  method: string,
+  explicitScopes: TokenScope[],
+): TokenScope[] {
+  if (explicitScopes.length > 0) return explicitScopes;
+
+  const normalizedMethod = method.toUpperCase();
+  if (
+    normalizedMethod === "GET" ||
+    normalizedMethod === "HEAD" ||
+    normalizedMethod === "OPTIONS"
+  ) {
+    return [];
+  }
+
+  return ["write"];
+}
+
 /**
  * API トークン認証を試行する
  */
@@ -111,7 +136,7 @@ async function authenticateWithApiToken(
             authContext.scopes.includes(scope) ||
             authContext.scopes.includes("admin"),
         );
-        if (!hasRequired) return null;
+        if (!hasRequired) throw new InsufficientTokenScopeError();
       }
 
       let userId = authContext.user_id ?? null;
@@ -160,6 +185,9 @@ async function authenticateWithApiToken(
       throw error;
     }
     if (error instanceof NonAdminTokenOwnerError) {
+      throw error;
+    }
+    if (error instanceof InsufficientTokenScopeError) {
       throw error;
     }
     logError("API token authentication failed", "authentication", {
@@ -293,6 +321,20 @@ export async function authenticateDual(
         ),
       };
     }
+    if (error instanceof InsufficientTokenScopeError) {
+      return {
+        error: true,
+        response: c.json(
+          {
+            error: {
+              message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+              code: ERROR_CODES.FORBIDDEN,
+            },
+          },
+          403,
+        ),
+      };
+    }
     logError("Dual authentication failed", "authentication", {
       error,
       operation: "authenticateDual",
@@ -392,6 +434,20 @@ export async function authenticateDualForForm(
       };
     }
     if (error instanceof NonAdminTokenOwnerError) {
+      return {
+        error: true,
+        response: c.json(
+          {
+            error: {
+              message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+              code: ERROR_CODES.FORBIDDEN,
+            },
+          },
+          403,
+        ),
+      };
+    }
+    if (error instanceof InsufficientTokenScopeError) {
       return {
         error: true,
         response: c.json(
@@ -741,7 +797,8 @@ export function withDualFormAuth(
       );
     }
 
-    const result = await authenticateDualForForm(c, formId, requiredScopes);
+    const effectiveScopes = deriveFormAuthScopes(c.req.method, requiredScopes);
+    const result = await authenticateDualForForm(c, formId, effectiveScopes);
     if ("error" in result) {
       return result.response;
     }

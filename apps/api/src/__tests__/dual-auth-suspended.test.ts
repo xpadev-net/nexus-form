@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
 
@@ -51,6 +51,19 @@ vi.mock("drizzle-orm", () => ({
 
 const { createHonoApp } = await import("../lib/hono");
 const { withDualAuth, withDualFormAuth } = await import("../lib/dual-auth");
+const { db } = await import("@nexus-form/database");
+
+function mockFormOwnerLookup(userId: string): void {
+  vi.mocked(db.select).mockReturnValueOnce({
+    from: vi.fn().mockReturnValue({
+      where: vi.fn().mockReturnValue({
+        limit: vi
+          .fn()
+          .mockResolvedValue([{ id: "form-id", creatorId: userId }]),
+      }),
+    }),
+  } as unknown as ReturnType<typeof db.select>);
+}
 
 function createSuspendedSession() {
   return {
@@ -65,6 +78,10 @@ function createSuspendedSession() {
 }
 
 describe("suspended users in dual auth", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("rejects suspended session users for dual auth routes", async () => {
     getSession.mockResolvedValueOnce(createSuspendedSession());
     const app = createHonoApp()
@@ -188,5 +205,130 @@ describe("suspended users in dual auth", () => {
         message: MockSuspendedTokenOwnerError.MESSAGE,
       },
     });
+  });
+
+  it("rejects read-only API tokens for editor mutations with 403", async () => {
+    validateApiTokenForForm.mockResolvedValueOnce({
+      user_id: "token-user",
+      token_id: "token-id",
+      scopes: ["read"],
+      is_admin: false,
+    });
+    const app = createHonoApp().put(
+      "/forms/:id",
+      withDualFormAuth("EDITOR"),
+      (c) => c.json({ ok: true }),
+    );
+
+    const res = await app.request("/forms/form-id", {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer ct_read_only",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+      },
+    });
+    expect(validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_read_only",
+      "form-id",
+      { rejectAdminOwnerMismatch: false },
+    );
+  });
+
+  it("allows write API tokens for editor mutations", async () => {
+    validateApiTokenForForm.mockResolvedValueOnce({
+      user_id: "token-user",
+      token_id: "token-id",
+      scopes: ["write"],
+      is_admin: false,
+    });
+    mockFormOwnerLookup("token-user");
+    const app = createHonoApp().put(
+      "/forms/:id",
+      withDualFormAuth("EDITOR"),
+      (c) => c.json({ ok: true }),
+    );
+
+    const res = await app.request("/forms/form-id", {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer ct_write",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    expect(validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_write",
+      "form-id",
+      { rejectAdminOwnerMismatch: false },
+    );
+  });
+
+  it("rejects read-only API tokens for viewer-level mutations", async () => {
+    validateApiTokenForForm.mockResolvedValueOnce({
+      user_id: "token-user",
+      token_id: "token-id",
+      scopes: ["read"],
+      is_admin: false,
+    });
+    const app = createHonoApp().post(
+      "/forms/:id/invitations/:token/accept",
+      withDualFormAuth("VIEWER"),
+      (c) => c.json({ ok: true }),
+    );
+
+    const res = await app.request("/forms/form-id/invitations/invite/accept", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_read_only",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "FORBIDDEN",
+      },
+    });
+    expect(validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_read_only",
+      "form-id",
+      { rejectAdminOwnerMismatch: false },
+    );
+  });
+
+  it("does not require write scope for viewer GET routes", async () => {
+    validateApiTokenForForm.mockResolvedValueOnce({
+      user_id: "token-user",
+      token_id: "token-id",
+      scopes: ["read"],
+      is_admin: false,
+    });
+    mockFormOwnerLookup("token-user");
+    const app = createHonoApp().get(
+      "/forms/:id",
+      withDualFormAuth("VIEWER"),
+      (c) => c.json({ ok: true }),
+    );
+
+    const res = await app.request("/forms/form-id", {
+      headers: {
+        authorization: "Bearer ct_read_only",
+      },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ ok: true });
+    expect(validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_read_only",
+      "form-id",
+      { rejectAdminOwnerMismatch: false },
+    );
   });
 });
