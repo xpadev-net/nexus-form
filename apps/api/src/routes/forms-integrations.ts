@@ -20,6 +20,19 @@ const FormIntegrationRecordSchema = z.object({
   updatedAt: isoDate,
 });
 
+/** Error response shape returned by form integration endpoints. */
+export const FormIntegrationErrorResponseSchema = z.object({
+  error: z.string().min(1),
+});
+/** Inferred TypeScript type for `FormIntegrationErrorResponseSchema`. */
+export type FormIntegrationErrorResponse = z.infer<
+  typeof FormIntegrationErrorResponseSchema
+>;
+
+const formIntegrationError = (error: string): FormIntegrationErrorResponse => ({
+  error,
+});
+
 /**
  * Google Sheets integration read/save response for 200 OK endpoints.
  * @remarks `integration` is nullable when the form has not configured Google Sheets.
@@ -78,7 +91,7 @@ export const formsIntegrationsRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formIntegrationError("Unauthorized"), 401);
 
       const config = c.req.valid("json");
       const integration = await upsertFormIntegration({
@@ -95,7 +108,7 @@ export const formsIntegrationsRouter = createHonoApp()
     const formId = c.req.param("id");
     const integration = await getFormIntegration(formId);
     if (!integration) {
-      return c.json({ error: "Integration not configured" }, 404);
+      return c.json(formIntegrationError("Integration not configured"), 404);
     }
 
     return c.json(
@@ -112,11 +125,11 @@ export const formsIntegrationsRouter = createHonoApp()
     const jobId = c.req.param("jobId");
     const integration = await getFormIntegration(formId);
     if (!integration) {
-      return c.json({ error: "Integration not configured" }, 404);
+      return c.json(formIntegrationError("Integration not configured"), 404);
     }
 
     const job = await getSheetsSyncQueue().getJob(jobId);
-    if (!job) return c.json({ error: "Job not found" }, 404);
+    if (!job) return c.json(formIntegrationError("Job not found"), 404);
 
     const state = await job.getState();
     return c.json(
