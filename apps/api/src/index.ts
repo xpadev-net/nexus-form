@@ -11,6 +11,10 @@ import { logger } from "hono/logger";
 import { ZodError } from "zod";
 import { auth } from "./lib/auth";
 import { getRedisClient } from "./lib/cache/redis-client";
+import {
+  getCorsOrigins,
+  warnIfProductionCorsOriginsEmpty,
+} from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
 import { logError } from "./lib/logger";
 import { authRouteRateLimiter } from "./lib/rate-limit";
@@ -50,38 +54,15 @@ const BUILTIN_PLUGIN_SPECIFIERS = [
 const VALIDATION_PLUGINS_DIR =
   process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
 
-const getCorsOrigins = (): string[] => {
-  const origins: string[] = [];
-  if (
-    process.env.NODE_ENV === "development" ||
-    process.env.NODE_ENV === "test"
-  ) {
-    origins.push("http://localhost:3000");
-  }
-  const trustedOrigins = process.env.TRUSTED_ORIGINS;
-  if (trustedOrigins) {
-    for (const origin of trustedOrigins.split(",")) {
-      const trimmed = origin.trim();
-      if (trimmed) {
-        origins.push(trimmed);
-      }
-    }
-  }
-  const result = [...new Set(origins)];
-  if (process.env.NODE_ENV === "production" && result.length === 0) {
-    console.warn(
-      "[cors] TRUSTED_ORIGINS is not set — all cross-origin requests will be blocked in production",
-    );
-  }
-  return result;
-};
+const corsOrigins = getCorsOrigins();
+warnIfProductionCorsOriginsEmpty(corsOrigins);
 
 const app = new Hono()
   .use("*", logger())
   .use(
     "*",
     cors({
-      origin: getCorsOrigins(),
+      origin: corsOrigins,
       credentials: true,
     }),
   )
