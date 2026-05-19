@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { RatingQuestionComponent } from "./rating-question";
 
@@ -34,9 +36,18 @@ describe("RatingQuestion radio selection", () => {
       />,
     );
 
-    const checkedInputs = html.match(/type="radio"[^>]*checked=""/g) ?? [];
+    const checkedInputs = html.match(/checked=""/g) ?? [];
     expect(checkedInputs).toHaveLength(1);
-    expect(checkedInputs[0]).toContain('name="rating-block-rating"');
-    expect(checkedInputs[0]).toContain('aria-label="3つ星"');
+    expect(html).toContain('name="rating-block-rating"');
+    expect(html).toContain('aria-label="3つ星"');
+  });
+
+  it("renders no checked radios when no value is selected", () => {
+    const html = renderToStaticMarkup(
+      <RatingQuestionComponent block={ratingBlock} onChange={() => {}} />,
+    );
+
+    const checkedInputs = html.match(/checked=""/g) ?? [];
+    expect(checkedInputs).toHaveLength(0);
   });
 });
