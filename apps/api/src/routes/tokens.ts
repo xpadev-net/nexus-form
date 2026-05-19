@@ -66,17 +66,13 @@ export type SuspendedTokenOwnerErrorResponse = z.infer<
   typeof SuspendedTokenOwnerErrorResponseSchema
 >;
 
-const suspendedTokenOwnerErrorResponse =
-  (): SuspendedTokenOwnerErrorResponse => {
-    const response = {
-      error: {
-        message: SuspendedTokenOwnerError.MESSAGE,
-        code: ERROR_CODES.FORBIDDEN,
-      },
-    } satisfies SuspendedTokenOwnerErrorResponse;
-    const parsed = SuspendedTokenOwnerErrorResponseSchema.safeParse(response);
-    return parsed.success ? parsed.data : response;
-  };
+const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
+  SuspendedTokenOwnerErrorResponseSchema.parse({
+    error: {
+      message: SuspendedTokenOwnerError.MESSAGE,
+      code: ERROR_CODES.FORBIDDEN,
+    },
+  });
 
 function requireSessionUser(
   c: Context,
