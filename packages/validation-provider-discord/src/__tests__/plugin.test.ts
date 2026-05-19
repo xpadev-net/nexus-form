@@ -109,6 +109,19 @@ describe("discordProvider.rules.guild_member.inputSchema", () => {
     expect(result?.success).toBe(true);
   });
 
+  it("rejects uppercase usernames to match current Discord username rules", () => {
+    const result =
+      discordProvider.rules.guild_member?.inputSchema.safeParse("User_Name1");
+
+    expect(result?.success).toBe(false);
+    expect(discordProvider.rules.guild_member?.inputPattern).toBe(
+      "^[a-z0-9_.]{2,32}$",
+    );
+    expect(discordProvider.rules.guild_member?.patternTemplate?.pattern).toBe(
+      "^[a-z0-9_.]{2,32}$",
+    );
+  });
+
   it("accepts usernames at the minimum and maximum Discord lengths", () => {
     const schema = discordProvider.rules.guild_member?.inputSchema;
 

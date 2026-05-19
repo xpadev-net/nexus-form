@@ -21,7 +21,7 @@ import {
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
-const DiscordInputSchema = z.string().regex(/^[a-zA-Z0-9_.]{2,32}$/);
+const DiscordInputSchema = z.string().regex(/^[a-z0-9_.]{2,32}$/);
 
 const DiscordConfigSchema = z.object({
   guildId: ZDiscordGuildId.optional(),
@@ -62,6 +62,8 @@ function normalizeDiscordUsername(username: string): string {
   if (normalized.startsWith("@")) {
     normalized = normalized.slice(1);
   }
+  // Current Discord usernames are case-sensitive only in display, while the
+  // account handle accepted by this provider must already be lowercase.
   if (/#\d{4}$/.test(normalized)) {
     throw new Error(
       "旧式のDiscriminator付きユーザー名はサポートされていません",
@@ -185,15 +187,15 @@ const guildMemberRule: ValidationProviderRule = {
   label: "サーバーメンバー検証",
   description: "Discordサーバーへの参加状況（必要に応じてロール）を検証します",
   inputHint: "Discordユーザー名を入力してください（@不要）",
-  inputPattern: "^[a-zA-Z0-9_.]{2,32}$",
+  inputPattern: "^[a-z0-9_.]{2,32}$",
   patternTemplate: {
     id: "discord",
     displayName: "Discord",
-    pattern: "^[a-zA-Z0-9_.]{2,32}$",
+    pattern: "^[a-z0-9_.]{2,32}$",
     errorMessage:
-      "Discordのユーザー名形式で入力してください（2-32文字の英数字、アンダースコア、ピリオド）",
+      "Discordのユーザー名形式で入力してください（2-32文字の小文字英数字、アンダースコア、ピリオド）",
     placeholder: "username",
-    description: "2-32文字の英数字、アンダースコア、ピリオド",
+    description: "2-32文字の小文字英数字、アンダースコア、ピリオド",
     minLength: 2,
     maxLength: 32,
     externalService: "discord",
@@ -286,9 +288,7 @@ const guildMemberRule: ValidationProviderRule = {
         25,
       );
 
-      const member = members.find(
-        (m) => m.user.username.toLowerCase() === username.toLowerCase(),
-      );
+      const member = members.find((m) => m.user.username === username);
 
       if (!member) {
         return {
