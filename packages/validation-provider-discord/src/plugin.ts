@@ -62,6 +62,8 @@ function normalizeDiscordUsername(username: string): string {
   if (normalized.startsWith("@")) {
     normalized = normalized.slice(1);
   }
+  // Current Discord usernames are case-sensitive only in display, while the
+  // account handle accepted by this provider must already be lowercase.
   if (/#\d{4}$/.test(normalized)) {
     throw new Error(
       "旧式のDiscriminator付きユーザー名はサポートされていません",
@@ -286,9 +288,7 @@ const guildMemberRule: ValidationProviderRule = {
         25,
       );
 
-      const member = members.find(
-        (m) => m.user.username.toLowerCase() === username.toLowerCase(),
-      );
+      const member = members.find((m) => m.user.username === username);
 
       if (!member) {
         return {
