@@ -19,6 +19,10 @@ import { closeLockClient } from "./lib/redis-lock";
 import { closePublisher } from "./lib/redis-publisher";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { createWorker } from "./lib/worker-factory";
+import {
+  GOOGLE_SHEETS_SYNC_QUEUE,
+  selectWorkerQueues,
+} from "./lib/worker-queue-selection";
 
 const BUILTIN_PLUGIN_SPECIFIERS = [
   "@nexus-form/validation-provider-discord/plugin",
@@ -86,13 +90,28 @@ async function main() {
   };
 
   const workers: Worker[] = [];
+  const selectedQueues = selectWorkerQueues(
+    providerRegistry.getNames(),
+    process.env.WORKER_QUEUES,
+  );
 
-  for (const providerName of providerRegistry.getNames()) {
-    const queueName = `${providerName}-validation`;
+  if (selectedQueues.unknownQueues.length > 0) {
+    throw new Error(
+      `Unknown WORKER_QUEUES entries: ${selectedQueues.unknownQueues.join(", ")}`,
+    );
+  }
+
+  for (const queueName of selectedQueues.validationQueues) {
     workers.push(createWorker(queueName, handleGenericValidation));
   }
 
-  workers.push(createWorker("google-sheets-sync", handleSheetsSync));
+  if (selectedQueues.includeSheetsSync) {
+    workers.push(createWorker(GOOGLE_SHEETS_SYNC_QUEUE, handleSheetsSync));
+  }
+
+  if (workers.length === 0) {
+    throw new Error("WORKER_QUEUES did not select any available worker queues");
+  }
 
   for (const worker of workers) {
     worker.on("completed", (job) => {
