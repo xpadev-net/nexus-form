@@ -3,7 +3,7 @@ import { HeadBucketCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { DEFAULT_IMAGE_PROCESSING_CONFIG } from "../config/image-processing";
-import { withDualAuth } from "../lib/dual-auth";
+import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit } from "../lib/rate-limit";
 import { s3BaseService } from "../lib/s3/base-service";
@@ -19,12 +19,25 @@ import {
   validateFileSize,
   validateMimeType,
 } from "../lib/s3/validation";
-import { type ErrorResponse, errorResponse } from "../types/domain/common";
+import { hasRequiredScopes } from "../lib/tokens";
+import type { TokenScope } from "../types/api/auth";
+import {
+  type ErrorResponse,
+  ErrorResponseSchema,
+  errorResponse,
+} from "../types/domain/common";
+
+const DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
+const DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
+const MAX_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
+const MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
+
+export const ForbiddenResponseSchema = ErrorResponseSchema;
 
 const presignedUrlSchema = z.object({
   key: z.string().min(1),
   bucket: z.string().optional(),
-  expiresIn: z.number().int().positive().optional(),
+  expiresIn: z.coerce.number().int().positive().optional(),
   type: z.enum(["upload", "download"]).optional(),
 });
 
@@ -216,6 +229,38 @@ function assertKeyMatchesBucket(key: string, bucket: string): void {
   assertS3ObjectKeyPrefix(key, bucket === S3_BUCKETS.TMP ? "tmp/" : "prod/");
 }
 
+function hasApiTokenScopes(
+  auth: DualAuthContext,
+  requiredScopes: TokenScope[],
+): boolean {
+  if (auth.auth_type === "session") {
+    if (!requiredScopes.includes("admin")) return true;
+    return auth.session?.user?.role === "admin";
+  }
+  return hasRequiredScopes(auth.scopes ?? [], requiredScopes);
+}
+
+function clampPresignedExpiresIn(
+  requested: number | undefined,
+  type: "upload" | "download",
+): number {
+  const max =
+    type === "upload"
+      ? MAX_PRESIGNED_UPLOAD_EXPIRES_IN
+      : MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN;
+  const defaultValue =
+    type === "upload"
+      ? DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN
+      : DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN;
+  return Math.min(requested ?? defaultValue, max);
+}
+
+function forbiddenResponse(
+  message = "Insufficient permissions",
+): ErrorResponse {
+  return ForbiddenResponseSchema.parse(errorResponse(message));
+}
+
 /**
  * key が指定ユーザーの名前空間（`tmp/users/{userId}/` または `prod/users/{userId}/`）に
  * 属するか検証する。パストラバーサル文字が含まれる場合も false を返す。
@@ -243,6 +288,10 @@ export const s3Router = createHonoApp()
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const query = c.req.valid("query");
+      const type = query.type ?? "download";
+      if (!hasApiTokenScopes(auth, [type === "upload" ? "write" : "read"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       if (!isKeyOwnedBy(auth.user_id, query.key)) {
         return c.json(errorResponse("Access denied to key"), 403);
@@ -258,8 +307,7 @@ export const s3Router = createHonoApp()
         throw error;
       }
 
-      const expiresIn = query.expiresIn ?? 3600;
-      const type = query.type ?? "download";
+      const expiresIn = clampPresignedExpiresIn(query.expiresIn, type);
 
       const data =
         type === "upload"
@@ -278,6 +326,9 @@ export const s3Router = createHonoApp()
       try {
         const auth = c.get("dualAuthContext");
         if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+        if (!hasApiTokenScopes(auth, ["write"])) {
+          return c.json(forbiddenResponse(), 403);
+        }
 
         const { fileName, fileSize, mimeType } = c.req.valid("json");
 
@@ -374,6 +425,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["write"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const { key, bucket, size, contentType, etag } = c.req.valid("json");
 
@@ -419,6 +473,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["write"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const { tmpKey, processingConfig, finalKey } = c.req.valid("json");
 
@@ -486,6 +543,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["write"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const { tmpKey, finalKey } = c.req.valid("json");
 
@@ -527,6 +587,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["admin"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const { key, bucket } = c.req.valid("json");
 
@@ -561,6 +624,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["read"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const query = c.req.valid("query");
       const bucket = resolveBucketName(query.bucket ?? "prod");
@@ -621,6 +687,9 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      if (!hasApiTokenScopes(auth, ["read"])) {
+        return c.json(forbiddenResponse(), 403);
+      }
 
       const bucketAlias = c.req.param("bucket");
       const key = c.req.param("key");
