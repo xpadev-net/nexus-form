@@ -96,7 +96,6 @@ function isS3NotFoundError(error: unknown): boolean {
   const errorCodes = [
     getStringProperty(error, "name"),
     getStringProperty(error, "Code"),
-    getStringProperty(error, "code"),
   ];
 
   return errorCodes.some((code) => code === "NotFound" || code === "NoSuchKey");
