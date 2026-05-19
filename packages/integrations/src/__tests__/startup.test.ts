@@ -11,6 +11,7 @@ import { startupPlugins } from "../startup";
 
 class MemoryDriftStore implements PluginDriftStore {
   readonly values = new Map<string, string>();
+  readonly setCalls: Array<{ key: string; ttlSeconds: number }> = [];
 
   async get(key: string): Promise<string | null> {
     return this.values.get(key) ?? null;
@@ -20,8 +21,9 @@ class MemoryDriftStore implements PluginDriftStore {
     key: string,
     value: string,
     _mode: "EX",
-    _ttlSeconds: number,
+    ttlSeconds: number,
   ): Promise<"OK"> {
+    this.setCalls.push({ key, ttlSeconds });
     this.values.set(key, value);
     return "OK";
   }
@@ -64,9 +66,26 @@ function makeManifest(
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe("startupPlugins built-in plugin loading", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("fails startup when a built-in plugin file cannot be read", async () => {
@@ -157,6 +176,8 @@ export default {
 describe("startupPlugins plugin drift guard", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
   });
 
   it("records the current runtime manifest when the peer is not present", async () => {
@@ -184,6 +205,118 @@ describe("startupPlugins plugin drift guard", () => {
     });
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("could not find worker manifest"),
+    );
+  });
+
+  it("keeps refreshing the manifest and compares when the peer appears later", async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        ttlSeconds: 1800,
+        refreshIntervalMs: 10,
+        failOnMismatch: false,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(
+      store.setCalls.filter((call) => call.key === "test:plugins:api"),
+    ).toHaveLength(2);
+    expect(store.setCalls.at(-1)?.ttlSeconds).toBe(1800);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Plugin drift detected"),
+    );
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("treats periodic drift as fatal by default", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("does not escalate an in-flight periodic failure after stop", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    const peerRead = createDeferred<string | null>();
+    let readCount = 0;
+    store.get = async (key: string): Promise<string | null> => {
+      readCount += 1;
+      if (readCount === 1) return null;
+      expect(key).toBe("test:plugins:worker");
+      return peerRead.promise;
+    };
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(10);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    const stopped = handle.stop();
+    peerRead.reject(new Error("Redis connection closed"));
+    await stopped;
+
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "periodic check stopped after an in-flight error",
+      ),
+      expect.any(Error),
     );
   });
 

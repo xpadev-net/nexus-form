@@ -51,8 +51,9 @@ async function main() {
     fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
+  let pluginDriftGuardHandle: Awaited<ReturnType<typeof startupPlugins>>;
   try {
-    await startupPlugins(providerRegistry, {
+    pluginDriftGuardHandle = await startupPlugins(providerRegistry, {
       builtinPlugins,
       pluginsDirs: [VALIDATION_PLUGINS_DIR],
       logPrefix: "worker",
@@ -61,7 +62,19 @@ async function main() {
         store: pluginDriftStore,
       },
     });
-  } finally {
+  } catch (error) {
+    try {
+      await pluginDriftStore.quit();
+    } catch (closeError) {
+      console.warn(
+        "[worker] Failed to close plugin drift Redis client after startup failure:",
+        closeError,
+      );
+    }
+    throw error;
+  }
+  const closePluginDriftGuard = async (): Promise<void> => {
+    await pluginDriftGuardHandle?.stop();
     try {
       await pluginDriftStore.quit();
     } catch (error) {
@@ -70,7 +83,7 @@ async function main() {
         error,
       );
     }
-  }
+  };
 
   const workers: Worker[] = [];
 
@@ -102,6 +115,7 @@ async function main() {
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     closeMetricsQueues,
     closePublisher,
+    closePluginDriftGuard,
     closeLockClient,
     flushSentry,
     captureError,

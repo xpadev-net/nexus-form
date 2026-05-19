@@ -4,7 +4,8 @@ import { loadPluginFromFile, PluginLoader } from "./plugin-loader";
 import type { ValidationProviderRegistry } from "./provider-registry";
 
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
-const PLUGIN_DRIFT_TTL_SECONDS = 300;
+const PLUGIN_DRIFT_TTL_SECONDS = 1800;
+const PLUGIN_DRIFT_REFRESH_INTERVAL_MS = 60_000;
 
 const pluginRuntimeRoleSchema = z.enum(["api", "worker"]);
 const pluginManifestSchema = z
@@ -76,14 +77,24 @@ export interface PluginDriftGuardOptions {
    */
   keyPrefix?: string;
   /**
-   * Optional manifest TTL in seconds. Defaults to 300 seconds.
+   * Optional manifest TTL in seconds. Defaults to 1800 seconds.
    */
   ttlSeconds?: number;
+  /**
+   * Optional interval for refreshing the current manifest and comparing it
+   * with the peer runtime. Defaults to 60 seconds. Set to 0 to disable the
+   * periodic guard after the startup check.
+   */
+  refreshIntervalMs?: number;
   /**
    * When true or omitted, drift and store errors fail startup. When false, the
    * guard logs warnings and lets startup continue.
    */
   failOnMismatch?: boolean;
+}
+
+export interface PluginDriftGuardHandle {
+  stop(): Promise<void>;
 }
 
 export interface StartupPluginsOptions {
@@ -152,6 +163,7 @@ async function publishAndAssertPluginManifest(
   pluginHashes: string[],
   guard: PluginDriftGuardOptions,
   logPrefix: string,
+  deleteCurrentManifestOnError = true,
 ): Promise<void> {
   const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
   const ttlSeconds = guard.ttlSeconds ?? PLUGIN_DRIFT_TTL_SECONDS;
@@ -213,13 +225,15 @@ async function publishAndAssertPluginManifest(
     console.warn(`[${logPrefix}] ${message}`);
   } catch (error) {
     if (guard.failOnMismatch ?? true) {
-      try {
-        await guard.store.del(currentKey);
-      } catch (cleanupError) {
-        console.warn(
-          `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
-          cleanupError,
-        );
+      if (deleteCurrentManifestOnError) {
+        try {
+          await guard.store.del(currentKey);
+        } catch (cleanupError) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
+            cleanupError,
+          );
+        }
       }
       throw error;
     }
@@ -228,6 +242,70 @@ async function publishAndAssertPluginManifest(
       error,
     );
   }
+}
+
+function startPluginDriftGuardRefresh(
+  registry: ValidationProviderRegistry,
+  pluginHashes: string[],
+  guard: PluginDriftGuardOptions,
+  logPrefix: string,
+): PluginDriftGuardHandle | undefined {
+  const refreshIntervalMs =
+    guard.refreshIntervalMs ?? PLUGIN_DRIFT_REFRESH_INTERVAL_MS;
+  if (refreshIntervalMs <= 0) return undefined;
+
+  let stopped = false;
+  let running = false;
+  let activeCheck: Promise<void> | null = null;
+  const timer = setInterval(() => {
+    if (running || stopped) return;
+    running = true;
+    activeCheck = publishAndAssertPluginManifest(
+      registry,
+      pluginHashes,
+      guard,
+      logPrefix,
+      false,
+    )
+      .catch((error: unknown) => {
+        if (stopped) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard periodic check stopped after an in-flight error:`,
+            error,
+          );
+          return;
+        }
+        if (guard.failOnMismatch ?? true) {
+          stopped = true;
+          clearInterval(timer);
+          console.error(
+            `[${logPrefix}] Plugin drift guard periodic check failed:`,
+            error,
+          );
+          queueMicrotask(() => {
+            throw error;
+          });
+          return;
+        }
+        console.warn(
+          `[${logPrefix}] Plugin drift guard periodic warning-only check failed:`,
+          error,
+        );
+      })
+      .finally(() => {
+        running = false;
+        activeCheck = null;
+      });
+  }, refreshIntervalMs);
+  timer.unref?.();
+
+  return {
+    async stop(): Promise<void> {
+      stopped = true;
+      clearInterval(timer);
+      await activeCheck;
+    },
+  };
 }
 
 function registerOrOverride(
@@ -271,7 +349,7 @@ export async function startupPlugins(
     logPrefix,
     pluginDriftGuard,
   }: StartupPluginsOptions,
-): Promise<void> {
+): Promise<PluginDriftGuardHandle | undefined> {
   const pluginHashes: string[] = [];
 
   for (const specifier of builtinPlugins) {
@@ -325,5 +403,13 @@ export async function startupPlugins(
       pluginDriftGuard,
       logPrefix,
     );
+    return startPluginDriftGuardRefresh(
+      registry,
+      pluginHashes,
+      pluginDriftGuard,
+      logPrefix,
+    );
   }
+
+  return undefined;
 }
