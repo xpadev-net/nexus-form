@@ -142,6 +142,29 @@ describe("Google OAuth redirect URI", () => {
     );
   });
 
+  it("fails callback exchange when the fixed OAuth base URL is not configured", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/callback?code=oauth-code&state=state-123",
+      {
+        headers: {
+          cookie:
+            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com",
+          origin: "https://evil.example",
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain(
+      "Google OAuth is not configured",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses the configured OAuth base URL when exchanging callback codes", async () => {
     vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
     const fetchMock = vi.fn().mockResolvedValue({
