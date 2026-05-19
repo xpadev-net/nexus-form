@@ -30,6 +30,15 @@ const AuthSessionUserSchema = z.object({
   isSuspended: z.boolean(),
 });
 
+/** Error response shape returned by auth extension endpoints. */
+export const AuthErrorResponseSchema = z.object({
+  error: z.string().min(1),
+});
+/** Inferred TypeScript type for `AuthErrorResponseSchema`. */
+export type AuthErrorResponse = z.infer<typeof AuthErrorResponseSchema>;
+
+const authError = (error: string): AuthErrorResponse => ({ error });
+
 const AuthMeResponseSchema = z.object({
   user: AuthSessionUserSchema,
 });
@@ -66,7 +75,7 @@ export const authRouter = createHonoApp()
   .put("/me", requireAuth, zValidator("json", updateMeSchema), async (c) => {
     const currentUser = c.get("user");
     if (!currentUser) {
-      return c.json({ error: "Unauthorized" }, 401);
+      return c.json(authError("Unauthorized"), 401);
     }
     const payload = c.req.valid("json");
     await db
@@ -100,18 +109,18 @@ export const authRouter = createHonoApp()
 
       const expectedCode = process.env.SIGNUP_INVITATION_CODE;
       if (!expectedCode) {
-        return c.json({ error: "招待コードが設定されていません" }, 500);
+        return c.json(authError("招待コードが設定されていません"), 500);
       }
 
       if (!constantTimeEqual(code, expectedCode)) {
-        return c.json({ error: "招待コードが正しくありません" }, 400);
+        return c.json(authError("招待コードが正しくありません"), 400);
       }
 
       // 招待コードが正しい場合、一時トークンを生成して署名
       const invitationToken = randomBytes(32).toString("hex");
       const secret = process.env.AUTH_SECRET;
       if (!secret) {
-        return c.json({ error: "サーバー構成エラーが発生しました" }, 500);
+        return c.json(authError("サーバー構成エラーが発生しました"), 500);
       }
 
       const signedToken = jwt.sign({ token: invitationToken }, secret, {
