@@ -4,7 +4,11 @@ import { providerRegistry } from "@nexus-form/integrations";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { checkFormPermissionLevel, withDualAuth } from "../lib/dual-auth";
-import { FormPermissionError } from "../lib/errors/form-errors";
+import {
+  FormNotFoundError,
+  FormPermissionError,
+  InsufficientFormPermissionError,
+} from "../lib/errors/form-errors";
 import { createHonoApp } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 
@@ -54,7 +58,7 @@ async function resolveEffectiveUserId(
 ): Promise<string> {
   if (!formId) return authUserId;
 
-  await checkFormPermissionLevel(authContext, formId, "EDITOR");
+  await checkFormPermissionLevel(authContext, formId, "OWNER");
 
   const [formRecord] = await db
     .select({ creatorId: form.creatorId })
@@ -62,7 +66,12 @@ async function resolveEffectiveUserId(
     .where(eq(form.id, formId))
     .limit(1);
 
-  return formRecord?.creatorId ?? authUserId;
+  if (!formRecord) throw new FormNotFoundError(formId);
+  if (formRecord.creatorId !== authUserId) {
+    throw new InsufficientFormPermissionError(formId, "OWNER", "OWNER");
+  }
+
+  return authUserId;
 }
 
 function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {

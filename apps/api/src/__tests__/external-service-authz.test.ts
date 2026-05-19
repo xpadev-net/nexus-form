@@ -1,0 +1,180 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const getSession = vi.fn();
+const providerGet = vi.fn();
+
+vi.mock("../load-env", () => ({}));
+
+vi.mock("../lib/auth", () => ({
+  auth: {
+    api: {
+      getSession,
+    },
+  },
+}));
+
+vi.mock("@nexus-form/integrations", () => ({
+  providerRegistry: {
+    get: providerGet,
+  },
+}));
+
+vi.mock("@nexus-form/database", () => ({
+  account: {
+    userId: "account.userId",
+    providerId: "account.providerId",
+    accountId: "account.accountId",
+    accessToken: "account.accessToken",
+  },
+  db: {
+    select: vi.fn(),
+  },
+}));
+
+vi.mock("@nexus-form/database/schema", () => ({
+  apiToken: {},
+  form: {
+    id: "form.id",
+    creatorId: "form.creatorId",
+  },
+  formPermission: {
+    formId: "formPermission.formId",
+    userId: "formPermission.userId",
+    role: "formPermission.role",
+  },
+  formShareLink: {},
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
+  eq: vi.fn(),
+}));
+
+const { db } = await import("@nexus-form/database");
+const { eq } = await import("drizzle-orm");
+
+const FORM_ID = "form-id";
+const OWNER_ID = "owner-user-id";
+const EDITOR_ID = "editor-user-id";
+const CO_OWNER_ID = "co-owner-user-id";
+
+function mockDbSelectResults(resultSets: unknown[][]): void {
+  let callIndex = 0;
+  vi.mocked(db.select).mockImplementation(
+    () =>
+      ({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockImplementation(() => {
+              const result = resultSets[callIndex] ?? [];
+              callIndex += 1;
+              return Promise.resolve(result);
+            }),
+          }),
+        }),
+      }) as unknown as ReturnType<typeof db.select>,
+  );
+}
+
+function mockSession(userId: string): void {
+  getSession.mockResolvedValueOnce({
+    user: {
+      id: userId,
+      isSuspended: false,
+    },
+    session: {
+      id: `session-${userId}`,
+    },
+  });
+}
+
+describe("external service form OAuth authorization", () => {
+  let guildsHandler: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    guildsHandler = vi.fn(async (context) => {
+      const linkedAccount = await context.getLinkedAccount("discord");
+      return {
+        accountId: linkedAccount?.accountId ?? null,
+      };
+    });
+    providerGet.mockReturnValue({
+      apiHandlers: {
+        guilds: guildsHandler,
+      },
+    });
+  });
+
+  it("rejects form editors before they can use the owner's linked account", async () => {
+    mockSession(EDITOR_ID);
+    mockDbSelectResults([
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [{ role: "EDITOR" }],
+    ]);
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+      },
+    });
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-creator OWNER rows before using the creator's linked account", async () => {
+    mockSession(CO_OWNER_ID);
+    mockDbSelectResults([
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [{ role: "OWNER" }],
+      [{ creatorId: OWNER_ID }],
+    ]);
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+      },
+    });
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
+  it("allows form owners to call service APIs with their own linked account", async () => {
+    mockSession(OWNER_ID);
+    mockDbSelectResults([
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [{ creatorId: OWNER_ID }],
+      [{ accountId: "discord-account-id", accessToken: "discord-token" }],
+    ]);
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      accountId: "discord-account-id",
+    });
+    expect(eq).toHaveBeenCalledWith("account.userId", OWNER_ID);
+  });
+});
