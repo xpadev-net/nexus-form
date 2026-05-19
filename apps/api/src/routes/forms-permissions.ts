@@ -109,6 +109,16 @@ export const FormShareLinkResponseSchema = z.object({
 });
 export type FormShareLinkResponse = z.infer<typeof FormShareLinkResponseSchema>;
 
+export const FormPermissionErrorResponseSchema = z.object({
+  error: z.string(),
+});
+export type FormPermissionErrorResponse = z.infer<
+  typeof FormPermissionErrorResponseSchema
+>;
+
+const formPermissionError = (error: string): FormPermissionErrorResponse =>
+  FormPermissionErrorResponseSchema.parse({ error });
+
 export const formsPermissionsRouter = createHonoApp()
   .use("/:id/permissions*", withDualFormAuth("VIEWER"))
   .use("/:id/invitations*", withDualFormAuth("VIEWER"))
@@ -147,7 +157,7 @@ export const formsPermissionsRouter = createHonoApp()
         )
         .limit(1);
       if (existing) {
-        return c.json({ error: "Permission already exists" }, 409);
+        return c.json(formPermissionError("Permission already exists"), 409);
       }
 
       await db.insert(formPermission).values({
@@ -175,7 +185,7 @@ export const formsPermissionsRouter = createHonoApp()
   .get("/:id/permissions/me", async (c) => {
     const formId = c.req.param("id");
     const auth = c.get("dualAuthContext");
-    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+    if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
     const role = await getUserFormPermission(auth.user_id, formId, {
       auth_type: auth.auth_type,
       form_ids: auth.form_ids,
@@ -192,7 +202,9 @@ export const formsPermissionsRouter = createHonoApp()
       user_id: userId,
     });
     const permission = result.permissions[0];
-    if (!permission) return c.json({ error: "Permission not found" }, 404);
+    if (!permission) {
+      return c.json(formPermissionError("Permission not found"), 404);
+    }
     return c.json(FormPermissionResponseSchema.parse({ permission }));
   })
   .put(
@@ -225,7 +237,9 @@ export const formsPermissionsRouter = createHonoApp()
         ),
       )
       .limit(1);
-    if (!target) return c.json({ error: "Permission not found" }, 404);
+    if (!target) {
+      return c.json(formPermissionError("Permission not found"), 404);
+    }
 
     await db.delete(formPermission).where(eq(formPermission.id, target.id));
     return c.json(OkResponseSchema.parse({ ok: true }));
@@ -237,7 +251,7 @@ export const formsPermissionsRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
       const payload = c.req.valid("json");
       await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
       return c.json(OkResponseSchema.parse({ ok: true }));
@@ -266,7 +280,7 @@ export const formsPermissionsRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
       const payload = c.req.valid("json");
       const invitation = await createInvitation(
         formId,
@@ -295,7 +309,9 @@ export const formsPermissionsRouter = createHonoApp()
           ),
         )
         .limit(1);
-      if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+      if (!invitation) {
+        return c.json(formPermissionError("Invitation not found"), 404);
+      }
       const [inviter] = await db
         .select({
           id: user.id,
@@ -344,7 +360,7 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const invitationId = c.req.param("invitationId");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
       await cancelInvitation(invitationId, auth.user_id, formId);
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
@@ -371,12 +387,14 @@ export const formsPermissionsRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
       const allowed = await checkShareLinkPermission(auth.user_id, formId, {
         auth_type: auth.auth_type,
         form_ids: auth.form_ids,
       });
-      if (!allowed) return c.json({ error: "Insufficient permissions" }, 403);
+      if (!allowed) {
+        return c.json(formPermissionError("Insufficient permissions"), 403);
+      }
 
       const payload = c.req.valid("json");
       const link = await createShareLink(
@@ -401,7 +419,9 @@ export const formsPermissionsRouter = createHonoApp()
         and(eq(formShareLink.id, linkId), eq(formShareLink.formId, formId)),
       )
       .limit(1);
-    if (!link) return c.json({ error: "Share link not found" }, 404);
+    if (!link) {
+      return c.json(formPermissionError("Share link not found"), 404);
+    }
     return c.json(
       FormShareLinkResponseSchema.parse({
         shareLink: {
@@ -444,7 +464,7 @@ export const formsPermissionsRouter = createHonoApp()
     withDualFormAuth("VIEWER"),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formPermissionError("Unauthorized"), 401);
       const token = c.req.param("token");
       const permission = await acceptInvitation(token, auth.user_id);
       return c.json(FormPermissionResponseSchema.parse({ permission }));
