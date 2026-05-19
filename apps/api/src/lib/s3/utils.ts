@@ -61,6 +61,47 @@ export const S3_BUCKETS = {
   PROD: getBucketName("S3_BUCKET_PROD", "prod-bucket"),
 } as const;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function getStringProperty(
+  value: Record<string, unknown>,
+  property: string,
+): string | undefined {
+  const propertyValue = value[property];
+  return typeof propertyValue === "string" ? propertyValue : undefined;
+}
+
+function getHttpStatusCode(error: Record<string, unknown>): number | undefined {
+  const metadata = error.$metadata;
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  return typeof metadata.httpStatusCode === "number"
+    ? metadata.httpStatusCode
+    : undefined;
+}
+
+function isS3NotFoundError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+
+  if (getHttpStatusCode(error) === 404) {
+    return true;
+  }
+
+  const errorCodes = [
+    getStringProperty(error, "name"),
+    getStringProperty(error, "Code"),
+    getStringProperty(error, "code"),
+  ];
+
+  return errorCodes.some((code) => code === "NotFound" || code === "NoSuchKey");
+}
+
 /**
  * オブジェクトの存在確認
  * @param bucket バケット名
@@ -79,8 +120,12 @@ export async function objectExists(
       }),
     );
     return true;
-  } catch (_error) {
-    return false;
+  } catch (error) {
+    if (isS3NotFoundError(error)) {
+      return false;
+    }
+
+    throw error;
   }
 }
 
@@ -105,12 +150,7 @@ export async function getObject(
     throw new Error("Object not found");
   }
 
-  // BodyをUint8Arrayに変換
-  const _chunks: Uint8Array[] = [];
-  const reader = await response.Body.transformToByteArray();
-
-  // 単一のUint8Arrayとして返す
-  return reader;
+  return await response.Body.transformToByteArray();
 }
 
 /**
