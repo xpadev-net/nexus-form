@@ -52,9 +52,25 @@ export type FormValidationRuleWireResponse = z.infer<
   typeof FormValidationRuleWireResponseSchema
 >;
 
-function configErrorResponse(error: unknown): { error: string } | null {
+/** Error response shape returned by form validation rule endpoints. */
+export const FormValidationRuleErrorResponseSchema = z.object({
+  error: z.string().min(1),
+});
+/** Inferred TypeScript type for `FormValidationRuleErrorResponseSchema`. */
+export type FormValidationRuleErrorResponse = z.infer<
+  typeof FormValidationRuleErrorResponseSchema
+>;
+
+const formValidationRuleError = (
+  error: string,
+): FormValidationRuleErrorResponse =>
+  FormValidationRuleErrorResponseSchema.parse({ error });
+
+function configErrorResponse(
+  error: unknown,
+): FormValidationRuleErrorResponse | null {
   if (error instanceof ValidationRuleConfigError) {
-    return { error: error.message };
+    return formValidationRuleError(error.message);
   }
   return null;
 }
@@ -115,7 +131,9 @@ export const formsValidationRulesRouter = createHonoApp()
     const formId = c.req.param("id");
     const ruleId = c.req.param("ruleId");
     const rule = await getValidationRule(formId, ruleId);
-    if (!rule) return c.json({ error: "Validation rule not found" }, 404);
+    if (!rule) {
+      return c.json(formValidationRuleError("Validation rule not found"), 404);
+    }
     return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
   })
   .put(
@@ -131,7 +149,7 @@ export const formsValidationRulesRouter = createHonoApp()
         return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
       } catch (error) {
         if (error instanceof ValidationRuleNotFoundError) {
-          return c.json({ error: error.message }, 404);
+          return c.json(formValidationRuleError(error.message), 404);
         }
         const response = configErrorResponse(error);
         if (response) return c.json(response, 400);
@@ -146,7 +164,12 @@ export const formsValidationRulesRouter = createHonoApp()
       const formId = c.req.param("id");
       const ruleId = c.req.param("ruleId");
       const ok = await deleteValidationRule({ formId, ruleId });
-      if (!ok) return c.json({ error: "Validation rule not found" }, 404);
+      if (!ok) {
+        return c.json(
+          formValidationRuleError("Validation rule not found"),
+          404,
+        );
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );
