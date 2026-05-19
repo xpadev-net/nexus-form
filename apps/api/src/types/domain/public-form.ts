@@ -58,7 +58,7 @@ export type VerifyPasswordResponse = z.infer<
 
 /** パスワード保護フォームで検証済みセッションが必要な場合のレスポンス。 */
 export const PasswordRequiredErrorResponseSchema = z.object({
-  error: z.literal("Password verification required"),
+  error: z.string(),
   passwordRequired: z.literal(true),
   passwordHint: z.string().optional(),
 });
