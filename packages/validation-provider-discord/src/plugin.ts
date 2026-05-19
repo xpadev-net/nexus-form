@@ -347,7 +347,14 @@ const guildMemberRule: ValidationProviderRule = {
             isValid: false,
             errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
             errorMessage: "Discord API rate limit exceeded",
-            retryAfter: 30,
+            retryAfter: Math.ceil(error.retryAfterSeconds ?? 30),
+          };
+        }
+        if (error.status === 401) {
+          return {
+            isValid: false,
+            errorCode: DiscordErrorCode.DISCORD_AUTH_FAILED,
+            errorMessage: "Discord API authentication failed",
           };
         }
         if (error.status === 403) {

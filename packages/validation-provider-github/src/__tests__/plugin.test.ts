@@ -1,5 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { GitHubErrorCode } from "../error-codes";
 import { githubProvider } from "../plugin";
+import { GitHubProviderError } from "../utils";
+
+const { getUserByUsernameMock } = vi.hoisted(() => ({
+  getUserByUsernameMock: vi.fn(),
+}));
+
+vi.mock("../client", () => ({
+  getGitHubClient: () => ({
+    getUserByUsername: getUserByUsernameMock,
+  }),
+}));
+
+beforeEach(() => {
+  getUserByUsernameMock.mockReset();
+});
 
 describe("githubProvider.rules.user_exists.inputSchema", () => {
   it("accepts usernames matching the advertised GitHub pattern", () => {
@@ -42,5 +58,49 @@ describe("githubProvider.rules.user_exists.inputSchema", () => {
       githubProvider.rules.user_exists?.inputSchema.safeParse("-octocat");
 
     expect(result?.success).toBe(false);
+  });
+});
+
+describe("githubProvider.rules.user_exists.validate", () => {
+  it("uses structured GitHub provider error codes", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "GitHub authentication failed",
+        GitHubErrorCode.GITHUB_AUTH_FAILED,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_AUTH_FAILED,
+      errorMessage: "GitHub authentication failed",
+    });
+    expect(result).not.toHaveProperty("retryAfter");
+  });
+
+  it("converts GitHub provider retryAfter milliseconds to seconds", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "GitHub API rate limit exceeded",
+        GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+        90_000,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+      retryAfter: 90,
+    });
   });
 });

@@ -8,6 +8,7 @@ export class DiscordHttpError extends Error {
   constructor(
     public readonly status: number,
     message: string,
+    public readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "DiscordHttpError";
@@ -49,12 +50,12 @@ export function isRateLimitError(error: DiscordError): boolean {
 export function getRateLimitRetryAfter(error: unknown): number | null {
   if (error && typeof error === "object" && "retry_after" in error) {
     const retryAfter = (error as { retry_after: number }).retry_after;
-    return retryAfter * 1000;
+    return retryAfter;
   }
   if (error && typeof error === "object" && "headers" in error) {
     const headers = (error as { headers: Record<string, string> }).headers;
     if (headers["retry-after"]) {
-      return parseInt(headers["retry-after"], 10) * 1000;
+      return parseInt(headers["retry-after"], 10);
     }
   }
   return null;

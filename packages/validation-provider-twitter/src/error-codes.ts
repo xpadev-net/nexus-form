@@ -13,4 +13,5 @@ export interface TwitterValidationError {
   code: TwitterErrorCode;
   message: string;
   retryable: boolean;
+  retryAfterSeconds?: number;
 }

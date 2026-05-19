@@ -24,15 +24,26 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
     const axiosError = error as {
       response: {
         status?: number;
+        headers?: Record<string, string | number | undefined>;
         data?: {
           errors?: Array<{ code?: number; message?: string }>;
           title?: string;
           detail?: string;
+          retry_after?: number;
         };
       };
     };
     const status = axiosError.response.status;
     const data = axiosError.response.data;
+    const retryAfterHeader = axiosError.response.headers?.["retry-after"];
+    const retryAfterSeconds =
+      typeof data?.retry_after === "number"
+        ? data.retry_after
+        : typeof retryAfterHeader === "number"
+          ? retryAfterHeader
+          : typeof retryAfterHeader === "string"
+            ? Number.parseInt(retryAfterHeader, 10)
+            : undefined;
 
     if (status !== undefined) {
       if (status === 429)
@@ -40,6 +51,9 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
           code: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
           message: data?.title || "Twitter API rate limit exceeded",
           retryable: true,
+          retryAfterSeconds: Number.isFinite(retryAfterSeconds)
+            ? retryAfterSeconds
+            : undefined,
         };
       if (status === 401 || status === 403)
         return {

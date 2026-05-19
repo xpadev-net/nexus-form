@@ -4,12 +4,15 @@ import {
   getDiscordApiTimeoutMs,
   MAX_TIMER_MS,
 } from "../config";
+import { DiscordErrorCode } from "../error-codes";
 import { discordProvider } from "../plugin";
 import { discordApiFetch, getGuild } from "../requests";
 import { ZDiscordGuildId, ZDiscordToken } from "../types";
+import { getRateLimitRetryAfter } from "../utils";
 
 afterEach(() => {
   delete process.env.DISCORD_API_TIMEOUT_MS;
+  delete process.env.DISCORD_BOT_TOKEN;
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -228,5 +231,82 @@ describe("Discord API timeout", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(1500);
     expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
     expect(new Set(signals).size).toBe(3);
+  });
+});
+
+describe("discordProvider.rules.guild_member.validate error classification", () => {
+  it("returns auth failure for Discord 401 responses", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+      }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_AUTH_FAILED,
+    });
+  });
+
+  it("returns Discord retry_after seconds for repeated 429 responses", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited again",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "still rate limited",
+            retry_after: 12.2,
+            global: false,
+          }),
+          body: { cancel: vi.fn() },
+        }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
+      retryAfter: 13,
+    });
+  });
+});
+
+describe("Discord rate limit helpers", () => {
+  it("returns retry-after values in seconds", () => {
+    expect(getRateLimitRetryAfter({ retry_after: 2.5 })).toBe(2.5);
+    expect(getRateLimitRetryAfter({ headers: { "retry-after": "7" } })).toBe(7);
   });
 });
