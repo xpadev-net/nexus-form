@@ -4,12 +4,12 @@ services:
     container_name: nexus-form-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: nexus_root_password
-      MYSQL_USER: nexus_user
-      MYSQL_PASSWORD: nexus_password
-      MYSQL_DATABASE: nexus_form
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD}
+      MYSQL_USER: ${MYSQL_USER:?set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?set MYSQL_DATABASE}
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
 
@@ -17,9 +17,14 @@ services:
     image: redis:7-alpine
     container_name: nexus-form-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD:?set REDIS_PASSWORD}"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
 
@@ -28,12 +33,12 @@ services:
     container_name: nexus-form-minio
     restart: unless-stopped
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
 
@@ -52,9 +57,10 @@ services:
   #     dockerfile: Dockerfile
   #   depends_on: [mysql, redis]
   #   environment:
-  #     DATABASE_URL: mysql://nexus_user:nexus_password@mysql:3306/nexus_form
+  #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
   #     REDIS_PORT: "6379"
+  #     REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
   #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
   #   volumes:
   #     - ./plugins/validation:/app/plugins/validation:ro
@@ -67,9 +73,10 @@ services:
   #     dockerfile: Dockerfile.worker
   #   depends_on: [mysql, redis]
   #   environment:
-  #     DATABASE_URL: mysql://nexus_user:nexus_password@mysql:3306/nexus_form
+  #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
   #     REDIS_PORT: "6379"
+  #     REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
   #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
   #   volumes:
   #     - ./plugins/validation:/app/plugins/validation:ro

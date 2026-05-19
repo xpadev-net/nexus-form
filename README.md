@@ -60,15 +60,20 @@ pnpm install
 
 ```bash
 cp .env.example .env.local
+cp .env.example .env
 ```
 
-`.env.local` を開き、各値を埋めてください。最低限必要な項目:
+`.env.local` と Docker Compose が読み込む `.env` を開き、各値を埋めてください。最低限必要な項目:
 
 | 変数 | 説明 |
 |---|---|
 | `AUTH_SECRET` | Better Auth のシークレットキー（ランダムな長い文字列） |
 | `DATABASE_URL` | MySQL 接続 URL |
 | `REDIS_URL` | Redis 接続 URL |
+| `MYSQL_ROOT_PASSWORD` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | Docker Compose の MySQL 設定 |
+| `REDIS_PASSWORD` | Docker Compose の Redis パスワード |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Docker Compose と API の MinIO 認証情報（ローカルでは MinIO root と S3 access/secret を同じ値に揃える） |
+| `S3_ENDPOINT` / `S3_BUCKET_TMP` / `S3_BUCKET_PROD` | API の S3 互換ストレージ接続設定 |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth アプリの認証情報 |
 | `SIGNUP_INVITATION_CODE` | 新規登録時に要求する招待コード |
 | `CSRF_SECRET` | CSRF 保護用シークレット |
@@ -82,7 +87,7 @@ cp .env.example .env.local
 docker compose up -d
 ```
 
-MySQL（3306）・Redis（6379）・MinIO（9000/9001）が起動します。
+MySQL（3306）・Redis（6379）・MinIO（9000/9001）が `127.0.0.1` 限定で起動します。
 
 ### 5. データベースマイグレーション
 
