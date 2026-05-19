@@ -6,5 +6,9 @@ export const ErrorResponseSchema = z.object({
 });
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
+/**
+ * 指定したエラーメッセージを `ErrorResponseSchema.parse` で検証し、
+ * `ErrorResponse` として返します。
+ */
 export const errorResponse = (error: string): ErrorResponse =>
   ErrorResponseSchema.parse({ error });

@@ -179,12 +179,18 @@ const UnhealthyResponseSchema = z.object({
 });
 export type UnhealthyResponse = z.infer<typeof UnhealthyResponseSchema>;
 
+/** S3 ルートで標準的な `{ error }` 応答を返すときの共通型。 */
 export type S3ErrorResponse = ErrorResponse;
 
+/**
+ * S3 検証エラー応答のスキーマ。
+ * `error` は概要、`validationErrors` は利用者に返す詳細理由の配列。
+ */
 export const S3ValidationErrorResponseSchema = z.object({
   error: z.string(),
   validationErrors: z.array(z.string()),
 });
+/** `S3ValidationErrorResponseSchema` が生成・検証する実行時レスポンス型。 */
 export type S3ValidationErrorResponse = z.infer<
   typeof S3ValidationErrorResponseSchema
 >;
