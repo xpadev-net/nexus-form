@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface QuestionSorterItem {
@@ -38,16 +39,20 @@ export function QuestionSorter({ items, onMove }: QuestionSorterProps) {
               variant="outline"
               size="xs"
               onClick={() => handleMoveUp(index)}
+              disabled={index === 0 || !onMove}
+              aria-label={`${item.label}を上へ移動`}
             >
-              ↑
+              <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
             <Button
               type="button"
               variant="outline"
               size="xs"
               onClick={() => handleMoveDown(index)}
+              disabled={index >= items.length - 1 || !onMove}
+              aria-label={`${item.label}を下へ移動`}
             >
-              ↓
+              <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
         </div>
