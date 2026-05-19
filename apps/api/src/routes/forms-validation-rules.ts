@@ -63,8 +63,10 @@ export type FormValidationRuleErrorResponse = z.infer<
 
 const formValidationRuleError = (
   error: string,
-): FormValidationRuleErrorResponse =>
-  FormValidationRuleErrorResponseSchema.parse({ error });
+): FormValidationRuleErrorResponse => {
+  const result = FormValidationRuleErrorResponseSchema.safeParse({ error });
+  return result.success ? result.data : { error };
+};
 
 function configErrorResponse(
   error: unknown,
