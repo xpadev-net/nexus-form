@@ -3,25 +3,11 @@ import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
 import { cors } from "hono/cors";
 import { z } from "zod";
+import { getCorsOrigins } from "../lib/cors-origins";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { createRateLimit } from "../lib/rate-limit";
 import { hashIPAddress } from "../lib/telemetry/tokens";
-
-function getCorsOrigins(): string[] {
-  const origins: string[] =
-    process.env.NODE_ENV !== "production" ? ["http://localhost:3000"] : [];
-  const trusted = process.env.TRUSTED_ORIGINS;
-  if (trusted) {
-    for (const origin of trusted.split(",")) {
-      const trimmed = origin.trim();
-      if (trimmed) {
-        origins.push(trimmed);
-      }
-    }
-  }
-  return [...new Set(origins)];
-}
 
 function issueToken(): string {
   return randomBytes(32).toString("hex");
