@@ -23,6 +23,7 @@ type PublicFormData = {
 
 let publicFormData: PublicFormData;
 let refetchResult: { data?: PublicFormData; error: Error | null };
+const verificationFailureMock = vi.fn();
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
     publicFormData = refetchResult.data;
@@ -117,7 +118,9 @@ vi.mock("@/components/forms/password-protection-gate", () => ({
       <button
         type="button"
         onClick={() =>
-          void Promise.resolve(onVerified?.()).catch(() => undefined)
+          void Promise.resolve(onVerified?.()).catch((error: unknown) => {
+            verificationFailureMock(error);
+          })
         }
       >
         verify
@@ -142,6 +145,7 @@ describe("PublicFormPage password protection", () => {
   beforeEach(() => {
     publicFormData = lockedFormData;
     refetchResult = { data: unlockedFormData, error: null };
+    verificationFailureMock.mockClear();
     refetchFormMock.mockClear();
   });
 
@@ -165,12 +169,15 @@ describe("PublicFormPage password protection", () => {
     });
 
     expect(refetchFormMock).toHaveBeenCalledTimes(1);
+    expect(verificationFailureMock).not.toHaveBeenCalled();
     expect(container.querySelector("[data-testid='password-gate']")).toBeNull();
     expect(
       container.querySelector("[data-testid='public-form-body']")?.textContent,
     ).toBe("Protected form");
 
-    act(() => root.unmount());
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("keeps the password gate when verification refetch still returns locked body fields", async () => {
@@ -185,6 +192,10 @@ describe("PublicFormPage password protection", () => {
     });
 
     expect(refetchFormMock).toHaveBeenCalledTimes(1);
+    expect(verificationFailureMock).toHaveBeenCalledTimes(1);
+    expect(verificationFailureMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ message: "Public form body is still locked" }),
+    );
     expect(
       container.querySelector("[data-testid='password-gate']"),
     ).not.toBeNull();
@@ -192,7 +203,9 @@ describe("PublicFormPage password protection", () => {
       container.querySelector("[data-testid='public-form-body']"),
     ).toBeNull();
 
-    act(() => root.unmount());
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("keeps the password gate when verification refetch fails", async () => {
@@ -207,6 +220,10 @@ describe("PublicFormPage password protection", () => {
     });
 
     expect(refetchFormMock).toHaveBeenCalledTimes(1);
+    expect(verificationFailureMock).toHaveBeenCalledTimes(1);
+    expect(verificationFailureMock.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ message: "refetch failed" }),
+    );
     expect(
       container.querySelector("[data-testid='password-gate']"),
     ).not.toBeNull();
@@ -214,6 +231,8 @@ describe("PublicFormPage password protection", () => {
       container.querySelector("[data-testid='public-form-body']"),
     ).toBeNull();
 
-    act(() => root.unmount());
+    await act(async () => {
+      root.unmount();
+    });
   });
 });
