@@ -20,12 +20,15 @@ spec:
     spec:
       containers:
       - name: github-validation-worker
-        # Use worker-specific image built from Dockerfile.worker
-        # This image includes pnpm and tsx for running TypeScript workers
+        # Use worker-specific image built from Dockerfile.worker.
+        # src/index.ts selects this queue via WORKER_QUEUES.
         image: nexus-form-worker:latest
         imagePullPolicy: Always
         command: ["pnpm"]
-        args: ["--filter", "@nexus-form/worker", "exec", "tsx", "src/worker-github.ts"]
+        args: ["--filter", "@nexus-form/worker", "exec", "tsx", "src/index.ts"]
+        env:
+        - name: WORKER_QUEUES
+          value: "github-validation"
         envFrom:
         - configMapRef:
             name: nexus-form-config
@@ -40,4 +43,3 @@ spec:
             memory: "512Mi"
         # BullMQ workers typically don't expose HTTP endpoints
         # Health checks can be added via file-based health checks or custom endpoints if needed
-
