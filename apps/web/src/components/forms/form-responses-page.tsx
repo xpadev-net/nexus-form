@@ -85,10 +85,12 @@ export function FormResponsesContent({ formId }: { formId: string }) {
         </p>
         <div className="flex items-center gap-2">
           <ResponseExport formId={formId} />
-          <div className="flex rounded-md border">
+          <fieldset className="flex rounded-md border">
+            <legend className="sr-only">回答表示モード</legend>
             <button
               type="button"
               onClick={() => setViewMode("list")}
+              aria-pressed={viewMode === "list"}
               className={[
                 "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
                 viewMode === "list"
@@ -102,6 +104,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             <button
               type="button"
               onClick={() => setViewMode("analytics")}
+              aria-pressed={viewMode === "analytics"}
               className={[
                 "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
                 viewMode === "analytics"
@@ -112,7 +115,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
               <BarChart3 className="h-3.5 w-3.5" />
               分析
             </button>
-          </div>
+          </fieldset>
         </div>
       </div>
 
@@ -255,6 +258,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                   size="sm"
                   onClick={handleCloseDetail}
                   className="h-8 w-8 p-0"
+                  aria-label="回答詳細を閉じる"
                 >
                   <X className="h-4 w-4" />
                 </Button>
