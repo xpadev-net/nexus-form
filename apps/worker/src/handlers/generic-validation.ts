@@ -15,7 +15,7 @@ import {
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
-import { withRedisLock } from "../lib/redis-lock";
+import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -64,15 +64,12 @@ const DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS = 120_000;
 const DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS = 125_000;
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
+  const value = Math.trunc(Number(process.env[name]));
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function isRedisLockAcquireTimeout(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    error.message.startsWith("Failed to acquire redis lock")
-  );
+  return error instanceof RedisLockAcquireTimeoutError;
 }
 
 const providerErrorSchema = z

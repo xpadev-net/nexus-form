@@ -52,11 +52,27 @@ vi.mock("../../lib/validation-helpers", () => {
   };
 });
 
-vi.mock("../../lib/redis-lock", () => ({
-  withRedisLock: vi.fn(async (_key, fn) => fn()),
-}));
+vi.mock("../../lib/redis-lock", () => {
+  class RedisLockAcquireTimeoutError extends Error {
+    constructor(
+      public readonly key: string,
+      public readonly waitTimeoutMs: number,
+    ) {
+      super(`Failed to acquire redis lock "${key}" within ${waitTimeoutMs}ms`);
+      this.name = "RedisLockAcquireTimeoutError";
+    }
+  }
 
-import { withRedisLock } from "../../lib/redis-lock";
+  return {
+    RedisLockAcquireTimeoutError,
+    withRedisLock: vi.fn(async (_key, fn) => fn()),
+  };
+});
+
+import {
+  RedisLockAcquireTimeoutError,
+  withRedisLock,
+} from "../../lib/redis-lock";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -334,8 +350,9 @@ describe("handleGenericValidation", () => {
 
   it("Discord validation の Redis lock 取得タイムアウトはリトライ可能エラーとして再スローする", async () => {
     mockWithRedisLock.mockRejectedValueOnce(
-      new Error(
-        'Failed to acquire redis lock "nexus-form:discord-validation-api" within 125000ms',
+      new RedisLockAcquireTimeoutError(
+        "nexus-form:discord-validation-api",
+        125_000,
       ),
     );
     const rule = makeRule();
