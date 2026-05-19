@@ -21,7 +21,6 @@ import { authRouteRateLimiter } from "./lib/rate-limit";
 import { captureError, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
-import { avatarRouter } from "./routes/avatar";
 import { csrfRouter } from "./routes/csrf";
 import { externalServiceRouter } from "./routes/external-service";
 import { fingerprintRouter } from "./routes/fingerprint";
@@ -131,7 +130,6 @@ const app = new Hono()
   .route("/api/services", servicesRouter)
   .route("/api/sessions", sessionsRouter)
   .route("/api/csrf", csrfRouter)
-  .route("/api/avatar", avatarRouter)
   .route("/api/validation-providers", validationProvidersRouter)
   // 未捕捉エラーの集約ハンドラ。レスポンススキーマの `.parse()` が投げる
   // ZodError などをログ／Sentry に送り、構造化された 500 を返す。
