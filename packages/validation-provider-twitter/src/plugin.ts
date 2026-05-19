@@ -134,6 +134,8 @@ async function pingTwitterApi(): Promise<boolean> {
       method: "GET",
       signal: controller.signal,
     });
+    // 401/403 = auth failures, 404 = probe user missing, 429 = throttled;
+    // all still prove the Twitter API endpoint is reachable.
     return res.ok || [401, 403, 404, 429].includes(res.status);
   } catch {
     return false;

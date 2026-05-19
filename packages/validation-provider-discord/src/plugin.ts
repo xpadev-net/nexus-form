@@ -193,9 +193,9 @@ const guildMemberRule: ValidationProviderRule = {
     displayName: "Discord",
     pattern: "^[a-z0-9_.]{2,32}$",
     errorMessage:
-      "Discordのユーザー名形式で入力してください（2-32文字の英数字、アンダースコア、ピリオド）",
+      "Discordのユーザー名形式で入力してください（2-32文字の小文字英数字、アンダースコア、ピリオド）",
     placeholder: "username",
-    description: "2-32文字の英数字、アンダースコア、ピリオド",
+    description: "2-32文字の小文字英数字、アンダースコア、ピリオド",
     minLength: 2,
     maxLength: 32,
     externalService: "discord",
