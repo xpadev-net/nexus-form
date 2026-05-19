@@ -127,4 +127,21 @@ describe("GET /api/forms/invites/:token", () => {
     });
     expect(mocks.select).not.toHaveBeenCalled();
   });
+
+  it("rejects malformed accept tokens before accepting", async () => {
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/forms/invites/not-an-email/accept",
+      {
+        method: "POST",
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid invite token",
+    });
+    expect(mocks.acceptInvitation).not.toHaveBeenCalled();
+  });
 });
