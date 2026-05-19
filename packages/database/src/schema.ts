@@ -1,7 +1,7 @@
 import {
   FORM_STATUS_VALUES,
   VALIDATION_STATUS_VALUES,
-} from "@nexus-form/shared";
+} from "@nexus-form/shared/constants/status";
 import { relations } from "drizzle-orm";
 import {
   boolean,
