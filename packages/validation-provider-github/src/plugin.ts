@@ -14,6 +14,12 @@ const GitHubInputSchema = z
   .regex(/^[a-zA-Z\d](?:[a-zA-Z\d]|-(?=[a-zA-Z\d])){0,38}$/);
 
 const GitHubConfigSchema = z.object({}).strict();
+const RETRYABLE_GITHUB_ERROR_CODES = new Set<GitHubErrorCode>([
+  GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+  GitHubErrorCode.NETWORK_ERROR,
+  GitHubErrorCode.TIMEOUT,
+]);
+const RETRYABLE_GITHUB_HTTP_STATUSES = new Set([500, 502, 503, 504]);
 
 const GitHubMetadataSchema = z.object({
   username: z.string(),
@@ -108,6 +114,10 @@ const userExistsRule: ValidationProviderRule = {
           isValid: false,
           errorCode: error.code,
           errorMessage: error.message,
+          retryable:
+            RETRYABLE_GITHUB_ERROR_CODES.has(error.code) ||
+            (error.status != null &&
+              RETRYABLE_GITHUB_HTTP_STATUSES.has(error.status)),
           ...(error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
             ? {
                 retryAfter:

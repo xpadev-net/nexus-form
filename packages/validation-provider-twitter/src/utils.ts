@@ -1,5 +1,13 @@
 import { TwitterErrorCode, type TwitterValidationError } from "./error-codes";
 
+const RETRYABLE_NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "ECONNABORTED",
+]);
+
 export function normalizeTwitterUsername(username: string): string {
   return username.trim().replace(/^@/, "").toLowerCase();
 }
@@ -83,9 +91,7 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
     error &&
     typeof error === "object" &&
     "code" in error &&
-    ((error as { code?: string }).code === "ECONNREFUSED" ||
-      (error as { code?: string }).code === "ETIMEDOUT" ||
-      (error as { code?: string }).code === "ENOTFOUND")
+    RETRYABLE_NETWORK_ERROR_CODES.has((error as { code?: string }).code ?? "")
   ) {
     return {
       code: TwitterErrorCode.NETWORK_ERROR,

@@ -1,5 +1,13 @@
 import { GitHubErrorCode } from "./error-codes";
 
+const RETRYABLE_NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "ECONNABORTED",
+]);
+
 export interface OctokitRequestError extends Error {
   status?: number;
   response?: {
@@ -14,12 +22,19 @@ export interface OctokitRequestError extends Error {
 export class GitHubProviderError extends Error {
   readonly code: GitHubErrorCode;
   readonly retryAfter?: number;
+  readonly status?: number;
 
-  constructor(message: string, code: GitHubErrorCode, retryAfter?: number) {
+  constructor(
+    message: string,
+    code: GitHubErrorCode,
+    retryAfter?: number,
+    status?: number,
+  ) {
     super(message);
     this.name = "GitHubProviderError";
     this.code = code;
     this.retryAfter = retryAfter;
+    this.status = status;
   }
 }
 
@@ -104,6 +119,17 @@ export function isGitHubUserNotFoundError(error: unknown): boolean {
   return getNumberProperty(error, "status") === 404;
 }
 
+/**
+ * Extracts a numeric GitHub API status from an unknown error shape.
+ *
+ * For example, `{ status: 503 }` returns `503`, while `{ status: "503" }`
+ * returns `null`. Extraction and validation are delegated to
+ * `getNumberProperty`.
+ */
+export function getGitHubErrorStatus(error: unknown): number | null {
+  return getNumberProperty(error, "status");
+}
+
 export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
   const resetHeader = getHeaderValue(getGitHubErrorHeaders(error), [
     "x-ratelimit-reset",
@@ -150,7 +176,7 @@ export function getGitHubErrorCode(error: unknown): GitHubErrorCode {
   ) {
     const code = getStringProperty(error, "code");
     const errno = getStringOrNumberProperty(error, "errno");
-    if (code === "ECONNREFUSED" || code === "ENOTFOUND")
+    if (RETRYABLE_NETWORK_ERROR_CODES.has(code ?? ""))
       return GitHubErrorCode.NETWORK_ERROR;
     if (code === "ETIMEDOUT" || errno === "ETIMEDOUT")
       return GitHubErrorCode.TIMEOUT;

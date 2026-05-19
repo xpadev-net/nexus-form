@@ -4,6 +4,7 @@ import { GitHubErrorCode } from "./error-codes";
 import {
   GitHubProviderError,
   getGitHubErrorCode,
+  getGitHubErrorStatus,
   getGitHubRateLimitRetryAfter,
   isGitHubUserNotFoundError,
   parseGitHubError,
@@ -73,6 +74,7 @@ export class GitHubApiClient {
 
       const errorCode = getGitHubErrorCode(error);
       const errorMessage = parseGitHubError(error);
+      const status = getGitHubErrorStatus(error);
 
       if (errorCode === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
         const retryAfter = getGitHubRateLimitRetryAfter(error);
@@ -84,10 +86,16 @@ export class GitHubApiClient {
           enhancedMessage,
           errorCode,
           retryAfter ?? undefined,
+          status ?? undefined,
         );
       }
 
-      throw new GitHubProviderError(errorMessage, errorCode);
+      throw new GitHubProviderError(
+        errorMessage,
+        errorCode,
+        undefined,
+        status ?? undefined,
+      );
     }
   }
 

@@ -95,6 +95,88 @@ describe("twitterProvider.rules.user_exists.validate", () => {
       isValid: false,
       errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
       retryAfter: 60,
+      retryable: true,
+    });
+  });
+
+  it("marks Twitter 5xx API errors as retryable", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce({
+      response: {
+        status: 503,
+        data: { title: "Service unavailable" },
+      },
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_ERROR,
+      errorMessage: "Service unavailable",
+      retryable: true,
+    });
+  });
+
+  it.each([
+    "ECONNREFUSED",
+    "ENOTFOUND",
+    "ECONNRESET",
+    "EAI_AGAIN",
+    "ECONNABORTED",
+  ])("marks Twitter %s network errors as retryable", async (code) => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      Object.assign(new Error("Temporary network failure"), { code }),
+    );
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.NETWORK_ERROR,
+      retryable: true,
+    });
+  });
+
+  it("marks Twitter ETIMEDOUT errors as timeout errors", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      Object.assign(new Error("Timed out"), { code: "ETIMEDOUT" }),
+    );
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TIMEOUT,
+      retryable: true,
+    });
+  });
+
+  it("keeps Twitter authentication errors non-retryable", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce({
+      response: {
+        status: 401,
+        data: { title: "Unauthorized" },
+      },
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_AUTH_FAILED,
+      retryable: false,
     });
   });
 });

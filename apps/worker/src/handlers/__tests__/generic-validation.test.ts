@@ -106,6 +106,7 @@ function makeJob(data: {
   snapshotProviderName?: string;
   snapshotRuleType?: string;
   snapshotConfigJson?: Record<string, unknown>;
+  retryAfterCount?: number;
 }): Job {
   return {
     id: "job-1",
@@ -115,7 +116,9 @@ function makeJob(data: {
       snapshotConfigJson: { raw: "value" },
       ...data,
     },
+    opts: { attempts: 3 },
     moveToDelayed: vi.fn().mockResolvedValue(undefined),
+    updateData: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
 }
 
@@ -425,10 +428,162 @@ describe("handleGenericValidation", () => {
       expect.any(Number),
       "lock-token",
     );
+    expect(job.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({ retryAfterCount: 1 }),
+    );
     const delayedUntil = vi.mocked(job.moveToDelayed).mock.calls[0]?.[0];
     expect(delayedUntil).toBeGreaterThanOrEqual(before + 30_000);
     expect(delayedUntil).toBeLessThanOrEqual(Date.now() + 30_000);
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("retryAfter が上限回数に到達した場合は FAILED として確定する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        retryable: true,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      retryAfterCount: 3,
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    );
+  });
+
+  it("retryAfter が上限回数の直前なら遅延再試行する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        retryable: true,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      retryAfterCount: 2,
+    });
+
+    await expect(
+      handleGenericValidation(job, "lock-token"),
+    ).rejects.toBeInstanceOf(DelayedError);
+    expect(job.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({ retryAfterCount: 3 }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("backward-compat retryAfter が上限回数に到達した場合は FAILED として確定する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      retryAfterCount: 3,
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    );
+  });
+
+  it("retryable result without retryAfter is thrown for BullMQ retry", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: "Temporary network error",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Temporary network error",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("成功 result に retryable が付いていても成功として処理する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: true,
+        retryable: true,
+        retryAfter: 30,
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({ ok: true, provider: "test-provider" });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+      }),
+    );
   });
 
   it("retryAfter が負数の場合は遅延再試行として扱わない", async () => {
@@ -454,6 +609,37 @@ describe("handleGenericValidation", () => {
       expect.objectContaining({
         success: false,
         errorCode: "RATE_LIMIT_INVALID_RETRY_AFTER",
+      }),
+    );
+  });
+
+  it("retryable false の retryAfter は遅延再試行として扱わない", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        retryable: false,
+        errorCode: "PERMANENT_ERROR",
+        errorMessage: "Permanent failure",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({ ok: false, provider: "test-provider" });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "PERMANENT_ERROR",
+        errorMessage: "Permanent failure",
       }),
     );
   });

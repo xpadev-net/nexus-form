@@ -97,13 +97,15 @@ const userExistsRule: ValidationProviderRule = {
           errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
           errorMessage: "Twitter API rate limit exceeded",
           retryAfter: parsed.retryAfterSeconds || 60,
+          retryable: true,
         };
       }
 
       return {
         isValid: false,
-        errorCode: TwitterErrorCode.TWITTER_API_ERROR,
+        errorCode: parsed.code,
         errorMessage: parsed.message,
+        retryable: parsed.retryable,
       };
     }
   },

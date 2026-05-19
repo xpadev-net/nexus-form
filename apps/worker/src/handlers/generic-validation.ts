@@ -62,6 +62,8 @@ const DISCORD_PROVIDER_NAME = "discord";
 const DISCORD_VALIDATION_LOCK_KEY = "nexus-form:discord-validation-api";
 const DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS = 120_000;
 const DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS = 125_000;
+const DEFAULT_MAX_RETRY_AFTER_SECONDS = 300;
+const DEFAULT_RETRY_AFTER_MAX_ATTEMPTS = 3;
 
 function readPositiveIntegerEnv(name: string, fallback: number): number {
   const value = Math.trunc(Number(process.env[name]));
@@ -70,6 +72,21 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 
 function isRedisLockAcquireTimeout(error: unknown): boolean {
   return error instanceof RedisLockAcquireTimeoutError;
+}
+
+function getRetryAfterAttemptsLimit(): number {
+  return readPositiveIntegerEnv(
+    "VALIDATION_RETRY_AFTER_MAX_ATTEMPTS",
+    DEFAULT_RETRY_AFTER_MAX_ATTEMPTS,
+  );
+}
+
+function getRetryAfterSeconds(retryAfter: number): number {
+  const maxRetryAfterSeconds = readPositiveIntegerEnv(
+    "VALIDATION_RETRY_AFTER_MAX_SECONDS",
+    DEFAULT_MAX_RETRY_AFTER_SECONDS,
+  );
+  return Math.min(Math.ceil(retryAfter), maxRetryAfterSeconds);
 }
 
 const providerErrorSchema = z
@@ -329,8 +346,66 @@ export const handleGenericValidation = async (
   }
   const result = resultParse.data;
 
-  if (result.retryAfter != null && result.retryAfter > 0) {
-    await job.moveToDelayed(Date.now() + result.retryAfter * 1000, token);
+  if (!result.isValid && result.retryable) {
+    if (result.retryAfter != null && result.retryAfter > 0) {
+      const retryAfterCount = jobData.retryAfterCount ?? 0;
+      if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
+        await writeValidationResult({
+          responseId,
+          formId,
+          ruleId,
+          referencedBlockId,
+          service: serviceType,
+          success: false,
+          errorCode: result.errorCode ?? "VALIDATION_RETRY_EXHAUSTED",
+          errorMessage:
+            result.errorMessage ?? "Retryable validation result exhausted",
+          jobId: job.id?.toString(),
+        });
+        return { ok: false, error: "Retryable validation result exhausted" };
+      }
+
+      const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
+      await job.updateData({
+        ...job.data,
+        retryAfterCount: retryAfterCount + 1,
+      });
+      await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
+      throw new DelayedError();
+    }
+
+    throw new Error(result.errorMessage ?? "Retryable validation result");
+  }
+
+  if (
+    !result.isValid &&
+    result.retryable !== false &&
+    result.retryAfter != null &&
+    result.retryAfter > 0
+  ) {
+    const retryAfterCount = jobData.retryAfterCount ?? 0;
+    if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
+      await writeValidationResult({
+        responseId,
+        formId,
+        ruleId,
+        referencedBlockId,
+        service: serviceType,
+        success: false,
+        errorCode: result.errorCode ?? "VALIDATION_RETRY_EXHAUSTED",
+        errorMessage:
+          result.errorMessage ?? "Retryable validation result exhausted",
+        jobId: job.id?.toString(),
+      });
+      return { ok: false, error: "Retryable validation result exhausted" };
+    }
+
+    const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
+    await job.updateData({
+      ...job.data,
+      retryAfterCount: retryAfterCount + 1,
+    });
+    await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
     throw new DelayedError();
   }
 
