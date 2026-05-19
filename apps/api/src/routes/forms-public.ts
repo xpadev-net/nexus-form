@@ -46,9 +46,12 @@ import {
   verifySessionJwt,
 } from "../lib/sessions/jwt";
 import { consumeTokensOrThrow } from "../lib/telemetry/tokens";
+import { errorResponse } from "../types/domain/common";
 import type { FormSnapshot } from "../types/domain/form-snapshot";
 import {
+  PasswordRequiredErrorResponseSchema,
   PublicFormResponseSchema,
+  PublicSubmitLimitErrorResponseSchema,
   PublicSubmitResponseSchema,
   SharedFormResponseSchema,
   VerifyPasswordResponseSchema,
@@ -183,7 +186,7 @@ export const formsPublicRouter = createHonoApp()
       .where(eq(form.publicId, publicId))
       .limit(1);
 
-    if (!target) return c.json({ error: "Form not found" }, 404);
+    if (!target) return c.json(errorResponse("Form not found"), 404);
 
     const scheduleResult = await processFormSchedule(target.id).catch((error) =>
       logFormScheduleError(error, {
@@ -197,7 +200,7 @@ export const formsPublicRouter = createHonoApp()
       : target.status;
 
     if (currentStatus !== "PUBLISHED")
-      return c.json({ error: "Form not found" }, 404);
+      return c.json(errorResponse("Form not found"), 404);
 
     const [[structure], activeSnapshot] = await Promise.all([
       db
@@ -258,7 +261,7 @@ export const formsPublicRouter = createHonoApp()
         remoteip: ip,
       });
       if (!captchaValid) {
-        return c.json({ error: "Captcha verification failed" }, 403);
+        return c.json(errorResponse("Captcha verification failed"), 403);
       }
 
       // 2. Look up form
@@ -271,7 +274,7 @@ export const formsPublicRouter = createHonoApp()
         .from(form)
         .where(eq(form.publicId, publicId))
         .limit(1);
-      if (!target) return c.json({ error: "Form not found" }, 404);
+      if (!target) return c.json(errorResponse("Form not found"), 404);
 
       const submitScheduleResult = await processFormSchedule(target.id).catch(
         (error) =>
@@ -285,7 +288,7 @@ export const formsPublicRouter = createHonoApp()
         ? submitScheduleResult.newStatus
         : target.status;
       if (submitStatus !== "PUBLISHED")
-        return c.json({ error: "Form not found" }, 404);
+        return c.json(errorResponse("Form not found"), 404);
 
       const activeSnapshot = await getLatestSnapshot(target.id);
 
@@ -315,7 +318,7 @@ export const formsPublicRouter = createHonoApp()
           publicId,
           errors: answerValidation.errors,
         });
-        return c.json({ error: "Invalid response data" }, 400);
+        return c.json(errorResponse("Invalid response data"), 400);
       }
 
       // 4. Verify and consume telemetry tokens
@@ -327,7 +330,10 @@ export const formsPublicRouter = createHonoApp()
       try {
         await consumeTokensOrThrow(telemetryTokens);
       } catch {
-        return c.json({ error: "Invalid or expired telemetry tokens" }, 403);
+        return c.json(
+          errorResponse("Invalid or expired telemetry tokens"),
+          403,
+        );
       }
 
       // 5. Load form structure for password/response limit checks
@@ -360,7 +366,7 @@ export const formsPublicRouter = createHonoApp()
             { formId: target.id, publicId },
           );
           return c.json(
-            { error: "Form password protection is misconfigured" },
+            errorResponse("Form password protection is misconfigured"),
             500,
           );
         }
@@ -371,11 +377,11 @@ export const formsPublicRouter = createHonoApp()
 
         if (!isVerified) {
           return c.json(
-            {
+            PasswordRequiredErrorResponseSchema.parse({
               error: "Password verification required",
               passwordRequired: true,
               passwordHint: pwProtection.password_hint,
-            },
+            }),
             403,
           );
         }
@@ -386,7 +392,7 @@ export const formsPublicRouter = createHonoApp()
       const requireFingerprint =
         parsedStructure?.settings?.require_fingerprint ?? true;
       if (requireFingerprint && payload.fingerprints.length === 0) {
-        return c.json({ error: "Fingerprint data is required" }, 400);
+        return c.json(errorResponse("Fingerprint data is required"), 400);
       }
       const fingerprints = requireFingerprint ? payload.fingerprints : [];
 
@@ -454,10 +460,10 @@ export const formsPublicRouter = createHonoApp()
 
       if (insertResult.limitReached) {
         return c.json(
-          {
+          PublicSubmitLimitErrorResponseSchema.parse({
             error: insertResult.message,
             responseLimitReached: true,
-          },
+          }),
           403,
         );
       }
@@ -512,7 +518,7 @@ export const formsPublicRouter = createHonoApp()
         .from(form)
         .where(eq(form.publicId, publicId))
         .limit(1);
-      if (!target) return c.json({ error: "Form not found" }, 404);
+      if (!target) return c.json(errorResponse("Form not found"), 404);
 
       const [structure] = await db
         .select({ structureJson: formStructure.structureJson })
@@ -546,7 +552,7 @@ export const formsPublicRouter = createHonoApp()
           { formId: target.id, publicId },
         );
         return c.json(
-          { error: "Form password protection is misconfigured" },
+          errorResponse("Form password protection is misconfigured"),
           500,
         );
       }
@@ -593,7 +599,7 @@ export const formsPublicRouter = createHonoApp()
     try {
       result = await validateShareLink(token);
     } catch {
-      return c.json({ error: "Share link not found" }, 404);
+      return c.json(errorResponse("Share link not found"), 404);
     }
 
     const { share_link } = result;
