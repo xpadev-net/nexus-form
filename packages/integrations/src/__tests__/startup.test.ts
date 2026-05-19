@@ -269,6 +269,7 @@ describe("startupPlugins plugin drift guard", () => {
     await vi.advanceTimersByTimeAsync(10);
 
     expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+    expect(store.values.has("test:plugins:api")).toBe(true);
     await handle?.stop();
   });
 

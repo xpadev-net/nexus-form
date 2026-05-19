@@ -163,6 +163,7 @@ async function publishAndAssertPluginManifest(
   pluginHashes: string[],
   guard: PluginDriftGuardOptions,
   logPrefix: string,
+  deleteCurrentManifestOnError = true,
 ): Promise<void> {
   const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
   const ttlSeconds = guard.ttlSeconds ?? PLUGIN_DRIFT_TTL_SECONDS;
@@ -224,13 +225,15 @@ async function publishAndAssertPluginManifest(
     console.warn(`[${logPrefix}] ${message}`);
   } catch (error) {
     if (guard.failOnMismatch ?? true) {
-      try {
-        await guard.store.del(currentKey);
-      } catch (cleanupError) {
-        console.warn(
-          `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
-          cleanupError,
-        );
+      if (deleteCurrentManifestOnError) {
+        try {
+          await guard.store.del(currentKey);
+        } catch (cleanupError) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest after startup failure:`,
+            cleanupError,
+          );
+        }
       }
       throw error;
     }
@@ -262,6 +265,7 @@ function startPluginDriftGuardRefresh(
       pluginHashes,
       guard,
       logPrefix,
+      false,
     )
       .catch((error: unknown) => {
         if (stopped) {
