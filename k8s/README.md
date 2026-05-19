@@ -112,13 +112,25 @@ openssl rand -base64 32
 
 **機密情報として管理すべき項目**:
 - データベース: `DATABASE_URL` - MySQL接続文字列（パスワードを含む）
-- 認証関連: `AUTH_SECRET`, `CSRF_SECRET`, `SESSION_ALIAS_SALT`, `SESSION_IP_SALT`
+- 認証関連: `AUTH_SECRET`, `CSRF_SECRET`, `SESSION_ALIAS_SALT`, `SESSION_IP_SALT`, `GOOGLE_OAUTH_ENC_KEY`
 - hCaptcha: `HCAPTCHA_SECRET_KEY` - hCaptcha検証用のシークレットキー（必須、hCaptchaを使用する場合）
 - Discord: `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 - GitHub: `GITHUB_PRIVATE_KEY`, `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`
 - S3: `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
 - Twitter: `TWITTER_BEARER_TOKEN`, `TWITTER_API_KEY`, `TWITTER_API_SECRET`, `TWITTER_ACCESS_TOKEN`, `TWITTER_ACCESS_TOKEN_SECRET`
 - Redis: `REDIS_PASSWORD`（使用する場合）
+
+##### Google OAuth 暗号鍵
+
+`GOOGLE_OAUTH_ENC_KEY` は Google OAuth token を AES-256-GCM 用の 32 byte 鍵へ派生するための必須 Secret です。API が token を暗号化し、Worker が Sheets 同期時に復号するため、API Deployment とすべての Worker Deployment は同じ `nexus-form-secrets` から同一値を読み込む必要があります。
+
+新規環境では 32 byte 以上のランダム値を生成して設定してください。
+
+```bash
+openssl rand -base64 32
+```
+
+この値を変更すると、変更前の値で暗号化済みの OAuth token は復号できなくなります。ローテーションする場合は、既存 token の再暗号化または再認可を先に完了し、API と Worker を同じ Secret revision で同時にロールアウトしてください。Kubernetes の環境変数は Secret 更新だけでは既存 Pod に反映されないため、Secret 更新後は API とすべての Worker Deployment を `rollout restart` します。片方だけ先に更新すると暗号化・復号の鍵がずれ、Sheets 同期が失敗します。
 
 **重要**: 
 - `secret.yaml`には機密情報が含まれるため、Gitにコミットしないでください
@@ -352,4 +364,3 @@ APIサーバーにはliveness probe（`/api/health`）とreadiness probe（`/api
 ### 環境別の設定
 
 `overlays/`ディレクトリに新しい環境用のオーバーレイを作成し、環境固有の設定を追加できます。
-

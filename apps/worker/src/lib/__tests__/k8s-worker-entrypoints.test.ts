@@ -14,6 +14,11 @@ const workerDeployments = [
   ["bullmq-sheets-deployment.yaml", "google-sheets-sync"],
 ] as const;
 
+const apiAndWorkerDeploymentManifests = [
+  "api-deployment.yaml",
+  ...workerDeployments.map(([manifestName]) => manifestName),
+] as const;
+
 function readManifest(manifestName: string): string {
   return readFileSync(resolve(repoRoot, "k8s/base", manifestName), "utf8");
 }
@@ -46,6 +51,27 @@ function readWorkerQueuesEnv(manifestName: string): string {
   return envValue.groups.value;
 }
 
+function readSecretNameWithGoogleOAuthKey(): string {
+  const manifest = readManifest("secret.yaml");
+  const secretName = manifest.match(
+    /^metadata:\s*\n(?:^\s{2}.+\n)*?^\s{2}name:\s*(?<name>\S+)\s*$/m,
+  )?.groups?.name;
+  if (!secretName) {
+    throw new Error("Missing Secret metadata.name in secret.yaml");
+  }
+  if (!/^\s{2}GOOGLE_OAUTH_ENC_KEY:\s*/m.test(manifest)) {
+    throw new Error("Missing GOOGLE_OAUTH_ENC_KEY in secret.yaml stringData");
+  }
+  return secretName;
+}
+
+function readDeploymentSecretRefs(manifestName: string): string[] {
+  const manifest = readManifest(manifestName);
+  return Array.from(
+    manifest.matchAll(/^\s*-\s*secretRef:\s*\n\s*name:\s*(?<name>\S+)/gm),
+  ).map((match) => match.groups?.name ?? "");
+}
+
 describe("k8s worker deployments", () => {
   it.each(
     workerDeployments,
@@ -61,7 +87,11 @@ describe("k8s worker deployments", () => {
     expect(readWorkerQueuesEnv(manifestName)).toBe(expectedQueue);
   });
 
-  it("defines the Google OAuth encryption key required by worker startup", () => {
-    expect(readManifest("secret.yaml")).toContain("GOOGLE_OAUTH_ENC_KEY:");
+  it.each(
+    apiAndWorkerDeploymentManifests,
+  )("%s injects the shared secret for Google OAuth encryption", (manifestName) => {
+    const secretName = readSecretNameWithGoogleOAuthKey();
+
+    expect(readDeploymentSecretRefs(manifestName)).toContain(secretName);
   });
 });
