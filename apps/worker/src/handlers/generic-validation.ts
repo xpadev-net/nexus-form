@@ -349,7 +349,7 @@ export const handleGenericValidation = async (
   if (!result.isValid && result.retryable) {
     if (result.retryAfter != null && result.retryAfter > 0) {
       const retryAfterCount = jobData.retryAfterCount ?? 0;
-      if (retryAfterCount >= getRetryAfterAttemptsLimit() - 1) {
+      if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
         await writeValidationResult({
           responseId,
           formId,
@@ -384,7 +384,7 @@ export const handleGenericValidation = async (
     result.retryAfter > 0
   ) {
     const retryAfterCount = jobData.retryAfterCount ?? 0;
-    if (retryAfterCount >= getRetryAfterAttemptsLimit() - 1) {
+    if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
       await writeValidationResult({
         responseId,
         formId,

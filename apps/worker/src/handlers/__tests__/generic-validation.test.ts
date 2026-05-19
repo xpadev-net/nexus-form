@@ -452,7 +452,72 @@ describe("handleGenericValidation", () => {
       responseId: "r-1",
       ruleId: "rule-1",
       referencedBlockId: "block-a",
+      retryAfterCount: 3,
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    );
+  });
+
+  it("retryAfter が上限回数の直前なら遅延再試行する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        retryable: true,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
       retryAfterCount: 2,
+    });
+
+    await expect(
+      handleGenericValidation(job, "lock-token"),
+    ).rejects.toBeInstanceOf(DelayedError);
+    expect(job.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({ retryAfterCount: 3 }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("backward-compat retryAfter が上限回数に到達した場合は FAILED として確定する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate limited",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      retryAfterCount: 3,
     });
 
     const result = await handleGenericValidation(job, "lock-token");

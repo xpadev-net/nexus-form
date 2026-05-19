@@ -119,6 +119,13 @@ export function isGitHubUserNotFoundError(error: unknown): boolean {
   return getNumberProperty(error, "status") === 404;
 }
 
+/**
+ * Extracts a numeric GitHub API status from an unknown error shape.
+ *
+ * For example, `{ status: 503 }` returns `503`, while `{ status: "503" }`
+ * returns `null`. Extraction and validation are delegated to
+ * `getNumberProperty`.
+ */
 export function getGitHubErrorStatus(error: unknown): number | null {
   return getNumberProperty(error, "status");
 }

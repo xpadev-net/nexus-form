@@ -121,6 +121,8 @@ describe("twitterProvider.rules.user_exists.validate", () => {
   });
 
   it.each([
+    "ECONNREFUSED",
+    "ENOTFOUND",
     "ECONNRESET",
     "EAI_AGAIN",
     "ECONNABORTED",

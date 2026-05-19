@@ -140,6 +140,28 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     });
   });
 
+  it("marks Discord 5xx responses as retryable", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: vi.fn().mockResolvedValue({ message: "Server error" }),
+      }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      retryable: true,
+    });
+  });
+
   it("keeps Discord authentication failures non-retryable", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(

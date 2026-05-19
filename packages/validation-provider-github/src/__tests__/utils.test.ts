@@ -84,7 +84,7 @@ describe("GitHub error utilities", () => {
     "ECONNRESET",
     "EAI_AGAIN",
     "ECONNABORTED",
-  ])("classifies %s as a retryable network error", (code) => {
+  ])("classifies %s as a retryable network error", (code: string) => {
     expect(getGitHubErrorCode({ code })).toBe(GitHubErrorCode.NETWORK_ERROR);
   });
 
