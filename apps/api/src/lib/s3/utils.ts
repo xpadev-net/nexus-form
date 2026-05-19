@@ -62,6 +62,58 @@ export const S3_BUCKETS = {
 } as const;
 
 /**
+ * Checks whether a value is a non-null, non-array object.
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reads a string property from an object-shaped error.
+ */
+function getStringProperty(
+  value: Record<string, unknown>,
+  property: string,
+): string | undefined {
+  const propertyValue = value[property];
+  return typeof propertyValue === "string" ? propertyValue : undefined;
+}
+
+/**
+ * Extracts the numeric AWS SDK HTTP status code from error metadata.
+ */
+function getHttpStatusCode(error: Record<string, unknown>): number | undefined {
+  const metadata = error.$metadata;
+  if (!isRecord(metadata)) {
+    return undefined;
+  }
+
+  return typeof metadata.httpStatusCode === "number"
+    ? metadata.httpStatusCode
+    : undefined;
+}
+
+/**
+ * Returns true only for S3 not-found responses from HeadObject.
+ */
+function isS3NotFoundError(error: unknown): boolean {
+  if (!isRecord(error)) {
+    return false;
+  }
+
+  if (getHttpStatusCode(error) === 404) {
+    return true;
+  }
+
+  const errorCodes = [
+    getStringProperty(error, "name"),
+    getStringProperty(error, "Code"),
+  ];
+
+  return errorCodes.some((code) => code === "NotFound" || code === "NoSuchKey");
+}
+
+/**
  * オブジェクトの存在確認
  * @param bucket バケット名
  * @param key オブジェクトキー
@@ -79,8 +131,12 @@ export async function objectExists(
       }),
     );
     return true;
-  } catch (_error) {
-    return false;
+  } catch (error) {
+    if (isS3NotFoundError(error)) {
+      return false;
+    }
+
+    throw error;
   }
 }
 
@@ -105,12 +161,7 @@ export async function getObject(
     throw new Error("Object not found");
   }
 
-  // BodyをUint8Arrayに変換
-  const _chunks: Uint8Array[] = [];
-  const reader = await response.Body.transformToByteArray();
-
-  // 単一のUint8Arrayとして返す
-  return reader;
+  return await response.Body.transformToByteArray();
 }
 
 /**
