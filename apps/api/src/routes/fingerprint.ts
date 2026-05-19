@@ -12,6 +12,7 @@ import {
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
 import { createHonoApp } from "../lib/hono";
+import { errorResponse } from "../types/domain/common";
 import {
   AnonymizedFingerprintsResponseSchema,
   FingerprintDeleteResponseSchema,
@@ -19,6 +20,7 @@ import {
   FingerprintManageResponseSchema,
   FingerprintSaveResponseSchema,
   RetentionCleanupResponseSchema,
+  RetentionConfigErrorResponseSchema,
   RetentionGetResponseSchema,
   RetentionUpdateResponseSchema,
 } from "../types/domain/fingerprint";
@@ -71,18 +73,18 @@ export const fingerprintRouter = createHonoApp()
     async (c) => {
       const payload = c.req.valid("json");
       const context = c.get("dualAuthContext");
-      if (!context) return c.json({ error: "Unauthorized" }, 401);
+      if (!context) return c.json(errorResponse("Unauthorized"), 401);
 
       const [response] = await db
         .select({ id: formResponse.id, formId: formResponse.formId })
         .from(formResponse)
         .where(eq(formResponse.id, payload.responseId))
         .limit(1);
-      if (!response) return c.json({ error: "Response not found" }, 404);
+      if (!response) return c.json(errorResponse("Response not found"), 404);
 
       const hasAccess = await hasEditPermission(context, response.formId);
       if (!hasAccess) {
-        return c.json({ error: "Access denied to this form" }, 403);
+        return c.json(errorResponse("Access denied to this form"), 403);
       }
 
       await db.transaction(async (tx) => {
@@ -126,14 +128,14 @@ export const fingerprintRouter = createHonoApp()
     async (c) => {
       const { responseId, formId } = c.req.valid("query");
       const context = c.get("dualAuthContext");
-      if (!context) return c.json({ error: "Unauthorized" }, 401);
+      if (!context) return c.json(errorResponse("Unauthorized"), 401);
 
       let fingerprintWhere: SQL;
       // フォームアクセス権チェック
       if (formId) {
         const hasAccess = await checkFormAccess(context, formId);
         if (!hasAccess) {
-          return c.json({ error: "Access denied to this form" }, 403);
+          return c.json(errorResponse("Access denied to this form"), 403);
         }
         fingerprintWhere = responseId
           ? eq(fingerprintDetail.responseId, responseId)
@@ -145,15 +147,15 @@ export const fingerprintRouter = createHonoApp()
           .where(eq(formResponse.id, responseId))
           .limit(1);
         if (!resp) {
-          return c.json({ error: "Response not found" }, 404);
+          return c.json(errorResponse("Response not found"), 404);
         }
         const hasAccess = await checkFormAccess(context, resp.formId);
         if (!hasAccess) {
-          return c.json({ error: "Access denied to this form" }, 403);
+          return c.json(errorResponse("Access denied to this form"), 403);
         }
         fingerprintWhere = eq(fingerprintDetail.responseId, responseId);
       } else {
-        return c.json({ error: "responseId or formId is required" }, 400);
+        return c.json(errorResponse("responseId or formId is required"), 400);
       }
 
       const rows = await db
@@ -183,16 +185,16 @@ export const fingerprintRouter = createHonoApp()
     async (c) => {
       const { responseId, formId, includeStats } = c.req.valid("query");
       const context = c.get("dualAuthContext");
-      if (!context) return c.json({ error: "Unauthorized" }, 401);
+      if (!context) return c.json(errorResponse("Unauthorized"), 401);
       if (!responseId && !formId) {
-        return c.json({ error: "responseId or formId is required" }, 400);
+        return c.json(errorResponse("responseId or formId is required"), 400);
       }
 
       // フォームアクセス権チェック
       if (formId) {
         const hasAccess = await checkFormAccess(context, formId);
         if (!hasAccess) {
-          return c.json({ error: "Access denied to this form" }, 403);
+          return c.json(errorResponse("Access denied to this form"), 403);
         }
       } else if (responseId) {
         const [resp] = await db
@@ -201,11 +203,11 @@ export const fingerprintRouter = createHonoApp()
           .where(eq(formResponse.id, responseId))
           .limit(1);
         if (!resp) {
-          return c.json({ error: "Response not found" }, 404);
+          return c.json(errorResponse("Response not found"), 404);
         }
         const hasAccess = await checkFormAccess(context, resp.formId);
         if (!hasAccess) {
-          return c.json({ error: "Access denied to this form" }, 403);
+          return c.json(errorResponse("Access denied to this form"), 403);
         }
       }
 
@@ -247,7 +249,7 @@ export const fingerprintRouter = createHonoApp()
       const { responseId, formId, before } = c.req.valid("json");
 
       if (!responseId && !formId && !before) {
-        return c.json({ error: "At least one filter is required" }, 400);
+        return c.json(errorResponse("At least one filter is required"), 400);
       }
 
       const responseIds = formId
@@ -304,7 +306,10 @@ export const fingerprintRouter = createHonoApp()
       const validation = manager.validateConfig(config);
       if (!validation.valid) {
         return c.json(
-          { error: "Invalid config", details: validation.errors },
+          RetentionConfigErrorResponseSchema.parse({
+            error: "Invalid config",
+            details: validation.errors,
+          }),
           400,
         );
       }
