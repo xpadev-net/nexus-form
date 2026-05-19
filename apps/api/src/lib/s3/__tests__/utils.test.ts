@@ -28,8 +28,15 @@ describe("S3 utils", () => {
     it("returns false for a 404 HeadObject response", async () => {
       sendMock.mockRejectedValueOnce({
         $metadata: { httpStatusCode: 404 },
-        name: "NotFound",
       });
+
+      await expect(
+        objectExists("prod-bucket", "prod/missing.png"),
+      ).resolves.toBe(false);
+    });
+
+    it("returns false for AWS NotFound error names", async () => {
+      sendMock.mockRejectedValueOnce({ name: "NotFound" });
 
       await expect(
         objectExists("prod-bucket", "prod/missing.png"),
