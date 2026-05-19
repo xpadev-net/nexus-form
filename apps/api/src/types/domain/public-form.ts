@@ -39,12 +39,31 @@ export const PublicSubmitResponseSchema = z.object({
 });
 export type PublicSubmitResponse = z.infer<typeof PublicSubmitResponseSchema>;
 
+/** POST /public/:publicId/submit の回答上限到達レスポンス。 */
+export const PublicSubmitLimitErrorResponseSchema = z.object({
+  error: z.string(),
+  responseLimitReached: z.literal(true),
+});
+export type PublicSubmitLimitErrorResponse = z.infer<
+  typeof PublicSubmitLimitErrorResponseSchema
+>;
+
 /** POST /public/:publicId/verify-password のレスポンス。 */
 export const VerifyPasswordResponseSchema = z.object({
   valid: z.boolean(),
 });
 export type VerifyPasswordResponse = z.infer<
   typeof VerifyPasswordResponseSchema
+>;
+
+/** パスワード保護フォームで検証済みセッションが必要な場合のレスポンス。 */
+export const PasswordRequiredErrorResponseSchema = z.object({
+  error: z.string(),
+  passwordRequired: z.literal(true),
+  passwordHint: z.string().optional(),
+});
+export type PasswordRequiredErrorResponse = z.infer<
+  typeof PasswordRequiredErrorResponseSchema
 >;
 
 /** GET /shared/:token のレスポンス。 */
