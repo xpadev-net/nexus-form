@@ -17,14 +17,12 @@ services:
     image: redis:7-alpine
     container_name: nexus-form-redis
     restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
     command:
-      [
-        "redis-server",
-        "--appendonly",
-        "yes",
-        "--requirepass",
-        "${REDIS_PASSWORD:?set REDIS_PASSWORD}",
-      ]
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$${REDIS_PASSWORD:?set REDIS_PASSWORD}"
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
@@ -62,7 +60,7 @@ services:
   #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
   #     REDIS_PORT: "6379"
-  #     REDIS_PASSWORD: ${REDIS_PASSWORD}
+  #     REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
   #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
   #   volumes:
   #     - ./plugins/validation:/app/plugins/validation:ro
@@ -78,7 +76,7 @@ services:
   #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
   #     REDIS_PORT: "6379"
-  #     REDIS_PASSWORD: ${REDIS_PASSWORD}
+  #     REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD}
   #     VALIDATION_PLUGINS_DIR: /app/plugins/validation
   #   volumes:
   #     - ./plugins/validation:/app/plugins/validation:ro

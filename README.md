@@ -72,7 +72,7 @@ cp .env.example .env
 | `REDIS_URL` | Redis 接続 URL |
 | `MYSQL_ROOT_PASSWORD` / `MYSQL_USER` / `MYSQL_PASSWORD` / `MYSQL_DATABASE` | Docker Compose の MySQL 設定 |
 | `REDIS_PASSWORD` | Docker Compose の Redis パスワード |
-| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` | Docker Compose の MinIO ルート認証情報 |
+| `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | Docker Compose と API の MinIO 認証情報（ローカルでは root と access/secret を同じ値に揃える） |
 | `DISCORD_CLIENT_ID` / `DISCORD_CLIENT_SECRET` | Discord OAuth アプリの認証情報 |
 | `SIGNUP_INVITATION_CODE` | 新規登録時に要求する招待コード |
 | `CSRF_SECRET` | CSRF 保護用シークレット |
