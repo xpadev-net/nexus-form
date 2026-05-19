@@ -24,7 +24,7 @@ import { DiscordHttpError } from "./utils";
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
-const limit = pLimit(3);
+const limit = pLimit(1);
 
 /**
  * Fetches a Discord API URL with the configured timeout applied.

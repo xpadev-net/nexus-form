@@ -52,6 +52,11 @@ vi.mock("../../lib/validation-helpers", () => {
   };
 });
 
+vi.mock("../../lib/redis-lock", () => ({
+  withRedisLock: vi.fn(async (_key, fn) => fn()),
+}));
+
+import { withRedisLock } from "../../lib/redis-lock";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -64,6 +69,7 @@ const mockGetValidationContext = vi.mocked(getValidationContext);
 const mockMarkValidationProcessing = vi.mocked(markValidationProcessing);
 const mockWriteValidationResult = vi.mocked(writeValidationResult);
 const mockProviderRegistryGet = vi.mocked(providerRegistry.get);
+const mockWithRedisLock = vi.mocked(withRedisLock);
 
 function makeJob(data: {
   responseId: string;
@@ -298,6 +304,54 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).toHaveBeenCalledWith(
       expect.objectContaining({ success: true }),
     );
+  });
+
+  it("Discord validation は Redis lock 内で実行して複数レプリカ間の同時実行を抑止する", async () => {
+    const validateFn = vi.fn().mockResolvedValue({ isValid: true });
+    const rule = makeRule({ validate: validateFn });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: true, provider: "discord" });
+    expect(mockWithRedisLock).toHaveBeenCalledWith(
+      "nexus-form:discord-validation-api",
+      expect.any(Function),
+      expect.objectContaining({
+        ttlMs: 120_000,
+        waitTimeoutMs: 125_000,
+      }),
+    );
+    expect(validateFn).toHaveBeenCalledWith("test-input", {});
+  });
+
+  it("Discord validation の Redis lock 取得タイムアウトはリトライ可能エラーとして再スローする", async () => {
+    mockWithRedisLock.mockRejectedValueOnce(
+      new Error(
+        'Failed to acquire redis lock "nexus-form:discord-validation-api" within 125000ms',
+      ),
+    );
+    const rule = makeRule();
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
+    });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("バリデーション失敗時にok:falseを返す", async () => {
