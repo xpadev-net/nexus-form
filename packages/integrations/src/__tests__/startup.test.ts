@@ -107,6 +107,51 @@ export default {
     ).rejects.toThrow("Invalid provider interface");
     expect(registry.getNames()).toEqual([]);
   });
+
+  it("fails startup when a built-in plugin cannot be registered", async () => {
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginPath = join(pluginDir, "duplicate-builtin.mjs");
+    await writeFile(
+      pluginPath,
+      `
+const passthroughSchema = {
+  parse: (value) => value,
+  safeParse: (value) => ({ success: true, data: value }),
+};
+
+export default {
+  name: "duplicate_builtin",
+  label: "Duplicate Builtin",
+  description: "Duplicate built-in provider",
+  rules: {
+    default: {
+      name: "default",
+      label: "Default",
+      description: "Default rule",
+      inputHint: "Enter value",
+      inputSchema: passthroughSchema,
+      configSchema: passthroughSchema,
+      metadataSchema: passthroughSchema,
+      validate: async () => ({ isValid: true }),
+    },
+  },
+};
+`,
+    );
+    const registry = new ValidationProviderRegistry();
+    const registerError = new Error("registry unavailable");
+    vi.spyOn(registry, "register").mockImplementation(() => {
+      throw registerError;
+    });
+
+    await expect(
+      startupPlugins(registry, {
+        builtinPlugins: [pluginPath],
+        logPrefix: "api",
+      }),
+    ).rejects.toThrow("[api] Failed to register built-in plugin");
+    expect(registry.getNames()).toEqual([]);
+  });
 });
 
 describe("startupPlugins plugin drift guard", () => {

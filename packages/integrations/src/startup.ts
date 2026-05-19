@@ -256,7 +256,8 @@ function registerOrOverride(
     if (failOnError) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
-        `Failed to register built-in plugin ${source}: ${message}`,
+        `[${logPrefix}] Failed to register built-in plugin ${source}: ${message}`,
+        { cause: error },
       );
     }
   }
