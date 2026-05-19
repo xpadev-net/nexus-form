@@ -1652,7 +1652,7 @@
           "name": "createdBy",
           "type": "varchar(191)",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         }
       },
@@ -1694,7 +1694,7 @@
           "tableTo": "User",
           "columnsFrom": ["createdBy"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1748,7 +1748,7 @@
           "name": "publishedBy",
           "type": "varchar(191)",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "publishedAt": {
@@ -1822,6 +1822,11 @@
           "name": "FormSnapshot_publishedAt_idx",
           "columns": ["publishedAt"],
           "isUnique": false
+        },
+        "FormSnapshot_publishedBy_idx": {
+          "name": "FormSnapshot_publishedBy_idx",
+          "columns": ["publishedBy"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1840,7 +1845,7 @@
           "tableTo": "User",
           "columnsFrom": ["publishedBy"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -1888,7 +1893,7 @@
           "name": "createdBy",
           "type": "varchar(191)",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "createdAt": {
@@ -1942,6 +1947,11 @@
           "name": "FormStructure_formId_isActive_idx",
           "columns": ["formId", "isActive"],
           "isUnique": false
+        },
+        "FormStructure_createdBy_idx": {
+          "name": "FormStructure_createdBy_idx",
+          "columns": ["createdBy"],
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -1960,7 +1970,7 @@
           "tableTo": "User",
           "columnsFrom": ["createdBy"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -2503,6 +2513,11 @@
         "UserInvite_expiresAt_idx": {
           "name": "UserInvite_expiresAt_idx",
           "columns": ["expiresAt"],
+          "isUnique": false
+        },
+        "UserInvite_invitedBy_idx": {
+          "name": "UserInvite_invitedBy_idx",
+          "columns": ["invitedBy"],
           "isUnique": false
         }
       },

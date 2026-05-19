@@ -38,7 +38,7 @@ export const FormShareLink = z.object({
   expires_at: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
-  created_by: z.string(),
+  created_by: z.string().nullable(),
 });
 
 export type FormShareLink = z.infer<typeof FormShareLink>;

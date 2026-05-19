@@ -18,7 +18,7 @@ interface FormStructureHistory {
   id: string;
   version: number;
   createdAt: string;
-  createdBy: string;
+  createdBy: string | null;
   changeLog: string | null;
   isActive: boolean;
   parentVersion: number | null;

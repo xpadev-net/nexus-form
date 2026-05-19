@@ -269,9 +269,9 @@ export const formShareLink = mysqlTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
-    createdBy: varchar("createdBy", { length: 191 })
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    createdBy: varchar("createdBy", { length: 191 }).references(() => user.id, {
+      onDelete: "set null",
+    }),
   },
   (table) => [
     index("FormShareLink_formId_idx").on(table.formId),
@@ -357,9 +357,9 @@ export const formStructure = mysqlTable(
       .references(() => form.id, { onDelete: "cascade" }),
     structureJson: text("structureJson").notNull(),
     version: int("version").notNull(),
-    createdBy: varchar("createdBy", { length: 191 })
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    createdBy: varchar("createdBy", { length: 191 }).references(() => user.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     isActive: boolean("isActive").default(true).notNull(),
     changeLog: text("changeLog"),
@@ -374,6 +374,7 @@ export const formStructure = mysqlTable(
       table.version,
     ),
     index("FormStructure_formId_isActive_idx").on(table.formId, table.isActive),
+    index("FormStructure_createdBy_idx").on(table.createdBy),
   ],
 );
 
@@ -474,6 +475,7 @@ export const userInvite = mysqlTable(
   (table) => [
     index("UserInvite_status_idx").on(table.status),
     index("UserInvite_expiresAt_idx").on(table.expiresAt),
+    index("UserInvite_invitedBy_idx").on(table.invitedBy),
   ],
 );
 
@@ -490,9 +492,12 @@ export const formSnapshot = mysqlTable(
       .references(() => form.id, { onDelete: "cascade" }),
     version: int("version").notNull(),
     isActive: boolean("isActive").default(true).notNull(),
-    publishedBy: varchar("publishedBy", { length: 191 })
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    publishedBy: varchar("publishedBy", { length: 191 }).references(
+      () => user.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     publishedAt: timestamp("publishedAt").defaultNow().notNull(),
     changeLog: text("changeLog"),
     title: varchar("title", { length: 255 }).notNull(),
@@ -513,6 +518,7 @@ export const formSnapshot = mysqlTable(
     index("FormSnapshot_formId_idx").on(table.formId),
     index("FormSnapshot_formId_isActive_idx").on(table.formId, table.isActive),
     index("FormSnapshot_publishedAt_idx").on(table.publishedAt),
+    index("FormSnapshot_publishedBy_idx").on(table.publishedBy),
   ],
 );
 
