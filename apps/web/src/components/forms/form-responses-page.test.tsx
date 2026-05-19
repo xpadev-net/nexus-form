@@ -1,0 +1,115 @@
+// @vitest-environment jsdom
+
+import type { ReactNode } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { vi } from "vitest";
+import { FormResponsesContent } from "./form-responses-page";
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+function renderResponses(container: HTMLElement): Root {
+  const root = createRoot(container);
+  act(() => {
+    root.render(<FormResponsesContent formId="form-1" />);
+  });
+  return root;
+}
+
+vi.mock("@tanstack/react-query", () => ({
+  keepPreviousData: Symbol("keepPreviousData"),
+  useQuery: () => ({
+    data: {
+      responses: [
+        {
+          countryCode: "JP",
+          id: "response-1",
+          respondentUuid: "respondent-uuid-1",
+          submittedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: null,
+        },
+      ],
+      total: 1,
+    },
+    error: null,
+    isError: false,
+    isFetching: false,
+    isLoading: false,
+  }),
+}));
+
+vi.mock("@/hooks/forms/use-validation-sse", () => ({
+  useValidationSSE: vi.fn(),
+}));
+vi.mock("@/components/forms/form-response-analytics", () => ({
+  FormResponseAnalytics: () => <section data-testid="analytics" />,
+}));
+vi.mock("@/components/forms/response-detail-view", () => ({
+  ResponseDetailView: () => <section data-testid="response-detail" />,
+}));
+vi.mock("@/components/forms/response-export", () => ({
+  ResponseExport: () => <button type="button">Export</button>,
+}));
+vi.mock("@/components/forms/response-filter", () => ({
+  ResponseFilter: ({
+    keyword,
+    onKeywordChange,
+  }: {
+    keyword: string;
+    onKeywordChange: (value: string) => void;
+  }) => (
+    <label>
+      Filter
+      <input
+        value={keyword}
+        onChange={(event) => onKeywordChange(event.currentTarget.value)}
+      />
+    </label>
+  ),
+}));
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    children: ReactNode;
+  }) => <button {...props}>{children}</button>,
+}));
+vi.mock("@/lib/api", () => ({
+  client: {},
+  rpc: vi.fn(),
+}));
+
+describe("FormResponsesContent accessibility", () => {
+  it("labels the response detail close button and exposes view toggle state", () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const listButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("リスト"),
+    );
+    const analyticsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("分析"));
+
+    expect(listButton?.getAttribute("aria-pressed")).toBe("true");
+    expect(analyticsButton?.getAttribute("aria-pressed")).toBe("false");
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+    expect(responseButton).toBeDefined();
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('button[aria-label="回答詳細を閉じる"]'),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+});
