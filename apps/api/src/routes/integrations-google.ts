@@ -123,6 +123,12 @@ function normalizeHttpOrigin(value: string | undefined): string | null {
   }
 }
 
+function getGoogleOAuthRedirectUri(): string | null {
+  const baseUrl = normalizeHttpOrigin(process.env.NEXT_PUBLIC_BASE_URL);
+  if (!baseUrl) return null;
+  return new URL("/api/integrations/google/callback", baseUrl).toString();
+}
+
 function decodeCookieValue(value: string): string | null {
   try {
     return decodeURIComponent(value);
@@ -386,12 +392,9 @@ export const integrationsGoogleRouter = createHonoApp()
         "https://www.googleapis.com/auth/drive.readonly",
       ].join(" ");
     const prompt = parsed.data.prompt ?? "consent";
-    const origin = c.req.header("origin") || new URL(c.req.url).origin;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || origin;
-    const redirectUri = new URL(
-      "/api/integrations/google/callback",
-      baseUrl,
-    ).toString();
+    const redirectUri = getGoogleOAuthRedirectUri();
+    if (!redirectUri)
+      return c.json({ error: "Google OAuth is not configured" }, 503);
     const appOrigin = resolveAppOrigin(c, parsed.data.app_origin);
     if (!appOrigin) return c.json({ error: "Invalid app origin" }, 400);
     const state =
@@ -489,12 +492,15 @@ export const integrationsGoogleRouter = createHonoApp()
       );
     }
 
-    const origin = c.req.header("origin") || new URL(c.req.url).origin;
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || origin;
-    const redirectUri = new URL(
-      "/api/integrations/google/callback",
-      baseUrl,
-    ).toString();
+    const redirectUri = getGoogleOAuthRedirectUri();
+    if (!redirectUri) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Google OAuth is not configured",
+      );
+    }
 
     const body = new URLSearchParams({
       code: parsed.data.code,
