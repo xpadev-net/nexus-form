@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -63,6 +63,51 @@ function makeManifest(
     pluginHashes,
   };
 }
+
+describe("startupPlugins built-in plugin loading", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("fails startup when a built-in plugin file cannot be read", async () => {
+    const registry = new ValidationProviderRegistry();
+    const missingPlugin = join(
+      tmpdir(),
+      `nexus-form-missing-plugin-${randomUUID()}.mjs`,
+    );
+
+    await expect(
+      startupPlugins(registry, {
+        builtinPlugins: [missingPlugin],
+        logPrefix: "api",
+      }),
+    ).rejects.toThrow("Cannot read plugin file");
+    expect(registry.getNames()).toEqual([]);
+  });
+
+  it("fails startup when a built-in plugin has an invalid provider interface", async () => {
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginPath = join(pluginDir, "invalid-builtin.mjs");
+    await writeFile(
+      pluginPath,
+      `
+export default {
+  name: "invalid_builtin",
+  label: "Invalid Builtin",
+};
+`,
+    );
+    const registry = new ValidationProviderRegistry();
+
+    await expect(
+      startupPlugins(registry, {
+        builtinPlugins: [pluginPath],
+        logPrefix: "api",
+      }),
+    ).rejects.toThrow("Invalid provider interface");
+    expect(registry.getNames()).toEqual([]);
+  });
+});
 
 describe("startupPlugins plugin drift guard", () => {
   afterEach(() => {
