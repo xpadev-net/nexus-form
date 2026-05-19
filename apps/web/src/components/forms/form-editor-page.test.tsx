@@ -81,7 +81,7 @@ vi.mock("@/hooks/forms/use-form-content-autosave", () => ({
     isSaving: false,
     resolveConflicts: vi.fn(),
     setConflictResolutions: vi.fn(),
-    snapshotEditorToDraft: snapshotEditorToDraftMock,
+    snapshotEditorToDraft: () => snapshotEditorToDraftMock(),
   }),
 }));
 
@@ -256,6 +256,17 @@ describe("FormEditorPage tab synchronization", () => {
     rerenderPage(root);
 
     expect(snapshotEditorToDraftMock).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it("does not snapshot editor draft for same-tab rerenders", () => {
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    rerenderPage(root);
+
+    expect(snapshotEditorToDraftMock).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });

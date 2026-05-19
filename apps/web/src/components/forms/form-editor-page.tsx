@@ -84,6 +84,8 @@ export function FormEditorPage() {
     getActiveTab: () => activeTab,
   });
   const previousActiveTabRef = useRef(activeTab);
+  const snapshotEditorToDraftRef = useRef(snapshotEditorToDraft);
+  snapshotEditorToDraftRef.current = snapshotEditorToDraft;
 
   // フォーム名更新 mutation
   const updateTitleMutation = useMutation({
@@ -191,10 +193,10 @@ export function FormEditorPage() {
   useEffect(() => {
     const previousActiveTab = previousActiveTabRef.current;
     if (previousActiveTab === "editor" && activeTab !== "editor") {
-      snapshotEditorToDraft();
+      snapshotEditorToDraftRef.current();
     }
     previousActiveTabRef.current = activeTab;
-  }, [activeTab, snapshotEditorToDraft]);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!formIdForStatus || FormStatus.safeParse(rawFormStatus).success) {
