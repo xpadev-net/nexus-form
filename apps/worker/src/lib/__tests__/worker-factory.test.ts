@@ -58,12 +58,25 @@ describe("worker-factory", () => {
     expect(getWorkerConcurrency("google-sheets-sync")).toBe(2);
   });
 
+  it("falls back to the default concurrency when WORKER_CONCURRENCY is invalid", () => {
+    process.env.WORKER_CONCURRENCY = "invalid";
+
+    expect(getWorkerConcurrency("discord-validation")).toBe(5);
+  });
+
   it("uses queue-specific concurrency overrides", () => {
     process.env.WORKER_CONCURRENCY = "4";
     process.env.WORKER_CONCURRENCY_DISCORD_VALIDATION = "1";
 
     expect(getWorkerConcurrency("discord-validation")).toBe(1);
     expect(getWorkerConcurrency("google-sheets-sync")).toBe(4);
+  });
+
+  it("falls back to the global concurrency when a queue-specific override is invalid", () => {
+    process.env.WORKER_CONCURRENCY = "4";
+    process.env.WORKER_CONCURRENCY_DISCORD_VALIDATION = "0";
+
+    expect(getWorkerConcurrency("discord-validation")).toBe(4);
   });
 
   it("normalizes queue names into concurrency env names", () => {
