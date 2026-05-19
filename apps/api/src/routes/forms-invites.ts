@@ -9,12 +9,17 @@ import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { FormPermissionWithUser } from "../types/domain/form-permission";
 import { isoDate } from "../types/domain/iso-date";
 
+const inviteTokenSchema = z
+  .string()
+  .min(32)
+  .max(128)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
 export const InviteLookupResponseSchema = z.object({
   invitation: z.object({
     id: z.string(),
     formId: z.string(),
     formTitle: z.string(),
-    email: z.string().email(),
     role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
     status: z.enum(["PENDING", "ACCEPTED", "DECLINED", "EXPIRED", "CANCELLED"]),
     message: z.string().nullable(),
@@ -37,13 +42,13 @@ export const formsInvitesRouter = createHonoApp()
       keyGenerator: (c) => `rate_limit:invite:view:${getClientIp(c)}`,
     }),
     async (c) => {
-      const token = c.req.param("token");
+      const token = inviteTokenSchema.safeParse(c.req.param("token"));
+      if (!token.success) return c.json({ error: "Invalid invite token" }, 400);
       const [invitation] = await db
         .select({
           id: formInvitation.id,
           formId: formInvitation.formId,
           formTitle: form.title,
-          email: formInvitation.email,
           role: formInvitation.role,
           status: formInvitation.status,
           message: formInvitation.message,
@@ -51,7 +56,7 @@ export const formsInvitesRouter = createHonoApp()
         })
         .from(formInvitation)
         .innerJoin(form, eq(formInvitation.formId, form.id))
-        .where(eq(formInvitation.token, token))
+        .where(eq(formInvitation.token, token.data))
         .limit(1);
 
       if (!invitation) return c.json({ error: "Invitation not found" }, 404);
@@ -67,10 +72,11 @@ export const formsInvitesRouter = createHonoApp()
     }),
     withDualAuth(),
     async (c) => {
-      const token = c.req.param("token");
+      const token = inviteTokenSchema.safeParse(c.req.param("token"));
+      if (!token.success) return c.json({ error: "Invalid invite token" }, 400);
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json({ error: "Unauthorized" }, 401);
-      const permission = await acceptInvitation(token, auth.user_id);
+      const permission = await acceptInvitation(token.data, auth.user_id);
       return c.json(InviteAcceptResponseSchema.parse({ permission }));
     },
   );
