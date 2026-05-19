@@ -129,12 +129,21 @@ export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
 const FormStructureErrorResponseSchema = z.object({
   error: z.string().min(1),
 });
+
+/**
+ * Error response shape returned by forms structure endpoints.
+ *
+ * The `error` field carries the client-facing error message validated by
+ * {@link FormStructureErrorResponseSchema}.
+ */
 export type FormStructureErrorResponse = z.infer<
   typeof FormStructureErrorResponseSchema
 >;
 
-const formStructureError = (error: string): FormStructureErrorResponse =>
-  FormStructureErrorResponseSchema.parse({ error });
+const formStructureError = (error: string): FormStructureErrorResponse => {
+  const parsed = FormStructureErrorResponseSchema.safeParse({ error });
+  return parsed.success ? parsed.data : { error: "Request failed" };
+};
 
 const FormStructureVersionSchema = z.object({
   id: z.string(),
