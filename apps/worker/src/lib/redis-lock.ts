@@ -65,6 +65,16 @@ export interface RedisLockOptions {
   retryDelayMs?: number;
 }
 
+/**
+ * Thrown when a Redis lock cannot be acquired before the wait timeout expires.
+ *
+ * Extends Error and carries the lock key and wait timeout so callers can inspect
+ * lock acquisition failures without parsing the message text.
+ *
+ * @public
+ * @param key - Redis lock key that could not be acquired.
+ * @param waitTimeoutMs - Wait timeout in milliseconds before acquisition failed.
+ */
 export class RedisLockAcquireTimeoutError extends Error {
   constructor(
     public readonly key: string,

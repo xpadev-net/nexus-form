@@ -232,7 +232,7 @@ export const handleGenericValidation = async (
 
   let rawResult: unknown;
   try {
-    const runValidation = () =>
+    const runValidation = (): ReturnType<typeof providerRule.validate> =>
       providerRule.validate(validatedInput, providerConfig);
     if (serviceType === DISCORD_PROVIDER_NAME) {
       try {

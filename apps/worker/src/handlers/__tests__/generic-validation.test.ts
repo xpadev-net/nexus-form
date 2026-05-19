@@ -53,6 +53,12 @@ vi.mock("../../lib/validation-helpers", () => {
 });
 
 vi.mock("../../lib/redis-lock", () => {
+  interface RedisLockOptions {
+    ttlMs?: number;
+    waitTimeoutMs?: number;
+    retryDelayMs?: number;
+  }
+
   class RedisLockAcquireTimeoutError extends Error {
     constructor(
       public readonly key: string,
@@ -65,7 +71,13 @@ vi.mock("../../lib/redis-lock", () => {
 
   return {
     RedisLockAcquireTimeoutError,
-    withRedisLock: vi.fn(async (_key, fn) => fn()),
+    withRedisLock: vi.fn(
+      <T>(
+        _key: string,
+        fn: () => Promise<T>,
+        _options?: RedisLockOptions,
+      ): Promise<T> => fn(),
+    ),
   };
 });
 
