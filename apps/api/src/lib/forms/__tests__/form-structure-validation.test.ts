@@ -140,12 +140,51 @@ describe("StoredLogicRuleSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("condition.operator が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { field: "q1", operator: "" },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
   it("action.type が欠けている場合は拒否する", () => {
     const invalid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
       condition: validCondition,
       action: {},
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("action.type が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: { type: "" },
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("action に未知キーがある場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: { type: "show", extraKey: true },
       priority: 1,
       isActive: true,
     };
