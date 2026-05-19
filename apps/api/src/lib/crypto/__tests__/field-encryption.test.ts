@@ -31,19 +31,6 @@ describe("field-encryption", () => {
     delete process.env.AUTH_SECRET;
   });
 
-  it("derives the raw encryption key only once per module instance", async () => {
-    const { decryptFromBase64, encryptToBase64 } = await import(
-      "../field-encryption"
-    );
-
-    const firstPayload = encryptToBase64("first-token");
-    const secondPayload = encryptToBase64("second-token");
-
-    expect(decryptFromBase64(firstPayload)).toBe("first-token");
-    expect(decryptFromBase64(secondPayload)).toBe("second-token");
-    expect(scryptSyncMock).toHaveBeenCalledTimes(1);
-  });
-
   it("requires GOOGLE_OAUTH_ENC_KEY instead of falling back to AUTH_SECRET", async () => {
     delete process.env.GOOGLE_OAUTH_ENC_KEY;
     process.env.AUTH_SECRET = "auth-secret-must-not-be-used";
@@ -56,6 +43,19 @@ describe("field-encryption", () => {
     expect(() => encryptToBase64("token")).toThrow(
       "GOOGLE_OAUTH_ENC_KEY environment variable is required",
     );
+  });
+
+  it("derives the raw encryption key only once per module instance", async () => {
+    const { decryptFromBase64, encryptToBase64 } = await import(
+      "../field-encryption"
+    );
+
+    const firstPayload = encryptToBase64("first-token");
+    const secondPayload = encryptToBase64("second-token");
+
+    expect(decryptFromBase64(firstPayload)).toBe("first-token");
+    expect(decryptFromBase64(secondPayload)).toBe("second-token");
+    expect(scryptSyncMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps encrypted tokens independent from AUTH_SECRET rotations", async () => {
