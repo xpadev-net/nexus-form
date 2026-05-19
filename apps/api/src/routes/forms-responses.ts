@@ -42,9 +42,11 @@ import { createHonoApp } from "../lib/hono";
 import { logError, logWarn } from "../lib/logger";
 import { getValidationQueue, isValidServiceName } from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
+import { errorResponse } from "../types/domain/common";
 import {
   BlockAnalyticsResponseSchema,
   BulkDeleteResponseSchema,
+  InvalidResponseDataErrorResponseSchema,
   ResponseAggregateResponseSchema,
   ResponseAnalyticsResponseSchema,
   ResponseDetailResponseSchema,
@@ -52,6 +54,7 @@ import {
   ResponseMutationResponseSchema,
   ResponseStatusesResponseSchema,
   ResponsesListResponseSchema,
+  ValidationRetryEnqueueErrorResponseSchema,
   ValidationRetryResponseSchema,
 } from "../types/domain/form-responses";
 import { OkResponseSchema } from "../types/domain/form-row";
@@ -422,7 +425,7 @@ export const formsResponsesRouter = createHonoApp()
         .from(form)
         .where(eq(form.id, formId))
         .limit(1);
-      if (!targetForm) return c.json({ error: "Form not found" }, 404);
+      if (!targetForm) return c.json(errorResponse("Form not found"), 404);
 
       // All forms should have plateContent; log a warning if missing so we can
       // investigate. Validation still runs but without question-level checks.
@@ -441,7 +444,10 @@ export const formsResponsesRouter = createHonoApp()
       });
       if (!validation.isValid) {
         return c.json(
-          { error: "Invalid response data", details: validation.errors },
+          InvalidResponseDataErrorResponseSchema.parse({
+            error: "Invalid response data",
+            details: validation.errors,
+          }),
           400,
         );
       }
@@ -643,7 +649,7 @@ export const formsResponsesRouter = createHonoApp()
         and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
       )
       .limit(1);
-    if (!response) return c.json({ error: "Response not found" }, 404);
+    if (!response) return c.json(errorResponse("Response not found"), 404);
 
     const externalValidations = await getExternalValidationResults(responseId);
     return c.json(
@@ -671,7 +677,7 @@ export const formsResponsesRouter = createHonoApp()
           and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
         )
         .limit(1);
-      if (!existing) return c.json({ error: "Response not found" }, 404);
+      if (!existing) return c.json(errorResponse("Response not found"), 404);
 
       // Validate answers against plateContent-derived question definitions
       if (!existing.plateContent) {
@@ -689,7 +695,10 @@ export const formsResponsesRouter = createHonoApp()
       });
       if (!validation.isValid) {
         return c.json(
-          { error: "Invalid response data", details: validation.errors },
+          InvalidResponseDataErrorResponseSchema.parse({
+            error: "Invalid response data",
+            details: validation.errors,
+          }),
           400,
         );
       }
@@ -726,7 +735,7 @@ export const formsResponsesRouter = createHonoApp()
           and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
         )
         .limit(1);
-      if (!target) return c.json({ error: "Response not found" }, 404);
+      if (!target) return c.json(errorResponse("Response not found"), 404);
 
       await db.transaction(async (tx) => {
         await tx
@@ -883,15 +892,14 @@ export const formsResponsesRouter = createHonoApp()
 
         if (anyExisting) {
           return c.json(
-            {
-              error:
-                "Some or all matching validation results are already PENDING or PROCESSING",
-            },
+            errorResponse(
+              "Some or all matching validation results are already PENDING or PROCESSING",
+            ),
             409,
           );
         }
         return c.json(
-          { error: "No matching validation results found for this form" },
+          errorResponse("No matching validation results found for this form"),
           404,
         );
       }
@@ -902,13 +910,13 @@ export const formsResponsesRouter = createHonoApp()
 
       if (enqueuedCount === 0) {
         return c.json(
-          {
+          ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
               "No validation jobs could be enqueued; check service configuration",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],
-          },
+          }),
           422,
         );
       }
@@ -978,14 +986,13 @@ export const formsResponsesRouter = createHonoApp()
 
         if (anyExisting) {
           return c.json(
-            {
-              error:
-                "Some or all matching validation results are already PENDING or PROCESSING",
-            },
+            errorResponse(
+              "Some or all matching validation results are already PENDING or PROCESSING",
+            ),
             409,
           );
         }
-        return c.json({ error: "Validation result not found" }, 404);
+        return c.json(errorResponse("Validation result not found"), 404);
       }
 
       // PENDING リセットは enqueueValidationRetries 内で per-row にアトミックに行う
@@ -994,13 +1001,13 @@ export const formsResponsesRouter = createHonoApp()
 
       if (enqueuedCount === 0) {
         return c.json(
-          {
+          ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
               "No validation jobs could be enqueued; check service configuration",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],
-          },
+          }),
           422,
         );
       }
@@ -1038,7 +1045,9 @@ export const formsResponsesRouter = createHonoApp()
         )
         .limit(1);
 
-      if (!target) return c.json({ error: "Validation result not found" }, 404);
+      if (!target) {
+        return c.json(errorResponse("Validation result not found"), 404);
+      }
 
       await db
         .update(externalServiceValidationResult)
