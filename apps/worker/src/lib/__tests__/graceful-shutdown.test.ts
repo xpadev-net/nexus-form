@@ -70,6 +70,7 @@ describe("createGracefulShutdown", () => {
     const closeMetricsQueues = vi.fn().mockResolvedValue(undefined);
     const closePublisher = vi.fn().mockResolvedValue(undefined);
     const closeLockClient = vi.fn().mockResolvedValue(undefined);
+    const closePluginDriftGuard = vi.fn().mockResolvedValue(undefined);
     const flushSentry = vi.fn().mockResolvedValue(undefined);
     const captureError = vi.fn();
     const exit = vi.fn();
@@ -81,6 +82,7 @@ describe("createGracefulShutdown", () => {
       closeMetricsQueues,
       closePublisher,
       closeLockClient,
+      closePluginDriftGuard,
       flushSentry,
       captureError,
       exit,
@@ -92,6 +94,7 @@ describe("createGracefulShutdown", () => {
     expect(worker.close).toHaveBeenCalledTimes(1);
     expect(closeMetricsQueues).toHaveBeenCalledTimes(1);
     expect(closePublisher).toHaveBeenCalledTimes(1);
+    expect(closePluginDriftGuard).toHaveBeenCalledTimes(1);
     expect(closeLockClient).toHaveBeenCalledTimes(1);
     expect(flushSentry).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(1);

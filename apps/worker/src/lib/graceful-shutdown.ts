@@ -23,6 +23,8 @@ export interface GracefulShutdownOptions {
   closePublisher: () => Promise<void>;
   /** Closes the shared Redis lock client after workers have drained. */
   closeLockClient: () => Promise<void>;
+  /** Stops the plugin drift guard and closes its resources. */
+  closePluginDriftGuard?: () => Promise<void>;
   /** Flushes pending Sentry events before process exit. */
   flushSentry: () => Promise<void>;
   /** Records the triggering or shutdown error. */
@@ -86,6 +88,7 @@ export function createGracefulShutdown({
   closeMetricsQueues,
   closePublisher,
   closeLockClient,
+  closePluginDriftGuard = async () => undefined,
   flushSentry,
   captureError,
   exit,
@@ -141,6 +144,7 @@ export function createGracefulShutdown({
       try {
         await Promise.all(workers.map((worker) => worker.close()));
         await Promise.all([closeMetricsQueues(), closePublisher()]);
+        await closePluginDriftGuard();
         await closeLockClient();
         logger.log("[worker] All workers closed gracefully");
         await flushSentry();

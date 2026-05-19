@@ -51,17 +51,17 @@ async function main() {
     fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
-  try {
-    await startupPlugins(providerRegistry, {
-      builtinPlugins,
-      pluginsDirs: [VALIDATION_PLUGINS_DIR],
-      logPrefix: "worker",
-      pluginDriftGuard: {
-        role: "worker",
-        store: pluginDriftStore,
-      },
-    });
-  } finally {
+  const pluginDriftGuardHandle = await startupPlugins(providerRegistry, {
+    builtinPlugins,
+    pluginsDirs: [VALIDATION_PLUGINS_DIR],
+    logPrefix: "worker",
+    pluginDriftGuard: {
+      role: "worker",
+      store: pluginDriftStore,
+    },
+  });
+  const closePluginDriftGuard = async (): Promise<void> => {
+    await pluginDriftGuardHandle?.stop();
     try {
       await pluginDriftStore.quit();
     } catch (error) {
@@ -70,7 +70,7 @@ async function main() {
         error,
       );
     }
-  }
+  };
 
   const workers: Worker[] = [];
 
@@ -102,6 +102,7 @@ async function main() {
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     closeMetricsQueues,
     closePublisher,
+    closePluginDriftGuard,
     closeLockClient,
     flushSentry,
     captureError,
