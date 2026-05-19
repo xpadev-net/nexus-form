@@ -29,7 +29,7 @@ export const PublicFormResponseSchema = z.object({
     passwordHint: z.string().optional(),
   }),
   structure: PublicFormStructureSchema.nullable(),
-  plateContent: z.string(),
+  plateContent: z.string().nullable(),
 });
 export type PublicFormResponse = z.infer<typeof PublicFormResponseSchema>;
 

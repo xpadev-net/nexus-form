@@ -18,6 +18,7 @@ import {
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
+import type { Context } from "hono";
 import { z } from "zod";
 import { validateShareLink } from "../lib/forms/permission-service";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
@@ -143,6 +144,12 @@ function getPasswordProtection(
   return parsed.access_control?.password_protection;
 }
 
+function isPasswordVerified(c: Context, formId: string): boolean {
+  const jwtToken = extractJwtFromRequest(c);
+  const decoded = jwtToken ? verifySessionJwt(jwtToken) : null;
+  return decoded?.verifiedForms?.includes(formId) ?? false;
+}
+
 function setSessionCookie(
   c: { header: (name: string, value: string) => void },
   jwt: string,
@@ -227,6 +234,38 @@ export const formsPublicRouter = createHonoApp()
     const pwProtection = parsedStructure
       ? getPasswordProtection(parsedStructure)
       : undefined;
+    const isProtected = pwProtection?.enabled ?? false;
+
+    if (isProtected) {
+      if (!pwProtection?.password) {
+        logError(
+          "Password protection is enabled without a password hash",
+          "forms-public",
+          { formId: target.id, publicId },
+        );
+        return c.json(
+          errorResponse("Form password protection is misconfigured"),
+          500,
+        );
+      }
+
+      if (!isPasswordVerified(c, target.id)) {
+        const response = PublicFormResponseSchema.parse({
+          form: {
+            id: target.id,
+            publicId: target.publicId,
+            title: target.title,
+            description: target.description,
+            status: target.status,
+            isPasswordProtected: true,
+            passwordHint: pwProtection.password_hint,
+          },
+          structure: null,
+          plateContent: null,
+        });
+        return c.json(response);
+      }
+    }
 
     const response = PublicFormResponseSchema.parse({
       form: {
@@ -235,7 +274,7 @@ export const formsPublicRouter = createHonoApp()
         title: target.title,
         description: target.description,
         status: target.status,
-        isPasswordProtected: pwProtection?.enabled ?? false,
+        isPasswordProtected: isProtected,
         passwordHint: pwProtection?.password_hint,
       },
       structure: parsedStructure

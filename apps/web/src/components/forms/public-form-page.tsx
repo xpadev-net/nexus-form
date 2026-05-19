@@ -16,6 +16,7 @@ import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
+import { PasswordProtectionGate } from "./password-protection-gate";
 
 const fetchPublicForm = (publicId: string) =>
   rpc(client.api.forms.public[":publicId"].$get({ param: { publicId } }));
@@ -47,6 +48,7 @@ function PublicFormPageInner() {
     data: formData,
     isPending: isLoading,
     error: fetchError,
+    refetch: refetchForm,
   } = useQuery({
     queryKey: ["publicForm", publicId],
     queryFn: () => fetchPublicForm(publicId),
@@ -57,6 +59,9 @@ function PublicFormPageInner() {
   });
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
+  const isPasswordGateRequired =
+    formData?.form.isPasswordProtected === true &&
+    (!formData.plateContent || !formData.structure);
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
 
@@ -200,6 +205,20 @@ function PublicFormPageInner() {
       <section className="p-6">
         <p className="text-sm text-destructive">{fetchErrorMessage}</p>
       </section>
+    );
+  }
+
+  if (isPasswordGateRequired) {
+    return (
+      <PasswordProtectionGate
+        publicId={publicId}
+        passwordHint={formData.form.passwordHint}
+        onVerified={async () => {
+          await refetchForm();
+        }}
+      >
+        <section className="p-6">読み込み中...</section>
+      </PasswordProtectionGate>
     );
   }
 

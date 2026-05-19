@@ -600,6 +600,118 @@ describe("R3-M21: password protected public submit fails closed", () => {
   });
 });
 
+// ── R4-H1: Password protected public GET does not leak form body ─────────────
+
+describe("R4-H1: password protected public GET gates form body", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("returns only metadata when password protection is enabled and not verified", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Protected form",
+          description: "Protected description",
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+        },
+      ],
+      [
+        {
+          structureJson: JSON.stringify({
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password: "hashed-password",
+                password_hint: "hint",
+              },
+            },
+            settings: { require_fingerprint: true },
+          }),
+          version: 1,
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      form: {
+        id: FORM_ID,
+        isPasswordProtected: true,
+        passwordHint: "hint",
+      },
+      structure: null,
+      plateContent: null,
+    });
+  });
+
+  it("returns the form body after password verification", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { extractJwtFromRequest, verifySessionJwt } = await import(
+      "../lib/sessions/jwt"
+    );
+    vi.mocked(extractJwtFromRequest).mockReturnValueOnce("verified-jwt");
+    vi.mocked(verifySessionJwt).mockReturnValueOnce({
+      sessionId: "session-id",
+      verifiedForms: [FORM_ID],
+    });
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Protected form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+        },
+      ],
+      [
+        {
+          structureJson: JSON.stringify({
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password: "hashed-password",
+                password_hint: "hint",
+              },
+            },
+            settings: { require_fingerprint: true },
+          }),
+          version: 1,
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id", {
+      headers: { cookie: "cf_session=verified-jwt" },
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      form: {
+        id: FORM_ID,
+        isPasswordProtected: true,
+      },
+      structure: {
+        settings: { require_fingerprint: true },
+      },
+      plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+    });
+  });
+});
+
 // ── R2-H3: Permissions and Invitations require EDITOR, not VIEWER ────────────
 
 describe("R2-H3: VIEWER cannot list permissions or invitations", () => {
