@@ -43,7 +43,7 @@ interface FormShareLinkResult {
   expires_at?: string;
   created_at: string;
   updated_at: string;
-  created_by: string;
+  created_by: string | null;
 }
 
 interface FormInvitationWithInviter {

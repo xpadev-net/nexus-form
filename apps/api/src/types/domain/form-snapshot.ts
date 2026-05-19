@@ -5,7 +5,7 @@ export const FormSnapshotListItemSchema = z.object({
   formId: z.string(),
   version: z.number().int().min(1),
   isActive: z.boolean(),
-  publishedBy: z.string(),
+  publishedBy: z.string().nullable(),
   publishedAt: z.date(),
   changeLog: z.string().nullish(),
   title: z.string(),

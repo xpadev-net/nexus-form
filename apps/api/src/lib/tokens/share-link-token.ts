@@ -36,7 +36,7 @@ export type IssuedShareLinkApiToken = {
       expiresAt: Date | null;
       createdAt: Date;
       updatedAt: Date;
-      createdBy: string;
+      createdBy: string | null;
     } | null;
   };
 };

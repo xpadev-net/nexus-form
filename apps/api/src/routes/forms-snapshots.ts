@@ -22,7 +22,7 @@ const SnapshotListItemResponseSchema = z.object({
   formId: z.string(),
   version: z.number().int().min(1),
   isActive: z.boolean(),
-  publishedBy: z.string(),
+  publishedBy: z.string().nullable(),
   publishedAt: isoDate,
   changeLog: z.string().nullish(),
   title: z.string(),
