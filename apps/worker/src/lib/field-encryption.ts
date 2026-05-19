@@ -9,11 +9,18 @@ const KEY_LEN = 32; // AES-256
 const IV_LEN = 12; // GCM recommended 12 bytes
 const AUTH_TAG_LEN = 16;
 
+let cachedRawKey: Buffer | undefined;
+
 function getRawKey(): Buffer {
+  // Worker processes must be restarted to pick up encryption key rotations.
+  // The cache avoids repeated synchronous KDF work on OAuth token hot paths.
+  if (cachedRawKey) return cachedRawKey;
+
   const specific = process.env.GOOGLE_OAUTH_ENC_KEY;
   const base = specific || process.env.AUTH_SECRET || "";
   if (!base) throw new Error("Encryption key is not configured");
-  return scryptSync(base, "google-oauth-field-encryption", KEY_LEN);
+  cachedRawKey = scryptSync(base, "google-oauth-field-encryption", KEY_LEN);
+  return cachedRawKey;
 }
 
 export function encryptToBase64(plaintext: string): string {
