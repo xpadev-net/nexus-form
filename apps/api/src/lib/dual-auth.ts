@@ -321,20 +321,6 @@ export async function authenticateDual(
         ),
       };
     }
-    if (error instanceof InsufficientTokenScopeError) {
-      return {
-        error: true,
-        response: c.json(
-          {
-            error: {
-              message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
-              code: ERROR_CODES.FORBIDDEN,
-            },
-          },
-          403,
-        ),
-      };
-    }
     logError("Dual authentication failed", "authentication", {
       error,
       operation: "authenticateDual",
