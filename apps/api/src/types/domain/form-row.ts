@@ -1,5 +1,12 @@
 import { FormStatus } from "@nexus-form/shared";
 import { z } from "zod";
+
+export {
+  type ErrorResponse,
+  ErrorResponseSchema,
+  errorResponse,
+} from "./common";
+
 import { isoDate } from "./iso-date";
 
 /**
@@ -86,15 +93,6 @@ export const OkResponseSchema = z.object({
   ok: z.literal(true),
 });
 export type OkResponse = z.infer<typeof OkResponseSchema>;
-
-/** `{ error: string }` のみを返すエラーレスポンス。 */
-export const ErrorResponseSchema = z.object({
-  error: z.string(),
-});
-export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
-
-export const errorResponse = (error: string): ErrorResponse =>
-  ErrorResponseSchema.parse({ error });
 
 /** POST /:id/regenerate-public-url のレスポンス。 */
 export const RegeneratePublicUrlResponseSchema = z.object({

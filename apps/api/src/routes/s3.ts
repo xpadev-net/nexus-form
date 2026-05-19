@@ -19,7 +19,7 @@ import {
   validateFileSize,
   validateMimeType,
 } from "../lib/s3/validation";
-import { type ErrorResponse, errorResponse } from "../types/domain/form-row";
+import { type ErrorResponse, errorResponse } from "../types/domain/common";
 
 const presignedUrlSchema = z.object({
   key: z.string().min(1),
@@ -181,7 +181,7 @@ export type UnhealthyResponse = z.infer<typeof UnhealthyResponseSchema>;
 
 export type S3ErrorResponse = ErrorResponse;
 
-const S3ValidationErrorResponseSchema = z.object({
+export const S3ValidationErrorResponseSchema = z.object({
   error: z.string(),
   validationErrors: z.array(z.string()),
 });
@@ -197,11 +197,13 @@ function resolveBucketName(bucket?: string): string {
   );
 }
 
-function s3ValidationErrorResponse(error: SecurityValidationError) {
-  return S3ValidationErrorResponseSchema.parse({
+function s3ValidationErrorResponse(
+  error: SecurityValidationError,
+): S3ValidationErrorResponse {
+  return {
     error: error.message,
     validationErrors: error.validationErrors,
-  });
+  };
 }
 
 function assertKeyMatchesBucket(key: string, bucket: string): void {
