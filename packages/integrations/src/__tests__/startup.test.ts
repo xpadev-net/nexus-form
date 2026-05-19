@@ -81,7 +81,7 @@ describe("startupPlugins built-in plugin loading", () => {
         builtinPlugins: [missingPlugin],
         logPrefix: "api",
       }),
-    ).rejects.toThrow("Cannot read plugin file");
+    ).rejects.toThrow("Failed to load built-in plugin");
     expect(registry.getNames()).toEqual([]);
   });
 
