@@ -7,7 +7,7 @@ import {
   evaluateRule,
   type FormLogicRule,
 } from "@nexus-form/shared";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import type { Block } from "@/types/domain/form-block";
 
 interface Section {
@@ -24,7 +24,77 @@ interface UseFormLogicProps {
   responses: Record<string, unknown>;
 }
 
+const getLogicResponseKeys = (sections: Section[]): string[] => {
+  const keys = new Set<string>();
+
+  for (const section of sections) {
+    for (const rule of section.logic ?? []) {
+      for (const condition of rule.conditions) {
+        keys.add(condition.question_id);
+      }
+    }
+  }
+
+  return [...keys];
+};
+
+const serializeResponseValue = (value: unknown): string => {
+  if (value === undefined) return "undefined";
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const getResponseDependencySignature = (
+  responses: Record<string, unknown>,
+  responseKeys: string[],
+): string => {
+  return responseKeys
+    .map((key) => JSON.stringify([key, serializeResponseValue(responses[key])]))
+    .join("\u001f");
+};
+
+const pickLogicResponses = (
+  responses: Record<string, unknown>,
+  responseKeys: string[],
+): Record<string, unknown> => {
+  const scopedResponses: Record<string, unknown> = {};
+
+  for (const key of responseKeys) {
+    if (key in responses) {
+      scopedResponses[key] = responses[key];
+    }
+  }
+
+  return scopedResponses;
+};
+
 export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
+  const logicResponsesRef = useRef<{
+    signature: string;
+    responses: Record<string, unknown>;
+  } | null>(null);
+  const logicResponseKeys = useMemo(
+    () => getLogicResponseKeys(sections),
+    [sections],
+  );
+  const logicResponseSignature = getResponseDependencySignature(
+    responses,
+    logicResponseKeys,
+  );
+
+  if (logicResponsesRef.current?.signature !== logicResponseSignature) {
+    logicResponsesRef.current = {
+      signature: logicResponseSignature,
+      responses: pickLogicResponses(responses, logicResponseKeys),
+    };
+  }
+
+  const logicResponses = logicResponsesRef.current.responses;
+
   /**
    * セクションの表示/非表示を判定する
    */
@@ -35,13 +105,13 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
       }
       return section.logic.some((rule) => {
         const context: ConditionContext = {
-          responses,
+          responses: logicResponses,
           questionId: section.id,
         };
         return evaluateRule(rule, context);
       });
     });
-  }, [sections, responses]);
+  }, [sections, logicResponses]);
 
   /**
    * 指定セクション内の表示可能な質問を返す
@@ -57,7 +127,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
         if (section.logic && section.logic.length > 0) {
           const visible = section.logic.some((rule) => {
             const context: ConditionContext = {
-              responses,
+              responses: logicResponses,
               questionId: section.id,
             };
             return evaluateRule(rule, context);
@@ -68,7 +138,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
       }
       return blocks;
     },
-    [sections, responses],
+    [sections, logicResponses],
   );
 
   /**
@@ -99,7 +169,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
 
       for (const rule of currentSection.logic) {
         const context: ConditionContext = {
-          responses,
+          responses: logicResponses,
           questionId: currentSectionId,
         };
         if (evaluateRule(rule, context)) {
@@ -113,7 +183,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
       }
       return null;
     },
-    [sections, responses],
+    [sections, logicResponses],
   );
 
   /**
@@ -126,7 +196,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
 
       for (const rule of currentSection.logic) {
         const context: ConditionContext = {
-          responses,
+          responses: logicResponses,
           questionId: currentSectionId,
         };
         if (evaluateRule(rule, context)) {
@@ -137,7 +207,7 @@ export const useFormLogic = ({ sections, responses }: UseFormLogicProps) => {
       }
       return false;
     },
-    [sections, responses],
+    [sections, logicResponses],
   );
 
   const visibleSections = useMemo(
