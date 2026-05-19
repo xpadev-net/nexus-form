@@ -650,10 +650,16 @@ async function queueExternalValidations(
 
   const inserts: Array<typeof externalServiceValidationResult.$inferInsert> =
     [];
+  const getPairValidationResultId = (pair: ValidationPair) =>
+    getValidationResultId({
+      responseId,
+      ruleId: pair.ruleId,
+      referencedBlockId: pair.referencedBlockId,
+    });
 
   for (const pair of missingRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -665,7 +671,7 @@ async function queueExternalValidations(
   }
   for (const pair of invalidProviderRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -677,7 +683,7 @@ async function queueExternalValidations(
   }
   for (const pair of unregisteredProviderRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -689,7 +695,7 @@ async function queueExternalValidations(
   }
   for (const pair of unknownRuleTypeRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -701,11 +707,7 @@ async function queueExternalValidations(
   }
 
   const pendingRows = validRows.map((pair) => ({
-    id: getValidationResultId({
-      responseId,
-      ruleId: pair.ruleId,
-      referencedBlockId: pair.referencedBlockId,
-    }),
+    id: getPairValidationResultId(pair),
     responseId,
     ruleId: pair.ruleId,
     referencedBlockId: pair.referencedBlockId,
