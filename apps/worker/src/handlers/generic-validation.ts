@@ -365,12 +365,12 @@ export const handleGenericValidation = async (
         return { ok: false, error: "Retryable validation result exhausted" };
       }
 
+      const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
+      await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
       await job.updateData({
         ...job.data,
         retryAfterCount: retryAfterCount + 1,
       });
-      const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
-      await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
       throw new DelayedError();
     }
 
@@ -392,18 +392,19 @@ export const handleGenericValidation = async (
         service: serviceType,
         success: false,
         errorCode: result.errorCode ?? "VALIDATION_RETRY_EXHAUSTED",
-        errorMessage: result.errorMessage ?? "Retry-after exhausted",
+        errorMessage:
+          result.errorMessage ?? "Retryable validation result exhausted",
         jobId: job.id?.toString(),
       });
-      return { ok: false, error: "Retry-after exhausted" };
+      return { ok: false, error: "Retryable validation result exhausted" };
     }
 
+    const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
+    await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
     await job.updateData({
       ...job.data,
       retryAfterCount: retryAfterCount + 1,
     });
-    const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
-    await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
     throw new DelayedError();
   }
 
