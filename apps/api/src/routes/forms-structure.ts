@@ -126,6 +126,25 @@ const FormStructureEnvelopeSchema = z.object({
 });
 export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
 
+const FormStructureErrorResponseSchema = z.object({
+  error: z.string().min(1),
+});
+
+/**
+ * Error response shape returned by forms structure endpoints.
+ *
+ * The `error` field carries the client-facing error message validated by
+ * {@link FormStructureErrorResponseSchema}.
+ */
+export type FormStructureErrorResponse = z.infer<
+  typeof FormStructureErrorResponseSchema
+>;
+
+const formStructureError = (error: string): FormStructureErrorResponse => {
+  const parsed = FormStructureErrorResponseSchema.safeParse({ error });
+  return parsed.success ? parsed.data : { error: "Request failed" };
+};
+
 const FormStructureVersionSchema = z.object({
   id: z.string(),
   formId: z.string(),
@@ -283,7 +302,7 @@ export const formsStructureRouter = createHonoApp()
       structure = await getFormStructure(formId);
     } catch (error) {
       if (error instanceof FormStructureNotFoundError) {
-        return c.json({ error: "Form structure not found" }, 404);
+        return c.json(formStructureError("Form structure not found"), 404);
       }
       throw error;
     }
@@ -315,7 +334,7 @@ export const formsStructureRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
       const payload = c.req.valid("json");
 
       const result = await withFormStructureMutationLock(formId, async () => {
@@ -378,7 +397,7 @@ export const formsStructureRouter = createHonoApp()
         throw error;
       });
       if (!result) {
-        return c.json({ error: "Form structure not found" }, 404);
+        return c.json(formStructureError("Form structure not found"), 404);
       }
       return c.json(
         FormStructureVersionResponseSchema.parse({ structure: result }),
@@ -416,7 +435,7 @@ export const formsStructureRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
       const payload = c.req.valid("json");
       const restored = await withFormStructureMutationLock(formId, () =>
         restoreFormStructure(
@@ -438,7 +457,7 @@ export const formsStructureRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
       const payload = c.req.valid("json");
 
       const result = await withFormStructureMutationLock(formId, async () => {
@@ -461,7 +480,7 @@ export const formsStructureRouter = createHonoApp()
       });
 
       if (!result) {
-        return c.json({ error: "Form structure not found" }, 404);
+        return c.json(formStructureError("Form structure not found"), 404);
       }
 
       return c.json(
@@ -476,7 +495,7 @@ export const formsStructureRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
       const payload = c.req.valid("json");
 
       const hashedPassword = payload.password_protection.password
@@ -543,10 +562,10 @@ export const formsStructureRouter = createHonoApp()
       });
 
       if (result === null) {
-        return c.json({ error: "Form structure not found" }, 404);
+        return c.json(formStructureError("Form structure not found"), 404);
       }
-      if ("error" in result) {
-        return c.json({ error: result.error }, 400);
+      if ("error" in result && typeof result.error === "string") {
+        return c.json(formStructureError(result.error), 400);
       }
 
       return c.json(
@@ -636,7 +655,9 @@ export const formsStructureRouter = createHonoApp()
 
       const from = fromSnapshotRows[0];
       const to = toSnapshotRows[0];
-      if (!from || !to) return c.json({ error: "Snapshot not found" }, 404);
+      if (!from || !to) {
+        return c.json(formStructureError("Snapshot not found"), 404);
+      }
 
       return c.json(
         SnapshotDiffResponseSchema.parse({
@@ -655,7 +676,7 @@ export const formsStructureRouter = createHonoApp()
     const formId = c.req.param("id");
     const version = Number(c.req.param("version"));
     if (!Number.isInteger(version) || version < 1) {
-      return c.json({ error: "Invalid version" }, 400);
+      return c.json(formStructureError("Invalid version"), 400);
     }
 
     const [snapshot] = await db
@@ -671,7 +692,7 @@ export const formsStructureRouter = createHonoApp()
       .limit(1);
 
     if (!snapshot) {
-      return c.json({ error: "Snapshot not found" }, 404);
+      return c.json(formStructureError("Snapshot not found"), 404);
     }
 
     return c.json(SnapshotContentResponseSchema.parse(snapshot));
@@ -683,7 +704,7 @@ export const formsStructureRouter = createHonoApp()
       const formId = c.req.param("id");
       const version = Number(c.req.param("version"));
       if (!Number.isInteger(version) || version < 1)
-        return c.json({ error: "Invalid version" }, 400);
+        return c.json(formStructureError("Invalid version"), 400);
 
       try {
         const updated = await activateSnapshot(formId, version);
@@ -694,7 +715,7 @@ export const formsStructureRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof SnapshotNotFoundError) {
-          return c.json({ error: "Snapshot not found" }, 404);
+          return c.json(formStructureError("Snapshot not found"), 404);
         }
         throw error;
       }
@@ -707,10 +728,10 @@ export const formsStructureRouter = createHonoApp()
       const formId = c.req.param("id");
       const version = Number(c.req.param("version"));
       if (!Number.isInteger(version) || version < 1)
-        return c.json({ error: "Invalid version" }, 400);
+        return c.json(formStructureError("Invalid version"), 400);
 
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
 
       try {
         const restored = await withFormStructureMutationLock(formId, () =>
@@ -723,7 +744,7 @@ export const formsStructureRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof SnapshotNotFoundError) {
-          return c.json({ error: "Snapshot not found" }, 404);
+          return c.json(formStructureError("Snapshot not found"), 404);
         }
         throw error;
       }
@@ -792,7 +813,7 @@ export const formsStructureRouter = createHonoApp()
         and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
       )
       .limit(1);
-    if (!schedule) return c.json({ error: "Schedule not found" }, 404);
+    if (!schedule) return c.json(formStructureError("Schedule not found"), 404);
     return c.json(FormScheduleEnvelopeSchema.parse({ schedule }));
   })
   .put(
@@ -811,7 +832,9 @@ export const formsStructureRouter = createHonoApp()
           and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
         )
         .limit(1);
-      if (!schedule) return c.json({ error: "Schedule not found" }, 404);
+      if (!schedule) {
+        return c.json(formStructureError("Schedule not found"), 404);
+      }
 
       const effectiveAction = payload.action ?? schedule.action;
       const effectiveSnapshotVersion =
@@ -826,7 +849,9 @@ export const formsStructureRouter = createHonoApp()
         effectiveSnapshotVersion == null
       ) {
         return c.json(
-          { error: "snapshotVersion is required for SWITCH_SNAPSHOT action" },
+          formStructureError(
+            "snapshotVersion is required for SWITCH_SNAPSHOT action",
+          ),
           400,
         );
       }
@@ -875,7 +900,9 @@ export const formsStructureRouter = createHonoApp()
           and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
         )
         .limit(1);
-      if (!target) return c.json({ error: "Schedule not found" }, 404);
+      if (!target) {
+        return c.json(formStructureError("Schedule not found"), 404);
+      }
       await db.delete(formSchedule).where(eq(formSchedule.id, scheduleId));
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
