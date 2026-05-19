@@ -69,6 +69,32 @@ function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {
   return formPermissionErrorStatusSchema.parse(error.statusCode);
 }
 
+const externalServicePermissionErrorResponse = (
+  error: FormPermissionError,
+): ExternalServicePermissionErrorResponse => {
+  const response = {
+    error: {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+    },
+  } satisfies ExternalServicePermissionErrorResponse;
+  const parsed =
+    ExternalServicePermissionErrorResponseSchema.safeParse(response);
+  return parsed.success ? parsed.data : response;
+};
+
+const externalServiceFailureResponse = (
+  details: string,
+): ExternalServiceFailureResponse => {
+  const response = {
+    error: "External service API failed",
+    details,
+  } satisfies ExternalServiceFailureResponse;
+  const parsed = ExternalServiceFailureResponseSchema.safeParse(response);
+  return parsed.success ? parsed.data : response;
+};
+
 export const externalServiceRouter = createHonoApp()
   .use("/*", withDualAuth())
   .get("/:provider/:api", async (c) => {
@@ -99,13 +125,7 @@ export const externalServiceRouter = createHonoApp()
     } catch (error) {
       if (error instanceof FormPermissionError) {
         return c.json(
-          ExternalServicePermissionErrorResponseSchema.parse({
-            error: {
-              message: error.message,
-              code: error.code,
-              details: error.details,
-            },
-          }),
+          externalServicePermissionErrorResponse(error),
           formPermissionErrorStatus(error),
         );
       }
@@ -127,10 +147,9 @@ export const externalServiceRouter = createHonoApp()
       return c.json(response);
     } catch (error) {
       return c.json(
-        ExternalServiceFailureResponseSchema.parse({
-          error: "External service API failed",
-          details: error instanceof Error ? error.message : "Unknown error",
-        }),
+        externalServiceFailureResponse(
+          error instanceof Error ? error.message : "Unknown error",
+        ),
         502,
       );
     }
