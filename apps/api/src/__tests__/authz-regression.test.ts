@@ -510,6 +510,61 @@ describe("R3-H3: hCaptcha is verified before public submit work", () => {
   });
 });
 
+// ── R3-M21: Password protection fails closed when misconfigured ─────────────
+
+describe("R3-M21: password protected public submit fails closed", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("rejects submission when password protection is enabled without a password hash", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      [
+        {
+          structureJson: JSON.stringify({
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password_hint: "hint",
+              },
+            },
+          }),
+        },
+      ],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form password protection is misconfigured",
+    });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+});
+
 // ── R2-H3: Permissions and Invitations require EDITOR, not VIEWER ────────────
 
 describe("R2-H3: VIEWER cannot list permissions or invitations", () => {
