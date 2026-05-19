@@ -38,11 +38,27 @@ const getLogicResponseKeys = (sections: Section[]): string[] => {
   return [...keys];
 };
 
-const serializeResponseDependency = (key: string, value: unknown): string => {
+const serializeResponseDependency = (
+  key: string,
+  value: unknown,
+  present: boolean,
+): string => {
+  if (!present) {
+    return JSON.stringify([key, "missing"]);
+  }
+
+  if (value === undefined) {
+    return JSON.stringify([key, "undefined"]);
+  }
+
+  if (value === null) {
+    return JSON.stringify([key, "null"]);
+  }
+
   try {
-    return JSON.stringify([key, value]);
+    return JSON.stringify([key, "value", value]);
   } catch {
-    return JSON.stringify([key, String(value)]);
+    return JSON.stringify([key, "stringified", String(value)]);
   }
 };
 
@@ -51,7 +67,9 @@ const getResponseDependencySignature = (
   responseKeys: string[],
 ): string => {
   return responseKeys
-    .map((key) => serializeResponseDependency(key, responses[key]))
+    .map((key) =>
+      serializeResponseDependency(key, responses[key], key in responses),
+    )
     .join("\u001f");
 };
 
