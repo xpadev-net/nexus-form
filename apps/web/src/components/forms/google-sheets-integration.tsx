@@ -1,15 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
-  Search,
-  X,
-} from "lucide-react";
+import { Check } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,19 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { apiUrl, baseUrl } from "@/lib/api";
 import { fetchJson, HttpError } from "@/lib/fetch-json";
@@ -40,20 +19,27 @@ import type {
   SyncJobStatusResponse,
   SyncStartResponse,
 } from "@/types/integrations/google-sheets";
+import {
+  GoogleSheetsDisconnectedCard,
+  GoogleSheetsLoadingCard,
+} from "./google-sheets-integration/connection-card";
+import { SheetSelector } from "./google-sheets-integration/sheet-selector";
+import { SpreadsheetSelector } from "./google-sheets-integration/spreadsheet-selector";
+import {
+  GoogleSheetsSyncDescription,
+  SyncActionButtons,
+  SyncStatusPanel,
+} from "./google-sheets-integration/sync-panel";
+import type {
+  Sheet,
+  Spreadsheet,
+  UiSyncState,
+  UiSyncStatus,
+} from "./google-sheets-integration/types";
 
 interface GoogleSheetsIntegrationProps {
   formId: string;
   className?: string;
-}
-
-interface Spreadsheet {
-  id: string;
-  name?: string;
-}
-
-interface Sheet {
-  sheetId?: number;
-  title: string;
 }
 
 interface GoogleOAuthMessage {
@@ -75,8 +61,6 @@ const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
     (value.status === "success" || value.status === "error")
   );
 };
-
-type UiSyncStatus = "queued" | "processing" | "completed" | "failed";
 
 function mapBullMqStateToUiStatus(
   state: SyncJobStatusResponse["job"]["state"],
@@ -133,21 +117,6 @@ function isJobResult(
   const validRange =
     v.updatedRange === undefined || typeof v.updatedRange === "string";
   return validRows && validRange;
-}
-
-interface UiSyncState {
-  jobId: string;
-  status: UiSyncStatus;
-  progress?: {
-    processed?: number;
-    total?: number;
-    percentage?: number;
-  };
-  result?: {
-    updatedRows?: number;
-    updatedRange?: string;
-  };
-  error?: string;
 }
 
 export function GoogleSheetsIntegration({
@@ -672,50 +641,16 @@ export function GoogleSheetsIntegration({
   }, [spreadsheets, searchQuery]);
 
   if (isCheckingConnection || isLoadingConfig) {
-    return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle>Google Sheets 連携</CardTitle>
-          <CardDescription>読み込み中...</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <GoogleSheetsLoadingCard className={className} />;
   }
 
   if (!isConnected) {
     return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle>Google Sheets 連携</CardTitle>
-          <CardDescription>
-            フォームの回答を自動的にGoogle Sheetsに同期できます
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {connectionLoadError && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                {connectionLoadError}
-              </div>
-            )}
-            <div className="rounded-lg border bg-muted/50 p-4">
-              <p className="text-sm text-muted-foreground">
-                Google
-                アカウントに接続して、スプレッドシートへの書き込み権限を付与してください
-              </p>
-            </div>
-            <Button onClick={handleConnect} className="w-full">
-              <ExternalLink className="h-4 w-4 mr-2" />
-              Google アカウントに接続
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+      <GoogleSheetsDisconnectedCard
+        className={className}
+        connectionLoadError={connectionLoadError}
+        onConnect={handleConnect}
+      />
     );
   }
 
@@ -734,331 +669,69 @@ export function GoogleSheetsIntegration({
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* スプレッドシート選択 */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <Label>スプレッドシート</Label>
-            <Dialog
-              open={isSpreadsheetDialogOpen}
-              onOpenChange={setIsSpreadsheetDialogOpen}
-            >
-              <DialogTrigger asChild>
-                <Button size="sm" variant="outline">
-                  スプレッドシートを作成
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>新しいスプレッドシート</DialogTitle>
-                  <DialogDescription>
-                    オーナーアカウントで空のスプレッドシートを作成します。
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-2">
-                  <Label htmlFor="new-spreadsheet-title">名前</Label>
-                  <Input
-                    id="new-spreadsheet-title"
-                    placeholder="例: 2025年問い合わせフォーム"
-                    value={newSpreadsheetTitle}
-                    onChange={(e) => setNewSpreadsheetTitle(e.target.value)}
-                    disabled={isCreatingSpreadsheet}
-                  />
-                </div>
-                <DialogFooter>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsSpreadsheetDialogOpen(false)}
-                    disabled={isCreatingSpreadsheet}
-                  >
-                    キャンセル
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleCreateSpreadsheet}
-                    disabled={isCreatingSpreadsheet}
-                  >
-                    {isCreatingSpreadsheet ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        作成中...
-                      </>
-                    ) : (
-                      "作成する"
-                    )}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="スプレッドシートを検索..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() =>
-                void queryClient.invalidateQueries({
-                  queryKey: ["spreadsheets"],
-                })
-              }
-              disabled={isFetchingSpreadsheets}
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${isFetchingSpreadsheets ? "animate-spin" : ""}`}
-              />
-            </Button>
-          </div>
-          <ScrollArea className="h-[200px] rounded-md border">
-            {isFetchingSpreadsheets ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : spreadsheetsErrorMessage ? (
-              <div className="flex items-center justify-center px-4 py-6 text-center text-sm text-destructive">
-                {spreadsheetsErrorMessage}
-              </div>
-            ) : filteredSpreadsheets.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-sm text-muted-foreground">
-                スプレッドシートが見つかりません
-              </div>
-            ) : (
-              <div className="p-2 space-y-1">
-                {filteredSpreadsheets.map((spreadsheet) => (
-                  <button
-                    key={spreadsheet.id}
-                    type="button"
-                    onClick={() => handleSelectSpreadsheet(spreadsheet.id)}
-                    className={[
-                      "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                      selectedSpreadsheetId === spreadsheet.id
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-muted",
-                    ].join(" ")}
-                  >
-                    <div className="font-medium">
-                      {spreadsheet.name || "無題"}
-                    </div>
-                    <div className="text-xs opacity-70 truncate">
-                      {spreadsheet.id}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
-        </div>
+        <SpreadsheetSelector
+          searchQuery={searchQuery}
+          selectedSpreadsheetId={selectedSpreadsheetId}
+          filteredSpreadsheets={filteredSpreadsheets}
+          isFetchingSpreadsheets={isFetchingSpreadsheets}
+          spreadsheetsErrorMessage={spreadsheetsErrorMessage}
+          isSpreadsheetDialogOpen={isSpreadsheetDialogOpen}
+          newSpreadsheetTitle={newSpreadsheetTitle}
+          isCreatingSpreadsheet={isCreatingSpreadsheet}
+          onSearchQueryChange={setSearchQuery}
+          onRefreshSpreadsheets={() =>
+            void queryClient.invalidateQueries({
+              queryKey: ["spreadsheets"],
+            })
+          }
+          onSelectSpreadsheet={handleSelectSpreadsheet}
+          onSpreadsheetDialogOpenChange={setIsSpreadsheetDialogOpen}
+          onNewSpreadsheetTitleChange={setNewSpreadsheetTitle}
+          onCreateSpreadsheet={() => void handleCreateSpreadsheet()}
+        />
 
-        {/* シート選択 */}
         {selectedSpreadsheetId && (
           <>
             <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <Label>シート</Label>
-                <Dialog
-                  open={isSheetDialogOpen}
-                  onOpenChange={setIsSheetDialogOpen}
-                >
-                  <DialogTrigger asChild>
-                    <Button size="sm" variant="outline">
-                      シートを追加
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>新しいシートを追加</DialogTitle>
-                      <DialogDescription>
-                        選択中のスプレッドシートに新しいシートを追加します。
-                      </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-2">
-                      <Label htmlFor="new-sheet-title">シート名</Label>
-                      <Input
-                        id="new-sheet-title"
-                        placeholder="例: 1月集計"
-                        value={newSheetTitle}
-                        onChange={(e) => setNewSheetTitle(e.target.value)}
-                        disabled={isAddingSheet}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setIsSheetDialogOpen(false)}
-                        disabled={isAddingSheet}
-                      >
-                        キャンセル
-                      </Button>
-                      <Button
-                        type="button"
-                        onClick={handleAddSheet}
-                        disabled={isAddingSheet}
-                      >
-                        {isAddingSheet ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            追加中...
-                          </>
-                        ) : (
-                          "追加する"
-                        )}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              </div>
-              {isFetchingSheets ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              ) : sheetsErrorMessage ? (
-                <div className="text-sm text-destructive">
-                  {sheetsErrorMessage}
-                </div>
-              ) : sheets.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  シートが見つかりません
-                </div>
-              ) : (
-                <ScrollArea className="h-[120px] rounded-md border">
-                  <div className="p-2 space-y-1">
-                    {sheets.map((sheet) => (
-                      <button
-                        key={sheet.title}
-                        type="button"
-                        onClick={() => handleSelectSheet(sheet.title)}
-                        className={[
-                          "w-full text-left px-3 py-2 rounded-md text-sm transition-colors",
-                          selectedSheetName === sheet.title
-                            ? "bg-primary text-primary-foreground"
-                            : "hover:bg-muted",
-                        ].join(" ")}
-                      >
-                        {sheet.title}
-                      </button>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-            </div>
+            <SheetSelector
+              selectedSheetName={selectedSheetName}
+              sheets={sheets}
+              isFetchingSheets={isFetchingSheets}
+              sheetsErrorMessage={sheetsErrorMessage}
+              isSheetDialogOpen={isSheetDialogOpen}
+              newSheetTitle={newSheetTitle}
+              isAddingSheet={isAddingSheet}
+              onSelectSheet={handleSelectSheet}
+              onSheetDialogOpenChange={setIsSheetDialogOpen}
+              onNewSheetTitleChange={setNewSheetTitle}
+              onAddSheet={() => void handleAddSheet()}
+            />
           </>
         )}
 
-        {/* 同期状態 */}
         {syncStatus && (
           <>
             <Separator />
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label>同期状態</Label>
-                {!isSyncing && (
-                  <button
-                    type="button"
-                    onClick={() => setSyncStatus(null)}
-                    className="text-muted-foreground hover:text-foreground"
-                    aria-label="閉じる"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    {syncStatus.status === "failed"
-                      ? (syncStatus.error ?? "同期に失敗しました")
-                      : syncStatus.status === "completed"
-                        ? "同期が完了しました"
-                        : syncStatus.status === "queued"
-                          ? "待機中..."
-                          : syncStatus.progress?.processed !== undefined ||
-                              syncStatus.progress?.total !== undefined
-                            ? `${syncStatus.progress.processed ?? 0} / ${syncStatus.progress.total ?? 0} 件処理中`
-                            : "処理中..."}
-                  </span>
-                  <span className="font-medium">
-                    {syncStatus.progress?.percentage !== undefined
-                      ? `${syncStatus.progress.percentage}%`
-                      : ""}
-                  </span>
-                </div>
-                {syncStatus.progress?.percentage !== undefined &&
-                  syncStatus.status !== "failed" && (
-                    <Progress value={syncStatus.progress.percentage} />
-                  )}
-                {syncStatus.status === "completed" && syncStatus.result && (
-                  <div className="text-xs text-muted-foreground">
-                    {syncStatus.result.updatedRows !== undefined
-                      ? `${syncStatus.result.updatedRows} 行を書き込みました`
-                      : "同期が完了しました"}
-                  </div>
-                )}
-              </div>
-            </div>
+            <SyncStatusPanel
+              syncStatus={syncStatus}
+              isSyncing={isSyncing}
+              onClearSyncStatus={() => setSyncStatus(null)}
+            />
           </>
         )}
 
-        {/* アクションボタン */}
         <Separator />
-        <div className="flex gap-3">
-          <Button
-            onClick={handleSaveConfig}
-            disabled={!selectedSpreadsheetId || !selectedSheetName || isSyncing}
-            className="flex-1"
-          >
-            設定を保存
-          </Button>
-          <Button
-            onClick={handleSync}
-            disabled={
-              !selectedSpreadsheetId ||
-              !selectedSheetName ||
-              isSyncing ||
-              hasUnsavedChanges ||
-              !savedConfig
-            }
-            variant="default"
-            className="flex-1"
-            title={
-              hasUnsavedChanges || !savedConfig
-                ? "設定を保存してから同期してください"
-                : undefined
-            }
-          >
-            {isSyncing ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                同期中...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                今すぐ差分同期
-              </>
-            )}
-          </Button>
-        </div>
+        <SyncActionButtons
+          selectedSpreadsheetId={selectedSpreadsheetId}
+          selectedSheetName={selectedSheetName}
+          isSyncing={isSyncing}
+          hasUnsavedChanges={hasUnsavedChanges}
+          hasSavedConfig={Boolean(savedConfig)}
+          onSaveConfig={() => void handleSaveConfig()}
+          onSync={() => void handleSync()}
+        />
 
-        {/* 説明 */}
-        <div className="rounded-lg bg-muted/50 p-4 text-xs text-muted-foreground space-y-2">
-          <p>
-            <strong>自動拡張:</strong>{" "}
-            指定されたヘッダー名が存在しない場合、自動的に新しい列として追加されます。
-          </p>
-          <p>
-            <strong>差分同期:</strong>{" "}
-            前回の同期以降の新しい回答のみが追加されます。
-          </p>
-        </div>
+        <GoogleSheetsSyncDescription />
       </CardContent>
     </Card>
   );
