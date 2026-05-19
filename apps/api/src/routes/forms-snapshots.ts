@@ -14,6 +14,7 @@ import {
   restoreFromSnapshot,
 } from "../lib/forms/snapshot-repository";
 import { createHonoApp } from "../lib/hono";
+import { errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
 import { isoDate } from "../types/domain/iso-date";
 
@@ -102,7 +103,7 @@ export const formsSnapshotsRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       const { changeLog } = c.req.valid("json");
       try {
         const result = await publishSnapshot(formId, auth.user_id, {
@@ -112,7 +113,7 @@ export const formsSnapshotsRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof NoChangesError) {
-          return c.json({ error: error.message }, 400);
+          return c.json(errorResponse(error.message), 400);
         }
         throw error;
       }
@@ -122,7 +123,7 @@ export const formsSnapshotsRouter = createHonoApp()
   .post("/:id/snapshots/reset", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const auth = c.get("dualAuthContext");
-    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
     try {
       const restored = await restoreFromSnapshot(formId);
       const response = RestoreEditResponseSchema.parse({
@@ -132,7 +133,7 @@ export const formsSnapshotsRouter = createHonoApp()
       return c.json(response);
     } catch (error) {
       if (error instanceof SnapshotNotFoundError) {
-        return c.json({ error: error.message }, 404);
+        return c.json(errorResponse(error.message), 404);
       }
       throw error;
     }
