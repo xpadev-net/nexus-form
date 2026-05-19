@@ -30,6 +30,7 @@ import {
   UpdateTokenResponse,
   ValidateTokenResponse,
 } from "../types/api/auth";
+import { errorResponse } from "../types/domain/common";
 
 const createTokenSchema = z.object({
   name: z.string().min(1).max(100),
@@ -54,12 +55,31 @@ const validateTokenSchema = z.object({
   token: z.string().min(1),
 });
 
+/** 停止中ユーザーが所有する API トークン検証時のエラーレスポンス。 */
+export const SuspendedTokenOwnerErrorResponseSchema = z.object({
+  error: z.object({
+    message: z.string(),
+    code: z.string(),
+  }),
+});
+export type SuspendedTokenOwnerErrorResponse = z.infer<
+  typeof SuspendedTokenOwnerErrorResponseSchema
+>;
+
+const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
+  SuspendedTokenOwnerErrorResponseSchema.parse({
+    error: {
+      message: SuspendedTokenOwnerError.MESSAGE,
+      code: ERROR_CODES.FORBIDDEN,
+    },
+  });
+
 function requireSessionUser(
   c: Context,
 ): { ok: true; userId: string } | { ok: false; response: Response } {
   const auth = c.get("dualAuthContext");
   if (!auth || auth.auth_type !== "session") {
-    return { ok: false, response: c.json({ error: "Unauthorized" }, 401) };
+    return { ok: false, response: c.json(errorResponse("Unauthorized"), 401) };
   }
   return { ok: true, userId: auth.user_id };
 }
@@ -117,10 +137,10 @@ export const tokensRouter = createHonoApp()
       .where(and(eq(apiToken.id, id), eq(apiToken.userId, user.userId)))
       .limit(1);
 
-    if (!token) return c.json({ error: "Token not found" }, 404);
+    if (!token) return c.json(errorResponse("Token not found"), 404);
     const parsedJson = parseStoredApiTokenJson(token, "tokens.get");
     if (!parsedJson) {
-      return c.json({ error: "Stored token data is malformed" }, 422);
+      return c.json(errorResponse("Stored token data is malformed"), 422);
     }
 
     const detailResponse = GetTokenResponse.parse({
@@ -153,7 +173,7 @@ export const tokensRouter = createHonoApp()
       .where(and(eq(apiToken.id, id), eq(apiToken.userId, user.userId)))
       .limit(1);
 
-    if (!existing) return c.json({ error: "Token not found" }, 404);
+    if (!existing) return c.json(errorResponse("Token not found"), 404);
 
     const nextJson = parseStoredApiTokenJson(
       {
@@ -164,7 +184,7 @@ export const tokensRouter = createHonoApp()
       "tokens.patch.preflight",
     );
     if (!nextJson) {
-      return c.json({ error: "Stored token data is malformed" }, 422);
+      return c.json(errorResponse("Stored token data is malformed"), 422);
     }
 
     const patch: {
@@ -208,10 +228,10 @@ export const tokensRouter = createHonoApp()
       .where(and(eq(apiToken.id, id), eq(apiToken.userId, user.userId)))
       .limit(1);
 
-    if (!updated) return c.json({ error: "Token not found" }, 404);
+    if (!updated) return c.json(errorResponse("Token not found"), 404);
     const parsedJson = parseStoredApiTokenJson(updated, "tokens.patch");
     if (!parsedJson) {
-      return c.json({ error: "Stored token data is malformed" }, 422);
+      return c.json(errorResponse("Stored token data is malformed"), 422);
     }
 
     const updateResponse = UpdateTokenResponse.parse({
@@ -236,7 +256,7 @@ export const tokensRouter = createHonoApp()
     const id = c.req.param("id");
     const success = await deleteApiToken(id, user.userId);
     if (!success) {
-      return c.json({ error: "Token not found or already deleted" }, 404);
+      return c.json(errorResponse("Token not found or already deleted"), 404);
     }
     return c.json(
       DeleteTokenResponse.parse({
@@ -251,7 +271,7 @@ export const tokensRouter = createHonoApp()
     const id = c.req.param("id");
     const success = await revokeApiToken(id, user.userId);
     if (!success) {
-      return c.json({ error: "Token not found or already revoked" }, 404);
+      return c.json(errorResponse("Token not found or already revoked"), 404);
     }
     return c.json(
       RevokeTokenResponse.parse({
@@ -271,15 +291,7 @@ export const tokensRouter = createHonoApp()
       });
     } catch (error) {
       if (error instanceof SuspendedTokenOwnerError) {
-        return c.json(
-          {
-            error: {
-              message: SuspendedTokenOwnerError.MESSAGE,
-              code: ERROR_CODES.FORBIDDEN,
-            },
-          },
-          403,
-        );
+        return c.json(suspendedTokenOwnerErrorResponse(), 403);
       }
       throw error;
     }
