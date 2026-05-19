@@ -37,10 +37,7 @@ export const AuthErrorResponseSchema = z.object({
 /** Inferred TypeScript type for `AuthErrorResponseSchema`. */
 export type AuthErrorResponse = z.infer<typeof AuthErrorResponseSchema>;
 
-const authError = (error: string): AuthErrorResponse => {
-  const result = AuthErrorResponseSchema.safeParse({ error });
-  return result.success ? result.data : { error };
-};
+const authError = (error: string): AuthErrorResponse => ({ error });
 
 const AuthMeResponseSchema = z.object({
   user: AuthSessionUserSchema,
