@@ -75,6 +75,9 @@ describe("GitHub error utilities", () => {
     expect(getGitHubErrorCode({ errno: "ETIMEDOUT" })).toBe(
       GitHubErrorCode.TIMEOUT,
     );
+    expect(getGitHubErrorCode({ code: "ETIMEDOUT" })).toBe(
+      GitHubErrorCode.TIMEOUT,
+    );
   });
 
   it.each([

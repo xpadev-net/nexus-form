@@ -2,7 +2,6 @@ import { TwitterErrorCode, type TwitterValidationError } from "./error-codes";
 
 const RETRYABLE_NETWORK_ERROR_CODES = new Set([
   "ECONNREFUSED",
-  "ETIMEDOUT",
   "ENOTFOUND",
   "ECONNRESET",
   "EAI_AGAIN",

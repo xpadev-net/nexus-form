@@ -74,10 +74,10 @@ function isRedisLockAcquireTimeout(error: unknown): boolean {
   return error instanceof RedisLockAcquireTimeoutError;
 }
 
-function getJobAttemptsLimit(job: Job<GenericValidationJob>): number {
-  return Math.max(
-    1,
-    Math.trunc(job.opts.attempts ?? DEFAULT_RETRY_AFTER_MAX_ATTEMPTS),
+function getRetryAfterAttemptsLimit(): number {
+  return readPositiveIntegerEnv(
+    "VALIDATION_RETRY_AFTER_MAX_ATTEMPTS",
+    DEFAULT_RETRY_AFTER_MAX_ATTEMPTS,
   );
 }
 
@@ -349,7 +349,7 @@ export const handleGenericValidation = async (
   if (result.retryable) {
     if (result.retryAfter != null && result.retryAfter > 0) {
       const retryAfterCount = jobData.retryAfterCount ?? 0;
-      if (retryAfterCount >= getJobAttemptsLimit(job) - 1) {
+      if (retryAfterCount >= getRetryAfterAttemptsLimit() - 1) {
         await writeValidationResult({
           responseId,
           formId,
@@ -377,9 +377,13 @@ export const handleGenericValidation = async (
     throw new Error(result.errorMessage ?? "Retryable validation result");
   }
 
-  if (result.retryAfter != null && result.retryAfter > 0) {
+  if (
+    result.retryable !== false &&
+    result.retryAfter != null &&
+    result.retryAfter > 0
+  ) {
     const retryAfterCount = jobData.retryAfterCount ?? 0;
-    if (retryAfterCount >= getJobAttemptsLimit(job) - 1) {
+    if (retryAfterCount >= getRetryAfterAttemptsLimit() - 1) {
       await writeValidationResult({
         responseId,
         formId,

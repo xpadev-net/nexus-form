@@ -141,6 +141,23 @@ describe("twitterProvider.rules.user_exists.validate", () => {
     });
   });
 
+  it("marks Twitter ETIMEDOUT errors as timeout errors", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      Object.assign(new Error("Timed out"), { code: "ETIMEDOUT" }),
+    );
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TIMEOUT,
+      retryable: true,
+    });
+  });
+
   it("keeps Twitter authentication errors non-retryable", async () => {
     getUserByUsernameMock.mockRejectedValueOnce({
       response: {

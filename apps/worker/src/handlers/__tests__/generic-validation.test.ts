@@ -521,6 +521,37 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("retryable false の retryAfter は遅延再試行として扱わない", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 30,
+        retryable: false,
+        errorCode: "PERMANENT_ERROR",
+        errorMessage: "Permanent failure",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({ ok: false, provider: "test-provider" });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "PERMANENT_ERROR",
+        errorMessage: "Permanent failure",
+      }),
+    );
+  });
+
   it("normalizeInputが呼ばれ、正規化後の値でvalidateが実行される", async () => {
     const normalizeFn = vi.fn().mockReturnValue("normalized-input");
     const validateFn = vi.fn().mockResolvedValue({ isValid: true });
