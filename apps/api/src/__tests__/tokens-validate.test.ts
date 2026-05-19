@@ -57,7 +57,7 @@ vi.mock("drizzle-orm", () => ({
 const { tokensRouter } = await import("../routes/tokens");
 const { db } = await import("@nexus-form/database");
 
-function mockSelectRowsOnce(rows: Array<Record<string, unknown>>) {
+function mockSelectRowsOnce(rows: Array<Record<string, unknown>>): void {
   vi.mocked(db.select).mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
       where: vi.fn().mockReturnValue({
@@ -180,7 +180,10 @@ describe("POST /api/tokens admin scope authorization", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({
-      error: "Admin scope requires an admin session",
+      error: {
+        message: "Admin scope requires an admin session",
+        code: "FORBIDDEN",
+      },
     });
     expect(createApiToken).not.toHaveBeenCalled();
   });
@@ -236,7 +239,10 @@ describe("POST /api/tokens admin scope authorization", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({
-      error: "Admin scope requires an admin session",
+      error: {
+        message: "Admin scope requires an admin session",
+        code: "FORBIDDEN",
+      },
     });
     expect(db.update).not.toHaveBeenCalled();
   });
@@ -260,7 +266,37 @@ describe("POST /api/tokens admin scope authorization", () => {
 
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toEqual({
-      error: "Admin scope requires an admin session",
+      error: {
+        message: "Admin scope requires an admin session",
+        code: "FORBIDDEN",
+      },
+    });
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects scope-downgrades of existing admin tokens for non-admin sessions", async () => {
+    mockSelectRowsOnce([
+      {
+        id: "token-id",
+        scopes: ["admin"],
+        formIds: null,
+      },
+    ]);
+
+    const res = await tokensRouter.request("/token-id", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        scopes: ["read"],
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: {
+        message: "Admin scope requires an admin session",
+        code: "FORBIDDEN",
+      },
     });
     expect(db.update).not.toHaveBeenCalled();
   });

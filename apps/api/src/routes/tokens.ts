@@ -66,6 +66,17 @@ export type SuspendedTokenOwnerErrorResponse = z.infer<
   typeof SuspendedTokenOwnerErrorResponseSchema
 >;
 
+/** admin scope を許可されていないセッションのエラーレスポンス。 */
+export const AdminScopeForbiddenResponseSchema = z.object({
+  error: z.object({
+    message: z.string(),
+    code: z.string(),
+  }),
+});
+export type AdminScopeForbiddenResponse = z.infer<
+  typeof AdminScopeForbiddenResponseSchema
+>;
+
 const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
   SuspendedTokenOwnerErrorResponseSchema.parse({
     error: {
@@ -96,7 +107,15 @@ function rejectNonAdminScope(
   isAdmin: boolean,
 ): Response | null {
   if (!isAdmin && scopes.includes("admin")) {
-    return c.json(errorResponse("Admin scope requires an admin session"), 403);
+    return c.json(
+      AdminScopeForbiddenResponseSchema.parse({
+        error: {
+          message: "Admin scope requires an admin session",
+          code: ERROR_CODES.FORBIDDEN,
+        },
+      }),
+      403,
+    );
   }
   return null;
 }
@@ -199,6 +218,20 @@ export const tokensRouter = createHonoApp()
 
     if (!existing) return c.json(errorResponse("Token not found"), 404);
 
+    const currentJson = parseStoredApiTokenJson(
+      existing,
+      "tokens.patch.current",
+    );
+    if (!currentJson) {
+      return c.json(errorResponse("Stored token data is malformed"), 422);
+    }
+    const currentAdminScopeError = rejectNonAdminScope(
+      c,
+      currentJson.scopes,
+      user.isAdmin,
+    );
+    if (currentAdminScopeError) return currentAdminScopeError;
+
     const nextJson = parseStoredApiTokenJson(
       {
         id: existing.id,
@@ -210,12 +243,12 @@ export const tokensRouter = createHonoApp()
     if (!nextJson) {
       return c.json(errorResponse("Stored token data is malformed"), 422);
     }
-    const adminScopeError = rejectNonAdminScope(
+    const nextAdminScopeError = rejectNonAdminScope(
       c,
       nextJson.scopes,
       user.isAdmin,
     );
-    if (adminScopeError) return adminScopeError;
+    if (nextAdminScopeError) return nextAdminScopeError;
 
     const patch: {
       name?: string;
