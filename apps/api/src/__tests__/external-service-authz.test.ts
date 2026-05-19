@@ -125,10 +125,7 @@ describe("external service form OAuth authorization", () => {
 
   it("rejects form editors before they can use the owner's linked account", async () => {
     mockSession(EDITOR_ID);
-    mockDbSelectResults([
-      [{ id: FORM_ID, creatorId: OWNER_ID }],
-      [{ role: "EDITOR" }],
-    ]);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
 
     const { externalServiceRouter } = await import(
       "../routes/external-service"
