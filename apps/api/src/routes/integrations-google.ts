@@ -10,6 +10,7 @@ import {
 } from "../lib/crypto/field-encryption";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import { errorResponse } from "../types/domain/common";
 import {
   GoogleSheetsResponseSchema,
   GoogleSpreadsheetsResponseSchema,
@@ -366,7 +367,7 @@ function requireSessionUser(
 ): { ok: true; userId: string } | { ok: false; response: Response } {
   const auth = c.get("dualAuthContext");
   if (!auth || auth.auth_type !== "session") {
-    return { ok: false, response: c.json({ error: "Unauthorized" }, 401) };
+    return { ok: false, response: c.json(errorResponse("Unauthorized"), 401) };
   }
   return { ok: true, userId: auth.user_id };
 }
@@ -379,11 +380,11 @@ export const integrationsGoogleRouter = createHonoApp()
 
     const parsed = authorizeQuerySchema.safeParse(c.req.query());
     if (!parsed.success)
-      return c.json({ error: "Invalid query parameters" }, 400);
+      return c.json(errorResponse("Invalid query parameters"), 400);
 
     const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
     if (!clientId)
-      return c.json({ error: "Google OAuth is not configured" }, 503);
+      return c.json(errorResponse("Google OAuth is not configured"), 503);
 
     const scope =
       parsed.data.scope ??
@@ -394,9 +395,9 @@ export const integrationsGoogleRouter = createHonoApp()
     const prompt = parsed.data.prompt ?? "consent";
     const redirectUri = getGoogleOAuthRedirectUri();
     if (!redirectUri)
-      return c.json({ error: "Google OAuth is not configured" }, 503);
+      return c.json(errorResponse("Google OAuth is not configured"), 503);
     const appOrigin = resolveAppOrigin(c, parsed.data.app_origin);
-    if (!appOrigin) return c.json({ error: "Invalid app origin" }, 400);
+    if (!appOrigin) return c.json(errorResponse("Invalid app origin"), 400);
     const state =
       parsed.data.state && /^[A-Za-z0-9_-]{32,128}$/.test(parsed.data.state)
         ? parsed.data.state
@@ -560,9 +561,11 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     let token = await getStoredToken(user.userId);
-    if (!token) return c.json({ error: "Google account not connected" }, 401);
+    if (!token)
+      return c.json(errorResponse("Google account not connected"), 401);
     token = await refreshIfNeeded(token);
-    if (!token) return c.json({ error: "Google account unauthorized" }, 401);
+    if (!token)
+      return c.json(errorResponse("Google account unauthorized"), 401);
 
     const query = c.req.query("query");
     const pageSize = c.req.query("pageSize");
@@ -585,12 +588,12 @@ export const integrationsGoogleRouter = createHonoApp()
       },
     );
     if (!response.ok)
-      return c.json({ error: "Failed to fetch spreadsheet list" }, 502);
+      return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
     const rawParsed = googleDriveFilesResponseSchema.safeParse(
       await response.json(),
     );
     if (!rawParsed.success)
-      return c.json({ error: "Unexpected response from Google API" }, 502);
+      return c.json(errorResponse("Unexpected response from Google API"), 502);
     const raw = rawParsed.data;
     const spreadsheets = (raw.files ?? []).flatMap((file) =>
       typeof file.id === "string" ? [{ id: file.id, name: file.name }] : [],
@@ -601,7 +604,7 @@ export const integrationsGoogleRouter = createHonoApp()
       nextPageToken: raw.nextPageToken,
     });
     if (!parsed.success)
-      return c.json({ error: "Unexpected response from Google API" }, 502);
+      return c.json(errorResponse("Unexpected response from Google API"), 502);
     return c.json(parsed.data);
   })
   .get("/spreadsheets/:id/sheets", async (c) => {
@@ -609,12 +612,14 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const spreadsheetId = c.req.param("id");
-    if (!spreadsheetId) return c.json({ error: "No spreadsheet id" }, 400);
+    if (!spreadsheetId) return c.json(errorResponse("No spreadsheet id"), 400);
 
     let token = await getStoredToken(user.userId);
-    if (!token) return c.json({ error: "Google account not connected" }, 401);
+    if (!token)
+      return c.json(errorResponse("Google account not connected"), 401);
     token = await refreshIfNeeded(token);
-    if (!token) return c.json({ error: "Google account unauthorized" }, 401);
+    if (!token)
+      return c.json(errorResponse("Google account unauthorized"), 401);
 
     const response = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets(properties(sheetId,title))`,
@@ -624,13 +629,13 @@ export const integrationsGoogleRouter = createHonoApp()
     );
 
     if (!response.ok)
-      return c.json({ error: "Failed to fetch sheets list" }, 502);
+      return c.json(errorResponse("Failed to fetch sheets list"), 502);
 
     const rawParsed = googleSpreadsheetSheetsResponseSchema.safeParse(
       await response.json(),
     );
     if (!rawParsed.success)
-      return c.json({ error: "Unexpected response from Google API" }, 502);
+      return c.json(errorResponse("Unexpected response from Google API"), 502);
     const raw = rawParsed.data;
 
     const sheets = (raw.sheets ?? [])
@@ -642,6 +647,6 @@ export const integrationsGoogleRouter = createHonoApp()
 
     const parsedSheets = GoogleSheetsResponseSchema.safeParse({ sheets });
     if (!parsedSheets.success)
-      return c.json({ error: "Unexpected response from Google API" }, 502);
+      return c.json(errorResponse("Unexpected response from Google API"), 502);
     return c.json(parsedSheets.data);
   });
