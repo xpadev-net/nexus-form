@@ -49,7 +49,7 @@ export async function appendRows(
   token: OAuthToken,
   params: AppendRowsInput,
 ): Promise<Result<AppendRowsOutput>> {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(params.sheetName)}:append?valueInputOption=RAW&insertDataOption=${params.insertOption || "INSERT_ROWS"}`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(params.sheetName)}:append?valueInputOption=RAW&insertDataOption=${params.insertOption || "INSERT_ROWS"}`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
@@ -108,7 +108,7 @@ export async function readRange(
   token: OAuthToken,
   params: ReadRangeInput,
 ): Promise<Result<ReadRangeOutput>> {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(params.rangeA1)}?majorDimension=${params.majorDimension || "ROWS"}`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(params.rangeA1)}?majorDimension=${params.majorDimension || "ROWS"}`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
@@ -162,7 +162,7 @@ export async function updateRange(
   token: OAuthToken,
   params: import("./sheets-drive.types").UpdateRangeInput,
 ): Promise<Result<import("./sheets-drive.types").UpdateRangeOutput>> {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(
     params.rangeA1,
   )}?valueInputOption=RAW`;
   try {
@@ -211,7 +211,7 @@ export async function getSpreadsheetMetadata(
 ): Promise<
   Result<{ sheets: Array<{ properties: { sheetId: number; title: string } }> }>
 > {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}?fields=sheets.properties`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
@@ -265,7 +265,7 @@ export async function insertColumnAtStart(
     };
   }
   const sheetId = match.properties.sheetId;
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`;
   try {
     const body = {
       requests: [
@@ -333,7 +333,7 @@ export async function insertRowsAtStart(
     };
   }
   const sheetId = match.properties.sheetId;
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}:batchUpdate`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`;
   try {
     const body = {
       requests: [

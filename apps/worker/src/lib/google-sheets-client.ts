@@ -109,7 +109,7 @@ export async function appendRows(
     insertOption?: "INSERT_ROWS" | "OVERWRITE";
   },
 ): Promise<Result<{ updatedRange: string; updatedRows: number }>> {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(params.sheetName)}:append?valueInputOption=RAW&insertDataOption=${params.insertOption || "INSERT_ROWS"}`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(params.sheetName)}:append?valueInputOption=RAW&insertDataOption=${params.insertOption || "INSERT_ROWS"}`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
@@ -146,7 +146,7 @@ export async function readRange(
     majorDimension: string;
   }>
 > {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(params.rangeA1)}?majorDimension=${params.majorDimension || "ROWS"}`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(params.rangeA1)}?majorDimension=${params.majorDimension || "ROWS"}`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
@@ -179,7 +179,7 @@ export async function updateRange(
     values: string[][];
   },
 ): Promise<Result<{ updatedRange: string; updatedRows?: number }>> {
-  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${params.spreadsheetId}/values/${encodeURIComponent(params.rangeA1)}?valueInputOption=RAW`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(params.rangeA1)}?valueInputOption=RAW`;
   try {
     const raw = await fetchGoogleSheetsAPI({
       accessToken: token.accessToken,
