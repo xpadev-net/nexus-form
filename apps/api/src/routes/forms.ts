@@ -5,6 +5,7 @@ import { count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import { errorResponse } from "../types/domain/common";
 import {
   FormCreateResponseSchema,
   FormsListResponseSchema,
@@ -24,7 +25,7 @@ export const formsRouter = createHonoApp()
   .use("*", withDualAuth())
   .get("/", zValidator("query", formsListQuerySchema), async (c) => {
     const auth = c.get("dualAuthContext");
-    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
     const { page, limit } = c.req.valid("query");
     const offset = (page - 1) * limit;
@@ -56,7 +57,7 @@ export const formsRouter = createHonoApp()
   })
   .post("/", zValidator("json", createFormSchema), async (c) => {
     const auth = c.get("dualAuthContext");
-    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
     const payload = c.req.valid("json");
     const id = randomUUID();
