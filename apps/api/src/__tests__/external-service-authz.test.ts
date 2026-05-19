@@ -147,13 +147,9 @@ describe("external service form OAuth authorization", () => {
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 
-  it("rejects non-creator OWNER rows before using the creator's linked account", async () => {
+  it("rejects non-creator users before using the creator's linked account", async () => {
     mockSession(CO_OWNER_ID);
-    mockDbSelectResults([
-      [{ id: FORM_ID, creatorId: OWNER_ID }],
-      [{ role: "OWNER" }],
-      [{ creatorId: OWNER_ID }],
-    ]);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
 
     const { externalServiceRouter } = await import(
       "../routes/external-service"
