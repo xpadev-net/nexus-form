@@ -15,6 +15,14 @@ function parseWorkerQueues(value: string): Set<string> {
   return new Set(queues);
 }
 
+export function validateWorkerQueuesEnv(workerQueuesEnv: string | undefined) {
+  if (workerQueuesEnv === undefined) return;
+
+  if (parseWorkerQueues(workerQueuesEnv).size === 0) {
+    throw new Error("WORKER_QUEUES did not select any available worker queues");
+  }
+}
+
 export function selectWorkerQueues(
   providerNames: readonly string[],
   workerQueuesEnv: string | undefined,

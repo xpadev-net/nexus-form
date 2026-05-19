@@ -22,6 +22,7 @@ import { createWorker } from "./lib/worker-factory";
 import {
   GOOGLE_SHEETS_SYNC_QUEUE,
   selectWorkerQueues,
+  validateWorkerQueuesEnv,
 } from "./lib/worker-queue-selection";
 
 const BUILTIN_PLUGIN_SPECIFIERS = [
@@ -50,6 +51,7 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
 async function main() {
   await initSentry();
   assertGoogleOAuthEncryptionKeyConfigured();
+  validateWorkerQueuesEnv(process.env.WORKER_QUEUES);
 
   const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),

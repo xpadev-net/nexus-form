@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   GOOGLE_SHEETS_SYNC_QUEUE,
   selectWorkerQueues,
+  validateWorkerQueuesEnv,
 } from "../worker-queue-selection";
 
 const providers = ["discord", "github", "twitter"];
@@ -40,6 +41,19 @@ describe("selectWorkerQueues", () => {
         unknownQueues: ["missing"],
       },
     );
+  });
+
+  describe("validateWorkerQueuesEnv", () => {
+    it("allows unset and non-empty values", () => {
+      expect(() => validateWorkerQueuesEnv(undefined)).not.toThrow();
+      expect(() => validateWorkerQueuesEnv("discord-validation")).not.toThrow();
+    });
+
+    it.each(["", " , "])("rejects explicit empty values: %j", (value) => {
+      expect(() => validateWorkerQueuesEnv(value)).toThrow(
+        "WORKER_QUEUES did not select any available worker queues",
+      );
+    });
   });
 
   it.each([
