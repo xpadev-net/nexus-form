@@ -85,7 +85,8 @@ export function FormResponsesContent({ formId }: { formId: string }) {
         </p>
         <div className="flex items-center gap-2">
           <ResponseExport formId={formId} />
-          <div className="flex rounded-md border">
+          <fieldset className="flex rounded-md border">
+            <legend className="sr-only">回答表示モード</legend>
             <button
               type="button"
               onClick={() => setViewMode("list")}
@@ -114,7 +115,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
               <BarChart3 className="h-3.5 w-3.5" />
               分析
             </button>
-          </div>
+          </fieldset>
         </div>
       </div>
 
