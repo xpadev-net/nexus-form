@@ -39,7 +39,7 @@ import { getLatestSnapshotByVersion } from "../lib/forms/snapshot-repository";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
-import { logWarn } from "../lib/logger";
+import { logError, logWarn } from "../lib/logger";
 import { getValidationQueue, isValidServiceName } from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
 import {
@@ -121,8 +121,16 @@ async function enqueueValidationRetries(
   const retryable = results.filter((r) => r.status !== "MISSING");
   for (const r of results) {
     if (r.status === "MISSING") {
-      console.warn(
-        `Skipping retry for result ${r.id}: referenced block ${r.referencedBlockId} is missing`,
+      logWarn(
+        "Skipping validation retry because referenced block is missing",
+        "forms-responses",
+        {
+          resultId: r.id,
+          responseId: r.responseId,
+          ruleId: r.ruleId,
+          referencedBlockId: r.referencedBlockId,
+          formId: r.formId,
+        },
       );
     }
   }
@@ -163,8 +171,16 @@ async function enqueueValidationRetries(
 
   for (const result of validResults) {
     if (!isValidServiceName(result.service)) {
-      console.warn(
-        `Skipping retry for result ${result.id}: invalid service name "${result.service}"`,
+      logWarn(
+        "Skipping validation retry because service name is invalid",
+        "forms-responses",
+        {
+          resultId: result.id,
+          responseId: result.responseId,
+          ruleId: result.ruleId,
+          service: result.service,
+          formId: result.formId,
+        },
       );
       continue;
     }
@@ -177,15 +193,31 @@ async function enqueueValidationRetries(
       null;
 
     if (!ruleType || !configJson) {
-      console.warn(
-        `Skipping retry for result ${result.id}: rule config not found for ruleId=${result.ruleId}`,
+      logWarn(
+        "Skipping validation retry because rule config was not found",
+        "forms-responses",
+        {
+          resultId: result.id,
+          responseId: result.responseId,
+          ruleId: result.ruleId,
+          service: result.service,
+          formId: result.formId,
+        },
       );
       continue;
     }
 
     if (!providerRegistry.has(result.service)) {
-      console.warn(
-        `Skipping retry for result ${result.id}: provider "${result.service}" is not registered`,
+      logWarn(
+        "Skipping validation retry because provider is not registered",
+        "forms-responses",
+        {
+          resultId: result.id,
+          responseId: result.responseId,
+          ruleId: result.ruleId,
+          service: result.service,
+          formId: result.formId,
+        },
       );
       try {
         await db
@@ -196,9 +228,18 @@ async function enqueueValidationRetries(
             errorMessage: `Validation provider not registered: ${result.service}`,
           })
           .where(eq(externalServiceValidationResult.id, result.id));
-      } catch {
-        console.error(
-          `Failed to mark result ${result.id} as FAILED for unregistered provider`,
+      } catch (error) {
+        logError(
+          "Failed to mark validation result as FAILED for unregistered provider",
+          "forms-responses",
+          {
+            error,
+            resultId: result.id,
+            responseId: result.responseId,
+            ruleId: result.ruleId,
+            service: result.service,
+            formId: result.formId,
+          },
         );
       }
       continue;
@@ -220,7 +261,15 @@ async function enqueueValidationRetries(
         removeOnComplete: 100,
         removeOnFail: 100,
       });
-    } catch {
+    } catch (error) {
+      logError("Failed to enqueue validation retry job", "forms-responses", {
+        error,
+        resultId: result.id,
+        responseId: result.responseId,
+        ruleId: result.ruleId,
+        service: result.service,
+        formId: result.formId,
+      });
       // enqueue に失敗した場合のみ FAILED に設定
       try {
         await db
@@ -231,9 +280,18 @@ async function enqueueValidationRetries(
             errorMessage: "Failed to enqueue retry job",
           })
           .where(eq(externalServiceValidationResult.id, result.id));
-      } catch {
-        console.error(
-          `Failed to mark result ${result.id} as FAILED after enqueue error`,
+      } catch (error) {
+        logError(
+          "Failed to mark validation result as FAILED after enqueue error",
+          "forms-responses",
+          {
+            error,
+            resultId: result.id,
+            responseId: result.responseId,
+            ruleId: result.ruleId,
+            service: result.service,
+            formId: result.formId,
+          },
         );
       }
       continue;
@@ -252,11 +310,23 @@ async function enqueueValidationRetries(
           jobId: job.id ?? null,
         })
         .where(eq(externalServiceValidationResult.id, result.id));
-    } catch {
+    } catch (error) {
       // ジョブは既にキューに投入済み。Worker が実行時にステータスを修正するため、
       // ここではログ出力のみで残りのエントリの処理を継続する。
       // ジョブは実行中なので、呼び出し元がトラッキング・キャンセルできるよう記録する。
-      console.error(`Failed to set PENDING status for result ${result.id}`);
+      logError(
+        "Failed to set PENDING status for validation retry result",
+        "forms-responses",
+        {
+          error,
+          resultId: result.id,
+          responseId: result.responseId,
+          ruleId: result.ruleId,
+          service: result.service,
+          formId: result.formId,
+          jobId: job.id ?? null,
+        },
+      );
       if (job.id) {
         jobIds.push(job.id);
       }
