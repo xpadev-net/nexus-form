@@ -11,7 +11,9 @@ vi.mock("@nexus-form/database", () => ({
     },
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    innerJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue([]),
     insert: vi.fn().mockReturnThis(),
     values: vi.fn().mockResolvedValue(undefined),
@@ -29,8 +31,13 @@ vi.mock("@nexus-form/database", () => ({
 vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
   form: {},
-  formPermission: {},
+  formStructure: {},
   formShareLink: {},
+  formIntegration: {},
+  formResponse: {},
+  fingerprintDetail: {},
+  externalServiceValidationResult: {},
+  formPermission: {},
   discordGuild: {},
   discordUser: {},
 }));
@@ -204,6 +211,36 @@ describe("API Route Integration Tests", () => {
         body: JSON.stringify({ title: "Test Form" }),
       });
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe("public form route ordering", () => {
+    it("routes unauthenticated public form GET before authenticated forms middleware", async () => {
+      const res = await app.request("/api/forms/public/public-form-id");
+
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toEqual({
+        error: "Form not found",
+      });
+    });
+
+    it("routes unauthenticated public form submit before authenticated forms middleware", async () => {
+      const res = await app.request("/api/forms/public/public-form-id/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("routes unauthenticated shared link GET before authenticated forms middleware", async () => {
+      const res = await app.request("/api/forms/shared/share-token");
+
+      expect(res.status).toBe(404);
+      await expect(res.json()).resolves.toEqual({
+        error: "Share link not found",
+      });
     });
   });
 
