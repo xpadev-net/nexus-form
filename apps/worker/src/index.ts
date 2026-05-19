@@ -112,7 +112,9 @@ async function main() {
   }
 
   if (workers.length === 0) {
-    throw new Error("WORKER_QUEUES did not select any available worker queues");
+    throw new Error(
+      "Internal error: worker list is empty after queue selection",
+    );
   }
 
   for (const worker of workers) {
