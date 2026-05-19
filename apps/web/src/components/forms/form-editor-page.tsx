@@ -28,6 +28,7 @@ import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integr
 import { PlateConflictBanner } from "@/components/forms/plate-conflict-banner";
 import { ScheduleManager } from "@/components/forms/schedule-manager";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
@@ -195,7 +196,9 @@ export function FormEditorPage() {
 
   if (formQuery.isLoading || contentQuery.isLoading) {
     return (
-      <section className="rounded-lg border bg-card p-6">読み込み中...</section>
+      <output className="rounded-lg border bg-card p-6" aria-live="polite">
+        読み込み中...
+      </output>
     );
   }
 
@@ -218,7 +221,18 @@ export function FormEditorPage() {
   ];
 
   return (
-    <div className="space-y-4">
+    <Tabs
+      value={activeTab}
+      onValueChange={(value) => {
+        if (!isEditorTab(value)) return;
+        if (activeTab === "editor") {
+          snapshotEditorToDraft();
+        }
+        setActiveTab(value);
+        if (value === "responses") setResponsesEverActive(true);
+      }}
+      className="gap-4"
+    >
       {/* ヘッダー */}
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <FormHeader
@@ -270,122 +284,105 @@ export function FormEditorPage() {
           }
         />
 
-        {/* タブナビゲーション */}
-        <div className="flex gap-1 border-b">
+        <TabsList
+          variant="line"
+          aria-label="フォーム編集セクション"
+          className="border-b"
+        >
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
-              <button
-                key={tab.key}
-                type="button"
-                onClick={() => {
-                  if (activeTab === "editor") {
-                    snapshotEditorToDraft();
-                  }
-                  setActiveTab(tab.key);
-                  if (tab.key === "responses") setResponsesEverActive(true);
-                }}
-                className={[
-                  "flex items-center gap-1.5 border-b-2 px-4 py-2 text-sm transition-colors",
-                  activeTab === tab.key
-                    ? "border-primary font-medium text-primary"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                ].join(" ")}
-              >
+              <TabsTrigger key={tab.key} value={tab.key} className="px-4">
                 <Icon className="h-4 w-4" />
                 {tab.label}
-              </button>
+              </TabsTrigger>
             );
           })}
-        </div>
+        </TabsList>
       </section>
 
       {/* エディタタブ */}
-      {activeTab === "editor" && (
-        <>
-          {conflictState && (
-            <PlateConflictBanner
-              conflicts={conflictState.result.conflicts}
-              resolutions={conflictResolutions}
-              onResolutionChange={setConflictResolutions}
-              onResolve={resolveConflicts}
-              onDismiss={dismissConflict}
-              isMerging={isMerging}
-            />
-          )}
-          <section className="rounded-lg border bg-card shadow-sm">
-            <PlateEditor
-              value={draftContent ?? plateContent}
-              onChange={handleContentChange}
-            />
-          </section>
-        </>
-      )}
+      <TabsContent value="editor" className="space-y-4">
+        {conflictState && (
+          <PlateConflictBanner
+            conflicts={conflictState.result.conflicts}
+            resolutions={conflictResolutions}
+            onResolutionChange={setConflictResolutions}
+            onResolve={resolveConflicts}
+            onDismiss={dismissConflict}
+            isMerging={isMerging}
+          />
+        )}
+        <section className="rounded-lg border bg-card shadow-sm">
+          <PlateEditor
+            value={draftContent ?? plateContent}
+            onChange={handleContentChange}
+          />
+        </section>
+      </TabsContent>
 
       {/* 設定タブ */}
-      {activeTab === "settings" && (
-        <div className="space-y-4">
-          <section className="rounded-lg border bg-card p-6 shadow-sm">
-            <ScheduleManager formId={id} />
-          </section>
+      <TabsContent value="settings" className="space-y-4">
+        <section className="rounded-lg border bg-card p-6 shadow-sm">
+          <ScheduleManager formId={id} />
+        </section>
 
-          <GoogleSheetsIntegration formId={id} />
+        <GoogleSheetsIntegration formId={id} />
 
-          <section className="rounded-lg border bg-card p-6 shadow-sm">
-            <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
-            <div className="flex flex-wrap gap-2">
-              <FormArchiveManager
-                isArchived={formStatus === "ARCHIVED"}
-                isLoading={
-                  archiveMutation.isPending || unarchiveMutation.isPending
-                }
-                onArchive={() => archiveMutation.mutate()}
-                onUnarchive={() => unarchiveMutation.mutate()}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowDuplicateModal(true)}
-              >
-                <Copy className="mr-1 h-3.5 w-3.5" />
-                複製
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => setShowDeleteModal(true)}
-              >
-                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                削除
-              </Button>
-            </div>
-          </section>
-        </div>
-      )}
+        <section className="rounded-lg border bg-card p-6 shadow-sm">
+          <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
+          <div className="flex flex-wrap gap-2">
+            <FormArchiveManager
+              isArchived={formStatus === "ARCHIVED"}
+              isLoading={
+                archiveMutation.isPending || unarchiveMutation.isPending
+              }
+              onArchive={() => archiveMutation.mutate()}
+              onUnarchive={() => unarchiveMutation.mutate()}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDuplicateModal(true)}
+            >
+              <Copy className="mr-1 h-3.5 w-3.5" />
+              複製
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setShowDeleteModal(true)}
+            >
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              削除
+            </Button>
+          </div>
+        </section>
+      </TabsContent>
 
       {/* 検証タブ */}
-      {activeTab === "validation" && (
+      <TabsContent value="validation">
         <section className="rounded-lg border bg-card p-6 shadow-sm">
           <FormValidationRulesPage formId={id} plateContent={plateContent} />
         </section>
-      )}
+      </TabsContent>
 
       {/* 共有タブ */}
-      {activeTab === "sharing" && (
+      <TabsContent value="sharing">
         <section className="rounded-lg border bg-card p-6 shadow-sm">
           <FormSharingSection formId={id} />
         </section>
-      )}
+      </TabsContent>
 
-      {/* 回答タブ — 一度訪れたら hidden で状態を保持 */}
-      {responsesEverActive && (
-        <div
-          className={activeTab !== "responses" ? "hidden" : undefined}
-          aria-hidden={activeTab !== "responses"}
-        >
-          <FormResponsesContent formId={id} />
-        </div>
-      )}
+      {/* 回答タブ — 一度訪れたら forceMount で状態を保持 */}
+      <TabsContent
+        value="responses"
+        forceMount
+        hidden={activeTab !== "responses"}
+        aria-hidden={activeTab !== "responses"}
+      >
+        {responsesEverActive ? <FormResponsesContent formId={id} /> : null}
+      </TabsContent>
 
       {/* モーダル */}
       <FormDeletionModal
@@ -401,6 +398,6 @@ export function FormEditorPage() {
         onConfirm={() => duplicateMutation.mutate()}
         onClose={() => setShowDuplicateModal(false)}
       />
-    </div>
+    </Tabs>
   );
 }
