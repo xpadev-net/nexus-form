@@ -190,6 +190,17 @@ function sessionFor(userId: string) {
   };
 }
 
+function adminSessionFor(userId: string) {
+  const session = sessionFor(userId);
+  return {
+    ...session,
+    user: {
+      ...session.user,
+      role: "admin",
+    },
+  };
+}
+
 function apiTokenFor(scopes: TokenScope[]) {
   tokenMocks.validateApiToken.mockResolvedValueOnce({
     user_id: USER_A_ID,
@@ -210,6 +221,8 @@ beforeAll(async () => {
 beforeEach(() => {
   mockGetSession.mockReset();
   tokenMocks.validateApiToken.mockReset();
+  vi.mocked(s3ImageService.generateDownloadUrl).mockClear();
+  vi.mocked(s3ImageService.generateUploadUrl).mockClear();
 });
 
 describe("S3 key ownership enforcement (H-1)", () => {
@@ -236,8 +249,18 @@ describe("S3 key ownership enforcement (H-1)", () => {
       expect(res.status).toBe(403);
     });
 
-    it("proceeds (not 403) when deleting own key", async () => {
+    it("returns 403 when non-admin session deletes own key", async () => {
       mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+      const res = await app.request("/api/s3/delete", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: `prod/users/${USER_A_ID}/file.jpg` }),
+      });
+      expect(res.status).toBe(403);
+    });
+
+    it("proceeds for admin session deleting own key", async () => {
+      mockGetSession.mockResolvedValueOnce(adminSessionFor(USER_A_ID));
       const res = await app.request("/api/s3/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -247,8 +270,8 @@ describe("S3 key ownership enforcement (H-1)", () => {
       expect(res.status).toBeLessThan(300);
     });
 
-    it("proceeds (not 403) for double-dot filenames in own namespace", async () => {
-      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    it("proceeds for double-dot filenames in admin session namespace", async () => {
+      mockGetSession.mockResolvedValueOnce(adminSessionFor(USER_A_ID));
       const res = await app.request("/api/s3/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -259,8 +282,8 @@ describe("S3 key ownership enforcement (H-1)", () => {
       expect(res.status).not.toBe(403);
     });
 
-    it("returns 400 when deleting a tmp key from the prod bucket", async () => {
-      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+    it("returns 400 when admin deletes a tmp key from the prod bucket", async () => {
+      mockGetSession.mockResolvedValueOnce(adminSessionFor(USER_A_ID));
       const res = await app.request("/api/s3/delete", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
@@ -448,10 +471,10 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(s3ImageService.generateUploadUrl).toHaveBeenCalledWith(
       `tmp/users/${USER_A_ID}/file.jpg`,
       expect.any(String),
-      15 * 60,
+      60 * 60,
     );
     await expect(res.json()).resolves.toMatchObject({
-      data: { expiresIn: 15 * 60 },
+      data: { expiresIn: 60 * 60 },
     });
   });
 

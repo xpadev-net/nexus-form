@@ -21,10 +21,18 @@ import {
 } from "../lib/s3/validation";
 import { hasRequiredScopes } from "../lib/tokens";
 import type { TokenScope } from "../types/api/auth";
-import { type ErrorResponse, errorResponse } from "../types/domain/common";
+import {
+  type ErrorResponse,
+  ErrorResponseSchema,
+  errorResponse,
+} from "../types/domain/common";
 
-const MAX_PRESIGNED_UPLOAD_EXPIRES_IN = 15 * 60;
+const DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
+const DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
+const MAX_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
 const MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
+
+export const ForbiddenResponseSchema = ErrorResponseSchema;
 
 const presignedUrlSchema = z.object({
   key: z.string().min(1),
@@ -225,7 +233,10 @@ function hasApiTokenScopes(
   auth: DualAuthContext,
   requiredScopes: TokenScope[],
 ): boolean {
-  if (auth.auth_type !== "api_token") return true;
+  if (auth.auth_type === "session") {
+    if (!requiredScopes.includes("admin")) return true;
+    return auth.session?.user?.role === "admin";
+  }
   return hasRequiredScopes(auth.scopes ?? [], requiredScopes);
 }
 
@@ -237,7 +248,17 @@ function clampPresignedExpiresIn(
     type === "upload"
       ? MAX_PRESIGNED_UPLOAD_EXPIRES_IN
       : MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN;
-  return Math.min(requested ?? max, max);
+  const defaultValue =
+    type === "upload"
+      ? DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN
+      : DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN;
+  return Math.min(requested ?? defaultValue, max);
+}
+
+function forbiddenResponse(
+  message = "Insufficient permissions",
+): ErrorResponse {
+  return ForbiddenResponseSchema.parse(errorResponse(message));
 }
 
 /**
@@ -269,7 +290,7 @@ export const s3Router = createHonoApp()
       const query = c.req.valid("query");
       const type = query.type ?? "download";
       if (!hasApiTokenScopes(auth, [type === "upload" ? "write" : "read"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       if (!isKeyOwnedBy(auth.user_id, query.key)) {
@@ -306,7 +327,7 @@ export const s3Router = createHonoApp()
         const auth = c.get("dualAuthContext");
         if (!auth) return c.json(errorResponse("Unauthorized"), 401);
         if (!hasApiTokenScopes(auth, ["write"])) {
-          return c.json(errorResponse("Insufficient permissions"), 403);
+          return c.json(forbiddenResponse(), 403);
         }
 
         const { fileName, fileSize, mimeType } = c.req.valid("json");
@@ -405,7 +426,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["write"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const { key, bucket, size, contentType, etag } = c.req.valid("json");
@@ -453,7 +474,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["write"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const { tmpKey, processingConfig, finalKey } = c.req.valid("json");
@@ -523,7 +544,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["write"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const { tmpKey, finalKey } = c.req.valid("json");
@@ -567,7 +588,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["admin"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const { key, bucket } = c.req.valid("json");
@@ -604,7 +625,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["read"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const query = c.req.valid("query");
@@ -667,7 +688,7 @@ export const s3Router = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasApiTokenScopes(auth, ["read"])) {
-        return c.json(errorResponse("Insufficient permissions"), 403);
+        return c.json(forbiddenResponse(), 403);
       }
 
       const bucketAlias = c.req.param("bucket");
