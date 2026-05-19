@@ -23,6 +23,7 @@ import {
   type FormPermissionRole,
 } from "./permissions/constants";
 import {
+  NonAdminTokenOwnerError,
   SuspendedTokenOwnerError,
   validateApiToken,
   validateApiTokenForForm,
@@ -99,7 +100,9 @@ async function authenticateWithApiToken(
 
   try {
     if (formId) {
-      const authContext = await validateApiTokenForForm(token, formId);
+      const authContext = await validateApiTokenForForm(token, formId, {
+        rejectAdminOwnerMismatch: requiredScopes.includes("admin"),
+      });
       if (!authContext) return null;
 
       if (requiredScopes.length > 0) {
@@ -154,6 +157,9 @@ async function authenticateWithApiToken(
     };
   } catch (error) {
     if (error instanceof SuspendedTokenOwnerError) {
+      throw error;
+    }
+    if (error instanceof NonAdminTokenOwnerError) {
       throw error;
     }
     logError("API token authentication failed", "authentication", {
@@ -273,6 +279,20 @@ export async function authenticateDual(
         response: suspendedAccountResponse(c),
       };
     }
+    if (error instanceof NonAdminTokenOwnerError) {
+      return {
+        error: true,
+        response: c.json(
+          {
+            error: {
+              message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+              code: ERROR_CODES.FORBIDDEN,
+            },
+          },
+          403,
+        ),
+      };
+    }
     logError("Dual authentication failed", "authentication", {
       error,
       operation: "authenticateDual",
@@ -369,6 +389,20 @@ export async function authenticateDualForForm(
       return {
         error: true,
         response: suspendedAccountResponse(c),
+      };
+    }
+    if (error instanceof NonAdminTokenOwnerError) {
+      return {
+        error: true,
+        response: c.json(
+          {
+            error: {
+              message: ERROR_MESSAGES.INSUFFICIENT_PERMISSIONS,
+              code: ERROR_CODES.FORBIDDEN,
+            },
+          },
+          403,
+        ),
       };
     }
     logError("Dual authentication for form failed", "authentication", {

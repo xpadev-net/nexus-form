@@ -66,6 +66,17 @@ export type SuspendedTokenOwnerErrorResponse = z.infer<
   typeof SuspendedTokenOwnerErrorResponseSchema
 >;
 
+/** admin scope を許可されていないセッションのエラーレスポンス。 */
+export const AdminScopeForbiddenResponseSchema = z.object({
+  error: z.object({
+    message: z.string(),
+    code: z.string(),
+  }),
+});
+export type AdminScopeForbiddenResponse = z.infer<
+  typeof AdminScopeForbiddenResponseSchema
+>;
+
 const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
   SuspendedTokenOwnerErrorResponseSchema.parse({
     error: {
@@ -76,12 +87,37 @@ const suspendedTokenOwnerErrorResponse = (): SuspendedTokenOwnerErrorResponse =>
 
 function requireSessionUser(
   c: Context,
-): { ok: true; userId: string } | { ok: false; response: Response } {
+):
+  | { ok: true; userId: string; isAdmin: boolean }
+  | { ok: false; response: Response } {
   const auth = c.get("dualAuthContext");
   if (!auth || auth.auth_type !== "session") {
     return { ok: false, response: c.json(errorResponse("Unauthorized"), 401) };
   }
-  return { ok: true, userId: auth.user_id };
+  return {
+    ok: true,
+    userId: auth.user_id,
+    isAdmin: auth.session?.user?.role === "admin",
+  };
+}
+
+function rejectNonAdminScope(
+  c: Context,
+  scopes: readonly string[],
+  isAdmin: boolean,
+): Response | null {
+  if (!isAdmin && scopes.includes("admin")) {
+    return c.json(
+      AdminScopeForbiddenResponseSchema.parse({
+        error: {
+          message: "Admin scope requires an admin session",
+          code: ERROR_CODES.FORBIDDEN,
+        },
+      }),
+      403,
+    );
+  }
+  return null;
 }
 
 export const tokensRouter = createHonoApp()
@@ -101,6 +137,13 @@ export const tokensRouter = createHonoApp()
     if (!user.ok) return user.response;
 
     const payload = c.req.valid("json");
+    const adminScopeError = rejectNonAdminScope(
+      c,
+      payload.scopes,
+      user.isAdmin,
+    );
+    if (adminScopeError) return adminScopeError;
+
     const created = await createApiToken(user.userId, payload);
     const createResponse = CreateTokenResponse.parse({
       token: {
@@ -175,6 +218,20 @@ export const tokensRouter = createHonoApp()
 
     if (!existing) return c.json(errorResponse("Token not found"), 404);
 
+    const currentJson = parseStoredApiTokenJson(
+      existing,
+      "tokens.patch.current",
+    );
+    if (!currentJson) {
+      return c.json(errorResponse("Stored token data is malformed"), 422);
+    }
+    const currentAdminScopeError = rejectNonAdminScope(
+      c,
+      currentJson.scopes,
+      user.isAdmin,
+    );
+    if (currentAdminScopeError) return currentAdminScopeError;
+
     const nextJson = parseStoredApiTokenJson(
       {
         id: existing.id,
@@ -186,6 +243,12 @@ export const tokensRouter = createHonoApp()
     if (!nextJson) {
       return c.json(errorResponse("Stored token data is malformed"), 422);
     }
+    const nextAdminScopeError = rejectNonAdminScope(
+      c,
+      nextJson.scopes,
+      user.isAdmin,
+    );
+    if (nextAdminScopeError) return nextAdminScopeError;
 
     const patch: {
       name?: string;
