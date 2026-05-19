@@ -30,6 +30,7 @@
     "lint:fix": "biome check --write --unsafe"
   },
   "dependencies": {
+    "@nexus-form/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "mysql2": "^3.14.4"
   },

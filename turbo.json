@@ -21,9 +21,11 @@
       "dependsOn": ["^build"]
     },
     "db:generate": {
+      "dependsOn": ["^build"],
       "cache": false
     },
     "db:migrate": {
+      "dependsOn": ["^build"],
       "cache": false
     },
     "clean": {

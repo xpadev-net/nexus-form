@@ -41,7 +41,7 @@ export const useLongTextValidation = ({
   const debouncedValidation = useCallback(
     (newValue: string) => {
       if (validationTimeoutRef.current) {
-        clearTimeout(validationTimeoutRef.current);
+        window.clearTimeout(validationTimeoutRef.current);
       }
 
       // 警告閾値のチェック（即座に実行）
@@ -100,7 +100,7 @@ export const useLongTextValidation = ({
   useEffect(() => {
     return () => {
       if (validationTimeoutRef.current) {
-        clearTimeout(validationTimeoutRef.current);
+        window.clearTimeout(validationTimeoutRef.current);
       }
     };
   }, []);

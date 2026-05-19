@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { VALIDATION_STATUS_VALUES } from "./constants/status";
 
 // --- バリデーションチャネル ---
 
@@ -17,7 +18,8 @@ export const ValidationSSEEventSchema = z.object({
   ruleId: z.string(),
   referencedBlockId: z.string(),
   service: z.string(),
-  status: z.enum(["PROCESSING", "COMPLETED", "FAILED", "MISSING"]),
+  // Keep the wire contract tied to the DB enum so new persisted statuses are validated consistently.
+  status: z.enum(VALIDATION_STATUS_VALUES),
   success: z.boolean().nullable(),
   timestamp: z.string(),
 });

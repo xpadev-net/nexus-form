@@ -4,14 +4,10 @@
  */
 
 import { z } from "zod";
+import { FORM_STATUS_VALUES } from "../constants/status";
 
 // FormStatus is defined here to avoid circular dependencies
-export const FormStatus = z.enum([
-  "DRAFT",
-  "PUBLISHED",
-  "UNPUBLISHED",
-  "ARCHIVED",
-]);
+export const FormStatus = z.enum(FORM_STATUS_VALUES);
 
 export type FormStatus = z.infer<typeof FormStatus>;
 

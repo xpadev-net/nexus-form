@@ -1,3 +1,7 @@
+import {
+  FORM_STATUS_VALUES,
+  VALIDATION_STATUS_VALUES,
+} from "@nexus-form/shared";
 import { relations } from "drizzle-orm";
 import {
   boolean,
@@ -17,12 +21,7 @@ import { user } from "./auth-schema";
 
 // ── Enums ───────────────────────────────────────────────────────────
 
-export const formStatusEnum = mysqlEnum("form_status", [
-  "DRAFT",
-  "PUBLISHED",
-  "UNPUBLISHED",
-  "ARCHIVED",
-]);
+export const formStatusEnum = mysqlEnum("form_status", FORM_STATUS_VALUES);
 
 export const formPermissionRoleEnum = mysqlEnum("form_permission_role", [
   "OWNER",
@@ -63,13 +62,10 @@ export const dataSubjectRequestStatusEnum = mysqlEnum(
   ["PENDING", "PROCESSING", "COMPLETED", "REJECTED"],
 );
 
-export const validationStatusEnum = mysqlEnum("validation_status", [
-  "PENDING",
-  "PROCESSING",
-  "COMPLETED",
-  "FAILED",
-  "MISSING",
-]);
+export const validationStatusEnum = mysqlEnum(
+  "validation_status",
+  VALIDATION_STATUS_VALUES,
+);
 
 export const formScheduleActionEnum = mysqlEnum("form_schedule_action", [
   "PUBLISH",
