@@ -30,7 +30,6 @@ export interface ScheduleProcessResult {
 export async function processFormSchedule(
   formId: string,
   currentTime: Date = new Date(),
-  userId?: string,
 ): Promise<ScheduleProcessResult> {
   try {
     // フォームの現在の状態を取得
@@ -48,14 +47,6 @@ export async function processFormSchedule(
 
     if (!foundForm) {
       throw new Error("Form not found");
-    }
-
-    // ユーザーIDが提供されている場合は権限チェックを実行
-    // 簡易チェック: creatorIdまたはformPermissionを確認
-    if (userId) {
-      // Basic permission check - the form must exist and user should have access
-      // Full permission check would require importing permission-service which creates circular deps
-      // For schedule processing, we just verify the form exists (already done above)
     }
 
     // 未処理のスケジュールを取得（トリガー時刻が現在時刻以前のもの）
