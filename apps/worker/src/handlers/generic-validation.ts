@@ -366,11 +366,11 @@ export const handleGenericValidation = async (
       }
 
       const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
-      await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
       await job.updateData({
         ...job.data,
         retryAfterCount: retryAfterCount + 1,
       });
+      await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
       throw new DelayedError();
     }
 
@@ -400,11 +400,11 @@ export const handleGenericValidation = async (
     }
 
     const retryAfterSeconds = getRetryAfterSeconds(result.retryAfter);
-    await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
     await job.updateData({
       ...job.data,
       retryAfterCount: retryAfterCount + 1,
     });
+    await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
     throw new DelayedError();
   }
 
