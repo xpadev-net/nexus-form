@@ -29,10 +29,9 @@ export type FormIntegrationErrorResponse = z.infer<
   typeof FormIntegrationErrorResponseSchema
 >;
 
-const formIntegrationError = (error: string): FormIntegrationErrorResponse => {
-  const parsed = FormIntegrationErrorResponseSchema.safeParse({ error });
-  return parsed.success ? parsed.data : { error: "Request failed" };
-};
+const formIntegrationError = (error: string): FormIntegrationErrorResponse => ({
+  error,
+});
 
 /**
  * Google Sheets integration read/save response for 200 OK endpoints.
