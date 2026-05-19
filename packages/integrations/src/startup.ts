@@ -235,6 +235,7 @@ function registerOrOverride(
   provider: ValidationProvider,
   source: string,
   logPrefix: string,
+  failOnError = false,
 ): void {
   if (registry.has(provider.name)) {
     console.warn(
@@ -252,6 +253,13 @@ function registerOrOverride(
       `[${logPrefix}] Failed to register provider ${provider.name}:`,
       error,
     );
+    if (failOnError) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `[${logPrefix}] Failed to register built-in plugin ${source}: ${message}`,
+        { cause: error },
+      );
+    }
   }
 }
 
@@ -271,15 +279,22 @@ export async function startupPlugins(
     // module cache cannot hide same-path plugin changes between deployments.
     const outcome = await loadPluginFromFile(specifier);
     if (outcome.kind === "ok") {
-      registerOrOverride(registry, outcome.provider, specifier, logPrefix);
+      registerOrOverride(
+        registry,
+        outcome.provider,
+        specifier,
+        logPrefix,
+        true,
+      );
       pluginHashes.push(outcome.hash);
     } else if (outcome.kind === "skipped") {
-      console.warn(
-        `[${logPrefix}] ${outcome.reason} in: ${specifier} sha256=${outcome.hash}`,
+      throw new Error(
+        `[${logPrefix}] Built-in plugin ${specifier} was skipped: ${outcome.reason} sha256=${outcome.hash}`,
       );
     } else {
-      console.error(
-        `[${logPrefix}] Failed to load built-in plugin ${specifier}: ${outcome.error}`,
+      const hashSuffix = outcome.hash ? ` sha256=${outcome.hash}` : "";
+      throw new Error(
+        `[${logPrefix}] Failed to load built-in plugin ${specifier}: ${outcome.error}${hashSuffix}`,
       );
     }
   }
