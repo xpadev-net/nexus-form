@@ -14,6 +14,8 @@ import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
   getValidationResultId,
+  MAX_RESPONSE_ID_LENGTH,
+  MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
@@ -37,6 +39,8 @@ import {
   isValidServiceName,
 } from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
+import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
+import { stringifyResponseDataJson } from "../lib/response-data-json";
 import { verifyHCaptcha } from "../lib/security/hcaptcha";
 import { verifyPassword } from "../lib/security/password";
 import { captureError } from "../lib/sentry";
@@ -60,26 +64,40 @@ import {
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
+const MAX_RESPONSE_BODY_BYTES = 512 * 1024;
+const MAX_FINGERPRINTS = 20;
+const MAX_FINGERPRINT_VALUE_LENGTH = 255;
+const MAX_TOKEN_LENGTH = 4_096;
+const MAX_USER_AGENT_LENGTH = 512;
+const responseBodySizeLimit = createRequestBodySizeLimit({
+  maxBytes: MAX_RESPONSE_BODY_BYTES,
+});
+
 const publicSubmitSchema = z.object({
-  responses: z.array(responsePayloadItemSchema),
-  respondentUuid: z.string().optional(),
+  responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
+  respondentUuid: z.string().max(MAX_RESPONSE_ID_LENGTH).optional(),
   submittedAt: z.string().datetime().optional(),
-  captchaToken: z.string().min(1, "hCaptcha token is required"),
+  captchaToken: z
+    .string()
+    .min(1, "hCaptcha token is required")
+    .max(MAX_TOKEN_LENGTH),
   telemetry: z
     .object({
-      v4Token: z.string().optional(),
-      v6Token: z.string().optional(),
+      v4Token: z.string().max(MAX_TOKEN_LENGTH).optional(),
+      v6Token: z.string().max(MAX_TOKEN_LENGTH).optional(),
     })
     .refine((data) => data.v4Token || data.v6Token, {
       message: "At least one telemetry token is required",
     }),
-  fingerprints: z.array(
-    z.object({
-      type: z.enum(["fingerprintjs", "thumbmarkjs", "browser"]),
-      name: z.string(),
-      value_hash: z.string(),
-    }),
-  ),
+  fingerprints: z
+    .array(
+      z.object({
+        type: z.enum(["fingerprintjs", "thumbmarkjs", "browser"]),
+        name: z.string().min(1).max(MAX_FINGERPRINT_VALUE_LENGTH),
+        value_hash: z.string().min(1).max(MAX_FINGERPRINT_VALUE_LENGTH),
+      }),
+    )
+    .max(MAX_FINGERPRINTS),
 });
 
 const verifyPasswordSchema = z.object({
@@ -289,6 +307,7 @@ export const formsPublicRouter = createHonoApp()
   .post(
     "/public/:publicId/submit",
     createRateLimit({ windowMs: 60 * 1000, maxRequests: 10 }),
+    responseBodySizeLimit,
     zValidator("json", publicSubmitSchema),
     async (c) => {
       const publicId = c.req.param("publicId");
@@ -433,6 +452,10 @@ export const formsPublicRouter = createHonoApp()
 
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
+      if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
+        return c.json(errorResponse("User-Agent is too long"), 400);
+      }
+
       const jwtToken = extractJwtFromRequest(c);
       const { sessionId, jwt: newJwt } = await resolveSessionIdOrCreate(
         jwtToken,
@@ -442,6 +465,11 @@ export const formsPublicRouter = createHonoApp()
       // 7+9+10. Atomically enforce response limit and persist response/fingerprints
       const responseId = randomUUID();
       const respondentUuid = payload.respondentUuid ?? randomUUID();
+      const responseDataJson = stringifyResponseDataJson(payload.responses);
+      if (!responseDataJson) {
+        return c.json(errorResponse("Response payload is too large"), 400);
+      }
+
       const insertResult = await db.transaction(async (tx) => {
         if (responseLimit?.enabled && responseLimit.max_responses) {
           // Acquire exclusive lock on the form row to serialize concurrent
@@ -470,7 +498,7 @@ export const formsPublicRouter = createHonoApp()
         await tx.insert(formResponse).values({
           id: responseId,
           formId: target.id,
-          responseDataJson: JSON.stringify(payload.responses),
+          responseDataJson,
           respondentUuid,
           sessionId,
           userAgent: userAgent ?? null,
