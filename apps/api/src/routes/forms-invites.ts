@@ -22,7 +22,8 @@ export const InviteErrorResponseSchema = z.object({
 /** Inferred TypeScript type for `InviteErrorResponseSchema`. */
 export type InviteErrorResponse = z.infer<typeof InviteErrorResponseSchema>;
 
-const inviteError = (error: string): InviteErrorResponse => ({ error });
+const inviteError = (error: string): InviteErrorResponse =>
+  InviteErrorResponseSchema.parse({ error });
 
 export const InviteLookupResponseSchema = z.object({
   invitation: z.object({
