@@ -15,6 +15,7 @@ import {
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
+import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -54,7 +55,22 @@ const RETRYABLE_CODES = new Set([
   "NETWORK_ERROR",
   "TIMEOUT",
   "GITHUB_API_RATE_LIMIT",
+  "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
 ]);
+
+const DISCORD_PROVIDER_NAME = "discord";
+const DISCORD_VALIDATION_LOCK_KEY = "nexus-form:discord-validation-api";
+const DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS = 120_000;
+const DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS = 125_000;
+
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const value = Math.trunc(Number(process.env[name]));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function isRedisLockAcquireTimeout(error: unknown): boolean {
+  return error instanceof RedisLockAcquireTimeoutError;
+}
 
 const providerErrorSchema = z
   .object({
@@ -216,7 +232,38 @@ export const handleGenericValidation = async (
 
   let rawResult: unknown;
   try {
-    rawResult = await providerRule.validate(validatedInput, providerConfig);
+    const runValidation = (): ReturnType<typeof providerRule.validate> =>
+      providerRule.validate(validatedInput, providerConfig);
+    if (serviceType === DISCORD_PROVIDER_NAME) {
+      try {
+        rawResult = await withRedisLock(
+          DISCORD_VALIDATION_LOCK_KEY,
+          runValidation,
+          {
+            ttlMs: readPositiveIntegerEnv(
+              "DISCORD_VALIDATION_LOCK_TTL_MS",
+              DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS,
+            ),
+            waitTimeoutMs: readPositiveIntegerEnv(
+              "DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS",
+              DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS,
+            ),
+          },
+        );
+      } catch (error) {
+        if (isRedisLockAcquireTimeout(error)) {
+          throw Object.assign(
+            error instanceof Error ? error : new Error(String(error)),
+            {
+              code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
+            },
+          );
+        }
+        throw error;
+      }
+    } else {
+      rawResult = await runValidation();
+    }
   } catch (error) {
     const providerErrorParse = providerErrorSchema.safeParse(error);
     const providerError = providerErrorParse.success

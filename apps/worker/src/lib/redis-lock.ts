@@ -65,6 +65,26 @@ export interface RedisLockOptions {
   retryDelayMs?: number;
 }
 
+/**
+ * Thrown when a Redis lock cannot be acquired before the wait timeout expires.
+ *
+ * Extends Error and carries the lock key and wait timeout so callers can inspect
+ * lock acquisition failures without parsing the message text.
+ *
+ * @public
+ * @param key - Redis lock key that could not be acquired.
+ * @param waitTimeoutMs - Wait timeout in milliseconds before acquisition failed.
+ */
+export class RedisLockAcquireTimeoutError extends Error {
+  constructor(
+    public readonly key: string,
+    public readonly waitTimeoutMs: number,
+  ) {
+    super(`Failed to acquire redis lock "${key}" within ${waitTimeoutMs}ms`);
+    this.name = "RedisLockAcquireTimeoutError";
+  }
+}
+
 /** 冪等性キーの現在値を取得する。存在しなければ null を返す。 */
 export async function getIdempotencyKeyValue(
   key: string,
@@ -109,9 +129,7 @@ export async function withRedisLock<T>(
       break;
     }
     if (Date.now() + retryDelayMs >= deadline) {
-      throw new Error(
-        `Failed to acquire redis lock "${key}" within ${waitTimeoutMs}ms`,
-      );
+      throw new RedisLockAcquireTimeoutError(key, waitTimeoutMs);
     }
     await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
   }
