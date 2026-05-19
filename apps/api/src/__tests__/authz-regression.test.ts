@@ -699,7 +699,8 @@ describe("R4-H1: password protected public GET gates form body", () => {
     });
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
+    const body = await res.json();
+    expect(body).toMatchObject({
       form: {
         id: FORM_ID,
         isPasswordProtected: true,
@@ -709,6 +710,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
       },
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
+    expect(body.structure).not.toHaveProperty("access_control");
   });
 });
 
