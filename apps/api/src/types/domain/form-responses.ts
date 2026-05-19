@@ -31,6 +31,15 @@ export type ResponseMutationResponse = z.infer<
   typeof ResponseMutationResponseSchema
 >;
 
+/** 回答データ検証エラーのレスポンス。 */
+export const InvalidResponseDataErrorResponseSchema = z.object({
+  error: z.literal("Invalid response data"),
+  details: z.array(z.string()),
+});
+export type InvalidResponseDataErrorResponse = z.infer<
+  typeof InvalidResponseDataErrorResponseSchema
+>;
+
 /** GET /:id/responses/ids のレスポンス。 */
 export const ResponseIdsResponseSchema = z.object({
   responseIds: z.array(z.string()),
@@ -253,4 +262,17 @@ export const ValidationRetryResponseSchema = z.object({
 });
 export type ValidationRetryResponse = z.infer<
   typeof ValidationRetryResponseSchema
+>;
+
+/** validation retry の enqueue 失敗レスポンス。 */
+export const ValidationRetryEnqueueErrorResponseSchema = z.object({
+  error: z.literal(
+    "No validation jobs could be enqueued; check service configuration",
+  ),
+  enqueued: z.literal(0),
+  skipped: z.number().int(),
+  jobIds: z.array(z.string()),
+});
+export type ValidationRetryEnqueueErrorResponse = z.infer<
+  typeof ValidationRetryEnqueueErrorResponseSchema
 >;
