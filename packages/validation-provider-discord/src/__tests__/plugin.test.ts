@@ -349,6 +349,49 @@ describe("discordProvider.rules.guild_member.validate error classification", () 
       retryAfter: 13,
     });
   });
+
+  it("keeps final malformed 429 responses classified as rate limits", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited again",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockRejectedValue(new SyntaxError("Invalid JSON")),
+          body: { cancel: vi.fn() },
+        }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
+      retryAfter: 30,
+    });
+  });
 });
 
 describe("Discord rate limit helpers", () => {

@@ -68,14 +68,22 @@ const discordFetchWithRetry = async (
         await sleep(retryData.retry_after * 1000 * 2);
         const finalResponse = await discordApiFetch(url, init);
         if (finalResponse.status === 429) {
-          const finalData = ZDiscordRateLimitResponse.parse(
-            await finalResponse.json(),
-          );
+          let retryAfterSeconds: number | undefined;
+          try {
+            const finalData = ZDiscordRateLimitResponse.safeParse(
+              await finalResponse.json(),
+            );
+            retryAfterSeconds = finalData.success
+              ? finalData.data.retry_after
+              : undefined;
+          } catch {
+            retryAfterSeconds = undefined;
+          }
           await finalResponse.body?.cancel();
           throw new DiscordHttpError(
             429,
             "Discord rate limit exceeded after 3 attempts",
-            finalData.retry_after,
+            retryAfterSeconds,
           );
         }
         return finalResponse;
