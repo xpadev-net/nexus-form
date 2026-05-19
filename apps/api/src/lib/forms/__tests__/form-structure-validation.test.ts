@@ -5,6 +5,9 @@ import { parseStoredStructure } from "../parse-stored-structure";
 import { generateStructureDiff } from "../structure-diff";
 
 describe("StoredLogicRuleSchema", () => {
+  const validCondition = { field: "q1", operator: "equals" };
+  const validAction = { type: "show" };
+
   it("フロントエンドの実際のペイロードを受け入れる", () => {
     const frontendRule = {
       id: "rule-1",
@@ -25,8 +28,8 @@ describe("StoredLogicRuleSchema", () => {
   it("id が欠けている場合は拒否する", () => {
     const invalid = {
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: 1,
       isActive: true,
     };
@@ -37,8 +40,8 @@ describe("StoredLogicRuleSchema", () => {
   it("sourceBlockId が欠けている場合は拒否する", () => {
     const invalid = {
       id: "rule-1",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: 1,
       isActive: true,
     };
@@ -50,8 +53,8 @@ describe("StoredLogicRuleSchema", () => {
     const invalid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: "high",
       isActive: true,
     };
@@ -63,8 +66,8 @@ describe("StoredLogicRuleSchema", () => {
     const invalid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: 1,
       isActive: "yes",
     };
@@ -76,8 +79,8 @@ describe("StoredLogicRuleSchema", () => {
     const invalid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: 1.5,
       isActive: true,
     };
@@ -89,8 +92,8 @@ describe("StoredLogicRuleSchema", () => {
     const valid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: { field: "q1", operator: "equals", value: "yes" },
+      action: { type: "show", targetBlockId: "block-xyz" },
       priority: 0,
       isActive: true,
     };
@@ -102,9 +105,135 @@ describe("StoredLogicRuleSchema", () => {
     const invalid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: validCondition,
+      action: validAction,
       priority: -1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("condition の未知キーは受け入れつつ除去する", () => {
+    const input = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { field: "q1", operator: "equals", extraKey: true },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.condition).toEqual({
+        field: "q1",
+        operator: "equals",
+      });
+    }
+  });
+
+  it("condition.field が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { field: "", operator: "equals" },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("condition.field が欠けている場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { operator: "equals" },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("condition.operator が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { field: "q1", operator: "" },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("condition.operator が欠けている場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: { field: "q1" },
+      action: validAction,
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("action.type が欠けている場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: {},
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("action.type が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: { type: "" },
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(invalid);
+    expect(result.success).toBe(false);
+  });
+
+  it("action の未知キーは受け入れつつ除去する", () => {
+    const input = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: { type: "show", extraKey: true },
+      priority: 1,
+      isActive: true,
+    };
+    const result = StoredLogicRuleSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.action).toEqual({ type: "show" });
+    }
+  });
+
+  it("action.targetBlockId が空文字の場合は拒否する", () => {
+    const invalid = {
+      id: "rule-1",
+      sourceBlockId: "block-abc",
+      condition: validCondition,
+      action: { type: "show", targetBlockId: "" },
+      priority: 1,
       isActive: true,
     };
     const result = StoredLogicRuleSchema.safeParse(invalid);

@@ -54,18 +54,25 @@ export const FormMetadataSchema = z.object({
   version: z.number().int().min(1),
 });
 
+const StoredLogicConditionSchema = z.object({
+  field: z.string().min(1),
+  operator: z.string().min(1),
+  value: z.unknown().optional(),
+});
+
+const StoredLogicActionSchema = z.object({
+  type: z.string().min(1),
+  targetBlockId: z.string().min(1).optional(),
+});
+
 // フォーム構造のトップレベル logic 配列で使用するスキーマ。
-// フロントエンドのロジックエディタから送信される形状に合わせた定義。
+// フロントエンドのロジックエディタから送信される shape を明示的に検証する。
 // セクションレベルの navigation_rules には FormLogicRuleSchema（各 app で定義）を使用。
-//
-// TODO: condition / action は現在 z.record(z.string(), z.unknown()) で任意の構造を
-// 受け入れている。フロントエンドのロジックエディタの shape が確定したら、
-// z.discriminatedUnion 等で具体的な型に絞ることを検討する。
 export const StoredLogicRuleSchema = z.object({
   id: z.string(),
   sourceBlockId: z.string(),
-  condition: z.record(z.string(), z.unknown()),
-  action: z.record(z.string(), z.unknown()),
+  condition: StoredLogicConditionSchema,
+  action: StoredLogicActionSchema,
   priority: z.number().int().min(0),
   isActive: z.boolean(),
 });
