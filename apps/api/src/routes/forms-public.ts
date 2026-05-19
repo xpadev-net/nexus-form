@@ -650,7 +650,7 @@ async function queueExternalValidations(
 
   const inserts: Array<typeof externalServiceValidationResult.$inferInsert> =
     [];
-  const getPairValidationResultId = (pair: ValidationPair) =>
+  const getPairValidationResultId = (pair: ValidationPair): string =>
     getValidationResultId({
       responseId,
       ruleId: pair.ruleId,

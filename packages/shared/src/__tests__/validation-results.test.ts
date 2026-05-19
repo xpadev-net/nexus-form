@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { getValidationResultId } from "../validation-results";
+import {
+  getValidationResultId,
+  validationResultIdentitySchema,
+} from "../validation-results";
+
+describe("validationResultIdentitySchema", () => {
+  it("requires nonempty identity fields", () => {
+    expect(() =>
+      validationResultIdentitySchema.parse({
+        responseId: "response-1",
+        ruleId: "",
+        referencedBlockId: "question-1",
+      }),
+    ).toThrow();
+  });
+});
 
 describe("getValidationResultId", () => {
   it("returns a stable id for the validation result unique key", () => {

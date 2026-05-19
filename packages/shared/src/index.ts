@@ -133,7 +133,10 @@ export {
   StoredLogicRuleSchema,
 } from "./validation/shared";
 export type { ValidationResultIdentity } from "./validation-results";
-export { getValidationResultId } from "./validation-results";
+export {
+  getValidationResultId,
+  validationResultIdentitySchema,
+} from "./validation-results";
 export type {
   GenericValidationJobData,
   SheetsSyncJobData,

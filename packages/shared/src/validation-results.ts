@@ -1,8 +1,20 @@
-export interface ValidationResultIdentity {
-  responseId: string;
-  ruleId: string;
-  referencedBlockId: string;
-}
+import { z } from "zod";
+
+/**
+ * Runtime contract for the unique identity of an external validation result.
+ */
+export const validationResultIdentitySchema = z.object({
+  responseId: z.string().min(1),
+  ruleId: z.string().min(1),
+  referencedBlockId: z.string().min(1),
+});
+
+/**
+ * Unique identity fields used to derive a stable external validation result ID.
+ */
+export type ValidationResultIdentity = z.infer<
+  typeof validationResultIdentitySchema
+>;
 
 const FNV_128_OFFSET_BASIS = 0x6c62272e07bb014262b821756295c58dn;
 const FNV_128_PRIME = 0x0000000001000000000000000000013bn;
@@ -27,8 +39,13 @@ function hashValidationResultIdentity(
   return hash.toString(16).padStart(32, "0");
 }
 
+/**
+ * Derives a stable validation result ID from a validated
+ * {@link validationResultIdentitySchema} payload.
+ */
 export function getValidationResultId(
   params: ValidationResultIdentity,
 ): string {
-  return `validation-result:${hashValidationResultIdentity(params)}`;
+  const identity = validationResultIdentitySchema.parse(params);
+  return `validation-result:${hashValidationResultIdentity(identity)}`;
 }
