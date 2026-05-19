@@ -12,6 +12,8 @@ const AUTH_TAG_LEN = 16;
 let cachedRawKey: Buffer | undefined;
 
 function getRawKey(): Buffer {
+  // Worker processes must be restarted to pick up encryption key rotations.
+  // The cache avoids repeated synchronous KDF work on OAuth token hot paths.
   if (cachedRawKey) return cachedRawKey;
 
   const specific = process.env.GOOGLE_OAUTH_ENC_KEY;

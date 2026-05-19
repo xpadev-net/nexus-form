@@ -11,15 +11,6 @@ describe("field-encryption", () => {
     scryptSyncMock.mockReset();
     process.env.GOOGLE_OAUTH_ENC_KEY = "test-google-oauth-key";
     delete process.env.AUTH_SECRET;
-  });
-
-  afterEach(() => {
-    vi.doUnmock("node:crypto");
-    delete process.env.GOOGLE_OAUTH_ENC_KEY;
-    delete process.env.AUTH_SECRET;
-  });
-
-  it("derives the raw encryption key only once per module instance", async () => {
     vi.doMock("node:crypto", async (importOriginal) => {
       const actual = await importOriginal<typeof import("node:crypto")>();
       scryptSyncMock.mockImplementation(
@@ -32,7 +23,15 @@ describe("field-encryption", () => {
         scryptSync: scryptSyncMock,
       };
     });
+  });
 
+  afterEach(() => {
+    vi.doUnmock("node:crypto");
+    delete process.env.GOOGLE_OAUTH_ENC_KEY;
+    delete process.env.AUTH_SECRET;
+  });
+
+  it("derives the raw encryption key only once per module instance", async () => {
     const { decryptFromBase64, encryptToBase64 } = await import(
       "../field-encryption"
     );
