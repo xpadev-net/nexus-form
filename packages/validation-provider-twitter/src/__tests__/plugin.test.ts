@@ -76,6 +76,26 @@ describe("twitterProvider.rules.user_exists.validate", () => {
       retryAfter: 45,
     });
   });
+
+  it("falls back to sixty seconds when Twitter reports zero retry_after", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce({
+      response: {
+        status: 429,
+        data: { title: "Too Many Requests", retry_after: 0 },
+      },
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
+      retryAfter: 60,
+    });
+  });
 });
 
 describe("parseTwitterError", () => {

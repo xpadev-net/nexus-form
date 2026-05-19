@@ -94,7 +94,7 @@ const userExistsRule: ValidationProviderRule = {
           isValid: false,
           errorCode: TwitterErrorCode.TWITTER_API_RATE_LIMIT,
           errorMessage: "Twitter API rate limit exceeded",
-          retryAfter: parsed.retryAfterSeconds ?? 60,
+          retryAfter: parsed.retryAfterSeconds || 60,
         };
       }
 
