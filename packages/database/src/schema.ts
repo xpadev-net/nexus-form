@@ -269,7 +269,9 @@ export const formShareLink = mysqlTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
-    createdBy: varchar("createdBy", { length: 255 }).notNull(),
+    createdBy: varchar("createdBy", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => [
     index("FormShareLink_formId_idx").on(table.formId),
@@ -289,8 +291,12 @@ export const formIntegration = mysqlTable(
       .notNull()
       .references(() => form.id, { onDelete: "cascade" }),
     configJson: text("config_json").notNull(),
-    ownerUserId: varchar("owner_user_id", { length: 255 }).notNull(),
-    userId: varchar("user_id", { length: 255 }),
+    ownerUserId: varchar("owner_user_id", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    userId: varchar("user_id", { length: 191 }).references(() => user.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at")
       .defaultNow()
@@ -323,7 +329,9 @@ export const formInvitation = mysqlTable(
       .defaultNow()
       .$onUpdate(() => new Date())
       .notNull(),
-    invitedBy: varchar("invitedBy", { length: 255 }).notNull(),
+    invitedBy: varchar("invitedBy", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
   },
   (table) => [
     uniqueIndex("FormInvitation_formId_email_key").on(
@@ -349,7 +357,9 @@ export const formStructure = mysqlTable(
       .references(() => form.id, { onDelete: "cascade" }),
     structureJson: text("structureJson").notNull(),
     version: int("version").notNull(),
-    createdBy: varchar("createdBy", { length: 255 }).notNull(),
+    createdBy: varchar("createdBy", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     isActive: boolean("isActive").default(true).notNull(),
     changeLog: text("changeLog"),
@@ -454,7 +464,9 @@ export const userInvite = mysqlTable(
     token: varchar("token", { length: 255 }).notNull().unique(),
     status: inviteStatusEnum.default("PENDING").notNull(),
     message: text("message"),
-    invitedBy: varchar("invitedBy", { length: 255 }).notNull(),
+    invitedBy: varchar("invitedBy", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     expiresAt: timestamp("expiresAt").notNull(),
     acceptedAt: timestamp("acceptedAt"),
@@ -478,7 +490,9 @@ export const formSnapshot = mysqlTable(
       .references(() => form.id, { onDelete: "cascade" }),
     version: int("version").notNull(),
     isActive: boolean("isActive").default(true).notNull(),
-    publishedBy: varchar("publishedBy", { length: 255 }).notNull(),
+    publishedBy: varchar("publishedBy", { length: 191 })
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     publishedAt: timestamp("publishedAt").defaultNow().notNull(),
     changeLog: text("changeLog"),
     title: varchar("title", { length: 255 }).notNull(),
@@ -717,7 +731,9 @@ export const validationDiscordRole = mysqlTable(
   "ValidationDiscordRole",
   {
     id: varchar("id", { length: 255 }).primaryKey(),
-    guildId: varchar("guildId", { length: 255 }).notNull(),
+    guildId: varchar("guildId", { length: 255 })
+      .notNull()
+      .references(() => validationDiscordGuild.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     color: int("color").notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -815,6 +831,10 @@ export const formShareLinkRelations = relations(
       fields: [formShareLink.formId],
       references: [form.id],
     }),
+    creator: one(user, {
+      fields: [formShareLink.createdBy],
+      references: [user.id],
+    }),
     apiTokens: many(apiToken),
   }),
 );
@@ -826,6 +846,14 @@ export const formIntegrationRelations = relations(
       fields: [formIntegration.formId],
       references: [form.id],
     }),
+    owner: one(user, {
+      fields: [formIntegration.ownerUserId],
+      references: [user.id],
+    }),
+    user: one(user, {
+      fields: [formIntegration.userId],
+      references: [user.id],
+    }),
   }),
 );
 
@@ -834,12 +862,20 @@ export const formInvitationRelations = relations(formInvitation, ({ one }) => ({
     fields: [formInvitation.formId],
     references: [form.id],
   }),
+  invitedByUser: one(user, {
+    fields: [formInvitation.invitedBy],
+    references: [user.id],
+  }),
 }));
 
 export const formStructureRelations = relations(formStructure, ({ one }) => ({
   form: one(form, {
     fields: [formStructure.formId],
     references: [form.id],
+  }),
+  createdByUser: one(user, {
+    fields: [formStructure.createdBy],
+    references: [user.id],
   }),
 }));
 
