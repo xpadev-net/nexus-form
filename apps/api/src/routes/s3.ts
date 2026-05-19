@@ -19,6 +19,7 @@ import {
   validateFileSize,
   validateMimeType,
 } from "../lib/s3/validation";
+import { type ErrorResponse, errorResponse } from "../types/domain/form-row";
 
 const presignedUrlSchema = z.object({
   key: z.string().min(1),
@@ -178,6 +179,16 @@ const UnhealthyResponseSchema = z.object({
 });
 export type UnhealthyResponse = z.infer<typeof UnhealthyResponseSchema>;
 
+export type S3ErrorResponse = ErrorResponse;
+
+const S3ValidationErrorResponseSchema = z.object({
+  error: z.string(),
+  validationErrors: z.array(z.string()),
+});
+export type S3ValidationErrorResponse = z.infer<
+  typeof S3ValidationErrorResponseSchema
+>;
+
 function resolveBucketName(bucket?: string): string {
   if (!bucket || bucket === "prod") return S3_BUCKETS.PROD;
   if (bucket === "tmp") return S3_BUCKETS.TMP;
@@ -187,10 +198,10 @@ function resolveBucketName(bucket?: string): string {
 }
 
 function s3ValidationErrorResponse(error: SecurityValidationError) {
-  return {
+  return S3ValidationErrorResponseSchema.parse({
     error: error.message,
     validationErrors: error.validationErrors,
-  };
+  });
 }
 
 function assertKeyMatchesBucket(key: string, bucket: string): void {
@@ -221,12 +232,12 @@ export const s3Router = createHonoApp()
     zValidator("query", presignedUrlSchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const query = c.req.valid("query");
 
       if (!isKeyOwnedBy(auth.user_id, query.key)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       const bucket = resolveBucketName(query.bucket);
@@ -258,7 +269,7 @@ export const s3Router = createHonoApp()
     async (c) => {
       try {
         const auth = c.get("dualAuthContext");
-        if (!auth) return c.json({ error: "Unauthorized" }, 401);
+        if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
         const { fileName, fileSize, mimeType } = c.req.valid("json");
 
@@ -341,13 +352,7 @@ export const s3Router = createHonoApp()
         );
       } catch (error) {
         if (error instanceof SecurityValidationError) {
-          return c.json(
-            {
-              error: error.message,
-              validationErrors: error.validationErrors,
-            },
-            400,
-          );
+          return c.json(s3ValidationErrorResponse(error), 400);
         }
         throw error;
       }
@@ -360,12 +365,12 @@ export const s3Router = createHonoApp()
     zValidator("json", uploadCompleteSchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const { key, bucket, size, contentType, etag } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, key)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       const resolvedBucket = resolveBucketName(bucket ?? "tmp");
@@ -380,7 +385,7 @@ export const s3Router = createHonoApp()
 
       const exists = await s3Service.objectExists(key, resolvedBucket);
       if (!exists) {
-        return c.json({ error: "File not found in S3" }, 404);
+        return c.json(errorResponse("File not found in S3"), 404);
       }
 
       return c.json(
@@ -405,15 +410,15 @@ export const s3Router = createHonoApp()
     zValidator("json", processImageSchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const { tmpKey, processingConfig, finalKey } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, tmpKey)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
       if (finalKey !== undefined && !isKeyOwnedBy(auth.user_id, finalKey)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       try {
@@ -430,7 +435,7 @@ export const s3Router = createHonoApp()
 
       const exists = await s3Service.objectExists(tmpKey, S3_BUCKETS.TMP);
       if (!exists) {
-        return c.json({ error: "File not found in temporary bucket" }, 404);
+        return c.json(errorResponse("File not found in temporary bucket"), 404);
       }
 
       try {
@@ -472,15 +477,15 @@ export const s3Router = createHonoApp()
     zValidator("json", moveSchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const { tmpKey, finalKey } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, tmpKey)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
       if (finalKey !== undefined && !isKeyOwnedBy(auth.user_id, finalKey)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       try {
@@ -513,12 +518,12 @@ export const s3Router = createHonoApp()
     zValidator("json", deleteSchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const { key, bucket } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, key)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       const resolvedBucket = resolveBucketName(bucket);
@@ -547,7 +552,7 @@ export const s3Router = createHonoApp()
     zValidator("query", listQuerySchema),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const query = c.req.valid("query");
       const bucket = resolveBucketName(query.bucket ?? "prod");
@@ -557,7 +562,7 @@ export const s3Router = createHonoApp()
       let prefix: string;
       if (query.prefix !== undefined) {
         if (!isKeyOwnedBy(auth.user_id, query.prefix)) {
-          return c.json({ error: "Access denied to prefix" }, 403);
+          return c.json(errorResponse("Access denied to prefix"), 403);
         }
         prefix = query.prefix;
       } else {
@@ -607,14 +612,16 @@ export const s3Router = createHonoApp()
     createRateLimit({ windowMs: 60_000, maxRequests: 60 }),
     async (c) => {
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
       const bucketAlias = c.req.param("bucket");
       const key = c.req.param("key");
 
       if (bucketAlias !== "prod" && bucketAlias !== "tmp") {
         return c.json(
-          { error: "Invalid bucket name. Only 'prod' and 'tmp' are allowed." },
+          errorResponse(
+            "Invalid bucket name. Only 'prod' and 'tmp' are allowed.",
+          ),
           400,
         );
       }
@@ -624,13 +631,13 @@ export const s3Router = createHonoApp()
         key.split("/").some((segment) => segment === "..") ||
         key.includes("//")
       ) {
-        return c.json({ error: "Invalid key format" }, 400);
+        return c.json(errorResponse("Invalid key format"), 400);
       }
 
       const s3Key = `${bucketAlias}/${key}`;
 
       if (!isKeyOwnedBy(auth.user_id, s3Key)) {
-        return c.json({ error: "Access denied to key" }, 403);
+        return c.json(errorResponse("Access denied to key"), 403);
       }
 
       const actualBucket =
@@ -638,7 +645,7 @@ export const s3Router = createHonoApp()
 
       const exists = await s3BaseService.objectExists(s3Key, actualBucket);
       if (!exists) {
-        return c.json({ error: "Object not found" }, 404);
+        return c.json(errorResponse("Object not found"), 404);
       }
 
       const presignedUrlResult = await s3BaseService.generateDownloadUrl(
