@@ -21,6 +21,36 @@ import {
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
+const RETRYABLE_NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "ECONNRESET",
+  "EAI_AGAIN",
+  "ECONNABORTED",
+]);
+
+function getStringProperty(value: unknown, key: string): string | undefined {
+  if (value === null || typeof value !== "object") return undefined;
+  const property = (value as Record<string, unknown>)[key];
+  return typeof property === "string" ? property : undefined;
+}
+
+function isRetryableNetworkError(error: unknown): boolean {
+  const code = getStringProperty(error, "code");
+  if (code != null && RETRYABLE_NETWORK_ERROR_CODES.has(code)) return true;
+
+  const name = getStringProperty(error, "name");
+  if (name === "AbortError" || name === "TimeoutError") return true;
+
+  const message = getStringProperty(error, "message")?.toLowerCase();
+  return (
+    message?.includes("timeout") === true ||
+    message?.includes("network") === true ||
+    message?.includes("fetch failed") === true
+  );
+}
+
 const DiscordInputSchema = z.string().regex(/^[a-z0-9_.]{2,32}$/);
 
 const DiscordConfigSchema = z.object({
@@ -348,6 +378,7 @@ const guildMemberRule: ValidationProviderRule = {
             errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
             errorMessage: "Discord API rate limit exceeded",
             retryAfter: Math.ceil(error.retryAfterSeconds || 30),
+            retryable: true,
           };
         }
         if (error.status === 401) {
@@ -372,6 +403,14 @@ const guildMemberRule: ValidationProviderRule = {
             errorMessage: `指定されたDiscordサーバーが見つかりません: ${guildId}`,
           };
         }
+        if (error.status >= 500) {
+          return {
+            isValid: false,
+            errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+            errorMessage: error.message || "Discord API error",
+            retryable: true,
+          };
+        }
       }
 
       const errorMessage =
@@ -380,6 +419,7 @@ const guildMemberRule: ValidationProviderRule = {
         isValid: false,
         errorCode: DiscordErrorCode.DISCORD_API_ERROR,
         errorMessage: errorMessage || "Discord API error",
+        retryable: isRetryableNetworkError(error),
       };
     }
   },

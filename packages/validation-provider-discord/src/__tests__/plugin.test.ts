@@ -97,7 +97,69 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
       isValid: false,
       errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
       retryAfter: 30,
+      retryable: true,
     });
+  });
+
+  it("marks Discord fetch network failures as retryable", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new TypeError("fetch failed"), { code: "EAI_AGAIN" }),
+        ),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      retryable: true,
+    });
+  });
+
+  it("marks Discord abort timeout failures as retryable", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const timeoutError = new Error("The operation timed out");
+    timeoutError.name = "TimeoutError";
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(timeoutError));
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      retryable: true,
+    });
+  });
+
+  it("keeps Discord authentication failures non-retryable", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        json: vi.fn().mockResolvedValue({ message: "Unauthorized" }),
+      }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_AUTH_FAILED,
+    });
+    expect(result).not.toHaveProperty("retryable");
   });
 });
 

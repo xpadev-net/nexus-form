@@ -101,6 +101,72 @@ describe("githubProvider.rules.user_exists.validate", () => {
       isValid: false,
       errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
       retryAfter: 90,
+      retryable: true,
+    });
+  });
+
+  it("marks GitHub 5xx provider errors as retryable", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "GitHub API unavailable",
+        GitHubErrorCode.GITHUB_API_ERROR,
+        undefined,
+        503,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+      errorMessage: "GitHub API unavailable",
+      retryable: true,
+    });
+  });
+
+  it("marks GitHub provider network errors as retryable", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "Temporary network failure",
+        GitHubErrorCode.NETWORK_ERROR,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.NETWORK_ERROR,
+      retryable: true,
+    });
+  });
+
+  it("does not mark GitHub permanent provider errors as retryable", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "GitHub authentication failed",
+        GitHubErrorCode.GITHUB_AUTH_FAILED,
+        undefined,
+        401,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_AUTH_FAILED,
+      retryable: false,
     });
   });
 });

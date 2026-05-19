@@ -77,6 +77,14 @@ describe("GitHub error utilities", () => {
     );
   });
 
+  it.each([
+    "ECONNRESET",
+    "EAI_AGAIN",
+    "ECONNABORTED",
+  ])("classifies %s as a retryable network error", (code) => {
+    expect(getGitHubErrorCode({ code })).toBe(GitHubErrorCode.NETWORK_ERROR);
+  });
+
   it("narrows enhanced provider errors", () => {
     const error = new GitHubProviderError(
       "rate limited",

@@ -73,6 +73,7 @@ export const validationProviderResultSchema = z.object({
   errorCode: z.string().optional(),
   errorMessage: z.string().optional(),
   retryAfter: z.number().optional(),
+  retryable: z.boolean().optional(),
 });
 
 export interface ValidationProviderRule {
@@ -118,4 +119,5 @@ export interface ValidationProviderResult {
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number;
+  retryable?: boolean;
 }
