@@ -13,6 +13,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
+  getValidationResultId,
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
@@ -649,10 +650,16 @@ async function queueExternalValidations(
 
   const inserts: Array<typeof externalServiceValidationResult.$inferInsert> =
     [];
+  const getPairValidationResultId = (pair: ValidationPair): string =>
+    getValidationResultId({
+      responseId,
+      ruleId: pair.ruleId,
+      referencedBlockId: pair.referencedBlockId,
+    });
 
   for (const pair of missingRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -664,7 +671,7 @@ async function queueExternalValidations(
   }
   for (const pair of invalidProviderRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -676,7 +683,7 @@ async function queueExternalValidations(
   }
   for (const pair of unregisteredProviderRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -688,7 +695,7 @@ async function queueExternalValidations(
   }
   for (const pair of unknownRuleTypeRows) {
     inserts.push({
-      id: randomUUID(),
+      id: getPairValidationResultId(pair),
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
@@ -700,7 +707,7 @@ async function queueExternalValidations(
   }
 
   const pendingRows = validRows.map((pair) => ({
-    id: randomUUID(),
+    id: getPairValidationResultId(pair),
     responseId,
     ruleId: pair.ruleId,
     referencedBlockId: pair.referencedBlockId,
