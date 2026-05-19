@@ -381,7 +381,10 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       [
         {
           structureJson: JSON.stringify({
-            settings: { response_limit: { enabled: true, max_responses: 100 } },
+            settings: {
+              allow_edit_responses: false,
+              response_limit: { enabled: true, max_responses: 100 },
+            },
           }),
         },
       ],
@@ -528,9 +531,11 @@ describe("R3-M21: password protected public submit fails closed", () => {
             access_control: {
               password_protection: {
                 enabled: true,
+                has_password: true,
                 password_hint: "hint",
               },
             },
+            settings: { allow_edit_responses: false },
           }),
         },
       ],
@@ -574,9 +579,11 @@ describe("R3-M21: password protected public submit fails closed", () => {
             access_control: {
               password_protection: {
                 enabled: true,
+                has_password: true,
                 password_hint: "hint",
               },
             },
+            settings: { allow_edit_responses: false },
           }),
         },
       ],
@@ -596,6 +603,240 @@ describe("R3-M21: password protected public submit fails closed", () => {
     expect(res.status).toBe(500);
     await expect(res.json()).resolves.toEqual({
       error: "Form password protection is misconfigured",
+    });
+  });
+});
+
+// ── R5-H3: Published form structure and plateContent fail closed ───────────
+
+describe("R5-H3: published form configuration parse failures fail closed", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("rejects public GET when the active formStructure is invalid", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Broken form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: "[]",
+        },
+      ],
+      [{ structureJson: "not json", version: 1 }],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+  });
+
+  it("rejects public GET when the active formStructure fails schema validation", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Broken form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: "[]",
+        },
+      ],
+      [{ structureJson: JSON.stringify({ version: 0, settings: {} }) }],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+  });
+
+  it("rejects password verification when the active formStructure is missing", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [[{ id: FORM_ID }], []]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "candidate-password" }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+  });
+
+  it("rejects public submit when published plateContent is invalid", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "not json" }],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [
+            {
+              question_id: "q1",
+              question_type: "short_text",
+              value: "unexpected",
+            },
+          ],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+
+  it("rejects public submit when plateContent contains invalid validation metadata", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          status: "PUBLISHED",
+          plateContent: JSON.stringify([
+            {
+              type: "form_radio",
+              blockId: "q1",
+              children: [{ text: "Question" }],
+              validation: { options: "not an array" },
+            },
+          ]),
+        },
+      ],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [
+            {
+              question_id: "q1",
+              question_type: "radio",
+              value: "unexpected-option",
+            },
+          ],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+
+  it("rejects public submit when the active formStructure is invalid", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      [{ structureJson: "not json" }],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
+    });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+
+  it("rejects password verification when the active formStructure fails schema validation", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID }],
+      [{ structureJson: JSON.stringify({ version: 0, settings: {} }) }],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "candidate-password" }),
+      },
+    );
+
+    expect(res.status).toBe(500);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form configuration is invalid",
     });
   });
 });
@@ -631,7 +872,10 @@ describe("R4-H1: password protected public GET gates form body", () => {
                 password_hint: "hint",
               },
             },
-            settings: { require_fingerprint: true },
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
           }),
           version: 1,
         },
@@ -685,7 +929,10 @@ describe("R4-H1: password protected public GET gates form body", () => {
                 password_hint: "hint",
               },
             },
-            settings: { require_fingerprint: true },
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
           }),
           version: 1,
         },

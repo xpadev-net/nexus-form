@@ -281,6 +281,17 @@ export function validateResponseData(
     }
   }
 
+  if (questions.length === 0 && responses.length > 0) {
+    for (let i = 0; i < responses.length; i++) {
+      const response = responses[i] as ResponseDataItem | undefined;
+      if (response?.question_id) {
+        errors.push(
+          `Response ${i + 1}: Unknown question ID ${response.question_id}`,
+        );
+      }
+    }
+  }
+
   // フォーム構造から質問情報を取得して詳細バリデーション
   if (questions.length > 0) {
     // NOTE: ロジック分岐によりスキップされたページの必須質問には回答が送信されないため、
