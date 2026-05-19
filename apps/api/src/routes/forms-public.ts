@@ -209,20 +209,23 @@ export const formsPublicRouter = createHonoApp()
     if (currentStatus !== "PUBLISHED")
       return c.json(errorResponse("Form not found"), 404);
 
-    const [structure] = await db
-      .select({
-        structureJson: formStructure.structureJson,
-        version: formStructure.version,
-      })
-      .from(formStructure)
-      .where(
-        and(
-          eq(formStructure.formId, target.id),
-          eq(formStructure.isActive, true),
-        ),
-      )
-      .orderBy(desc(formStructure.version))
-      .limit(1);
+    const [[structure], activeSnapshot] = await Promise.all([
+      db
+        .select({
+          structureJson: formStructure.structureJson,
+          version: formStructure.version,
+        })
+        .from(formStructure)
+        .where(
+          and(
+            eq(formStructure.formId, target.id),
+            eq(formStructure.isActive, true),
+          ),
+        )
+        .orderBy(desc(formStructure.version))
+        .limit(1),
+      getLatestSnapshot(target.id),
+    ]);
 
     const parsedStructure = structure
       ? parseStructure(structure.structureJson)
@@ -263,8 +266,6 @@ export const formsPublicRouter = createHonoApp()
         return c.json(response);
       }
     }
-
-    const activeSnapshot = await getLatestSnapshot(target.id);
 
     const response = PublicFormResponseSchema.parse({
       form: {

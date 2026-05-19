@@ -610,9 +610,6 @@ describe("R4-H1: password protected public GET gates form body", () => {
 
   it("returns only metadata when password protection is enabled and not verified", async () => {
     const { db } = await import("@nexus-form/database");
-    const { getLatestSnapshot } = await import(
-      "../lib/forms/snapshot-repository"
-    );
     mockDbSelectChain(db, [
       [
         {
@@ -655,7 +652,6 @@ describe("R4-H1: password protected public GET gates form body", () => {
       structure: null,
       plateContent: null,
     });
-    expect(getLatestSnapshot).not.toHaveBeenCalled();
   });
 
   it("returns the form body after password verification", async () => {
