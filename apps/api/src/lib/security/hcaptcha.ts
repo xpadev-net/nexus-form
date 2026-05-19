@@ -27,6 +27,12 @@ export interface HCaptchaVerifyOptions {
   remoteip?: string;
   /** サイトキー（オプション） */
   sitekey?: string;
+  /** 許可するhCaptchaレスポンスhostname（オプション） */
+  expectedHostnames?: string[];
+  /** challenge_ts の最大経過時間（ミリ秒）デフォルト: 120000 */
+  maxChallengeAgeMs?: number;
+  /** challenge_ts の許容未来ズレ（ミリ秒）デフォルト: 60000 */
+  clockSkewMs?: number;
 }
 
 /**
@@ -67,6 +73,93 @@ function getSecretKey(): string {
     );
   }
   return secretKey;
+}
+
+function normalizeHostname(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const url = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(trimmed)
+      ? new URL(trimmed)
+      : new URL(`https://${trimmed}`);
+    return url.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function collectExpectedHostnames(
+  optionHostnames: string[] | undefined,
+): Set<string> {
+  const candidates = [
+    ...(optionHostnames ?? []),
+    ...(process.env.HCAPTCHA_EXPECTED_HOSTNAMES?.split(",") ?? []),
+    process.env.VITE_BASE_URL,
+    ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
+  ];
+
+  return new Set(
+    candidates
+      .map((hostname) => normalizeHostname(hostname))
+      .filter((hostname): hostname is string => !!hostname),
+  );
+}
+
+function validateHostname(
+  hostname: string | undefined,
+  expectedHostnames: Set<string>,
+): HCaptchaVerifyResult | null {
+  if (expectedHostnames.size === 0) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha expected hostname is not configured",
+    };
+  }
+
+  const normalizedHostname = normalizeHostname(hostname);
+  if (!normalizedHostname || !expectedHostnames.has(normalizedHostname)) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha hostname mismatch",
+    };
+  }
+  return null;
+}
+
+function validateChallengeTimestamp(
+  challengeTs: string | undefined,
+  maxChallengeAgeMs: number,
+  clockSkewMs: number,
+): HCaptchaVerifyResult | null {
+  if (!challengeTs) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha challenge timestamp is missing",
+    };
+  }
+
+  const challengeTime = Date.parse(challengeTs);
+  if (Number.isNaN(challengeTime)) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha challenge timestamp is invalid",
+    };
+  }
+
+  const ageMs = Date.now() - challengeTime;
+  if (ageMs < -clockSkewMs) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha challenge timestamp is in the future",
+    };
+  }
+  if (ageMs > maxChallengeAgeMs) {
+    return {
+      success: false,
+      errorMessage: "hCaptcha challenge timestamp is too old",
+    };
+  }
+  return null;
 }
 
 /**
@@ -140,6 +233,9 @@ export async function verifyHCaptchaToken(
     scoreThreshold = 0.5,
     remoteip,
     sitekey,
+    expectedHostnames,
+    maxChallengeAgeMs = 2 * 60 * 1000,
+    clockSkewMs = 60 * 1000,
   } = options;
 
   // トークンの基本検証
@@ -201,6 +297,19 @@ export async function verifyHCaptchaToken(
         errorMessage: `hCaptcha verification failed: ${validatedData["error-codes"]?.join(", ") || "Unknown error"}`,
       };
     }
+
+    const hostnameError = validateHostname(
+      validatedData.hostname,
+      collectExpectedHostnames(expectedHostnames),
+    );
+    if (hostnameError) return hostnameError;
+
+    const timestampError = validateChallengeTimestamp(
+      validatedData.challenge_ts,
+      maxChallengeAgeMs,
+      clockSkewMs,
+    );
+    if (timestampError) return timestampError;
 
     // スコア検証（Enterprise版の場合）
     if (validatedData.score !== undefined) {
