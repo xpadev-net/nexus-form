@@ -127,6 +127,18 @@ describe("twitterProvider.healthCheck", () => {
     await expect(healthCheck()).resolves.toBe(true);
   });
 
+  it("treats forbidden responses as a reachable Twitter API check", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 403 }),
+    );
+    const healthCheck = twitterProvider.healthCheck;
+
+    if (!healthCheck) throw new Error("healthCheck is not defined");
+
+    await expect(healthCheck()).resolves.toBe(true);
+  });
+
   it("treats server errors as an unhealthy Twitter API check", async () => {
     vi.stubGlobal(
       "fetch",
