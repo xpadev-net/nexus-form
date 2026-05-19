@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
 const providerGet = vi.fn();
+const validateApiToken = vi.fn();
 
 vi.mock("../load-env", () => ({}));
 
@@ -17,6 +18,22 @@ vi.mock("@nexus-form/integrations", () => ({
   providerRegistry: {
     get: providerGet,
   },
+}));
+
+class MockSuspendedTokenOwnerError extends Error {
+  static readonly MESSAGE = "Your account has been suspended";
+}
+
+class MockNonAdminTokenOwnerError extends Error {
+  static readonly MESSAGE = "Admin scope requires an active admin owner";
+}
+
+vi.mock("../lib/tokens", () => ({
+  NonAdminTokenOwnerError: MockNonAdminTokenOwnerError,
+  SuspendedTokenOwnerError: MockSuspendedTokenOwnerError,
+  validateApiToken,
+  validateApiTokenForForm: vi.fn(),
+  validateApiTokenWithScopes: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -155,11 +172,41 @@ describe("external service form OAuth authorization", () => {
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 
+  it("rejects non-creator API token owners before using the creator's linked account", async () => {
+    validateApiToken.mockResolvedValueOnce({
+      user_id: CO_OWNER_ID,
+      token_id: "token-id",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    });
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+      {
+        headers: {
+          authorization: "Bearer token-value",
+        },
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+      },
+    });
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
   it("allows form owners to call service APIs with their own linked account", async () => {
     mockSession(OWNER_ID);
     mockDbSelectResults([
       [{ id: FORM_ID, creatorId: OWNER_ID }],
-      [{ creatorId: OWNER_ID }],
       [{ accountId: "discord-account-id", accessToken: "discord-token" }],
     ]);
 
