@@ -196,9 +196,14 @@ export function FormEditorPage() {
 
   if (formQuery.isLoading || contentQuery.isLoading) {
     return (
-      <output className="rounded-lg border bg-card p-6" aria-live="polite">
+      // biome-ignore lint/a11y/useSemanticElements: Loading status is not calculation output.
+      <div
+        className="rounded-lg border bg-card p-6"
+        role="status"
+        aria-live="polite"
+      >
         読み込み中...
-      </output>
+      </div>
     );
   }
 
@@ -287,7 +292,7 @@ export function FormEditorPage() {
         <TabsList
           variant="line"
           aria-label="フォーム編集セクション"
-          className="border-b"
+          className="w-full border-b"
         >
           {tabs.map((tab) => {
             const Icon = tab.icon;
