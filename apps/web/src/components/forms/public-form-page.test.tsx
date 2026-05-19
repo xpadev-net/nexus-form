@@ -117,11 +117,13 @@ vi.mock("@/components/forms/password-protection-gate", () => ({
       <p>{passwordHint}</p>
       <button
         type="button"
-        onClick={() =>
-          void Promise.resolve(onVerified?.()).catch((error: unknown) => {
+        onClick={async () => {
+          try {
+            await onVerified?.();
+          } catch (error: unknown) {
             verificationFailureMock(error);
-          })
-        }
+          }
+        }}
       >
         verify
       </button>
