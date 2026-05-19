@@ -12,12 +12,17 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PlateEditor } from "@/components/editor/plate-editor";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
 import { FormDeletionModal } from "@/components/forms/form-deletion-modal";
 import { FormDuplicateModal } from "@/components/forms/form-duplicate-modal";
+import {
+  type EditorTab,
+  getEditorTabFromSearch,
+  isEditorTab,
+} from "@/components/forms/form-editor-tabs";
 import { FormHeader } from "@/components/forms/form-header";
 import { FormPublishMenu } from "@/components/forms/form-publish-menu";
 import { FormResponsesContent } from "@/components/forms/form-responses-page";
@@ -35,33 +40,15 @@ import { client, rpc } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { FormStatus } from "@/types/validation/shared";
 
-const EDITOR_TABS = [
-  "editor",
-  "settings",
-  "validation",
-  "sharing",
-  "responses",
-] as const;
-
-type EditorTab = (typeof EDITOR_TABS)[number];
-
-const EDITOR_TAB_VALUES: ReadonlySet<string> = new Set(EDITOR_TABS);
-
-function isEditorTab(value: unknown): value is EditorTab {
-  return typeof value === "string" && EDITOR_TAB_VALUES.has(value);
-}
-
 export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
   const router = useRouter();
   const queryClient = useQueryClient();
   const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
 
-  const [activeTab, setActiveTab] = useState<EditorTab>(() =>
-    isEditorTab(tab) ? tab : "editor",
-  );
+  const activeTab = getEditorTabFromSearch(tab);
   const [responsesEverActive, setResponsesEverActive] = useState(
-    tab === "responses",
+    activeTab === "responses",
   );
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
@@ -96,6 +83,7 @@ export function FormEditorPage() {
     contentRefetch: contentQuery.refetch,
     getActiveTab: () => activeTab,
   });
+  const previousActiveTabRef = useRef(activeTab);
 
   // フォーム名更新 mutation
   const updateTitleMutation = useMutation({
@@ -185,6 +173,30 @@ export function FormEditorPage() {
   const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
 
   useEffect(() => {
+    if (tab === undefined || isEditorTab(tab)) return;
+    void router.navigate({
+      to: "/forms/$id/edit",
+      params: { id },
+      search: { tab: "editor" },
+      replace: true,
+    });
+  }, [id, router, tab]);
+
+  useEffect(() => {
+    if (activeTab === "responses") {
+      setResponsesEverActive(true);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    const previousActiveTab = previousActiveTabRef.current;
+    if (previousActiveTab === "editor" && activeTab !== "editor") {
+      snapshotEditorToDraft();
+    }
+    previousActiveTabRef.current = activeTab;
+  }, [activeTab, snapshotEditorToDraft]);
+
+  useEffect(() => {
     if (!formIdForStatus || FormStatus.safeParse(rawFormStatus).success) {
       return;
     }
@@ -229,12 +241,12 @@ export function FormEditorPage() {
     <Tabs
       value={activeTab}
       onValueChange={(value) => {
-        if (!isEditorTab(value)) return;
-        if (activeTab === "editor") {
-          snapshotEditorToDraft();
-        }
-        setActiveTab(value);
-        if (value === "responses") setResponsesEverActive(true);
+        if (!isEditorTab(value) || value === activeTab) return;
+        void router.navigate({
+          to: "/forms/$id/edit",
+          params: { id },
+          search: { tab: value },
+        });
       }}
       className="gap-4"
     >
