@@ -63,7 +63,7 @@ function PublicFormPageInner() {
   const isPasswordGateRequired =
     formData?.form.isPasswordProtected === true &&
     !hasVerifiedPassword &&
-    (!formData.plateContent || !formData.structure);
+    (formData.plateContent === null || formData.structure === null);
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
 
@@ -215,9 +215,16 @@ function PublicFormPageInner() {
       <PasswordProtectionGate
         publicId={publicId}
         passwordHint={formData.form.passwordHint}
-        onVerified={async () => {
+        onVerified={async (): Promise<void> => {
           const result = await refetchForm();
           if (result.error) throw result.error;
+          if (
+            !result.data ||
+            result.data.plateContent === null ||
+            result.data.structure === null
+          ) {
+            throw new Error("Public form body is still locked");
+          }
           setHasVerifiedPassword(true);
         }}
       >
