@@ -3,7 +3,7 @@ import { verifyHCaptchaToken } from "../hcaptcha";
 
 const now = new Date("2026-05-19T00:00:00.000Z");
 
-function mockSiteVerifyResponse(body: Record<string, unknown>) {
+function mockSiteVerifyResponse(body: Record<string, unknown>): void {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockResolvedValue({
@@ -76,6 +76,19 @@ describe("verifyHCaptchaToken", () => {
     });
   });
 
+  it("rejects an invalid challenge timestamp", async () => {
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: "not-a-valid-date",
+    });
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: false,
+      errorMessage: "hCaptcha challenge timestamp is invalid",
+    });
+  });
+
   it("rejects a response without a challenge timestamp", async () => {
     mockSiteVerifyResponse({
       success: true,
@@ -89,8 +102,9 @@ describe("verifyHCaptchaToken", () => {
   });
 
   it("rejects verification when no expected hostname is configured", async () => {
-    vi.unstubAllEnvs();
-    vi.stubEnv("HCAPTCHA_SECRET_KEY", "secret");
+    vi.stubEnv("HCAPTCHA_EXPECTED_HOSTNAMES", "");
+    vi.stubEnv("TRUSTED_ORIGINS", "");
+    vi.stubEnv("VITE_BASE_URL", "");
     mockSiteVerifyResponse({
       success: true,
       hostname: "forms.example.com",

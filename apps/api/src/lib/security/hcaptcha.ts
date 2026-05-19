@@ -101,7 +101,7 @@ function collectExpectedHostnames(
   return new Set(
     candidates
       .map((hostname) => normalizeHostname(hostname))
-      .filter((hostname): hostname is string => hostname !== null),
+      .filter((hostname): hostname is string => !!hostname),
   );
 }
 
