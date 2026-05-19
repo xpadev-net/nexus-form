@@ -162,6 +162,29 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     });
   });
 
+  it("keeps unhandled Discord 4xx HTTP errors non-retryable", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        statusText: "network timeout",
+        json: vi.fn().mockResolvedValue({ message: "network timeout" }),
+      }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      retryable: false,
+    });
+  });
+
   it("keeps Discord authentication failures non-retryable", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(

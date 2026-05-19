@@ -419,7 +419,9 @@ const guildMemberRule: ValidationProviderRule = {
         isValid: false,
         errorCode: DiscordErrorCode.DISCORD_API_ERROR,
         errorMessage: errorMessage || "Discord API error",
-        retryable: isRetryableNetworkError(error),
+        retryable:
+          !(error instanceof DiscordHttpError) &&
+          isRetryableNetworkError(error),
       };
     }
   },
