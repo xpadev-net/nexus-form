@@ -494,6 +494,33 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("成功 result に retryable が付いていても成功として処理する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: true,
+        retryable: true,
+        retryAfter: 30,
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job, "lock-token");
+
+    expect(result).toEqual({ ok: true, provider: "test-provider" });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+      }),
+    );
+  });
+
   it("retryAfter が負数の場合は遅延再試行として扱わない", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({

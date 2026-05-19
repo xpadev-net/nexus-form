@@ -346,7 +346,7 @@ export const handleGenericValidation = async (
   }
   const result = resultParse.data;
 
-  if (result.retryable) {
+  if (!result.isValid && result.retryable) {
     if (result.retryAfter != null && result.retryAfter > 0) {
       const retryAfterCount = jobData.retryAfterCount ?? 0;
       if (retryAfterCount >= getRetryAfterAttemptsLimit() - 1) {
@@ -378,6 +378,7 @@ export const handleGenericValidation = async (
   }
 
   if (
+    !result.isValid &&
     result.retryable !== false &&
     result.retryAfter != null &&
     result.retryAfter > 0
