@@ -12,6 +12,9 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
+  MAX_RESPONSE_BODY_BYTES,
+  MAX_RESPONSE_ID_LENGTH,
+  MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
 import {
@@ -42,6 +45,8 @@ import { createHonoApp } from "../lib/hono";
 import { logError, logWarn } from "../lib/logger";
 import { getValidationQueue, isValidServiceName } from "../lib/queues";
 import { createRateLimit } from "../lib/rate-limit";
+import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
+import { stringifyResponseDataJson } from "../lib/response-data-json";
 import { errorResponse } from "../types/domain/common";
 import {
   BlockAnalyticsResponseSchema,
@@ -63,6 +68,12 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+const MAX_USER_AGENT_LENGTH = 512;
+const MAX_SESSION_ID_LENGTH = 128;
+const responseBodySizeLimit = createRequestBodySizeLimit({
+  maxBytes: MAX_RESPONSE_BODY_BYTES,
+});
+
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(20),
@@ -74,15 +85,15 @@ const listResponsesQuerySchema = z.object({
 const limitedListQuerySchema = paginationQuerySchema;
 
 const createResponseSchema = z.object({
-  responses: z.array(responsePayloadItemSchema),
-  respondentUuid: z.string().optional(),
-  userAgent: z.string().optional(),
-  sessionId: z.string().optional(),
+  responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
+  respondentUuid: z.string().max(MAX_RESPONSE_ID_LENGTH).optional(),
+  userAgent: z.string().max(MAX_USER_AGENT_LENGTH).optional(),
+  sessionId: z.string().max(MAX_SESSION_ID_LENGTH).optional(),
   countryCode: z.string().max(10).optional(),
 });
 
 const updateResponseSchema = z.object({
-  responses: z.array(responsePayloadItemSchema),
+  responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
 });
 
 const bulkRetrySchema = z.object({
@@ -414,6 +425,7 @@ export const formsResponsesRouter = createHonoApp()
   .post(
     "/:id/responses",
     withDualFormAuth("EDITOR"),
+    responseBodySizeLimit,
     zValidator("json", createResponseSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -452,11 +464,16 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
+      const responseDataJson = stringifyResponseDataJson(payload.responses);
+      if (!responseDataJson) {
+        return c.json(errorResponse("Response payload is too large"), 400);
+      }
+
       const id = randomUUID();
       await db.insert(formResponse).values({
         id,
         formId,
-        responseDataJson: JSON.stringify(payload.responses),
+        responseDataJson,
         respondentUuid: payload.respondentUuid ?? randomUUID(),
         userAgent: payload.userAgent,
         sessionId: payload.sessionId,
@@ -659,6 +676,7 @@ export const formsResponsesRouter = createHonoApp()
   .put(
     "/:id/responses/:responseId",
     withDualFormAuth("EDITOR"),
+    responseBodySizeLimit,
     zValidator("json", updateResponseSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -703,10 +721,15 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
+      const responseDataJson = stringifyResponseDataJson(payload.responses);
+      if (!responseDataJson) {
+        return c.json(errorResponse("Response payload is too large"), 400);
+      }
+
       await db
         .update(formResponse)
         .set({
-          responseDataJson: JSON.stringify(payload.responses),
+          responseDataJson,
           updatedAt: new Date(),
         })
         .where(eq(formResponse.id, responseId));
