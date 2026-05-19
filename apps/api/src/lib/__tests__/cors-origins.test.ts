@@ -14,15 +14,17 @@ afterEach(() => {
 
 describe("getCorsOrigins", () => {
   it("includes localhost in development and test and trims trusted origins", () => {
-    process.env.NODE_ENV = "test";
-    process.env.TRUSTED_ORIGINS =
-      " https://example.com,https://example.com, ,https://app.example.com ";
+    for (const env of ["development", "test"] as const) {
+      process.env.NODE_ENV = env;
+      process.env.TRUSTED_ORIGINS =
+        " https://example.com,https://example.com, ,https://app.example.com ";
 
-    expect(getCorsOrigins()).toEqual([
-      "http://localhost:3000",
-      "https://example.com",
-      "https://app.example.com",
-    ]);
+      expect(getCorsOrigins()).toEqual([
+        "http://localhost:3000",
+        "https://example.com",
+        "https://app.example.com",
+      ]);
+    }
   });
 
   it("does not include localhost in production", () => {
