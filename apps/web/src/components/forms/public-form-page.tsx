@@ -216,7 +216,8 @@ function PublicFormPageInner() {
         publicId={publicId}
         passwordHint={formData.form.passwordHint}
         onVerified={async () => {
-          await refetchForm();
+          const result = await refetchForm();
+          if (result.error) throw result.error;
           setHasVerifiedPassword(true);
         }}
       >
