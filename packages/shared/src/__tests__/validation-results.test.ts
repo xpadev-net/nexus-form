@@ -28,6 +28,10 @@ describe("getValidationResultId", () => {
     expect(getValidationResultId(params)).toMatch(
       /^validation-result:[a-f0-9]{32}$/,
     );
+    // Golden value for persisted validation result primary keys.
+    expect(getValidationResultId(params)).toBe(
+      "validation-result:d7210b09421b8eb30c7a872f2e5b666a",
+    );
   });
 
   it("changes when any unique key component changes", () => {
