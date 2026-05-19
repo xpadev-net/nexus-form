@@ -410,11 +410,7 @@ export const formsPublicRouter = createHonoApp()
           );
         }
 
-        const jwtToken = extractJwtFromRequest(c);
-        const decoded = jwtToken ? verifySessionJwt(jwtToken) : null;
-        const isVerified = decoded?.verifiedForms?.includes(target.id) ?? false;
-
-        if (!isVerified) {
+        if (!isPasswordVerified(c, target.id)) {
           return c.json(
             PasswordRequiredErrorResponseSchema.parse({
               error: "Password verification required",

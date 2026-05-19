@@ -39,7 +39,14 @@ export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
         }),
       );
       if (result.valid) {
-        await onVerified?.();
+        try {
+          await onVerified?.();
+        } catch {
+          setError(
+            "パスワードは確認できましたが、フォームデータの再取得に失敗しました。もう一度お試しください。",
+          );
+          return;
+        }
         setVerified(true);
       } else {
         setError("パスワードが正しくありません");

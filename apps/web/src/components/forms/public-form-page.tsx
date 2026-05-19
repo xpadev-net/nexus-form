@@ -37,6 +37,7 @@ function PublicFormPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [hasVerifiedPassword, setHasVerifiedPassword] = useState(false);
   const { answers, clearAnswers } = useFormResponse();
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
@@ -61,6 +62,7 @@ function PublicFormPageInner() {
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
   const isPasswordGateRequired =
     formData?.form.isPasswordProtected === true &&
+    !hasVerifiedPassword &&
     (!formData.plateContent || !formData.structure);
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
@@ -215,6 +217,7 @@ function PublicFormPageInner() {
         passwordHint={formData.form.passwordHint}
         onVerified={async () => {
           await refetchForm();
+          setHasVerifiedPassword(true);
         }}
       >
         <section className="p-6">読み込み中...</section>
