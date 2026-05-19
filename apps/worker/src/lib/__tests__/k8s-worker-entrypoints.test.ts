@@ -53,8 +53,9 @@ function readWorkerQueuesEnv(manifestName: string): string {
 
 function readSecretNameWithGoogleOAuthKey(): string {
   const manifest = readManifest("secret.yaml");
-  const secretName = manifest.match(/^\s*name:\s*(?<name>\S+)\s*$/m)?.groups
-    ?.name;
+  const secretName = manifest.match(
+    /^metadata:\s*\n(?:^\s{2}.+\n)*?^\s{2}name:\s*(?<name>\S+)\s*$/m,
+  )?.groups?.name;
   if (!secretName) {
     throw new Error("Missing Secret metadata.name in secret.yaml");
   }
