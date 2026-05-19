@@ -3,8 +3,12 @@ import { form } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { checkFormPermissionLevel, withDualAuth } from "../lib/dual-auth";
-import { FormPermissionError } from "../lib/errors/form-errors";
+import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
+import {
+  FormNotFoundError,
+  FormPermissionError,
+  InsufficientFormPermissionError,
+} from "../lib/errors/form-errors";
 import { createHonoApp } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 
@@ -49,20 +53,31 @@ async function getLinkedAccount(userId: string, providerId: string) {
 
 async function resolveEffectiveUserId(
   authUserId: string,
-  authContext: Parameters<typeof checkFormPermissionLevel>[0],
+  authContext: DualAuthContext,
   formId: string | undefined,
 ): Promise<string> {
   if (!formId) return authUserId;
 
-  await checkFormPermissionLevel(authContext, formId, "EDITOR");
-
   const [formRecord] = await db
-    .select({ creatorId: form.creatorId })
+    .select({ id: form.id, creatorId: form.creatorId })
     .from(form)
     .where(eq(form.id, formId))
     .limit(1);
 
-  return formRecord?.creatorId ?? authUserId;
+  if (!formRecord) throw new FormNotFoundError(formId);
+  if (authContext.auth_type === "api_token") {
+    if (authContext.form_ids && !authContext.form_ids.includes(formId)) {
+      throw new InsufficientFormPermissionError(formId, "OWNER", null);
+    }
+    if (authContext.share_link_id || authUserId.startsWith("anon:")) {
+      throw new InsufficientFormPermissionError(formId, "OWNER", null);
+    }
+  }
+  if (formRecord.creatorId !== authUserId) {
+    throw new InsufficientFormPermissionError(formId, "OWNER", null);
+  }
+
+  return authUserId;
 }
 
 function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {

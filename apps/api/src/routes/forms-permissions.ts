@@ -44,7 +44,7 @@ import {
 
 const createPermissionSchema = z.object({
   userId: z.string().min(1),
-  role: z.enum(["OWNER", "EDITOR", "VIEWER"]),
+  role: z.enum(["EDITOR", "VIEWER"]),
 });
 
 const updatePermissionSchema = z.object({
