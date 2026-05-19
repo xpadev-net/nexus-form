@@ -16,6 +16,7 @@ import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
+import { PasswordProtectionGate } from "./password-protection-gate";
 
 const fetchPublicForm = (publicId: string) =>
   rpc(client.api.forms.public[":publicId"].$get({ param: { publicId } }));
@@ -36,6 +37,7 @@ function PublicFormPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [hasVerifiedPassword, setHasVerifiedPassword] = useState(false);
   const { answers, clearAnswers } = useFormResponse();
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
@@ -47,6 +49,7 @@ function PublicFormPageInner() {
     data: formData,
     isPending: isLoading,
     error: fetchError,
+    refetch: refetchForm,
   } = useQuery({
     queryKey: ["publicForm", publicId],
     queryFn: () => fetchPublicForm(publicId),
@@ -57,6 +60,10 @@ function PublicFormPageInner() {
   });
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
+  const isPasswordGateRequired =
+    formData?.form.isPasswordProtected === true &&
+    !hasVerifiedPassword &&
+    (formData.plateContent === null || formData.structure === null);
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
 
@@ -200,6 +207,29 @@ function PublicFormPageInner() {
       <section className="p-6">
         <p className="text-sm text-destructive">{fetchErrorMessage}</p>
       </section>
+    );
+  }
+
+  if (isPasswordGateRequired) {
+    return (
+      <PasswordProtectionGate
+        publicId={publicId}
+        passwordHint={formData.form.passwordHint}
+        onVerified={async (): Promise<void> => {
+          const result = await refetchForm();
+          if (result.error) throw result.error;
+          if (
+            !result.data ||
+            result.data.plateContent === null ||
+            result.data.structure === null
+          ) {
+            throw new Error("Public form body is still locked");
+          }
+          setHasVerifiedPassword(true);
+        }}
+      >
+        <section className="p-6">読み込み中...</section>
+      </PasswordProtectionGate>
     );
   }
 

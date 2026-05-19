@@ -6,11 +6,15 @@ import { client, rpc } from "@/lib/api";
 
 interface PasswordProtectionGateProps {
   publicId: string;
+  passwordHint?: string;
+  onVerified?: () => void | Promise<void>;
   children: ReactNode;
 }
 
 export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
   publicId,
+  passwordHint,
+  onVerified,
   children,
 }) => {
   const [password, setPassword] = useState("");
@@ -35,6 +39,14 @@ export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
         }),
       );
       if (result.valid) {
+        try {
+          await onVerified?.();
+        } catch {
+          setError(
+            "パスワードは確認できましたが、フォームデータの再取得に失敗しました。もう一度お試しください。",
+          );
+          return;
+        }
         setVerified(true);
       } else {
         setError("パスワードが正しくありません");
@@ -55,6 +67,11 @@ export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
         <p className="mb-6 text-center text-sm text-muted-foreground">
           このフォームにアクセスするにはパスワードが必要です
         </p>
+        {passwordHint ? (
+          <p className="mb-4 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+            {passwordHint}
+          </p>
+        ) : null}
         <form onSubmit={(event) => void handleSubmit(event)}>
           <input
             type="password"
