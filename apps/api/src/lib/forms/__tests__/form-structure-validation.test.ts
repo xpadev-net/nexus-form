@@ -114,8 +114,8 @@ describe("StoredLogicRuleSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("condition に未知キーがある場合は拒否する", () => {
-    const invalid = {
+  it("condition の未知キーは受け入れつつ除去する", () => {
+    const input = {
       id: "rule-1",
       sourceBlockId: "block-abc",
       condition: { field: "q1", operator: "equals", extraKey: true },
@@ -123,8 +123,14 @@ describe("StoredLogicRuleSchema", () => {
       priority: 1,
       isActive: true,
     };
-    const result = StoredLogicRuleSchema.safeParse(invalid);
-    expect(result.success).toBe(false);
+    const result = StoredLogicRuleSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.condition).toEqual({
+        field: "q1",
+        operator: "equals",
+      });
+    }
   });
 
   it("condition.field が空文字の場合は拒否する", () => {
@@ -205,8 +211,8 @@ describe("StoredLogicRuleSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("action に未知キーがある場合は拒否する", () => {
-    const invalid = {
+  it("action の未知キーは受け入れつつ除去する", () => {
+    const input = {
       id: "rule-1",
       sourceBlockId: "block-abc",
       condition: validCondition,
@@ -214,8 +220,11 @@ describe("StoredLogicRuleSchema", () => {
       priority: 1,
       isActive: true,
     };
-    const result = StoredLogicRuleSchema.safeParse(invalid);
-    expect(result.success).toBe(false);
+    const result = StoredLogicRuleSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.action).toEqual({ type: "show" });
+    }
   });
 
   it("action.targetBlockId が空文字の場合は拒否する", () => {

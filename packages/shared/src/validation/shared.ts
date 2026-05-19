@@ -54,20 +54,16 @@ export const FormMetadataSchema = z.object({
   version: z.number().int().min(1),
 });
 
-const StoredLogicConditionSchema = z
-  .object({
-    field: z.string().min(1),
-    operator: z.string().min(1),
-    value: z.unknown().optional(),
-  })
-  .strict();
+const StoredLogicConditionSchema = z.object({
+  field: z.string().min(1),
+  operator: z.string().min(1),
+  value: z.unknown().optional(),
+});
 
-const StoredLogicActionSchema = z
-  .object({
-    type: z.string().min(1),
-    targetBlockId: z.string().min(1).optional(),
-  })
-  .strict();
+const StoredLogicActionSchema = z.object({
+  type: z.string().min(1),
+  targetBlockId: z.string().min(1).optional(),
+});
 
 // フォーム構造のトップレベル logic 配列で使用するスキーマ。
 // フロントエンドのロジックエディタから送信される shape を明示的に検証する。
