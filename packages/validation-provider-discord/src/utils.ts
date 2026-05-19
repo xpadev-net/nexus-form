@@ -47,6 +47,9 @@ export function isRateLimitError(error: DiscordError): boolean {
   return error?.code === 429 || error?.status === 429;
 }
 
+/**
+ * Returns the retry-after delay in seconds, or null if none is present.
+ */
 export function getRateLimitRetryAfter(error: unknown): number | null {
   if (error && typeof error === "object" && "retry_after" in error) {
     const retryAfter = (error as { retry_after: number }).retry_after;

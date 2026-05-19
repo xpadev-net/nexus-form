@@ -52,6 +52,53 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
 
     expect(result?.success).toBe(false);
   });
+
+  it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "rate limited again",
+            retry_after: 0,
+            global: false,
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: false,
+          status: 429,
+          json: vi.fn().mockResolvedValue({
+            message: "still rate limited",
+            retry_after: 0,
+            global: false,
+          }),
+          body: { cancel: vi.fn() },
+        }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
+      retryAfter: 30,
+    });
+  });
 });
 
 describe("discordProvider.rules.guild_member.inputSchema", () => {
