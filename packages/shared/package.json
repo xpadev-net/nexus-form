@@ -21,6 +21,10 @@
     "./branding": {
       "types": "./src/branding.ts",
       "import": "./dist/branding.js"
+    },
+    "./constants/status": {
+      "types": "./src/constants/status.ts",
+      "import": "./dist/constants/status.js"
     }
   },
   "scripts": {

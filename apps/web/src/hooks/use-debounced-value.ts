@@ -13,7 +13,7 @@ export function useDebouncedValue<T>(value: T, delayMs: number): T {
     }, delayMs);
 
     return () => {
-      clearTimeout(timer);
+      window.clearTimeout(timer);
     };
   }, [value, delayMs]);
 

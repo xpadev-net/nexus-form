@@ -40,6 +40,14 @@ export {
   DEFAULT_COMPONENT_WEIGHT,
 } from "./constants/fingerprint-weights";
 export type {
+  FormStatusValue,
+  ValidationStatusValue,
+} from "./constants/status";
+export {
+  FORM_STATUS_VALUES,
+  VALIDATION_STATUS_VALUES,
+} from "./constants/status";
+export type {
   ConditionContext,
   FormLogicAction,
   FormLogicCondition,
