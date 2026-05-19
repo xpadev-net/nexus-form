@@ -241,7 +241,9 @@ describe("startupPlugins plugin drift guard", () => {
       expect.stringContaining("Plugin drift detected"),
     );
 
-    await handle?.stop();
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
   });
 
   it("treats periodic drift as fatal by default", async () => {
@@ -270,7 +272,9 @@ describe("startupPlugins plugin drift guard", () => {
 
     expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
     expect(store.values.has("test:plugins:api")).toBe(true);
-    await handle?.stop();
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
   });
 
   it("does not escalate an in-flight periodic failure after stop", async () => {
@@ -301,7 +305,9 @@ describe("startupPlugins plugin drift guard", () => {
     });
 
     await vi.advanceTimersByTimeAsync(10);
-    const stopped = handle?.stop();
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    const stopped = handle.stop();
     peerRead.reject(new Error("Redis connection closed"));
     await stopped;
 

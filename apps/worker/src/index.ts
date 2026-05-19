@@ -51,9 +51,7 @@ async function main() {
     fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
-  let pluginDriftGuardHandle:
-    | Awaited<ReturnType<typeof startupPlugins>>
-    | undefined;
+  let pluginDriftGuardHandle: Awaited<ReturnType<typeof startupPlugins>>;
   try {
     pluginDriftGuardHandle = await startupPlugins(providerRegistry, {
       builtinPlugins,
