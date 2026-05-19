@@ -132,6 +132,8 @@ export {
   FormStatus,
   StoredLogicRuleSchema,
 } from "./validation/shared";
+export type { ValidationResultIdentity } from "./validation-results";
+export { getValidationResultId } from "./validation-results";
 export type {
   GenericValidationJobData,
   SheetsSyncJobData,

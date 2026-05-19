@@ -1,6 +1,178 @@
-import { describe, expect, it } from "vitest";
+import { db } from "@nexus-form/database";
+import { getValidationResultId } from "@nexus-form/shared";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractReferencedValueFromJson } from "../response-data-extractor";
+import {
+  markValidationProcessing,
+  writeValidationResult,
+} from "../validation-helpers";
+
+const {
+  insertValues,
+  onDuplicateKeyUpdate,
+  publishValidationEvent,
+  updateSet,
+  updateWhere,
+} = vi.hoisted(() => ({
+  insertValues: vi.fn(),
+  onDuplicateKeyUpdate: vi.fn(),
+  publishValidationEvent: vi.fn(),
+  updateSet: vi.fn(),
+  updateWhere: vi.fn(),
+}));
+
+vi.mock("@nexus-form/database", () => ({
+  db: {
+    insert: vi.fn(() => ({
+      values: insertValues,
+    })),
+    select: vi.fn(),
+    update: vi.fn(() => ({
+      set: updateSet,
+    })),
+  },
+  externalServiceValidationResult: {
+    id: "id",
+    responseId: "responseId",
+    ruleId: "ruleId",
+    referencedBlockId: "referencedBlockId",
+    attemptCount: "attemptCount",
+  },
+  formResponse: {
+    id: "id",
+    formId: "formId",
+    responseDataJson: "responseDataJson",
+  },
+  formSnapshot: {
+    formId: "formId",
+    plateContent: "plateContent",
+    isActive: "isActive",
+    version: "version",
+  },
+}));
+
+vi.mock("../redis-publisher", () => ({
+  publishValidationEvent,
+}));
+
+beforeEach(() => {
+  insertValues.mockReturnValue({ onDuplicateKeyUpdate });
+  onDuplicateKeyUpdate.mockResolvedValue([{ affectedRows: 1 }]);
+  updateSet.mockReturnValue({ where: updateWhere });
+  updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
+  publishValidationEvent.mockResolvedValue(undefined);
+  vi.mocked(db.select).mockClear();
+  vi.mocked(db.insert).mockClear();
+  vi.mocked(db.update).mockClear();
+  insertValues.mockClear();
+  onDuplicateKeyUpdate.mockClear();
+  updateSet.mockClear();
+  updateWhere.mockClear();
+  publishValidationEvent.mockClear();
+});
+
+describe("getValidationResultId", () => {
+  it("returns a stable id for the validation result unique key", () => {
+    const params = {
+      responseId: "response-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+    };
+
+    expect(getValidationResultId(params)).toBe(getValidationResultId(params));
+    expect(getValidationResultId(params)).toMatch(
+      /^validation-result:[a-f0-9]{32}$/,
+    );
+  });
+
+  it("changes when any unique key component changes", () => {
+    const base = {
+      responseId: "response-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+    };
+
+    expect(getValidationResultId(base)).not.toBe(
+      getValidationResultId({ ...base, referencedBlockId: "question-2" }),
+    );
+  });
+});
+
+describe("writeValidationResult", () => {
+  it("returns the deterministic result id without selecting after upsert", async () => {
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      metadata: { ok: true },
+      jobId: "job-1",
+    };
+    const expectedId = getValidationResultId(params);
+
+    const resultId = await writeValidationResult(params);
+
+    expect(resultId).toBe(expectedId);
+    expect(db.select).not.toHaveBeenCalled();
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expectedId,
+        responseId: params.responseId,
+        ruleId: params.ruleId,
+        referencedBlockId: params.referencedBlockId,
+      }),
+    );
+    expect(onDuplicateKeyUpdate).toHaveBeenCalledWith({
+      set: expect.objectContaining({
+        id: expectedId,
+        status: "COMPLETED",
+        success: true,
+      }),
+    });
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        validationResultId: expectedId,
+        responseId: params.responseId,
+        ruleId: params.ruleId,
+        referencedBlockId: params.referencedBlockId,
+        status: "COMPLETED",
+      }),
+    );
+  });
+});
+
+describe("markValidationProcessing", () => {
+  it("rewrites existing rows to the deterministic result id before publishing PROCESSING", async () => {
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+    };
+    const expectedId = getValidationResultId(params);
+
+    await markValidationProcessing(params);
+
+    expect(db.select).not.toHaveBeenCalled();
+    expect(updateSet).toHaveBeenCalledWith({
+      id: expectedId,
+      status: "PROCESSING",
+    });
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        validationResultId: expectedId,
+        responseId: params.responseId,
+        ruleId: params.ruleId,
+        referencedBlockId: params.referencedBlockId,
+        status: "PROCESSING",
+      }),
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // extractReferencedValueFromJson — array format (new)

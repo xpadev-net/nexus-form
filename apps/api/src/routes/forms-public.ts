@@ -13,6 +13,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
+  getValidationResultId,
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
@@ -700,7 +701,11 @@ async function queueExternalValidations(
   }
 
   const pendingRows = validRows.map((pair) => ({
-    id: randomUUID(),
+    id: getValidationResultId({
+      responseId,
+      ruleId: pair.ruleId,
+      referencedBlockId: pair.referencedBlockId,
+    }),
     responseId,
     ruleId: pair.ruleId,
     referencedBlockId: pair.referencedBlockId,

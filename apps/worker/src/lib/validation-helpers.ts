@@ -2,7 +2,6 @@
  * バリデーションハンドラ共通ユーティリティ
  */
 
-import { randomUUID } from "node:crypto";
 import {
   db,
   externalServiceValidationResult,
@@ -10,7 +9,10 @@ import {
   formSnapshot,
 } from "@nexus-form/database";
 import type { ValidationSSEEvent } from "@nexus-form/shared";
-import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import {
+  extractQuestionsFromPlateContent,
+  getValidationResultId,
+} from "@nexus-form/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
@@ -121,11 +123,12 @@ export async function writeValidationResult(params: {
   const now = new Date();
   const status: "COMPLETED" | "FAILED" | "MISSING" =
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
+  const resultId = getValidationResultId(params);
 
   await db
     .insert(externalServiceValidationResult)
     .values({
-      id: randomUUID(),
+      id: resultId,
       responseId: params.responseId,
       ruleId: params.ruleId,
       referencedBlockId: params.referencedBlockId,
@@ -141,6 +144,7 @@ export async function writeValidationResult(params: {
     })
     .onDuplicateKeyUpdate({
       set: {
+        id: resultId,
         status,
         success: params.success,
         attemptCount: sql`${externalServiceValidationResult.attemptCount} + 1`,
@@ -151,28 +155,6 @@ export async function writeValidationResult(params: {
         jobId: params.jobId ?? null,
       },
     });
-
-  const [row] = await db
-    .select({ id: externalServiceValidationResult.id })
-    .from(externalServiceValidationResult)
-    .where(
-      and(
-        eq(externalServiceValidationResult.responseId, params.responseId),
-        eq(externalServiceValidationResult.ruleId, params.ruleId),
-        eq(
-          externalServiceValidationResult.referencedBlockId,
-          params.referencedBlockId,
-        ),
-      ),
-    )
-    .limit(1);
-
-  if (!row) {
-    throw new Error(
-      `writeValidationResult: upsert succeeded but no row found for responseId=${params.responseId} ruleId=${params.ruleId} referencedBlockId=${params.referencedBlockId}`,
-    );
-  }
-  const resultId = row.id;
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
@@ -201,9 +183,11 @@ export async function markValidationProcessing(params: {
   formId: string;
   service: string;
 }) {
-  const [existing] = await db
-    .select({ id: externalServiceValidationResult.id })
-    .from(externalServiceValidationResult)
+  const resultId = getValidationResultId(params);
+
+  const updateResult = await db
+    .update(externalServiceValidationResult)
+    .set({ id: resultId, status: "PROCESSING" })
     .where(
       and(
         eq(externalServiceValidationResult.responseId, params.responseId),
@@ -213,19 +197,7 @@ export async function markValidationProcessing(params: {
           params.referencedBlockId,
         ),
       ),
-    )
-    .limit(1);
-
-  if (!existing) {
-    throw new Error(
-      `markValidationProcessing: no existing result found for responseId=${params.responseId} ruleId=${params.ruleId} referencedBlockId=${params.referencedBlockId}`,
     );
-  }
-
-  const updateResult = await db
-    .update(externalServiceValidationResult)
-    .set({ status: "PROCESSING" })
-    .where(eq(externalServiceValidationResult.id, existing.id));
 
   // mysql2 includes CLIENT_FOUND_ROWS by default, so affectedRows counts matched
   // rows (not changed rows). affectedRows === 0 therefore means the row is gone.
@@ -241,7 +213,7 @@ export async function markValidationProcessing(params: {
     type: "validation_status_changed",
     formId: params.formId,
     responseId: params.responseId,
-    validationResultId: existing.id,
+    validationResultId: resultId,
     ruleId: params.ruleId,
     referencedBlockId: params.referencedBlockId,
     service: params.service,
