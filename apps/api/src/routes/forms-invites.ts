@@ -15,6 +15,15 @@ const inviteTokenSchema = z
   .max(128)
   .regex(/^[A-Za-z0-9_-]+$/);
 
+/** Error response shape returned by invite endpoints. */
+export const InviteErrorResponseSchema = z.object({
+  error: z.string().min(1),
+});
+/** Inferred TypeScript type for `InviteErrorResponseSchema`. */
+export type InviteErrorResponse = z.infer<typeof InviteErrorResponseSchema>;
+
+const inviteError = (error: string): InviteErrorResponse => ({ error });
+
 export const InviteLookupResponseSchema = z.object({
   invitation: z.object({
     id: z.string(),
@@ -43,7 +52,9 @@ export const formsInvitesRouter = createHonoApp()
     }),
     async (c) => {
       const token = inviteTokenSchema.safeParse(c.req.param("token"));
-      if (!token.success) return c.json({ error: "Invalid invite token" }, 400);
+      if (!token.success) {
+        return c.json(inviteError("Invalid invite token"), 400);
+      }
       const [invitation] = await db
         .select({
           id: formInvitation.id,
@@ -59,7 +70,9 @@ export const formsInvitesRouter = createHonoApp()
         .where(eq(formInvitation.token, token.data))
         .limit(1);
 
-      if (!invitation) return c.json({ error: "Invitation not found" }, 404);
+      if (!invitation) {
+        return c.json(inviteError("Invitation not found"), 404);
+      }
       return c.json(InviteLookupResponseSchema.parse({ invitation }));
     },
   )
@@ -73,9 +86,11 @@ export const formsInvitesRouter = createHonoApp()
     withDualAuth(),
     async (c) => {
       const token = inviteTokenSchema.safeParse(c.req.param("token"));
-      if (!token.success) return c.json({ error: "Invalid invite token" }, 400);
+      if (!token.success) {
+        return c.json(inviteError("Invalid invite token"), 400);
+      }
       const auth = c.get("dualAuthContext");
-      if (!auth) return c.json({ error: "Unauthorized" }, 401);
+      if (!auth) return c.json(inviteError("Unauthorized"), 401);
       const permission = await acceptInvitation(token.data, auth.user_id);
       return c.json(InviteAcceptResponseSchema.parse({ permission }));
     },
