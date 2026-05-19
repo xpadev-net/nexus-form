@@ -89,8 +89,8 @@ describe("StoredLogicRuleSchema", () => {
     const valid = {
       id: "rule-1",
       sourceBlockId: "block-abc",
-      condition: {},
-      action: {},
+      condition: { field: "q1", operator: "equals", value: "yes" },
+      action: { type: "show", targetBlockId: "block-xyz" },
       priority: 0,
       isActive: true,
     };
