@@ -27,6 +27,7 @@ import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
+import { errorResponse } from "../types/domain/common";
 import {
   type FormStructure,
   FormStructure as FormStructureSchema,
@@ -93,7 +94,7 @@ export const formsDetailRouter = createHonoApp()
       .from(form)
       .where(eq(form.id, id))
       .limit(1);
-    if (!target) return c.json({ error: "Form not found" }, 404);
+    if (!target) return c.json(errorResponse("Form not found"), 404);
     return c.json(FormDetailResponseSchema.parse({ form: target }));
   })
   .put(
@@ -267,9 +268,9 @@ export const formsDetailRouter = createHonoApp()
     const snapshot = await getLatestSnapshot(id);
     if (!snapshot) {
       return c.json(
-        {
-          error: "公開版のスナップショットが設定されていないため公開できません",
-        },
+        errorResponse(
+          "公開版のスナップショットが設定されていないため公開できません",
+        ),
         400,
       );
     }
@@ -314,7 +315,7 @@ export const formsDetailRouter = createHonoApp()
         .where(eq(user.id, newOwnerUserId))
         .limit(1);
       if (!targetUser) {
-        return c.json({ error: "User not found" }, 404);
+        return c.json(errorResponse("User not found"), 404);
       }
 
       await db.transaction(async (tx) => {
@@ -357,14 +358,14 @@ export const formsDetailRouter = createHonoApp()
   .post("/:id/duplicate", withDualFormAuth("EDITOR"), async (c) => {
     const id = c.req.param("id");
     const auth = c.get("dualAuthContext");
-    if (!auth) return c.json({ error: "Unauthorized" }, 401);
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
     const [sourceForm] = await db
       .select()
       .from(form)
       .where(eq(form.id, id))
       .limit(1);
-    if (!sourceForm) return c.json({ error: "Form not found" }, 404);
+    if (!sourceForm) return c.json(errorResponse("Form not found"), 404);
 
     const newFormId = randomUUID();
     const publicId = randomUUID();
