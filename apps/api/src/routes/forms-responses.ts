@@ -73,6 +73,7 @@ const MAX_SESSION_ID_LENGTH = 128;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
+const LIKE_ESCAPE_CHAR = "!";
 
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -102,6 +103,14 @@ const bulkRetrySchema = z.object({
     .min(1)
     .max(100, "Cannot retry more than 100 validation results at once"),
 });
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[!%_]/g, (char) => `${LIKE_ESCAPE_CHAR}${char}`);
+}
+
+function buildPrefixSearchPattern(keyword: string): string {
+  return `${escapeLikePattern(keyword)}%`;
+}
 
 const bulkDeleteSchema = z.object({
   responseIds: z
@@ -419,16 +428,22 @@ export const formsResponsesRouter = createHonoApp()
       const sortOrder = query.order ?? "desc";
       const offset = (query.page - 1) * query.limit;
       const keyword = query.keyword?.trim();
-      const whereCondition = keyword
-        ? and(
-            eq(formResponse.formId, formId),
-            or(
-              sql`instr(lower(${formResponse.id}), lower(${keyword})) > 0`,
-              sql`instr(lower(${formResponse.respondentUuid}), lower(${keyword})) > 0`,
-              sql`instr(lower(${formResponse.countryCode}), lower(${keyword})) > 0`,
-            ),
-          )
-        : eq(formResponse.formId, formId);
+      const whereCondition = (() => {
+        if (!keyword) return eq(formResponse.formId, formId);
+
+        const keywordPattern = buildPrefixSearchPattern(keyword);
+        const countryCodePattern = buildPrefixSearchPattern(
+          keyword.toUpperCase(),
+        );
+        return and(
+          eq(formResponse.formId, formId),
+          or(
+            sql`${formResponse.id} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+            sql`${formResponse.respondentUuid} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+            sql`${formResponse.countryCode} like ${countryCodePattern} escape ${LIKE_ESCAPE_CHAR}`,
+          ),
+        );
+      })();
 
       const [responses, totalResult] = await Promise.all([
         db
