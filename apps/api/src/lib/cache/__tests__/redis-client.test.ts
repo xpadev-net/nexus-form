@@ -52,4 +52,21 @@ describe("getRedisClient", () => {
       }),
     );
   });
+
+  it("prefers the password embedded in REDIS_URL over REDIS_PASSWORD", async () => {
+    resetRedisEnv();
+    process.env.REDIS_URL = "redis://:url-secret@redis-service:6379";
+    process.env.REDIS_PASSWORD = "env-secret";
+
+    const { getRedisClient } = await import("../redis-client");
+
+    getRedisClient();
+
+    expect(mocks.redisConstructor).toHaveBeenCalledWith(
+      "redis://:url-secret@redis-service:6379",
+      expect.objectContaining({
+        password: "url-secret",
+      }),
+    );
+  });
 });
