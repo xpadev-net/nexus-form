@@ -33,6 +33,8 @@ interface CheckboxQuestionProps {
   onOtherChange?: (value: string) => void;
 }
 
+const EMPTY_CHECKBOX_VALUE: string[] = [];
+
 /**
  * チェックボックス選択用の質問コンポーネント
  *
@@ -60,7 +62,7 @@ interface CheckboxQuestionProps {
  */
 const CheckboxQuestionBase: FC<CheckboxQuestionProps> = ({
   block,
-  value = [],
+  value = EMPTY_CHECKBOX_VALUE,
   onChange,
   onBlur,
   error,

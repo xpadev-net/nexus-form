@@ -19,14 +19,17 @@ interface ResponsesAnalyticsSectionProps {
   textResponses?: TextResponseAnalytics[];
 }
 
+const EMPTY_CHOICE_DATA: ChoiceOptionAnalytics[] = [];
+const EMPTY_TEXT_RESPONSES: TextResponseAnalytics[] = [];
+
 export function ResponsesAnalyticsSection({
   title = "回答分析",
-  choiceData = [],
+  choiceData = EMPTY_CHOICE_DATA,
   choiceTotalResponses = 0,
   dateData,
   gridData,
   gridTotalResponses = 0,
-  textResponses = [],
+  textResponses = EMPTY_TEXT_RESPONSES,
 }: ResponsesAnalyticsSectionProps) {
   return (
     <section className="space-y-4 rounded border p-4">

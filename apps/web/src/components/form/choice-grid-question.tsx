@@ -28,6 +28,8 @@ interface ChoiceGridQuestionProps {
   className?: string;
 }
 
+const EMPTY_CHOICE_GRID_VALUE: Record<string, string> = {};
+
 interface ChoiceGridTableProps {
   block: z.infer<typeof ChoiceGridFormBlock>;
   value: Record<string, string>;
@@ -118,7 +120,7 @@ const ChoiceGridTable: FC<ChoiceGridTableProps> = ({
  */
 const ChoiceGridQuestionInner: FC<ChoiceGridQuestionProps> = ({
   block,
-  value = {},
+  value = EMPTY_CHOICE_GRID_VALUE,
   onChange,
   error,
   disabled = false,

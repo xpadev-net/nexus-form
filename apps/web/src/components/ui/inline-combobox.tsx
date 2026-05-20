@@ -56,8 +56,10 @@ const InlineComboboxContext = createContext<InlineComboboxContextValue>(
   null as unknown as InlineComboboxContextValue,
 );
 
+const EMPTY_KEYWORDS: string[] = [];
+
 const defaultFilter: FilterFn = (
-  { group, keywords = [], label, value },
+  { group, keywords = EMPTY_KEYWORDS, label, value },
   search,
 ) => {
   const uniqueTerms = new Set(

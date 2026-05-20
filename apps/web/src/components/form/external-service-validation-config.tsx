@@ -23,6 +23,8 @@ import { getValidationProviderRule } from "@/lib/validation/validation-providers
 
 type ProviderConfig = Record<string, unknown>;
 
+const EMPTY_PROVIDER_CONFIG: ProviderConfig = {};
+
 interface ExternalServiceValidationConfigProps {
   providerName: string;
   ruleType: string;
@@ -466,7 +468,7 @@ export const ExternalServiceValidationConfig: FC<
   providerName,
   ruleType,
   providers,
-  config = {},
+  config = EMPTY_PROVIDER_CONFIG,
   disabled = false,
   formId,
   onChange,
