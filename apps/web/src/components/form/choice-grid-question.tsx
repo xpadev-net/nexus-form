@@ -28,6 +28,73 @@ interface ChoiceGridQuestionProps {
   className?: string;
 }
 
+interface ChoiceGridTableProps {
+  block: z.infer<typeof ChoiceGridFormBlock>;
+  value: Record<string, string>;
+  disabled: boolean;
+  onRowChange: (rowId: string, columnId: string) => void;
+}
+
+const ChoiceGridTable: FC<ChoiceGridTableProps> = ({
+  block,
+  value,
+  disabled,
+  onRowChange,
+}) => (
+  <div className="overflow-x-auto">
+    <table className="w-full border-collapse">
+      <thead>
+        <tr>
+          <th className="border border-border p-2 text-left font-medium bg-muted/50">
+            {/* 空のヘッダー（行ラベル用） */}
+          </th>
+          {block.validation.columns.map((column, columnIndex) => (
+            <th
+              key={`${block.blockId}-column-${columnIndex}`}
+              className="border border-border p-2 text-center font-medium bg-muted/50"
+            >
+              {column.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {block.validation.rows.map((row, rowIndex) => (
+          <tr key={`${block.blockId}-row-${rowIndex}`}>
+            <td className="border border-border p-2 font-medium bg-muted/30">
+              {row.label}
+            </td>
+            {block.validation.columns.map((column, columnIndex) => {
+              const inputId = `${block.blockId}-${rowIndex}-${columnIndex}`;
+              const isSelected = value[row.id] === column.id;
+              const radioName = `${block.blockId}-row-${rowIndex}`;
+
+              return (
+                <td
+                  key={column.id}
+                  className="border border-border p-2 text-center"
+                >
+                  <input
+                    type="radio"
+                    id={inputId}
+                    name={radioName}
+                    value={column.id}
+                    checked={isSelected}
+                    onChange={() => onRowChange(row.id, column.id)}
+                    disabled={disabled}
+                    aria-label={`${row.label} - ${column.label}`}
+                    className="h-4 w-4 border border-primary text-primary ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
 /**
  * 選択式グリッド質問コンポーネント
  *
@@ -91,64 +158,6 @@ const ChoiceGridQuestionInner: FC<ChoiceGridQuestionProps> = ({
     return null;
   }, [error, block, value, getRequiredMessage]);
 
-  // グリッドのレンダリング
-  const renderGrid = () => {
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr>
-              <th className="border border-border p-2 text-left font-medium bg-muted/50">
-                {/* 空のヘッダー（行ラベル用） */}
-              </th>
-              {block.validation.columns.map((column, columnIndex) => (
-                <th
-                  key={`${block.blockId}-column-${columnIndex}`}
-                  className="border border-border p-2 text-center font-medium bg-muted/50"
-                >
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.validation.rows.map((row, rowIndex) => (
-              <tr key={`${block.blockId}-row-${rowIndex}`}>
-                <td className="border border-border p-2 font-medium bg-muted/30">
-                  {row.label}
-                </td>
-                {block.validation.columns.map((column, columnIndex) => {
-                  const inputId = `${block.blockId}-${rowIndex}-${columnIndex}`;
-                  const isSelected = value[row.id] === column.id;
-                  const radioName = `${block.blockId}-row-${rowIndex}`;
-
-                  return (
-                    <td
-                      key={column.id}
-                      className="border border-border p-2 text-center"
-                    >
-                      <input
-                        type="radio"
-                        id={inputId}
-                        name={radioName}
-                        value={column.id}
-                        checked={isSelected}
-                        onChange={() => handleRowChange(row.id, column.id)}
-                        disabled={disabled}
-                        aria-label={`${row.label} - ${column.label}`}
-                        className="h-4 w-4 border border-primary text-primary ring-offset-background focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
   return (
     <ErrorBoundary>
       <div className={cn("space-y-3", className)}>
@@ -177,7 +186,12 @@ const ChoiceGridQuestionInner: FC<ChoiceGridQuestionProps> = ({
             validationError && "border-destructive",
           )}
         >
-          {renderGrid()}
+          <ChoiceGridTable
+            block={block}
+            value={value}
+            disabled={disabled}
+            onRowChange={handleRowChange}
+          />
         </div>
 
         {/* Choice grid allows only one selection per row */}

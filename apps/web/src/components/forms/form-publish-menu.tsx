@@ -338,6 +338,80 @@ interface FormPublishMenuProps {
 
 type DialogMode = "saveAndPublish" | "saveAndActivate" | "saveOnly" | null;
 
+interface TriggerContentProps {
+  formStatus: FormStatus;
+  isArchived: boolean;
+  isPublished: boolean;
+  hasUnpublishedChanges: boolean;
+  activeSnapshotVersion: number | null;
+}
+
+const TriggerContent: FC<TriggerContentProps> = ({
+  formStatus,
+  isArchived,
+  isPublished,
+  hasUnpublishedChanges,
+  activeSnapshotVersion,
+}) => {
+  if (isArchived) {
+    return (
+      <>
+        <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+        アーカイブ済み
+      </>
+    );
+  }
+
+  if (isPublished && !hasUnpublishedChanges) {
+    return (
+      <>
+        <span className="h-2 w-2 rounded-full bg-green-500" />
+        公開中
+        {activeSnapshotVersion != null && (
+          <Badge variant="secondary" className="font-mono text-xs ml-1">
+            v{activeSnapshotVersion}
+          </Badge>
+        )}
+      </>
+    );
+  }
+
+  if (isPublished && hasUnpublishedChanges) {
+    return (
+      <>
+        <span className="h-2 w-2 rounded-full bg-amber-500" />
+        {activeSnapshotVersion != null && (
+          <Badge variant="secondary" className="font-mono text-xs">
+            v{activeSnapshotVersion}
+          </Badge>
+        )}
+        未公開の変更
+      </>
+    );
+  }
+
+  if (formStatus === "UNPUBLISHED") {
+    return (
+      <>
+        <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+        非公開
+        {activeSnapshotVersion != null && (
+          <Badge variant="secondary" className="font-mono text-xs ml-1">
+            v{activeSnapshotVersion}
+          </Badge>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <span className="h-2 w-2 rounded-full bg-muted-foreground" />
+      未公開
+    </>
+  );
+};
+
 export function FormPublishMenu({
   formId,
   formStatus,
@@ -589,68 +663,17 @@ export function FormPublishMenu({
     }
   };
 
-  // --- Trigger button content ---
-  const renderTriggerContent = () => {
-    if (isArchived) {
-      return (
-        <>
-          <span className="h-2 w-2 rounded-full bg-muted-foreground" />
-          アーカイブ済み
-        </>
-      );
-    }
-    if (isPublished && !hasUnpublishedChanges) {
-      return (
-        <>
-          <span className="h-2 w-2 rounded-full bg-green-500" />
-          公開中
-          {activeSnapshotVersion != null && (
-            <Badge variant="secondary" className="font-mono text-xs ml-1">
-              v{activeSnapshotVersion}
-            </Badge>
-          )}
-        </>
-      );
-    }
-    if (isPublished && hasUnpublishedChanges) {
-      return (
-        <>
-          <span className="h-2 w-2 rounded-full bg-amber-500" />
-          {activeSnapshotVersion != null && (
-            <Badge variant="secondary" className="font-mono text-xs">
-              v{activeSnapshotVersion}
-            </Badge>
-          )}
-          未公開の変更
-        </>
-      );
-    }
-    if (formStatus === "UNPUBLISHED") {
-      return (
-        <>
-          <span className="h-2 w-2 rounded-full bg-muted-foreground" />
-          非公開
-          {activeSnapshotVersion != null && (
-            <Badge variant="secondary" className="font-mono text-xs ml-1">
-              v{activeSnapshotVersion}
-            </Badge>
-          )}
-        </>
-      );
-    }
-    return (
-      <>
-        <span className="h-2 w-2 rounded-full bg-muted-foreground" />
-        未公開
-      </>
-    );
-  };
-
   if (isArchived) {
     return (
       <Button variant="outline" size="sm" disabled>
         <span className="flex items-center gap-1.5">
-          {renderTriggerContent()}
+          <TriggerContent
+            formStatus={formStatus}
+            isArchived={isArchived}
+            isPublished={isPublished}
+            hasUnpublishedChanges={hasUnpublishedChanges}
+            activeSnapshotVersion={activeSnapshotVersion}
+          />
         </span>
       </Button>
     );
@@ -662,7 +685,13 @@ export function FormPublishMenu({
         <PopoverTrigger asChild>
           <Button variant="outline" size="sm">
             <span className="flex items-center gap-1.5">
-              {renderTriggerContent()}
+              <TriggerContent
+                formStatus={formStatus}
+                isArchived={isArchived}
+                isPublished={isPublished}
+                hasUnpublishedChanges={hasUnpublishedChanges}
+                activeSnapshotVersion={activeSnapshotVersion}
+              />
             </span>
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>

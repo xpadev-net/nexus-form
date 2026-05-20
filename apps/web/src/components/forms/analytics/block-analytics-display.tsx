@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
@@ -152,7 +152,7 @@ const ErrorState: FC<{ blockTitle?: string; error: string }> = ({
 );
 
 // 選択式ブロックのレンダリング
-const renderChoiceBlock = ({
+const createChoiceBlockContent = ({
   blockType,
   analytics,
   blockTitle,
@@ -162,7 +162,7 @@ const renderChoiceBlock = ({
   analytics: ChoiceAnalytics;
   blockTitle?: string;
   totalResponses: number;
-}): React.ReactNode => {
+}): ReactNode => {
   if (blockType === "radio" || blockType === "dropdown") {
     return (
       <PieChartDisplay
@@ -197,7 +197,7 @@ const renderChoiceBlock = ({
 };
 
 // グリッドブロックのレンダリング
-const renderGridBlock = ({
+const createGridBlockContent = ({
   analytics,
   blockTitle,
   totalResponses,
@@ -205,7 +205,7 @@ const renderGridBlock = ({
   analytics: GridAnalytics;
   blockTitle?: string;
   totalResponses: number;
-}): React.ReactNode => (
+}): ReactNode => (
   <GridChartDisplay
     data={analytics}
     blockTitle={blockTitle}
@@ -214,13 +214,13 @@ const renderGridBlock = ({
 );
 
 // 日付ブロックのレンダリング
-const renderDateBlock = ({
+const createDateBlockContent = ({
   analytics,
   blockTitle,
 }: {
   analytics: DateAnalytics;
   blockTitle?: string;
-}): React.ReactNode => (
+}): ReactNode => (
   <div className="space-y-6">
     <DateDistributionChart data={analytics} blockTitle={blockTitle} />
     <TextResponseList
@@ -232,13 +232,13 @@ const renderDateBlock = ({
 );
 
 // 時間ブロックのレンダリング
-const renderTimeBlock = ({
+const createTimeBlockContent = ({
   analytics,
   blockTitle,
 }: {
   analytics: TimeAnalytics;
   blockTitle?: string;
-}): React.ReactNode => (
+}): ReactNode => (
   <div className="space-y-6">
     <TimeDistributionChart data={analytics} blockTitle={blockTitle} />
     <TextResponseList
@@ -250,7 +250,7 @@ const renderTimeBlock = ({
 );
 
 // テキストブロックのレンダリング
-const renderTextBlock = ({
+const createTextBlockContent = ({
   analytics,
   blockTitle,
   blockType,
@@ -258,7 +258,7 @@ const renderTextBlock = ({
   analytics: TextAnalytics;
   blockTitle?: string;
   blockType: string;
-}): React.ReactNode => {
+}): ReactNode => {
   if (!analytics.responses || analytics.responses.length === 0) {
     return <EmptyState blockTitle={blockTitle} blockType={blockType} />;
   }
@@ -270,6 +270,132 @@ const renderTextBlock = ({
       blockType={blockType as "short_text" | "long_text"}
     />
   );
+};
+
+interface BlockAnalyticsContentProps {
+  blockType: string;
+  blockTitle?: string;
+  totalResponses: number;
+  analyticsData: unknown;
+}
+
+const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
+  blockType,
+  blockTitle,
+  totalResponses,
+  analyticsData,
+}) => {
+  try {
+    // 選択式ブロック
+    if (
+      ["radio", "dropdown", "checkbox", "linear_scale", "rating"].includes(
+        blockType,
+      )
+    ) {
+      if (!isChoiceAnalytics(analyticsData)) {
+        return (
+          <ErrorState
+            blockTitle={blockTitle}
+            error="選択式データの形式が正しくありません"
+          />
+        );
+      }
+
+      return createChoiceBlockContent({
+        blockType,
+        analytics: analyticsData,
+        blockTitle,
+        totalResponses,
+      });
+    }
+
+    // グリッドブロック
+    if (["choice_grid", "checkbox_grid"].includes(blockType)) {
+      if (!isGridAnalytics(analyticsData)) {
+        return (
+          <ErrorState
+            blockTitle={blockTitle}
+            error="グリッドデータの形式が正しくありません"
+          />
+        );
+      }
+
+      return createGridBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+        totalResponses,
+      });
+    }
+
+    // 日付ブロック
+    if (blockType === "date") {
+      if (!isDateAnalytics(analyticsData)) {
+        return (
+          <ErrorState
+            blockTitle={blockTitle}
+            error="日付データの形式が正しくありません"
+          />
+        );
+      }
+
+      return createDateBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+      });
+    }
+
+    // 時間ブロック
+    if (blockType === "time") {
+      if (!isTimeAnalytics(analyticsData)) {
+        return (
+          <ErrorState
+            blockTitle={blockTitle}
+            error="時間データの形式が正しくありません"
+          />
+        );
+      }
+
+      return createTimeBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+      });
+    }
+
+    // テキストブロック
+    if (["short_text", "long_text"].includes(blockType)) {
+      if (!isTextAnalytics(analyticsData)) {
+        return (
+          <ErrorState
+            blockTitle={blockTitle}
+            error="テキストデータの形式が正しくありません"
+          />
+        );
+      }
+
+      return createTextBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+        blockType,
+      });
+    }
+
+    // 未対応のブロックタイプ
+    return (
+      <ErrorState
+        blockTitle={blockTitle}
+        error={`未対応のブロックタイプ: ${blockType}`}
+      />
+    );
+  } catch (error) {
+    return (
+      <ErrorState
+        blockTitle={blockTitle}
+        error={`データの処理中にエラーが発生しました: ${
+          error instanceof Error ? error.message : "不明なエラー"
+        }`}
+      />
+    );
+  }
 };
 
 export const BlockAnalyticsDisplay: FC<BlockAnalyticsDisplayProps> = ({
@@ -288,121 +414,6 @@ export const BlockAnalyticsDisplay: FC<BlockAnalyticsDisplayProps> = ({
   if (total_responses === 0) {
     return <EmptyState blockTitle={block_title} blockType={block_type} />;
   }
-
-  // ブロックタイプに応じた分岐
-  const renderContent = (): React.ReactNode => {
-    try {
-      // 選択式ブロック
-      if (
-        ["radio", "dropdown", "checkbox", "linear_scale", "rating"].includes(
-          block_type,
-        )
-      ) {
-        if (!isChoiceAnalytics(analytics_data)) {
-          return (
-            <ErrorState
-              blockTitle={block_title}
-              error="選択式データの形式が正しくありません"
-            />
-          );
-        }
-
-        return renderChoiceBlock({
-          blockType: block_type,
-          analytics: analytics_data,
-          blockTitle: block_title,
-          totalResponses: total_responses,
-        });
-      }
-
-      // グリッドブロック
-      if (["choice_grid", "checkbox_grid"].includes(block_type)) {
-        if (!isGridAnalytics(analytics_data)) {
-          return (
-            <ErrorState
-              blockTitle={block_title}
-              error="グリッドデータの形式が正しくありません"
-            />
-          );
-        }
-
-        return renderGridBlock({
-          analytics: analytics_data,
-          blockTitle: block_title,
-          totalResponses: total_responses,
-        });
-      }
-
-      // 日付ブロック
-      if (block_type === "date") {
-        if (!isDateAnalytics(analytics_data)) {
-          return (
-            <ErrorState
-              blockTitle={block_title}
-              error="日付データの形式が正しくありません"
-            />
-          );
-        }
-
-        return renderDateBlock({
-          analytics: analytics_data,
-          blockTitle: block_title,
-        });
-      }
-
-      // 時間ブロック
-      if (block_type === "time") {
-        if (!isTimeAnalytics(analytics_data)) {
-          return (
-            <ErrorState
-              blockTitle={block_title}
-              error="時間データの形式が正しくありません"
-            />
-          );
-        }
-
-        return renderTimeBlock({
-          analytics: analytics_data,
-          blockTitle: block_title,
-        });
-      }
-
-      // テキストブロック
-      if (["short_text", "long_text"].includes(block_type)) {
-        if (!isTextAnalytics(analytics_data)) {
-          return (
-            <ErrorState
-              blockTitle={block_title}
-              error="テキストデータの形式が正しくありません"
-            />
-          );
-        }
-
-        return renderTextBlock({
-          analytics: analytics_data,
-          blockTitle: block_title,
-          blockType: block_type,
-        });
-      }
-
-      // 未対応のブロックタイプ
-      return (
-        <ErrorState
-          blockTitle={block_title}
-          error={`未対応のブロックタイプ: ${block_type}`}
-        />
-      );
-    } catch (error) {
-      return (
-        <ErrorState
-          blockTitle={block_title}
-          error={`データの処理中にエラーが発生しました: ${
-            error instanceof Error ? error.message : "不明なエラー"
-          }`}
-        />
-      );
-    }
-  };
 
   return (
     <Card className="w-full">
@@ -428,7 +439,14 @@ export const BlockAnalyticsDisplay: FC<BlockAnalyticsDisplayProps> = ({
           <span>ブロックID: {block_id}</span>
         </div>
       </CardHeader>
-      <CardContent>{renderContent()}</CardContent>
+      <CardContent>
+        <BlockAnalyticsContent
+          blockType={block_type}
+          blockTitle={block_title}
+          totalResponses={total_responses}
+          analyticsData={analytics_data}
+        />
+      </CardContent>
     </Card>
   );
 };
