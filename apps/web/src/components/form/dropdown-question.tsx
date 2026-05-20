@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useOtherOption } from "@/hooks/forms/useOtherOption";
+import { useOtherOption } from "@/hooks/forms/use-other-option";
 import { cn } from "@/lib/utils";
 import type { Block, DropdownFormBlock } from "@/types/domain/form-block";
 
