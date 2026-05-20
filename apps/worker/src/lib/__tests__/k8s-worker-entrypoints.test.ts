@@ -114,7 +114,7 @@ function readConfigMapValue(key: string): string {
 
 function readKustomizationResources(): string[] {
   const resourcesBlock = kustomizationManifest.match(
-    /^resources:\n(?<resources>(?:\s{2}-\s+\S+\n)+)/m,
+    /^resources:\n(?<resources>(?:\s{2}-\s+\S+\n?)+)/m,
   )?.groups?.resources;
   if (!resourcesBlock) {
     throw new Error("Missing resources in kustomization.yaml");
@@ -194,12 +194,12 @@ describe("k8s base manifest render", () => {
       expect(rendered).toContain("kind: Secret");
       expect(rendered).toContain("kind: Deployment");
       expect(rendered).toContain("kind: Service");
-      expect(rendered).toContain("name: api");
-      expect(rendered).toContain("name: web");
-      expect(rendered).toContain("name: bullmq-validation-discord");
-      expect(rendered).toContain("name: bullmq-validation-github");
-      expect(rendered).toContain("name: bullmq-validation-twitter");
-      expect(rendered).toContain("name: bullmq-sheets");
+      expect(rendered).toContain("name: api\n");
+      expect(rendered).toContain("name: web\n");
+      expect(rendered).toContain("name: bullmq-validation-discord\n");
+      expect(rendered).toContain("name: bullmq-validation-github\n");
+      expect(rendered).toContain("name: bullmq-validation-twitter\n");
+      expect(rendered).toContain("name: bullmq-sheets\n");
       expect(rendered).not.toContain("{{");
       expect(rendered).not.toContain("}}");
     },
