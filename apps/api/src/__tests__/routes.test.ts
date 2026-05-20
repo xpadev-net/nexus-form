@@ -104,6 +104,7 @@ vi.mock("drizzle-orm", () => ({
 let app: Awaited<typeof import("../index")>["default"];
 
 beforeAll(async () => {
+  process.env.TRUSTED_PROXY_COUNT = "1";
   const mod = await import("../index");
   app = mod.default;
 });
@@ -240,6 +241,38 @@ describe("API Route Integration Tests", () => {
       expect(res.status).toBe(404);
       await expect(res.json()).resolves.toEqual({
         error: "Share link not found",
+      });
+    });
+
+    it("rate limits public form GET by client IP", async () => {
+      let res: Response | null = null;
+
+      for (let i = 0; i < 61; i++) {
+        res = await app.request("/api/forms/public/rate-limit-public-form", {
+          headers: { "x-forwarded-for": "203.0.113.60" },
+        });
+      }
+
+      if (!res) throw new Error("Expected a response");
+      expect(res.status).toBe(429);
+      await expect(res.json()).resolves.toMatchObject({
+        error: { message: "Too many requests" },
+      });
+    });
+
+    it("rate limits shared link GET by client IP", async () => {
+      let res: Response | null = null;
+
+      for (let i = 0; i < 61; i++) {
+        res = await app.request("/api/forms/shared/rate-limit-share-token", {
+          headers: { "x-forwarded-for": "203.0.113.61" },
+        });
+      }
+
+      if (!res) throw new Error("Expected a response");
+      expect(res.status).toBe(429);
+      await expect(res.json()).resolves.toMatchObject({
+        error: { message: "Too many requests" },
       });
     });
   });
