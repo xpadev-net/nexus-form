@@ -63,6 +63,42 @@ describe("responsePayloadItemSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts single-selection choice grid responses", () => {
+    const result = responsePayloadItemSchema.safeParse({
+      ...baseResponse,
+      question_type: "choice_grid",
+      responses: {
+        row1: "column1",
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects array-valued choice grid responses", () => {
+    const result = responsePayloadItemSchema.safeParse({
+      ...baseResponse,
+      question_type: "choice_grid",
+      responses: {
+        row1: ["column1"],
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects scalar-valued checkbox grid responses", () => {
+    const result = responsePayloadItemSchema.safeParse({
+      ...baseResponse,
+      question_type: "checkbox_grid",
+      responses: {
+        row1: "column1",
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("rejects oversized response identifiers", () => {
     const result = responsePayloadItemSchema.safeParse({
       ...baseResponse,

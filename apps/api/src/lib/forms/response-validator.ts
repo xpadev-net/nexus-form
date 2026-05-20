@@ -240,6 +240,26 @@ export function validateResponseData(
             `Response ${i + 1}: Grid responses are required for question ${response.question_id}`,
           );
         }
+        if (response.responses) {
+          for (const [rowId, value] of Object.entries(response.responses)) {
+            if (
+              response.question_type === "choice_grid" &&
+              typeof value !== "string"
+            ) {
+              errors.push(
+                `Response ${i + 1}: Choice grid row ${rowId} must contain a single selection for question ${response.question_id}`,
+              );
+            }
+            if (
+              response.question_type === "checkbox_grid" &&
+              !Array.isArray(value)
+            ) {
+              errors.push(
+                `Response ${i + 1}: Checkbox grid row ${rowId} must contain selection arrays for question ${response.question_id}`,
+              );
+            }
+          }
+        }
         break;
       case "date":
       case "time":
@@ -342,6 +362,26 @@ export function validateResponseData(
         }
       }
 
+      if (response.question_type === "choice_grid") {
+        const { rows } = question.validation;
+        const isGridRequired = question.validation.required === true;
+        const expectedRows = rows ?? [];
+        const hasAnyResponse =
+          response.responses && Object.keys(response.responses).length > 0;
+        if (isGridRequired && hasAnyResponse) {
+          for (const row of expectedRows) {
+            const rowTouched =
+              response.responses != null && row.id in response.responses;
+            const value = response.responses?.[row.id];
+            if (!rowTouched || (typeof value === "string" && value === "")) {
+              errors.push(
+                `Response ${i + 1}: Row ${row.id} requires a selection for question ${response.question_id}`,
+              );
+            }
+          }
+        }
+      }
+
       if (response.question_type === "checkbox_grid") {
         const { minSelectionsPerRow, maxSelectionsPerRow, rows } =
           question.validation;
@@ -376,6 +416,12 @@ export function validateResponseData(
             // ("Grid responses are required ...") has already been added above.
             // Avoid adding one error per row in that case.
             if (isGridRequired && !hasAnyResponse) continue;
+            if (isGridRequired && count === 0 && minSelectionsPerRow == null) {
+              errors.push(
+                `Response ${i + 1}: Row ${row.id} requires a selection for question ${response.question_id}`,
+              );
+              continue;
+            }
             if (minSelectionsPerRow != null && count < minSelectionsPerRow) {
               errors.push(
                 `Response ${i + 1}: Row ${row.id} requires at least ${minSelectionsPerRow} selection(s) for question ${response.question_id}`,

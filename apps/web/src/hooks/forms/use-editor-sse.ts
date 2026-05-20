@@ -7,6 +7,8 @@ import { baseUrl } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
+const INITIAL_SSE_RECONNECT_DELAY_MS = 1_000;
+const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
 
 type EditorSSEOptions = {
   /** イベント受信時のコールバック（useQuery を使わないコンポーネント向け） */
@@ -52,15 +54,33 @@ export function useEditorSSE(
 
     const url = `${baseUrl}/api/forms/${formId}/editor/events`;
     let eventSource: EventSource | null = null;
-    let stoppedAfterErrors = false;
+    let reconnectTimer: number | null = null;
+    let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
 
-    const closeEventSource = () => {
+    const closeEventSource = (): void => {
       eventSource?.close();
       eventSource = null;
     };
+    const clearReconnectTimer = (): void => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+    const scheduleReconnect = (): void => {
+      if (document.hidden || reconnectTimer !== null) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, reconnectDelayMs);
+      reconnectDelayMs = Math.min(
+        reconnectDelayMs * 2,
+        MAX_SSE_RECONNECT_DELAY_MS,
+      );
+    };
 
-    const connect = () => {
-      if (document.hidden || eventSource !== null || stoppedAfterErrors) return;
+    const connect = (): void => {
+      if (document.hidden || eventSource !== null) return;
 
       const source = new EventSource(url, { withCredentials: true });
       eventSource = source;
@@ -68,6 +88,7 @@ export function useEditorSSE(
 
       source.addEventListener("open", () => {
         consecutiveErrors = 0;
+        reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
       });
 
       source.addEventListener("error", () => {
@@ -75,12 +96,12 @@ export function useEditorSSE(
         const reachedErrorLimit =
           consecutiveErrors >= MAX_CONSECUTIVE_SSE_ERRORS;
         if (source.readyState === EventSource.CLOSED || reachedErrorLimit) {
-          stoppedAfterErrors = reachedErrorLimit;
           if (eventSource === source) {
             closeEventSource();
           } else {
             source.close();
           }
+          scheduleReconnect();
         }
       });
 
@@ -144,11 +165,13 @@ export function useEditorSSE(
       });
     };
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = (): void => {
       if (document.hidden) {
+        clearReconnectTimer();
         closeEventSource();
         return;
       }
+      reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
       void queryClient.invalidateQueries({
         queryKey: ["formContent", formId],
       });
@@ -163,6 +186,7 @@ export function useEditorSSE(
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearReconnectTimer();
       closeEventSource();
     };
   }, [formId, queryClient]);
