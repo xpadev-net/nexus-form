@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useShareLinks } from "@/hooks/forms/use-share-links";
+import { formatJapanDate } from "@/lib/formatters";
 
 interface ShareLinkManagerProps {
   formId: string;
@@ -116,8 +117,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
                 </Badge>
                 {link.expires_at ? (
                   <span className="text-xs text-muted-foreground">
-                    期限:{" "}
-                    {new Date(link.expires_at).toLocaleDateString("ja-JP")}
+                    期限: {formatJapanDate(link.expires_at)}
                   </span>
                 ) : null}
               </div>

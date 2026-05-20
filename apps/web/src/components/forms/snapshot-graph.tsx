@@ -2,6 +2,7 @@ import { Globe, RotateCcw, Upload } from "lucide-react";
 import { type FC, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatJapanShortDateTime } from "@/lib/formatters";
 
 // ── Layout constants ────────────────────────────────────────────────
 
@@ -279,12 +280,7 @@ export const SnapshotGraph: FC<SnapshotGraphProps> = ({
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(snap.publishedAt).toLocaleString("ja-JP", {
-                      month: "numeric",
-                      day: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
+                    {formatJapanShortDateTime(snap.publishedAt)}
                   </p>
                 </div>
               </button>
