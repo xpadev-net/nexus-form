@@ -142,7 +142,6 @@ vi.mock("drizzle-orm", () => ({
   desc: vi.fn((field) => ({ op: "desc", field })),
   eq: vi.fn((left, right) => ({ op: "eq", left, right })),
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
-  like: vi.fn((left, right) => ({ op: "like", left, right })),
   lt: vi.fn((left, right) => ({ op: "lt", left, right })),
   ne: vi.fn((left, right) => ({ op: "ne", left, right })),
   or: vi.fn((...conditions) => ({ op: "or", conditions })),
@@ -277,7 +276,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       )
       .mockReturnValueOnce(countQuery(1));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
-    const { like, sql } = await import("drizzle-orm");
+    const { sql } = await import("drizzle-orm");
 
     const res = await formsResponsesRouter.request(
       "/form-1/responses?page=2&limit=5&keyword=alpha",
@@ -295,10 +294,13 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         expect.arrayContaining([expect.stringMatching(/instr|lower/i)]),
       ]),
     );
-    expect(vi.mocked(like).mock.calls).toEqual([
-      ["formResponse.id", "alpha%"],
-      ["formResponse.respondentUuid", "alpha%"],
-      ["formResponse.countryCode", "ALPHA%"],
+    const prefixLikeCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => String(call[0]).includes(" like "));
+    expect(prefixLikeCalls).toEqual([
+      [expect.anything(), "formResponse.id", "alpha%", "!"],
+      [expect.anything(), "formResponse.respondentUuid", "alpha%", "!"],
+      [expect.anything(), "formResponse.countryCode", "ALPHA%", "!"],
     ]);
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(5);
@@ -323,17 +325,20 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       )
       .mockReturnValueOnce(countQuery(1));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
-    const { like } = await import("drizzle-orm");
+    const { sql } = await import("drizzle-orm");
 
     const res = await formsResponsesRouter.request(
       "/form-1/responses?keyword=a%5C_%25",
     );
 
     expect(res.status).toBe(200);
-    expect(vi.mocked(like).mock.calls).toEqual([
-      ["formResponse.id", "a\\\\\\_\\%%"],
-      ["formResponse.respondentUuid", "a\\\\\\_\\%%"],
-      ["formResponse.countryCode", "A\\\\\\_\\%%"],
+    const prefixLikeCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => String(call[0]).includes(" like "));
+    expect(prefixLikeCalls).toEqual([
+      [expect.anything(), "formResponse.id", "a\\!_!%%", "!"],
+      [expect.anything(), "formResponse.respondentUuid", "a\\!_!%%", "!"],
+      [expect.anything(), "formResponse.countryCode", "A\\!_!%%", "!"],
     ]);
   });
 

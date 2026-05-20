@@ -24,7 +24,6 @@ import {
   desc,
   eq,
   inArray,
-  like,
   lt,
   ne,
   or,
@@ -74,6 +73,7 @@ const MAX_SESSION_ID_LENGTH = 128;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
+const LIKE_ESCAPE_CHAR = "!";
 
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -105,7 +105,7 @@ const bulkRetrySchema = z.object({
 });
 
 function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+  return value.replace(/[!%_]/g, (char) => `${LIKE_ESCAPE_CHAR}${char}`);
 }
 
 function buildPrefixSearchPattern(keyword: string): string {
@@ -438,9 +438,9 @@ export const formsResponsesRouter = createHonoApp()
         return and(
           eq(formResponse.formId, formId),
           or(
-            like(formResponse.id, keywordPattern),
-            like(formResponse.respondentUuid, keywordPattern),
-            like(formResponse.countryCode, countryCodePattern),
+            sql`${formResponse.id} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+            sql`${formResponse.respondentUuid} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+            sql`${formResponse.countryCode} like ${countryCodePattern} escape ${LIKE_ESCAPE_CHAR}`,
           ),
         );
       })();
