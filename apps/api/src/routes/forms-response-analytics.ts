@@ -6,11 +6,8 @@ import {
   formResponse,
 } from "@nexus-form/database/schema";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
-import { and, count, countDistinct, desc, eq, lt, or, sql } from "drizzle-orm";
-import {
-  paginationMetadata,
-  paginationQuerySchema,
-} from "../lib/constants/pagination";
+import { and, count, desc, eq, lt, or, sql } from "drizzle-orm";
+import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
 import { createHonoApp } from "../lib/hono";
@@ -68,30 +65,25 @@ export const formsResponseAnalyticsRouter = createHonoApp()
       const { page, pageSize } = c.req.valid("query");
       const offset = (page - 1) * pageSize;
       const responseDate = sql<string>`date(${formResponse.submittedAt})`;
-      const [timeline, totalResult] = await Promise.all([
-        db
-          .select({
-            date: responseDate,
-            count: count(),
-          })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId))
-          .groupBy(responseDate)
-          .orderBy(sql`${responseDate} desc`)
-          .offset(offset)
-          .limit(pageSize),
-        db
-          .select({
-            count: countDistinct(responseDate),
-          })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId)),
-      ]);
-      const total = totalResult[0]?.count ?? 0;
+      const rows = await db
+        .select({
+          date: responseDate,
+          count: count(),
+        })
+        .from(formResponse)
+        .where(eq(formResponse.formId, formId))
+        .groupBy(responseDate)
+        .orderBy(sql`${responseDate} desc`)
+        .offset(offset)
+        .limit(pageSize + 1);
       return c.json(
         ResponseAnalyticsResponseSchema.parse({
-          timeline,
-          pagination: paginationMetadata(page, pageSize, total),
+          timeline: rows.slice(0, pageSize),
+          pagination: {
+            page,
+            pageSize,
+            hasNext: rows.length > pageSize,
+          },
         }),
       );
     },

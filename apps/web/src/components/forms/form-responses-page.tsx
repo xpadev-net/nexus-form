@@ -56,7 +56,8 @@ export function FormResponsesContent({ formId }: { formId: string }) {
   });
 
   const data = responsesQuery.data;
-  const totalPages = data ? Math.max(1, Math.ceil(data.total / limit)) : 1;
+  const hasCurrentPageData = data?.page === page;
+  const hasNextPage = hasCurrentPageData ? data.hasNext : false;
 
   const handleSelectResponse = useCallback((responseId: string) => {
     setSelectedResponseId(responseId);
@@ -80,9 +81,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
     <div className="space-y-4">
       {/* ツールバー */}
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
-          全 {data?.total ?? 0} 件
-        </p>
+        <p className="text-sm text-muted-foreground">回答一覧</p>
         <div className="flex items-center gap-2">
           <ResponseExport formId={formId} />
           <fieldset className="flex rounded-md border">
@@ -219,10 +218,10 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                 )}
 
                 {/* ページネーション */}
-                {totalPages > 1 && (
+                {(page > 1 || hasNextPage) && (
                   <div className="mt-4 flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
-                      ページ {page} / {totalPages}
+                      ページ {page}
                     </p>
                     <div className="flex gap-1">
                       <Button
@@ -237,7 +236,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                         variant="outline"
                         size="sm"
                         onClick={() => handlePageChange(page + 1)}
-                        disabled={page >= totalPages}
+                        disabled={!hasCurrentPageData || !hasNextPage}
                       >
                         次へ
                       </Button>

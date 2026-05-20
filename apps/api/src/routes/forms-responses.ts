@@ -16,12 +16,9 @@ import {
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import {
-  paginationMetadata,
-  paginationQuerySchema,
-} from "../lib/constants/pagination";
+import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import { validateResponseData } from "../lib/forms/response-validator";
@@ -428,40 +425,38 @@ export const formsResponsesRouter = createHonoApp()
         );
       })();
 
-      const [responses, totalResult] = await Promise.all([
-        db
-          .select({
-            id: formResponse.id,
-            formId: formResponse.formId,
-            submittedAt: formResponse.submittedAt,
-            updatedAt: formResponse.updatedAt,
-            respondentUuid: formResponse.respondentUuid,
-            userAgent: formResponse.userAgent,
-            sessionId: formResponse.sessionId,
-            countryCode: formResponse.countryCode,
-          })
-          .from(formResponse)
-          .where(whereCondition)
-          .orderBy(
-            sortOrder === "asc"
-              ? sortField === "updatedAt"
-                ? sql`${formResponse.updatedAt} asc`
-                : sql`${formResponse.submittedAt} asc`
-              : sortField === "updatedAt"
-                ? sql`${formResponse.updatedAt} desc`
-                : sql`${formResponse.submittedAt} desc`,
-          )
-          .offset(offset)
-          .limit(query.limit),
-        db.select({ count: count() }).from(formResponse).where(whereCondition),
-      ]);
+      const rows = await db
+        .select({
+          id: formResponse.id,
+          formId: formResponse.formId,
+          submittedAt: formResponse.submittedAt,
+          updatedAt: formResponse.updatedAt,
+          respondentUuid: formResponse.respondentUuid,
+          userAgent: formResponse.userAgent,
+          sessionId: formResponse.sessionId,
+          countryCode: formResponse.countryCode,
+        })
+        .from(formResponse)
+        .where(whereCondition)
+        .orderBy(
+          sortOrder === "asc"
+            ? sortField === "updatedAt"
+              ? sql`${formResponse.updatedAt} asc`
+              : sql`${formResponse.submittedAt} asc`
+            : sortField === "updatedAt"
+              ? sql`${formResponse.updatedAt} desc`
+              : sql`${formResponse.submittedAt} desc`,
+        )
+        .offset(offset)
+        .limit(query.limit + 1);
+      const responses = rows.slice(0, query.limit);
 
       return c.json(
         ResponsesListResponseSchema.parse({
           responses,
-          total: totalResult[0]?.count ?? 0,
           page: query.page,
           limit: query.limit,
+          hasNext: rows.length > query.limit,
         }),
       );
     },
@@ -543,24 +538,22 @@ export const formsResponsesRouter = createHonoApp()
       const formId = c.req.param("id");
       const { page, pageSize } = c.req.valid("query");
       const offset = (page - 1) * pageSize;
-      const [rows, totalResult] = await Promise.all([
-        db
-          .select({ id: formResponse.id })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId))
-          .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
-          .offset(offset)
-          .limit(pageSize),
-        db
-          .select({ count: count() })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId)),
-      ]);
-      const total = totalResult[0]?.count ?? 0;
+      const rows = await db
+        .select({ id: formResponse.id })
+        .from(formResponse)
+        .where(eq(formResponse.formId, formId))
+        .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+        .offset(offset)
+        .limit(pageSize + 1);
+      const responseIds = rows.slice(0, pageSize).map((row) => row.id);
       return c.json(
         ResponseIdsResponseSchema.parse({
-          responseIds: rows.map((row) => row.id),
-          pagination: paginationMetadata(page, pageSize, total),
+          responseIds,
+          pagination: {
+            page,
+            pageSize,
+            hasNext: rows.length > pageSize,
+          },
         }),
       );
     },
