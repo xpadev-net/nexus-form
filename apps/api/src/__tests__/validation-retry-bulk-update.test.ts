@@ -201,31 +201,40 @@ describe("R6-M9: validation retry bulk updates", () => {
       [firstJobId, secondJobId],
     );
     expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["when ", " then ", ""],
+      ["when ", " = ", " then ", ""],
+      "externalServiceValidationResult.id",
       "result-1",
       firstJobId,
     );
     expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["when ", " then ", ""],
+      ["when ", " = ", " then ", ""],
+      "externalServiceValidationResult.id",
       "result-2",
       secondJobId,
     );
     expect(mocks.sqlMock.join).toHaveBeenCalledWith(
       [
         expect.objectContaining({
-          strings: ["when ", " then ", ""],
-          values: ["result-1", firstJobId],
+          strings: ["when ", " = ", " then ", ""],
+          values: [
+            "externalServiceValidationResult.id",
+            "result-1",
+            firstJobId,
+          ],
         }),
         expect.objectContaining({
-          strings: ["when ", " then ", ""],
-          values: ["result-2", secondJobId],
+          strings: ["when ", " = ", " then ", ""],
+          values: [
+            "externalServiceValidationResult.id",
+            "result-2",
+            secondJobId,
+          ],
         }),
       ],
       expect.objectContaining({ strings: [" "] }),
     );
     expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["case ", " ", " else ", " end"],
-      "externalServiceValidationResult.id",
+      ["case ", " else ", " end"],
       expect.objectContaining({ kind: "sql-join" }),
       "externalServiceValidationResult.jobId",
     );

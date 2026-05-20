@@ -396,11 +396,12 @@ function buildRetryJobIdCase(
   updates: ReadonlyArray<{ resultId: string; jobId: string }>,
 ): SQL<string | null> {
   const cases = updates.map(
-    ({ resultId, jobId }) => sql`when ${resultId} then ${jobId}`,
+    ({ resultId, jobId }) =>
+      sql`when ${externalServiceValidationResult.id} = ${resultId} then ${jobId}`,
   );
   return sql<
     string | null
-  >`case ${externalServiceValidationResult.id} ${sql.join(cases, sql` `)} else ${externalServiceValidationResult.jobId} end`;
+  >`case ${sql.join(cases, sql` `)} else ${externalServiceValidationResult.jobId} end`;
 }
 
 async function markValidationRetriesPending(
