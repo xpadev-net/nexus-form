@@ -27,9 +27,7 @@ import {
   errorResponse,
 } from "../types/domain/common";
 
-const DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
 const DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
-const MAX_PRESIGNED_UPLOAD_EXPIRES_IN = 60 * 60;
 const MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN = 60 * 60;
 
 export const ForbiddenResponseSchema = ErrorResponseSchema;
@@ -257,19 +255,11 @@ function hasS3AdminAccess(auth: DualAuthContext): boolean {
   return hasApiTokenScopes(auth, ["admin"]) && !isSyntheticTokenPrincipal(auth);
 }
 
-function clampPresignedExpiresIn(
-  requested: number | undefined,
-  type: "upload" | "download",
-): number {
-  const max =
-    type === "upload"
-      ? MAX_PRESIGNED_UPLOAD_EXPIRES_IN
-      : MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN;
-  const defaultValue =
-    type === "upload"
-      ? DEFAULT_PRESIGNED_UPLOAD_EXPIRES_IN
-      : DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN;
-  return Math.min(requested ?? defaultValue, max);
+function clampPresignedExpiresIn(requested: number | undefined): number {
+  return Math.min(
+    requested ?? DEFAULT_PRESIGNED_DOWNLOAD_EXPIRES_IN,
+    MAX_PRESIGNED_DOWNLOAD_EXPIRES_IN,
+  );
 }
 
 function forbiddenResponse(
@@ -306,10 +296,13 @@ export const s3Router = createHonoApp()
 
       const query = c.req.valid("query");
       const type = query.type ?? "download";
-      const hasRequiredAccess =
-        type === "upload"
-          ? hasS3WriteAccess(auth)
-          : hasApiTokenScopes(auth, ["read"]);
+      if (type === "upload") {
+        return c.json(
+          errorResponse("Use /api/s3/presigned-upload for uploads"),
+          400,
+        );
+      }
+      const hasRequiredAccess = hasApiTokenScopes(auth, ["read"]);
       if (!hasRequiredAccess) {
         return c.json(forbiddenResponse(), 403);
       }
@@ -328,12 +321,13 @@ export const s3Router = createHonoApp()
         throw error;
       }
 
-      const expiresIn = clampPresignedExpiresIn(query.expiresIn, type);
+      const expiresIn = clampPresignedExpiresIn(query.expiresIn);
 
-      const data =
-        type === "upload"
-          ? await s3Service.generateUploadUrl(query.key, bucket, expiresIn)
-          : await s3Service.generateDownloadUrl(query.key, bucket, expiresIn);
+      const data = await s3Service.generateDownloadUrl(
+        query.key,
+        bucket,
+        expiresIn,
+      );
 
       return c.json(PresignedUrlResponseSchema.parse({ success: true, data }));
     },

@@ -444,7 +444,7 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(200);
   });
 
-  it("rejects read tokens for upload presigned URLs", async () => {
+  it("rejects generic upload presigned URLs for read tokens", async () => {
     apiTokenFor(["read"]);
     const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
 
@@ -455,7 +455,11 @@ describe("R5-H1: S3 API token scopes", () => {
       },
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
+    expect(s3ImageService.generateUploadUrl).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Use /api/s3/presigned-upload for uploads",
+    });
   });
 
   it("clamps download presigned URL expiration for read tokens", async () => {
@@ -480,7 +484,7 @@ describe("R5-H1: S3 API token scopes", () => {
     });
   });
 
-  it("clamps upload presigned URL expiration for write tokens", async () => {
+  it("rejects generic upload presigned URLs for write tokens", async () => {
     apiTokenFor(["write"]);
     const key = encodeURIComponent(`tmp/users/${USER_A_ID}/file.jpg`);
 
@@ -491,14 +495,28 @@ describe("R5-H1: S3 API token scopes", () => {
       },
     );
 
-    expect(res.status).toBe(200);
-    expect(s3ImageService.generateUploadUrl).toHaveBeenCalledWith(
-      `tmp/users/${USER_A_ID}/file.jpg`,
-      expect.any(String),
-      60 * 60,
-    );
+    expect(res.status).toBe(400);
+    expect(s3ImageService.generateUploadUrl).not.toHaveBeenCalled();
     await expect(res.json()).resolves.toMatchObject({
-      data: { expiresIn: 60 * 60 },
+      error: "Use /api/s3/presigned-upload for uploads",
+    });
+  });
+
+  it("rejects generic upload presigned URLs for direct prod bucket PUTs", async () => {
+    apiTokenFor(["write"]);
+    const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
+
+    const res = await app.request(
+      `/api/s3/presigned-url?type=upload&bucket=prod&key=${key}`,
+      {
+        headers: { authorization: "Bearer ct_write" },
+      },
+    );
+
+    expect(res.status).toBe(400);
+    expect(s3ImageService.generateUploadUrl).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Use /api/s3/presigned-upload for uploads",
     });
   });
 
@@ -559,7 +577,7 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(403);
   });
 
-  it("rejects share-link write tokens for upload presigned URLs", async () => {
+  it("rejects generic upload presigned URLs for share-link write tokens", async () => {
     apiTokenForPrincipal("share-link:link-id", ["write"]);
     const key = encodeURIComponent("tmp/users/share-link:link-id/file.jpg");
 
@@ -570,7 +588,11 @@ describe("R5-H1: S3 API token scopes", () => {
       },
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
+    expect(s3ImageService.generateUploadUrl).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Use /api/s3/presigned-upload for uploads",
+    });
   });
 
   it("rejects tokens carrying a share link id even with a user namespace", async () => {
