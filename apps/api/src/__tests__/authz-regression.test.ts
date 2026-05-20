@@ -14,6 +14,7 @@ vi.mock("@nexus-form/database", () => ({
   db: {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue([]),
     for: vi.fn().mockReturnThis(),
@@ -44,6 +45,12 @@ vi.mock("@nexus-form/database/schema", () => ({
   fingerprintDetail: {},
   formInvitation: {},
   formStructure: {},
+  formSchedule: {
+    id: "formSchedule.id",
+    formId: "formSchedule.formId",
+    processedAt: "formSchedule.processedAt",
+    triggerAt: "formSchedule.triggerAt",
+  },
   formIntegration: {},
   externalServiceValidationResult: {},
 }));
@@ -122,6 +129,7 @@ vi.mock("drizzle-orm", () => ({
   isNull: vi.fn(),
   inArray: vi.fn(),
   lt: vi.fn(),
+  lte: vi.fn(),
 }));
 
 const FORM_ID = "form-authz-regression";
@@ -138,16 +146,23 @@ function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
     return Promise.resolve(result);
   };
   db.select.mockImplementation(() => ({
-    from: vi.fn().mockReturnValue({
-      where: vi.fn().mockReturnValue({
-        limit: vi.fn().mockImplementation(nextResult),
-        for: vi.fn().mockReturnValue({
+    from: vi.fn(() => {
+      const whereChain = {
+        where: vi.fn().mockReturnValue({
           limit: vi.fn().mockImplementation(nextResult),
+          for: vi.fn().mockReturnValue({
+            limit: vi.fn().mockImplementation(nextResult),
+          }),
+          orderBy: vi.fn().mockReturnValue({
+            limit: vi.fn().mockImplementation(nextResult),
+          }),
         }),
-        orderBy: vi.fn().mockReturnValue({
-          limit: vi.fn().mockImplementation(nextResult),
-        }),
-      }),
+      };
+      const chain = {
+        leftJoin: vi.fn(() => whereChain),
+        ...whereChain,
+      };
+      return chain;
     }),
   }));
 }
@@ -510,6 +525,83 @@ describe("R3-H3: hCaptcha is verified before public submit work", () => {
     expect(getLatestSnapshot).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
     transactionSpy.mockRestore();
+  });
+});
+
+// ── R6-M8: Public form schedule fast path ───────────────────────────────────
+
+describe("R6-M8: public form requests skip schedule processing without due work", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("does not call processFormSchedule for public GET when no due schedule is joined", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Published form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: "[]",
+          dueScheduleId: null,
+        },
+      ],
+      [
+        {
+          structureJson: JSON.stringify({
+            settings: { allow_edit_responses: false },
+          }),
+          version: 1,
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(200);
+    expect(processFormSchedule).not.toHaveBeenCalled();
+  });
+
+  it("calls processFormSchedule for public GET when a due schedule is joined", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    vi.mocked(processFormSchedule).mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "UNPUBLISHED",
+      message: "Form automatically unpublished based on schedule",
+    });
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Published form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: "[]",
+          dueScheduleId: "schedule-1",
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(404);
+    expect(processFormSchedule).toHaveBeenCalledOnce();
   });
 });
 
