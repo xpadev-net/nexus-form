@@ -472,6 +472,17 @@ function aggregateGrid(
   totalResponseCount: number,
 ): GridAnalytics {
   const gridDefinitionResult = GridDefinitionSchema.safeParse(block.validation);
+  if (!gridDefinitionResult.success) {
+    logWarn(
+      "Invalid grid analytics definition; using empty rows/columns",
+      "api",
+      {
+        blockId: block.blockId,
+        blockType: block.type,
+        issues: gridDefinitionResult.error.issues,
+      },
+    );
+  }
   const { rows, columns }: { rows: GridRowDef[]; columns: GridColumnDef[] } =
     gridDefinitionResult.success
       ? gridDefinitionResult.data
