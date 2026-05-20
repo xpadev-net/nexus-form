@@ -81,6 +81,20 @@ export const auth = betterAuth({
     // Changing this value on a running deployment will invalidate all active
     // user sessions, as session cookies are prefixed with this value.
     cookiePrefix: brandConfig.cookiePrefix,
+    cookies: {
+      session_token: {
+        attributes: { sameSite: "strict" },
+      },
+      session_data: {
+        attributes: { sameSite: "strict" },
+      },
+      account_data: {
+        attributes: { sameSite: "strict" },
+      },
+      dont_remember: {
+        attributes: { sameSite: "strict" },
+      },
+    },
   },
   secret: getAuthSecret(),
   databaseHooks: {
