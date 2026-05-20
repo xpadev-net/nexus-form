@@ -155,6 +155,27 @@ describe("SSE recovery hooks", () => {
     act(() => root.unmount());
   });
 
+  it("reconnects validation SSE immediately when the source reports closed", () => {
+    const { root } = renderWithClient(<ValidationHarness />);
+    const source = eventSourceAt(0);
+
+    act(() => {
+      source.readyState = MockEventSource.CLOSED;
+      source.emit("error");
+    });
+
+    expect(source.closed).toBe(true);
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    act(() => root.unmount());
+  });
+
   it("stops editor SSE reconnect timers while hidden and reconnects on visibility restore", () => {
     const { client, root } = renderWithClient(<EditorHarness />);
     const invalidateQueriesSpy = vi.spyOn(client, "invalidateQueries");

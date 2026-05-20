@@ -373,7 +373,7 @@ export function validateResponseData(
             const rowTouched =
               response.responses != null && row.id in response.responses;
             const value = response.responses?.[row.id];
-            if (!rowTouched || typeof value !== "string" || value === "") {
+            if (!rowTouched || (typeof value === "string" && value === "")) {
               errors.push(
                 `Response ${i + 1}: Row ${row.id} requires a selection for question ${response.question_id}`,
               );

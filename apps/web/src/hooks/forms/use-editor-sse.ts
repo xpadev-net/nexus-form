@@ -57,17 +57,17 @@ export function useEditorSSE(
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
 
-    const closeEventSource = () => {
+    const closeEventSource = (): void => {
       eventSource?.close();
       eventSource = null;
     };
-    const clearReconnectTimer = () => {
+    const clearReconnectTimer = (): void => {
       if (reconnectTimer !== null) {
         window.clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
     };
-    const scheduleReconnect = () => {
+    const scheduleReconnect = (): void => {
       if (document.hidden || reconnectTimer !== null) return;
       reconnectTimer = window.setTimeout(() => {
         reconnectTimer = null;
@@ -79,7 +79,7 @@ export function useEditorSSE(
       );
     };
 
-    const connect = () => {
+    const connect = (): void => {
       if (document.hidden || eventSource !== null) return;
 
       const source = new EventSource(url, { withCredentials: true });
@@ -89,7 +89,6 @@ export function useEditorSSE(
       source.addEventListener("open", () => {
         consecutiveErrors = 0;
         reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
-        clearReconnectTimer();
       });
 
       source.addEventListener("error", () => {
@@ -166,7 +165,7 @@ export function useEditorSSE(
       });
     };
 
-    const handleVisibilityChange = () => {
+    const handleVisibilityChange = (): void => {
       if (document.hidden) {
         clearReconnectTimer();
         closeEventSource();
