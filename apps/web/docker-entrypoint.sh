@@ -1,7 +1,7 @@
 #!/bin/sh
 set -e
-# Generate /env-config.js from VITE_BRAND_* environment variables at container
-# startup so the SPA can pick up runtime configuration without rebuilding.
+# Generate /env-config.js from VITE_* environment variables at container startup
+# so the SPA can pick up runtime configuration without rebuilding.
 
 # Helper: JSON-encode a string value (escape backslashes, double-quotes, and
 # control characters). Falls back to a simple sed pipeline when jq is absent.
@@ -16,6 +16,10 @@ json_encode() {
 }
 
 cat <<EOF > /usr/share/nginx/html/env-config.js
+window.__NEXUS_FORM_CONFIG__ = {
+  apiUrl: $(json_encode "${VITE_API_URL:-}"),
+  hcaptchaSiteKey: $(json_encode "${VITE_HCAPTCHA_SITE_KEY:-}"),
+};
 window.__BRAND_CONFIG__ = {
   appName: $(json_encode "${VITE_BRAND_APP_NAME:-}"),
   primaryColor: $(json_encode "${VITE_BRAND_PRIMARY_COLOR:-}"),

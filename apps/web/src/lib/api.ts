@@ -1,7 +1,12 @@
 import type { AppType } from "@nexus-form/api";
 import { hc } from "hono/client";
+import { getRuntimeConfigValue } from "./runtime-config";
 
-export const baseUrl = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+export const baseUrl = getRuntimeConfigValue(
+  "apiUrl",
+  import.meta.env.VITE_API_URL,
+  "http://localhost:3001",
+);
 
 /**
  * Returns an absolute API URL, preserving absolute inputs and normalizing

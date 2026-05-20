@@ -87,16 +87,15 @@ docker push your-registry/nexus-form-worker:latest
 
 ##### VITE_*環境変数について
 
-`VITE_*`で始まる環境変数は、Viteビルド時にフロントエンドのJavaScriptに埋め込まれます。
+`VITE_*`で始まる環境変数は、Web コンテナ起動時に `/env-config.js`
+へ書き出され、フロントエンドが runtime config として読み込みます。
 
 **主なVITE_*環境変数**:
 - `VITE_HCAPTCHA_SITE_KEY`: hCaptchaのサイトキー（公開キー）。hCaptchaウィジェットを使用する場合は必須です。
-- `VITE_BASE_URL`: アプリケーションのベースURL（例: `https://example.com`）
-- `VITE_API_URL`: APIサーバーのURL（例: `http://api:3001`）
-- `VITE_TELEMETRY_V4_HOST`: IPv4テレメトリーホスト（例: `ipv4.example.com`）
-- `VITE_TELEMETRY_V6_HOST`: IPv6テレメトリーホスト（例: `ipv6.example.com`）
+- `VITE_API_URL`: ブラウザから到達可能な公開API URL（例: `https://api.example.com`、同一オリジンでリバースプロキシする場合は `https://example.com`）
 
 **注意**: `VITE_HCAPTCHA_SITE_KEY`が設定されていない場合、hCaptchaウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
+`VITE_API_URL`には `http://api:3001` のような Kubernetes ClusterIP Service の内部DNS名を設定しないでください。Web コンテナ内ではなく、エンドユーザーのブラウザで使用されます。
 
 #### Secretの編集
 
@@ -112,7 +111,7 @@ openssl rand -base64 32
 
 **機密情報として管理すべき項目**:
 - データベース: `DATABASE_URL` - MySQL接続文字列（パスワードを含む）
-- 認証関連: `AUTH_SECRET`, `CSRF_SECRET`, `SESSION_ALIAS_SALT`, `SESSION_IP_SALT`, `GOOGLE_OAUTH_ENC_KEY`
+- 認証関連: `AUTH_SECRET`, `CSRF_SECRET`, `SESSION_ALIAS_SALT`, `SESSION_IP_SALT`, `GOOGLE_OAUTH_ENC_KEY`, `SIGNUP_INVITATION_CODE`
 - hCaptcha: `HCAPTCHA_SECRET_KEY` - hCaptcha検証用のシークレットキー（必須、hCaptchaを使用する場合）
 - Discord: `DISCORD_BOT_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 - GitHub: `GITHUB_PRIVATE_KEY`, `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`
