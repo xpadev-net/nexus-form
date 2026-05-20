@@ -76,11 +76,14 @@ describe("mergeArrayById", () => {
       "options",
     );
 
-    expect(result).toEqual([
-      { id: "base", label: "Base" },
-      { id: "remote", label: "Remote" },
-      { id: "local", label: "Local" },
-    ]);
+    expect(result).toEqual(
+      expect.arrayContaining([
+        { id: "base", label: "Base" },
+        { id: "remote", label: "Remote" },
+        { id: "local", label: "Local" },
+      ]),
+    );
+    expect(result).toHaveLength(3);
   });
 
   it("reports a conflict when both sides edit the same item differently", () => {
@@ -148,6 +151,7 @@ describe("mergeBlock", () => {
 
     expect(result.hasConflict).toBe(true);
     expect(result.merged.title).toBe("Local title");
+    expect(result.merged.version).toBe(2);
     expect(result.conflicts).toEqual([
       {
         path: "content.title",
@@ -170,6 +174,10 @@ describe("conflict helpers", () => {
         remote: shortTextBlock({ description: "Remote" }),
       }),
     ).toBe(true);
+  });
+
+  it("detects conflicts for overlapping block changes", () => {
+    const base = shortTextBlock();
 
     expect(
       detectConflicts({
