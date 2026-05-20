@@ -177,8 +177,7 @@ export function getGitHubErrorCode(error: unknown): GitHubErrorCode {
     const name = getStringProperty(error, "name");
     const code = getStringProperty(error, "code");
     const errno = getStringOrNumberProperty(error, "errno");
-    if (name === "AbortError" || name === "TimeoutError")
-      return GitHubErrorCode.TIMEOUT;
+    if (name === "TimeoutError") return GitHubErrorCode.TIMEOUT;
     if (RETRYABLE_NETWORK_ERROR_CODES.has(code ?? ""))
       return GitHubErrorCode.NETWORK_ERROR;
     if (code === "ETIMEDOUT" || errno === "ETIMEDOUT")

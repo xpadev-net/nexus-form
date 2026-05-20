@@ -4,7 +4,6 @@ import {
   GitHubApiClient,
   getGitHubClient,
 } from "../client";
-import { GITHUB_CONFIG_DEFAULTS } from "../config";
 
 const { createAppAuthMock, octokitConstructorMock } = vi.hoisted(() => ({
   createAppAuthMock: vi.fn(),
@@ -35,7 +34,6 @@ describe("GitHubApiClient timeout configuration", () => {
 
     expect(octokitConstructorMock).toHaveBeenCalledWith({
       request: {
-        timeout: GITHUB_CONFIG_DEFAULTS.API_TIMEOUT,
         fetch: expect.any(Function),
       },
     });
@@ -48,7 +46,6 @@ describe("GitHubApiClient timeout configuration", () => {
 
     expect(octokitConstructorMock).toHaveBeenCalledWith({
       request: {
-        timeout: 2500,
         fetch: expect.any(Function),
       },
     });
@@ -65,7 +62,6 @@ describe("GitHubApiClient timeout configuration", () => {
         installationId: "456",
       },
       request: {
-        timeout: 3000,
         fetch: expect.any(Function),
       },
     });

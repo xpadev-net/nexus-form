@@ -64,7 +64,6 @@ export class GitHubApiClient {
 
     const normalizedKey = privateKey?.replace(/\\n/g, "\n");
     const request = {
-      timeout: apiTimeoutMs,
       fetch: createGitHubTimeoutFetch(apiTimeoutMs),
     };
 
