@@ -126,13 +126,15 @@ describe("google-sheets-client", () => {
           sheets: [{ properties: { sheetId: 123, title: "Sheet 1" } }],
         }),
       )
-      .mockResolvedValueOnce(createJsonResponse({ replies: [] }))
+      .mockResolvedValueOnce(createJsonResponse({ spreadsheetId, replies: [] }))
       .mockResolvedValueOnce(
         createJsonResponse({
           sheets: [{ properties: { sheetId: 123, title: "Sheet 1" } }],
         }),
       )
-      .mockResolvedValueOnce(createJsonResponse({ replies: [] }));
+      .mockResolvedValueOnce(
+        createJsonResponse({ spreadsheetId, replies: [] }),
+      );
 
     await insertColumnAtStart(token, spreadsheetId, "Sheet 1");
     await insertRowsAtStart(token, spreadsheetId, "Sheet 1", 2);
@@ -143,5 +145,71 @@ describe("google-sheets-client", () => {
     expect(getRequestedUrl(fetchMock, 3)).toBe(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodedSpreadsheetId}:batchUpdate`,
     );
+  });
+
+  it("rejects invalid updateRange responses", async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse({ updatedRange: 123 }));
+
+    const result = await updateRange(token, {
+      spreadsheetId,
+      rangeA1: "Sheet 1!A1:B1",
+      values: [["a", "b"]],
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("internal");
+      expect(result.error.message).toContain("response validation failed");
+    }
+  });
+
+  it("rejects invalid spreadsheet metadata responses", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({ sheets: [{ properties: { title: "Sheet 1" } }] }),
+    );
+
+    const result = await getSpreadsheetMetadata(token, spreadsheetId);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("internal");
+      expect(result.error.message).toContain("response validation failed");
+    }
+  });
+
+  it("rejects invalid batch update responses", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sheets: [{ properties: { sheetId: 123, title: "Sheet 1" } }],
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse({ replies: [] }));
+
+    const result = await insertColumnAtStart(token, spreadsheetId, "Sheet 1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("internal");
+      expect(result.error.message).toContain("response validation failed");
+    }
+  });
+
+  it("rejects invalid batch update responses for insertRowsAtStart", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sheets: [{ properties: { sheetId: 123, title: "Sheet 1" } }],
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse({ replies: [] }));
+
+    const result = await insertRowsAtStart(token, spreadsheetId, "Sheet 1", 2);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("internal");
+      expect(result.error.message).toContain("response validation failed");
+    }
   });
 });

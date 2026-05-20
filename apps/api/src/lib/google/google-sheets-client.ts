@@ -4,10 +4,15 @@ import {
   AppendRowsGoogleApiResponseSchema,
   type AppendRowsInput,
   type AppendRowsOutput,
+  BatchUpdateResponseSchema,
   ReadRangeGoogleApiResponseSchema,
   type ReadRangeInput,
   type ReadRangeOutput,
   type Result,
+  SpreadsheetMetadataGoogleResponseSchema,
+  UpdateRangeGoogleApiResponseSchema,
+  type UpdateRangeInput,
+  type UpdateRangeOutput,
 } from "./sheets-drive.types";
 
 async function fetchGoogleSheetsAPI<T = unknown>(opts: {
@@ -160,8 +165,8 @@ export async function readRange(
 // update values for a given A1 range
 export async function updateRange(
   token: OAuthToken,
-  params: import("./sheets-drive.types").UpdateRangeInput,
-): Promise<Result<import("./sheets-drive.types").UpdateRangeOutput>> {
+  params: UpdateRangeInput,
+): Promise<Result<UpdateRangeOutput>> {
   const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(
     params.rangeA1,
   )}?valueInputOption=RAW`;
@@ -172,14 +177,23 @@ export async function updateRange(
       method: "PUT",
       body: { values: params.values },
     });
-    // Google returns updates in a slightly different shape; be permissive
-    const rawObj = raw as unknown as Record<string, unknown>;
-    const updatedRange =
-      (rawObj.updatedRange as string | undefined) || params.rangeA1;
-    const updatedRows =
-      (rawObj.updatedRows as number | undefined) ??
-      ((rawObj.updatedCells as number | undefined) ? 1 : undefined);
-    return { ok: true, data: { updatedRange, updatedRows } };
+    const parsed = UpdateRangeGoogleApiResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: {
+          code: "internal",
+          message: `Google Sheets updateRange response validation failed: ${JSON.stringify(parsed.error.issues)}`,
+        },
+      };
+    }
+    return {
+      ok: true,
+      data: {
+        updatedRange: parsed.data.updatedRange ?? params.rangeA1,
+        updatedRows: parsed.data.updatedRows,
+      },
+    };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     const errObj: Partial<GoogleApiError> & {
@@ -218,11 +232,19 @@ export async function getSpreadsheetMetadata(
       endpoint,
       method: "GET",
     });
+    const parsed = SpreadsheetMetadataGoogleResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: {
+          code: "internal",
+          message: `Google Sheets metadata response validation failed: ${JSON.stringify(parsed.error.issues)}`,
+        },
+      };
+    }
     return {
       ok: true,
-      data: raw as unknown as {
-        sheets: Array<{ properties: { sheetId: number; title: string } }>;
-      },
+      data: parsed.data,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -288,9 +310,19 @@ export async function insertColumnAtStart(
       method: "POST",
       body,
     });
+    const parsed = BatchUpdateResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: {
+          code: "internal",
+          message: `Google Sheets insertColumnAtStart response validation failed: ${JSON.stringify(parsed.error.issues)}`,
+        },
+      };
+    }
     return {
       ok: true,
-      data: raw as unknown as import("./sheets-drive.types").BatchUpdateResponse,
+      data: parsed.data,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -356,9 +388,19 @@ export async function insertRowsAtStart(
       method: "POST",
       body,
     });
+    const parsed = BatchUpdateResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: {
+          code: "internal",
+          message: `Google Sheets insertRowsAtStart response validation failed: ${JSON.stringify(parsed.error.issues)}`,
+        },
+      };
+    }
     return {
       ok: true,
-      data: raw as unknown as import("./sheets-drive.types").BatchUpdateResponse,
+      data: parsed.data,
     };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
