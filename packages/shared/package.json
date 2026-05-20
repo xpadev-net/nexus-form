@@ -18,6 +18,10 @@
       "types": "./src/plate-content-utils.ts",
       "import": "./dist/plate-content-utils.js"
     },
+    "./forms/form-block": {
+      "types": "./src/forms/form-block.ts",
+      "import": "./dist/forms/form-block.js"
+    },
     "./branding": {
       "types": "./src/branding.ts",
       "import": "./dist/branding.js"
