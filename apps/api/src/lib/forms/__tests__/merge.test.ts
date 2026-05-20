@@ -140,6 +140,7 @@ describe("mergeBlock", () => {
       order: 2,
       version: 3,
     });
+    expect(result.merged.updatedAt).toBeInstanceOf(Date);
   });
 
   it("keeps local content and reports conflicts for overlapping edits", () => {
@@ -152,6 +153,7 @@ describe("mergeBlock", () => {
     expect(result.hasConflict).toBe(true);
     expect(result.merged.title).toBe("Local title");
     expect(result.merged.version).toBe(2);
+    expect(result.merged.updatedAt).toBeInstanceOf(Date);
     expect(result.conflicts).toEqual([
       {
         path: "content.title",

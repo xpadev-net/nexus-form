@@ -96,6 +96,7 @@ describe("validateShareLink", () => {
         token: "share-token",
         role: "VIEWER",
         is_active: true,
+        expires_at: undefined,
         created_at: "2026-01-01T00:00:00.000Z",
         updated_at: "2026-01-02T00:00:00.000Z",
         created_by: "user-1",
