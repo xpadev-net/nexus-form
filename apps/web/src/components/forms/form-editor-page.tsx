@@ -297,7 +297,12 @@ export function FormEditorPage() {
                 <FormPublishMenu
                   formId={id}
                   formStatus={formStatus}
-                  onStatusChange={() => void formQuery.refetch()}
+                  onStatusChange={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["formDetail", id],
+                    });
+                    void queryClient.invalidateQueries({ queryKey: ["forms"] });
+                  }}
                   onResetSuccess={() => void contentQuery.refetch()}
                 />
               )}
