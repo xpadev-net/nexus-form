@@ -215,6 +215,14 @@ describe("getValidationContext", () => {
       getValidationContext("response-1", "rule-1", "question-1"),
     ).rejects.toBeInstanceOf(ReferencedBlockMissingError);
   });
+
+  it("throws when the response row is missing", async () => {
+    selectLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      getValidationContext("missing-response", "rule-1", "question-1"),
+    ).rejects.toThrow("Form response not found: missing-response");
+  });
 });
 
 describe("writeValidationResult", () => {
