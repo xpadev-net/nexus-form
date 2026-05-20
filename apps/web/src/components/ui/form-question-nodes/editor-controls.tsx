@@ -449,22 +449,20 @@ export function ShortTextPatternEditor() {
       }
     | undefined;
 
-  const [patternError, setPatternError] = useState<string | undefined>();
   const NONE_SENTINEL = "__none__";
   const templateId = validation?.patternTemplate || NONE_SENTINEL;
   const isCustom = templateId === CUSTOM_TEMPLATE_ID;
   const mismatchId = `allow-pattern-mismatch-${element.id}`;
 
-  useEffect(() => {
+  const patternError = useMemo(() => {
     if (!isCustom || !validation?.pattern) {
-      setPatternError(undefined);
-      return;
+      return undefined;
     }
     try {
       new RegExp(validation.pattern);
-      setPatternError(undefined);
+      return undefined;
     } catch {
-      setPatternError("正規表現の構文が正しくありません");
+      return "正規表現の構文が正しくありません";
     }
   }, [isCustom, validation?.pattern]);
 

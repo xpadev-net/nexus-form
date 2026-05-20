@@ -2,7 +2,7 @@
  * フィンガープリント収集コンポーネント
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useReducer, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,47 @@ interface FingerprintStats {
   totalComponents: number;
   averageConfidence: number;
 }
+
+interface CollectionState {
+  hasCollected: boolean;
+  progress: number;
+  stage: string;
+}
+
+type CollectionAction =
+  | { type: "start" }
+  | { type: "progress" }
+  | { type: "complete" }
+  | { type: "error" }
+  | { type: "clear" };
+
+const collectionReducer = (
+  state: CollectionState,
+  action: CollectionAction,
+): CollectionState => {
+  switch (action.type) {
+    case "start":
+      return { hasCollected: false, progress: 0, stage: "初期化中..." };
+    case "progress": {
+      if (state.progress >= 90) return state;
+      const nextProgress = state.progress + 10;
+      return {
+        ...state,
+        progress: nextProgress,
+        stage:
+          state.progress < 30
+            ? "ブラウザ情報収集中..."
+            : "フィンガープリント生成中...",
+      };
+    }
+    case "complete":
+      return { hasCollected: true, progress: 100, stage: "完了" };
+    case "error":
+      return { ...state, stage: "エラー" };
+    case "clear":
+      return { hasCollected: false, progress: 0, stage: "" };
+  }
+};
 
 interface CollectionResultSectionProps {
   hasCollected: boolean;
@@ -256,9 +297,11 @@ export function FingerprintCollector({
   showPrivacyNotice = true,
 }: FingerprintCollectorProps) {
   const [isConsented, setIsConsented] = useState(false);
-  const [hasCollected, setHasCollected] = useState(false);
-  const [collectionProgress, setCollectionProgress] = useState(0);
-  const [collectionStage, setCollectionStage] = useState<string>("");
+  const [collectionState, dispatchCollection] = useReducer(collectionReducer, {
+    hasCollected: false,
+    progress: 0,
+    stage: "",
+  });
 
   const {
     fingerprint,
@@ -269,50 +312,6 @@ export function FingerprintCollector({
     clear,
     saveMutation,
   } = useFingerprint();
-
-  // 収集完了時のコールバックと状態更新
-  const prevFingerprintRef = useRef(fingerprint);
-  useEffect(() => {
-    if (fingerprint && fingerprint !== prevFingerprintRef.current) {
-      setHasCollected(true);
-      setCollectionProgress(100);
-      setCollectionStage("完了");
-      onCollected?.(fingerprint.fingerprintType, components.length);
-    }
-    prevFingerprintRef.current = fingerprint;
-  }, [fingerprint, components.length, onCollected]);
-
-  // 収集エラー時の状態更新
-  useEffect(() => {
-    if (error) {
-      logError("Fingerprint collection failed:", "ui", { error });
-      setCollectionStage("エラー");
-    }
-  }, [error]);
-
-  // プログレッシブローディングのシミュレーション
-  useEffect(() => {
-    if (isLoading) {
-      setCollectionProgress(0);
-      setCollectionStage("初期化中...");
-
-      const progressInterval = window.setInterval(() => {
-        setCollectionProgress((prev) => {
-          if (prev < 90) {
-            setCollectionStage(
-              prev < 30
-                ? "ブラウザ情報収集中..."
-                : "フィンガープリント生成中...",
-            );
-            return prev + 10;
-          }
-          return prev;
-        });
-      }, 200);
-
-      return () => window.clearInterval(progressInterval);
-    }
-  }, [isLoading]);
 
   // 既存のフィンガープリント管理
   const { query: manageQuery, deleteMutation } = useFingerprintManage(
@@ -331,7 +330,23 @@ export function FingerprintCollector({
       return;
     }
 
-    await collect();
+    dispatchCollection({ type: "start" });
+    const progressInterval = window.setInterval(() => {
+      dispatchCollection({ type: "progress" });
+    }, 200);
+
+    try {
+      const collected = await collect();
+      dispatchCollection({ type: "complete" });
+      onCollected?.(collected.fingerprintType, collected.components.length);
+    } catch (collectError) {
+      logError("Fingerprint collection failed:", "ui", {
+        error: collectError,
+      });
+      dispatchCollection({ type: "error" });
+    } finally {
+      window.clearInterval(progressInterval);
+    }
   };
 
   const handleSave = async () => {
@@ -348,7 +363,7 @@ export function FingerprintCollector({
 
   const handleClear = () => {
     clear();
-    setHasCollected(false);
+    dispatchCollection({ type: "clear" });
   };
 
   const handleDeleteFingerprint = async () => {
@@ -429,18 +444,18 @@ export function FingerprintCollector({
                 <FingerprintErrors activeError={activeError} />
                 <FingerprintProgress
                   isLoading={isLoading}
-                  collectionStage={collectionStage}
-                  collectionProgress={collectionProgress}
+                  collectionStage={collectionState.stage}
+                  collectionProgress={collectionState.progress}
                 />
                 <CollectButtons
                   isConsented={isConsented}
                   isLoading={isLoading}
-                  hasCollected={hasCollected}
+                  hasCollected={collectionState.hasCollected}
                   onCollect={handleCollect}
                   onClear={handleClear}
                 />
                 <CollectionResultSection
-                  hasCollected={hasCollected}
+                  hasCollected={collectionState.hasCollected}
                   fingerprint={fingerprint}
                   components={components}
                   stats={stats}
@@ -488,18 +503,18 @@ export function FingerprintCollector({
             <FingerprintErrors activeError={activeError} />
             <FingerprintProgress
               isLoading={isLoading}
-              collectionStage={collectionStage}
-              collectionProgress={collectionProgress}
+              collectionStage={collectionState.stage}
+              collectionProgress={collectionState.progress}
             />
             <CollectButtons
               isConsented={isConsented}
               isLoading={isLoading}
-              hasCollected={hasCollected}
+              hasCollected={collectionState.hasCollected}
               onCollect={handleCollect}
               onClear={handleClear}
             />
             <CollectionResultSection
-              hasCollected={hasCollected}
+              hasCollected={collectionState.hasCollected}
               fingerprint={fingerprint}
               components={components}
               stats={stats}
