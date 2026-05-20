@@ -27,6 +27,10 @@ import { createHonoApp } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
 import { isoDate } from "../types/domain/iso-date";
+import {
+  formVersionDiffQuerySchema,
+  routePaginationSchema,
+} from "./form-route-schemas";
 
 const SnapshotListItemResponseSchema = z.object({
   id: z.string(),
@@ -49,18 +53,6 @@ const SnapshotLatestResponseSchema = z.object({
 export type SnapshotLatestResponse = z.infer<
   typeof SnapshotLatestResponseSchema
 >;
-
-const routePaginationSchema = z.object({
-  page: z.number().int().min(1),
-  pageSize: z.number().int().min(1),
-  total: z.number().int().nonnegative(),
-  totalPages: z.number().int().nonnegative(),
-});
-
-const diffQuerySchema = z.object({
-  fromVersion: z.coerce.number().int().min(1),
-  toVersion: z.coerce.number().int().min(1),
-});
 
 const SnapshotListResponseSchema = z.object({
   snapshots: z.array(SnapshotListItemResponseSchema),
@@ -195,7 +187,7 @@ export const formsSnapshotsRouter = createHonoApp()
 
   .get(
     "/:id/snapshots/diff",
-    zValidator("query", diffQuerySchema),
+    zValidator("query", formVersionDiffQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
       const { fromVersion, toVersion } = c.req.valid("query");

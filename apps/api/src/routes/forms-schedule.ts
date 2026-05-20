@@ -11,6 +11,7 @@ import {
 import { withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
 import { isoDate } from "../types/domain/iso-date";
+import { routePaginationSchema } from "./form-route-schemas";
 
 const futureDatetime = z
   .string()
@@ -45,13 +46,6 @@ const scheduleUpdateSchema = z
       (data.snapshotVersion !== null && data.snapshotVersion !== undefined),
     { message: "snapshotVersion is required for SWITCH_SNAPSHOT action" },
   );
-
-const routePaginationSchema = z.object({
-  page: z.number().int().min(1),
-  pageSize: z.number().int().min(1),
-  total: z.number().int().nonnegative(),
-  totalPages: z.number().int().nonnegative(),
-});
 
 const FormScheduleResponseSchema = z.object({
   id: z.string(),

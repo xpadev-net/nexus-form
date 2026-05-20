@@ -18,6 +18,7 @@ import {
 } from "../types/domain/form";
 import { isoDate } from "../types/domain/iso-date";
 import { StoredLogicRuleSchema } from "../types/validation/form";
+import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
 const structureUpdateSchema = z.object({
   structure: FormStructure,
@@ -29,11 +30,6 @@ const historyQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   sortBy: z.enum(["version", "createdAt"]).optional(),
   sortOrder: z.enum(["asc", "desc"]).optional(),
-});
-
-const diffQuerySchema = z.object({
-  fromVersion: z.coerce.number().int().min(1),
-  toVersion: z.coerce.number().int().min(1),
 });
 
 const restoreSchema = z.object({
@@ -275,7 +271,7 @@ export const formsStructureRouter = createHonoApp()
   )
   .get(
     "/:id/structure/diff",
-    zValidator("query", diffQuerySchema),
+    zValidator("query", formVersionDiffQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
       const query = c.req.valid("query");
