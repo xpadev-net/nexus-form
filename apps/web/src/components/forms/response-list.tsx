@@ -1,5 +1,6 @@
 import { Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatJapanLocaleDateTime } from "@/lib/formatters";
 import { ResponseStatusBadge } from "./response-status-badge";
 
 interface ResponseListItem {
@@ -38,7 +39,7 @@ export function ResponseList({ items, onSelect }: ResponseListProps) {
               <span className="truncate text-sm">{item.summary}</span>
               {item.submittedAt ? (
                 <span className="text-xs text-muted-foreground">
-                  {new Date(item.submittedAt).toLocaleString("ja-JP")}
+                  {formatJapanLocaleDateTime(item.submittedAt)}
                 </span>
               ) : null}
             </div>

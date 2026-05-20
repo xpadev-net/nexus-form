@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/select";
 import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { client, rpc } from "@/lib/api";
+import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 interface ScheduleEntry {
   id: string;
@@ -432,7 +433,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
               )}
               <span className="min-w-0 flex-1 font-mono text-xs">
-                {new Date(entry.triggerAt).toLocaleString("ja-JP")}
+                {formatJapanLocaleDateTime(entry.triggerAt)}
               </span>
               <Badge variant={ACTION_BADGE_VARIANTS[entry.action]}>
                 {ACTION_LABELS[entry.action]}

@@ -1,5 +1,6 @@
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { formatJapanLocaleDateTime } from "@/lib/formatters";
 import type { ExternalServiceValidationResult } from "@/types/domain/validation";
 
 interface ValidationResultDisplayProps {
@@ -86,7 +87,7 @@ export function ValidationResultDisplay({
             {validation.last_attempt_at && (
               <p className="text-muted-foreground">
                 確認日時:{" "}
-                {new Date(validation.last_attempt_at).toLocaleString("ja-JP")}
+                {formatJapanLocaleDateTime(validation.last_attempt_at)}
               </p>
             )}
           </div>

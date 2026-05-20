@@ -16,6 +16,7 @@ import { useSnapshotContent } from "@/hooks/forms/use-snapshot-content";
 import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
+import { formatJapanDate } from "@/lib/formatters";
 import { FormBody } from "./form-body";
 
 export function FormPreviewPage() {
@@ -129,8 +130,7 @@ export function FormPreviewPage() {
                   <SelectItem value="latest">最新の編集版</SelectItem>
                   {snapshots.map((s) => (
                     <SelectItem key={s.version} value={String(s.version)}>
-                      v{s.version} -{" "}
-                      {new Date(s.publishedAt).toLocaleDateString("ja-JP")}
+                      v{s.version} - {formatJapanDate(s.publishedAt)}
                       {s.isActive ? " (公開中)" : ""}
                     </SelectItem>
                   ))}

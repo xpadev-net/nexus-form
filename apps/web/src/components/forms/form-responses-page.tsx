@@ -8,6 +8,7 @@ import { ResponseFilter } from "@/components/forms/response-filter";
 import { Button } from "@/components/ui/button";
 import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
+import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ViewMode = "list" | "analytics";
 
@@ -193,16 +194,12 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                             </span>
                             <span className="text-xs text-muted-foreground">
                               提出:{" "}
-                              {new Date(response.submittedAt).toLocaleString(
-                                "ja-JP",
-                              )}
+                              {formatJapanLocaleDateTime(response.submittedAt)}
                             </span>
                             {response.updatedAt && (
                               <span className="text-xs text-muted-foreground">
                                 更新:{" "}
-                                {new Date(response.updatedAt).toLocaleString(
-                                  "ja-JP",
-                                )}
+                                {formatJapanLocaleDateTime(response.updatedAt)}
                               </span>
                             )}
                           </div>
