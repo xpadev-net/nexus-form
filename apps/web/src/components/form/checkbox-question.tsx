@@ -4,8 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useCheckboxValidation } from "@/hooks/forms/useCheckboxValidation";
-import { useOtherOption } from "@/hooks/forms/useOtherOption";
+import { useCheckboxValidation } from "@/hooks/forms/use-checkbox-validation";
+import { useOtherOption } from "@/hooks/forms/use-other-option";
 import { cn } from "@/lib/utils";
 import type { Block, CheckboxFormBlock } from "@/types/domain/form-block";
 

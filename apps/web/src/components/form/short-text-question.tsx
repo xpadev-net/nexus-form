@@ -9,7 +9,7 @@ import type { z } from "zod";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useShortTextValidation } from "@/hooks/forms/useShortTextValidation";
+import { useShortTextValidation } from "@/hooks/forms/use-short-text-validation";
 import { getShortTextPlaceholder } from "@/lib/forms/short-text-placeholder";
 import { cn } from "@/lib/utils";
 import {

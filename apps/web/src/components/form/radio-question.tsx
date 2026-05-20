@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useOtherOption } from "@/hooks/forms/useOtherOption";
+import { useOtherOption } from "@/hooks/forms/use-other-option";
 import { cn } from "@/lib/utils";
 import type { Block, RadioFormBlock } from "@/types/domain/form-block";
 
