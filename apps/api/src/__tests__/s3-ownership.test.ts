@@ -511,6 +511,9 @@ describe("R5-H1: S3 API token scopes", () => {
 
     expect(res.status).toBe(400);
     expect(s3ImageService.generateUploadUrl).not.toHaveBeenCalled();
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Use /api/s3/presigned-upload for uploads",
+    });
   });
 
   it("rejects read tokens for presigned uploads", async () => {
