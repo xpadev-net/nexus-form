@@ -172,7 +172,6 @@ function Draggable(props: PlateElementProps) {
         className={cn(
           "-left-0 absolute w-full",
           !(isAboutToDrag || isDragging) && "hidden",
-          !isAboutToDrag && "opacity-0",
         )}
         style={{ top: `${-previewTop}px` }}
         contentEditable={false}
