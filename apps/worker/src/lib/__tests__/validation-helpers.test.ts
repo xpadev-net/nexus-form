@@ -13,12 +13,20 @@ const {
   insertValues,
   onDuplicateKeyUpdate,
   publishValidationEvent,
+  selectForUpdate,
+  selectFrom,
+  selectLimit,
+  selectWhere,
   updateSet,
   updateWhere,
 } = vi.hoisted(() => ({
   insertValues: vi.fn(),
   onDuplicateKeyUpdate: vi.fn(),
   publishValidationEvent: vi.fn(),
+  selectForUpdate: vi.fn(),
+  selectFrom: vi.fn(),
+  selectLimit: vi.fn(),
+  selectWhere: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
 }));
@@ -28,10 +36,22 @@ vi.mock("@nexus-form/database", () => ({
     insert: vi.fn(() => ({
       values: insertValues,
     })),
-    select: vi.fn(),
+    select: vi.fn(() => ({
+      from: selectFrom,
+    })),
     update: vi.fn(() => ({
       set: updateSet,
     })),
+    transaction: vi.fn(async (callback) =>
+      callback({
+        insert: vi.fn(() => ({
+          values: insertValues,
+        })),
+        select: vi.fn(() => ({
+          from: selectFrom,
+        })),
+      }),
+    ),
   },
   externalServiceValidationResult: {
     id: "id",
@@ -39,6 +59,8 @@ vi.mock("@nexus-form/database", () => ({
     ruleId: "ruleId",
     referencedBlockId: "referencedBlockId",
     attemptCount: "attemptCount",
+    errorCode: "errorCode",
+    status: "status",
   },
   formResponse: {
     id: "id",
@@ -60,14 +82,23 @@ vi.mock("../redis-publisher", () => ({
 beforeEach(() => {
   insertValues.mockReturnValue({ onDuplicateKeyUpdate });
   onDuplicateKeyUpdate.mockResolvedValue([{ affectedRows: 1 }]);
+  selectFrom.mockReturnValue({ where: selectWhere });
+  selectWhere.mockReturnValue({ limit: selectLimit, for: selectForUpdate });
+  selectLimit.mockResolvedValue([]);
+  selectForUpdate.mockResolvedValue([]);
   updateSet.mockReturnValue({ where: updateWhere });
   updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
   publishValidationEvent.mockResolvedValue(undefined);
   vi.mocked(db.select).mockClear();
   vi.mocked(db.insert).mockClear();
   vi.mocked(db.update).mockClear();
+  vi.mocked(db.transaction).mockClear();
   insertValues.mockClear();
   onDuplicateKeyUpdate.mockClear();
+  selectForUpdate.mockClear();
+  selectFrom.mockClear();
+  selectWhere.mockClear();
+  selectLimit.mockClear();
   updateSet.mockClear();
   updateWhere.mockClear();
   publishValidationEvent.mockClear();
@@ -101,7 +132,7 @@ describe("getValidationResultId", () => {
 });
 
 describe("writeValidationResult", () => {
-  it("returns the deterministic result id without selecting after upsert", async () => {
+  it("returns the deterministic result id after locked upsert", async () => {
     const params = {
       responseId: "response-1",
       formId: "form-1",
@@ -117,7 +148,8 @@ describe("writeValidationResult", () => {
     const resultId = await writeValidationResult(params);
 
     expect(resultId).toBe(expectedId);
-    expect(db.select).not.toHaveBeenCalled();
+    expect(db.transaction).toHaveBeenCalled();
+    expect(selectForUpdate).toHaveBeenCalled();
     expect(insertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         id: expectedId,
@@ -141,6 +173,50 @@ describe("writeValidationResult", () => {
         referencedBlockId: params.referencedBlockId,
         status: "COMPLETED",
       }),
+    );
+  });
+
+  it("does not overwrite a validation result cancelled by the user", async () => {
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "FAILED", errorCode: "CANCELLED_BY_USER" },
+    ]);
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      jobId: "job-1",
+    };
+    const expectedId = getValidationResultId(params);
+
+    const resultId = await writeValidationResult(params);
+
+    expect(resultId).toBe(expectedId);
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("can overwrite a non-cancelled failed validation result for retry completion", async () => {
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "FAILED", errorCode: "VALIDATION_ERROR" },
+    ]);
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      jobId: "job-1",
+    };
+
+    await writeValidationResult(params);
+
+    expect(insertValues).toHaveBeenCalled();
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "COMPLETED" }),
     );
   });
 });
@@ -186,6 +262,36 @@ describe("markValidationProcessing", () => {
         service: "discord",
       }),
     ).rejects.toBeInstanceOf(ConcurrentDeleteError);
+  });
+
+  it("throws before publishing when a cancelled row is excluded from PROCESSING", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+      }),
+    ).rejects.toBeInstanceOf(ConcurrentDeleteError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("keeps non-cancelled failed rows eligible for retry processing", async () => {
+    await markValidationProcessing({
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+    });
+
+    expect(updateWhere).toHaveBeenCalled();
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
+    );
   });
 });
 
