@@ -56,6 +56,38 @@ export type ReadRangeGoogleApiResponse = z.infer<
   typeof ReadRangeGoogleApiResponseSchema
 >;
 
+export const UpdateRangeGoogleApiResponseSchema = z.object({
+  spreadsheetId: z.string().optional(),
+  updatedRange: z.string(),
+  updatedRows: z.number().optional(),
+  updatedColumns: z.number().optional(),
+  updatedCells: z.number().optional(),
+  updatedData: z
+    .object({
+      range: z.string(),
+      majorDimension: z.enum(["ROWS", "COLUMNS"]),
+      values: z.array(z.array(z.string())),
+    })
+    .optional(),
+});
+export type UpdateRangeGoogleApiResponse = z.infer<
+  typeof UpdateRangeGoogleApiResponseSchema
+>;
+
+export const SpreadsheetMetadataGoogleResponseSchema = z.object({
+  sheets: z.array(
+    z.object({
+      properties: z.object({
+        sheetId: z.number(),
+        title: z.string(),
+      }),
+    }),
+  ),
+});
+export type SpreadsheetMetadataGoogleResponse = z.infer<
+  typeof SpreadsheetMetadataGoogleResponseSchema
+>;
+
 // AppendRowsInput/Output/ReadRangeInput/Output????
 export const AppendRowsInputSchema = z.object({
   spreadsheetId: z.string().min(1),
@@ -195,7 +227,7 @@ export type UpdateRangeOutput = z.infer<typeof UpdateRangeOutputSchema>;
 
 // BatchUpdate minimal response shape (we only need to know it succeeded)
 export const BatchUpdateResponseSchema = z.object({
-  spreadsheetId: z.string().optional(),
+  spreadsheetId: z.string(),
   replies: z.array(z.unknown()).optional(),
 });
 export type BatchUpdateResponse = z.infer<typeof BatchUpdateResponseSchema>;
