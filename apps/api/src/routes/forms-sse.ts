@@ -292,13 +292,21 @@ function createSSEStream(c: Context<Env>, channel: string, formId: string) {
   const auth = c.get("dualAuthContext");
   if (!auth) return c.text("SSE auth context unavailable", 500);
 
-  const permit = sseConnectionLimiter.tryAcquire({
-    userId: auth.user_id,
-    formId,
-  });
-  if ("status" in permit) return c.text(permit.message, permit.status);
-
   return streamSSE(c, async (stream) => {
+    const permit = sseConnectionLimiter.tryAcquire({
+      userId: auth.user_id,
+      formId,
+    });
+    if ("status" in permit) {
+      await stream
+        .writeSSE({
+          event: "error",
+          data: permit.message,
+        })
+        .catch(() => {});
+      return;
+    }
+
     let detachClient: (() => Promise<void>) | null = null;
     let cleanupPromise: Promise<void> | null = null;
     let closeRequested = false;
