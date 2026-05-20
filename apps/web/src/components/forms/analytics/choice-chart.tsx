@@ -33,6 +33,59 @@ const chartConfig = {
   },
 } as const;
 
+interface PieTooltipPayload {
+  name: string;
+  value: number;
+  percentage: number;
+}
+
+interface PieTooltipContentProps {
+  active?: boolean;
+  payload?: Array<{
+    payload: PieTooltipPayload;
+  }>;
+}
+
+const PieTooltipContent: FC<PieTooltipContentProps> = (props) => {
+  const { active, payload } = props;
+
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const firstPayload = payload[0];
+  if (!firstPayload) return null;
+  const data = firstPayload.payload;
+
+  return (
+    <ChartTooltipContent
+      {...props}
+      formatter={(value: unknown, name: unknown) => {
+        const numValue = typeof value === "number" ? value : 0;
+        const nameStr = typeof name === "string" ? name : "value";
+        return [
+          <div key="tooltip-content" className="space-y-1">
+            <div className="font-medium">{data.name}</div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">回答数:</span>
+              <span className="font-mono font-medium">
+                {numValue.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted-foreground">割合:</span>
+              <span className="font-mono font-medium">
+                {data.percentage.toFixed(1)}%
+              </span>
+            </div>
+          </div>,
+          nameStr,
+        ];
+      }}
+    />
+  );
+};
+
 export const PieChartDisplay: FC<PieChartDisplayProps> = ({
   data,
   blockTitle,
@@ -63,56 +116,6 @@ export const PieChartDisplay: FC<PieChartDisplayProps> = ({
     percentage: option.percentage,
     fill: labelToCssColor(option.label),
   }));
-
-  // カスタムツールチップの内容
-  const CustomTooltipContent = (props: {
-    active?: boolean;
-    payload?: Array<{
-      payload: {
-        name: string;
-        value: number;
-        percentage: number;
-      };
-    }>;
-  }) => {
-    const { active, payload } = props;
-
-    if (!active || !payload || payload.length === 0) {
-      return null;
-    }
-
-    const firstPayload = payload[0];
-    if (!firstPayload) return null;
-    const data = firstPayload.payload;
-
-    return (
-      <ChartTooltipContent
-        {...props}
-        formatter={(value: unknown, name: unknown) => {
-          const numValue = typeof value === "number" ? value : 0;
-          const nameStr = typeof name === "string" ? name : "value";
-          return [
-            <div key="tooltip-content" className="space-y-1">
-              <div className="font-medium">{data.name}</div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">回答数:</span>
-                <span className="font-mono font-medium">
-                  {numValue.toLocaleString()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-muted-foreground">割合:</span>
-                <span className="font-mono font-medium">
-                  {data.percentage.toFixed(1)}%
-                </span>
-              </div>
-            </div>,
-            nameStr,
-          ];
-        }}
-      />
-    );
-  };
 
   return (
     <div className="space-y-4">
@@ -145,7 +148,7 @@ export const PieChartDisplay: FC<PieChartDisplayProps> = ({
               <Cell key={entry.name} fill={entry.fill} />
             ))}
           </Pie>
-          <ChartTooltip content={<CustomTooltipContent />} />
+          <ChartTooltip content={<PieTooltipContent />} />
         </PieChart>
       </ChartContainer>
 
