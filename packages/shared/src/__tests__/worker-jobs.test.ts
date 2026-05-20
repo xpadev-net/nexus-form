@@ -33,4 +33,20 @@ describe("worker job schemas", () => {
       }),
     ).toThrow();
   });
+
+  it("accepts a sheets sync job with a submitted snapshot version", () => {
+    expect(
+      sheetsSyncJobDataSchema.parse({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+        snapshotVersion: 3,
+      }),
+    ).toEqual({
+      formId: "form-1",
+      integrationId: "integration-1",
+      responseId: "response-1",
+      snapshotVersion: 3,
+    });
+  });
 });

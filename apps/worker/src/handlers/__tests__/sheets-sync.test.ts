@@ -9,6 +9,7 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   form: {},
+  formSnapshot: {},
 }));
 
 vi.mock("@nexus-form/shared", async (importOriginal) => {
@@ -20,6 +21,7 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
 });
 
 vi.mock("drizzle-orm", () => ({
+  and: vi.fn(),
   eq: vi.fn(),
 }));
 
@@ -45,6 +47,7 @@ vi.mock("../../lib/response-data-extractor", () => ({
 }));
 
 import { db } from "@nexus-form/database";
+import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import {
   appendRows,
   readRange,
@@ -63,6 +66,9 @@ import { safeParseResponseData } from "../../lib/response-data-extractor";
 import { DONE_IDEMPOTENCY_TTL_SECONDS, handleSheetsSync } from "../sheets-sync";
 
 const mockDb = vi.mocked(db);
+const mockExtractQuestionsFromPlateContent = vi.mocked(
+  extractQuestionsFromPlateContent,
+);
 const mockGetIdempotencyKeyValue = vi.mocked(getIdempotencyKeyValue);
 const mockSetIdempotencyKey = vi.mocked(setIdempotencyKey);
 const mockWithRedisLock = vi.mocked(withRedisLock);
@@ -94,7 +100,12 @@ const TOKEN = {
 };
 
 function makeJob(
-  data: { formId: string; integrationId: string; responseId: string } = {
+  data: {
+    formId: string;
+    integrationId: string;
+    responseId: string;
+    snapshotVersion?: number;
+  } = {
     formId: "form-1",
     integrationId: "integration-1",
     responseId: "response-1",
@@ -162,6 +173,7 @@ function getInvocationCallOrder(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockExtractQuestionsFromPlateContent.mockReturnValue([]);
 });
 
 describe("handleSheetsSync — idempotency states", () => {
@@ -405,6 +417,63 @@ describe("handleSheetsSync — write path", () => {
     expect(mockUpdateRange).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({ rangeA1: "Sheet1!1:1" }),
+    );
+  });
+
+  it("uses the submitted snapshot plate content when snapshotVersion is present", async () => {
+    const snapshotPlateContent = JSON.stringify([{ type: "p" }]);
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [{ plateContent: snapshotPlateContent }],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID"]] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockExtractQuestionsFromPlateContent.mockReturnValue([
+      {
+        blockId: "block-1",
+        title: "Submitted Label",
+        type: "short_text",
+        validation: {},
+      },
+    ]);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+        snapshotVersion: 3,
+      }),
+    );
+
+    expect(mockExtractQuestionsFromPlateContent).toHaveBeenCalledWith(
+      JSON.parse(snapshotPlateContent),
+    );
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        values: [["Response ID", "Submitted Label"]],
+      }),
+    );
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "hello"]],
+      }),
     );
   });
 
