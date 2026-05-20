@@ -95,7 +95,9 @@ export function createSseChannelRegistry(
 
     subscription.closingPromise = (async () => {
       subscriptions.delete(channel);
-      for (const entry of subscription.clients.values()) {
+      const clients = Array.from(subscription.clients.values());
+      subscription.clients.clear();
+      for (const entry of clients) {
         entry.client.close();
       }
       await subscription.subscriber.unsubscribe(channel).catch(() => {});
@@ -195,14 +197,15 @@ function createSSEStream(c: Context<Env>, channel: string) {
   return streamSSE(c, async (stream) => {
     activeConnections++;
     let detachClient: (() => Promise<void>) | null = null;
-    let detachStarted = false;
+    let cleanupPromise: Promise<void> | null = null;
     let closeRequested = false;
     let keepalive: ReturnType<typeof setInterval> | null = null;
     let resolveStream: (() => void) | null = null;
-    const cleanupClient = async (): Promise<void> => {
-      if (detachStarted || detachClient === null) return;
-      detachStarted = true;
-      await detachClient?.();
+    const cleanupClient = (): Promise<void> => {
+      if (cleanupPromise) return cleanupPromise;
+      if (detachClient === null) return Promise.resolve();
+      cleanupPromise = detachClient();
+      return cleanupPromise;
     };
     const closeStream = (): void => {
       closeRequested = true;
