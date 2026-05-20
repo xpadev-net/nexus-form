@@ -1,12 +1,16 @@
 // Re-export from shared as the single source of truth
-import { FORM_QUESTION_TYPES } from "@nexus-form/shared";
+import {
+  FORM_QUESTION_TYPES,
+  isPlateQuestionType,
+  type PlateQuestionType,
+} from "@nexus-form/shared";
 
 export { FORM_QUESTION_TYPES };
 
-export type FormQuestionType = (typeof FORM_QUESTION_TYPES)[number];
+export type FormQuestionType = PlateQuestionType;
 
 export function isFormQuestionType(type: string): type is FormQuestionType {
-  return (FORM_QUESTION_TYPES as readonly string[]).includes(type);
+  return isPlateQuestionType(type);
 }
 
 // Base form question node interface (container element with editable children)

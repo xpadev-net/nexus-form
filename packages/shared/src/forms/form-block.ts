@@ -52,8 +52,8 @@ export type FormLogicAction = z.infer<typeof FormLogicActionSchema>;
 export type FormLogicRule = z.infer<typeof FormLogicRuleSchema>;
 
 // ===== Question型定義の移行 =====
-// 質問タイプの列挙型
-export const BlockType = z.enum([
+// 質問タイプの正準リスト
+export const BLOCK_TYPES = [
   "short_text",
   "long_text",
   "radio",
@@ -66,7 +66,44 @@ export const BlockType = z.enum([
   "date",
   "time",
   "section_separator",
-]);
+] as const;
+
+export type BlockTypeValue = (typeof BLOCK_TYPES)[number];
+
+export type PlateQuestionType = `form_${BlockTypeValue}`;
+
+export const FORM_QUESTION_TYPES = BLOCK_TYPES.map(
+  (type) => `form_${type}`,
+) as readonly PlateQuestionType[];
+
+export function isBlockType(type: unknown): type is BlockTypeValue {
+  return (
+    typeof type === "string" &&
+    (BLOCK_TYPES as readonly string[]).includes(type)
+  );
+}
+
+export function isPlateQuestionType(type: unknown): type is PlateQuestionType {
+  return (
+    typeof type === "string" &&
+    (FORM_QUESTION_TYPES as readonly string[]).includes(type)
+  );
+}
+
+export function toPlateQuestionType(type: BlockTypeValue): PlateQuestionType {
+  return `form_${type}`;
+}
+
+export function fromPlateQuestionType(type: PlateQuestionType): BlockTypeValue {
+  const blockType = type.slice("form_".length);
+  if (!isBlockType(blockType)) {
+    throw new Error(`Unsupported Plate question type: ${type}`);
+  }
+  return blockType;
+}
+
+// 質問タイプの列挙型
+export const BlockType = z.enum(BLOCK_TYPES);
 
 export type BlockType = z.infer<typeof BlockType>;
 

@@ -1,4 +1,5 @@
 import { cn, withRef } from "@udecode/cn";
+import { isPlateQuestionType } from "@nexus-form/shared";
 import type { TElement, TText } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
@@ -42,7 +43,9 @@ export const FormQuestionElement = withRef<
   ) => {
     const element = useElement<TElement>();
     const readOnly = useReadOnly();
-    const typeLabel = questionTypeLabels[element.type] ?? element.type;
+    const typeLabel = isPlateQuestionType(element.type)
+      ? questionTypeLabels[element.type]
+      : element.type;
     const validation = element.validation as
       | { required?: boolean }
       | undefined;

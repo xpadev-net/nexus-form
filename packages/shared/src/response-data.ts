@@ -4,21 +4,12 @@
  */
 
 import { z } from "zod";
+import { BLOCK_TYPES } from "./forms/form-block";
 
 /** ユーザー回答を受け付けるバリデーション対象の質問タイプ。 */
-export const ANSWERABLE_QUESTION_TYPES = [
-  "short_text",
-  "long_text",
-  "radio",
-  "checkbox",
-  "dropdown",
-  "linear_scale",
-  "rating",
-  "choice_grid",
-  "checkbox_grid",
-  "date",
-  "time",
-] as const;
+export const ANSWERABLE_QUESTION_TYPES = BLOCK_TYPES.filter(
+  (type) => type !== "section_separator",
+);
 
 /** バリデーション対象の質問タイプのユニオン型。 */
 export type AnswerableQuestionType = (typeof ANSWERABLE_QUESTION_TYPES)[number];

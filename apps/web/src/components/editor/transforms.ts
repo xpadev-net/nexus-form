@@ -1,3 +1,4 @@
+import { fromPlateQuestionType, toPlateQuestionType } from "@nexus-form/shared";
 import { insertCallout } from "@platejs/callout";
 import { insertCodeBlock, toggleCodeBlock } from "@platejs/code-block";
 import { insertDate } from "@platejs/date";
@@ -141,7 +142,8 @@ const setFormBlock = (
 ) => {
   const [node, path] = entry;
   const existingNode = node as Record<string, unknown>;
-  const baseType = type.replace(/^form_/, "");
+  if (!isFormQuestionType(type)) return;
+  const baseType = fromPlateQuestionType(type);
 
   const existingValidation = existingNode.validation as
     | Record<string, unknown>
@@ -265,13 +267,13 @@ export const getBlockType = (block: TElement) => {
 
 // Strip the "form_" prefix to get the base question type for validation
 function toBaseType(questionType: FormQuestionType): string {
-  return questionType.replace(/^form_/, "");
+  return fromPlateQuestionType(questionType);
 }
 
 const CHOICE_QUESTION_TYPES = new Set([
-  "form_radio",
-  "form_checkbox",
-  "form_dropdown",
+  toPlateQuestionType("radio"),
+  toPlateQuestionType("checkbox"),
+  toPlateQuestionType("dropdown"),
 ]);
 
 function makeDefaultOptions() {

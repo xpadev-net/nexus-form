@@ -4,28 +4,13 @@
  */
 
 import type { FormLogicRule } from "./forms/condition-evaluator";
+import {
+  FORM_QUESTION_TYPES,
+  fromPlateQuestionType,
+  isPlateQuestionType,
+} from "./forms/form-block";
 
-export const FORM_QUESTION_TYPES = [
-  "form_short_text",
-  "form_long_text",
-  "form_radio",
-  "form_checkbox",
-  "form_dropdown",
-  "form_linear_scale",
-  "form_rating",
-  "form_choice_grid",
-  "form_checkbox_grid",
-  "form_date",
-  "form_time",
-  "form_section_separator",
-] as const;
-
-function isFormQuestionType(type: unknown): boolean {
-  return (
-    typeof type === "string" &&
-    (FORM_QUESTION_TYPES as readonly string[]).includes(type)
-  );
-}
+export { FORM_QUESTION_TYPES };
 
 export interface ExtractedQuestion {
   blockId: string;
@@ -116,7 +101,7 @@ export function extractQuestionsFromPlateContent(
       if (node == null || typeof node !== "object") continue;
       const el = node as Record<string, unknown>;
 
-      if (isFormQuestionType(el.type)) {
+      if (isPlateQuestionType(el.type)) {
         const blockId = typeof el.blockId === "string" ? el.blockId : "";
         const title = Array.isArray(el.children)
           ? extractTitleFromChildren(el.children as unknown[])
@@ -128,7 +113,7 @@ export function extractQuestionsFromPlateContent(
 
         questions.push({
           blockId,
-          type: (el.type as string).replace(/^form_/, ""),
+          type: fromPlateQuestionType(el.type),
           title,
           validation,
         });
@@ -158,7 +143,7 @@ export function regenerateBlockIds(plateContent: unknown[]): unknown[] {
       // (e.g. validation). Safe because Plate content is pure JSON.
       const el = JSON.parse(JSON.stringify(node)) as Record<string, unknown>;
 
-      if (isFormQuestionType(el.type) && typeof el.blockId === "string") {
+      if (isPlateQuestionType(el.type) && typeof el.blockId === "string") {
         el.blockId = crypto.randomUUID();
       }
 
@@ -327,7 +312,7 @@ export function ensureNodeIds(nodes: unknown[]): unknown[] {
 
     if (typeof el.nodeId === "string" && el.nodeId.length > 0) continue;
 
-    if (isFormQuestionType(el.type) && typeof el.blockId === "string") {
+    if (isPlateQuestionType(el.type) && typeof el.blockId === "string") {
       el.nodeId = el.blockId;
     } else {
       el.nodeId = crypto.randomUUID();

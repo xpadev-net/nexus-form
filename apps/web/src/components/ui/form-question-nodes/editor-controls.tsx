@@ -1,5 +1,7 @@
 import {
   extractTitleFromChildren,
+  fromPlateQuestionType,
+  isPlateQuestionType,
 } from "@nexus-form/shared";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { TElement } from "platejs";
@@ -25,7 +27,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { BlockType } from "@/types/domain/form-block";
 import { getBlockTypeDisplayName } from "@/utils/block-type-converter";
 import { CUSTOM_TEMPLATE_ID } from "@/lib/constants/validation-patterns";
 import {
@@ -879,17 +880,14 @@ function useEditorBlocks(): EditorBlock[] {
       // Stop collecting once we reach the current separator
       if (child.blockId === element.blockId) break;
       const type = child.type as string;
-      if (
-        type.startsWith("form_") &&
-        type !== "form_section_separator"
-      ) {
+      if (isPlateQuestionType(type) && type !== "form_section_separator") {
         const blockId =
           typeof child.blockId === "string" ? child.blockId : "";
-        const strippedType = type.replace(/^form_/, "");
+        const strippedType = fromPlateQuestionType(type);
         const rawTitle = Array.isArray(child.children)
           ? extractTitleFromChildren(child.children as unknown[])
           : "";
-        const displayName = getBlockTypeDisplayName(strippedType as BlockType);
+        const displayName = getBlockTypeDisplayName(strippedType);
         const title =
           rawTitle ||
           (blockId
