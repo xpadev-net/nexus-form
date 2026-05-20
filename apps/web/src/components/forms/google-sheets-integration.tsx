@@ -136,6 +136,7 @@ type SyncMonitorAction =
   | { type: "start"; status: UiSyncState }
   | { type: "update"; status: UiSyncState }
   | { type: "finish"; status: UiSyncState }
+  | { type: "dismiss-status" }
   | { type: "clear" };
 
 const syncMonitorReducer = (
@@ -159,6 +160,11 @@ const syncMonitorReducer = (
         syncStatus: action.status,
         isSyncing: false,
         activeJobId: null,
+      };
+    case "dismiss-status":
+      return {
+        ...state,
+        syncStatus: null,
       };
     case "clear":
       return {
@@ -772,7 +778,9 @@ export function GoogleSheetsIntegration({
             <SyncStatusPanel
               syncStatus={syncStatus}
               isSyncing={isSyncing}
-              onClearSyncStatus={() => dispatchSyncMonitor({ type: "clear" })}
+              onClearSyncStatus={() =>
+                dispatchSyncMonitor({ type: "dismiss-status" })
+              }
             />
           </>
         )}

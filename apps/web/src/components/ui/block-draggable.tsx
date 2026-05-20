@@ -282,7 +282,7 @@ const DragHandle = memo(function DragHandle({
             }
 
             const elements = createDragPreviewElements(editor, blocks);
-            previewRef.current?.append(...elements);
+            previewRef.current?.replaceChildren(...elements);
             previewRef.current?.classList.remove("hidden");
             previewRef.current?.classList.add("opacity-0");
             editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
