@@ -43,7 +43,7 @@ import {
   getValidationQueue,
   isValidServiceName,
 } from "../lib/queues";
-import { createRateLimit } from "../lib/rate-limit";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
 import { verifyHCaptcha } from "../lib/security/hcaptcha";
@@ -75,6 +75,16 @@ const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
+});
+const publicFormGetRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  keyGenerator: (c) => `rate_limit:public_form_get:${getClientIp(c)}`,
+});
+const sharedLinkGetRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  keyGenerator: (c) => `rate_limit:shared_link_get:${getClientIp(c)}`,
 });
 
 const publicSubmitSchema = z.object({
@@ -225,7 +235,7 @@ function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
 
 export const formsPublicRouter = createHonoApp()
   // ── GET /public/:publicId ────────────────────────────────────────
-  .get("/public/:publicId", async (c) => {
+  .get("/public/:publicId", publicFormGetRateLimit, async (c) => {
     const publicId = c.req.param("publicId");
     const [target] = await db
       .select()
@@ -698,7 +708,7 @@ export const formsPublicRouter = createHonoApp()
   )
 
   // ── GET /shared/:token ───────────────────────────────────────────
-  .get("/shared/:token", async (c) => {
+  .get("/shared/:token", sharedLinkGetRateLimit, async (c) => {
     const token = c.req.param("token");
 
     // validateShareLink のドメインエラーのみ 404 に変換する。
