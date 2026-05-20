@@ -46,6 +46,43 @@ interface TooltipData {
   percentage: number;
 }
 
+interface TooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: TooltipData }>;
+}
+
+const DateDistributionTooltip: FC<TooltipProps> = ({ active, payload }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0]?.payload;
+    if (!data) return null;
+    return (
+      <div className="rounded-lg border bg-background p-3 shadow-md">
+        <p className="font-medium">{data.formattedDate}</p>
+        <p className="text-sm text-muted-foreground">
+          回答数: {data.count}件 ({data.percentage.toFixed(1)}%)
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
+const TimeDistributionTooltip: FC<TooltipProps> = ({ active, payload }) => {
+  if (active && payload && payload.length) {
+    const data = payload[0]?.payload;
+    if (!data) return null;
+    return (
+      <div className="rounded-lg border bg-background p-3 shadow-md">
+        <p className="font-medium">{data.formattedTime}</p>
+        <p className="text-sm text-muted-foreground">
+          回答数: {data.count}件 ({data.percentage.toFixed(1)}%)
+        </p>
+      </div>
+    );
+  }
+  return null;
+};
+
 // 日付分布チャートコンポーネント
 export const DateDistributionChart: FC<DateDistributionChartProps> = ({
   data,
@@ -77,29 +114,6 @@ export const DateDistributionChart: FC<DateDistributionChartProps> = ({
         new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
-  // カスタムツールチップ
-  const CustomTooltip = ({
-    active,
-    payload,
-  }: {
-    active?: boolean;
-    payload?: Array<{ payload: TooltipData }>;
-  }) => {
-    if (active && payload && payload.length) {
-      const data = payload[0]?.payload;
-      if (!data) return null;
-      return (
-        <div className="rounded-lg border bg-background p-3 shadow-md">
-          <p className="font-medium">{data.formattedDate}</p>
-          <p className="text-sm text-muted-foreground">
-            回答数: {data.count}件 ({data.percentage.toFixed(1)}%)
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <div className="space-y-4">
       {blockTitle && <h3 className="text-lg font-semibold">{blockTitle}</h3>}
@@ -123,7 +137,7 @@ export const DateDistributionChart: FC<DateDistributionChartProps> = ({
               height={60}
             />
             <YAxis tick={{ fontSize: 12 }} />
-            <ChartTooltip content={<CustomTooltip />} />
+            <ChartTooltip content={<DateDistributionTooltip />} />
             <Bar
               dataKey="count"
               fill="var(--color-count)"
@@ -171,29 +185,6 @@ export const TimeDistributionChart: FC<TimeDistributionChartProps> = ({
       );
     });
 
-  // カスタムツールチップ
-  const CustomTooltip = ({
-    active,
-    payload,
-  }: {
-    active?: boolean;
-    payload?: Array<{ payload: TooltipData }>;
-  }) => {
-    if (active && payload && payload.length) {
-      const data = payload[0]?.payload;
-      if (!data) return null;
-      return (
-        <div className="rounded-lg border bg-background p-3 shadow-md">
-          <p className="font-medium">{data.formattedTime}</p>
-          <p className="text-sm text-muted-foreground">
-            回答数: {data.count}件 ({data.percentage.toFixed(1)}%)
-          </p>
-        </div>
-      );
-    }
-    return null;
-  };
-
   return (
     <div className="space-y-4">
       {blockTitle && <h3 className="text-lg font-semibold">{blockTitle}</h3>}
@@ -217,7 +208,7 @@ export const TimeDistributionChart: FC<TimeDistributionChartProps> = ({
               height={60}
             />
             <YAxis tick={{ fontSize: 12 }} />
-            <ChartTooltip content={<CustomTooltip />} />
+            <ChartTooltip content={<TimeDistributionTooltip />} />
             <Bar
               dataKey="count"
               fill="var(--color-count)"
