@@ -72,6 +72,28 @@ describe("createRedisPublisher", () => {
     expect(onPublishError).toHaveBeenCalledWith(publishError, event);
   });
 
+  it("keeps publish best-effort when the error hook throws", async () => {
+    const client = {
+      on: vi.fn(),
+      publish: vi.fn(async () => {
+        throw new Error("publish failed");
+      }),
+      quit: vi.fn(async () => undefined),
+    };
+    const publisher = createRedisPublisher<{ formId: string }>({
+      createClient: () => client,
+      resolveChannel: (event) => `form:${event.formId}`,
+      onConnectionError: vi.fn(),
+      onPublishError: () => {
+        throw new Error("hook failed");
+      },
+    });
+
+    await expect(publisher.publish({ formId: "form-1" })).resolves.toBe(
+      undefined,
+    );
+  });
+
   it("reports and rethrows close errors by default", async () => {
     const closeError = new Error("close failed");
     const client = {
@@ -94,6 +116,31 @@ describe("createRedisPublisher", () => {
     await expect(publisher.close()).rejects.toThrow(closeError);
 
     expect(onCloseError).toHaveBeenCalledWith(closeError);
+  });
+
+  it("rethrows the original close error when the close hook throws", async () => {
+    const closeError = new Error("close failed");
+    const hookError = new Error("hook failed");
+    const client = {
+      on: vi.fn(),
+      publish: vi.fn(async () => undefined),
+      quit: vi.fn(async () => {
+        throw closeError;
+      }),
+    };
+    const publisher = createRedisPublisher<{ formId: string }>({
+      createClient: () => client,
+      resolveChannel: (event) => `form:${event.formId}`,
+      onConnectionError: vi.fn(),
+      onPublishError: vi.fn(),
+      onCloseError: () => {
+        throw hookError;
+      },
+    });
+
+    await publisher.publish({ formId: "form-1" });
+    await expect(publisher.close()).rejects.toThrow(closeError);
+    await expect(publisher.close()).resolves.toBe(undefined);
   });
 
   it("can report close errors without throwing", async () => {
@@ -119,5 +166,28 @@ describe("createRedisPublisher", () => {
     await expect(publisher.close()).resolves.toBe(undefined);
 
     expect(onCloseError).toHaveBeenCalledWith(closeError);
+  });
+
+  it("can swallow close errors when the close hook throws", async () => {
+    const client = {
+      on: vi.fn(),
+      publish: vi.fn(async () => undefined),
+      quit: vi.fn(async () => {
+        throw new Error("close failed");
+      }),
+    };
+    const publisher = createRedisPublisher<{ formId: string }>({
+      createClient: () => client,
+      resolveChannel: (event) => `form:${event.formId}`,
+      onConnectionError: vi.fn(),
+      onPublishError: vi.fn(),
+      onCloseError: () => {
+        throw new Error("hook failed");
+      },
+      swallowCloseError: true,
+    });
+
+    await publisher.publish({ formId: "form-1" });
+    await expect(publisher.close()).resolves.toBe(undefined);
   });
 });

@@ -69,6 +69,9 @@ export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
 }
 
 export async function closePublisher(): Promise<void> {
-  await editorEventPublisher.close();
-  hasLoggedInit = false;
+  try {
+    await editorEventPublisher.close();
+  } finally {
+    hasLoggedInit = false;
+  }
 }

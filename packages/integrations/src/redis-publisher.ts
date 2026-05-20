@@ -1,25 +1,57 @@
+/**
+ * Minimal Redis-compatible client contract used by the shared publisher.
+ */
 export interface RedisPublisherClient {
+  /** Subscribe to client errors emitted with an Error instance. */
   on(event: "error", listener: (error: Error) => void): unknown;
+  /** Publish a serialized message to a channel. */
   publish(channel: string, message: string): Promise<unknown>;
+  /** Close the underlying client connection. */
   quit(): Promise<unknown>;
 }
 
+/**
+ * Dependencies and lifecycle hooks for createRedisPublisher.
+ */
 export interface RedisPublisherOptions<TEvent> {
+  /** Lazily creates a client, or returns null when publishing is disabled. */
   createClient: () => RedisPublisherClient | null;
+  /** Resolves the Redis channel for an event. */
   resolveChannel: (event: TEvent) => string;
+  /** Serializes an event before publishing. Defaults to JSON.stringify. */
   serialize?: (event: TEvent) => string;
+  /** Runs once after a Redis client is created. */
   onInit?: () => void;
+  /** Handles asynchronous Redis client error events. */
   onConnectionError: (error: Error) => void;
+  /** Handles create, channel resolution, serialization, and publish failures. */
   onPublishError: (error: unknown, event: TEvent) => void;
+  /** Handles quit failures before close optionally rethrows the original error. */
   onCloseError?: (error: unknown) => void;
+  /** When true, close logs quit failures without rejecting. Defaults to false. */
   swallowCloseError?: boolean;
 }
 
+/**
+ * Publisher facade with non-throwing publish and explicit close lifecycle.
+ */
 export interface RedisPublisher<TEvent> {
+  /** Publish an event if a client is available; publish errors are reported only. */
   publish: (event: TEvent) => Promise<void>;
+  /** Close the cached client; rejects on quit failure unless configured otherwise. */
   close: () => Promise<void>;
 }
 
+/**
+ * Create a lazy Redis publisher.
+ *
+ * @param options - Client factory, channel resolver, serializer, and lifecycle hooks.
+ * @returns A publisher that reuses one client until close resets it.
+ *
+ * publish resolves after a successful publish, a skipped publish when createClient returns
+ * null, or after reporting a publish error. close resets the cached client in all cases
+ * and rejects with the original quit error unless swallowCloseError is true.
+ */
 export function createRedisPublisher<TEvent>({
   createClient,
   resolveChannel,
@@ -50,7 +82,11 @@ export function createRedisPublisher<TEvent>({
         if (!redis) return;
         await redis.publish(resolveChannel(event), serialize(event));
       } catch (error) {
-        onPublishError(error, event);
+        try {
+          onPublishError(error, event);
+        } catch {
+          // Preserve publish as best-effort even if the reporting hook fails.
+        }
       }
     },
     async close(): Promise<void> {
@@ -58,7 +94,11 @@ export function createRedisPublisher<TEvent>({
       try {
         await publisher.quit();
       } catch (error) {
-        onCloseError?.(error);
+        try {
+          onCloseError?.(error);
+        } catch {
+          // The original quit failure controls close rejection behavior.
+        }
         if (!swallowCloseError) {
           throw error;
         }

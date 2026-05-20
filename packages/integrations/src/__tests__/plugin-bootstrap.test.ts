@@ -22,4 +22,20 @@ describe("plugin bootstrap constants", () => {
       }),
     ).toBe("/custom/plugins");
   });
+
+  it("reads the validation plugin directory from process.env", () => {
+    const originalValue = process.env.VALIDATION_PLUGINS_DIR;
+
+    try {
+      process.env.VALIDATION_PLUGINS_DIR = "/env/plugins";
+
+      expect(getValidationPluginsDir({})).toBe("/env/plugins");
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env.VALIDATION_PLUGINS_DIR;
+      } else {
+        process.env.VALIDATION_PLUGINS_DIR = originalValue;
+      }
+    }
+  });
 });
