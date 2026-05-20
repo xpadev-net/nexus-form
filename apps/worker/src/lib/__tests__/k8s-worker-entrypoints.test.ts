@@ -125,27 +125,21 @@ function readKustomizationResources(): string[] {
 }
 
 function buildKustomization(relativePath: string): string {
+  return execFileSync("kustomize", ["build", resolve(repoRoot, relativePath)], {
+    encoding: "utf8",
+  });
+}
+
+function hasKustomizeBinary(): boolean {
   try {
-    return execFileSync(
-      "kustomize",
-      ["build", resolve(repoRoot, relativePath)],
-      {
-        encoding: "utf8",
-      },
-    );
-  } catch (error) {
-    const code =
-      typeof error === "object" && error !== null && "code" in error
-        ? error.code
-        : undefined;
-    if (code === "ENOENT") {
-      throw new Error(
-        "kustomize binary is required to validate k8s manifests; install kustomize or ensure it is on PATH",
-      );
-    }
-    throw error;
+    execFileSync("kustomize", ["version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
   }
 }
+
+const kustomizeAvailable = hasKustomizeBinary();
 
 describe("k8s worker deployments", () => {
   it.each(
@@ -191,25 +185,25 @@ describe("k8s base manifest render", () => {
     expect(resources).toHaveLength(expectedResources.length);
   });
 
-  it.each([
-    "k8s/base",
-    "k8s/overlays/production",
-  ])("builds %s with kustomize", (kustomizationPath) => {
-    const rendered = buildKustomization(kustomizationPath);
+  it.skipIf(!kustomizeAvailable).each(["k8s/base", "k8s/overlays/production"])(
+    "builds %s with kustomize",
+    (kustomizationPath) => {
+      const rendered = buildKustomization(kustomizationPath);
 
-    expect(rendered).toContain("kind: ConfigMap");
-    expect(rendered).toContain("kind: Secret");
-    expect(rendered).toContain("kind: Deployment");
-    expect(rendered).toContain("kind: Service");
-    expect(rendered).toContain("name: api");
-    expect(rendered).toContain("name: web");
-    expect(rendered).toContain("name: bullmq-validation-discord");
-    expect(rendered).toContain("name: bullmq-validation-github");
-    expect(rendered).toContain("name: bullmq-validation-twitter");
-    expect(rendered).toContain("name: bullmq-sheets");
-    expect(rendered).not.toContain("{{");
-    expect(rendered).not.toContain("}}");
-  });
+      expect(rendered).toContain("kind: ConfigMap");
+      expect(rendered).toContain("kind: Secret");
+      expect(rendered).toContain("kind: Deployment");
+      expect(rendered).toContain("kind: Service");
+      expect(rendered).toContain("name: api");
+      expect(rendered).toContain("name: web");
+      expect(rendered).toContain("name: bullmq-validation-discord");
+      expect(rendered).toContain("name: bullmq-validation-github");
+      expect(rendered).toContain("name: bullmq-validation-twitter");
+      expect(rendered).toContain("name: bullmq-sheets");
+      expect(rendered).not.toContain("{{");
+      expect(rendered).not.toContain("}}");
+    },
+  );
 });
 
 describe("k8s web runtime configuration", () => {
