@@ -382,9 +382,11 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     mocks.db.select
       .mockReturnValueOnce(limitedQuery([{ date: "2026-05-18", count: 2 }]))
       .mockReturnValueOnce(countQuery(9));
-    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
 
-    const res = await formsResponsesRouter.request(
+    const res = await formsResponseAnalyticsRouter.request(
       "/form-1/responses/analytics?page=3&pageSize=4",
     );
 
@@ -417,9 +419,9 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         ]),
       )
       .mockReturnValueOnce(countQuery(6));
-    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
 
-    const res = await formsStructureRouter.request(
+    const res = await formsSnapshotsRouter.request(
       "/form-1/snapshots?page=2&pageSize=3",
     );
 
@@ -450,9 +452,9 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         ]),
       )
       .mockReturnValueOnce(countQuery(5));
-    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const { formsScheduleRouter } = await import("../routes/forms-schedule");
 
-    const res = await formsStructureRouter.request(
+    const res = await formsScheduleRouter.request(
       "/form-1/schedule?page=2&pageSize=2",
     );
 

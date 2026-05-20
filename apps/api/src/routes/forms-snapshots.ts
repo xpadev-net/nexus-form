@@ -1,18 +1,28 @@
 import { zValidator } from "@hono/zod-validator";
+import { db } from "@nexus-form/database";
+import { formSnapshot } from "@nexus-form/database/schema";
+import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import {
+  paginationMetadata,
+  paginationQuerySchema,
+} from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
   NoChangesError,
   SnapshotNotFoundError,
 } from "../lib/errors/form-errors";
 import {
+  activateSnapshot,
   calculateFormDiff,
   checkUnpublishedChanges,
   getLatestSnapshot,
   getLatestSnapshotByVersion,
   publishSnapshot,
   restoreFromSnapshot,
+  restoreFromSnapshotVersion,
 } from "../lib/forms/snapshot-repository";
+import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
@@ -38,6 +48,52 @@ const SnapshotLatestResponseSchema = z.object({
 });
 export type SnapshotLatestResponse = z.infer<
   typeof SnapshotLatestResponseSchema
+>;
+
+const routePaginationSchema = z.object({
+  page: z.number().int().min(1),
+  pageSize: z.number().int().min(1),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().nonnegative(),
+});
+
+const diffQuerySchema = z.object({
+  fromVersion: z.coerce.number().int().min(1),
+  toVersion: z.coerce.number().int().min(1),
+});
+
+const SnapshotListResponseSchema = z.object({
+  snapshots: z.array(SnapshotListItemResponseSchema),
+  pagination: routePaginationSchema,
+});
+export type SnapshotListResponse = z.infer<typeof SnapshotListResponseSchema>;
+
+const SnapshotDiffResponseSchema = z.object({
+  fromVersion: z.number().int().min(1),
+  toVersion: z.number().int().min(1),
+  changed: z.boolean(),
+  fromPlateContent: z.string(),
+  toPlateContent: z.string(),
+});
+export type SnapshotDiffResponse = z.infer<typeof SnapshotDiffResponseSchema>;
+
+const SnapshotContentResponseSchema = z.object({
+  plateContent: z.string(),
+  version: z.number().int().min(1),
+  publishedAt: isoDate,
+});
+export type SnapshotContentResponse = z.infer<
+  typeof SnapshotContentResponseSchema
+>;
+
+const ActivateSnapshotResponseSchema = z.object({
+  ok: z.literal(true),
+  snapshot: SnapshotListItemResponseSchema.extend({
+    plateContent: z.string(),
+  }),
+});
+export type ActivateSnapshotResponse = z.infer<
+  typeof ActivateSnapshotResponseSchema
 >;
 
 const PublishSnapshotResponseSchema = z.object({
@@ -96,6 +152,155 @@ export const formsSnapshotsRouter = createHonoApp()
     return c.json(response);
   })
 
+  .get(
+    "/:id/snapshots",
+    zValidator("query", paginationQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { page, pageSize } = c.req.valid("query");
+      const offset = (page - 1) * pageSize;
+      const [snapshots, totalResult] = await Promise.all([
+        db
+          .select({
+            id: formSnapshot.id,
+            formId: formSnapshot.formId,
+            version: formSnapshot.version,
+            isActive: formSnapshot.isActive,
+            publishedBy: formSnapshot.publishedBy,
+            publishedAt: formSnapshot.publishedAt,
+            changeLog: formSnapshot.changeLog,
+            title: formSnapshot.title,
+            description: formSnapshot.description,
+            parentVersion: formSnapshot.parentVersion,
+          })
+          .from(formSnapshot)
+          .where(eq(formSnapshot.formId, formId))
+          .orderBy(desc(formSnapshot.version))
+          .offset(offset)
+          .limit(pageSize),
+        db
+          .select({ count: count() })
+          .from(formSnapshot)
+          .where(eq(formSnapshot.formId, formId)),
+      ]);
+      const total = totalResult[0]?.count ?? 0;
+      return c.json(
+        SnapshotListResponseSchema.parse({
+          snapshots,
+          pagination: paginationMetadata(page, pageSize, total),
+        }),
+      );
+    },
+  )
+
+  .get(
+    "/:id/snapshots/diff",
+    zValidator("query", diffQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { fromVersion, toVersion } = c.req.valid("query");
+      const [fromSnapshotRows, toSnapshotRows] = await Promise.all([
+        db
+          .select({
+            plateContent: formSnapshot.plateContent,
+            validationRulesJson: formSnapshot.validationRulesJson,
+            version: formSnapshot.version,
+          })
+          .from(formSnapshot)
+          .where(
+            and(
+              eq(formSnapshot.formId, formId),
+              eq(formSnapshot.version, fromVersion),
+            ),
+          )
+          .limit(1),
+        db
+          .select({
+            plateContent: formSnapshot.plateContent,
+            validationRulesJson: formSnapshot.validationRulesJson,
+            version: formSnapshot.version,
+          })
+          .from(formSnapshot)
+          .where(
+            and(
+              eq(formSnapshot.formId, formId),
+              eq(formSnapshot.version, toVersion),
+            ),
+          )
+          .limit(1),
+      ]);
+
+      const from = fromSnapshotRows[0];
+      const to = toSnapshotRows[0];
+      if (!from || !to) {
+        return c.json(errorResponse("Snapshot not found"), 404);
+      }
+
+      return c.json(
+        SnapshotDiffResponseSchema.parse({
+          fromVersion,
+          toVersion,
+          changed:
+            from.plateContent !== to.plateContent ||
+            from.validationRulesJson !== to.validationRulesJson,
+          fromPlateContent: from.plateContent,
+          toPlateContent: to.plateContent,
+        }),
+      );
+    },
+  )
+
+  .get("/:id/snapshots/:version/content", async (c) => {
+    const formId = c.req.param("id");
+    const version = Number(c.req.param("version"));
+    if (!Number.isInteger(version) || version < 1) {
+      return c.json(errorResponse("Invalid version"), 400);
+    }
+
+    const [snapshot] = await db
+      .select({
+        plateContent: formSnapshot.plateContent,
+        version: formSnapshot.version,
+        publishedAt: formSnapshot.publishedAt,
+      })
+      .from(formSnapshot)
+      .where(
+        and(eq(formSnapshot.formId, formId), eq(formSnapshot.version, version)),
+      )
+      .limit(1);
+
+    if (!snapshot) {
+      return c.json(errorResponse("Snapshot not found"), 404);
+    }
+
+    return c.json(SnapshotContentResponseSchema.parse(snapshot));
+  })
+
+  .post(
+    "/:id/snapshots/:version/activate",
+    withDualFormAuth("EDITOR"),
+    async (c) => {
+      const formId = c.req.param("id");
+      const version = Number(c.req.param("version"));
+      if (!Number.isInteger(version) || version < 1)
+        return c.json(errorResponse("Invalid version"), 400);
+
+      try {
+        const updated = await activateSnapshot(formId, version);
+        const response = ActivateSnapshotResponseSchema.parse({
+          ok: true,
+          snapshot: updated,
+        });
+        return c.json(response);
+      } catch (error) {
+        if (error instanceof SnapshotNotFoundError) {
+          return c.json(errorResponse("Snapshot not found"), 404);
+        }
+        throw error;
+      }
+    },
+  )
+
   .post(
     "/:id/snapshots",
     withDualFormAuth("EDITOR"),
@@ -114,6 +319,36 @@ export const formsSnapshotsRouter = createHonoApp()
       } catch (error) {
         if (error instanceof NoChangesError) {
           return c.json(errorResponse(error.message), 400);
+        }
+        throw error;
+      }
+    },
+  )
+
+  .post(
+    "/:id/snapshots/:version/restore-edit",
+    withDualFormAuth("EDITOR"),
+    async (c) => {
+      const formId = c.req.param("id");
+      const version = Number(c.req.param("version"));
+      if (!Number.isInteger(version) || version < 1)
+        return c.json(errorResponse("Invalid version"), 400);
+
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+
+      try {
+        const restored = await withFormStructureMutationLock(formId, () =>
+          restoreFromSnapshotVersion(formId, version),
+        );
+        const response = RestoreEditResponseSchema.parse({
+          ok: true,
+          plateContent: restored.plateContent,
+        });
+        return c.json(response);
+      } catch (error) {
+        if (error instanceof SnapshotNotFoundError) {
+          return c.json(errorResponse("Snapshot not found"), 404);
         }
         throw error;
       }

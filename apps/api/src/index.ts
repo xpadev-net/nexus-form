@@ -37,7 +37,9 @@ import { formsIntegrationsRouter } from "./routes/forms-integrations";
 import { formsInvitesRouter } from "./routes/forms-invites";
 import { formsPermissionsRouter } from "./routes/forms-permissions";
 import { formsPublicRouter } from "./routes/forms-public";
+import { formsResponseAnalyticsRouter } from "./routes/forms-response-analytics";
 import { formsResponsesRouter } from "./routes/forms-responses";
+import { formsScheduleRouter } from "./routes/forms-schedule";
 import { formsSnapshotsRouter } from "./routes/forms-snapshots";
 import { closeSseSubscribers, formsSSERouter } from "./routes/forms-sse";
 import { formsStructureRouter } from "./routes/forms-structure";
@@ -132,7 +134,9 @@ const app = new Hono()
   .route("/api/forms", formsDetailRouter)
   .route("/api/forms", formsContentRouter)
   .route("/api/forms", formsSnapshotsRouter)
+  .route("/api/forms", formsResponseAnalyticsRouter)
   .route("/api/forms", formsResponsesRouter)
+  .route("/api/forms", formsScheduleRouter)
   .route("/api/forms", formsValidationRulesRouter)
   .route("/api/forms", formsSSERouter)
   .route("/api/forms", formsPermissionsRouter)
