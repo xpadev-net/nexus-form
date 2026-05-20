@@ -21,6 +21,7 @@ interface FormResponsesState {
 }
 
 type FormResponsesAction =
+  | { type: "reset"; formId: string }
   | { type: "set-keyword"; keyword: string }
   | { type: "commit-keyword"; keyword: string }
   | { type: "select-response"; responseId: string }
@@ -41,6 +42,8 @@ function formResponsesReducer(
   action: FormResponsesAction,
 ): FormResponsesState {
   switch (action.type) {
+    case "reset":
+      return initialFormResponsesState;
     case "set-keyword":
       return { ...state, keyword: action.keyword, selectedResponseId: null };
     case "commit-keyword":
@@ -68,6 +71,10 @@ export function FormResponsesContent({ formId }: { formId: string }) {
     initialFormResponsesState,
   );
   const limit = 20;
+
+  useEffect(() => {
+    dispatch({ type: "reset", formId });
+  }, [formId]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
