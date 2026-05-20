@@ -32,6 +32,19 @@ vi.mock("../../lib/validation-helpers", () => {
     }
   }
 
+  class ValidationCancelledError extends Error {
+    constructor(
+      public readonly responseId: string,
+      public readonly ruleId: string,
+      public readonly referencedBlockId: string,
+    ) {
+      super(
+        `Validation cancelled concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
+      );
+      this.name = "ValidationCancelledError";
+    }
+  }
+
   class ReferencedBlockMissingError extends Error {
     constructor(
       public readonly formId: string,
@@ -48,6 +61,7 @@ vi.mock("../../lib/validation-helpers", () => {
     markValidationProcessing: vi.fn(),
     writeValidationResult: vi.fn(),
     ConcurrentDeleteError,
+    ValidationCancelledError,
     ReferencedBlockMissingError,
   };
 });
@@ -90,6 +104,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  ValidationCancelledError,
   writeValidationResult,
 } from "../../lib/validation-helpers";
 
@@ -107,16 +122,19 @@ function makeJob(data: {
   snapshotRuleType?: string;
   snapshotConfigJson?: Record<string, unknown>;
   retryAfterCount?: number;
+  attemptsMade?: number;
 }): Job {
+  const { attemptsMade, ...jobData } = data;
   return {
     id: "job-1",
     data: {
       snapshotProviderName: "test-provider",
       snapshotRuleType: "default",
       snapshotConfigJson: { raw: "value" },
-      ...data,
+      ...jobData,
     },
     opts: { attempts: 3 },
+    attemptsMade: attemptsMade ?? 0,
     moveToDelayed: vi.fn().mockResolvedValue(undefined),
     updateData: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
@@ -223,6 +241,23 @@ describe("handleGenericValidation", () => {
     const result = await handleGenericValidation(job);
 
     expect(result).toEqual({ ok: false, error: "Result row deleted" });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    expect(mockProviderRegistryGet).not.toHaveBeenCalled();
+  });
+
+  it("markValidationProcessingがValidationCancelledErrorをスローした場合は結果を書かずに終端化する", async () => {
+    mockMarkValidationProcessing.mockRejectedValue(
+      new ValidationCancelledError("r-1", "rule-1", "block-a"),
+    );
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Validation cancelled" });
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
     expect(mockProviderRegistryGet).not.toHaveBeenCalled();
   });
@@ -559,6 +594,38 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("retryable result without retryAfter is marked FAILED on the final BullMQ attempt", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: "Temporary network error",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "NETWORK_ERROR",
+        errorMessage: "Temporary network error",
+      }),
+    );
+  });
+
   it("成功 result に retryable が付いていても成功として処理する", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
@@ -709,6 +776,37 @@ describe("handleGenericValidation", () => {
       "Rate Limit Exceeded",
     );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("リトライ可能なエラーは最終 BullMQ attempt で FAILED として確定する", async () => {
+    const rateLimitErr = Object.assign(new Error("Rate Limit Exceeded"), {
+      status: 429,
+      code: "RATE_LIMIT",
+    });
+    const rule = makeRule({
+      validate: vi.fn().mockRejectedValue(rateLimitErr),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation error exhausted",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "RATE_LIMIT",
+        errorMessage: "Rate Limit Exceeded",
+      }),
+    );
   });
 
   it("リトライ可能なエラーはスローして再キューさせる (Node.js ETIMEDOUT)", async () => {

@@ -30,6 +30,19 @@ export class ConcurrentDeleteError extends Error {
   }
 }
 
+export class ValidationCancelledError extends Error {
+  constructor(
+    public readonly responseId: string,
+    public readonly ruleId: string,
+    public readonly referencedBlockId: string,
+  ) {
+    super(
+      `Validation cancelled concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
+    );
+    this.name = "ValidationCancelledError";
+  }
+}
+
 export class ReferencedBlockMissingError extends Error {
   constructor(
     public readonly formId: string,
@@ -125,36 +138,60 @@ export async function writeValidationResult(params: {
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
   const resultId = getValidationResultId(params);
 
-  await db
-    .insert(externalServiceValidationResult)
-    .values({
-      id: resultId,
-      responseId: params.responseId,
-      ruleId: params.ruleId,
-      referencedBlockId: params.referencedBlockId,
-      service: params.service,
-      status,
-      success: params.success,
-      attemptCount: 1,
-      lastAttemptAt: now,
-      metadata: params.metadata ?? null,
-      errorCode: params.errorCode ?? null,
-      errorMessage: params.errorMessage ?? null,
-      jobId: params.jobId ?? null,
-    })
-    .onDuplicateKeyUpdate({
-      set: {
+  const { skipped } = await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        status: externalServiceValidationResult.status,
+        errorCode: externalServiceValidationResult.errorCode,
+      })
+      .from(externalServiceValidationResult)
+      .where(eq(externalServiceValidationResult.id, resultId))
+      .for("update");
+
+    if (
+      existing?.status === "FAILED" &&
+      existing.errorCode === "CANCELLED_BY_USER"
+    ) {
+      return { skipped: true };
+    }
+
+    await tx
+      .insert(externalServiceValidationResult)
+      .values({
         id: resultId,
+        responseId: params.responseId,
+        ruleId: params.ruleId,
+        referencedBlockId: params.referencedBlockId,
+        service: params.service,
         status,
         success: params.success,
-        attemptCount: sql`${externalServiceValidationResult.attemptCount} + 1`,
+        attemptCount: 1,
         lastAttemptAt: now,
         metadata: params.metadata ?? null,
         errorCode: params.errorCode ?? null,
         errorMessage: params.errorMessage ?? null,
         jobId: params.jobId ?? null,
-      },
-    });
+      })
+      .onDuplicateKeyUpdate({
+        set: {
+          id: resultId,
+          status,
+          success: params.success,
+          attemptCount: sql`${externalServiceValidationResult.attemptCount} + 1`,
+          lastAttemptAt: now,
+          metadata: params.metadata ?? null,
+          errorCode: params.errorCode ?? null,
+          errorMessage: params.errorMessage ?? null,
+          jobId: params.jobId ?? null,
+        },
+      });
+
+    return { skipped: false };
+  });
+
+  if (skipped) {
+    return resultId;
+  }
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
@@ -196,12 +233,43 @@ export async function markValidationProcessing(params: {
           externalServiceValidationResult.referencedBlockId,
           params.referencedBlockId,
         ),
+        sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
       ),
     );
 
   // mysql2 includes CLIENT_FOUND_ROWS by default, so affectedRows counts matched
-  // rows (not changed rows). affectedRows === 0 therefore means the row is gone.
+  // rows (not changed rows). affectedRows === 0 means the row is gone or is a
+  // user-cancelled result excluded by the WHERE condition above.
   if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+    const [existing] = await db
+      .select({
+        status: externalServiceValidationResult.status,
+        errorCode: externalServiceValidationResult.errorCode,
+      })
+      .from(externalServiceValidationResult)
+      .where(
+        and(
+          eq(externalServiceValidationResult.responseId, params.responseId),
+          eq(externalServiceValidationResult.ruleId, params.ruleId),
+          eq(
+            externalServiceValidationResult.referencedBlockId,
+            params.referencedBlockId,
+          ),
+        ),
+      )
+      .limit(1);
+
+    if (
+      existing?.status === "FAILED" &&
+      existing.errorCode === "CANCELLED_BY_USER"
+    ) {
+      throw new ValidationCancelledError(
+        params.responseId,
+        params.ruleId,
+        params.referencedBlockId,
+      );
+    }
+
     throw new ConcurrentDeleteError(
       params.responseId,
       params.ruleId,

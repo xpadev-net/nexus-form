@@ -361,6 +361,52 @@ async function enqueueValidationRetries(
   };
 }
 
+async function discardQueuedValidationJob(params: {
+  service: string | null;
+  jobId: string | null;
+  validationResultId: string;
+}): Promise<void> {
+  const { service, jobId, validationResultId } = params;
+  if (!service || !jobId || !isValidServiceName(service)) return;
+
+  try {
+    const queue = getValidationQueue(service);
+    const job = await queue.getJob(jobId);
+    if (!job) return;
+
+    await job.discard();
+    const state = await job.getState();
+    if (state === "waiting" || state === "delayed") {
+      try {
+        await job.remove();
+      } catch (error) {
+        logWarn(
+          "Failed to remove queued validation job during cancellation",
+          "forms-responses",
+          {
+            error,
+            service,
+            jobId,
+            validationResultId,
+            state,
+          },
+        );
+      }
+    }
+  } catch (error) {
+    logWarn(
+      "Failed to discard queued validation job during cancellation",
+      "forms-responses",
+      {
+        error,
+        service,
+        jobId,
+        validationResultId,
+      },
+    );
+  }
+}
+
 export const formsResponsesRouter = createHonoApp()
   .use("/:id/responses*", withDualFormAuth("EDITOR"))
   .get(
@@ -1053,7 +1099,11 @@ export const formsResponsesRouter = createHonoApp()
       const validationResultId = c.req.param("validationResultId");
 
       const [target] = await db
-        .select({ id: externalServiceValidationResult.id })
+        .select({
+          id: externalServiceValidationResult.id,
+          service: externalServiceValidationResult.service,
+          jobId: externalServiceValidationResult.jobId,
+        })
         .from(externalServiceValidationResult)
         .innerJoin(
           formResponse,
@@ -1071,6 +1121,12 @@ export const formsResponsesRouter = createHonoApp()
       if (!target) {
         return c.json(errorResponse("Validation result not found"), 404);
       }
+
+      await discardQueuedValidationJob({
+        service: target.service,
+        jobId: target.jobId,
+        validationResultId,
+      });
 
       await db
         .update(externalServiceValidationResult)

@@ -21,6 +21,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  ValidationCancelledError,
   writeValidationResult,
 } from "../lib/validation-helpers";
 
@@ -89,6 +90,14 @@ function getRetryAfterSeconds(retryAfter: number): number {
   return Math.min(Math.ceil(retryAfter), maxRetryAfterSeconds);
 }
 
+function isFinalBullMqAttempt(job: Job<GenericValidationJob>): boolean {
+  const attempts =
+    typeof job.opts.attempts === "number" && job.opts.attempts > 0
+      ? job.opts.attempts
+      : 1;
+  return (job.attemptsMade ?? 0) + 1 >= attempts;
+}
+
 const providerErrorSchema = z
   .object({
     code: z.string().optional().catch(undefined),
@@ -155,6 +164,9 @@ export const handleGenericValidation = async (
       service: serviceType,
     });
   } catch (error) {
+    if (error instanceof ValidationCancelledError) {
+      return { ok: false, error: "Validation cancelled" };
+    }
     if (error instanceof ConcurrentDeleteError) {
       return { ok: false, error: "Result row deleted" };
     }
@@ -306,6 +318,21 @@ export const handleGenericValidation = async (
       (errorStatus !== undefined && RETRYABLE_HTTP_STATUSES.has(errorStatus)) ||
       hasRetryAfter;
 
+    if (isRetryable && isFinalBullMqAttempt(job)) {
+      await writeValidationResult({
+        responseId,
+        formId,
+        ruleId,
+        referencedBlockId,
+        service: serviceType,
+        success: false,
+        errorCode: errorCode ?? "VALIDATION_RETRY_EXHAUSTED",
+        errorMessage: errorMessage || "Retryable validation error exhausted",
+        jobId: job.id?.toString(),
+      });
+      return { ok: false, error: "Retryable validation error exhausted" };
+    }
+
     if (isRetryable) {
       throw error;
     }
@@ -372,6 +399,22 @@ export const handleGenericValidation = async (
       });
       await job.moveToDelayed(Date.now() + retryAfterSeconds * 1000, token);
       throw new DelayedError();
+    }
+
+    if (isFinalBullMqAttempt(job)) {
+      await writeValidationResult({
+        responseId,
+        formId,
+        ruleId,
+        referencedBlockId,
+        service: serviceType,
+        success: false,
+        errorCode: result.errorCode ?? "VALIDATION_RETRY_EXHAUSTED",
+        errorMessage:
+          result.errorMessage ?? "Retryable validation result exhausted",
+        jobId: job.id?.toString(),
+      });
+      return { ok: false, error: "Retryable validation result exhausted" };
     }
 
     throw new Error(result.errorMessage ?? "Retryable validation result");
