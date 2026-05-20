@@ -72,3 +72,13 @@ export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
     });
   }
 }
+
+export async function closePublisher(): Promise<void> {
+  if (!publisher) return;
+  try {
+    await publisher.quit();
+  } finally {
+    publisher = null;
+    hasLoggedInit = false;
+  }
+}

@@ -1,7 +1,7 @@
 import "./load-env";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { db } from "@nexus-form/database";
+import { closeDatabase, db } from "@nexus-form/database";
 import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -10,15 +10,21 @@ import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import { ZodError } from "zod";
 import { auth } from "./lib/auth";
-import { getRedisClient } from "./lib/cache/redis-client";
+import { closeRedisClient, getRedisClient } from "./lib/cache/redis-client";
 import {
   getCorsOrigins,
   warnIfProductionCorsOriginsEmpty,
 } from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
+import {
+  createApiGracefulShutdown,
+  registerApiShutdownHandlers,
+} from "./lib/graceful-shutdown";
 import { logError } from "./lib/logger";
+import { closeQueues } from "./lib/queues";
 import { authRouteRateLimiter } from "./lib/rate-limit";
-import { captureError, initSentry } from "./lib/sentry";
+import { closePublisher } from "./lib/redis-publisher";
+import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
 import { csrfRouter } from "./routes/csrf";
@@ -54,6 +60,15 @@ const VALIDATION_PLUGINS_DIR =
   process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
 const VALIDATION_PLUGINS_FAIL_FAST =
   process.env.VALIDATION_PLUGINS_FAIL_FAST !== "false";
+const shutdownTimeoutEnv = Number(process.env.API_SHUTDOWN_TIMEOUT_MS);
+const SHUTDOWN_TIMEOUT_MS =
+  Number.isFinite(shutdownTimeoutEnv) && shutdownTimeoutEnv > 0
+    ? shutdownTimeoutEnv
+    : 30_000;
+const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
+  SHUTDOWN_TIMEOUT_MS,
+  5_000,
+);
 
 const corsOrigins = getCorsOrigins();
 warnIfProductionCorsOriginsEmpty(corsOrigins);
@@ -166,7 +181,7 @@ async function startServer() {
       "[api] Plugin drift guard skipped because Redis is not configured",
     );
   }
-  await startupPlugins(providerRegistry, {
+  const pluginStartupHandle = await startupPlugins(providerRegistry, {
     builtinPlugins,
     pluginsDirs: [VALIDATION_PLUGINS_DIR],
     logPrefix: "api",
@@ -190,17 +205,38 @@ async function startServer() {
   );
   if (monitoringInterval > 0) {
     serviceMonitor.startPeriodicCheck(monitoringInterval);
-
-    process.on("SIGTERM", () => {
-      serviceMonitor.stopPeriodicCheck();
-    });
   }
 
   const port = Number(process.env.PORT) || 3001;
   console.log(`Server is running on http://localhost:${port}`);
-  serve({
+  const server = serve({
     fetch: app.fetch,
     port,
+  });
+
+  const { shutdown } = createApiGracefulShutdown({
+    server,
+    timeoutMs: SHUTDOWN_TIMEOUT_MS,
+    stopServiceMonitor: () => serviceMonitor.stopPeriodicCheck(),
+    stopPluginDriftGuard: async () => {
+      await pluginStartupHandle?.stop();
+    },
+    closeQueues,
+    closePublisher,
+    closeRedisClient,
+    closeDatabase,
+    flushSentry,
+    captureError,
+    exit: process.exit.bind(process),
+    logger: console,
+  });
+
+  registerApiShutdownHandlers({
+    process,
+    shutdown,
+    captureError,
+    logger: console,
+    uncaughtExceptionTimeoutMs: UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS,
   });
 }
 
