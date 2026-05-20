@@ -361,6 +361,13 @@ function aggregateChoice(
   const optionsResult = z
     .array(ChoiceOptionSchema)
     .safeParse(block.validation.options);
+  if (!optionsResult.success) {
+    logWarn("Invalid choice analytics options; using empty options", "api", {
+      blockId: block.blockId,
+      blockType: block.type,
+      issues: optionsResult.error.issues,
+    });
+  }
   const options: ChoiceOption[] = optionsResult.success
     ? optionsResult.data
     : [];

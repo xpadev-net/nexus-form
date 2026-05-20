@@ -2,7 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-async function loadBrandConfig() {
+async function loadBrandConfig(): Promise<typeof import("./brand-config")> {
   vi.resetModules();
   return import("./brand-config");
 }

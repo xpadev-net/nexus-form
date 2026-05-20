@@ -5,6 +5,9 @@ import type {
 } from "../../types/domain/form-block";
 import { Block as BlockSchema } from "../../types/domain/form-block";
 
+const DUPLICATE_TITLE_SUFFIX = " (コピー)";
+const MAX_BLOCK_TITLE_LENGTH = 200;
+
 // デフォルトバリデーション設定を作成するヘルパー関数
 export const createDefaultValidation = (
   type: BlockType,
@@ -127,6 +130,14 @@ export const generateBlockId = (): string => {
   return `block-${crypto.randomUUID()}`;
 };
 
+function createDuplicateTitle(title: string): string {
+  const baseTitle = title.slice(
+    0,
+    MAX_BLOCK_TITLE_LENGTH - DUPLICATE_TITLE_SUFFIX.length,
+  );
+  return `${baseTitle}${DUPLICATE_TITLE_SUFFIX}`;
+}
+
 // 新しいBlockを作成する関数（型安全）
 export const createBlock = (
   type: BlockType,
@@ -173,7 +184,7 @@ export const duplicateBlock = (
     id: `temp-${Date.now()}`, // 一時的なID、実際はDBで生成
     formId,
     blockId: generateBlockId(),
-    title: `${block.title} (コピー)`,
+    title: createDuplicateTitle(block.title),
     order,
     version: 1,
     updatedAt: new Date(),
