@@ -112,6 +112,16 @@ function readConfigMapValue(key: string): string {
   return value;
 }
 
+function readSecretValue(key: string): string {
+  const value = secretManifest.match(
+    new RegExp(`^\\s{2}${key}:\\s*"(?<value>[^"]*)"\\s*$`, "m"),
+  )?.groups?.value;
+  if (value === undefined) {
+    throw new Error(`Missing ${key} in secret.yaml`);
+  }
+  return value;
+}
+
 function readKustomizationResources(): string[] {
   const resourcesBlock = kustomizationManifest.match(
     /^resources:\n(?<resources>(?:\s{2}-\s+\S+\n?)+)/m,
@@ -162,6 +172,19 @@ describe("k8s worker deployments", () => {
     const secretName = readSecretNameWithGoogleOAuthKey();
 
     expect(readDeploymentSecretRefs(manifestName)).toContain(secretName);
+  });
+
+  it.each(
+    apiAndWorkerDeploymentManifests,
+  )("%s receives Redis URL config and Redis password secret", (manifestName) => {
+    expect(readConfigMapValue("REDIS_URL")).toBe("redis://redis-service:6379");
+    expect(readSecretValue("REDIS_PASSWORD")).toBe("");
+    expect(readDeploymentConfigMapRefs(manifestName)).toContain(
+      "nexus-form-config",
+    );
+    expect(readDeploymentSecretRefs(manifestName)).toContain(
+      "nexus-form-secrets",
+    );
   });
 });
 
