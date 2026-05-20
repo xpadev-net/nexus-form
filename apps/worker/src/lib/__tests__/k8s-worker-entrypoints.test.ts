@@ -19,6 +19,15 @@ const apiAndWorkerDeploymentManifests = [
   ...workerDeployments.map(([manifestName]) => manifestName),
 ] as const;
 
+const configMapManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/configmap.yaml"),
+  "utf8",
+);
+const secretManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/secret.yaml"),
+  "utf8",
+);
+
 function readManifest(manifestName: string): string {
   return readFileSync(resolve(repoRoot, "k8s/base", manifestName), "utf8");
 }
@@ -72,6 +81,23 @@ function readDeploymentSecretRefs(manifestName: string): string[] {
   ).map((match) => match.groups?.name ?? "");
 }
 
+function readDeploymentConfigMapRefs(manifestName: string): string[] {
+  const manifest = readManifest(manifestName);
+  return Array.from(
+    manifest.matchAll(/^\s*-\s*configMapRef:\s*\n\s*name:\s*(?<name>\S+)/gm),
+  ).map((match) => match.groups?.name ?? "");
+}
+
+function readConfigMapValue(key: string): string {
+  const value = configMapManifest.match(
+    new RegExp(`^\\s{2}${key}:\\s*"(?<value>[^"]*)"\\s*$`, "m"),
+  )?.groups?.value;
+  if (value === undefined) {
+    throw new Error(`Missing ${key} in configmap.yaml`);
+  }
+  return value;
+}
+
 describe("k8s worker deployments", () => {
   it.each(
     workerDeployments,
@@ -93,5 +119,45 @@ describe("k8s worker deployments", () => {
     const secretName = readSecretNameWithGoogleOAuthKey();
 
     expect(readDeploymentSecretRefs(manifestName)).toContain(secretName);
+  });
+});
+
+describe("k8s web runtime configuration", () => {
+  it("injects the ConfigMap into the web Deployment", () => {
+    expect(readDeploymentConfigMapRefs("web-deployment.yaml")).toContain(
+      "nexus-form-config",
+    );
+  });
+
+  it("defines Vite runtime keys and keeps the invitation code in Secret", () => {
+    expect(configMapManifest).toMatch(/^\s{2}VITE_API_URL:\s*/m);
+    expect(configMapManifest).toMatch(/^\s{2}VITE_HCAPTCHA_SITE_KEY:\s*/m);
+    expect(configMapManifest).not.toMatch(
+      /^\s{2}NEXT_PUBLIC_HCAPTCHA_SITE_KEY:\s*/m,
+    );
+    expect(configMapManifest).not.toMatch(/^\s{2}SIGNUP_INVITATION_CODE:\s*/m);
+    expect(secretManifest).toMatch(/^\s{2}SIGNUP_INVITATION_CODE:\s*/m);
+  });
+
+  it("uses a browser-reachable API origin for runtime config", () => {
+    const apiUrl = readConfigMapValue("VITE_API_URL");
+    const hostname = new URL(apiUrl).hostname;
+
+    expect(apiUrl).not.toBe("http://api:3001");
+    expect(apiUrl).toMatch(/^https?:\/\/[^.]+\.[^/]+/);
+    expect(hostname).not.toBe("api");
+    expect(hostname).not.toMatch(/(?:^|\.)svc(?:\.cluster\.local)?$/);
+    expect(hostname).not.toMatch(/(?:^|\.)cluster\.local$/);
+  });
+
+  it("generates browser runtime config from Vite environment variables", () => {
+    const entrypoint = readFileSync(
+      resolve(repoRoot, "apps/web/docker-entrypoint.sh"),
+      "utf8",
+    );
+
+    expect(entrypoint).toContain("window.__NEXUS_FORM_CONFIG__");
+    expect(entrypoint).toContain("VITE_API_URL");
+    expect(entrypoint).toContain("VITE_HCAPTCHA_SITE_KEY");
   });
 });

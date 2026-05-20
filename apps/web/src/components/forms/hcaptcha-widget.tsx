@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { getRuntimeConfigValue } from "@/lib/runtime-config";
 
 interface HCaptchaWidgetProps {
   /** トークン取得時のコールバック */
@@ -42,7 +43,10 @@ export const HCaptchaWidget = forwardRef<
 ) {
   const captchaRef = useRef<HCaptcha>(null);
   const [error, setError] = useState<string | null>(null);
-  const siteKey = import.meta.env.VITE_HCAPTCHA_SITE_KEY as string | undefined;
+  const siteKey = getRuntimeConfigValue(
+    "hcaptchaSiteKey",
+    import.meta.env.VITE_HCAPTCHA_SITE_KEY,
+  );
 
   useImperativeHandle(
     ref,

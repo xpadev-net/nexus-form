@@ -15,9 +15,6 @@ data:
   NODE_ENV: "production"
   NEXT_TELEMETRY_DISABLED: "1"
   
-  # Signup Invitation Code (required for new user registration)
-  SIGNUP_INVITATION_CODE: "CHANGE_ME"
-  
   # External Services (optional)
   # Note: S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are stored in Secret
   S3_ENDPOINT: ""
@@ -31,15 +28,13 @@ data:
   # External Validation Services
   # Note: All credentials are stored in Secret for security
   
-  # Client-side Environment Variables (NEXT_PUBLIC_*)
-  # These variables are replaced in build artifacts by env-replacer.sh
-  # The placeholder format _NEXT_PUBLIC_*_ in build outputs will be replaced with actual values
-  NEXT_PUBLIC_HCAPTCHA_SITE_KEY: ""
+  # Web runtime configuration (injected into /env-config.js by Docker entrypoint)
+  # Must be reachable from the end user's browser, not a cluster-internal Service DNS name.
+  VITE_API_URL: "https://api.example.com"
+  VITE_HCAPTCHA_SITE_KEY: ""
+
+  # Public API origin used by server-side Google OAuth callback pages
   NEXT_PUBLIC_BASE_URL: ""
-  NEXT_PUBLIC_TELEMETRY_V4_HOST: ""
-  NEXT_PUBLIC_TELEMETRY_V6_HOST: ""
-  NEXT_PUBLIC_GOOGLE_SHEETS_INTEGRATION_ENABLED: "false"
-  NEXT_PUBLIC_GOOGLE_SHEETS_OAUTH_ENABLED: "false"
   
   # Optional Settings
   SENTRY_DSN: ""
@@ -50,4 +45,3 @@ data:
   MAX_FILE_SIZE_MB: "10"
   ALLOWED_IMAGE_TYPES: "image/jpeg,image/png,image/webp"
   DEFAULT_TIMEZONE: "Asia/Tokyo"
-
