@@ -162,6 +162,7 @@ export const handleGenericValidation = async (
       referencedBlockId,
       formId,
       service: serviceType,
+      jobId: job.id?.toString(),
     });
   } catch (error) {
     if (error instanceof ValidationCancelledError) {
