@@ -190,7 +190,8 @@ const InlineCombobox = ({
       <ComboboxProvider
         open={
           (items.length > 0 || hasEmpty) &&
-          (!hideWhenNoValue || value.length > 0)
+          (!hideWhenNoValue ||
+            (hasValueProp ? (valueProp?.length ?? 0) : valueState.length) > 0)
         }
         store={store}
       >

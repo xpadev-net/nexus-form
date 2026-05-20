@@ -28,9 +28,7 @@ export const MediaPreviewDialog: FC = () => {
     };
   }, [isOpen, handleClose]);
 
-  if (!isOpen || !previewUrl) return null;
-
-  return (
+  return isOpen && previewUrl ? (
     <div
       className={cn(
         "fixed inset-0 z-50 flex items-center justify-center bg-black/80",
@@ -53,5 +51,5 @@ export const MediaPreviewDialog: FC = () => {
         onClick={(e) => e.stopPropagation()}
       />
     </div>
-  );
+  ) : null;
 };

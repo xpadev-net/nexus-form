@@ -60,10 +60,6 @@ function PublicFormPageInner() {
   });
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
-  const isPasswordGateRequired =
-    formData?.form.isPasswordProtected === true &&
-    !hasVerifiedPassword &&
-    (formData.plateContent === null || formData.structure === null);
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
 
@@ -210,30 +206,28 @@ function PublicFormPageInner() {
     );
   }
 
-  if (isPasswordGateRequired) {
-    return (
-      <PasswordProtectionGate
-        publicId={publicId}
-        passwordHint={formData.form.passwordHint}
-        onVerified={async (): Promise<void> => {
-          const result = await refetchForm();
-          if (result.error) throw result.error;
-          if (
-            !result.data ||
-            result.data.plateContent === null ||
-            result.data.structure === null
-          ) {
-            throw new Error("Public form body is still locked");
-          }
-          setHasVerifiedPassword(true);
-        }}
-      >
-        <section className="p-6">読み込み中...</section>
-      </PasswordProtectionGate>
-    );
-  }
-
-  return (
+  return formData.form.isPasswordProtected === true &&
+    !hasVerifiedPassword &&
+    (formData.plateContent === null || formData.structure === null) ? (
+    <PasswordProtectionGate
+      publicId={publicId}
+      passwordHint={formData.form.passwordHint}
+      onVerified={async (): Promise<void> => {
+        const result = await refetchForm();
+        if (result.error) throw result.error;
+        if (
+          !result.data ||
+          result.data.plateContent === null ||
+          result.data.structure === null
+        ) {
+          throw new Error("Public form body is still locked");
+        }
+        setHasVerifiedPassword(true);
+      }}
+    >
+      <section className="p-6">読み込み中...</section>
+    </PasswordProtectionGate>
+  ) : (
     <FormBody
       title={formData.form.title ?? "公開フォーム"}
       description={formData.form.description ?? undefined}

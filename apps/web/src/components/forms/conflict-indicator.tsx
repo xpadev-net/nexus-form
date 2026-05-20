@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle } from "lucide-react";
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -196,8 +196,9 @@ export function ConflictIndicator({
   className,
 }: ConflictIndicatorProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [resolvedConflicts, setResolvedConflicts] = useState<Set<string>>(
-    new Set(),
+  const [resolvedConflicts, resolveConflict] = useReducer(
+    (prev: Set<string>, conflictId: string) => new Set([...prev, conflictId]),
+    new Set<string>(),
   );
 
   const handleResolveConflict = (
@@ -205,7 +206,7 @@ export function ConflictIndicator({
     resolution: ConflictResolution,
   ) => {
     const conflictId = `${blockId}-${conflictIndex}`;
-    setResolvedConflicts((prev) => new Set([...prev, conflictId]));
+    resolveConflict(conflictId);
     onResolveConflict(conflictId, resolution);
   };
 

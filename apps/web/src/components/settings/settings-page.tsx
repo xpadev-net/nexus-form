@@ -91,11 +91,9 @@ export function SettingsPage() {
     }
   };
 
-  if (isLoading) {
-    return <div className="rounded-lg border bg-card p-6">読み込み中...</div>;
-  }
-
-  return (
+  return isLoading ? (
+    <div className="rounded-lg border bg-card p-6">読み込み中...</div>
+  ) : (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
       <h1 className="text-2xl font-semibold text-card-foreground">設定</h1>
       <p className="mt-1 text-sm text-muted-foreground">

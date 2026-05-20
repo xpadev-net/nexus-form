@@ -22,10 +22,6 @@ export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
-  if (verified) {
-    return <>{children}</>;
-  }
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -58,7 +54,9 @@ export const PasswordProtectionGate: FC<PasswordProtectionGateProps> = ({
     }
   };
 
-  return (
+  return verified ? (
+    children
+  ) : (
     <div className="flex min-h-screen items-center justify-center bg-muted p-4">
       <div className="w-full max-w-md rounded-lg bg-card p-8 shadow-md">
         <h2 className="mb-2 text-center text-xl font-semibold text-foreground">
