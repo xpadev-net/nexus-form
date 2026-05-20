@@ -32,6 +32,7 @@ interface RatingOptionProps {
   iconType: "star" | "heart" | "thumbs";
   disabled: boolean;
   label: string;
+  hasError: boolean;
   onChange: (value: number) => void;
 }
 
@@ -43,6 +44,7 @@ const RatingOption: FC<RatingOptionProps> = ({
   iconType,
   disabled,
   label,
+  hasError,
   onChange,
 }) => (
   <label
@@ -61,6 +63,7 @@ const RatingOption: FC<RatingOptionProps> = ({
       disabled={disabled}
       className="sr-only"
       aria-label={label}
+      aria-invalid={hasError}
     />
     <RatingIcon
       type={iconType}
@@ -221,6 +224,7 @@ const RatingQuestionBase: FC<RatingQuestionProps> = ({
                   customRatingLabels[ratingValue] ||
                   `評価 ${ratingValue} を選択`
                 }
+                hasError={!!error}
                 onChange={handleRatingChange}
               />
             );
