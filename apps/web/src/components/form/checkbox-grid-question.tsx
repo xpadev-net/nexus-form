@@ -26,6 +26,8 @@ interface CheckboxGridQuestionProps {
   className?: string;
 }
 
+const EMPTY_CHECKBOX_GRID_VALUE: Record<string, string[]> = {};
+
 interface CheckboxGridTableProps {
   block: z.infer<typeof CheckboxGridFormBlock>;
   value: Record<string, string[]>;
@@ -139,7 +141,7 @@ const CheckboxGridSelectionSummary: FC<CheckboxGridSelectionSummaryProps> = ({
  */
 const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
   block,
-  value = {},
+  value = EMPTY_CHECKBOX_GRID_VALUE,
   onChange,
   error,
   disabled = false,
