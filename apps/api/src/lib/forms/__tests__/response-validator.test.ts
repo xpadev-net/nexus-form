@@ -634,13 +634,16 @@ describe("unknown question ID and type detection", () => {
     );
   });
 
-  it("does not report unknown question_id when questions list is empty", () => {
+  it("reports unknown question_id when questions list is empty", () => {
     const form = { version: 1, settings: {}, questions: [] };
     const result = validateResponseData(
       [makeResponse("q1", "short_text", { value: "ok" })],
       form,
     );
-    expect(result.isValid).toBe(true);
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Unknown question ID")]),
+    );
   });
 
   it("reports unknown question type when question definition exists", () => {
@@ -657,13 +660,16 @@ describe("unknown question ID and type detection", () => {
     );
   });
 
-  it("does not report unknown question type when questions list is empty", () => {
+  it("rejects unknown question type when questions list is empty", () => {
     const form = { version: 1, settings: {}, questions: [] };
     const result = validateResponseData(
       [makeResponse("q1", "bogus_type", { value: "test" })],
       form,
     );
-    expect(result.isValid).toBe(true);
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Unknown question ID")]),
+    );
   });
 
   it("rejects non-primitive value for unknown question type when questions list is empty", () => {
@@ -686,13 +692,16 @@ describe("unknown question ID and type detection", () => {
     expect(result.errors[0]).toContain("Non-primitive value is not allowed");
   });
 
-  it("allows primitive value for unknown question type when questions list is empty", () => {
+  it("rejects primitive value for unknown question type when questions list is empty", () => {
     const form = { version: 1, settings: {}, questions: [] };
     const result = validateResponseData(
       [makeResponse("q1", "future_type", { value: "hello" })],
       form,
     );
-    expect(result.isValid).toBe(true);
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Unknown question ID")]),
+    );
   });
 });
 
@@ -1206,6 +1215,17 @@ describe("allowOther enforcement without question metadata", () => {
     expect(result.isValid).toBe(true);
   });
 
+  it("rejects non-empty responses when questions list is empty", () => {
+    const result = validateResponseData(
+      [makeResponse("q1", "short_text", { value: "unexpected" })],
+      noQuestionsForm,
+    );
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Unknown question ID")]),
+    );
+  });
+
   it("accepts empty responses even when questions exist (branching skips all pages)", () => {
     const form = makeForm("q1", "short_text", { required: true });
     const result = validateResponseData([], form);
@@ -1397,13 +1417,16 @@ describe("rating integer validation", () => {
     expect(result.errors[0]).toContain("Value must be at least 1");
   });
 
-  it("skips min/max check when question is not found (questions=[])", () => {
+  it("rejects unknown question before min/max metadata checks when questions=[]", () => {
     const noQuestionsForm = { version: 1, settings: {}, questions: [] };
     const result = validateResponseData(
       [makeResponse("q1", "linear_scale", { value: 999 })],
       noQuestionsForm,
     );
-    expect(result.isValid).toBe(true);
+    expect(result.isValid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Unknown question ID")]),
+    );
   });
 });
 

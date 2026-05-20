@@ -16,39 +16,44 @@ export type { ValidatorQuestion } from "@nexus-form/shared";
 
 const answerableSet: ReadonlySet<string> = new Set(ANSWERABLE_QUESTION_TYPES);
 
-/**
- * フォームの plateContent JSON 文字列から ValidatorQuestion[] を構築する。
- * パースに失敗した場合は空配列を返す。
- */
-export function buildQuestionsFromPlateContent(
-  plateContentJson: string,
-): ValidatorQuestion[] {
+export class PlateQuestionBuildError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "PlateQuestionBuildError";
+  }
+}
+
+function parsePlateContentArray(plateContentJson: string): unknown[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(plateContentJson);
-  } catch {
-    logWarn("Failed to parse plateContent JSON", "plate-question-builder");
-    return [];
+  } catch (error) {
+    throw new PlateQuestionBuildError("Failed to parse plateContent JSON", {
+      cause: error,
+    });
   }
 
   if (!Array.isArray(parsed)) {
-    logWarn(
-      "plateContent is not a JSON array — skipping question extraction",
-      "plate-question-builder",
-    );
-    return [];
+    throw new PlateQuestionBuildError("plateContent is not a JSON array");
   }
+
+  return parsed;
+}
+
+function buildQuestionsFromPlateContentWithMode(
+  plateContentJson: string,
+  options: { strictValidation: boolean },
+): ValidatorQuestion[] {
+  const parsed = parsePlateContentArray(plateContentJson);
 
   let extracted: ReturnType<typeof extractQuestionsFromPlateContent>;
   try {
     extracted = extractQuestionsFromPlateContent(parsed);
-  } catch (err) {
-    logError(
-      `Failed to extract questions from plateContent: ${String(err)}`,
-      "plate-question-builder",
-      { error: err },
+  } catch (error) {
+    throw new PlateQuestionBuildError(
+      `Failed to extract questions from plateContent: ${String(error)}`,
+      { cause: error },
     );
-    return [];
   }
 
   return extracted
@@ -61,10 +66,11 @@ export function buildQuestionsFromPlateContent(
           ? questionValidationSchema.safeParse(q.validation)
           : { success: true as const, data: undefined };
       if (!result.success) {
-        logWarn(
-          `Failed to parse validation rules for question ${q.blockId}: ${result.error.message}`,
-          "plate-question-builder",
-        );
+        const message = `Failed to parse validation rules for question ${q.blockId}: ${result.error.message}`;
+        if (options.strictValidation) {
+          throw new PlateQuestionBuildError(message);
+        }
+        logWarn(message, "plate-question-builder");
       }
       const rawValidation = result.success ? result.data : undefined;
       const validation =
@@ -78,4 +84,37 @@ export function buildQuestionsFromPlateContent(
         ...(validation ? { validation } : {}),
       };
     });
+}
+
+export function buildQuestionsFromPlateContentStrict(
+  plateContentJson: string,
+): ValidatorQuestion[] {
+  return buildQuestionsFromPlateContentWithMode(plateContentJson, {
+    strictValidation: true,
+  });
+}
+
+/**
+ * フォームの plateContent JSON 文字列から ValidatorQuestion[] を構築する。
+ * パースに失敗した場合は空配列を返す。
+ */
+export function buildQuestionsFromPlateContent(
+  plateContentJson: string,
+): ValidatorQuestion[] {
+  try {
+    return buildQuestionsFromPlateContentWithMode(plateContentJson, {
+      strictValidation: false,
+    });
+  } catch (error) {
+    if (error instanceof PlateQuestionBuildError) {
+      logWarn(error.message, "plate-question-builder");
+      return [];
+    }
+    logError(
+      `Unexpected error while building questions from plateContent: ${String(error)}`,
+      "plate-question-builder",
+      { error },
+    );
+    return [];
+  }
 }

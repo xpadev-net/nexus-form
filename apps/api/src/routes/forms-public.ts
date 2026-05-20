@@ -23,8 +23,12 @@ import {
 import { and, count, desc, eq } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
+import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { validateShareLink } from "../lib/forms/permission-service";
-import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
+import {
+  buildQuestionsFromPlateContentStrict,
+  PlateQuestionBuildError,
+} from "../lib/forms/plate-question-builder";
 import { buildPublicFormStructure } from "../lib/forms/public-structure";
 import { validateResponseData } from "../lib/forms/response-validator";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
@@ -106,52 +110,70 @@ const verifyPasswordSchema = z.object({
 
 // ── Types ────────────────────────────────────────────────────────────
 
-const PasswordProtectionSchema = z
-  .object({
-    enabled: z.boolean().optional(),
-    password: z.string().optional(),
-    password_hint: z.string().optional(),
-  })
-  .passthrough();
-
-const ResponseLimitSchema = z
-  .object({
-    enabled: z.boolean(),
-    max_responses: z.number().int(),
-    message: z.string().optional(),
-  })
-  .passthrough();
-
-const ParsedStructureSchema = z
-  .object({
-    version: z.number().optional(),
-    settings: z
-      .object({
-        require_fingerprint: z.boolean().optional(),
-        response_limit: ResponseLimitSchema.optional(),
-      })
-      .passthrough()
-      .optional(),
-    access_control: z
-      .object({
-        password_protection: PasswordProtectionSchema.optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
-
-type ParsedStructure = z.infer<typeof ParsedStructureSchema>;
-type PasswordProtection = z.infer<typeof PasswordProtectionSchema>;
+type ParsedStructure = ReturnType<typeof parseStoredStructure>;
+type PasswordProtection = NonNullable<
+  ParsedStructure["access_control"]
+>["password_protection"];
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function parseStructure(structureJson: string): ParsedStructure | null {
+function logInvalidPublishedConfiguration(
+  reason: string,
+  metadata: { formId: string; publicId: string; operation: string },
+  error?: unknown,
+): void {
+  logError(reason, "forms-public", {
+    ...metadata,
+    ...(error ? { error } : {}),
+  });
+}
+
+function parsePublishedStructure(
+  structureJson: string | undefined,
+  metadata: { formId: string; publicId: string; operation: string },
+): ParsedStructure | null {
+  if (!structureJson) {
+    logInvalidPublishedConfiguration(
+      "Published form is missing an active formStructure",
+      metadata,
+    );
+    return null;
+  }
+
   try {
-    const parsed: unknown = JSON.parse(structureJson);
-    const result = ParsedStructureSchema.safeParse(parsed);
-    return result.success ? result.data : null;
-  } catch {
+    return parseStoredStructure(structureJson);
+  } catch (error) {
+    logInvalidPublishedConfiguration(
+      "Published form has invalid active formStructure JSON",
+      metadata,
+      error,
+    );
+    return null;
+  }
+}
+
+function buildPublishedQuestions(
+  plateContent: string | null | undefined,
+  metadata: { formId: string; publicId: string; operation: string },
+) {
+  if (!plateContent) {
+    logInvalidPublishedConfiguration(
+      "Published form is missing plateContent",
+      metadata,
+    );
+    return null;
+  }
+
+  try {
+    return buildQuestionsFromPlateContentStrict(plateContent);
+  } catch (error) {
+    logInvalidPublishedConfiguration(
+      error instanceof PlateQuestionBuildError
+        ? error.message
+        : "Published form has invalid plateContent",
+      metadata,
+      error,
+    );
     return null;
   }
 }
@@ -245,13 +267,16 @@ export const formsPublicRouter = createHonoApp()
       getLatestSnapshot(target.id),
     ]);
 
-    const parsedStructure = structure
-      ? parseStructure(structure.structureJson)
-      : null;
+    const parsedStructure = parsePublishedStructure(structure?.structureJson, {
+      formId: target.id,
+      publicId,
+      operation: "GET /public/:publicId",
+    });
+    if (!parsedStructure) {
+      return c.json(errorResponse("Form configuration is invalid"), 500);
+    }
 
-    const pwProtection = parsedStructure
-      ? getPasswordProtection(parsedStructure)
-      : undefined;
+    const pwProtection = getPasswordProtection(parsedStructure);
     const isProtected = pwProtection?.enabled ?? false;
 
     if (isProtected) {
@@ -285,6 +310,17 @@ export const formsPublicRouter = createHonoApp()
       }
     }
 
+    const publishedContent =
+      activeSnapshot?.plateContent ?? target.plateContent;
+    const questions = buildPublishedQuestions(publishedContent, {
+      formId: target.id,
+      publicId,
+      operation: "GET /public/:publicId",
+    });
+    if (!questions) {
+      return c.json(errorResponse("Form configuration is invalid"), 500);
+    }
+
     const response = PublicFormResponseSchema.parse({
       form: {
         id: target.id,
@@ -295,10 +331,8 @@ export const formsPublicRouter = createHonoApp()
         isPasswordProtected: isProtected,
         passwordHint: pwProtection?.password_hint,
       },
-      structure: parsedStructure
-        ? buildPublicFormStructure(parsedStructure)
-        : null,
-      plateContent: activeSnapshot?.plateContent ?? target.plateContent ?? "[]",
+      structure: buildPublicFormStructure(parsedStructure),
+      plateContent: publishedContent,
     });
     return c.json(response);
   })
@@ -354,18 +388,14 @@ export const formsPublicRouter = createHonoApp()
       // Run before quota checks to reject malformed payloads cheaply.
       const publishedContent =
         activeSnapshot?.plateContent ?? target.plateContent;
-      if (!publishedContent) {
-        logWarn(
-          "POST: published form missing plateContent in snapshot",
-          "forms-public",
-          {
-            publicId,
-          },
-        );
+      const questions = buildPublishedQuestions(publishedContent, {
+        formId: target.id,
+        publicId,
+        operation: "POST /public/:publicId/submit",
+      });
+      if (!questions) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
       }
-      const questions = publishedContent
-        ? buildQuestionsFromPlateContent(publishedContent)
-        : [];
       const answerValidation = validateResponseData(payload.responses, {
         version: 1,
         settings: {},
@@ -407,14 +437,20 @@ export const formsPublicRouter = createHonoApp()
         .orderBy(desc(formStructure.version))
         .limit(1);
 
-      const parsedStructure = structure
-        ? parseStructure(structure.structureJson)
-        : null;
+      const parsedStructure = parsePublishedStructure(
+        structure?.structureJson,
+        {
+          formId: target.id,
+          publicId,
+          operation: "POST /public/:publicId/submit",
+        },
+      );
+      if (!parsedStructure) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
 
       // 6. Password protection check
-      const pwProtection = parsedStructure
-        ? getPasswordProtection(parsedStructure)
-        : undefined;
+      const pwProtection = getPasswordProtection(parsedStructure);
 
       if (pwProtection?.enabled) {
         if (!pwProtection.password) {
@@ -442,9 +478,9 @@ export const formsPublicRouter = createHonoApp()
       }
 
       // 7. Response limit variable (enforcement happens inside atomic transaction)
-      const responseLimit = parsedStructure?.settings?.response_limit;
+      const responseLimit = parsedStructure.settings?.response_limit;
       const requireFingerprint =
-        parsedStructure?.settings?.require_fingerprint ?? true;
+        parsedStructure.settings?.require_fingerprint ?? true;
       if (requireFingerprint && payload.fingerprints.length === 0) {
         return c.json(errorResponse("Fingerprint data is required"), 400);
       }
@@ -595,12 +631,14 @@ export const formsPublicRouter = createHonoApp()
         .orderBy(desc(formStructure.version))
         .limit(1);
 
-      if (!structure)
-        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
-
-      const parsed = parseStructure(structure.structureJson);
-      if (!parsed)
-        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
+      const parsed = parsePublishedStructure(structure?.structureJson, {
+        formId: target.id,
+        publicId,
+        operation: "POST /public/:publicId/verify-password",
+      });
+      if (!parsed) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
 
       const pwProtection = getPasswordProtection(parsed);
 

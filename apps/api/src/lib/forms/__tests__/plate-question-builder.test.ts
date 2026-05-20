@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildQuestionsFromPlateContent } from "../plate-question-builder";
+import {
+  buildQuestionsFromPlateContent,
+  buildQuestionsFromPlateContentStrict,
+  PlateQuestionBuildError,
+} from "../plate-question-builder";
 
 // ---------------------------------------------------------------------------
 // Helper: minimal plateContent node
@@ -91,6 +95,20 @@ describe("buildQuestionsFromPlateContent", () => {
   it("returns empty array for empty array", () => {
     const questions = buildQuestionsFromPlateContent("[]");
     expect(questions).toEqual([]);
+  });
+
+  it("throws in strict mode for invalid JSON", () => {
+    expect(() =>
+      buildQuestionsFromPlateContentStrict("not valid json {{{"),
+    ).toThrow(PlateQuestionBuildError);
+  });
+
+  it("throws in strict mode when JSON is not an array", () => {
+    expect(() =>
+      buildQuestionsFromPlateContentStrict(
+        JSON.stringify({ type: "form_short_text" }),
+      ),
+    ).toThrow(PlateQuestionBuildError);
   });
 
   // ---------------------------------------------------------------------------
