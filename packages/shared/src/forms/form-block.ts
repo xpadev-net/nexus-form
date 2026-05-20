@@ -724,9 +724,3 @@ export function extractBlockContent(block: Block): Record<string, unknown> {
     meta: block.meta,
   };
 }
-
-/** スナップショットの blocksJson をパースし Block[] を返す。 */
-export function parseSnapshotBlocks(blocksJson: string): Block[] {
-  const rawBlocks = JSON.parse(blocksJson) as Record<string, unknown>[];
-  return rawBlocks as unknown as Block[];
-}
