@@ -21,6 +21,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  ValidationCancelledError,
   writeValidationResult,
 } from "../lib/validation-helpers";
 
@@ -163,6 +164,9 @@ export const handleGenericValidation = async (
       service: serviceType,
     });
   } catch (error) {
+    if (error instanceof ValidationCancelledError) {
+      return { ok: false, error: "Validation cancelled" };
+    }
     if (error instanceof ConcurrentDeleteError) {
       return { ok: false, error: "Result row deleted" };
     }

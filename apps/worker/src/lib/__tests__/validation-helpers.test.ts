@@ -6,6 +6,7 @@ import { extractReferencedValueFromJson } from "../response-data-extractor";
 import {
   ConcurrentDeleteError,
   markValidationProcessing,
+  ValidationCancelledError,
   writeValidationResult,
 } from "../validation-helpers";
 
@@ -266,6 +267,9 @@ describe("markValidationProcessing", () => {
 
   it("throws before publishing when a cancelled row is excluded from PROCESSING", async () => {
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectLimit.mockResolvedValueOnce([
+      { status: "FAILED", errorCode: "CANCELLED_BY_USER" },
+    ]);
 
     await expect(
       markValidationProcessing({
@@ -275,7 +279,7 @@ describe("markValidationProcessing", () => {
         referencedBlockId: "question-1",
         service: "discord",
       }),
-    ).rejects.toBeInstanceOf(ConcurrentDeleteError);
+    ).rejects.toBeInstanceOf(ValidationCancelledError);
     expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 

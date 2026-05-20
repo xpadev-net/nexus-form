@@ -32,6 +32,19 @@ vi.mock("../../lib/validation-helpers", () => {
     }
   }
 
+  class ValidationCancelledError extends Error {
+    constructor(
+      public readonly responseId: string,
+      public readonly ruleId: string,
+      public readonly referencedBlockId: string,
+    ) {
+      super(
+        `Validation cancelled concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
+      );
+      this.name = "ValidationCancelledError";
+    }
+  }
+
   class ReferencedBlockMissingError extends Error {
     constructor(
       public readonly formId: string,
@@ -48,6 +61,7 @@ vi.mock("../../lib/validation-helpers", () => {
     markValidationProcessing: vi.fn(),
     writeValidationResult: vi.fn(),
     ConcurrentDeleteError,
+    ValidationCancelledError,
     ReferencedBlockMissingError,
   };
 });
@@ -90,6 +104,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  ValidationCancelledError,
   writeValidationResult,
 } from "../../lib/validation-helpers";
 
@@ -226,6 +241,23 @@ describe("handleGenericValidation", () => {
     const result = await handleGenericValidation(job);
 
     expect(result).toEqual({ ok: false, error: "Result row deleted" });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    expect(mockProviderRegistryGet).not.toHaveBeenCalled();
+  });
+
+  it("markValidationProcessingがValidationCancelledErrorをスローした場合は結果を書かずに終端化する", async () => {
+    mockMarkValidationProcessing.mockRejectedValue(
+      new ValidationCancelledError("r-1", "rule-1", "block-a"),
+    );
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Validation cancelled" });
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
     expect(mockProviderRegistryGet).not.toHaveBeenCalled();
   });

@@ -377,7 +377,21 @@ async function discardQueuedValidationJob(params: {
     await job.discard();
     const state = await job.getState();
     if (state === "waiting" || state === "delayed") {
-      await job.remove();
+      try {
+        await job.remove();
+      } catch (error) {
+        logWarn(
+          "Failed to remove queued validation job during cancellation",
+          "forms-responses",
+          {
+            error,
+            service,
+            jobId,
+            validationResultId,
+            state,
+          },
+        );
+      }
     }
   } catch (error) {
     logWarn(
