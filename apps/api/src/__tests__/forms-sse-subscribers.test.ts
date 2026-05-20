@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSseChannelRegistry } from "../routes/forms-sse";
+import {
+  createSseChannelRegistry,
+  createSseConnectionLimiter,
+} from "../routes/forms-sse";
 
 vi.mock("../lib/dual-auth", () => ({
   withDualFormAuth: () => async (_c: unknown, next: () => Promise<void>) =>
@@ -208,5 +211,76 @@ describe("SSE channel subscriber registry", () => {
 
     expect(client.close).toHaveBeenCalledTimes(1);
     expect(subscribers).toHaveLength(0);
+  });
+});
+
+describe("SSE connection limiter", () => {
+  it("limits connections per user so one user cannot occupy every process-local slot", () => {
+    const limiter = createSseConnectionLimiter({
+      maxTotal: 10,
+      maxPerUser: 2,
+      maxPerForm: 10,
+    });
+
+    const first = limiter.tryAcquire({ userId: "user-1", formId: "form-1" });
+    const second = limiter.tryAcquire({ userId: "user-1", formId: "form-2" });
+    const rejected = limiter.tryAcquire({
+      userId: "user-1",
+      formId: "form-3",
+    });
+
+    expect("release" in first).toBe(true);
+    expect("release" in second).toBe(true);
+    expect(rejected).toEqual({
+      status: 503,
+      message: "Too many SSE connections for this user",
+    });
+
+    if ("release" in first) first.release();
+
+    const afterRelease = limiter.tryAcquire({
+      userId: "user-1",
+      formId: "form-3",
+    });
+
+    expect("release" in afterRelease).toBe(true);
+  });
+
+  it("limits connections per form independently from the total process limit", () => {
+    const limiter = createSseConnectionLimiter({
+      maxTotal: 10,
+      maxPerUser: 10,
+      maxPerForm: 2,
+    });
+
+    const first = limiter.tryAcquire({ userId: "user-1", formId: "form-1" });
+    const second = limiter.tryAcquire({ userId: "user-2", formId: "form-1" });
+    const rejected = limiter.tryAcquire({
+      userId: "user-3",
+      formId: "form-1",
+    });
+
+    expect("release" in first).toBe(true);
+    expect("release" in second).toBe(true);
+    expect(rejected).toEqual({
+      status: 503,
+      message: "Too many SSE connections for this form",
+    });
+  });
+
+  it("keeps the process-local total limit as the final resource guard", () => {
+    const limiter = createSseConnectionLimiter({
+      maxTotal: 2,
+      maxPerUser: 10,
+      maxPerForm: 10,
+    });
+
+    limiter.tryAcquire({ userId: "user-1", formId: "form-1" });
+    limiter.tryAcquire({ userId: "user-2", formId: "form-2" });
+
+    expect(limiter.tryAcquire({ userId: "user-3", formId: "form-3" })).toEqual({
+      status: 503,
+      message: "Too many SSE connections",
+    });
   });
 });

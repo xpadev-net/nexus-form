@@ -17,13 +17,113 @@ import { getRedisConnection } from "../lib/redis";
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
 /**
- * SSE 同時接続数の上限管理
+ * SSE 同時接続数のプロセスローカル上限。
+ *
+ * これは各 API プロセスの Redis subscriber / stream リソース保護を目的とする。
+ * マルチレプリカ環境のクラスタ全体上限はロードバランサーや外部 rate limit で管理し、
+ * ここでは 1 ユーザー・1 フォームがプロセス内の全枠を占有しないようにする。
  */
 const MAX_SSE_CONNECTIONS = Number.parseInt(
   process.env.SSE_MAX_CONNECTIONS || "200",
   10,
 );
-let activeConnections = 0;
+const MAX_SSE_CONNECTIONS_PER_USER = Number.parseInt(
+  process.env.SSE_MAX_CONNECTIONS_PER_USER || "20",
+  10,
+);
+const MAX_SSE_CONNECTIONS_PER_FORM = Number.parseInt(
+  process.env.SSE_MAX_CONNECTIONS_PER_FORM || "50",
+  10,
+);
+
+interface SseConnectionScope {
+  userId: string;
+  formId: string;
+}
+
+interface SseConnectionRejection {
+  status: 503;
+  message: string;
+}
+
+interface SseConnectionPermit {
+  release: () => void;
+}
+
+interface SseConnectionLimiter {
+  tryAcquire: (
+    scope: SseConnectionScope,
+  ) => SseConnectionPermit | SseConnectionRejection;
+}
+
+function incrementCount(counts: Map<string, number>, key: string): void {
+  counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+function decrementCount(counts: Map<string, number>, key: string): void {
+  const nextCount = (counts.get(key) ?? 0) - 1;
+  if (nextCount <= 0) {
+    counts.delete(key);
+    return;
+  }
+  counts.set(key, nextCount);
+}
+
+export function createSseConnectionLimiter(options: {
+  maxTotal: number;
+  maxPerUser: number;
+  maxPerForm: number;
+}): SseConnectionLimiter {
+  const userConnections = new Map<string, number>();
+  const formConnections = new Map<string, number>();
+  let totalConnections = 0;
+
+  return {
+    tryAcquire(scope: SseConnectionScope) {
+      if (totalConnections >= options.maxTotal) {
+        return {
+          status: 503,
+          message: "Too many SSE connections",
+        };
+      }
+
+      if ((userConnections.get(scope.userId) ?? 0) >= options.maxPerUser) {
+        return {
+          status: 503,
+          message: "Too many SSE connections for this user",
+        };
+      }
+
+      if ((formConnections.get(scope.formId) ?? 0) >= options.maxPerForm) {
+        return {
+          status: 503,
+          message: "Too many SSE connections for this form",
+        };
+      }
+
+      totalConnections++;
+      incrementCount(userConnections, scope.userId);
+      incrementCount(formConnections, scope.formId);
+
+      let released = false;
+      return {
+        release() {
+          if (released) return;
+          released = true;
+          totalConnections--;
+          decrementCount(userConnections, scope.userId);
+          decrementCount(formConnections, scope.formId);
+        },
+      };
+    },
+  };
+}
+
+const sseConnectionLimiter = createSseConnectionLimiter({
+  maxTotal: MAX_SSE_CONNECTIONS,
+  maxPerUser: MAX_SSE_CONNECTIONS_PER_USER,
+  maxPerForm: MAX_SSE_CONNECTIONS_PER_FORM,
+});
 
 interface SseMessageClient {
   sendMessage: (id: string, data: string) => Promise<void>;
@@ -188,14 +288,15 @@ export async function closeSseSubscribers(): Promise<void> {
 /**
  * SSE ストリームを作成する共通ヘルパー
  */
-function createSSEStream(c: Context<Env>, channel: string) {
-  // 接続数上限チェック
-  if (activeConnections >= MAX_SSE_CONNECTIONS) {
-    return c.text("Too many SSE connections", 503);
-  }
+function createSSEStream(c: Context<Env>, channel: string, formId: string) {
+  const auth = c.get("dualAuthContext");
+  const permit = sseConnectionLimiter.tryAcquire({
+    userId: auth?.user_id ?? "unknown",
+    formId,
+  });
+  if ("status" in permit) return c.text(permit.message, permit.status);
 
   return streamSSE(c, async (stream) => {
-    activeConnections++;
     let detachClient: (() => Promise<void>) | null = null;
     let cleanupPromise: Promise<void> | null = null;
     let closeRequested = false;
@@ -246,7 +347,7 @@ function createSSEStream(c: Context<Env>, channel: string) {
     } finally {
       resolveStream = null;
       if (keepalive !== null) clearInterval(keepalive);
-      activeConnections--;
+      permit.release();
       await cleanupClient();
     }
   });
@@ -257,11 +358,11 @@ export const formsSSERouter = createHonoApp()
   .get("/:id/responses/events", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const channel = getValidationChannel(formId);
-    return createSSEStream(c, channel);
+    return createSSEStream(c, channel, formId);
   })
   // エディタ SSE: form:editor:{formId}
   .get("/:id/editor/events", withDualFormAuth("EDITOR"), async (c) => {
     const formId = c.req.param("id");
     const channel = getEditorChannel(formId);
-    return createSSEStream(c, channel);
+    return createSSEStream(c, channel, formId);
   });
