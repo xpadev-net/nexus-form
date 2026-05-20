@@ -103,7 +103,7 @@ export function getRedisConnection(): { connection: RedisOptions } {
           ...bullmqOptions,
           host: url.hostname,
           port: Number.parseInt(url.port || "6379", 10),
-          password: url.password || undefined,
+          password: url.password || process.env.REDIS_PASSWORD || undefined,
           username: url.username || undefined,
           ...(isTls ? { tls: {} } : {}),
         },
@@ -184,7 +184,7 @@ export function getRedisConnectionInfo(): {
         config: {
           host: url.hostname,
           port: url.port || 6379,
-          hasPassword: !!url.password,
+          hasPassword: !!(url.password || process.env.REDIS_PASSWORD),
           tls: url.protocol === "rediss:",
         },
       };

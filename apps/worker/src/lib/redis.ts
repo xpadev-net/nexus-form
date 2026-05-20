@@ -48,7 +48,7 @@ function getConnectionOptions(): RedisOptions {
       return {
         host: url.hostname,
         port: Number.parseInt(url.port || "6379", 10),
-        password: url.password || undefined,
+        password: url.password || process.env.REDIS_PASSWORD || undefined,
         username: url.username || undefined,
         ...(isTls ? { tls: {} } : {}),
       };
