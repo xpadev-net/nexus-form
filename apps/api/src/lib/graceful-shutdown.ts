@@ -13,6 +13,7 @@ export interface ApiGracefulShutdownOptions {
   stopServiceMonitor: () => void;
   stopPluginDriftGuard?: () => Promise<void>;
   closeQueues: () => Promise<void>;
+  closeSseSubscribers?: () => Promise<void>;
   closePublisher: () => Promise<void>;
   closeRedisClient: () => Promise<void>;
   closeDatabase: () => Promise<void>;
@@ -85,6 +86,7 @@ export function createApiGracefulShutdown({
   stopServiceMonitor,
   stopPluginDriftGuard = async () => undefined,
   closeQueues,
+  closeSseSubscribers = async () => undefined,
   closePublisher,
   closeRedisClient,
   closeDatabase,
@@ -140,6 +142,14 @@ export function createApiGracefulShutdown({
       scheduleForceExit(requestTimeoutMs);
 
       const cleanupResults: boolean[] = [];
+      cleanupResults.push(
+        await runCleanupStep(
+          "close SSE subscribers",
+          closeSseSubscribers,
+          logger,
+          captureError,
+        ),
+      );
       cleanupResults.push(
         await runCleanupStep(
           "close HTTP server",

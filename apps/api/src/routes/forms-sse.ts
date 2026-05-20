@@ -25,6 +25,36 @@ const MAX_SSE_CONNECTIONS = Number.parseInt(
 );
 let activeConnections = 0;
 
+interface SseMessageClient {
+  sendMessage: (id: string, data: string) => Promise<void>;
+  close: () => void;
+}
+
+interface RedisSubscriber {
+  on(
+    event: "message",
+    listener: (channel: string, message: string) => void,
+  ): RedisSubscriber;
+  subscribe(channel: string): Promise<unknown>;
+  unsubscribe(channel: string): Promise<unknown>;
+  quit(): Promise<unknown>;
+}
+
+interface ChannelSubscription {
+  subscriber: RedisSubscriber;
+  clients: Map<symbol, { eventId: number; client: SseMessageClient }>;
+  subscribePromise: Promise<unknown>;
+  closingPromise: Promise<void> | null;
+}
+
+interface SseChannelRegistry {
+  attach: (
+    channel: string,
+    client: SseMessageClient,
+  ) => Promise<() => Promise<void>>;
+  closeAll: () => Promise<void>;
+}
+
 /**
  * Redis subscriber 用の接続オプションを取得する
  *
@@ -48,6 +78,111 @@ function createSubscriber(): Redis {
   });
 }
 
+export function createSseChannelRegistry(
+  subscriberFactory: () => RedisSubscriber = createSubscriber,
+): SseChannelRegistry {
+  const subscriptions = new Map<string, ChannelSubscription>();
+  let acceptingClients = true;
+
+  async function closeSubscription(
+    channel: string,
+    subscription: ChannelSubscription,
+  ): Promise<void> {
+    if (subscription.closingPromise) {
+      await subscription.closingPromise;
+      return;
+    }
+
+    subscription.closingPromise = (async () => {
+      subscriptions.delete(channel);
+      for (const entry of subscription.clients.values()) {
+        entry.client.close();
+      }
+      await subscription.subscriber.unsubscribe(channel).catch(() => {});
+      await subscription.subscriber.quit().catch(() => {});
+    })();
+    await subscription.closingPromise;
+  }
+
+  function getSubscription(channel: string): ChannelSubscription {
+    const existing = subscriptions.get(channel);
+    if (existing) return existing;
+
+    const subscriber = subscriberFactory();
+    const subscription: ChannelSubscription = {
+      subscriber,
+      clients: new Map(),
+      subscribePromise: subscriber.subscribe(channel),
+      closingPromise: null,
+    };
+
+    subscriber.on("message", (receivedChannel: string, message: string) => {
+      if (receivedChannel !== channel) return;
+
+      for (const entry of subscription.clients.values()) {
+        entry.eventId++;
+        entry.client.sendMessage(String(entry.eventId), message).catch(() => {
+          // クライアントが切断済みの場合はエラーを無視
+        });
+      }
+    });
+
+    subscriptions.set(channel, subscription);
+    return subscription;
+  }
+
+  return {
+    async attach(
+      channel: string,
+      client: SseMessageClient,
+    ): Promise<() => Promise<void>> {
+      if (!acceptingClients) {
+        client.close();
+        return async () => undefined;
+      }
+
+      const subscription = getSubscription(channel);
+      const clientId = Symbol(channel);
+      subscription.clients.set(clientId, { eventId: 0, client });
+
+      try {
+        await subscription.subscribePromise;
+      } catch (error) {
+        subscription.clients.delete(clientId);
+        if (subscription.clients.size === 0) {
+          await closeSubscription(channel, subscription);
+        }
+        throw error;
+      }
+
+      let detached = false;
+      return async () => {
+        if (detached) return;
+        detached = true;
+
+        subscription.clients.delete(clientId);
+        if (subscription.clients.size === 0) {
+          await closeSubscription(channel, subscription);
+        }
+      };
+    },
+    async closeAll(): Promise<void> {
+      acceptingClients = false;
+      await Promise.all(
+        Array.from(subscriptions.entries()).map(([channel, subscription]) =>
+          closeSubscription(channel, subscription),
+        ),
+      );
+    },
+  };
+}
+
+const sseChannelRegistry = createSseChannelRegistry();
+
+export async function closeSseSubscribers(): Promise<void> {
+  await sseChannelRegistry.closeAll();
+}
+
 /**
  * SSE ストリームを作成する共通ヘルパー
  */
@@ -59,29 +194,37 @@ function createSSEStream(c: Context<Env>, channel: string) {
 
   return streamSSE(c, async (stream) => {
     activeConnections++;
-    let subscriber: Redis | null = null;
+    let detachClient: (() => Promise<void>) | null = null;
+    let detachStarted = false;
+    let closeRequested = false;
     let keepalive: ReturnType<typeof setInterval> | null = null;
+    let resolveStream: (() => void) | null = null;
+    const cleanupClient = async (): Promise<void> => {
+      if (detachStarted || detachClient === null) return;
+      detachStarted = true;
+      await detachClient?.();
+    };
+    const closeStream = (): void => {
+      closeRequested = true;
+      cleanupClient().catch(() => {});
+      resolveStream?.();
+    };
 
     try {
-      subscriber = createSubscriber();
-
-      let eventId = 0;
-
-      // Redis メッセージ受信時に SSE イベントとして送信
-      subscriber.on("message", (_ch: string, message: string) => {
-        eventId++;
-        stream
-          .writeSSE({
-            id: String(eventId),
-            event: "message",
-            data: message,
-          })
-          .catch(() => {
-            // クライアントが切断済みの場合はエラーを無視
-          });
+      const streamClosed = new Promise<void>((resolve) => {
+        resolveStream = resolve;
+        stream.onAbort(closeStream);
       });
-
-      await subscriber.subscribe(channel);
+      detachClient = await sseChannelRegistry.attach(channel, {
+        sendMessage: (id, data) =>
+          stream.writeSSE({
+            id,
+            event: "message",
+            data,
+          }),
+        close: closeStream,
+      });
+      if (closeRequested) return;
 
       // Keepalive: 30秒ごとにコメントを送信して接続を維持
       keepalive = setInterval(() => {
@@ -96,16 +239,12 @@ function createSSEStream(c: Context<Env>, channel: string) {
       }, KEEPALIVE_INTERVAL_MS);
 
       // クライアント切断時のクリーンアップ + ストリーム待機
-      await new Promise<void>((resolve) => {
-        stream.onAbort(() => {
-          subscriber?.unsubscribe(channel).catch(() => {});
-          resolve();
-        });
-      });
+      await streamClosed;
     } finally {
+      resolveStream = null;
       if (keepalive !== null) clearInterval(keepalive);
       activeConnections--;
-      subscriber?.quit().catch(() => {});
+      await cleanupClient();
     }
   });
 }

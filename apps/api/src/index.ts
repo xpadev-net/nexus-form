@@ -39,7 +39,7 @@ import { formsPermissionsRouter } from "./routes/forms-permissions";
 import { formsPublicRouter } from "./routes/forms-public";
 import { formsResponsesRouter } from "./routes/forms-responses";
 import { formsSnapshotsRouter } from "./routes/forms-snapshots";
-import { formsSSERouter } from "./routes/forms-sse";
+import { closeSseSubscribers, formsSSERouter } from "./routes/forms-sse";
 import { formsStructureRouter } from "./routes/forms-structure";
 import { formsValidationRulesRouter } from "./routes/forms-validation-rules";
 import { integrationsGoogleRouter } from "./routes/integrations-google";
@@ -222,6 +222,7 @@ async function startServer() {
       await pluginStartupHandle?.stop();
     },
     closeQueues,
+    closeSseSubscribers,
     closePublisher,
     closeRedisClient,
     closeDatabase,
