@@ -61,6 +61,7 @@ vi.mock("@nexus-form/database", () => ({
     referencedBlockId: "referencedBlockId",
     attemptCount: "attemptCount",
     errorCode: "errorCode",
+    jobId: "jobId",
     status: "status",
   },
   formResponse: {
@@ -230,6 +231,7 @@ describe("markValidationProcessing", () => {
       ruleId: "rule-1",
       referencedBlockId: "question-1",
       service: "discord",
+      jobId: "job-1",
     };
     const expectedId = getValidationResultId(params);
 
@@ -238,6 +240,7 @@ describe("markValidationProcessing", () => {
     expect(db.select).not.toHaveBeenCalled();
     expect(updateSet).toHaveBeenCalledWith({
       id: expectedId,
+      jobId: "job-1",
       status: "PROCESSING",
     });
     expect(publishValidationEvent).toHaveBeenCalledWith(

@@ -425,6 +425,8 @@ async function markValidationRetriesPending(
           updates.map((entry) => entry.resultId),
         ),
         ne(externalServiceValidationResult.status, "PROCESSING"),
+        // Worker writes the same jobId when it reaches PROCESSING/final states;
+        // skip those rows so a fast Worker cannot be reset to PENDING here.
         or(
           isNull(externalServiceValidationResult.jobId),
           notInArray(

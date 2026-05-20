@@ -219,12 +219,13 @@ export async function markValidationProcessing(params: {
   referencedBlockId: string;
   formId: string;
   service: string;
+  jobId?: string;
 }) {
   const resultId = getValidationResultId(params);
 
   const updateResult = await db
     .update(externalServiceValidationResult)
-    .set({ id: resultId, status: "PROCESSING" })
+    .set({ id: resultId, status: "PROCESSING", jobId: params.jobId ?? null })
     .where(
       and(
         eq(externalServiceValidationResult.responseId, params.responseId),

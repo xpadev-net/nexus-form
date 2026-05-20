@@ -195,6 +195,7 @@ describe("R6-M9: validation retry bulk updates", () => {
         status: "PENDING",
         errorCode: null,
         errorMessage: null,
+        jobId: expect.anything(),
       }),
     );
   });
