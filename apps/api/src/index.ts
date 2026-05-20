@@ -16,6 +16,7 @@ import {
   warnIfProductionCorsOriginsEmpty,
 } from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
+import { createCsrfOriginGuard } from "./lib/csrf-origin-guard";
 import {
   createApiGracefulShutdown,
   registerApiShutdownHandlers,
@@ -96,6 +97,7 @@ const app = new Hono()
     }
     await next();
   })
+  .use("/api/*", createCsrfOriginGuard(corsOrigins))
   // Better Auth routes with path-based rate limiting
   .use("/api/auth/*", authRouteRateLimiter)
   .on(["POST", "GET"], "/api/auth/*", (c) => {
