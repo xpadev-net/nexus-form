@@ -3,7 +3,7 @@ import type { FC } from "react";
 import { Button } from "@/components/ui/button";
 
 interface FormPageNavigationProps {
-  step: "first" | "middle" | "last";
+  step: "first" | "middle";
   nextAction: "next" | "submit";
   submitAvailability: "ready" | "submitting" | "captcha-pending";
   onPrevious: () => void;

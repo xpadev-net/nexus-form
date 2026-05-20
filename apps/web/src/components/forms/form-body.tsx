@@ -204,13 +204,7 @@ export function FormBody({
 
             {isMultiPage ? (
               <FormPageNavigation
-                step={
-                  paging.isFirstPage
-                    ? "first"
-                    : paging.isLastPage
-                      ? "last"
-                      : "middle"
-                }
+                step={paging.isFirstPage ? "first" : "middle"}
                 nextAction={
                   paging.isLastPage || paging.shouldSubmit ? "submit" : "next"
                 }
