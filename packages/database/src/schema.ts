@@ -689,6 +689,7 @@ export const externalServiceValidationResult = mysqlTable(
       .notNull()
       .references(() => formValidationRule.id, { onDelete: "cascade" }),
     referencedBlockId: varchar("referencedBlockId", { length: 128 }).notNull(),
+    snapshotVersion: int("snapshotVersion"),
     service: varchar("service", { length: 64 }),
     status: validationStatusEnum.default("PENDING").notNull(),
     success: boolean("success"),
