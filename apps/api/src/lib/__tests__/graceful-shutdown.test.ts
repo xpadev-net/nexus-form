@@ -48,7 +48,7 @@ function createProcessEmitter() {
 }
 
 describe("createApiGracefulShutdown", () => {
-  it("closes the HTTP server before shared resources and exits cleanly", async () => {
+  it("closes SSE subscribers before draining HTTP and exits cleanly", async () => {
     const events: string[] = [];
     const queuesClosed = createDeferred();
     const publisherClosed = createDeferred();
@@ -62,6 +62,9 @@ describe("createApiGracefulShutdown", () => {
     const stopPluginDriftGuard = vi
       .fn()
       .mockImplementation(async () => events.push("plugin"));
+    const closeSseSubscribers = vi
+      .fn()
+      .mockImplementation(async () => events.push("sse"));
     const closeQueues = vi.fn().mockImplementation(() => {
       events.push("queues");
       return queuesClosed.promise;
@@ -85,6 +88,7 @@ describe("createApiGracefulShutdown", () => {
       stopServiceMonitor,
       stopPluginDriftGuard,
       closeQueues,
+      closeSseSubscribers,
       closePublisher,
       closeRedisClient,
       closeDatabase,
@@ -97,6 +101,8 @@ describe("createApiGracefulShutdown", () => {
     const shutdownPromise = shutdown({ trigger: "SIGTERM" });
     await waitForAsyncWork();
 
+    expect(closeSseSubscribers).toHaveBeenCalledTimes(1);
+    expect(server.close).toHaveBeenCalledTimes(1);
     expect(closeQueues).toHaveBeenCalledTimes(1);
     expect(closePublisher).not.toHaveBeenCalled();
     expect(closeRedisClient).not.toHaveBeenCalled();
@@ -112,6 +118,7 @@ describe("createApiGracefulShutdown", () => {
 
     expect(stopServiceMonitor).toHaveBeenCalledTimes(1);
     expect(server.close).toHaveBeenCalledTimes(1);
+    expect(closeSseSubscribers).toHaveBeenCalledTimes(1);
     expect(closeQueues).toHaveBeenCalledTimes(1);
     expect(closePublisher).toHaveBeenCalledTimes(1);
     expect(closeRedisClient).toHaveBeenCalledTimes(1);
@@ -120,6 +127,7 @@ describe("createApiGracefulShutdown", () => {
     expect(flushSentry).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(0);
     expect(events).toEqual([
+      "sse",
       "server",
       "monitor",
       "plugin",
@@ -133,6 +141,7 @@ describe("createApiGracefulShutdown", () => {
   it("continues closing later resources when one cleanup step fails", async () => {
     const shutdownError = new Error("queue close failed");
     const closeQueues = vi.fn().mockRejectedValue(shutdownError);
+    const closeSseSubscribers = vi.fn().mockResolvedValue(undefined);
     const closePublisher = vi.fn().mockResolvedValue(undefined);
     const closeRedisClient = vi.fn().mockResolvedValue(undefined);
     const closeDatabase = vi.fn().mockResolvedValue(undefined);
@@ -147,6 +156,7 @@ describe("createApiGracefulShutdown", () => {
       timeoutMs: 30_000,
       stopServiceMonitor: vi.fn(),
       closeQueues,
+      closeSseSubscribers,
       closePublisher,
       closeRedisClient,
       closeDatabase,
@@ -159,6 +169,7 @@ describe("createApiGracefulShutdown", () => {
     await shutdown({ trigger: "SIGTERM" });
 
     expect(captureError).toHaveBeenCalledWith(shutdownError);
+    expect(closeSseSubscribers).toHaveBeenCalledTimes(1);
     expect(closePublisher).toHaveBeenCalledTimes(1);
     expect(closeRedisClient).toHaveBeenCalledTimes(1);
     expect(closeDatabase).toHaveBeenCalledTimes(1);
@@ -178,6 +189,7 @@ describe("createApiGracefulShutdown", () => {
       },
       timeoutMs: 30_000,
       stopServiceMonitor: vi.fn(),
+      closeSseSubscribers: vi.fn().mockResolvedValue(undefined),
       closeQueues: vi.fn().mockResolvedValue(undefined),
       closePublisher: vi.fn().mockResolvedValue(undefined),
       closeRedisClient: vi.fn().mockResolvedValue(undefined),
