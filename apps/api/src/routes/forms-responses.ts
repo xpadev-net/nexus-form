@@ -10,25 +10,13 @@ import {
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
-  extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import {
-  and,
-  count,
-  countDistinct,
-  desc,
-  eq,
-  inArray,
-  lt,
-  ne,
-  or,
-  sql,
-} from "drizzle-orm";
+import { and, count, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   paginationMetadata,
@@ -36,7 +24,6 @@ import {
 } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
-import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
 import { validateResponseData } from "../lib/forms/response-validator";
 import { getLatestSnapshotByVersion } from "../lib/forms/snapshot-repository";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
@@ -49,15 +36,11 @@ import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
 import { errorResponse } from "../types/domain/common";
 import {
-  BlockAnalyticsResponseSchema,
   BulkDeleteResponseSchema,
   InvalidResponseDataErrorResponseSchema,
-  ResponseAggregateResponseSchema,
-  ResponseAnalyticsResponseSchema,
   ResponseDetailResponseSchema,
   ResponseIdsResponseSchema,
   ResponseMutationResponseSchema,
-  ResponseStatusesResponseSchema,
   ResponsesListResponseSchema,
   ValidationRetryEnqueueErrorResponseSchema,
   ValidationRetryResponseSchema,
@@ -582,141 +565,6 @@ export const formsResponsesRouter = createHonoApp()
       );
     },
   )
-  .get("/:id/responses/statuses", async (c) => {
-    const formId = c.req.param("id");
-    const rows = await db
-      .select({
-        status: externalServiceValidationResult.status,
-        count: count(),
-      })
-      .from(externalServiceValidationResult)
-      .innerJoin(
-        formResponse,
-        eq(formResponse.id, externalServiceValidationResult.responseId),
-      )
-      .where(eq(formResponse.formId, formId))
-      .groupBy(externalServiceValidationResult.status);
-    return c.json(ResponseStatusesResponseSchema.parse({ statuses: rows }));
-  })
-  .get("/:id/responses/aggregate", async (c) => {
-    const formId = c.req.param("id");
-    const [totalRows, uniqueRows] = await Promise.all([
-      db
-        .select({ count: count() })
-        .from(formResponse)
-        .where(eq(formResponse.formId, formId)),
-      db
-        .select({
-          count: sql<number>`count(distinct ${formResponse.respondentUuid})`,
-        })
-        .from(formResponse)
-        .where(eq(formResponse.formId, formId)),
-    ]);
-    return c.json(
-      ResponseAggregateResponseSchema.parse({
-        totalResponses: totalRows[0]?.count ?? 0,
-        uniqueRespondents: uniqueRows[0]?.count ?? 0,
-      }),
-    );
-  })
-  .get(
-    "/:id/responses/analytics",
-    zValidator("query", limitedListQuerySchema),
-    async (c) => {
-      const formId = c.req.param("id");
-      const { page, pageSize } = c.req.valid("query");
-      const offset = (page - 1) * pageSize;
-      const responseDate = sql<string>`date(${formResponse.submittedAt})`;
-      const [timeline, totalResult] = await Promise.all([
-        db
-          .select({
-            date: responseDate,
-            count: count(),
-          })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId))
-          .groupBy(responseDate)
-          .orderBy(sql`${responseDate} desc`)
-          .offset(offset)
-          .limit(pageSize),
-        db
-          .select({
-            count: countDistinct(responseDate),
-          })
-          .from(formResponse)
-          .where(eq(formResponse.formId, formId)),
-      ]);
-      const total = totalResult[0]?.count ?? 0;
-      return c.json(
-        ResponseAnalyticsResponseSchema.parse({
-          timeline,
-          pagination: paginationMetadata(page, pageSize, total),
-        }),
-      );
-    },
-  )
-  .get("/:id/responses/block-analytics", async (c) => {
-    const formId = c.req.param("id");
-
-    const [formRecord] = await db
-      .select({ plateContent: form.plateContent })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
-
-    let blocks: Array<{ blockId: string; type: string; content: unknown }> = [];
-    if (formRecord?.plateContent) {
-      try {
-        const parsed: unknown = JSON.parse(formRecord.plateContent);
-        if (Array.isArray(parsed)) {
-          blocks = extractQuestionsFromPlateContent(parsed).map((q) => ({
-            blockId: q.blockId,
-            type: q.type,
-            content: { title: q.title, validation: q.validation },
-          }));
-        }
-      } catch {
-        // plateContent が不正な場合は空配列のまま続行
-      }
-    }
-
-    const analytics = await aggregateAllBlocksInBatches(
-      formId,
-      blocks,
-      (cursor, limit) => {
-        const cursorSubmittedAt = cursor
-          ? cursor.submittedAt instanceof Date
-            ? cursor.submittedAt
-            : new Date(cursor.submittedAt)
-          : undefined;
-
-        return db
-          .select({
-            id: formResponse.id,
-            submittedAt: formResponse.submittedAt,
-            responseDataJson: formResponse.responseDataJson,
-          })
-          .from(formResponse)
-          .where(
-            and(
-              eq(formResponse.formId, formId),
-              cursor && cursorSubmittedAt
-                ? or(
-                    lt(formResponse.submittedAt, cursorSubmittedAt),
-                    and(
-                      eq(formResponse.submittedAt, cursorSubmittedAt),
-                      lt(formResponse.id, cursor.id),
-                    ),
-                  )
-                : undefined,
-            ),
-          )
-          .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
-          .limit(limit);
-      },
-    );
-    return c.json(BlockAnalyticsResponseSchema.parse({ blocks: analytics }));
-  })
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");
