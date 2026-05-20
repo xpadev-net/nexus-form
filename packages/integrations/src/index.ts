@@ -1,4 +1,9 @@
 export {
+  BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
+  DEFAULT_VALIDATION_PLUGINS_DIR,
+  getValidationPluginsDir,
+} from "./plugin-bootstrap";
+export {
   type ValidationProvider,
   type ValidationProviderApiContext,
   type ValidationProviderApiHandler,
@@ -16,6 +21,12 @@ export {
   providerRegistry,
   ValidationProviderRegistry,
 } from "./provider-registry";
+export {
+  createRedisPublisher,
+  type RedisPublisher,
+  type RedisPublisherClient,
+  type RedisPublisherOptions,
+} from "./redis-publisher";
 export {
   type PluginDriftGuardOptions,
   type PluginDriftStore,

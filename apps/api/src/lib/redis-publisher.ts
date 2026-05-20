@@ -4,20 +4,17 @@
  * ブロック変更・セッション変更イベントを form:editor:{formId} チャネルに配信する
  */
 
+import type { RedisPublisherClient } from "@nexus-form/integrations";
+import { createRedisPublisher } from "@nexus-form/integrations";
 import type { EditorSSEEvent } from "@nexus-form/shared";
 import { getEditorChannel } from "@nexus-form/shared";
 import Redis from "ioredis";
 import { logError, logInfo } from "./logger";
 import { getRedisConnection } from "./redis";
 
-let publisher: Redis | null = null;
 let hasLoggedInit = false;
 
-function getPublisher(): Redis | null {
-  if (publisher) {
-    return publisher;
-  }
-
+function createPublisherClient(): RedisPublisherClient | null {
   // Redis 環境変数が設定されていない場合は null を返す
   if (
     !process.env.REDIS_URL &&
@@ -36,49 +33,45 @@ function getPublisher(): Redis | null {
     ...rest
   } = connection;
 
-  publisher = new Redis({
+  return new Redis({
     ...rest,
     maxRetriesPerRequest: 3,
   });
-
-  publisher.on("error", (err) => {
-    logError("Redis publisher connection error", "service", {
-      error: err.message,
-    });
-  });
-
-  if (!hasLoggedInit) {
-    hasLoggedInit = true;
-    logInfo("Redis publisher initialized", "service", {});
-  }
-
-  return publisher;
 }
 
-/**
- * エディタイベント（ブロック変更・セッション変更）を publish する
- */
-export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
-  try {
-    const redis = getPublisher();
-    if (!redis) return;
-    const channel = getEditorChannel(event.formId);
-    await redis.publish(channel, JSON.stringify(event));
-  } catch (error) {
+const editorEventPublisher = createRedisPublisher<EditorSSEEvent>({
+  createClient: createPublisherClient,
+  resolveChannel: (event) => getEditorChannel(event.formId),
+  onConnectionError: (error) => {
+    logError("Redis publisher connection error", "service", {
+      error: error.message,
+    });
+  },
+  onInit: () => {
+    if (hasLoggedInit) return;
+    hasLoggedInit = true;
+    logInfo("Redis publisher initialized", "service", {});
+  },
+  onPublishError: (error, event) => {
     logError("Failed to publish editor event", "service", {
       error: error instanceof Error ? error.message : String(error),
       eventType: event.type,
       formId: event.formId,
     });
-  }
+  },
+});
+
+/**
+ * エディタイベント（ブロック変更・セッション変更）を publish する
+ */
+export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
+  await editorEventPublisher.publish(event);
 }
 
 export async function closePublisher(): Promise<void> {
-  if (!publisher) return;
   try {
-    await publisher.quit();
+    await editorEventPublisher.close();
   } finally {
-    publisher = null;
     hasLoggedInit = false;
   }
 }
