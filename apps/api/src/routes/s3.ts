@@ -240,6 +240,23 @@ function hasApiTokenScopes(
   return hasRequiredScopes(auth.scopes ?? [], requiredScopes);
 }
 
+function isSyntheticTokenPrincipal(auth: DualAuthContext): boolean {
+  return (
+    auth.auth_type === "api_token" &&
+    (auth.share_link_id !== undefined ||
+      auth.user_id.startsWith("anon:") ||
+      auth.user_id.startsWith("share-link:"))
+  );
+}
+
+function hasS3WriteAccess(auth: DualAuthContext): boolean {
+  return hasApiTokenScopes(auth, ["write"]) && !isSyntheticTokenPrincipal(auth);
+}
+
+function hasS3AdminAccess(auth: DualAuthContext): boolean {
+  return hasApiTokenScopes(auth, ["admin"]) && !isSyntheticTokenPrincipal(auth);
+}
+
 function clampPresignedExpiresIn(
   requested: number | undefined,
   type: "upload" | "download",
@@ -289,7 +306,11 @@ export const s3Router = createHonoApp()
 
       const query = c.req.valid("query");
       const type = query.type ?? "download";
-      if (!hasApiTokenScopes(auth, [type === "upload" ? "write" : "read"])) {
+      const hasRequiredAccess =
+        type === "upload"
+          ? hasS3WriteAccess(auth)
+          : hasApiTokenScopes(auth, ["read"]);
+      if (!hasRequiredAccess) {
         return c.json(forbiddenResponse(), 403);
       }
 
@@ -326,7 +347,7 @@ export const s3Router = createHonoApp()
       try {
         const auth = c.get("dualAuthContext");
         if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-        if (!hasApiTokenScopes(auth, ["write"])) {
+        if (!hasS3WriteAccess(auth)) {
           return c.json(forbiddenResponse(), 403);
         }
 
@@ -425,7 +446,7 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      if (!hasApiTokenScopes(auth, ["write"])) {
+      if (!hasS3WriteAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
       }
 
@@ -473,7 +494,7 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      if (!hasApiTokenScopes(auth, ["write"])) {
+      if (!hasS3WriteAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
       }
 
@@ -543,7 +564,7 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      if (!hasApiTokenScopes(auth, ["write"])) {
+      if (!hasS3WriteAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
       }
 
@@ -587,7 +608,7 @@ export const s3Router = createHonoApp()
     async (c) => {
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      if (!hasApiTokenScopes(auth, ["admin"])) {
+      if (!hasS3AdminAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
       }
 

@@ -143,6 +143,9 @@ async function buildAuthContextFromTokenRecord(
     scopes: parsedJson.scopes,
     form_ids: parsedJson.formIds,
     is_admin: false,
+    ...(tokenRecord.shareLinkId
+      ? { share_link_id: tokenRecord.shareLinkId }
+      : {}),
   };
 }
 

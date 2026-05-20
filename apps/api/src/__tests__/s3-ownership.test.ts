@@ -220,6 +220,21 @@ function apiTokenFor(scopes: TokenScope[]) {
   });
 }
 
+function apiTokenForPrincipal(
+  userId: string,
+  scopes: TokenScope[],
+  shareLinkId?: string,
+) {
+  tokenMocks.validateApiToken.mockResolvedValueOnce({
+    user_id: userId,
+    token_id: `token-${userId}-${scopes.join("-")}`,
+    scopes,
+    form_ids: undefined,
+    is_admin: scopes.includes("admin"),
+    ...(shareLinkId ? { share_link_id: shareLinkId } : {}),
+  });
+}
+
 let app: Awaited<typeof import("../index")>["default"];
 
 beforeAll(async () => {
@@ -525,6 +540,58 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects anon write tokens for presigned uploads", async () => {
+    apiTokenForPrincipal("anon:token-id", ["write"]);
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_anon_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects share-link write tokens for upload presigned URLs", async () => {
+    apiTokenForPrincipal("share-link:link-id", ["write"]);
+    const key = encodeURIComponent("tmp/users/share-link:link-id/file.jpg");
+
+    const res = await app.request(
+      `/api/s3/presigned-url?type=upload&bucket=tmp&key=${key}`,
+      {
+        headers: { authorization: "Bearer ct_share_link_write" },
+      },
+    );
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects tokens carrying a share link id even with a user namespace", async () => {
+    apiTokenForPrincipal(USER_A_ID, ["write"], "share-link-id");
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_share_link_id_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
   it("rejects read tokens for upload completion", async () => {
     apiTokenFor(["read"]);
 
@@ -565,6 +632,26 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects anon write tokens for upload completion", async () => {
+    apiTokenForPrincipal("anon:token-id", ["write"]);
+
+    const res = await app.request("/api/s3/upload-complete", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_anon_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: "tmp/users/anon:token-id/file.jpg",
+        bucket: "tmp",
+        size: 123,
+        contentType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
   it("rejects read tokens for image processing", async () => {
     apiTokenFor(["read"]);
 
@@ -595,6 +682,23 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects share-link write tokens for image processing", async () => {
+    apiTokenForPrincipal("share-link:link-id", ["write"]);
+
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_share_link_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        tmpKey: "tmp/users/share-link:link-id/file.jpg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+  });
+
   it("rejects read tokens for moves", async () => {
     apiTokenFor(["read"]);
 
@@ -623,6 +727,21 @@ describe("R5-H1: S3 API token scopes", () => {
     });
 
     expect(res.status).toBe(200);
+  });
+
+  it("rejects anon write tokens for moves", async () => {
+    apiTokenForPrincipal("anon:token-id", ["write"]);
+
+    const res = await app.request("/api/s3/move", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_anon_write",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: "tmp/users/anon:token-id/file.jpg" }),
+    });
+
+    expect(res.status).toBe(403);
   });
 
   it("allows admin tokens for moves through scope hierarchy", async () => {
@@ -668,6 +787,23 @@ describe("R5-H1: S3 API token scopes", () => {
     });
 
     expect(res.status).toBe(200);
+  });
+
+  it("rejects share-link admin tokens for deletes", async () => {
+    apiTokenForPrincipal("share-link:link-id", ["admin"]);
+
+    const res = await app.request("/api/s3/delete", {
+      method: "DELETE",
+      headers: {
+        authorization: "Bearer ct_share_link_admin",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: "prod/users/share-link:link-id/file.jpg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
   });
 
   it("allows read tokens for list", async () => {
