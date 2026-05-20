@@ -79,18 +79,16 @@ export function FontSizeToolbarButton() {
     editor.tf.focus();
   }, [inputValue, cursorFontSize, editor, tf]);
 
+  const displayValue = isFocused ? inputValue : cursorFontSize;
+
   const handleFontSizeChange = useCallback(
     (delta: number) => {
       const newSize = Number(displayValue) + delta;
       tf.fontSize.addMark(`${newSize}px`);
       editor.tf.focus();
     },
-    // displayValue is derived from isFocused, inputValue, cursorFontSize
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tf, editor],
+    [displayValue, tf, editor],
   );
-
-  const displayValue = isFocused ? inputValue : cursorFontSize;
 
   return (
     <div className="flex h-7 items-center gap-1 rounded-md bg-muted/60 p-0">
@@ -104,7 +102,7 @@ export function FontSizeToolbarButton() {
             className={cn(
               "h-full w-10 shrink-0 bg-transparent px-1 text-center text-sm hover:bg-muted",
             )}
-            value={displayValue}
+            value={isFocused ? inputValue : cursorFontSize}
             onBlur={() => {
               setIsFocused(false);
               handleInputChange();
@@ -138,7 +136,9 @@ export function FontSizeToolbarButton() {
                 tf.fontSize.addMark(`${size}px`);
                 setIsFocused(false);
               }}
-              data-highlighted={size === displayValue}
+              data-highlighted={
+                size === (isFocused ? inputValue : cursorFontSize)
+              }
               type="button"
             >
               {size}

@@ -1,6 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -135,7 +142,10 @@ export function GoogleSheetsIntegration({
   // 同期状態
   const [syncStatus, setSyncStatus] = useState<UiSyncState | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useReducer(
+    (_current: string | null, next: string | null) => next,
+    null,
+  );
 
   const [isSpreadsheetDialogOpen, setIsSpreadsheetDialogOpen] = useState(false);
   const [newSpreadsheetTitle, setNewSpreadsheetTitle] = useState("");

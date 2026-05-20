@@ -208,20 +208,13 @@ function ColorCustom({
   updateCustomColor: (color: string) => void;
   color?: string;
 } & ComponentPropsWithoutRef<"div">) {
-  const [customColor, setCustomColor] = useState<string>();
   const [value, setValue] = useState<string>(color || "#000000");
-
-  useEffect(() => {
-    if (
-      !color ||
-      customColors.some((c) => c.value === color) ||
-      colors.some((c) => c.value === color)
-    ) {
-      return;
-    }
-
-    setCustomColor(color);
-  }, [color, colors, customColors]);
+  const customColor =
+    color &&
+    !customColors.some((c) => c.value === color) &&
+    !colors.some((c) => c.value === color)
+      ? color
+      : undefined;
 
   const computedColors = useMemo(
     () =>

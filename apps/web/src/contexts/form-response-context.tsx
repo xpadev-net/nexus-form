@@ -4,7 +4,7 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useState,
+  useReducer,
 } from "react";
 
 /** A single response value per question block. */
@@ -35,11 +35,30 @@ interface FormResponseProviderProps {
   children: ReactNode;
 }
 
+type AnswersAction =
+  | { type: "set"; blockId: string; entry: AnswerEntry }
+  | { type: "clear" };
+
+const answersReducer = (
+  prev: Map<string, AnswerEntry>,
+  action: AnswersAction,
+): Map<string, AnswerEntry> => {
+  if (action.type === "clear") {
+    return new Map();
+  }
+
+  const next = new Map(prev);
+  next.set(action.blockId, action.entry);
+  return next;
+};
+
 export const FormResponseProvider: FC<FormResponseProviderProps> = ({
   children,
 }) => {
-  const [answersMap, setAnswersMap] = useState<Map<string, AnswerEntry>>(
-    () => new Map(),
+  const [answersMap, dispatchAnswers] = useReducer(
+    answersReducer,
+    undefined,
+    () => new Map<string, AnswerEntry>(),
   );
 
   const getAnswer = useCallback(
@@ -48,15 +67,11 @@ export const FormResponseProvider: FC<FormResponseProviderProps> = ({
   );
 
   const setAnswer = useCallback((blockId: string, entry: AnswerEntry) => {
-    setAnswersMap((prev) => {
-      const next = new Map(prev);
-      next.set(blockId, entry);
-      return next;
-    });
+    dispatchAnswers({ type: "set", blockId, entry });
   }, []);
 
   const clearAnswers = useCallback(() => {
-    setAnswersMap(new Map());
+    dispatchAnswers({ type: "clear" });
   }, []);
 
   const value = useMemo<FormResponseContextValue>(
