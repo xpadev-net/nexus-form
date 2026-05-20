@@ -1,14 +1,43 @@
 import type { BrandConfig } from "@nexus-form/shared";
 import { createBrandConfig } from "@nexus-form/shared";
+import { z } from "zod";
+
+declare global {
+  interface Window {
+    __BRAND_CONFIG__?: unknown;
+  }
+}
+
+const RuntimeBrandConfigSchema = z.object({
+  appName: z.string().optional(),
+  primaryColor: z.string().optional(),
+  secondaryColor: z.string().optional(),
+  accentColor: z.string().optional(),
+  cookiePrefix: z.string().optional(),
+  userAgent: z.string().optional(),
+  homepageUrl: z.string().optional(),
+  monitorUserAgent: z.string().optional(),
+  termsUrl: z.string().optional(),
+  privacyUrl: z.string().optional(),
+  copyright: z.string().optional(),
+});
+
+function loadRuntimeConfig(): Partial<Record<keyof BrandConfig, string>> {
+  if (typeof window === "undefined") return {};
+  if (window.__BRAND_CONFIG__ === undefined) return {};
+
+  const result = RuntimeBrandConfigSchema.safeParse(window.__BRAND_CONFIG__);
+  if (result.success) return result.data;
+
+  console.warn("[BrandConfig] Invalid runtime config, using build defaults");
+  return {};
+}
 
 /**
  * Docker コンテナ起動時に docker-entrypoint.sh が生成する
  * /env-config.js 経由で注入されるランタイム設定。
  */
-const runtimeConfig: Partial<Record<keyof BrandConfig, string>> =
-  ((window as unknown as Record<string, unknown>).__BRAND_CONFIG__ as Partial<
-    Record<keyof BrandConfig, string>
-  >) ?? {};
+const runtimeConfig = loadRuntimeConfig();
 
 /**
  * ランタイム値 (Docker env) → ビルド時値 (import.meta.env) → デフォルト値

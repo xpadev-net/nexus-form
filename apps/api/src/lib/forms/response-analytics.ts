@@ -34,6 +34,11 @@ interface ChoiceOption {
   label: string;
 }
 
+const ChoiceOptionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+});
+
 interface GridRowDef {
   id: string;
   label: string;
@@ -43,6 +48,21 @@ interface GridColumnDef {
   id: string;
   label: string;
 }
+
+const GridDefinitionSchema = z.object({
+  rows: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+    }),
+  ),
+  columns: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+    }),
+  ),
+});
 
 // フロントエンドの BlockAnalyticsResult に一致する出力型
 interface BlockAnalyticsResult {
@@ -65,6 +85,17 @@ interface ChoiceAnalytics {
   options: ChoiceOptionAnalytics[];
 }
 
+const ChoiceAnalyticsSchema = z.object({
+  total_responses: z.number(),
+  options: z.array(
+    z.object({
+      label: z.string(),
+      count: z.number(),
+      percentage: z.number(),
+    }),
+  ),
+});
+
 interface GridColumn {
   id: string;
   label: string;
@@ -82,6 +113,29 @@ interface GridAnalytics {
   total_responses: number;
   response_rate: number;
 }
+
+const GridAnalyticsSchema = z.object({
+  grid_type: z.enum(["choice_grid", "checkbox_grid"]),
+  columns: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+    }),
+  ),
+  row_analytics: z.array(
+    z.object({
+      row_label: z.string(),
+      column_counts: z.array(
+        z.object({
+          column_id: z.string(),
+          count: z.number(),
+        }),
+      ),
+    }),
+  ),
+  total_responses: z.number(),
+  response_rate: z.number(),
+});
 
 interface DateDistributionPoint {
   date: string;
@@ -103,6 +157,26 @@ interface DateAnalytics {
   responses: DateResponseEntry[];
 }
 
+const DateAnalyticsSchema = z.object({
+  block_id: z.string(),
+  form_id: z.string(),
+  total_responses: z.number(),
+  distribution: z.array(
+    z.object({
+      date: z.string(),
+      count: z.number(),
+      percentage: z.number(),
+    }),
+  ),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      date: z.string(),
+    }),
+  ),
+});
+
 interface TimeDistributionPoint {
   time: string;
   count: number;
@@ -123,6 +197,26 @@ interface TimeAnalytics {
   responses: TimeResponseEntry[];
 }
 
+const TimeAnalyticsSchema = z.object({
+  block_id: z.string(),
+  form_id: z.string(),
+  total_responses: z.number(),
+  distribution: z.array(
+    z.object({
+      time: z.string(),
+      count: z.number(),
+      percentage: z.number(),
+    }),
+  ),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      time: z.string(),
+    }),
+  ),
+});
+
 interface TextResponseEntry {
   response_id: string;
   submitted_at: string;
@@ -138,6 +232,24 @@ interface TextAnalytics {
     max: number;
   };
 }
+
+const TextAnalyticsSchema = z.object({
+  total_responses: z.number(),
+  responses: z.array(
+    z.object({
+      response_id: z.string(),
+      submitted_at: z.string(),
+      value: z.string(),
+    }),
+  ),
+  word_count_stats: z
+    .object({
+      average: z.number(),
+      min: z.number(),
+      max: z.number(),
+    })
+    .optional(),
+});
 
 type RawResponseRow = {
   id: string;
@@ -246,7 +358,12 @@ function aggregateChoice(
   block: BlockInfo,
   responses: ParsedResponse[],
 ): ChoiceAnalytics {
-  const options = (block.validation.options ?? []) as ChoiceOption[];
+  const optionsResult = z
+    .array(ChoiceOptionSchema)
+    .safeParse(block.validation.options);
+  const options: ChoiceOption[] = optionsResult.success
+    ? optionsResult.data
+    : [];
   const optionCounts = new Map<string, number>();
 
   for (const opt of options) {
@@ -347,9 +464,16 @@ function aggregateGrid(
   responses: ParsedResponse[],
   totalResponseCount: number,
 ): GridAnalytics {
-  const rows = (block.validation.rows ?? []) as GridRowDef[];
-  const columns = (block.validation.columns ?? []) as GridColumnDef[];
-  const gridType = block.type as "choice_grid" | "checkbox_grid";
+  const gridDefinitionResult = GridDefinitionSchema.safeParse(block.validation);
+  const { rows, columns }: { rows: GridRowDef[]; columns: GridColumnDef[] } =
+    gridDefinitionResult.success
+      ? gridDefinitionResult.data
+      : {
+          rows: [],
+          columns: [],
+        };
+  const gridType =
+    block.type === "checkbox_grid" ? "checkbox_grid" : "choice_grid";
 
   let respondentCount = 0;
   const rowColumnCounts = new Map<string, Map<string, number>>();
@@ -628,97 +752,23 @@ function aggregateBlocksWithParsedCount(
 }
 
 function isChoiceAnalytics(data: unknown): data is ChoiceAnalytics {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "total_responses" in data &&
-    "options" in data &&
-    Array.isArray((data as { options?: unknown }).options)
-  );
+  return ChoiceAnalyticsSchema.safeParse(data).success;
 }
 
 function isGridAnalytics(data: unknown): data is GridAnalytics {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    "grid_type" in data &&
-    "columns" in data &&
-    "row_analytics" in data
-  );
+  return GridAnalyticsSchema.safeParse(data).success;
 }
 
 function isDateAnalytics(data: unknown): data is DateAnalytics {
-  const candidate = data as {
-    block_id?: unknown;
-    form_id?: unknown;
-    total_responses?: unknown;
-    distribution?: unknown;
-    responses?: unknown;
-  };
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    typeof candidate.block_id === "string" &&
-    typeof candidate.form_id === "string" &&
-    typeof candidate.total_responses === "number" &&
-    Array.isArray(candidate.distribution) &&
-    candidate.distribution.every(
-      (point) =>
-        typeof point === "object" &&
-        point !== null &&
-        typeof (point as { date?: unknown }).date === "string",
-    ) &&
-    Array.isArray(candidate.responses) &&
-    candidate.responses.every(
-      (response) =>
-        typeof response === "object" &&
-        response !== null &&
-        typeof (response as { date?: unknown }).date === "string",
-    )
-  );
+  return DateAnalyticsSchema.safeParse(data).success;
 }
 
 function isTimeAnalytics(data: unknown): data is TimeAnalytics {
-  const candidate = data as {
-    block_id?: unknown;
-    form_id?: unknown;
-    total_responses?: unknown;
-    distribution?: unknown;
-    responses?: unknown;
-  };
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    typeof candidate.block_id === "string" &&
-    typeof candidate.form_id === "string" &&
-    typeof candidate.total_responses === "number" &&
-    Array.isArray(candidate.distribution) &&
-    candidate.distribution.every(
-      (point) =>
-        typeof point === "object" &&
-        point !== null &&
-        typeof (point as { time?: unknown }).time === "string",
-    ) &&
-    Array.isArray(candidate.responses) &&
-    candidate.responses.every(
-      (response) =>
-        typeof response === "object" &&
-        response !== null &&
-        typeof (response as { time?: unknown }).time === "string",
-    )
-  );
+  return TimeAnalyticsSchema.safeParse(data).success;
 }
 
 function isTextAnalytics(data: unknown): data is TextAnalytics {
-  return (
-    typeof data === "object" &&
-    data !== null &&
-    !("block_id" in data) &&
-    !("form_id" in data) &&
-    "total_responses" in data &&
-    "responses" in data &&
-    Array.isArray((data as { responses?: unknown }).responses)
-  );
+  return TextAnalyticsSchema.safeParse(data).success;
 }
 
 function mergeChoiceAnalytics(
