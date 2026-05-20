@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import type { FC, ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type {
@@ -152,7 +152,7 @@ const ErrorState: FC<{ blockTitle?: string; error: string }> = ({
 );
 
 // 選択式ブロックのレンダリング
-const ChoiceBlockContent = ({
+const createChoiceBlockContent = ({
   blockType,
   analytics,
   blockTitle,
@@ -162,7 +162,7 @@ const ChoiceBlockContent = ({
   analytics: ChoiceAnalytics;
   blockTitle?: string;
   totalResponses: number;
-}) => {
+}): ReactNode => {
   if (blockType === "radio" || blockType === "dropdown") {
     return (
       <PieChartDisplay
@@ -197,7 +197,7 @@ const ChoiceBlockContent = ({
 };
 
 // グリッドブロックのレンダリング
-const GridBlockContent = ({
+const createGridBlockContent = ({
   analytics,
   blockTitle,
   totalResponses,
@@ -205,7 +205,7 @@ const GridBlockContent = ({
   analytics: GridAnalytics;
   blockTitle?: string;
   totalResponses: number;
-}) => (
+}): ReactNode => (
   <GridChartDisplay
     data={analytics}
     blockTitle={blockTitle}
@@ -214,13 +214,13 @@ const GridBlockContent = ({
 );
 
 // 日付ブロックのレンダリング
-const DateBlockContent = ({
+const createDateBlockContent = ({
   analytics,
   blockTitle,
 }: {
   analytics: DateAnalytics;
   blockTitle?: string;
-}) => (
+}): ReactNode => (
   <div className="space-y-6">
     <DateDistributionChart data={analytics} blockTitle={blockTitle} />
     <TextResponseList
@@ -232,13 +232,13 @@ const DateBlockContent = ({
 );
 
 // 時間ブロックのレンダリング
-const TimeBlockContent = ({
+const createTimeBlockContent = ({
   analytics,
   blockTitle,
 }: {
   analytics: TimeAnalytics;
   blockTitle?: string;
-}) => (
+}): ReactNode => (
   <div className="space-y-6">
     <TimeDistributionChart data={analytics} blockTitle={blockTitle} />
     <TextResponseList
@@ -250,7 +250,7 @@ const TimeBlockContent = ({
 );
 
 // テキストブロックのレンダリング
-const TextBlockContent = ({
+const createTextBlockContent = ({
   analytics,
   blockTitle,
   blockType,
@@ -258,7 +258,7 @@ const TextBlockContent = ({
   analytics: TextAnalytics;
   blockTitle?: string;
   blockType: string;
-}) => {
+}): ReactNode => {
   if (!analytics.responses || analytics.responses.length === 0) {
     return <EmptyState blockTitle={blockTitle} blockType={blockType} />;
   }
@@ -301,14 +301,12 @@ const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
         );
       }
 
-      return (
-        <ChoiceBlockContent
-          blockType={blockType}
-          analytics={analyticsData}
-          blockTitle={blockTitle}
-          totalResponses={totalResponses}
-        />
-      );
+      return createChoiceBlockContent({
+        blockType,
+        analytics: analyticsData,
+        blockTitle,
+        totalResponses,
+      });
     }
 
     // グリッドブロック
@@ -322,13 +320,11 @@ const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
         );
       }
 
-      return (
-        <GridBlockContent
-          analytics={analyticsData}
-          blockTitle={blockTitle}
-          totalResponses={totalResponses}
-        />
-      );
+      return createGridBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+        totalResponses,
+      });
     }
 
     // 日付ブロック
@@ -342,9 +338,10 @@ const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
         );
       }
 
-      return (
-        <DateBlockContent analytics={analyticsData} blockTitle={blockTitle} />
-      );
+      return createDateBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+      });
     }
 
     // 時間ブロック
@@ -358,9 +355,10 @@ const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
         );
       }
 
-      return (
-        <TimeBlockContent analytics={analyticsData} blockTitle={blockTitle} />
-      );
+      return createTimeBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+      });
     }
 
     // テキストブロック
@@ -374,13 +372,11 @@ const BlockAnalyticsContent: FC<BlockAnalyticsContentProps> = ({
         );
       }
 
-      return (
-        <TextBlockContent
-          analytics={analyticsData}
-          blockTitle={blockTitle}
-          blockType={blockType}
-        />
-      );
+      return createTextBlockContent({
+        analytics: analyticsData,
+        blockTitle,
+        blockType,
+      });
     }
 
     // 未対応のブロックタイプ
