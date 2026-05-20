@@ -161,8 +161,8 @@ export function extractReferencedValueFromJson(
  * Sheets 同期のバッチ処理で 1 件の不正データが全体を巻き込まないよう、
  * 呼び出し元は `null` の場合に該当レスポンスをスキップする。
  *
- * 既存挙動（`JSON.parse(...) as Record<string, unknown>`）を保つため、
- * オブジェクトであれば配列も含めてそのまま返す。
+ * ResponseDataItem[] 形式は Sheets の列展開に使える question_id keyed map へ変換する。
+ * 既存の object map 形式は後方互換のためそのまま返す。
  */
 export function safeParseResponseData(
   responseDataJson: string,
@@ -177,6 +177,24 @@ export function safeParseResponseData(
       e instanceof Error ? e.message : String(e),
     );
     return null;
+  }
+
+  if (Array.isArray(rawData)) {
+    const parseResult = z.array(responsePayloadItemSchema).safeParse(rawData);
+    if (!parseResult.success) {
+      console.warn(
+        `[response-data] Skipping response ${responseId}: array items failed schema validation -`,
+        parseResult.error.message,
+      );
+      return null;
+    }
+
+    return Object.fromEntries(
+      parseResult.data.map((item) => [
+        item.question_id,
+        extractValueFromItem(item),
+      ]),
+    );
   }
 
   if (rawData === null || typeof rawData !== "object") {

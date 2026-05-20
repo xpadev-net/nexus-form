@@ -4,6 +4,7 @@ import {
   extractReferencedValue,
   extractReferencedValueFromJson,
   extractValueFromItem,
+  safeParseResponseData,
 } from "../response-data-extractor";
 
 // ---------------------------------------------------------------------------
@@ -425,5 +426,51 @@ describe("extractReferencedValueFromJson", () => {
     expect(() =>
       extractReferencedValueFromJson('"just a string"', "q1", "resp-1"),
     ).toThrow("Invalid responseDataJson format");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// safeParseResponseData
+// ---------------------------------------------------------------------------
+describe("safeParseResponseData", () => {
+  it("normalizes array-format response data into a question_id keyed map", () => {
+    const json = JSON.stringify([
+      {
+        question_id: "name",
+        question_type: "short_text",
+        value: "Alice",
+      },
+      {
+        question_id: "interests",
+        question_type: "checkbox",
+        values: ["docs", "api"],
+      },
+      {
+        question_id: "matrix",
+        question_type: "choice_grid",
+        responses: { row1: "yes" },
+      },
+    ]);
+
+    expect(safeParseResponseData(json, "resp-1")).toEqual({
+      name: "Alice",
+      interests: "docs,api",
+      matrix: JSON.stringify({ row1: "yes" }),
+    });
+  });
+
+  it("keeps legacy object-map response data for backward compatibility", () => {
+    expect(
+      safeParseResponseData(JSON.stringify({ q1: "legacy" }), "resp-1"),
+    ).toEqual({ q1: "legacy" });
+  });
+
+  it("returns null when array-format response data fails schema validation", () => {
+    expect(
+      safeParseResponseData(
+        JSON.stringify([{ question_id: 123, question_type: "short_text" }]),
+        "resp-1",
+      ),
+    ).toBeNull();
   });
 });
