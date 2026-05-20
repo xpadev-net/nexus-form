@@ -114,9 +114,23 @@ export async function getValidationContext(
     throw new Error(`Form response not found: ${responseId}`);
   }
 
+  let snapshotPlateContent = contextRow?.snapshotPlateContent ?? null;
+  if (!snapshotPlateContent && snapshotVersion !== undefined) {
+    const [fallbackSnapshot] = await db
+      .select({ plateContent: formSnapshot.plateContent })
+      .from(formSnapshot)
+      .where(eq(formSnapshot.formId, response.formId))
+      .orderBy(
+        sql`${formSnapshot.isActive} = 1 DESC`,
+        desc(formSnapshot.version),
+      )
+      .limit(1);
+    snapshotPlateContent = fallbackSnapshot?.plateContent ?? null;
+  }
+
   let blockIds: Set<string>;
   try {
-    const raw = contextRow?.snapshotPlateContent;
+    const raw = snapshotPlateContent;
     const parsed = raw ? JSON.parse(raw) : [];
     const questions = Array.isArray(parsed)
       ? extractQuestionsFromPlateContent(parsed)
