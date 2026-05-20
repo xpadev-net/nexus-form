@@ -179,6 +179,9 @@ async function authenticateWithApiToken(
       scopes: authContext.scopes,
       form_ids: authContext.form_ids,
       auth_type: "api_token",
+      ...(authContext.share_link_id
+        ? { share_link_id: authContext.share_link_id }
+        : {}),
     };
   } catch (error) {
     if (error instanceof SuspendedTokenOwnerError) {

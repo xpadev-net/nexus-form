@@ -159,6 +159,7 @@ export const AuthContext = z.object({
   scopes: apiTokenScopesSchema,
   form_ids: apiTokenFormIdsSchema.optional(),
   is_admin: z.boolean(),
+  share_link_id: z.string().optional(),
 });
 
 export type AuthContext = z.infer<typeof AuthContext>;
