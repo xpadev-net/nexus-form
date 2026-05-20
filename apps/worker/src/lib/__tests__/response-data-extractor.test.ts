@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   extractReferencedValue,
@@ -6,6 +6,10 @@ import {
   extractValueFromItem,
   safeParseResponseData,
 } from "../response-data-extractor";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 // ---------------------------------------------------------------------------
 // extractValueFromItem
@@ -472,5 +476,32 @@ describe("safeParseResponseData", () => {
         "resp-1",
       ),
     ).toBeNull();
+  });
+
+  it("warns and keeps the last value when array items duplicate question_id", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const json = JSON.stringify([
+      { question_id: "q1", question_type: "short_text", value: "first" },
+      { question_id: "q1", question_type: "short_text", value: "second" },
+    ]);
+
+    expect(safeParseResponseData(json, "resp-1")).toEqual({ q1: "second" });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[response-data] Response resp-1 contains duplicate question_id "q1"; using the last value',
+    );
+  });
+
+  it("keeps special question_id keys as own enumerable properties", () => {
+    const json = JSON.stringify([
+      {
+        question_id: "__proto__",
+        question_type: "short_text",
+        value: "safe",
+      },
+    ]);
+
+    const result = safeParseResponseData(json, "resp-1");
+
+    expect(Object.entries(result ?? {})).toEqual([["__proto__", "safe"]]);
   });
 });

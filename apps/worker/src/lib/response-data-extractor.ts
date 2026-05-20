@@ -189,12 +189,23 @@ export function safeParseResponseData(
       return null;
     }
 
-    return Object.fromEntries(
-      parseResult.data.map((item) => [
-        item.question_id,
-        extractValueFromItem(item),
-      ]),
-    );
+    const normalized: Record<string, unknown> = {};
+    const seenQuestionIds = new Set<string>();
+    for (const item of parseResult.data) {
+      if (seenQuestionIds.has(item.question_id)) {
+        console.warn(
+          `[response-data] Response ${responseId} contains duplicate question_id "${item.question_id}"; using the last value`,
+        );
+      }
+      seenQuestionIds.add(item.question_id);
+      Object.defineProperty(normalized, item.question_id, {
+        value: extractValueFromItem(item),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return normalized;
   }
 
   if (rawData === null || typeof rawData !== "object") {
