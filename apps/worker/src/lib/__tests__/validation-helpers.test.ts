@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractReferencedValueFromJson } from "../response-data-extractor";
 import {
   ConcurrentDeleteError,
+  getValidationContext,
   markValidationProcessing,
+  ReferencedBlockMissingError,
   ValidationCancelledError,
   writeValidationResult,
 } from "../validation-helpers";
@@ -16,7 +18,9 @@ const {
   publishValidationEvent,
   selectForUpdate,
   selectFrom,
+  selectLeftJoin,
   selectLimit,
+  selectOrderBy,
   selectWhere,
   updateSet,
   updateWhere,
@@ -26,7 +30,9 @@ const {
   publishValidationEvent: vi.fn(),
   selectForUpdate: vi.fn(),
   selectFrom: vi.fn(),
+  selectLeftJoin: vi.fn(),
   selectLimit: vi.fn(),
+  selectOrderBy: vi.fn(),
   selectWhere: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
@@ -84,8 +90,14 @@ vi.mock("../redis-publisher", () => ({
 beforeEach(() => {
   insertValues.mockReturnValue({ onDuplicateKeyUpdate });
   onDuplicateKeyUpdate.mockResolvedValue([{ affectedRows: 1 }]);
-  selectFrom.mockReturnValue({ where: selectWhere });
-  selectWhere.mockReturnValue({ limit: selectLimit, for: selectForUpdate });
+  selectFrom.mockReturnValue({ where: selectWhere, leftJoin: selectLeftJoin });
+  selectLeftJoin.mockReturnValue({ where: selectWhere });
+  selectWhere.mockReturnValue({
+    limit: selectLimit,
+    for: selectForUpdate,
+    orderBy: selectOrderBy,
+  });
+  selectOrderBy.mockReturnValue({ limit: selectLimit });
   selectLimit.mockResolvedValue([]);
   selectForUpdate.mockResolvedValue([]);
   updateSet.mockReturnValue({ where: updateWhere });
@@ -99,7 +111,9 @@ beforeEach(() => {
   onDuplicateKeyUpdate.mockClear();
   selectForUpdate.mockClear();
   selectFrom.mockClear();
+  selectLeftJoin.mockClear();
   selectWhere.mockClear();
+  selectOrderBy.mockClear();
   selectLimit.mockClear();
   updateSet.mockClear();
   updateWhere.mockClear();
@@ -130,6 +144,84 @@ describe("getValidationResultId", () => {
     expect(getValidationResultId(base)).not.toBe(
       getValidationResultId({ ...base, referencedBlockId: "question-2" }),
     );
+  });
+});
+
+describe("getValidationContext", () => {
+  it("loads the response and latest snapshot with one select query", async () => {
+    selectLimit.mockResolvedValueOnce([
+      {
+        id: "response-1",
+        formId: "form-1",
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "question-1",
+            question_type: "short_text",
+            value: "hello",
+          },
+        ]),
+        submittedAt: new Date("2026-05-20T00:00:00.000Z"),
+        updatedAt: null,
+        respondentUuid: "respondent-1",
+        userAgent: null,
+        sessionId: null,
+        countryCode: null,
+        snapshotPlateContent: JSON.stringify([
+          {
+            type: "form_short_text",
+            blockId: "question-1",
+            children: [{ text: "Question 1" }],
+          },
+        ]),
+      },
+    ]);
+
+    const context = await getValidationContext(
+      "response-1",
+      "rule-1",
+      "question-1",
+    );
+
+    expect(db.select).toHaveBeenCalledTimes(1);
+    expect(selectLeftJoin).toHaveBeenCalled();
+    expect(selectOrderBy).toHaveBeenCalled();
+    expect(context.response.formId).toBe("form-1");
+    expect(context.referencedValue).toBe("hello");
+  });
+
+  it("preserves the missing-block error when a response has no snapshot row", async () => {
+    selectLimit.mockResolvedValueOnce([
+      {
+        id: "response-1",
+        formId: "form-1",
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "question-1",
+            question_type: "short_text",
+            value: "hello",
+          },
+        ]),
+        submittedAt: new Date("2026-05-20T00:00:00.000Z"),
+        updatedAt: null,
+        respondentUuid: "respondent-1",
+        userAgent: null,
+        sessionId: null,
+        countryCode: null,
+        snapshotPlateContent: null,
+      },
+    ]);
+
+    await expect(
+      getValidationContext("response-1", "rule-1", "question-1"),
+    ).rejects.toBeInstanceOf(ReferencedBlockMissingError);
+  });
+
+  it("throws when the response row is missing", async () => {
+    selectLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      getValidationContext("missing-response", "rule-1", "question-1"),
+    ).rejects.toThrow("Form response not found: missing-response");
   });
 });
 

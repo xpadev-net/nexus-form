@@ -68,27 +68,46 @@ export async function getValidationContext(
   ruleId: string,
   referencedBlockId: string,
 ) {
-  const [response] = await db
-    .select()
+  // responseId は一意なので、FormResponse と対象フォームの最新 snapshot を
+  // 1 往復で取得する。snapshot が無い場合でも response の存在判定は維持する。
+  const [contextRow] = await db
+    .select({
+      id: formResponse.id,
+      formId: formResponse.formId,
+      responseDataJson: formResponse.responseDataJson,
+      submittedAt: formResponse.submittedAt,
+      updatedAt: formResponse.updatedAt,
+      respondentUuid: formResponse.respondentUuid,
+      userAgent: formResponse.userAgent,
+      sessionId: formResponse.sessionId,
+      countryCode: formResponse.countryCode,
+      snapshotPlateContent: formSnapshot.plateContent,
+    })
     .from(formResponse)
+    .leftJoin(formSnapshot, eq(formSnapshot.formId, formResponse.formId))
     .where(eq(formResponse.id, responseId))
+    .orderBy(sql`${formSnapshot.isActive} = 1 DESC`, desc(formSnapshot.version))
     .limit(1);
+  const response = contextRow
+    ? {
+        id: contextRow.id,
+        formId: contextRow.formId,
+        responseDataJson: contextRow.responseDataJson,
+        submittedAt: contextRow.submittedAt,
+        updatedAt: contextRow.updatedAt,
+        respondentUuid: contextRow.respondentUuid,
+        userAgent: contextRow.userAgent,
+        sessionId: contextRow.sessionId,
+        countryCode: contextRow.countryCode,
+      }
+    : null;
   if (!response) {
     throw new Error(`Form response not found: ${responseId}`);
   }
 
-  // isActive DESC → version DESC でソートすることで、アクティブスナップショットを
-  // 優先しつつ、非公開時は最新バージョンのスナップショットにフォールバックする。
-  const [snapshotRow] = await db
-    .select({ plateContent: formSnapshot.plateContent })
-    .from(formSnapshot)
-    .where(eq(formSnapshot.formId, response.formId))
-    .orderBy(sql`${formSnapshot.isActive} = 1 DESC`, desc(formSnapshot.version))
-    .limit(1);
-
   let blockIds: Set<string>;
   try {
-    const raw = snapshotRow?.plateContent;
+    const raw = contextRow?.snapshotPlateContent;
     const parsed = raw ? JSON.parse(raw) : [];
     const questions = Array.isArray(parsed)
       ? extractQuestionsFromPlateContent(parsed)
