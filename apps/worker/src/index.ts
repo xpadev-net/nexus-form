@@ -33,6 +33,8 @@ const BUILTIN_PLUGIN_SPECIFIERS = [
 
 const VALIDATION_PLUGINS_DIR =
   process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
+const VALIDATION_PLUGINS_FAIL_FAST =
+  process.env.VALIDATION_PLUGINS_FAIL_FAST !== "false";
 
 /**
  * グレースフルシャットダウンの最大待機時間。
@@ -63,6 +65,7 @@ async function main() {
       builtinPlugins,
       pluginsDirs: [VALIDATION_PLUGINS_DIR],
       logPrefix: "worker",
+      failOnExternalPluginError: VALIDATION_PLUGINS_FAIL_FAST,
       pluginDriftGuard: {
         role: "worker",
         store: pluginDriftStore,

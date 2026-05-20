@@ -119,6 +119,11 @@ export interface StartupPluginsOptions {
    * it with the opposite runtime to detect API/Worker plugin drift.
    */
   pluginDriftGuard?: PluginDriftGuardOptions;
+  /**
+   * When true or omitted, external plugin load and registration failures fail
+   * startup. Set to false only for an explicit degraded startup mode.
+   */
+  failOnExternalPluginError?: boolean;
 }
 
 function buildManifest(
@@ -314,6 +319,7 @@ function registerOrOverride(
   source: string,
   logPrefix: string,
   failOnError = false,
+  failureLabel = "plugin",
 ): void {
   if (registry.has(provider.name)) {
     console.warn(
@@ -334,11 +340,17 @@ function registerOrOverride(
     if (failOnError) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
-        `[${logPrefix}] Failed to register built-in plugin ${source}: ${message}`,
+        `[${logPrefix}] Failed to register ${failureLabel} ${source}: ${message}`,
         { cause: error },
       );
     }
   }
+}
+
+function summarizeFailedPlugins(
+  failedPlugins: Array<{ file: string; error: string }>,
+): string {
+  return failedPlugins.map(({ file, error }) => `${file}: ${error}`).join("; ");
 }
 
 export async function startupPlugins(
@@ -348,6 +360,7 @@ export async function startupPlugins(
     pluginsDirs = [],
     logPrefix,
     pluginDriftGuard,
+    failOnExternalPluginError = true,
   }: StartupPluginsOptions,
 ): Promise<PluginDriftGuardHandle | undefined> {
   const pluginHashes: string[] = [];
@@ -363,6 +376,7 @@ export async function startupPlugins(
         specifier,
         logPrefix,
         true,
+        "built-in plugin",
       );
       pluginHashes.push(outcome.hash);
     } else if (outcome.kind === "skipped") {
@@ -384,12 +398,37 @@ export async function startupPlugins(
     try {
       plugins = await loader.loadPlugins();
     } catch (error) {
+      if (failOnExternalPluginError) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `[${logPrefix}] Failed to load validation plugins from ${dir}: ${message}`,
+          { cause: error },
+        );
+      }
       console.warn(`[${logPrefix}] Failed to load plugins from ${dir}:`, error);
       continue;
     }
+    if (loader.hasFailedPlugins()) {
+      const message = summarizeFailedPlugins(loader.getFailedPlugins());
+      if (failOnExternalPluginError) {
+        throw new Error(
+          `[${logPrefix}] Failed to load validation plugins from ${dir}: ${message}`,
+        );
+      }
+      console.warn(
+        `[${logPrefix}] Continuing after validation plugin load failures from ${dir}: ${message}`,
+      );
+    }
 
     for (const plugin of plugins) {
-      registerOrOverride(registry, plugin, dir, logPrefix);
+      registerOrOverride(
+        registry,
+        plugin,
+        dir,
+        logPrefix,
+        failOnExternalPluginError,
+        "external plugin",
+      );
     }
     pluginHashes.push(...loader.getLoadedPluginHashes());
   }

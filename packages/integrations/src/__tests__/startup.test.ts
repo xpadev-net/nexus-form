@@ -81,6 +81,17 @@ function createDeferred<T>(): {
   return { promise, resolve, reject };
 }
 
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function writePluginLock(
+  dir: string,
+  plugins: Record<string, string>,
+): Promise<void> {
+  await writeFile(join(dir, "plugins.lock"), JSON.stringify({ plugins }));
+}
+
 describe("startupPlugins built-in plugin loading", () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -169,6 +180,104 @@ export default {
         logPrefix: "api",
       }),
     ).rejects.toThrow("[api] Failed to register built-in plugin");
+    expect(registry.getNames()).toEqual([]);
+  });
+});
+
+describe("startupPlugins external plugin loading", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("fails startup by default when an external plugin fails to load", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginSource = "export default {";
+    await writeFile(join(pluginDir, "broken.mjs"), pluginSource);
+    await writePluginLock(pluginDir, {
+      "broken.mjs": sha256(pluginSource),
+    });
+    const registry = new ValidationProviderRegistry();
+
+    await expect(
+      startupPlugins(registry, {
+        pluginsDirs: [pluginDir],
+        logPrefix: "api",
+      }),
+    ).rejects.toThrow("Failed to load validation plugins");
+    expect(registry.getNames()).toEqual([]);
+  });
+
+  it("continues after external plugin load failures when explicitly configured", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginSource = "export default {";
+    await writeFile(join(pluginDir, "broken.mjs"), pluginSource);
+    await writePluginLock(pluginDir, {
+      "broken.mjs": sha256(pluginSource),
+    });
+    const registry = new ValidationProviderRegistry();
+
+    await startupPlugins(registry, {
+      pluginsDirs: [pluginDir],
+      logPrefix: "api",
+      failOnExternalPluginError: false,
+    });
+
+    expect(registry.getNames()).toEqual([]);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Continuing after validation plugin load failures",
+      ),
+    );
+  });
+
+  it("fails startup by default when an external plugin cannot be registered", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const pluginDir = await mkdtemp(join(tmpdir(), "nexus-form-plugin-"));
+    const pluginSource = `
+const passthroughSchema = {
+  parse: (value) => value,
+  safeParse: (value) => ({ success: true, data: value }),
+};
+
+export default {
+  name: "external_provider",
+  label: "External Provider",
+  description: "External provider",
+  rules: {
+    default: {
+      name: "default",
+      label: "Default",
+      description: "Default rule",
+      inputHint: "Enter value",
+      inputSchema: passthroughSchema,
+      configSchema: passthroughSchema,
+      metadataSchema: passthroughSchema,
+      validate: async () => ({ isValid: true }),
+    },
+  },
+};
+`;
+    await writeFile(join(pluginDir, "external.mjs"), pluginSource);
+    await writePluginLock(pluginDir, {
+      "external.mjs": sha256(pluginSource),
+    });
+    const registry = new ValidationProviderRegistry();
+    vi.spyOn(registry, "register").mockImplementation(() => {
+      throw new Error("registry unavailable");
+    });
+
+    await expect(
+      startupPlugins(registry, {
+        pluginsDirs: [pluginDir],
+        logPrefix: "api",
+      }),
+    ).rejects.toThrow("[api] Failed to register external plugin");
     expect(registry.getNames()).toEqual([]);
   });
 });
