@@ -611,6 +611,98 @@ describe("checkbox_grid per-row selection limits", () => {
       ]),
     );
   });
+
+  it("rejects missing rows for required grid without minSelectionsPerRow", () => {
+    const form = makeForm("q1", "checkbox_grid", {
+      required: true,
+      rows,
+    });
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "checkbox_grid", {
+          responses: { r1: ["c1"] },
+        }),
+      ],
+      form,
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Row r2 requires a selection"),
+        expect.stringContaining("Row r3 requires a selection"),
+      ]),
+    );
+  });
+
+  it("rejects empty touched rows for required grid without minSelectionsPerRow", () => {
+    const form = makeForm("q1", "checkbox_grid", {
+      required: true,
+      rows,
+    });
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "checkbox_grid", {
+          responses: { r1: ["c1"], r2: [] },
+        }),
+      ],
+      form,
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Row r2 requires a selection"),
+      ]),
+    );
+  });
+});
+
+describe("choice_grid row validation", () => {
+  const rows = [
+    { id: "r1", label: "Row 1" },
+    { id: "r2", label: "Row 2" },
+  ];
+
+  it("rejects missing rows for required choice grid", () => {
+    const form = makeForm("q1", "choice_grid", {
+      required: true,
+      rows,
+    });
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "choice_grid", {
+          responses: { r1: "c1" },
+        }),
+      ],
+      form,
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Row r2 requires a selection"),
+      ]),
+    );
+  });
+
+  it("rejects array-valued rows for choice grid", () => {
+    const form = makeForm("q1", "choice_grid", {
+      required: true,
+      rows,
+    });
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "choice_grid", {
+          responses: { r1: ["c1"], r2: "c2" },
+        }),
+      ],
+      form,
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("Choice grid row r1 must contain"),
+      ]),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------

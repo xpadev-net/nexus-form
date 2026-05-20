@@ -8,6 +8,42 @@ interface AnswerLike {
   other_values?: string[];
 }
 
+function getRequiredGridRows(question: ExtractedQuestion): string[] {
+  if (question.type !== "choice_grid" && question.type !== "checkbox_grid") {
+    return [];
+  }
+  const rows = (question.validation as Record<string, unknown>).rows;
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    if (
+      typeof row === "object" &&
+      row !== null &&
+      typeof (row as { id?: unknown }).id === "string"
+    ) {
+      return [(row as { id: string }).id];
+    }
+    return [];
+  });
+}
+
+function hasRequiredGridRowsAnswered(
+  question: ExtractedQuestion,
+  responses: Record<string, unknown> | undefined,
+): boolean {
+  const requiredRows = getRequiredGridRows(question);
+  if (requiredRows.length === 0) {
+    return responses != null && Object.keys(responses).length > 0;
+  }
+  if (!responses) return false;
+  return requiredRows.every((rowId) => {
+    const value = responses[rowId];
+    if (question.type === "choice_grid") {
+      return typeof value === "string" && value !== "";
+    }
+    return Array.isArray(value) && value.length > 0;
+  });
+}
+
 /** Return required questions that have no answer yet. */
 export function findUnansweredRequired(
   questions: ExtractedQuestion[],
@@ -52,12 +88,16 @@ export function findUnansweredRequired(
 
     if (answer.value != null && answer.value !== "") return false;
     if (Array.isArray(answer.values) && answer.values.length > 0) return false;
+    if (q.type === "choice_grid" || q.type === "checkbox_grid") {
+      return !hasRequiredGridRowsAnswered(q, answer.responses);
+    }
     if (
       answer.responses != null &&
       typeof answer.responses === "object" &&
       Object.keys(answer.responses as Record<string, unknown>).length > 0
-    )
+    ) {
       return false;
+    }
     return true;
   });
 }
