@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { ArrowLeft, ExternalLink, Eye } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -54,12 +54,10 @@ export function FormPreviewPage() {
       : "プレビュー",
   );
 
-  // Reset preview message and error when user switches to a different version
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reacts only to selectedVersion changes
-  useEffect(() => {
+  const resetPreviewStatus = useCallback(() => {
     setPreviewMessage(null);
     setPreviewError(null);
-  }, [selectedVersion]);
+  }, []);
 
   const handlePreviewSubmit = useCallback(() => {
     setPreviewMessage("これはプレビューです。回答は保存されません。");
@@ -119,9 +117,10 @@ export function FormPreviewPage() {
             {snapshots.length > 0 && (
               <Select
                 value={String(selectedVersion)}
-                onValueChange={(v) =>
-                  setSelectedVersion(v === "latest" ? "latest" : Number(v))
-                }
+                onValueChange={(v) => {
+                  resetPreviewStatus();
+                  setSelectedVersion(v === "latest" ? "latest" : Number(v));
+                }}
               >
                 <SelectTrigger className="h-7 w-[200px] text-xs">
                   <SelectValue placeholder="バージョンを選択" />

@@ -18,7 +18,6 @@ import {
   type RefObject,
   memo,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from "react";
@@ -117,19 +116,6 @@ function Draggable(props: PlateElementProps) {
     }
   }, [previewRef]);
 
-  // clear up virtual multiple preview when drag end
-  useEffect(() => {
-    if (!isDragging) {
-      resetPreview();
-    }
-  }, [isDragging, resetPreview]);
-
-  useEffect(() => {
-    if (isAboutToDrag) {
-      previewRef.current?.classList.remove("opacity-0");
-    }
-  }, [isAboutToDrag, previewRef]);
-
   const [dragButtonTop, setDragButtonTop] = useState(0);
 
   return (
@@ -183,7 +169,11 @@ function Draggable(props: PlateElementProps) {
 
       <div
         ref={previewRef}
-        className={cn("-left-0 absolute hidden w-full")}
+        className={cn(
+          "-left-0 absolute w-full",
+          !(isAboutToDrag || isDragging) && "hidden",
+          !isAboutToDrag && "opacity-0",
+        )}
         style={{ top: `${-previewTop}px` }}
         contentEditable={false}
       />

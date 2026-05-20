@@ -15,7 +15,6 @@ type CarouselProps = {
   opts?: CarouselOptions;
   plugins?: CarouselPlugin;
   orientation?: "horizontal" | "vertical";
-  setApi?: (api: CarouselApi) => void;
 };
 
 type CarouselContextProps = {
@@ -42,7 +41,6 @@ function useCarousel() {
 function Carousel({
   orientation = "horizontal",
   opts,
-  setApi,
   plugins,
   className,
   children,
@@ -85,21 +83,21 @@ function Carousel({
     [scrollPrev, scrollNext],
   );
 
-  React.useEffect(() => {
-    if (!api || !setApi) return;
-    setApi(api);
-  }, [api, setApi]);
+  const onSelectRef = React.useRef(onSelect);
+  onSelectRef.current = onSelect;
 
   React.useEffect(() => {
     if (!api) return;
-    onSelect(api);
-    api.on("reInit", onSelect);
-    api.on("select", onSelect);
+    const handleSelect = () => onSelectRef.current(api);
+    handleSelect();
+    api.on("reInit", handleSelect);
+    api.on("select", handleSelect);
 
     return () => {
-      api?.off("select", onSelect);
+      api?.off("reInit", handleSelect);
+      api?.off("select", handleSelect);
     };
-  }, [api, onSelect]);
+  }, [api]);
 
   return (
     <CarouselContext.Provider

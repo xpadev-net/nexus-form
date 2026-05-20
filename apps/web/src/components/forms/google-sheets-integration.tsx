@@ -126,6 +126,49 @@ function isJobResult(
   return validRows && validRange;
 }
 
+interface SyncMonitorState {
+  syncStatus: UiSyncState | null;
+  isSyncing: boolean;
+  activeJobId: string | null;
+}
+
+type SyncMonitorAction =
+  | { type: "start"; status: UiSyncState }
+  | { type: "update"; status: UiSyncState }
+  | { type: "finish"; status: UiSyncState }
+  | { type: "clear" };
+
+const syncMonitorReducer = (
+  state: SyncMonitorState,
+  action: SyncMonitorAction,
+): SyncMonitorState => {
+  switch (action.type) {
+    case "start":
+      return {
+        syncStatus: action.status,
+        isSyncing: true,
+        activeJobId: action.status.jobId,
+      };
+    case "update":
+      return {
+        ...state,
+        syncStatus: action.status,
+      };
+    case "finish":
+      return {
+        syncStatus: action.status,
+        isSyncing: false,
+        activeJobId: null,
+      };
+    case "clear":
+      return {
+        syncStatus: null,
+        isSyncing: false,
+        activeJobId: null,
+      };
+  }
+};
+
 export function GoogleSheetsIntegration({
   formId,
   className,
@@ -140,12 +183,12 @@ export function GoogleSheetsIntegration({
   const [selectedSheetName, setSelectedSheetName] = useState<string>("");
 
   // 同期状態
-  const [syncStatus, setSyncStatus] = useState<UiSyncState | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [activeJobId, setActiveJobId] = useReducer(
-    (_current: string | null, next: string | null) => next,
-    null,
-  );
+  const [syncMonitor, dispatchSyncMonitor] = useReducer(syncMonitorReducer, {
+    syncStatus: null,
+    isSyncing: false,
+    activeJobId: null,
+  });
+  const { activeJobId, isSyncing, syncStatus } = syncMonitor;
 
   const [isSpreadsheetDialogOpen, setIsSpreadsheetDialogOpen] = useState(false);
   const [newSpreadsheetTitle, setNewSpreadsheetTitle] = useState("");
@@ -197,29 +240,29 @@ export function GoogleSheetsIntegration({
     const jobResult = isJobResult(syncJobData.job.result)
       ? syncJobData.job.result
       : undefined;
-    setSyncStatus({
+    const nextStatus = {
       jobId: activeJobId,
       status: uiStatus,
       progress: jobProgress,
       result: jobResult,
       error: uiStatus === "failed" ? syncJobData.job.failedReason : undefined,
-    });
+    };
     if (uiStatus === "completed") {
       if (syncTimeoutRef.current != null) {
         window.clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = null;
       }
       toast.success("同期が完了しました");
-      setIsSyncing(false);
-      setActiveJobId(null);
+      dispatchSyncMonitor({ type: "finish", status: nextStatus });
     } else if (uiStatus === "failed") {
       if (syncTimeoutRef.current != null) {
         window.clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = null;
       }
       toast.error("同期に失敗しました");
-      setIsSyncing(false);
-      setActiveJobId(null);
+      dispatchSyncMonitor({ type: "finish", status: nextStatus });
+    } else {
+      dispatchSyncMonitor({ type: "update", status: nextStatus });
     }
   }, [syncJobData, activeJobId]);
 
@@ -230,9 +273,7 @@ export function GoogleSheetsIntegration({
       syncTimeoutRef.current = null;
     }
     toast.error("同期状態の確認に失敗しました");
-    setIsSyncing(false);
-    setActiveJobId(null);
-    setSyncStatus(null);
+    dispatchSyncMonitor({ type: "clear" });
   }, [syncJobError]);
 
   const {
@@ -586,7 +627,13 @@ export function GoogleSheetsIntegration({
       return;
     }
 
-    setIsSyncing(true);
+    dispatchSyncMonitor({
+      type: "start",
+      status: {
+        jobId: "",
+        status: "queued",
+      },
+    });
     try {
       const data = await fetchJson<SyncStartResponse>(
         apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
@@ -596,20 +643,20 @@ export function GoogleSheetsIntegration({
           body: JSON.stringify({}),
         }),
       );
-      setSyncStatus({
-        jobId: data.jobId,
-        status: data.status,
+      dispatchSyncMonitor({
+        type: "start",
+        status: {
+          jobId: data.jobId,
+          status: data.status,
+        },
       });
-      setActiveJobId(data.jobId);
       if (syncTimeoutRef.current != null) {
         window.clearTimeout(syncTimeoutRef.current);
       }
       syncTimeoutRef.current = window.setTimeout(() => {
         syncTimeoutRef.current = null;
         toast.error("同期状態の監視がタイムアウトしました");
-        setIsSyncing(false);
-        setActiveJobId(null);
-        setSyncStatus(null);
+        dispatchSyncMonitor({ type: "clear" });
       }, 60_000);
 
       toast.success("同期を開始しました");
@@ -627,7 +674,7 @@ export function GoogleSheetsIntegration({
     } catch (error) {
       logError("Failed to start sync:", "ui", { error: error });
       toast.error("同期の開始に失敗しました");
-      setIsSyncing(false);
+      dispatchSyncMonitor({ type: "clear" });
     }
   }, [
     formId,
@@ -725,7 +772,7 @@ export function GoogleSheetsIntegration({
             <SyncStatusPanel
               syncStatus={syncStatus}
               isSyncing={isSyncing}
-              onClearSyncStatus={() => setSyncStatus(null)}
+              onClearSyncStatus={() => dispatchSyncMonitor({ type: "clear" })}
             />
           </>
         )}

@@ -57,8 +57,8 @@ export function FontColorToolbarButton({
     [nodeType],
   );
 
-  const [selectedColor, setSelectedColor] = useState<string>();
   const [open, setOpen] = useState(false);
+  const selectedColor = selectionDefined ? color : undefined;
 
   const onToggle = useCallback(
     (value = !open) => {
@@ -70,8 +70,6 @@ export function FontColorToolbarButton({
   const updateColor = useCallback(
     (value: string) => {
       if (editor.selection) {
-        setSelectedColor(value);
-
         editor.tf.select(editor.selection);
         editor.tf.focus();
 
@@ -101,12 +99,6 @@ export function FontColorToolbarButton({
       onToggle();
     }
   }, [editor, selectedColor, onToggle, nodeType]);
-
-  useEffect(() => {
-    if (selectionDefined) {
-      setSelectedColor(color);
-    }
-  }, [color, selectionDefined]);
 
   return (
     <DropdownMenu

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useReducer } from "react";
 import { Button } from "@/components/ui/button";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client } from "@/lib/api";
@@ -12,22 +12,82 @@ type CurrentUser = {
   isSuspended: boolean;
 };
 
+type SettingsState = {
+  user: CurrentUser | null;
+  name: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+  success: string | null;
+};
+
+type SettingsAction =
+  | { type: "load-start" }
+  | { type: "load-success"; user: CurrentUser | null }
+  | { type: "load-error"; message: string }
+  | { type: "name-change"; name: string }
+  | { type: "save-start" }
+  | { type: "save-success"; user: CurrentUser | null }
+  | { type: "save-error"; message: string };
+
+const initialSettingsState: SettingsState = {
+  user: null,
+  name: "",
+  isLoading: true,
+  isSaving: false,
+  error: null,
+  success: null,
+};
+
+const settingsReducer = (
+  state: SettingsState,
+  action: SettingsAction,
+): SettingsState => {
+  switch (action.type) {
+    case "load-start":
+      return { ...state, isLoading: true, error: null };
+    case "load-success":
+      return {
+        ...state,
+        user: action.user,
+        name: action.user?.name ?? "",
+        isLoading: false,
+      };
+    case "load-error":
+      return { ...state, isLoading: false, error: action.message };
+    case "name-change":
+      return {
+        ...state,
+        name: action.name,
+        error: null,
+        success: null,
+      };
+    case "save-start":
+      return { ...state, isSaving: true, error: null, success: null };
+    case "save-success":
+      return {
+        ...state,
+        user: action.user,
+        name: action.user?.name ?? "",
+        isSaving: false,
+        success: "設定を保存しました。",
+      };
+    case "save-error":
+      return { ...state, isSaving: false, error: action.message };
+  }
+};
+
 export function SettingsPage() {
   usePageTitle("設定");
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [name, setName] = useState("");
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(settingsReducer, initialSettingsState);
+  const { error, isLoading, isSaving, name, success, user } = state;
 
   useEffect(() => {
     let active = true;
 
     const load = async () => {
       try {
-        setIsLoading(true);
-        setError(null);
+        dispatch({ type: "load-start" });
 
         const response = await client.api["auth-ext"].me.$get();
         if (!response.ok) {
@@ -37,19 +97,16 @@ export function SettingsPage() {
         const json = (await response.json()) as { user: CurrentUser | null };
         if (!active) return;
 
-        setUser(json.user);
-        setName(json.user?.name ?? "");
+        dispatch({ type: "load-success", user: json.user });
       } catch (loadError) {
         if (!active) return;
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "不明なエラーが発生しました",
-        );
-      } finally {
-        if (active) {
-          setIsLoading(false);
-        }
+        dispatch({
+          type: "load-error",
+          message:
+            loadError instanceof Error
+              ? loadError.message
+              : "不明なエラーが発生しました",
+        });
       }
     };
 
@@ -62,9 +119,7 @@ export function SettingsPage() {
 
   const save = async () => {
     try {
-      setIsSaving(true);
-      setError(null);
-      setSuccess(null);
+      dispatch({ type: "save-start" });
 
       const response = await client.api["auth-ext"].me.$put({
         json: {
@@ -77,17 +132,15 @@ export function SettingsPage() {
       }
 
       const json = (await response.json()) as { user: CurrentUser | null };
-      setUser(json.user);
-      setName(json.user?.name ?? "");
-      setSuccess("設定を保存しました。");
+      dispatch({ type: "save-success", user: json.user });
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "不明なエラーが発生しました",
-      );
-    } finally {
-      setIsSaving(false);
+      dispatch({
+        type: "save-error",
+        message:
+          saveError instanceof Error
+            ? saveError.message
+            : "不明なエラーが発生しました",
+      });
     }
   };
 
@@ -109,9 +162,7 @@ export function SettingsPage() {
           className="w-full rounded border bg-background px-3 py-2 text-sm"
           value={name}
           onChange={(event) => {
-            setName(event.target.value);
-            setError(null);
-            setSuccess(null);
+            dispatch({ type: "name-change", name: event.target.value });
           }}
           placeholder="表示名を入力"
           maxLength={255}
