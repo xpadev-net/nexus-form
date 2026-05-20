@@ -16,7 +16,18 @@ import {
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  ne,
+  notInArray,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -100,14 +111,13 @@ const bulkDeleteSchema = z.object({
 });
 
 /**
- * validation result 行に対して BullMQ ジョブを投入し、ステータスを PENDING にアトミックに更新する。
- * queue.add 成功後に per-row で PENDING + jobId を同時に設定することで、Worker がまだ
- * jobId 未設定の行を拾うレースを防ぐ。
+ * validation result 行に対して BullMQ ジョブを投入し、enqueue 成功行のステータスを
+ * まとめて PENDING に更新する。
  *
  * @returns enqueuedCount は BullMQ キューへの投入に成功した件数。
  *          DB 更新（PENDING 設定）に失敗した場合もジョブは既に投入済みのためカウントに含む。
  */
-async function enqueueValidationRetries(
+export async function enqueueValidationRetries(
   results: Array<{
     id: string;
     responseId: string;
@@ -170,6 +180,12 @@ async function enqueueValidationRetries(
   }
 
   const jobIds: string[] = [];
+  const preparedJobs: Array<{
+    result: (typeof validResults)[number];
+    jobData: z.infer<typeof genericValidationJobDataSchema>;
+    jobId: string;
+  }> = [];
+  const pendingUpdates: Array<{ resultId: string; jobId: string }> = [];
   let enqueuedCount = 0;
 
   for (const result of validResults) {
@@ -248,9 +264,6 @@ async function enqueueValidationRetries(
       continue;
     }
 
-    const queue = getValidationQueue(result.service);
-
-    let job: { id?: string };
     try {
       const jobData = genericValidationJobDataSchema.parse({
         responseId: result.responseId,
@@ -260,7 +273,54 @@ async function enqueueValidationRetries(
         snapshotRuleType: ruleType,
         snapshotConfigJson: configJson,
       });
+      preparedJobs.push({
+        result,
+        jobData,
+        jobId: `validation-retry:${result.id}:${randomUUID()}`,
+      });
+    } catch (error) {
+      logError("Failed to prepare validation retry job", "forms-responses", {
+        error,
+        resultId: result.id,
+        responseId: result.responseId,
+        ruleId: result.ruleId,
+        service: result.service,
+        formId: result.formId,
+      });
+      // enqueue に失敗した場合のみ FAILED に設定
+      try {
+        await db
+          .update(externalServiceValidationResult)
+          .set({
+            status: "FAILED",
+            errorCode: "ENQUEUE_FAILED",
+            errorMessage: "Failed to prepare retry job",
+          })
+          .where(eq(externalServiceValidationResult.id, result.id));
+      } catch (error) {
+        logError(
+          "Failed to mark validation result as FAILED after enqueue error",
+          "forms-responses",
+          {
+            error,
+            resultId: result.id,
+            responseId: result.responseId,
+            ruleId: result.ruleId,
+            service: result.service,
+            formId: result.formId,
+          },
+        );
+      }
+    }
+  }
+
+  for (const { result, jobData, jobId } of preparedJobs) {
+    const queue = getValidationQueue(result.service);
+
+    let job: { id?: string };
+    try {
       job = await queue.add(`validate-${result.service}`, jobData, {
+        jobId,
         removeOnComplete: 100,
         removeOnFail: 100,
       });
@@ -272,8 +332,8 @@ async function enqueueValidationRetries(
         ruleId: result.ruleId,
         service: result.service,
         formId: result.formId,
+        jobId,
       });
-      // enqueue に失敗した場合のみ FAILED に設定
       try {
         await db
           .update(externalServiceValidationResult)
@@ -294,53 +354,35 @@ async function enqueueValidationRetries(
             ruleId: result.ruleId,
             service: result.service,
             formId: result.formId,
+            jobId,
           },
         );
       }
       continue;
     }
 
-    // PENDING + jobId をアトミックに設定
-    try {
-      await db
-        .update(externalServiceValidationResult)
-        .set({
-          status: "PENDING",
-          lastAttemptAt: null,
-          nextRetryAt: new Date(),
-          errorCode: null,
-          errorMessage: null,
-          jobId: job.id ?? null,
-        })
-        .where(eq(externalServiceValidationResult.id, result.id));
-    } catch (error) {
-      // ジョブは既にキューに投入済み。Worker が実行時にステータスを修正するため、
-      // ここではログ出力のみで残りのエントリの処理を継続する。
-      // ジョブは実行中なので、呼び出し元がトラッキング・キャンセルできるよう記録する。
-      logError(
-        "Failed to set PENDING status for validation retry result",
-        "forms-responses",
-        {
-          error,
-          resultId: result.id,
-          responseId: result.responseId,
-          ruleId: result.ruleId,
-          service: result.service,
-          formId: result.formId,
-          jobId: job.id ?? null,
-        },
-      );
-      if (job.id) {
-        jobIds.push(job.id);
-      }
-      enqueuedCount++;
-      continue;
-    }
-
     if (job.id) {
       jobIds.push(job.id);
     }
+    pendingUpdates.push({ resultId: result.id, jobId });
     enqueuedCount++;
+  }
+
+  if (pendingUpdates.length > 0) {
+    try {
+      await markValidationRetriesPending(pendingUpdates);
+    } catch (error) {
+      // ジョブは既にキューに投入済み。Worker 側は実行時に行を PROCESSING/最終状態へ進める。
+      logError(
+        "Failed to set PENDING status for validation retry results",
+        "forms-responses",
+        {
+          error,
+          resultIds: pendingUpdates.map((entry) => entry.resultId),
+          jobIds: pendingUpdates.map((entry) => entry.jobId),
+        },
+      );
+    }
   }
 
   return {
@@ -348,6 +390,50 @@ async function enqueueValidationRetries(
     enqueuedCount,
     skippedCount: results.length - enqueuedCount,
   };
+}
+
+function buildRetryJobIdCase(
+  updates: ReadonlyArray<{ resultId: string; jobId: string }>,
+): SQL<string | null> {
+  const cases = updates.map(
+    ({ resultId, jobId }) => sql`when ${resultId} then ${jobId}`,
+  );
+  return sql<
+    string | null
+  >`case ${externalServiceValidationResult.id} ${sql.join(cases, sql` `)} else ${externalServiceValidationResult.jobId} end`;
+}
+
+async function markValidationRetriesPending(
+  updates: ReadonlyArray<{ resultId: string; jobId: string }>,
+): Promise<void> {
+  if (updates.length === 0) return;
+
+  await db
+    .update(externalServiceValidationResult)
+    .set({
+      status: "PENDING",
+      lastAttemptAt: null,
+      nextRetryAt: new Date(),
+      errorCode: null,
+      errorMessage: null,
+      jobId: buildRetryJobIdCase(updates),
+    })
+    .where(
+      and(
+        inArray(
+          externalServiceValidationResult.id,
+          updates.map((entry) => entry.resultId),
+        ),
+        ne(externalServiceValidationResult.status, "PROCESSING"),
+        or(
+          isNull(externalServiceValidationResult.jobId),
+          notInArray(
+            externalServiceValidationResult.jobId,
+            updates.map((entry) => entry.jobId),
+          ),
+        ),
+      ),
+    );
 }
 
 async function discardQueuedValidationJob(params: {
@@ -829,7 +915,7 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で per-row にアトミックに行う
+      // PENDING リセットは enqueueValidationRetries 内で一括更新する
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(targets);
 
@@ -920,7 +1006,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(errorResponse("Validation result not found"), 404);
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で per-row にアトミックに行う
+      // PENDING リセットは enqueueValidationRetries 内で一括更新する
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(rows);
 
