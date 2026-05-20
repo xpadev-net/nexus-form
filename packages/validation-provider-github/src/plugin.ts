@@ -5,7 +5,7 @@ import type {
 } from "@nexus-form/integrations";
 import { z } from "zod";
 import { getGitHubClient } from "./client";
-import { getGitHubConfig } from "./config";
+import { getGitHubApiTimeoutMs, getGitHubConfig } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 import { isGitHubProviderError } from "./utils";
 
@@ -46,7 +46,12 @@ function normalizeGitHubUsername(username: string): string {
 function resolveGitHubClient(): ReturnType<typeof getGitHubClient> {
   try {
     const cfg = getGitHubConfig();
-    return getGitHubClient(cfg.appId, cfg.privateKey, cfg.installationId);
+    return getGitHubClient(
+      cfg.appId,
+      cfg.privateKey,
+      cfg.installationId,
+      cfg.apiTimeoutMs,
+    );
   } catch {
     return getGitHubClient();
   }
@@ -157,7 +162,7 @@ export const githubProvider: ValidationProvider = {
 
 async function pingGitHubApi(): Promise<boolean> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
+  const timeout = setTimeout(() => controller.abort(), getGitHubApiTimeoutMs());
   try {
     const res = await fetch("https://api.github.com/", {
       method: "GET",

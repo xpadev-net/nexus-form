@@ -78,6 +78,12 @@ describe("GitHub error utilities", () => {
     expect(getGitHubErrorCode({ code: "ETIMEDOUT" })).toBe(
       GitHubErrorCode.TIMEOUT,
     );
+    expect(getGitHubErrorCode({ name: "TimeoutError" })).toBe(
+      GitHubErrorCode.TIMEOUT,
+    );
+    expect(getGitHubErrorCode({ name: "AbortError" })).toBe(
+      GitHubErrorCode.GITHUB_API_ERROR,
+    );
   });
 
   it.each([

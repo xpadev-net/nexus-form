@@ -2,6 +2,7 @@ export { GitHubApiClient, getGitHubClient } from "./client";
 export {
   GITHUB_CONFIG_DEFAULTS,
   type GitHubServiceConfig,
+  getGitHubApiTimeoutMs,
   getGitHubConfig,
   validateGitHubConfig,
 } from "./config";

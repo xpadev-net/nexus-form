@@ -1,5 +1,6 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
+import { getGitHubApiTimeoutMs } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 import {
   GitHubProviderError,
@@ -24,6 +25,30 @@ export interface GitHubUserInfo {
   updatedAt: string;
 }
 
+function getRequestSignal(init?: RequestInit): AbortSignal | null {
+  return init?.signal instanceof AbortSignal ? init.signal : null;
+}
+
+export function createGitHubTimeoutFetch(
+  apiTimeoutMs: number,
+  fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args),
+): typeof fetch {
+  return async (input, init) => {
+    const timeoutSignal = AbortSignal.timeout(apiTimeoutMs);
+    const requestSignal =
+      getRequestSignal(init) ??
+      (input instanceof Request ? input.signal : null);
+    const signal = requestSignal
+      ? AbortSignal.any([requestSignal, timeoutSignal])
+      : timeoutSignal;
+
+    return fetchImpl(input, {
+      ...init,
+      signal,
+    });
+  };
+}
+
 export class GitHubApiClient {
   protected octokit: Octokit;
   protected debug = false;
@@ -33,10 +58,14 @@ export class GitHubApiClient {
     privateKey?: string,
     installationId?: string,
     debug = false,
+    apiTimeoutMs = getGitHubApiTimeoutMs(),
   ) {
     this.debug = debug;
 
     const normalizedKey = privateKey?.replace(/\\n/g, "\n");
+    const request = {
+      fetch: createGitHubTimeoutFetch(apiTimeoutMs),
+    };
 
     if (appId && normalizedKey && installationId) {
       this.octokit = new Octokit({
@@ -46,9 +75,10 @@ export class GitHubApiClient {
           privateKey: normalizedKey,
           installationId,
         },
+        request,
       });
     } else {
-      this.octokit = new Octokit();
+      this.octokit = new Octokit({ request });
     }
   }
 
@@ -106,6 +136,13 @@ export function getGitHubClient(
   appId?: string,
   privateKey?: string,
   installationId?: string,
+  apiTimeoutMs?: number,
 ): GitHubApiClient {
-  return new GitHubApiClient(appId, privateKey, installationId);
+  return new GitHubApiClient(
+    appId,
+    privateKey,
+    installationId,
+    false,
+    apiTimeoutMs,
+  );
 }
