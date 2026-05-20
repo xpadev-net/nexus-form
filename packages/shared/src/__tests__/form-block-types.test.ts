@@ -31,6 +31,21 @@ describe("form block type constants", () => {
     }
   });
 
+  it("rejects non-member block and Plate question types", () => {
+    const randomNonMember = `not_a_block_type_${crypto.randomUUID()}`;
+
+    expect(isBlockType("not_a_block_type")).toBe(false);
+    expect(isBlockType(randomNonMember)).toBe(false);
+    expect(isPlateQuestionType("form_not_a_block_type")).toBe(false);
+    expect(isPlateQuestionType(`form_${randomNonMember}`)).toBe(false);
+  });
+
+  it("throws when converting an invalid Plate question type", () => {
+    expect(() =>
+      fromPlateQuestionType("form_not_a_block_type" as never),
+    ).toThrow("Unsupported Plate question type");
+  });
+
   it("derives answerable question types from block types", () => {
     expect(ANSWERABLE_QUESTION_TYPES).toEqual(
       BLOCK_TYPES.filter((type) => type !== "section_separator"),

@@ -76,6 +76,12 @@ export const FORM_QUESTION_TYPES = BLOCK_TYPES.map(
   (type) => `form_${type}`,
 ) as readonly PlateQuestionType[];
 
+/**
+ * Check whether an unknown value is one of the canonical form block types.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is a valid `BlockTypeValue`, and narrows the input.
+ */
 export function isBlockType(type: unknown): type is BlockTypeValue {
   return (
     typeof type === "string" &&
@@ -83,6 +89,12 @@ export function isBlockType(type: unknown): type is BlockTypeValue {
   );
 }
 
+/**
+ * Check whether an unknown value is one of the derived Plate question node types.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is a valid `PlateQuestionType`, and narrows the input.
+ */
 export function isPlateQuestionType(type: unknown): type is PlateQuestionType {
   return (
     typeof type === "string" &&
@@ -90,10 +102,27 @@ export function isPlateQuestionType(type: unknown): type is PlateQuestionType {
   );
 }
 
+/**
+ * Convert a canonical block type to the prefixed Plate question node type.
+ *
+ * @param type - Canonical form block type, for example `"short_text"`.
+ * @returns The matching Plate question type, for example `"form_short_text"`.
+ * @example
+ * toPlateQuestionType("short_text"); // "form_short_text"
+ */
 export function toPlateQuestionType(type: BlockTypeValue): PlateQuestionType {
   return `form_${type}`;
 }
 
+/**
+ * Convert a prefixed Plate question node type back to the canonical block type.
+ *
+ * @param type - Plate question type, for example `"form_short_text"`.
+ * @returns The matching canonical block type, for example `"short_text"`.
+ * @throws Error when stripping the `"form_"` prefix does not produce a valid `BlockTypeValue`.
+ * @example
+ * fromPlateQuestionType("form_short_text"); // "short_text"
+ */
 export function fromPlateQuestionType(type: PlateQuestionType): BlockTypeValue {
   const blockType = type.slice("form_".length);
   if (!isBlockType(blockType)) {

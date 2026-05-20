@@ -4,11 +4,19 @@
  */
 
 import { z } from "zod";
-import { BLOCK_TYPES } from "./forms/form-block";
+import { BLOCK_TYPES, type BlockTypeValue } from "./forms/form-block";
+
+type AnswerableBlockType = Exclude<BlockTypeValue, "section_separator">;
+
+function isAnswerableBlockType(
+  type: BlockTypeValue,
+): type is AnswerableBlockType {
+  return type !== "section_separator";
+}
 
 /** ユーザー回答を受け付けるバリデーション対象の質問タイプ。 */
 export const ANSWERABLE_QUESTION_TYPES = BLOCK_TYPES.filter(
-  (type) => type !== "section_separator",
+  isAnswerableBlockType,
 );
 
 /** バリデーション対象の質問タイプのユニオン型。 */
