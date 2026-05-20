@@ -26,9 +26,17 @@ spec:
         - containerPort: 3000
           name: http
           protocol: TCP
-        envFrom:
-        - configMapRef:
-            name: nexus-form-config
+        env:
+        - name: VITE_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_API_URL
+        - name: VITE_HCAPTCHA_SITE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_HCAPTCHA_SITE_KEY
         resources:
           requests:
             cpu: "50m"

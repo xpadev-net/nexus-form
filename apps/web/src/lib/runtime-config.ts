@@ -14,6 +14,15 @@ function getRuntimeConfig(): RuntimeConfig {
 export function getRuntimeConfigValue(
   key: keyof RuntimeConfig,
   buildTimeValue: string | undefined,
+  fallback: string,
+): string;
+export function getRuntimeConfigValue(
+  key: keyof RuntimeConfig,
+  buildTimeValue: string | undefined,
+): string | undefined;
+export function getRuntimeConfigValue(
+  key: keyof RuntimeConfig,
+  buildTimeValue: string | undefined,
   fallback?: string,
 ): string | undefined {
   const runtimeValue = getRuntimeConfig()[key];

@@ -88,6 +88,15 @@ function readDeploymentConfigMapRefs(manifestName: string): string[] {
   ).map((match) => match.groups?.name ?? "");
 }
 
+function readDeploymentConfigMapKeyRefs(manifestName: string): string[] {
+  const manifest = readManifest(manifestName);
+  return Array.from(
+    manifest.matchAll(
+      /^\s*configMapKeyRef:\s*\n\s*name:\s*nexus-form-config\s*\n\s*key:\s*(?<key>\S+)/gm,
+    ),
+  ).map((match) => match.groups?.key ?? "");
+}
+
 function readConfigMapValue(key: string): string {
   const value = configMapManifest.match(
     new RegExp(`^\\s{2}${key}:\\s*"(?<value>[^"]*)"\\s*$`, "m"),
@@ -123,10 +132,14 @@ describe("k8s worker deployments", () => {
 });
 
 describe("k8s web runtime configuration", () => {
-  it("injects the ConfigMap into the web Deployment", () => {
-    expect(readDeploymentConfigMapRefs("web-deployment.yaml")).toContain(
+  it("injects only browser runtime keys into the web Deployment", () => {
+    expect(readDeploymentConfigMapRefs("web-deployment.yaml")).not.toContain(
       "nexus-form-config",
     );
+    expect(readDeploymentConfigMapKeyRefs("web-deployment.yaml")).toEqual([
+      "VITE_API_URL",
+      "VITE_HCAPTCHA_SITE_KEY",
+    ]);
   });
 
   it("defines Vite runtime keys and keeps the invitation code in Secret", () => {
