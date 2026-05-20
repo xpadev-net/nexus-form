@@ -1,6 +1,11 @@
 import "./load-env";
 import { fileURLToPath } from "node:url";
-import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
+import {
+  BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
+  getValidationPluginsDir,
+  providerRegistry,
+  startupPlugins,
+} from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
@@ -25,14 +30,7 @@ import {
   validateWorkerQueuesEnv,
 } from "./lib/worker-queue-selection";
 
-const BUILTIN_PLUGIN_SPECIFIERS = [
-  "@nexus-form/validation-provider-discord/plugin",
-  "@nexus-form/validation-provider-github/plugin",
-  "@nexus-form/validation-provider-twitter/plugin",
-];
-
-const VALIDATION_PLUGINS_DIR =
-  process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
+const VALIDATION_PLUGINS_DIR = getValidationPluginsDir();
 const VALIDATION_PLUGINS_FAIL_FAST =
   process.env.VALIDATION_PLUGINS_FAIL_FAST !== "false";
 
@@ -55,7 +53,7 @@ async function main() {
   assertGoogleOAuthEncryptionKeyConfigured();
   validateWorkerQueuesEnv(process.env.WORKER_QUEUES);
 
-  const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());

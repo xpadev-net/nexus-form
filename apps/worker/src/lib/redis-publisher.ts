@@ -4,43 +4,44 @@
  * バリデーション結果の更新イベントを form:validation:{formId} チャネルに配信する
  */
 
+import type { RedisPublisherClient } from "@nexus-form/integrations";
+import { createRedisPublisher } from "@nexus-form/integrations";
 import type { ValidationSSEEvent } from "@nexus-form/shared";
 import { getValidationChannel } from "@nexus-form/shared";
 import Redis from "ioredis";
 import { getPublisherConnectionOptions } from "./redis";
 
-let publisher: Redis | null = null;
-
-function getPublisher(): Redis {
-  if (publisher) {
-    return publisher;
-  }
-
-  publisher = new Redis(getPublisherConnectionOptions());
-
-  publisher.on("error", (err) => {
-    console.error("[redis-publisher] connection error:", err.message);
-  });
-
-  return publisher;
+function createPublisherClient(): RedisPublisherClient {
+  return new Redis(getPublisherConnectionOptions());
 }
+
+const validationEventPublisher = createRedisPublisher<ValidationSSEEvent>({
+  createClient: createPublisherClient,
+  resolveChannel: (event) => getValidationChannel(event.formId),
+  onConnectionError: (error) => {
+    console.error("[redis-publisher] connection error:", error.message);
+  },
+  onPublishError: (error) => {
+    console.error(
+      "[redis-publisher] failed to publish validation event:",
+      error instanceof Error ? error.message : String(error),
+    );
+  },
+  onCloseError: (error) => {
+    console.error(
+      "[redis-publisher] failed to close publisher:",
+      error instanceof Error ? error.message : String(error),
+    );
+  },
+  swallowCloseError: true,
+});
 
 /**
  * Pub/Sub 用 Redis publisher を閉じる。
  * グレースフルシャットダウン時に呼び、接続リークを防ぐ。
  */
 export async function closePublisher(): Promise<void> {
-  if (!publisher) return;
-  try {
-    await publisher.quit();
-  } catch (error) {
-    console.error(
-      "[redis-publisher] failed to close publisher:",
-      error instanceof Error ? error.message : String(error),
-    );
-  } finally {
-    publisher = null;
-  }
+  await validationEventPublisher.close();
 }
 
 /**
@@ -51,14 +52,5 @@ export async function closePublisher(): Promise<void> {
 export async function publishValidationEvent(
   event: ValidationSSEEvent,
 ): Promise<void> {
-  try {
-    const redis = getPublisher();
-    const channel = getValidationChannel(event.formId);
-    await redis.publish(channel, JSON.stringify(event));
-  } catch (error) {
-    console.error(
-      "[redis-publisher] failed to publish validation event:",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
+  await validationEventPublisher.publish(event);
 }

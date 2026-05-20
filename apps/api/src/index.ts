@@ -2,7 +2,12 @@ import "./load-env";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { closeDatabase, db } from "@nexus-form/database";
-import { providerRegistry, startupPlugins } from "@nexus-form/integrations";
+import {
+  BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
+  getValidationPluginsDir,
+  providerRegistry,
+  startupPlugins,
+} from "@nexus-form/integrations";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -53,14 +58,7 @@ import { telemetryRouter } from "./routes/telemetry";
 import { tokensRouter } from "./routes/tokens";
 import { validationProvidersRouter } from "./routes/validation-providers";
 
-const BUILTIN_PLUGIN_SPECIFIERS = [
-  "@nexus-form/validation-provider-discord/plugin",
-  "@nexus-form/validation-provider-github/plugin",
-  "@nexus-form/validation-provider-twitter/plugin",
-];
-
-const VALIDATION_PLUGINS_DIR =
-  process.env.VALIDATION_PLUGINS_DIR || "/app/plugins/validation";
+const VALIDATION_PLUGINS_DIR = getValidationPluginsDir();
 const VALIDATION_PLUGINS_FAIL_FAST =
   process.env.VALIDATION_PLUGINS_FAIL_FAST !== "false";
 const shutdownTimeoutEnv = Number(process.env.API_SHUTDOWN_TIMEOUT_MS);
@@ -178,7 +176,7 @@ export type AppType = typeof app;
 async function startServer() {
   assertGoogleOAuthEncryptionKeyConfigured();
 
-  const builtinPlugins = BUILTIN_PLUGIN_SPECIFIERS.map((specifier) =>
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
     fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = getRedisClient();
