@@ -58,7 +58,7 @@ export type ReadRangeGoogleApiResponse = z.infer<
 
 export const UpdateRangeGoogleApiResponseSchema = z.object({
   spreadsheetId: z.string().optional(),
-  updatedRange: z.string(),
+  updatedRange: z.string().optional(),
   updatedRows: z.number().optional(),
   updatedColumns: z.number().optional(),
   updatedCells: z.number().optional(),

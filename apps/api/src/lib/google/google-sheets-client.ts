@@ -190,7 +190,7 @@ export async function updateRange(
     return {
       ok: true,
       data: {
-        updatedRange: parsed.data.updatedRange,
+        updatedRange: parsed.data.updatedRange ?? params.rangeA1,
         updatedRows: parsed.data.updatedRows,
       },
     };

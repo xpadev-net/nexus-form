@@ -148,7 +148,7 @@ describe("google-sheets-client", () => {
   });
 
   it("rejects invalid updateRange responses", async () => {
-    fetchMock.mockResolvedValueOnce(createJsonResponse({ updatedRows: 1 }));
+    fetchMock.mockResolvedValueOnce(createJsonResponse({ updatedRange: 123 }));
 
     const result = await updateRange(token, {
       spreadsheetId,
@@ -187,6 +187,24 @@ describe("google-sheets-client", () => {
       .mockResolvedValueOnce(createJsonResponse({ replies: [] }));
 
     const result = await insertColumnAtStart(token, spreadsheetId, "Sheet 1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("internal");
+      expect(result.error.message).toContain("response validation failed");
+    }
+  });
+
+  it("rejects invalid batch update responses for insertRowsAtStart", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          sheets: [{ properties: { sheetId: 123, title: "Sheet 1" } }],
+        }),
+      )
+      .mockResolvedValueOnce(createJsonResponse({ replies: [] }));
+
+    const result = await insertRowsAtStart(token, spreadsheetId, "Sheet 1", 2);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
