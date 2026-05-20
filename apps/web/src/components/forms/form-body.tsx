@@ -175,7 +175,7 @@ export function FormBody({
 
       {/* Section title for pages after the first */}
       {isMultiPage && paging.currentPage.title && (
-        <div className="rounded-lg border-l-4 border-primary bg-muted/20 px-4 py-3">
+        <div className="rounded-lg border border-primary/30 bg-muted/20 px-4 py-3">
           <h2 className="text-lg font-medium">{paging.currentPage.title}</h2>
         </div>
       )}
@@ -204,11 +204,23 @@ export function FormBody({
 
             {isMultiPage ? (
               <FormPageNavigation
-                isFirstPage={paging.isFirstPage}
-                isLastPage={paging.isLastPage}
-                shouldSubmit={paging.shouldSubmit}
-                isSubmitting={isSubmitting}
-                captchaReady={effectiveCaptchaReady}
+                step={
+                  paging.isFirstPage
+                    ? "first"
+                    : paging.isLastPage
+                      ? "last"
+                      : "middle"
+                }
+                nextAction={
+                  paging.isLastPage || paging.shouldSubmit ? "submit" : "next"
+                }
+                submitAvailability={
+                  isSubmitting
+                    ? "submitting"
+                    : effectiveCaptchaReady
+                      ? "ready"
+                      : "captcha-pending"
+                }
                 onPrevious={handlePreviousPage}
                 onNext={handleNextPage}
                 totalPages={paging.totalPages}

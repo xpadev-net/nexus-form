@@ -40,6 +40,159 @@ import { client, rpc } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { FormStatus } from "@/types/validation/shared";
 
+const EDITOR_TABS: { key: EditorTab; label: string; icon: LucideIcon }[] = [
+  { key: "editor", label: "エディタ", icon: MessageSquare },
+  { key: "settings", label: "設定", icon: Settings },
+  { key: "validation", label: "検証", icon: ShieldCheck },
+  { key: "sharing", label: "共有", icon: Share2 },
+  { key: "responses", label: "回答", icon: Inbox },
+];
+
+interface EditorHeaderSectionProps {
+  formId: string;
+  formTitle: string;
+  formStatus: FormStatus;
+  hasFormData: boolean;
+  isSaving: boolean;
+  isTitleSaving: boolean;
+  publicId?: string | null;
+  titleSaveFailureCount: number;
+  onTitleBlur?: (title: string) => void;
+  onPublishStatusChange: () => void;
+  onResetSuccess: () => void;
+}
+
+function EditorHeaderSection({
+  formId,
+  formTitle,
+  formStatus,
+  hasFormData,
+  isSaving,
+  isTitleSaving,
+  publicId,
+  titleSaveFailureCount,
+  onTitleBlur,
+  onPublishStatusChange,
+  onResetSuccess,
+}: EditorHeaderSectionProps) {
+  return (
+    <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <FormHeader
+        title={formTitle}
+        onTitleBlur={onTitleBlur}
+        isTitleSaving={isTitleSaving}
+        titleSaveFailureCount={titleSaveFailureCount}
+        action={
+          <div className="flex items-center gap-2">
+            {hasFormData && <FormStatusBadge status={formStatus} />}
+            {isSaving && (
+              <span className="text-xs text-muted-foreground">保存中...</span>
+            )}
+            {publicId && (
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  to="/forms/public/$publicId"
+                  params={{ publicId }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <ExternalLink className="mr-1 h-3.5 w-3.5" />
+                  公開フォームを開く
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" asChild>
+              <Link
+                to="/forms/preview/$id"
+                params={{ id: formId }}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                プレビュー
+              </Link>
+            </Button>
+            {hasFormData && (
+              <FormPublishMenu
+                formId={formId}
+                formStatus={formStatus}
+                onStatusChange={onPublishStatusChange}
+                onResetSuccess={onResetSuccess}
+              />
+            )}
+          </div>
+        }
+      />
+
+      <TabsList
+        variant="line"
+        aria-label="フォーム編集セクション"
+        className="w-full border-b"
+      >
+        {EDITOR_TABS.map((tab) => {
+          const Icon = tab.icon;
+          return (
+            <TabsTrigger key={tab.key} value={tab.key} className="px-4">
+              <Icon className="h-4 w-4" />
+              {tab.label}
+            </TabsTrigger>
+          );
+        })}
+      </TabsList>
+    </section>
+  );
+}
+
+interface FormSettingsTabProps {
+  formId: string;
+  isArchived: boolean;
+  archiveLoading: boolean;
+  onArchive: () => void;
+  onUnarchive: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+}
+
+function FormSettingsTab({
+  formId,
+  isArchived,
+  archiveLoading,
+  onArchive,
+  onUnarchive,
+  onDuplicate,
+  onDelete,
+}: FormSettingsTabProps) {
+  return (
+    <TabsContent value="settings" className="space-y-4">
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <ScheduleManager formId={formId} />
+      </section>
+
+      <GoogleSheetsIntegration formId={formId} />
+
+      <section className="rounded-lg border bg-card p-6 shadow-sm">
+        <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
+        <div className="flex flex-wrap gap-2">
+          <FormArchiveManager
+            isArchived={isArchived}
+            isLoading={archiveLoading}
+            onArchive={onArchive}
+            onUnarchive={onUnarchive}
+          />
+          <Button variant="outline" size="sm" onClick={onDuplicate}>
+            <Copy className="mr-1 h-3.5 w-3.5" />
+            複製
+          </Button>
+          <Button variant="destructive" size="sm" onClick={onDelete}>
+            <Trash2 className="mr-1 h-3.5 w-3.5" />
+            削除
+          </Button>
+        </div>
+      </section>
+    </TabsContent>
+  );
+}
+
 export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
   const router = useRouter();
@@ -233,14 +386,6 @@ export function FormEditorPage() {
 
   const plateContent = contentQuery.data?.plateContent ?? "[]";
 
-  const tabs: { key: EditorTab; label: string; icon: LucideIcon }[] = [
-    { key: "editor", label: "エディタ", icon: MessageSquare },
-    { key: "settings", label: "設定", icon: Settings },
-    { key: "validation", label: "検証", icon: ShieldCheck },
-    { key: "sharing", label: "共有", icon: Share2 },
-    { key: "responses", label: "回答", icon: Inbox },
-  ];
-
   return (
     <Tabs
       value={activeTab}
@@ -254,78 +399,26 @@ export function FormEditorPage() {
       }}
       className="gap-4"
     >
-      {/* ヘッダー */}
-      <section className="rounded-lg border bg-card p-6 shadow-sm">
-        <FormHeader
-          title={formData?.title ?? "フォームエディタ"}
-          onTitleBlur={
-            formData ? (title) => updateTitleMutation.mutate(title) : undefined
-          }
-          isTitleSaving={updateTitleMutation.isPending}
-          titleSaveFailureCount={updateTitleMutation.failureCount}
-          action={
-            <div className="flex items-center gap-2">
-              {formData && <FormStatusBadge status={formStatus} />}
-              {isSaving && (
-                <span className="text-xs text-muted-foreground">保存中...</span>
-              )}
-              {formData?.publicId && (
-                <Button variant="outline" size="sm" asChild>
-                  <Link
-                    to="/forms/public/$publicId"
-                    params={{ publicId: formData.publicId }}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="mr-1 h-3.5 w-3.5" />
-                    公開フォームを開く
-                  </Link>
-                </Button>
-              )}
-              <Button variant="outline" size="sm" asChild>
-                <Link
-                  to="/forms/preview/$id"
-                  params={{ id }}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Eye className="mr-1 h-3.5 w-3.5" />
-                  プレビュー
-                </Link>
-              </Button>
-              {formData && (
-                <FormPublishMenu
-                  formId={id}
-                  formStatus={formStatus}
-                  onStatusChange={() => {
-                    void queryClient.invalidateQueries({
-                      queryKey: ["formDetail", id],
-                    });
-                    void queryClient.invalidateQueries({ queryKey: ["forms"] });
-                  }}
-                  onResetSuccess={() => void contentQuery.refetch()}
-                />
-              )}
-            </div>
-          }
-        />
-
-        <TabsList
-          variant="line"
-          aria-label="フォーム編集セクション"
-          className="w-full border-b"
-        >
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <TabsTrigger key={tab.key} value={tab.key} className="px-4">
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-      </section>
+      <EditorHeaderSection
+        formId={id}
+        formTitle={formData?.title ?? "フォームエディタ"}
+        formStatus={formStatus}
+        hasFormData={Boolean(formData)}
+        isSaving={isSaving}
+        isTitleSaving={updateTitleMutation.isPending}
+        publicId={formData?.publicId}
+        titleSaveFailureCount={updateTitleMutation.failureCount}
+        onTitleBlur={
+          formData ? (title) => updateTitleMutation.mutate(title) : undefined
+        }
+        onPublishStatusChange={() => {
+          void queryClient.invalidateQueries({
+            queryKey: ["formDetail", id],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["forms"] });
+        }}
+        onResetSuccess={() => void contentQuery.refetch()}
+      />
 
       {/* エディタタブ */}
       <TabsContent value="editor" className="space-y-4">
@@ -347,44 +440,17 @@ export function FormEditorPage() {
         </section>
       </TabsContent>
 
-      {/* 設定タブ */}
-      <TabsContent value="settings" className="space-y-4">
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <ScheduleManager formId={id} />
-        </section>
-
-        <GoogleSheetsIntegration formId={id} />
-
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>
-          <div className="flex flex-wrap gap-2">
-            <FormArchiveManager
-              isArchived={formStatus === "ARCHIVED"}
-              isLoading={
-                archiveMutation.isPending || unarchiveMutation.isPending
-              }
-              onArchive={() => archiveMutation.mutate()}
-              onUnarchive={() => unarchiveMutation.mutate()}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDuplicateModal(true)}
-            >
-              <Copy className="mr-1 h-3.5 w-3.5" />
-              複製
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowDeleteModal(true)}
-            >
-              <Trash2 className="mr-1 h-3.5 w-3.5" />
-              削除
-            </Button>
-          </div>
-        </section>
-      </TabsContent>
+      <FormSettingsTab
+        formId={id}
+        isArchived={formStatus === "ARCHIVED"}
+        archiveLoading={
+          archiveMutation.isPending || unarchiveMutation.isPending
+        }
+        onArchive={() => archiveMutation.mutate()}
+        onUnarchive={() => unarchiveMutation.mutate()}
+        onDuplicate={() => setShowDuplicateModal(true)}
+        onDelete={() => setShowDeleteModal(true)}
+      />
 
       {/* 検証タブ */}
       <TabsContent value="validation">
