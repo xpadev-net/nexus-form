@@ -12,6 +12,21 @@ import {
   writeValidationResult,
 } from "../validation-helpers";
 
+function flattenSqlChunks(value: unknown): unknown[] {
+  if (value === null || typeof value !== "object") {
+    return [value];
+  }
+
+  const candidate = value as { queryChunks?: unknown[]; value?: unknown[] };
+  if (Array.isArray(candidate.queryChunks)) {
+    return candidate.queryChunks.flatMap(flattenSqlChunks);
+  }
+  if (Array.isArray(candidate.value)) {
+    return candidate.value.flatMap(flattenSqlChunks);
+  }
+  return [value];
+}
+
 const {
   insertValues,
   onDuplicateKeyUpdate,
@@ -186,6 +201,87 @@ describe("getValidationContext", () => {
     expect(selectLeftJoin).toHaveBeenCalled();
     expect(selectOrderBy).toHaveBeenCalled();
     expect(context.response.formId).toBe("form-1");
+    expect(context.referencedValue).toBe("hello");
+  });
+
+  it("pins block existence checks to the submitted snapshot version when provided", async () => {
+    selectLimit.mockResolvedValueOnce([
+      {
+        id: "response-1",
+        formId: "form-1",
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "question-1",
+            question_type: "short_text",
+            value: "hello",
+          },
+        ]),
+        submittedAt: new Date("2026-05-20T00:00:00.000Z"),
+        updatedAt: null,
+        respondentUuid: "respondent-1",
+        userAgent: null,
+        sessionId: null,
+        countryCode: null,
+        snapshotPlateContent: JSON.stringify([
+          {
+            type: "form_short_text",
+            blockId: "question-1",
+            children: [{ text: "Question 1" }],
+          },
+        ]),
+      },
+    ]);
+
+    await getValidationContext("response-1", "rule-1", "question-1", 3);
+
+    const joinCondition = selectLeftJoin.mock.calls[0]?.[1];
+    expect(flattenSqlChunks(joinCondition)).toEqual(
+      expect.arrayContaining(["version", 3]),
+    );
+  });
+
+  it("falls back to the latest snapshot when the submitted snapshot was deleted", async () => {
+    selectLimit
+      .mockResolvedValueOnce([
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "question-1",
+              question_type: "short_text",
+              value: "hello",
+            },
+          ]),
+          submittedAt: new Date("2026-05-20T00:00:00.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: null,
+          countryCode: null,
+          snapshotPlateContent: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          plateContent: JSON.stringify([
+            {
+              type: "form_short_text",
+              blockId: "question-1",
+              children: [{ text: "Question 1" }],
+            },
+          ]),
+        },
+      ]);
+
+    const context = await getValidationContext(
+      "response-1",
+      "rule-1",
+      "question-1",
+      3,
+    );
+
+    expect(db.select).toHaveBeenCalledTimes(2);
     expect(context.referencedValue).toBe("hello");
   });
 

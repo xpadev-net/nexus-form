@@ -67,6 +67,7 @@ export async function getValidationContext(
   responseId: string,
   ruleId: string,
   referencedBlockId: string,
+  snapshotVersion?: number,
 ) {
   // responseId は一意なので、FormResponse と対象フォームの最新 snapshot を
   // 1 往復で取得する。snapshot が無い場合でも response の存在判定は維持する。
@@ -84,7 +85,15 @@ export async function getValidationContext(
       snapshotPlateContent: formSnapshot.plateContent,
     })
     .from(formResponse)
-    .leftJoin(formSnapshot, eq(formSnapshot.formId, formResponse.formId))
+    .leftJoin(
+      formSnapshot,
+      snapshotVersion === undefined
+        ? eq(formSnapshot.formId, formResponse.formId)
+        : and(
+            eq(formSnapshot.formId, formResponse.formId),
+            eq(formSnapshot.version, snapshotVersion),
+          ),
+    )
     .where(eq(formResponse.id, responseId))
     .orderBy(sql`${formSnapshot.isActive} = 1 DESC`, desc(formSnapshot.version))
     .limit(1);
@@ -105,9 +114,23 @@ export async function getValidationContext(
     throw new Error(`Form response not found: ${responseId}`);
   }
 
+  let snapshotPlateContent = contextRow?.snapshotPlateContent ?? null;
+  if (!snapshotPlateContent && snapshotVersion !== undefined) {
+    const [fallbackSnapshot] = await db
+      .select({ plateContent: formSnapshot.plateContent })
+      .from(formSnapshot)
+      .where(eq(formSnapshot.formId, response.formId))
+      .orderBy(
+        sql`${formSnapshot.isActive} = 1 DESC`,
+        desc(formSnapshot.version),
+      )
+      .limit(1);
+    snapshotPlateContent = fallbackSnapshot?.plateContent ?? null;
+  }
+
   let blockIds: Set<string>;
   try {
-    const raw = contextRow?.snapshotPlateContent;
+    const raw = snapshotPlateContent;
     const parsed = raw ? JSON.parse(raw) : [];
     const questions = Array.isArray(parsed)
       ? extractQuestionsFromPlateContent(parsed)

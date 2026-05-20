@@ -124,11 +124,16 @@ export const handleGenericValidation = async (
   token?: string,
 ) => {
   const jobData = genericValidationJobDataSchema.parse(job.data);
-  const { responseId, ruleId, referencedBlockId } = jobData;
+  const { responseId, ruleId, referencedBlockId, snapshotVersion } = jobData;
 
   let context: Awaited<ReturnType<typeof getValidationContext>>;
   try {
-    context = await getValidationContext(responseId, ruleId, referencedBlockId);
+    context = await getValidationContext(
+      responseId,
+      ruleId,
+      referencedBlockId,
+      snapshotVersion,
+    );
   } catch (error) {
     if (error instanceof ReferencedBlockMissingError) {
       // ジョブ enqueue 後に参照ブロックが削除されたケース。

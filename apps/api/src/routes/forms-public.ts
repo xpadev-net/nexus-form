@@ -870,6 +870,7 @@ async function queueExternalValidations(
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
+      snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
       status: "MISSING",
       errorCode: "REFERENCED_BLOCK_MISSING",
@@ -882,6 +883,7 @@ async function queueExternalValidations(
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
+      snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
       status: "FAILED",
       errorCode: "INVALID_SERVICE_NAME",
@@ -894,6 +896,7 @@ async function queueExternalValidations(
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
+      snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
       status: "FAILED",
       errorCode: "PROVIDER_NOT_REGISTERED",
@@ -906,6 +909,7 @@ async function queueExternalValidations(
       responseId,
       ruleId: pair.ruleId,
       referencedBlockId: pair.referencedBlockId,
+      snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
       status: "FAILED",
       errorCode: "UNKNOWN_RULE_TYPE",
@@ -918,6 +922,7 @@ async function queueExternalValidations(
     responseId,
     ruleId: pair.ruleId,
     referencedBlockId: pair.referencedBlockId,
+    snapshotVersion: activeSnapshot.version,
     service: pair.providerName,
     status: "PENDING" as const,
   }));
@@ -945,6 +950,7 @@ async function queueExternalValidations(
           snapshotProviderName: pair.providerName,
           snapshotRuleType: pair.ruleType,
           snapshotConfigJson: pair.configJson,
+          snapshotVersion: activeSnapshot.version,
         });
         const job = await queue.add(`validate-${pair.providerName}`, jobData);
         // リトライ経路と同様、enqueue 済みジョブの jobId を記録して

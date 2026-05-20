@@ -44,6 +44,7 @@ vi.mock("@nexus-form/database/schema", () => ({
     errorCode: "externalServiceValidationResult.errorCode",
     errorMessage: "externalServiceValidationResult.errorMessage",
     jobId: "externalServiceValidationResult.jobId",
+    snapshotVersion: "externalServiceValidationResult.snapshotVersion",
   },
   fingerprintDetail: {},
   form: {},
@@ -77,6 +78,7 @@ vi.mock("../lib/dual-auth", () => ({
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
   getLatestSnapshotByVersion: vi.fn(),
+  getSnapshotByVersion: vi.fn(),
 }));
 
 vi.mock("../lib/forms/validation-rule-repository", () => ({
@@ -137,6 +139,7 @@ function retryTarget(id: string) {
     service: "discord",
     status: "FAILED" as const,
     formId: "form-1",
+    snapshotVersion: 3,
     liveRuleType: "member",
     liveConfigJson: { guildId: "guild-1" },
   };
@@ -188,7 +191,10 @@ describe("R6-M9: validation retry bulk updates", () => {
     expect(mocks.queueAdd).toHaveBeenNthCalledWith(
       1,
       "validate-discord",
-      expect.objectContaining({ responseId: "response-result-1" }),
+      expect.objectContaining({
+        responseId: "response-result-1",
+        snapshotVersion: 3,
+      }),
       expect.objectContaining({
         jobId: expect.stringMatching(/^validation-retry:result-1:/),
       }),

@@ -33,7 +33,10 @@ import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import { validateResponseData } from "../lib/forms/response-validator";
-import { getLatestSnapshotByVersion } from "../lib/forms/snapshot-repository";
+import {
+  getLatestSnapshotByVersion,
+  getSnapshotByVersion,
+} from "../lib/forms/snapshot-repository";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
@@ -110,6 +113,14 @@ const bulkDeleteSchema = z.object({
     .max(100, "Cannot delete more than 100 responses at once"),
 });
 
+function snapshotRuleMapKey(
+  formId: string,
+  snapshotVersion: number | null,
+  ruleId: string,
+): string {
+  return `${formId}:${snapshotVersion ?? "latest"}:${ruleId}`;
+}
+
 /**
  * validation result 行に対して BullMQ ジョブを投入し、enqueue 成功行のステータスを
  * まとめて PENDING に更新する。
@@ -126,6 +137,7 @@ export async function enqueueValidationRetries(
     service: string | null;
     status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "MISSING";
     formId: string;
+    snapshotVersion: number | null;
     liveRuleType: string | null;
     liveConfigJson: unknown;
   }>,
@@ -163,17 +175,28 @@ export async function enqueueValidationRetries(
     { ruleType: string; configJson: Record<string, unknown> }
   >();
   if (needsFallback.length > 0) {
-    const uniqueFormIds = [...new Set(needsFallback.map((r) => r.formId))];
-    for (const fid of uniqueFormIds) {
-      const snapshot = await getLatestSnapshotByVersion(fid);
+    const snapshotKeys = new Map(
+      needsFallback.map((r) => [
+        `${r.formId}:${r.snapshotVersion ?? "latest"}`,
+        { formId: r.formId, snapshotVersion: r.snapshotVersion },
+      ]),
+    );
+    for (const { formId: fid, snapshotVersion } of snapshotKeys.values()) {
+      const snapshot =
+        snapshotVersion === null || snapshotVersion === undefined
+          ? await getLatestSnapshotByVersion(fid)
+          : await getSnapshotByVersion(fid, snapshotVersion);
       if (snapshot?.validationRulesJson) {
         for (const entry of parseValidationRuleSnapshot(
           snapshot.validationRulesJson,
         )) {
-          snapshotRuleMap.set(entry.id, {
-            ruleType: entry.ruleType,
-            configJson: entry.configJson,
-          });
+          snapshotRuleMap.set(
+            snapshotRuleMapKey(fid, snapshotVersion, entry.id),
+            {
+              ruleType: entry.ruleType,
+              configJson: entry.configJson,
+            },
+          );
         }
       }
     }
@@ -204,7 +227,9 @@ export async function enqueueValidationRetries(
       continue;
     }
 
-    const snapshotEntry = snapshotRuleMap.get(result.ruleId);
+    const snapshotEntry = snapshotRuleMap.get(
+      snapshotRuleMapKey(result.formId, result.snapshotVersion, result.ruleId),
+    );
     const ruleType = result.liveRuleType ?? snapshotEntry?.ruleType ?? null;
     const configJson =
       (isRecord(result.liveConfigJson) ? result.liveConfigJson : null) ??
@@ -272,6 +297,7 @@ export async function enqueueValidationRetries(
         snapshotProviderName: result.service,
         snapshotRuleType: ruleType,
         snapshotConfigJson: configJson,
+        snapshotVersion: result.snapshotVersion ?? undefined,
       });
       preparedJobs.push({
         result,
@@ -863,6 +889,7 @@ export const formsResponsesRouter = createHonoApp()
           referencedBlockId: externalServiceValidationResult.referencedBlockId,
           service: externalServiceValidationResult.service,
           status: externalServiceValidationResult.status,
+          snapshotVersion: externalServiceValidationResult.snapshotVersion,
           formId: formResponse.formId,
           liveRuleType: formValidationRule.ruleType,
           liveConfigJson: formValidationRule.configJson,
@@ -958,6 +985,7 @@ export const formsResponsesRouter = createHonoApp()
           referencedBlockId: externalServiceValidationResult.referencedBlockId,
           service: externalServiceValidationResult.service,
           status: externalServiceValidationResult.status,
+          snapshotVersion: externalServiceValidationResult.snapshotVersion,
           formId: formResponse.formId,
           liveRuleType: formValidationRule.ruleType,
           liveConfigJson: formValidationRule.configJson,

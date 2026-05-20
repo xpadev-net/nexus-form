@@ -121,6 +121,7 @@ function makeJob(data: {
   snapshotProviderName?: string;
   snapshotRuleType?: string;
   snapshotConfigJson?: Record<string, unknown>;
+  snapshotVersion?: number;
   retryAfterCount?: number;
   attemptsMade?: number;
 }): Job {
@@ -203,6 +204,25 @@ describe("handleGenericValidation", () => {
     expect(mockGetValidationContext).not.toHaveBeenCalled();
     expect(mockMarkValidationProcessing).not.toHaveBeenCalled();
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("snapshotVersion がある場合は送信時 snapshot を指定して context を取得する", async () => {
+    mockProviderRegistryGet.mockReturnValue(makeProvider());
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotVersion: 3,
+    });
+
+    await handleGenericValidation(job);
+
+    expect(mockGetValidationContext).toHaveBeenCalledWith(
+      "r-1",
+      "rule-1",
+      "block-a",
+      3,
+    );
   });
 
   it("getValidationContextがReferencedBlockMissingErrorをスローした場合にMISSINGを書き込んでok:falseを返す", async () => {
