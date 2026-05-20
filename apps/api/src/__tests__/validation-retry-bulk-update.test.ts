@@ -10,11 +10,21 @@ const mocks = vi.hoisted(() => {
   const inArray = vi.fn();
   const isNull = vi.fn();
   const notInArray = vi.fn();
-  const sqlMock = vi.fn(() => ({ kind: "sql" })) as unknown as ((
+  const sqlMock = vi.fn(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({
+      kind: "sql",
+      strings: Array.from(strings),
+      values,
+    }),
+  ) as unknown as ((
     strings: TemplateStringsArray,
     ...values: unknown[]
   ) => unknown) & { join: ReturnType<typeof vi.fn> };
-  sqlMock.join = vi.fn(() => ({ kind: "sql-join" }));
+  sqlMock.join = vi.fn((chunks: unknown[], separator: unknown) => ({
+    chunks,
+    kind: "sql-join",
+    separator,
+  }));
 
   return { inArray, isNull, notInArray, queueAdd, set, sqlMock, update, where };
 });
@@ -189,6 +199,35 @@ describe("R6-M9: validation retry bulk updates", () => {
     expect(mocks.notInArray).toHaveBeenCalledWith(
       "externalServiceValidationResult.jobId",
       [firstJobId, secondJobId],
+    );
+    expect(mocks.sqlMock).toHaveBeenCalledWith(
+      ["when ", " then ", ""],
+      "result-1",
+      firstJobId,
+    );
+    expect(mocks.sqlMock).toHaveBeenCalledWith(
+      ["when ", " then ", ""],
+      "result-2",
+      secondJobId,
+    );
+    expect(mocks.sqlMock.join).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          strings: ["when ", " then ", ""],
+          values: ["result-1", firstJobId],
+        }),
+        expect.objectContaining({
+          strings: ["when ", " then ", ""],
+          values: ["result-2", secondJobId],
+        }),
+      ],
+      expect.objectContaining({ strings: [" "] }),
+    );
+    expect(mocks.sqlMock).toHaveBeenCalledWith(
+      ["case ", " ", " else ", " end"],
+      "externalServiceValidationResult.id",
+      expect.objectContaining({ kind: "sql-join" }),
+      "externalServiceValidationResult.jobId",
     );
     expect(mocks.set).toHaveBeenCalledWith(
       expect.objectContaining({
