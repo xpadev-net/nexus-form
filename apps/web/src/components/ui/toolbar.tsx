@@ -2,7 +2,12 @@ import * as ToolbarPrimitive from "@radix-ui/react-toolbar";
 import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronDown } from "lucide-react";
-import { type ComponentProps, type ComponentPropsWithoutRef, type ElementType, type ReactNode, useEffect, useState } from "react";
+import {
+  type ComponentProps,
+  type ComponentPropsWithoutRef,
+  type ElementType,
+  type ReactNode,
+} from "react";
 
 import {
   DropdownMenuLabel,
@@ -308,15 +313,9 @@ function withTooltip<T extends ElementType>(Component: T) {
     tooltipTriggerProps,
     ...props
   }: TooltipProps<T>) {
-    const [mounted, setMounted] = useState(false);
-
-    useEffect(() => {
-      setMounted(true);
-    }, []);
-
     const component = <Component {...(props as ComponentProps<T>)} />;
 
-    if (tooltip && mounted) {
+    if (tooltip) {
       return (
         <Tooltip {...tooltipProps}>
           <TooltipTrigger asChild {...tooltipTriggerProps}>
