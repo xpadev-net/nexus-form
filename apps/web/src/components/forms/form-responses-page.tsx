@@ -21,7 +21,7 @@ interface FormResponsesState {
 }
 
 type FormResponsesAction =
-  | { type: "reset"; formId: string }
+  | { type: "reset" }
   | { type: "set-keyword"; keyword: string }
   | { type: "commit-keyword"; keyword: string }
   | { type: "select-response"; responseId: string }
@@ -72,8 +72,9 @@ export function FormResponsesContent({ formId }: { formId: string }) {
   );
   const limit = 20;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Reset the list state when the active form changes.
   useEffect(() => {
-    dispatch({ type: "reset", formId });
+    dispatch({ type: "reset" });
   }, [formId]);
 
   useEffect(() => {
