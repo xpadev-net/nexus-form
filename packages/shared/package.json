@@ -22,6 +22,10 @@
       "types": "./src/forms/form-block.ts",
       "import": "./dist/forms/form-block.js"
     },
+    "./crypto/field-encryption": {
+      "types": "./src/crypto/field-encryption.ts",
+      "import": "./dist/crypto/field-encryption.js"
+    },
     "./branding": {
       "types": "./src/branding.ts",
       "import": "./dist/branding.js"
