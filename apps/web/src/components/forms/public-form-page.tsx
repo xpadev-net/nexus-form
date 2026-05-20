@@ -4,7 +4,7 @@ import {
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useReducer, useRef } from "react";
 import { z } from "zod";
 import {
   FormResponseProvider,
@@ -23,6 +23,58 @@ const fetchPublicForm = (publicId: string) =>
 
 const responsesSchema = z.array(responsePayloadItemSchema);
 
+interface PublicFormPageState {
+  isSubmitting: boolean;
+  error: string | null;
+  success: string | null;
+  captchaToken: string | null;
+  hasVerifiedPassword: boolean;
+}
+
+type PublicFormPageAction =
+  | { type: "captcha-verified"; token: string }
+  | { type: "captcha-expired" }
+  | { type: "submit-start" }
+  | { type: "submit-success"; message: string }
+  | { type: "submit-error"; message: string }
+  | { type: "password-verified" }
+  | { type: "set-error"; message: string | null };
+
+const initialPublicFormPageState: PublicFormPageState = {
+  isSubmitting: false,
+  error: null,
+  success: null,
+  captchaToken: null,
+  hasVerifiedPassword: false,
+};
+
+function publicFormPageReducer(
+  state: PublicFormPageState,
+  action: PublicFormPageAction,
+): PublicFormPageState {
+  switch (action.type) {
+    case "captcha-verified":
+      return { ...state, captchaToken: action.token };
+    case "captcha-expired":
+      return { ...state, captchaToken: null };
+    case "submit-start":
+      return { ...state, isSubmitting: true, error: null, success: null };
+    case "submit-success":
+      return {
+        ...state,
+        isSubmitting: false,
+        success: action.message,
+        captchaToken: null,
+      };
+    case "submit-error":
+      return { ...state, isSubmitting: false, error: action.message };
+    case "password-verified":
+      return { ...state, hasVerifiedPassword: true };
+    case "set-error":
+      return { ...state, error: action.message };
+  }
+}
+
 export function PublicFormPage() {
   return (
     <FormResponseProvider>
@@ -33,11 +85,10 @@ export function PublicFormPage() {
 
 function PublicFormPageInner() {
   const { publicId } = useParams({ from: "/forms/public/$publicId" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  const [hasVerifiedPassword, setHasVerifiedPassword] = useState(false);
+  const [state, dispatch] = useReducer(
+    publicFormPageReducer,
+    initialPublicFormPageState,
+  );
   const { answers, clearAnswers } = useFormResponse();
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
@@ -64,19 +115,17 @@ function PublicFormPageInner() {
     formData?.structure?.settings?.require_fingerprint !== false;
 
   const handleCaptchaVerify = useCallback((token: string) => {
-    setCaptchaToken(token);
+    dispatch({ type: "captcha-verified", token });
   }, []);
 
   const handleCaptchaExpire = useCallback(() => {
-    setCaptchaToken(null);
+    dispatch({ type: "captcha-expired" });
   }, []);
 
   const handleSubmitRequest = useCallback(
     async (data: FormSubmitRequestData) => {
       try {
-        setIsSubmitting(true);
-        setError(null);
-        setSuccess(null);
+        dispatch({ type: "submit-start" });
 
         // Re-validate unanswered required questions from visited pages
         let parsedContent: unknown[];
@@ -113,7 +162,7 @@ function PublicFormPageInner() {
         }
 
         // hCaptchaトークンの確認
-        if (!captchaToken) {
+        if (!state.captchaToken) {
           throw new Error(
             "セキュリティ確認が完了していません。hCaptchaを完了してください。",
           );
@@ -151,33 +200,35 @@ function PublicFormPageInner() {
             param: { publicId },
             json: {
               responses: parsedInput.data,
-              captchaToken,
+              captchaToken: state.captchaToken,
               telemetry: { v4Token: telemetryResult.token },
               fingerprints,
             },
           }),
         );
 
-        setSuccess(`回答を送信しました（ID: ${submitResult.response?.id}）`);
+        dispatch({
+          type: "submit-success",
+          message: `回答を送信しました（ID: ${submitResult.response?.id}）`,
+        });
         clearAnswers();
 
         // hCaptchaをリセット（再送信時に再度認証が必要）
         captchaRef.current?.reset();
-        setCaptchaToken(null);
       } catch (submitError) {
-        setError(
-          submitError instanceof Error
-            ? submitError.message
-            : "不明なエラーが発生しました",
-        );
-      } finally {
-        setIsSubmitting(false);
+        dispatch({
+          type: "submit-error",
+          message:
+            submitError instanceof Error
+              ? submitError.message
+              : "不明なエラーが発生しました",
+        });
       }
     },
     [
       formData?.plateContent,
       answers,
-      captchaToken,
+      state.captchaToken,
       fingerprint,
       requireFingerprint,
       collectFingerprint,
@@ -207,7 +258,7 @@ function PublicFormPageInner() {
   }
 
   return formData.form.isPasswordProtected === true &&
-    !hasVerifiedPassword &&
+    !state.hasVerifiedPassword &&
     (formData.plateContent === null || formData.structure === null) ? (
     <PasswordProtectionGate
       publicId={publicId}
@@ -222,7 +273,7 @@ function PublicFormPageInner() {
         ) {
           throw new Error("Public form body is still locked");
         }
-        setHasVerifiedPassword(true);
+        dispatch({ type: "password-verified" });
       }}
     >
       <section className="p-6">読み込み中...</section>
@@ -241,11 +292,11 @@ function PublicFormPageInner() {
           onExpire={handleCaptchaExpire}
         />
       }
-      isSubmitting={isSubmitting}
-      captchaReady={!!captchaToken}
-      error={error}
-      success={success}
-      onErrorChange={setError}
+      isSubmitting={state.isSubmitting}
+      captchaReady={!!state.captchaToken}
+      error={state.error}
+      success={state.success}
+      onErrorChange={(message) => dispatch({ type: "set-error", message })}
     />
   );
 }

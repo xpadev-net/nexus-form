@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useReducer } from "react";
 import { Button } from "@/components/ui/button";
 import { client } from "@/lib/api";
 
@@ -10,17 +10,69 @@ type ImageItem = {
   url: string;
 };
 
+interface ImagesPageState {
+  images: ImageItem[];
+  selectedFile: File | null;
+  isLoading: boolean;
+  isUploading: boolean;
+  error: string | null;
+}
+
+type ImagesPageAction =
+  | { type: "load-start" }
+  | { type: "load-success"; images: ImageItem[] }
+  | { type: "load-error"; message: string }
+  | { type: "select-file"; file: File | null }
+  | { type: "upload-start" }
+  | { type: "upload-complete" }
+  | { type: "upload-error"; message: string }
+  | { type: "clear-error" };
+
+const initialImagesPageState: ImagesPageState = {
+  images: [],
+  selectedFile: null,
+  isLoading: true,
+  isUploading: false,
+  error: null,
+};
+
+function imagesPageReducer(
+  state: ImagesPageState,
+  action: ImagesPageAction,
+): ImagesPageState {
+  switch (action.type) {
+    case "load-start":
+      return { ...state, isLoading: true, error: null };
+    case "load-success":
+      return { ...state, images: action.images, isLoading: false };
+    case "load-error":
+      return { ...state, isLoading: false, error: action.message };
+    case "select-file":
+      return { ...state, selectedFile: action.file, error: null };
+    case "upload-start":
+      return { ...state, isUploading: true, error: null };
+    case "upload-complete":
+      return { ...state, selectedFile: null, isUploading: false };
+    case "upload-error":
+      return { ...state, isUploading: false, error: action.message };
+    case "clear-error":
+      return { ...state, error: null };
+  }
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "不明なエラーが発生しました";
+}
+
 export function ImagesPage() {
-  const [images, setImages] = useState<ImageItem[]>([]);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isUploading, setIsUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(
+    imagesPageReducer,
+    initialImagesPageState,
+  );
 
   const loadImages = useCallback(async () => {
     try {
-      setIsLoading(true);
-      setError(null);
+      dispatch({ type: "load-start" });
       const response = await client.api.s3.list.$get({
         query: { bucket: "prod" },
       });
@@ -28,15 +80,9 @@ export function ImagesPage() {
         throw new Error("画像一覧の取得に失敗しました");
       }
       const json = await response.json();
-      setImages(json.data?.images ?? []);
+      dispatch({ type: "load-success", images: json.data?.images ?? [] });
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "不明なエラーが発生しました",
-      );
-    } finally {
-      setIsLoading(false);
+      dispatch({ type: "load-error", message: getErrorMessage(loadError) });
     }
   }, []);
 
@@ -45,17 +91,16 @@ export function ImagesPage() {
   }, [loadImages]);
 
   const uploadImage = async () => {
-    if (!selectedFile) return;
+    if (!state.selectedFile) return;
 
     try {
-      setIsUploading(true);
-      setError(null);
+      dispatch({ type: "upload-start" });
 
       const presignedResponse = await client.api.s3["presigned-upload"].$post({
         json: {
-          fileName: selectedFile.name,
-          fileSize: selectedFile.size,
-          mimeType: selectedFile.type,
+          fileName: state.selectedFile.name,
+          fileSize: state.selectedFile.size,
+          mimeType: state.selectedFile.type,
         },
       });
 
@@ -71,9 +116,9 @@ export function ImagesPage() {
 
       const putResponse = await fetch(presignedJson.data.presignedUrl, {
         method: "PUT",
-        body: selectedFile,
+        body: state.selectedFile,
         headers: {
-          "content-type": selectedFile.type,
+          "content-type": state.selectedFile.type,
         },
       });
 
@@ -85,8 +130,8 @@ export function ImagesPage() {
         json: {
           key: presignedJson.data.key,
           bucket: "tmp",
-          size: selectedFile.size,
-          contentType: selectedFile.type,
+          size: state.selectedFile.size,
+          contentType: state.selectedFile.type,
         },
       });
 
@@ -94,22 +139,16 @@ export function ImagesPage() {
         throw new Error("アップロード完了通知に失敗しました");
       }
 
-      setSelectedFile(null);
       await loadImages();
+      dispatch({ type: "upload-complete" });
     } catch (uploadError) {
-      setError(
-        uploadError instanceof Error
-          ? uploadError.message
-          : "不明なエラーが発生しました",
-      );
-    } finally {
-      setIsUploading(false);
+      dispatch({ type: "upload-error", message: getErrorMessage(uploadError) });
     }
   };
 
   const deleteImage = async (key: string) => {
     try {
-      setError(null);
+      dispatch({ type: "clear-error" });
       const response = await client.api.s3.delete.$delete({
         json: {
           key,
@@ -121,11 +160,7 @@ export function ImagesPage() {
       }
       await loadImages();
     } catch (deleteError) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "不明なエラーが発生しました",
-      );
+      dispatch({ type: "load-error", message: getErrorMessage(deleteError) });
     }
   };
 
@@ -141,19 +176,21 @@ export function ImagesPage() {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           onChange={(event) => {
-            setSelectedFile(event.target.files?.[0] ?? null);
-            setError(null);
+            dispatch({
+              type: "select-file",
+              file: event.target.files?.[0] ?? null,
+            });
           }}
           className="text-sm"
-          disabled={isUploading}
+          disabled={state.isUploading}
         />
         <Button
           type="button"
           variant="outline"
           onClick={() => void uploadImage()}
-          disabled={!selectedFile || isUploading}
+          disabled={!state.selectedFile || state.isUploading}
         >
-          {isUploading ? "アップロード中..." : "アップロード"}
+          {state.isUploading ? "アップロード中..." : "アップロード"}
         </Button>
         <Button
           type="button"
@@ -164,13 +201,15 @@ export function ImagesPage() {
         </Button>
       </div>
 
-      {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
+      {state.error ? (
+        <p className="mt-3 text-sm text-destructive">{state.error}</p>
+      ) : null}
 
-      {isLoading ? (
+      {state.isLoading ? (
         <p className="mt-6 text-sm text-muted-foreground">読み込み中...</p>
       ) : (
         <ul className="mt-6 space-y-3">
-          {images.map((image) => (
+          {state.images.map((image) => (
             <li
               key={image.key}
               className="flex items-center justify-between rounded border p-3"
@@ -191,7 +230,7 @@ export function ImagesPage() {
               </Button>
             </li>
           ))}
-          {images.length === 0 ? (
+          {state.images.length === 0 ? (
             <li className="rounded border p-3 text-sm text-muted-foreground">
               画像はまだありません。
             </li>
