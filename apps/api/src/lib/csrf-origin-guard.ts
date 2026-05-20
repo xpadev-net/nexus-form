@@ -41,7 +41,7 @@ export function createCsrfOriginGuard(
       return;
     }
 
-    if (!c.req.path.startsWith("/api/") || isExcludedPath(c.req.path)) {
+    if (isExcludedPath(c.req.path)) {
       await next();
       return;
     }
