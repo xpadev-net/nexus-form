@@ -15,12 +15,24 @@ describe("plugin bootstrap constants", () => {
   });
 
   it("uses the default validation plugin directory unless overridden", () => {
-    expect(getValidationPluginsDir({})).toBe(DEFAULT_VALIDATION_PLUGINS_DIR);
-    expect(
-      getValidationPluginsDir({
-        VALIDATION_PLUGINS_DIR: "/custom/plugins",
-      }),
-    ).toBe("/custom/plugins");
+    const originalValue = process.env.VALIDATION_PLUGINS_DIR;
+
+    try {
+      delete process.env.VALIDATION_PLUGINS_DIR;
+
+      expect(getValidationPluginsDir({})).toBe(DEFAULT_VALIDATION_PLUGINS_DIR);
+      expect(
+        getValidationPluginsDir({
+          VALIDATION_PLUGINS_DIR: "/custom/plugins",
+        }),
+      ).toBe("/custom/plugins");
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env.VALIDATION_PLUGINS_DIR;
+      } else {
+        process.env.VALIDATION_PLUGINS_DIR = originalValue;
+      }
+    }
   });
 
   it("reads the validation plugin directory from process.env", () => {
