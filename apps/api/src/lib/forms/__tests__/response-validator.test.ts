@@ -82,6 +82,23 @@ describe("required vs optional basic presence validation", () => {
     expect(result.errors).toEqual([]);
   });
 
+  it("treats whitespace-only optional short_text as blank before length and pattern checks", () => {
+    const form = makeForm("q1", "short_text", {
+      required: false,
+      minLength: 5,
+      pattern: "^\\d+$",
+      allowPatternMismatch: false,
+    });
+
+    const result = validateResponseData(
+      [makeResponse("q1", "short_text", { value: "   " })],
+      form,
+    );
+
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   it("requires value for required short_text", () => {
     const form = makeForm("q1", "short_text", { required: true });
     const result = validateResponseData(
@@ -123,6 +140,34 @@ describe("required vs optional basic presence validation", () => {
       [
         makeResponse("q1", "date", { value: undefined }),
         makeResponse("q2", "time", { value: undefined }),
+      ],
+      formStructure,
+    );
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
+  it("treats whitespace-only optional date/time as blank before format checks", () => {
+    const formStructure = {
+      version: 1,
+      settings: {},
+      questions: [
+        {
+          id: "q1",
+          type: "date" as const,
+          validation: { required: false } satisfies QuestionValidation,
+        },
+        {
+          id: "q2",
+          type: "time" as const,
+          validation: { required: false } satisfies QuestionValidation,
+        },
+      ],
+    };
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "date", { value: "   " }),
+        makeResponse("q2", "time", { value: "   " }),
       ],
       formStructure,
     );
