@@ -509,6 +509,15 @@ export const CreateFormBlockSchema = z
         "Block type and category mismatch. System blocks (section_separator) must have category 'system', other blocks must have category 'question'.",
       path: ["category"],
     },
+  )
+  .refine(
+    (data) => {
+      return data.title.trim().length > 0;
+    },
+    {
+      message: "Block title is required.",
+      path: ["title"],
+    },
   );
 
 export type CreateFormBlock = z.infer<typeof CreateFormBlockSchema>;
