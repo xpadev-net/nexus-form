@@ -69,6 +69,7 @@ vi.mock("ioredis", () => {
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn().mockResolvedValue("OK"),
     del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockRejectedValue(new Error("eval not configured")),
     disconnect: vi.fn(),
     quit: vi.fn(),
   }));

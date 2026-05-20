@@ -8,7 +8,7 @@ import { constantTimeEqual } from "../lib/crypto/field-encryption";
 import { createHonoApp } from "../lib/hono";
 import { logWarn } from "../lib/logger";
 import { authMiddleware, requireAuth } from "../lib/middleware";
-import { invitationSignInRateLimiter } from "../lib/rate-limit";
+import { getClientIp, invitationSignInRateLimiter } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
 
 const updateMeSchema = z.object({
@@ -118,6 +118,7 @@ export const authRouter = createHonoApp()
       if (!constantTimeEqual(code, expectedCode)) {
         logWarn("[Auth] Invalid invitation sign-in code", "api", {
           path: c.req.path,
+          ip: getClientIp(c),
         });
         return c.json(authError("招待コードが正しくありません"), 400);
       }
