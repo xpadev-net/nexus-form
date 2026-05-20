@@ -1,20 +1,12 @@
 import type {
   Block,
   BlockType,
-  CheckboxGridValidationConfig,
-  CheckboxValidationConfig,
-  ChoiceGridValidationConfig,
-  DateValidationConfig,
-  DropdownValidationConfig,
-  LinearScaleValidationConfig,
-  LongTextValidationConfig,
   QuestionValidation,
-  RadioValidationConfig,
-  RatingValidationConfig,
-  SectionSeparatorValidationConfig,
-  ShortTextValidationConfig,
-  TimeValidationConfig,
 } from "../../types/domain/form-block";
+import { Block as BlockSchema } from "../../types/domain/form-block";
+
+const DUPLICATE_TITLE_SUFFIX = " (コピー)";
+const MAX_BLOCK_TITLE_LENGTH = 200;
 
 // デフォルトバリデーション設定を作成するヘルパー関数
 export const createDefaultValidation = (
@@ -138,6 +130,14 @@ export const generateBlockId = (): string => {
   return `block-${crypto.randomUUID()}`;
 };
 
+function createDuplicateTitle(title: string): string {
+  const baseTitle = title.slice(
+    0,
+    MAX_BLOCK_TITLE_LENGTH - DUPLICATE_TITLE_SUFFIX.length,
+  );
+  return `${baseTitle}${DUPLICATE_TITLE_SUFFIX}`;
+}
+
 // 新しいBlockを作成する関数（型安全）
 export const createBlock = (
   type: BlockType,
@@ -169,88 +169,7 @@ export const createBlock = (
     meta: {},
   };
 
-  // 型安全なBlockオブジェクトを作成
-  switch (type) {
-    case "short_text":
-      return {
-        ...baseBlock,
-        type: "short_text",
-        validation: validation as ShortTextValidationConfig,
-      } as Block;
-    case "long_text":
-      return {
-        ...baseBlock,
-        type: "long_text",
-        validation: validation as LongTextValidationConfig,
-      } as Block;
-    case "radio":
-      return {
-        ...baseBlock,
-        type: "radio",
-        validation: validation as RadioValidationConfig,
-      } as Block;
-    case "checkbox":
-      return {
-        ...baseBlock,
-        type: "checkbox",
-        validation: validation as CheckboxValidationConfig,
-      } as Block;
-    case "dropdown":
-      return {
-        ...baseBlock,
-        type: "dropdown",
-        validation: validation as DropdownValidationConfig,
-      } as Block;
-    case "linear_scale":
-      return {
-        ...baseBlock,
-        type: "linear_scale",
-        validation: validation as LinearScaleValidationConfig,
-      } as Block;
-    case "rating":
-      return {
-        ...baseBlock,
-        type: "rating",
-        validation: validation as RatingValidationConfig,
-      } as Block;
-    case "choice_grid":
-      return {
-        ...baseBlock,
-        type: "choice_grid",
-        validation: validation as ChoiceGridValidationConfig,
-      } as Block;
-    case "checkbox_grid":
-      return {
-        ...baseBlock,
-        type: "checkbox_grid",
-        validation: validation as CheckboxGridValidationConfig,
-      } as Block;
-    case "date":
-      return {
-        ...baseBlock,
-        type: "date",
-        validation: validation as DateValidationConfig,
-      } as Block;
-    case "time":
-      return {
-        ...baseBlock,
-        type: "time",
-        validation: validation as TimeValidationConfig,
-      } as Block;
-    case "section_separator":
-      return {
-        ...baseBlock,
-        type: "section_separator",
-        validation: validation as SectionSeparatorValidationConfig,
-      } as Block;
-    default:
-      // フォールバックとしてshort_textを返す
-      return {
-        ...baseBlock,
-        type: "short_text",
-        validation: validation as ShortTextValidationConfig,
-      } as Block;
-  }
+  return BlockSchema.parse(baseBlock);
 };
 
 // Blockを複製する関数（型安全）
@@ -265,98 +184,12 @@ export const duplicateBlock = (
     id: `temp-${Date.now()}`, // 一時的なID、実際はDBで生成
     formId,
     blockId: generateBlockId(),
-    title: `${block.title} (コピー)`,
+    title: createDuplicateTitle(block.title),
     order,
     version: 1,
     updatedAt: new Date(),
     updatedBy: userId,
   };
 
-  // 型安全な複製オブジェクトを作成
-  switch (block.type) {
-    case "short_text":
-      return {
-        ...duplicatedBase,
-        type: "short_text",
-        validation: block.validation as ShortTextValidationConfig,
-      } as Block;
-    case "long_text":
-      return {
-        ...duplicatedBase,
-        type: "long_text",
-        validation: block.validation as LongTextValidationConfig,
-      } as Block;
-    case "radio":
-      return {
-        ...duplicatedBase,
-        type: "radio",
-        validation: block.validation as RadioValidationConfig,
-      } as Block;
-    case "checkbox":
-      return {
-        ...duplicatedBase,
-        type: "checkbox",
-        validation: block.validation as CheckboxValidationConfig,
-      } as Block;
-    case "dropdown":
-      return {
-        ...duplicatedBase,
-        type: "dropdown",
-        validation: block.validation as DropdownValidationConfig,
-      } as Block;
-    case "linear_scale":
-      return {
-        ...duplicatedBase,
-        type: "linear_scale",
-        validation: block.validation as LinearScaleValidationConfig,
-      } as Block;
-    case "rating":
-      return {
-        ...duplicatedBase,
-        type: "rating",
-        validation: block.validation as RatingValidationConfig,
-      } as Block;
-    case "choice_grid":
-      return {
-        ...duplicatedBase,
-        type: "choice_grid",
-        validation: block.validation as ChoiceGridValidationConfig,
-      } as Block;
-    case "checkbox_grid":
-      return {
-        ...duplicatedBase,
-        type: "checkbox_grid",
-        validation: block.validation as CheckboxGridValidationConfig,
-      } as Block;
-    case "date":
-      return {
-        ...duplicatedBase,
-        type: "date",
-        validation: block.validation as DateValidationConfig,
-      } as Block;
-    case "time":
-      return {
-        ...duplicatedBase,
-        type: "time",
-        validation: block.validation as TimeValidationConfig,
-      } as Block;
-    case "section_separator":
-      return {
-        ...duplicatedBase,
-        type: "section_separator",
-        validation: block.validation as SectionSeparatorValidationConfig,
-      } as Block;
-    default:
-      // フォールバックとしてshort_textを返す
-      return {
-        ...duplicatedBase,
-        type: "short_text",
-        validation: {
-          type: "short_text",
-          required: false,
-          maxLength: 1000,
-          placeholder: undefined,
-        } as ShortTextValidationConfig,
-      } as Block;
-  }
+  return BlockSchema.parse(duplicatedBase);
 };
