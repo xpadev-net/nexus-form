@@ -145,7 +145,8 @@ export function FormEditorPage() {
       rpc(client.api.forms[":id"].archive.$post({ param: { id } })),
     onSuccess: () => {
       toast.success("フォームをアーカイブしました");
-      void formQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["formDetail", id] });
+      void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
     onError: (err) => {
       toast.error(
@@ -159,7 +160,8 @@ export function FormEditorPage() {
       rpc(client.api.forms[":id"].unarchive.$post({ param: { id } })),
     onSuccess: () => {
       toast.success("アーカイブを解除しました");
-      void formQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ["formDetail", id] });
+      void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
     onError: (err) => {
       toast.error(
@@ -295,7 +297,12 @@ export function FormEditorPage() {
                 <FormPublishMenu
                   formId={id}
                   formStatus={formStatus}
-                  onStatusChange={() => void formQuery.refetch()}
+                  onStatusChange={() => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ["formDetail", id],
+                    });
+                    void queryClient.invalidateQueries({ queryKey: ["forms"] });
+                  }}
                   onResetSuccess={() => void contentQuery.refetch()}
                 />
               )}

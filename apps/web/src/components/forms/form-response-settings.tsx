@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FC, useState } from "react";
 import { client, rpc } from "@/lib/api";
 
@@ -23,6 +23,7 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
   initialSettings,
   onSaved,
 }) => {
+  const queryClient = useQueryClient();
   const [settings, setSettings] = useState(initialSettings);
 
   const saveMutation = useMutation({
@@ -34,6 +35,7 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
         }),
       ),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       onSaved?.();
     },
   });
