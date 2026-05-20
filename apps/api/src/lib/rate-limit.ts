@@ -219,6 +219,16 @@ const authActionRateLimiter = createRateLimit({
 });
 
 /**
+ * 招待コードサインイン用レート制限
+ * 15分間に10リクエスト（オンライン総当たり対策）
+ */
+export const invitationSignInRateLimiter = createRateLimit({
+  windowMs: 15 * 60 * 1000,
+  maxRequests: 10,
+  keyGenerator: (c) => `rate_limit:invitation_signin:${getClientIp(c)}`,
+});
+
+/**
  * 一般認証エンドポイント用レート制限
  * 1分間に30リクエスト（callback, sign-out など）
  */

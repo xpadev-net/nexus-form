@@ -99,6 +99,7 @@ vi.mock("../lib/rate-limit", () => {
     getClientIp: vi.fn(() => "127.0.0.1"),
     authRouteRateLimiter: passThrough,
     generalRateLimiter: passThrough,
+    invitationSignInRateLimiter: passThrough,
   };
 });
 

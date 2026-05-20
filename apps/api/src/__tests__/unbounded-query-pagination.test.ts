@@ -124,10 +124,18 @@ vi.mock("../lib/queues", () => ({
   isValidServiceName: vi.fn(() => true),
 }));
 
-vi.mock("../lib/rate-limit", () => ({
-  createRateLimit: () => async (_c: unknown, next: () => Promise<void>) =>
-    next(),
-}));
+vi.mock("../lib/rate-limit", () => {
+  const passThrough = async (
+    _c: unknown,
+    next: () => Promise<void>,
+  ): Promise<void> => next();
+  return {
+    createRateLimit: () => passThrough,
+    authRouteRateLimiter: passThrough,
+    generalRateLimiter: passThrough,
+    invitationSignInRateLimiter: passThrough,
+  };
+});
 
 vi.mock("../lib/logger", () => ({
   logError: vi.fn(),
