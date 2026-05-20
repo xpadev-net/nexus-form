@@ -125,9 +125,26 @@ function readKustomizationResources(): string[] {
 }
 
 function buildKustomization(relativePath: string): string {
-  return execFileSync("kustomize", ["build", resolve(repoRoot, relativePath)], {
-    encoding: "utf8",
-  });
+  try {
+    return execFileSync(
+      "kustomize",
+      ["build", resolve(repoRoot, relativePath)],
+      {
+        encoding: "utf8",
+      },
+    );
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null && "code" in error
+        ? error.code
+        : undefined;
+    if (code === "ENOENT") {
+      throw new Error(
+        "kustomize binary is required to validate k8s manifests; install kustomize or ensure it is on PATH",
+      );
+    }
+    throw error;
+  }
 }
 
 describe("k8s worker deployments", () => {
@@ -186,6 +203,9 @@ describe("k8s base manifest render", () => {
     expect(rendered).toContain("kind: Service");
     expect(rendered).toContain("name: api");
     expect(rendered).toContain("name: web");
+    expect(rendered).toContain("name: bullmq-validation-discord");
+    expect(rendered).toContain("name: bullmq-validation-github");
+    expect(rendered).toContain("name: bullmq-validation-twitter");
     expect(rendered).toContain("name: bullmq-sheets");
     expect(rendered).not.toContain("{{");
     expect(rendered).not.toContain("}}");
