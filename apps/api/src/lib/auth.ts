@@ -83,16 +83,16 @@ export const auth = betterAuth({
     cookiePrefix: brandConfig.cookiePrefix,
     cookies: {
       session_token: {
-        attributes: { sameSite: "strict" },
+        attributes: { sameSite: "lax" },
       },
       session_data: {
-        attributes: { sameSite: "strict" },
+        attributes: { sameSite: "lax" },
       },
       account_data: {
-        attributes: { sameSite: "strict" },
+        attributes: { sameSite: "lax" },
       },
       dont_remember: {
-        attributes: { sameSite: "strict" },
+        attributes: { sameSite: "lax" },
       },
     },
   },
