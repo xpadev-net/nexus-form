@@ -83,7 +83,7 @@ Biome enforces two-space indentation, spaced braces, and import organization—a
 - **Packages**: 各パッケージは `src/` をソースルートとし、`dist/` にビルド出力。rollup でバンドル。
 
 ## Testing Guidelines
-`apps/api` と `apps/worker` は vitest でテストを実行します。テストファイルは対応する `__tests__/` フォルダに配置してください。ルートの `vitest.config.mts` はレガシーコード向けです。新規テストは各パッケージ内の `vitest.config.ts` で管理してください。
+Vitest を使う app/package は、それぞれの `vitest.config.ts` でテストを管理します。テストファイルは対応する `__tests__/` フォルダ、または対象コードの近くに `*.test.ts(x)` として配置してください。
 
 Processing speed varies widely by environment, so do not add performance tests that attempt to assert execution time—they become flaky and offer no actionable signal (処理速度計測目的のパフォーマンステストは禁止).
 
@@ -109,7 +109,7 @@ Environment variables live in `.env.local` (git-ignored); document any new keys 
 - When someone asks you to open a pull request, create it with the `gh` CLI instead of other tooling.
 - When asked to create a plan, after implementation completion, create a new branch and push the changes as a verification step to ensure the implementation is properly tracked and reviewable.
 - Do not write tests whose primary purpose is to measure performance or execution time; such tests are forbidden because they are flaky and environment-dependent.
-- New code should be placed in the appropriate `apps/` or `packages/` directory. Do not add new features to the root-level `src/` directory.
+- New code should be placed in the appropriate `apps/` or `packages/` directory.
 - When adding a dependency, install it in the correct workspace package (`pnpm --filter <package-name> add <dep>`), not at the root.
 
 ## Active Technologies
