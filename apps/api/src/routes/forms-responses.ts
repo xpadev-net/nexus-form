@@ -321,8 +321,6 @@ export async function enqueueValidationRetries(
     try {
       job = await queue.add(`validate-${result.service}`, jobData, {
         jobId,
-        removeOnComplete: 100,
-        removeOnFail: 100,
       });
     } catch (error) {
       logError("Failed to enqueue validation retry job", "forms-responses", {

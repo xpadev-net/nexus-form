@@ -946,10 +946,7 @@ async function queueExternalValidations(
           snapshotRuleType: pair.ruleType,
           snapshotConfigJson: pair.configJson,
         });
-        const job = await queue.add(`validate-${pair.providerName}`, jobData, {
-          removeOnComplete: 100,
-          removeOnFail: 100,
-        });
+        const job = await queue.add(`validate-${pair.providerName}`, jobData);
         // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
         // トラッキング/キャンセルを可能にする。失敗しても Worker 側が
         // 処理時に jobId を設定するため致命的ではない。
@@ -1013,8 +1010,6 @@ async function queueSheetsSyncIfNeeded(
       snapshotVersion: activeSnapshot?.version,
     });
     await getSheetsSyncQueue().add("auto-sync", jobData, {
-      removeOnComplete: 100,
-      removeOnFail: 100,
       jobId: `sheets:${integration.id}:${responseId}`,
     });
   }

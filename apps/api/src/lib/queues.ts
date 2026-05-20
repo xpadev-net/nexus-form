@@ -1,11 +1,17 @@
 import { type DefaultJobOptions, Queue } from "bullmq";
 import { getRedisConnection } from "./redis";
 
+const JOB_RETENTION_DEFAULTS = {
+  removeOnComplete: 100,
+  removeOnFail: 100,
+} satisfies Pick<DefaultJobOptions, "removeOnComplete" | "removeOnFail">;
+
 /**
  * 動的プロバイダー対応のリトライバックオフ設定
  * [30秒, 2分, 5分] の明示的バックオフ
  */
 const VALIDATION_JOB_DEFAULTS: DefaultJobOptions = {
+  ...JOB_RETENTION_DEFAULTS,
   attempts: 3,
   backoff: {
     type: "exponential",
@@ -14,6 +20,7 @@ const VALIDATION_JOB_DEFAULTS: DefaultJobOptions = {
 };
 
 const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
+  ...JOB_RETENTION_DEFAULTS,
   attempts: 3,
   backoff: {
     type: "exponential",
