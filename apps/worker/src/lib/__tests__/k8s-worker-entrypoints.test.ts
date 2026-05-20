@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,6 +26,10 @@ const configMapManifest = readFileSync(
 );
 const secretManifest = readFileSync(
   resolve(repoRoot, "k8s/base/secret.yaml"),
+  "utf8",
+);
+const kustomizationManifest = readFileSync(
+  resolve(repoRoot, "k8s/base/kustomization.yaml"),
   "utf8",
 );
 
@@ -107,6 +112,35 @@ function readConfigMapValue(key: string): string {
   return value;
 }
 
+function readKustomizationResources(): string[] {
+  const resourcesBlock = kustomizationManifest.match(
+    /^resources:\n(?<resources>(?:\s{2}-\s+\S+\n?)+)/m,
+  )?.groups?.resources;
+  if (!resourcesBlock) {
+    throw new Error("Missing resources in kustomization.yaml");
+  }
+  return Array.from(resourcesBlock.matchAll(/^\s{2}-\s+(?<name>\S+)$/gm)).map(
+    (match) => match.groups?.name ?? "",
+  );
+}
+
+function buildKustomization(relativePath: string): string {
+  return execFileSync("kustomize", ["build", resolve(repoRoot, relativePath)], {
+    encoding: "utf8",
+  });
+}
+
+function hasKustomizeBinary(): boolean {
+  try {
+    execFileSync("kustomize", ["version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const kustomizeAvailable = hasKustomizeBinary();
+
 describe("k8s worker deployments", () => {
   it.each(
     workerDeployments,
@@ -129,6 +163,47 @@ describe("k8s worker deployments", () => {
 
     expect(readDeploymentSecretRefs(manifestName)).toContain(secretName);
   });
+});
+
+describe("k8s base manifest render", () => {
+  it("references each expected resource exactly once", () => {
+    const resources = readKustomizationResources();
+    const expectedResources = [
+      "configmap.yaml",
+      "secret.yaml",
+      "api-deployment.yaml",
+      "api-service.yaml",
+      "web-deployment.yaml",
+      "web-service.yaml",
+      "bullmq-validation-discord-deployment.yaml",
+      "bullmq-validation-github-deployment.yaml",
+      "bullmq-validation-twitter-deployment.yaml",
+      "bullmq-sheets-deployment.yaml",
+    ];
+
+    expect(new Set(resources)).toEqual(new Set(expectedResources));
+    expect(resources).toHaveLength(expectedResources.length);
+  });
+
+  it.skipIf(!kustomizeAvailable).each(["k8s/base", "k8s/overlays/production"])(
+    "builds %s with kustomize",
+    (kustomizationPath) => {
+      const rendered = buildKustomization(kustomizationPath);
+
+      expect(rendered).toContain("kind: ConfigMap");
+      expect(rendered).toContain("kind: Secret");
+      expect(rendered).toContain("kind: Deployment");
+      expect(rendered).toContain("kind: Service");
+      expect(rendered).toContain("name: api\n");
+      expect(rendered).toContain("name: web\n");
+      expect(rendered).toContain("name: bullmq-validation-discord\n");
+      expect(rendered).toContain("name: bullmq-validation-github\n");
+      expect(rendered).toContain("name: bullmq-validation-twitter\n");
+      expect(rendered).toContain("name: bullmq-sheets\n");
+      expect(rendered).not.toContain("{{");
+      expect(rendered).not.toContain("}}");
+    },
+  );
 });
 
 describe("k8s web runtime configuration", () => {
