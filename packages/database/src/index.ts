@@ -14,6 +14,10 @@ export const db = drizzle(pool, {
   mode: "default",
 });
 
+export async function closeDatabase(): Promise<void> {
+  await pool.end();
+}
+
 export { sql } from "drizzle-orm";
 export * from "./auth-schema";
 export { runMigrations } from "./migrate";

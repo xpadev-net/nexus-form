@@ -42,3 +42,8 @@ export function captureMessage(
     extra,
   });
 }
+
+export async function flushSentry(): Promise<void> {
+  if (!sentryModule) return;
+  await sentryModule.flush(2000);
+}

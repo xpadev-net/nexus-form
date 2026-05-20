@@ -66,3 +66,13 @@ export function getSheetsSyncQueue(): Queue {
   }
   return _sheetsSyncQueue;
 }
+
+export async function closeQueues(): Promise<void> {
+  const queues = [
+    ..._validationQueues.values(),
+    ...(_sheetsSyncQueue ? [_sheetsSyncQueue] : []),
+  ];
+  await Promise.all(queues.map((queue) => queue.close()));
+  _validationQueues.clear();
+  _sheetsSyncQueue = null;
+}
