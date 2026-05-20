@@ -6,7 +6,7 @@ const ANALYTICS_PAGE_SIZE = 100;
 async function fetchAllResponseAnalytics(formId: string) {
   const timeline = [];
   let page = 1;
-  let totalPages = 1;
+  let hasNext = false;
 
   do {
     const res = await rpc(
@@ -16,9 +16,9 @@ async function fetchAllResponseAnalytics(formId: string) {
       }),
     );
     timeline.push(...res.timeline);
-    totalPages = res.pagination.totalPages;
+    hasNext = res.pagination.hasNext;
     page++;
-  } while (page <= totalPages);
+  } while (hasNext);
 
   return { timeline };
 }

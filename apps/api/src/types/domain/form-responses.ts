@@ -10,17 +10,16 @@ export type ResponseListItem = z.infer<typeof ResponseListItemSchema>;
 /** GET /:id/responses のレスポンス。 */
 export const ResponsesListResponseSchema = z.object({
   responses: z.array(ResponseListItemSchema),
-  total: z.number().int(),
   page: z.number().int(),
   limit: z.number().int(),
+  hasNext: z.boolean(),
 });
 export type ResponsesListResponse = z.infer<typeof ResponsesListResponseSchema>;
 
 const PaginationMetadataSchema = z.object({
   page: z.number().int().min(1),
   pageSize: z.number().int().min(1),
-  total: z.number().int().min(0),
-  totalPages: z.number().int().min(0),
+  hasNext: z.boolean(),
 });
 
 /** POST /:id/responses / PUT /:id/responses/:responseId のレスポンス。 */

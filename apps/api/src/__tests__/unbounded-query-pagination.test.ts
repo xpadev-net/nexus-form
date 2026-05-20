@@ -222,9 +222,16 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("applies limit and offset to response id lists", async () => {
-    mocks.db.select
-      .mockReturnValueOnce(limitedQuery([{ id: "response-6" }]))
-      .mockReturnValueOnce(countQuery(12));
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([
+        { id: "response-6" },
+        { id: "response-7" },
+        { id: "response-8" },
+        { id: "response-9" },
+        { id: "response-10" },
+        { id: "response-11" },
+      ]),
+    );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
 
     const res = await formsResponsesRouter.request(
@@ -233,17 +240,22 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
-      responseIds: ["response-6"],
-      pagination: { page: 2, pageSize: 5, total: 12, totalPages: 3 },
+      responseIds: [
+        "response-6",
+        "response-7",
+        "response-8",
+        "response-9",
+        "response-10",
+      ],
+      pagination: { page: 2, pageSize: 5, hasNext: true },
     });
     expect(mocks.offsetCalls).toContain(5);
-    expect(mocks.limitCalls).toContain(5);
+    expect(mocks.limitCalls).toContain(6);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
   it("uses a bounded default page when pagination query is omitted", async () => {
-    mocks.db.select
-      .mockReturnValueOnce(limitedQuery([{ id: "response-1" }]))
-      .mockReturnValueOnce(countQuery(101));
+    mocks.db.select.mockReturnValueOnce(limitedQuery([{ id: "response-1" }]));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
 
     const res = await formsResponsesRouter.request("/form-1/responses/ids");
@@ -251,30 +263,29 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
       responseIds: ["response-1"],
-      pagination: { page: 1, pageSize: 20, total: 101, totalPages: 6 },
+      pagination: { page: 1, pageSize: 20, hasNext: false },
     });
     expect(mocks.offsetCalls).toContain(0);
-    expect(mocks.limitCalls).toContain(20);
+    expect(mocks.limitCalls).toContain(21);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
   it("applies keyword filters before paginating response lists", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
-    mocks.db.select
-      .mockReturnValueOnce(
-        limitedQuery([
-          {
-            id: "response-1",
-            formId: "form-1",
-            submittedAt,
-            updatedAt: null,
-            respondentUuid: "respondent-alpha",
-            userAgent: null,
-            sessionId: null,
-            countryCode: "JP",
-          },
-        ]),
-      )
-      .mockReturnValueOnce(countQuery(1));
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([
+        {
+          id: "response-1",
+          formId: "form-1",
+          submittedAt,
+          updatedAt: null,
+          respondentUuid: "respondent-alpha",
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+        },
+      ]),
+    );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
@@ -285,9 +296,9 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
       responses: [{ id: "response-1", respondentUuid: "respondent-alpha" }],
-      total: 1,
       page: 2,
       limit: 5,
+      hasNext: false,
     });
     expect(vi.mocked(sql).mock.calls).not.toEqual(
       expect.arrayContaining([
@@ -303,27 +314,65 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       [expect.anything(), "formResponse.countryCode", "ALPHA%", "!"],
     ]);
     expect(mocks.offsetCalls).toContain(5);
-    expect(mocks.limitCalls).toContain(5);
+    expect(mocks.limitCalls).toContain(6);
+  });
+
+  it("returns hasNext and trims the extra row for response lists", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery(
+        Array.from({ length: 6 }, (_, index) => ({
+          id: `response-${index + 1}`,
+          formId: "form-1",
+          submittedAt,
+          updatedAt: null,
+          respondentUuid: `respondent-${index + 1}`,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+        })),
+      ),
+    );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?page=2&limit=5",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      responses: [
+        { id: "response-1" },
+        { id: "response-2" },
+        { id: "response-3" },
+        { id: "response-4" },
+        { id: "response-5" },
+      ],
+      page: 2,
+      limit: 5,
+      hasNext: true,
+    });
+    expect(mocks.offsetCalls).toContain(5);
+    expect(mocks.limitCalls).toContain(6);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
   it("escapes wildcard characters in response keyword prefix filters", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
-    mocks.db.select
-      .mockReturnValueOnce(
-        limitedQuery([
-          {
-            id: "response-1",
-            formId: "form-1",
-            submittedAt,
-            updatedAt: null,
-            respondentUuid: "respondent-alpha",
-            userAgent: null,
-            sessionId: null,
-            countryCode: "JP",
-          },
-        ]),
-      )
-      .mockReturnValueOnce(countQuery(1));
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([
+        {
+          id: "response-1",
+          formId: "form-1",
+          submittedAt,
+          updatedAt: null,
+          respondentUuid: "respondent-alpha",
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+        },
+      ]),
+    );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
@@ -344,22 +393,20 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
   it("does not use non-sargable keyword filters for response lists", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
-    mocks.db.select
-      .mockReturnValueOnce(
-        limitedQuery([
-          {
-            id: "response-1",
-            formId: "form-1",
-            submittedAt,
-            updatedAt: null,
-            respondentUuid: "respondent-alpha",
-            userAgent: null,
-            sessionId: null,
-            countryCode: "JP",
-          },
-        ]),
-      )
-      .mockReturnValueOnce(countQuery(1));
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([
+        {
+          id: "response-1",
+          formId: "form-1",
+          submittedAt,
+          updatedAt: null,
+          respondentUuid: "respondent-alpha",
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+        },
+      ]),
+    );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
@@ -376,12 +423,19 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       .mock.calls.filter((call) => String(call[0][0]).includes("lower("));
     expect(instrCalls).toHaveLength(0);
     expect(lowerCalls).toHaveLength(0);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
   it("applies limit and offset to response analytics timelines", async () => {
-    mocks.db.select
-      .mockReturnValueOnce(limitedQuery([{ date: "2026-05-18", count: 2 }]))
-      .mockReturnValueOnce(countQuery(9));
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([
+        { date: "2026-05-18", count: 2 },
+        { date: "2026-05-17", count: 3 },
+        { date: "2026-05-16", count: 1 },
+        { date: "2026-05-15", count: 4 },
+        { date: "2026-05-14", count: 5 },
+      ]),
+    );
     const { formsResponseAnalyticsRouter } = await import(
       "../routes/forms-response-analytics"
     );
@@ -392,11 +446,17 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
-      timeline: [{ date: "2026-05-18", count: 2 }],
-      pagination: { page: 3, pageSize: 4, total: 9, totalPages: 3 },
+      timeline: [
+        { date: "2026-05-18", count: 2 },
+        { date: "2026-05-17", count: 3 },
+        { date: "2026-05-16", count: 1 },
+        { date: "2026-05-15", count: 4 },
+      ],
+      pagination: { page: 3, pageSize: 4, hasNext: true },
     });
     expect(mocks.offsetCalls).toContain(8);
-    expect(mocks.limitCalls).toContain(4);
+    expect(mocks.limitCalls).toContain(5);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
   it("applies limit and offset to snapshot lists", async () => {
