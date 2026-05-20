@@ -254,6 +254,14 @@ describe("FormStructure schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("古い保存済み構造向けに allow_edit_responses の既定値を補う", () => {
+    const result = FormStructure.parse({
+      version: 1,
+      settings: {},
+    });
+    expect(result.settings.allow_edit_responses).toBe(false);
+  });
+
   it("settings がない場合は拒否する", () => {
     const result = FormStructure.safeParse({ version: 1 });
     expect(result.success).toBe(false);

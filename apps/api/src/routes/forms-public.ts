@@ -117,17 +117,6 @@ type PasswordProtection = NonNullable<
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function parseStructure(structureJson: string): ParsedStructure | null {
-  try {
-    return parseStoredStructure(structureJson);
-  } catch (error) {
-    logError("Failed to parse published formStructure", "forms-public", {
-      error,
-    });
-    return null;
-  }
-}
-
 function logInvalidPublishedConfiguration(
   reason: string,
   metadata: { formId: string; publicId: string; operation: string },
@@ -151,14 +140,16 @@ function parsePublishedStructure(
     return null;
   }
 
-  const parsed = parseStructure(structureJson);
-  if (!parsed) {
+  try {
+    return parseStoredStructure(structureJson);
+  } catch (error) {
     logInvalidPublishedConfiguration(
       "Published form has invalid active formStructure JSON",
       metadata,
+      error,
     );
+    return null;
   }
-  return parsed;
 }
 
 function buildPublishedQuestions(
@@ -489,7 +480,7 @@ export const formsPublicRouter = createHonoApp()
       // 7. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure.settings?.response_limit;
       const requireFingerprint =
-        parsedStructure?.settings?.require_fingerprint ?? true;
+        parsedStructure.settings?.require_fingerprint ?? true;
       if (requireFingerprint && payload.fingerprints.length === 0) {
         return c.json(errorResponse("Fingerprint data is required"), 400);
       }
