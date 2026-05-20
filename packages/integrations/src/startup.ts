@@ -409,10 +409,12 @@ export async function startupPlugins(
       continue;
     }
     if (loader.hasFailedPlugins()) {
-      const message = summarizeFailedPlugins(loader.getFailedPlugins());
+      const failedPlugins = loader.getFailedPlugins();
+      const message = summarizeFailedPlugins(failedPlugins);
       if (failOnExternalPluginError) {
         throw new Error(
           `[${logPrefix}] Failed to load validation plugins from ${dir}: ${message}`,
+          { cause: failedPlugins },
         );
       }
       console.warn(
