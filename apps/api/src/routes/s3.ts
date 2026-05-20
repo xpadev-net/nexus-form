@@ -296,18 +296,15 @@ export const s3Router = createHonoApp()
 
       const query = c.req.valid("query");
       const type = query.type ?? "download";
-      const hasRequiredAccess =
-        type === "upload"
-          ? hasS3WriteAccess(auth)
-          : hasApiTokenScopes(auth, ["read"]);
-      if (!hasRequiredAccess) {
-        return c.json(forbiddenResponse(), 403);
-      }
       if (type === "upload") {
         return c.json(
           errorResponse("Use /api/s3/presigned-upload for uploads"),
           400,
         );
+      }
+      const hasRequiredAccess = hasApiTokenScopes(auth, ["read"]);
+      if (!hasRequiredAccess) {
+        return c.json(forbiddenResponse(), 403);
       }
 
       if (!isKeyOwnedBy(auth.user_id, query.key)) {
