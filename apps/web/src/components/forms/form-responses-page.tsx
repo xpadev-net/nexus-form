@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { BarChart3, List, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer } from "react";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
 import { ResponseExport } from "@/components/forms/response-export";
@@ -12,44 +12,91 @@ import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ViewMode = "list" | "analytics";
 
+interface FormResponsesState {
+  page: number;
+  keyword: string;
+  debouncedKeyword: string;
+  selectedResponseId: string | null;
+  viewMode: ViewMode;
+}
+
+type FormResponsesAction =
+  | { type: "set-keyword"; keyword: string }
+  | { type: "commit-keyword"; keyword: string }
+  | { type: "select-response"; responseId: string }
+  | { type: "close-detail" }
+  | { type: "set-page"; page: number }
+  | { type: "set-view-mode"; viewMode: ViewMode };
+
+const initialFormResponsesState: FormResponsesState = {
+  page: 1,
+  keyword: "",
+  debouncedKeyword: "",
+  selectedResponseId: null,
+  viewMode: "list",
+};
+
+function formResponsesReducer(
+  state: FormResponsesState,
+  action: FormResponsesAction,
+): FormResponsesState {
+  switch (action.type) {
+    case "set-keyword":
+      return { ...state, keyword: action.keyword, selectedResponseId: null };
+    case "commit-keyword":
+      return {
+        ...state,
+        debouncedKeyword: action.keyword,
+        page: action.keyword !== state.debouncedKeyword ? 1 : state.page,
+      };
+    case "select-response":
+      return { ...state, selectedResponseId: action.responseId };
+    case "close-detail":
+      return { ...state, selectedResponseId: null };
+    case "set-page":
+      return { ...state, page: action.page, selectedResponseId: null };
+    case "set-view-mode":
+      return { ...state, viewMode: action.viewMode };
+  }
+}
+
 export function FormResponsesContent({ formId }: { formId: string }) {
   useValidationSSE(formId);
 
-  const [page, setPage] = useState(1);
-  const [keyword, setKeyword] = useState("");
-  const [debouncedKeyword, setDebouncedKeyword] = useState("");
-  const [selectedResponseId, setSelectedResponseId] = useState<string | null>(
-    null,
+  const [state, dispatch] = useReducer(
+    formResponsesReducer,
+    initialFormResponsesState,
   );
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
   const limit = 20;
-  const debouncedKeywordRef = useRef(debouncedKeyword);
-  debouncedKeywordRef.current = debouncedKeyword;
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const nextKeyword = keyword.trim();
-      setDebouncedKeyword(nextKeyword);
-      if (nextKeyword !== debouncedKeywordRef.current) {
-        setPage(1);
-      }
+      dispatch({ type: "commit-keyword", keyword: state.keyword.trim() });
     }, 300);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [keyword]);
+  }, [state.keyword]);
 
   const responsesQuery = useQuery({
-    queryKey: ["formResponses", formId, page, limit, debouncedKeyword],
+    queryKey: [
+      "formResponses",
+      formId,
+      state.page,
+      limit,
+      state.debouncedKeyword,
+    ],
     queryFn: () =>
       rpc(
         client.api.forms[":id"].responses.$get({
           param: { id: formId },
           query: {
-            page: String(page),
+            page: String(state.page),
             limit: String(limit),
-            ...(debouncedKeyword ? { keyword: debouncedKeyword } : {}),
+            ...(state.debouncedKeyword
+              ? { keyword: state.debouncedKeyword }
+              : {}),
           },
         }),
       ),
@@ -57,25 +104,23 @@ export function FormResponsesContent({ formId }: { formId: string }) {
   });
 
   const data = responsesQuery.data;
-  const hasCurrentPageData = data?.page === page;
+  const hasCurrentPageData = data?.page === state.page;
   const hasNextPage = hasCurrentPageData ? data.hasNext : false;
 
   const handleSelectResponse = useCallback((responseId: string) => {
-    setSelectedResponseId(responseId);
+    dispatch({ type: "select-response", responseId });
   }, []);
 
   const handleCloseDetail = useCallback(() => {
-    setSelectedResponseId(null);
+    dispatch({ type: "close-detail" });
   }, []);
 
   const handlePageChange = useCallback((newPage: number) => {
-    setPage(newPage);
-    setSelectedResponseId(null);
+    dispatch({ type: "set-page", page: newPage });
   }, []);
 
   const handleKeywordChange = useCallback((value: string) => {
-    setKeyword(value);
-    setSelectedResponseId(null);
+    dispatch({ type: "set-keyword", keyword: value });
   }, []);
 
   return (
@@ -89,11 +134,13 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             <legend className="sr-only">回答表示モード</legend>
             <button
               type="button"
-              onClick={() => setViewMode("list")}
-              aria-pressed={viewMode === "list"}
+              onClick={() =>
+                dispatch({ type: "set-view-mode", viewMode: "list" })
+              }
+              aria-pressed={state.viewMode === "list"}
               className={[
                 "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
-                viewMode === "list"
+                state.viewMode === "list"
                   ? "bg-primary text-primary-foreground"
                   : "hover:bg-muted",
               ].join(" ")}
@@ -103,11 +150,13 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             </button>
             <button
               type="button"
-              onClick={() => setViewMode("analytics")}
-              aria-pressed={viewMode === "analytics"}
+              onClick={() =>
+                dispatch({ type: "set-view-mode", viewMode: "analytics" })
+              }
+              aria-pressed={state.viewMode === "analytics"}
               className={[
                 "flex items-center gap-1 px-3 py-1.5 text-sm transition-colors",
-                viewMode === "analytics"
+                state.viewMode === "analytics"
                   ? "bg-primary text-primary-foreground"
                   : "hover:bg-muted",
               ].join(" ")}
@@ -120,26 +169,26 @@ export function FormResponsesContent({ formId }: { formId: string }) {
       </div>
 
       {/* 分析ビュー */}
-      {viewMode === "analytics" && (
+      {state.viewMode === "analytics" && (
         <section className="rounded-lg border bg-card p-6 shadow-sm">
           <FormResponseAnalytics formId={formId} />
         </section>
       )}
 
       {/* リストビュー */}
-      {viewMode === "list" && (
+      {state.viewMode === "list" && (
         <div className="flex gap-4">
           {/* 回答リスト */}
           <section
             className={[
               "rounded-lg border bg-card p-6 shadow-sm",
-              selectedResponseId ? "w-1/2" : "w-full",
+              state.selectedResponseId ? "w-1/2" : "w-full",
             ].join(" ")}
           >
             {/* フィルタ */}
             <div className="mb-4">
               <ResponseFilter
-                keyword={keyword}
+                keyword={state.keyword}
                 onKeywordChange={handleKeywordChange}
               />
             </div>
@@ -167,7 +216,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                 {data.responses.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
                     <p className="text-sm">
-                      {debouncedKeyword
+                      {state.debouncedKeyword
                         ? "検索条件に一致する回答はありません。"
                         : "回答はまだありません。"}
                     </p>
@@ -181,7 +230,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                           onClick={() => handleSelectResponse(response.id)}
                           className={[
                             "flex w-full items-center justify-between rounded border p-3 text-left transition-colors hover:bg-muted/50",
-                            selectedResponseId === response.id
+                            state.selectedResponseId === response.id
                               ? "border-primary bg-primary/5"
                               : "",
                           ].join(" ")}
@@ -215,24 +264,24 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                 )}
 
                 {/* ページネーション */}
-                {(page > 1 || hasNextPage) && (
+                {(state.page > 1 || hasNextPage) && (
                   <div className="mt-4 flex items-center justify-between">
                     <p className="text-xs text-muted-foreground">
-                      ページ {page}
+                      ページ {state.page}
                     </p>
                     <div className="flex gap-1">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handlePageChange(page - 1)}
-                        disabled={page <= 1}
+                        onClick={() => handlePageChange(state.page - 1)}
+                        disabled={state.page <= 1}
                       >
                         前へ
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handlePageChange(page + 1)}
+                        onClick={() => handlePageChange(state.page + 1)}
                         disabled={!hasCurrentPageData || !hasNextPage}
                       >
                         次へ
@@ -245,7 +294,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           </section>
 
           {/* 回答詳細 */}
-          {selectedResponseId && (
+          {state.selectedResponseId && (
             <section className="w-1/2 rounded-lg border bg-card p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">回答詳細</h2>
@@ -261,7 +310,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
               </div>
               <ResponseDetailView
                 formId={formId}
-                responseId={selectedResponseId}
+                responseId={state.selectedResponseId}
               />
             </section>
           )}
