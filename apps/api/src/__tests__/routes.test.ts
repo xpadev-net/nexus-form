@@ -69,6 +69,7 @@ vi.mock("ioredis", () => {
     get: vi.fn().mockResolvedValue(null),
     set: vi.fn().mockResolvedValue("OK"),
     del: vi.fn().mockResolvedValue(1),
+    eval: vi.fn().mockRejectedValue(new Error("eval not configured")),
     disconnect: vi.fn(),
     quit: vi.fn(),
   }));
@@ -200,6 +201,82 @@ describe("API Route Integration Tests", () => {
       });
       // GET /me exists as a route; POST /me does not — either 401 or 404/405 is acceptable
       expect([401, 404, 405]).toContain(res.status);
+    });
+  });
+
+  describe("POST /api/auth-ext/signin-with-invitation", () => {
+    it("allows a valid invitation code under the rate limit", async () => {
+      const originalCode = process.env.SIGNUP_INVITATION_CODE;
+      const originalSecret = process.env.AUTH_SECRET;
+      process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
+      process.env.AUTH_SECRET = "test-auth-secret";
+
+      try {
+        const res = await app.request("/api/auth-ext/signin-with-invitation", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "203.0.113.70",
+          },
+          body: JSON.stringify({ code: "valid-invitation-code" }),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get("set-cookie")).toContain("invitation-token=");
+        await expect(res.json()).resolves.toMatchObject({
+          ok: true,
+          redirectUrl: "/api/auth/sign-in/social",
+        });
+      } finally {
+        if (originalCode === undefined) {
+          delete process.env.SIGNUP_INVITATION_CODE;
+        } else {
+          process.env.SIGNUP_INVITATION_CODE = originalCode;
+        }
+        if (originalSecret === undefined) {
+          delete process.env.AUTH_SECRET;
+        } else {
+          process.env.AUTH_SECRET = originalSecret;
+        }
+      }
+    });
+
+    it("rate limits invalid invitation code attempts by client IP", async () => {
+      const originalCode = process.env.SIGNUP_INVITATION_CODE;
+      const originalSecret = process.env.AUTH_SECRET;
+      process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
+      process.env.AUTH_SECRET = "test-auth-secret";
+
+      try {
+        let res: Response | null = null;
+        for (let i = 0; i < 11; i++) {
+          res = await app.request("/api/auth-ext/signin-with-invitation", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-forwarded-for": "203.0.113.71",
+            },
+            body: JSON.stringify({ code: `wrong-${i}` }),
+          });
+        }
+
+        if (!res) throw new Error("Expected a response");
+        expect(res.status).toBe(429);
+        await expect(res.json()).resolves.toMatchObject({
+          error: { message: "Too many requests" },
+        });
+      } finally {
+        if (originalCode === undefined) {
+          delete process.env.SIGNUP_INVITATION_CODE;
+        } else {
+          process.env.SIGNUP_INVITATION_CODE = originalCode;
+        }
+        if (originalSecret === undefined) {
+          delete process.env.AUTH_SECRET;
+        } else {
+          process.env.AUTH_SECRET = originalSecret;
+        }
+      }
     });
   });
 

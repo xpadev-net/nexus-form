@@ -33,12 +33,21 @@ vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: mocks.acceptInvitation,
 }));
 
-vi.mock("../lib/rate-limit", () => ({
-  createRateLimit: () => async (_c: unknown, next: () => Promise<void>) => {
+vi.mock("../lib/rate-limit", () => {
+  const passThrough = async (
+    _c: unknown,
+    next: () => Promise<void>,
+  ): Promise<void> => {
     await next();
-  },
-  getClientIp: () => "127.0.0.1",
-}));
+  };
+  return {
+    createRateLimit: () => passThrough,
+    getClientIp: () => "127.0.0.1",
+    authRouteRateLimiter: passThrough,
+    generalRateLimiter: passThrough,
+    invitationSignInRateLimiter: passThrough,
+  };
+});
 
 vi.mock("../lib/dual-auth", () => ({
   withDualAuth:

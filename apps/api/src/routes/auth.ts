@@ -6,7 +6,9 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { constantTimeEqual } from "../lib/crypto/field-encryption";
 import { createHonoApp } from "../lib/hono";
+import { logWarn } from "../lib/logger";
 import { authMiddleware, requireAuth } from "../lib/middleware";
+import { getClientIp, invitationSignInRateLimiter } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
 
 const updateMeSchema = z.object({
@@ -103,6 +105,7 @@ export const authRouter = createHonoApp()
   })
   .post(
     "/signin-with-invitation",
+    invitationSignInRateLimiter,
     zValidator("json", signInWithInvitationSchema),
     async (c) => {
       const { code } = c.req.valid("json");
@@ -113,6 +116,10 @@ export const authRouter = createHonoApp()
       }
 
       if (!constantTimeEqual(code, expectedCode)) {
+        logWarn("[Auth] Invalid invitation sign-in code", "api", {
+          path: c.req.path,
+          ip: getClientIp(c),
+        });
         return c.json(authError("招待コードが正しくありません"), 400);
       }
 
