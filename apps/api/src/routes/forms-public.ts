@@ -945,6 +945,7 @@ async function queueExternalValidations(
           snapshotProviderName: pair.providerName,
           snapshotRuleType: pair.ruleType,
           snapshotConfigJson: pair.configJson,
+          snapshotVersion: activeSnapshot.version,
         });
         const job = await queue.add(`validate-${pair.providerName}`, jobData);
         // リトライ経路と同様、enqueue 済みジョブの jobId を記録して

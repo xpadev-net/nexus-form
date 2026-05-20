@@ -67,6 +67,7 @@ export async function getValidationContext(
   responseId: string,
   ruleId: string,
   referencedBlockId: string,
+  snapshotVersion?: number,
 ) {
   // responseId は一意なので、FormResponse と対象フォームの最新 snapshot を
   // 1 往復で取得する。snapshot が無い場合でも response の存在判定は維持する。
@@ -84,7 +85,15 @@ export async function getValidationContext(
       snapshotPlateContent: formSnapshot.plateContent,
     })
     .from(formResponse)
-    .leftJoin(formSnapshot, eq(formSnapshot.formId, formResponse.formId))
+    .leftJoin(
+      formSnapshot,
+      snapshotVersion === undefined
+        ? eq(formSnapshot.formId, formResponse.formId)
+        : and(
+            eq(formSnapshot.formId, formResponse.formId),
+            eq(formSnapshot.version, snapshotVersion),
+          ),
+    )
     .where(eq(formResponse.id, responseId))
     .orderBy(sql`${formSnapshot.isActive} = 1 DESC`, desc(formSnapshot.version))
     .limit(1);

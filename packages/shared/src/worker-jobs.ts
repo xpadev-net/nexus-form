@@ -7,6 +7,7 @@ export const genericValidationJobDataSchema = z.object({
   snapshotProviderName: z.string().min(1),
   snapshotRuleType: z.string().min(1),
   snapshotConfigJson: z.record(z.string(), z.unknown()),
+  snapshotVersion: z.number().int().positive().optional(),
   retryAfterCount: z.number().int().nonnegative().optional(),
 });
 

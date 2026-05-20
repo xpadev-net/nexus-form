@@ -14,6 +14,7 @@ describe("worker job schemas", () => {
         snapshotProviderName: "discord",
         snapshotRuleType: "member",
         snapshotConfigJson: { guildId: "guild-1" },
+        snapshotVersion: 3,
       }),
     ).toEqual({
       responseId: "response-1",
@@ -22,6 +23,7 @@ describe("worker job schemas", () => {
       snapshotProviderName: "discord",
       snapshotRuleType: "member",
       snapshotConfigJson: { guildId: "guild-1" },
+      snapshotVersion: 3,
     });
   });
 
