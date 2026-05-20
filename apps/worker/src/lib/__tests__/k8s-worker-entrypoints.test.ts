@@ -102,24 +102,26 @@ function readDeploymentConfigMapKeyRefs(manifestName: string): string[] {
   ).map((match) => match.groups?.key ?? "");
 }
 
-function readConfigMapValue(key: string): string {
-  const value = configMapManifest.match(
+function readManifestValue(
+  manifest: string,
+  manifestName: string,
+  key: string,
+): string {
+  const value = manifest.match(
     new RegExp(`^\\s{2}${key}:\\s*"(?<value>[^"]*)"\\s*$`, "m"),
   )?.groups?.value;
   if (value === undefined) {
-    throw new Error(`Missing ${key} in configmap.yaml`);
+    throw new Error(`Missing ${key} in ${manifestName}`);
   }
   return value;
 }
 
+function readConfigMapValue(key: string): string {
+  return readManifestValue(configMapManifest, "configmap.yaml", key);
+}
+
 function readSecretValue(key: string): string {
-  const value = secretManifest.match(
-    new RegExp(`^\\s{2}${key}:\\s*"(?<value>[^"]*)"\\s*$`, "m"),
-  )?.groups?.value;
-  if (value === undefined) {
-    throw new Error(`Missing ${key} in secret.yaml`);
-  }
-  return value;
+  return readManifestValue(secretManifest, "secret.yaml", key);
 }
 
 function readKustomizationResources(): string[] {
@@ -174,11 +176,14 @@ describe("k8s worker deployments", () => {
     expect(readDeploymentSecretRefs(manifestName)).toContain(secretName);
   });
 
+  it("defines Redis URL in ConfigMap and Redis password in Secret", () => {
+    expect(readConfigMapValue("REDIS_URL")).toBe("redis://redis-service:6379");
+    expect(readSecretValue("REDIS_PASSWORD")).toBe("");
+  });
+
   it.each(
     apiAndWorkerDeploymentManifests,
   )("%s receives Redis URL config and Redis password secret", (manifestName) => {
-    expect(readConfigMapValue("REDIS_URL")).toBe("redis://redis-service:6379");
-    expect(readSecretValue("REDIS_PASSWORD")).toBe("");
     expect(readDeploymentConfigMapRefs(manifestName)).toContain(
       "nexus-form-config",
     );
