@@ -24,6 +24,7 @@ import {
   desc,
   eq,
   inArray,
+  like,
   lt,
   ne,
   or,
@@ -102,6 +103,14 @@ const bulkRetrySchema = z.object({
     .min(1)
     .max(100, "Cannot retry more than 100 validation results at once"),
 });
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+}
+
+function buildPrefixSearchPattern(keyword: string): string {
+  return `${escapeLikePattern(keyword)}%`;
+}
 
 const bulkDeleteSchema = z.object({
   responseIds: z
@@ -419,16 +428,19 @@ export const formsResponsesRouter = createHonoApp()
       const sortOrder = query.order ?? "desc";
       const offset = (query.page - 1) * query.limit;
       const keyword = query.keyword?.trim();
-      const whereCondition = keyword
-        ? and(
-            eq(formResponse.formId, formId),
-            or(
-              sql`instr(lower(${formResponse.id}), lower(${keyword})) > 0`,
-              sql`instr(lower(${formResponse.respondentUuid}), lower(${keyword})) > 0`,
-              sql`instr(lower(${formResponse.countryCode}), lower(${keyword})) > 0`,
-            ),
-          )
-        : eq(formResponse.formId, formId);
+      const whereCondition = (() => {
+        if (!keyword) return eq(formResponse.formId, formId);
+
+        const keywordPattern = buildPrefixSearchPattern(keyword);
+        return and(
+          eq(formResponse.formId, formId),
+          or(
+            like(formResponse.id, keywordPattern),
+            like(formResponse.respondentUuid, keywordPattern),
+            like(formResponse.countryCode, keywordPattern),
+          ),
+        );
+      })();
 
       const [responses, totalResult] = await Promise.all([
         db

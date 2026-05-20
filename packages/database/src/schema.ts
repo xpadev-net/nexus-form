@@ -409,6 +409,15 @@ export const formResponse = mysqlTable(
       table.formId,
       table.updatedAt,
     ),
+    index("FormResponse_formId_id_idx").on(table.formId, table.id),
+    index("FormResponse_formId_respondentUuid_idx").on(
+      table.formId,
+      table.respondentUuid,
+    ),
+    index("FormResponse_formId_countryCode_idx").on(
+      table.formId,
+      table.countryCode,
+    ),
     index("FormResponse_sessionId_idx").on(table.sessionId),
   ],
 );

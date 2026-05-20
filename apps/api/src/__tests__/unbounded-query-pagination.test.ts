@@ -142,6 +142,7 @@ vi.mock("drizzle-orm", () => ({
   desc: vi.fn((field) => ({ op: "desc", field })),
   eq: vi.fn((left, right) => ({ op: "eq", left, right })),
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
+  like: vi.fn((left, right) => ({ op: "like", left, right })),
   lt: vi.fn((left, right) => ({ op: "lt", left, right })),
   ne: vi.fn((left, right) => ({ op: "ne", left, right })),
   or: vi.fn((...conditions) => ({ op: "or", conditions })),
@@ -276,7 +277,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       )
       .mockReturnValueOnce(countQuery(1));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
-    const { sql } = await import("drizzle-orm");
+    const { like, sql } = await import("drizzle-orm");
 
     const res = await formsResponsesRouter.request(
       "/form-1/responses?page=2&limit=5&keyword=alpha",
@@ -289,25 +290,87 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       page: 2,
       limit: 5,
     });
-    const instrCalls = vi
-      .mocked(sql)
-      .mock.calls.filter((call) => String(call[0][0]).includes("instr("));
-    expect(instrCalls).toHaveLength(3);
-    expect(
-      instrCalls.every((call) => String(call[0][0]).includes("lower(")),
-    ).toBe(true);
-    expect(instrCalls.map((call) => call[1])).toEqual([
-      "formResponse.id",
-      "formResponse.respondentUuid",
-      "formResponse.countryCode",
-    ]);
-    expect(instrCalls.map((call) => call[2])).toEqual([
-      "alpha",
-      "alpha",
-      "alpha",
+    expect(vi.mocked(sql).mock.calls).not.toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([expect.stringMatching(/instr|lower/i)]),
+      ]),
+    );
+    expect(vi.mocked(like).mock.calls).toEqual([
+      ["formResponse.id", "alpha%"],
+      ["formResponse.respondentUuid", "alpha%"],
+      ["formResponse.countryCode", "alpha%"],
     ]);
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(5);
+  });
+
+  it("escapes wildcard characters in response keyword prefix filters", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-alpha",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(countQuery(1));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { like } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?keyword=a%5C_%25",
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(like).mock.calls).toEqual([
+      ["formResponse.id", "a\\\\\\_\\%%"],
+      ["formResponse.respondentUuid", "a\\\\\\_\\%%"],
+      ["formResponse.countryCode", "a\\\\\\_\\%%"],
+    ]);
+  });
+
+  it("does not use non-sargable keyword filters for response lists", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-alpha",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(countQuery(1));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?keyword=alpha",
+    );
+
+    expect(res.status).toBe(200);
+    const instrCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => String(call[0][0]).includes("instr("));
+    const lowerCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => String(call[0][0]).includes("lower("));
+    expect(instrCalls).toHaveLength(0);
+    expect(lowerCalls).toHaveLength(0);
   });
 
   it("applies limit and offset to response analytics timelines", async () => {
