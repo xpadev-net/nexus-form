@@ -5,14 +5,14 @@
  */
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
-import { form } from "@nexus-form/database/schema";
+import { form, formSnapshot } from "@nexus-form/database/schema";
 import {
   extractQuestionsFromPlateContent,
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
 import type { Job } from "bullmq";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -62,9 +62,8 @@ function resolveGoogleSheetsConfig(
 }
 
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
-  const { formId, integrationId, responseId } = sheetsSyncJobDataSchema.parse(
-    job.data,
-  );
+  const { formId, integrationId, responseId, snapshotVersion } =
+    sheetsSyncJobDataSchema.parse(job.data);
 
   // 1. Integration設定を取得
   const [integration] = await db
@@ -134,17 +133,30 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     throw new Error(`Form response not found: ${responseId}`);
   }
 
-  // 4. フォームのPlateコンテンツからブロックタイトルマップを構築
-  const [formRecord] = await db
-    .select({ plateContent: form.plateContent })
-    .from(form)
-    .where(eq(form.id, formId))
-    .limit(1);
+  // 4. 送信時 snapshot の Plate コンテンツからブロックタイトルマップを構築。
+  // 古いジョブに snapshotVersion が無い場合だけ現在の draft にフォールバックする。
+  const [plateRecord] =
+    snapshotVersion === undefined
+      ? await db
+          .select({ plateContent: form.plateContent })
+          .from(form)
+          .where(eq(form.id, formId))
+          .limit(1)
+      : await db
+          .select({ plateContent: formSnapshot.plateContent })
+          .from(formSnapshot)
+          .where(
+            and(
+              eq(formSnapshot.formId, formId),
+              eq(formSnapshot.version, snapshotVersion),
+            ),
+          )
+          .limit(1);
 
   const blockTitleMap = new Map<string, string>();
-  if (formRecord?.plateContent) {
+  if (plateRecord?.plateContent) {
     try {
-      const parsed: unknown = JSON.parse(formRecord.plateContent);
+      const parsed: unknown = JSON.parse(plateRecord.plateContent);
       if (Array.isArray(parsed)) {
         for (const q of extractQuestionsFromPlateContent(parsed)) {
           if (q.blockId) {

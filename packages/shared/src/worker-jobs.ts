@@ -18,6 +18,7 @@ export const sheetsSyncJobDataSchema = z.object({
   formId: z.string().min(1),
   integrationId: z.string().min(1),
   responseId: z.string().min(1),
+  snapshotVersion: z.number().int().positive().optional(),
 });
 
 export type SheetsSyncJobData = z.infer<typeof sheetsSyncJobDataSchema>;
