@@ -292,75 +292,72 @@ function createSSEStream(c: Context<Env>, channel: string, formId: string) {
   const auth = c.get("dualAuthContext");
   if (!auth) return c.text("SSE auth context unavailable", 500);
 
-  return streamSSE(c, async (stream) => {
-    const permit = sseConnectionLimiter.tryAcquire({
-      userId: auth.user_id,
-      formId,
-    });
-    if ("status" in permit) {
-      await stream
-        .writeSSE({
-          event: "error",
-          data: permit.message,
-        })
-        .catch(() => {});
-      return;
-    }
-
-    let detachClient: (() => Promise<void>) | null = null;
-    let cleanupPromise: Promise<void> | null = null;
-    let closeRequested = false;
-    let keepalive: ReturnType<typeof setInterval> | null = null;
-    let resolveStream: (() => void) | null = null;
-    const cleanupClient = (): Promise<void> => {
-      if (cleanupPromise) return cleanupPromise;
-      if (detachClient === null) return Promise.resolve();
-      cleanupPromise = detachClient();
-      return cleanupPromise;
-    };
-    const closeStream = (): void => {
-      closeRequested = true;
-      cleanupClient().catch(() => {});
-      resolveStream?.();
-    };
-
-    try {
-      const streamClosed = new Promise<void>((resolve) => {
-        resolveStream = resolve;
-        stream.onAbort(closeStream);
-      });
-      detachClient = await sseChannelRegistry.attach(channel, {
-        sendMessage: (id, data) =>
-          stream.writeSSE({
-            id,
-            event: "message",
-            data,
-          }),
-        close: closeStream,
-      });
-      if (closeRequested) return;
-
-      // Keepalive: 30秒ごとにコメントを送信して接続を維持
-      keepalive = setInterval(() => {
-        stream
-          .writeSSE({
-            event: "keepalive",
-            data: "",
-          })
-          .catch(() => {
-            // クライアントが切断済みの場合はエラーを無視
-          });
-      }, KEEPALIVE_INTERVAL_MS);
-
-      // クライアント切断時のクリーンアップ + ストリーム待機
-      await streamClosed;
-    } finally {
-      resolveStream = null;
-      if (keepalive !== null) clearInterval(keepalive);
-      permit.release();
-      await cleanupClient();
-    }
+  const permit = sseConnectionLimiter.tryAcquire({
+    userId: auth.user_id,
+    formId,
   });
+  if ("status" in permit) return c.text(permit.message, permit.status);
+
+  try {
+    return streamSSE(c, async (stream) => {
+      let detachClient: (() => Promise<void>) | null = null;
+      let cleanupPromise: Promise<void> | null = null;
+      let closeRequested = false;
+      let keepalive: ReturnType<typeof setInterval> | null = null;
+      let resolveStream: (() => void) | null = null;
+      const cleanupClient = (): Promise<void> => {
+        if (cleanupPromise) return cleanupPromise;
+        if (detachClient === null) return Promise.resolve();
+        cleanupPromise = detachClient();
+        return cleanupPromise;
+      };
+      const closeStream = (): void => {
+        closeRequested = true;
+        cleanupClient().catch(() => {});
+        resolveStream?.();
+      };
+
+      try {
+        const streamClosed = new Promise<void>((resolve) => {
+          resolveStream = resolve;
+          stream.onAbort(closeStream);
+        });
+        detachClient = await sseChannelRegistry.attach(channel, {
+          sendMessage: (id, data) =>
+            stream.writeSSE({
+              id,
+              event: "message",
+              data,
+            }),
+          close: closeStream,
+        });
+        if (closeRequested) return;
+
+        // Keepalive: 30秒ごとにコメントを送信して接続を維持
+        keepalive = setInterval(() => {
+          stream
+            .writeSSE({
+              event: "keepalive",
+              data: "",
+            })
+            .catch(() => {
+              // クライアントが切断済みの場合はエラーを無視
+            });
+        }, KEEPALIVE_INTERVAL_MS);
+
+        // クライアント切断時のクリーンアップ + ストリーム待機
+        await streamClosed;
+      } finally {
+        resolveStream = null;
+        if (keepalive !== null) clearInterval(keepalive);
+        permit.release();
+        await cleanupClient();
+      }
+    });
+  } catch (error) {
+    permit.release();
+    throw error;
+  }
 }
 
 export const formsSSERouter = createHonoApp()
