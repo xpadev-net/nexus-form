@@ -298,7 +298,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(vi.mocked(like).mock.calls).toEqual([
       ["formResponse.id", "alpha%"],
       ["formResponse.respondentUuid", "alpha%"],
-      ["formResponse.countryCode", "alpha%"],
+      ["formResponse.countryCode", "ALPHA%"],
     ]);
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(5);
@@ -333,7 +333,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(vi.mocked(like).mock.calls).toEqual([
       ["formResponse.id", "a\\\\\\_\\%%"],
       ["formResponse.respondentUuid", "a\\\\\\_\\%%"],
-      ["formResponse.countryCode", "a\\\\\\_\\%%"],
+      ["formResponse.countryCode", "A\\\\\\_\\%%"],
     ]);
   });
 

@@ -432,12 +432,15 @@ export const formsResponsesRouter = createHonoApp()
         if (!keyword) return eq(formResponse.formId, formId);
 
         const keywordPattern = buildPrefixSearchPattern(keyword);
+        const countryCodePattern = buildPrefixSearchPattern(
+          keyword.toUpperCase(),
+        );
         return and(
           eq(formResponse.formId, formId),
           or(
             like(formResponse.id, keywordPattern),
             like(formResponse.respondentUuid, keywordPattern),
-            like(formResponse.countryCode, keywordPattern),
+            like(formResponse.countryCode, countryCodePattern),
           ),
         );
       })();
