@@ -125,6 +125,10 @@ pnpm --filter @nexus-form/api test
 pnpm --filter @nexus-form/web dev
 ```
 
+## 運用メモ
+
+Redis 障害時のレート制限フォールバックなど、稼働時の注意点は [docs/operations.md](docs/operations.md) を参照してください。
+
 ## 外部バリデーションプラグイン
 
 組み込みプロバイダー（Discord / GitHub / Twitter）に加え、`ValidationProvider` インタフェースを実装した独自プラグインを再ビルドなしで追加できます。
