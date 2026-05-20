@@ -45,51 +45,55 @@ import { SnapshotSaveDialog } from "./snapshot-save-dialog";
 // ──────────────────────────────────────────────
 
 interface PublishToggleSectionProps {
-  isPublished: boolean;
-  isProcessing: boolean;
-  hasActiveSnapshot: boolean;
-  isNotPublished: boolean;
-  activeSnapshotVersion: number | null;
+  state: {
+    publishState: "published" | "unpublished";
+    processingState: "idle" | "processing";
+    snapshotState: "available" | "missing";
+    draftState: "draft" | "published-or-archived";
+    activeSnapshotVersion: number | null;
+  };
   onToggle: (checked: boolean) => void;
 }
 
 const PublishToggleSection: FC<PublishToggleSectionProps> = ({
-  isPublished,
-  isProcessing,
-  hasActiveSnapshot,
-  isNotPublished,
-  activeSnapshotVersion,
+  state,
   onToggle,
-}) => (
-  <div className="p-4 space-y-1">
-    <div className="flex items-center justify-between">
-      <Label
-        htmlFor="publish-toggle"
-        className="flex items-center gap-2 text-sm font-medium"
-      >
-        <Globe className="h-4 w-4" />
-        フォームを公開する
-      </Label>
-      <Switch
-        id="publish-toggle"
-        size="sm"
-        checked={isPublished}
-        disabled={isProcessing || (!hasActiveSnapshot && isNotPublished)}
-        onCheckedChange={onToggle}
-      />
+}) => {
+  const isPublished = state.publishState === "published";
+  const requiresSnapshot =
+    state.snapshotState === "missing" && state.draftState === "draft";
+
+  return (
+    <div className="p-4 space-y-1">
+      <div className="flex items-center justify-between">
+        <Label
+          htmlFor="publish-toggle"
+          className="flex items-center gap-2 text-sm font-medium"
+        >
+          <Globe className="h-4 w-4" />
+          フォームを公開する
+        </Label>
+        <Switch
+          id="publish-toggle"
+          size="sm"
+          checked={isPublished}
+          disabled={state.processingState === "processing" || requiresSnapshot}
+          onCheckedChange={onToggle}
+        />
+      </div>
+      {requiresSnapshot && (
+        <p className="text-xs text-muted-foreground pl-6">
+          先にスナップショットを保存してください
+        </p>
+      )}
+      {isPublished && state.activeSnapshotVersion != null && (
+        <p className="text-xs text-muted-foreground pl-6">
+          公開版: v{state.activeSnapshotVersion}
+        </p>
+      )}
     </div>
-    {!hasActiveSnapshot && isNotPublished && (
-      <p className="text-xs text-muted-foreground pl-6">
-        先にスナップショットを保存してください
-      </p>
-    )}
-    {isPublished && activeSnapshotVersion != null && (
-      <p className="text-xs text-muted-foreground pl-6">
-        公開版: v{activeSnapshotVersion}
-      </p>
-    )}
-  </div>
-);
+  );
+};
 
 interface UnpublishedChangesSectionProps {
   isPublished: boolean;
@@ -412,6 +416,189 @@ const TriggerContent: FC<TriggerContentProps> = ({
   );
 };
 
+const ArchivedPublishButton: FC<TriggerContentProps> = (props) => (
+  <Button variant="outline" size="sm" disabled>
+    <span className="flex items-center gap-1.5">
+      <TriggerContent {...props} />
+    </span>
+  </Button>
+);
+
+interface ResetSnapshotDialogProps {
+  formId: string;
+  open: boolean;
+  activeSnapshotVersion: number | null;
+  totalChanges: number;
+  isProcessing: boolean;
+  onOpenChange: (open: boolean) => void;
+  onReset: () => void;
+}
+
+const ResetSnapshotDialog: FC<ResetSnapshotDialogProps> = ({
+  formId,
+  open,
+  activeSnapshotVersion,
+  totalChanges,
+  isProcessing,
+  onOpenChange,
+  onReset,
+}) => (
+  <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+      <AlertDialogHeader>
+        <AlertDialogTitle>公開版スナップショットに戻す</AlertDialogTitle>
+        <AlertDialogDescription>
+          現在の編集内容を破棄し、公開版のスナップショット
+          {activeSnapshotVersion != null && ` (v${activeSnapshotVersion})`}
+          に戻します。 この操作は元に戻せません。本当に実行しますか？
+        </AlertDialogDescription>
+      </AlertDialogHeader>
+
+      {totalChanges > 0 && (
+        <div className="my-4">
+          <h4 className="text-sm font-medium mb-2">
+            変更内容 ({totalChanges}件):
+          </h4>
+          <div className="max-h-96 overflow-auto">
+            <NodesDiffList formId={formId} />
+          </div>
+        </div>
+      )}
+
+      <AlertDialogFooter>
+        <AlertDialogCancel disabled={isProcessing}>
+          キャンセル
+        </AlertDialogCancel>
+        <Button onClick={onReset} disabled={isProcessing}>
+          {isProcessing ? "リセット中..." : "リセットする"}
+        </Button>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  </AlertDialog>
+);
+
+interface PublishMenuPopoverContentProps {
+  publish: {
+    isPublished: boolean;
+    isProcessing: boolean;
+    hasActiveSnapshot: boolean;
+    isNotPublished: boolean;
+    hasUnpublishedChanges: boolean;
+    hasChangesFromActive: boolean;
+    activeSnapshotVersion: number | null;
+    totalChanges: number;
+  };
+  password: {
+    enabled: boolean;
+    hasPassword: boolean;
+    isUpdating: boolean;
+    input: string;
+    hintInput: string;
+    dirty: boolean;
+  };
+  history: {
+    snapshots: SnapshotItem[];
+    selectedSnapshotId: string | null;
+    isMutating: boolean;
+  };
+  onPublishToggle: (checked: boolean) => void;
+  onPublishChanges: () => void;
+  onSaveOnly: () => void;
+  onReset: () => void;
+  onPasswordToggle: (checked: boolean) => void;
+  onPasswordChange: (value: string) => void;
+  onHintChange: (value: string) => void;
+  onPasswordSave: () => void;
+  onSelectSnapshot: (id: string | null) => void;
+  onActivateSnapshot: (version: number) => void;
+  onPublishSnapshot: (version: number) => void;
+  onRestoreSnapshot: (version: number) => void;
+}
+
+const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
+  publish,
+  password,
+  history,
+  onPublishToggle,
+  onPublishChanges,
+  onSaveOnly,
+  onReset,
+  onPasswordToggle,
+  onPasswordChange,
+  onHintChange,
+  onPasswordSave,
+  onSelectSnapshot,
+  onActivateSnapshot,
+  onPublishSnapshot,
+  onRestoreSnapshot,
+}) => (
+  <PopoverContent align="end" className="w-80 p-0">
+    <PublishToggleSection
+      state={{
+        publishState: publish.isPublished ? "published" : "unpublished",
+        processingState: publish.isProcessing ? "processing" : "idle",
+        snapshotState: publish.hasActiveSnapshot ? "available" : "missing",
+        draftState: publish.isNotPublished ? "draft" : "published-or-archived",
+        activeSnapshotVersion: publish.activeSnapshotVersion,
+      }}
+      onToggle={onPublishToggle}
+    />
+
+    {publish.hasUnpublishedChanges && (
+      <UnpublishedChangesSection
+        isPublished={publish.isPublished}
+        isProcessing={publish.isProcessing}
+        totalChanges={publish.totalChanges}
+        hasChangesFromActive={publish.hasChangesFromActive}
+        activeSnapshotVersion={publish.activeSnapshotVersion}
+        onPublishChanges={onPublishChanges}
+        onSaveOnly={onSaveOnly}
+        onReset={onReset}
+      />
+    )}
+
+    <PasswordProtectionSection
+      enabled={password.enabled}
+      hasPassword={password.hasPassword}
+      isUpdating={password.isUpdating}
+      isProcessing={publish.isProcessing}
+      passwordInput={password.input}
+      passwordHintInput={password.hintInput}
+      passwordDirty={password.dirty}
+      onToggle={onPasswordToggle}
+      onPasswordChange={onPasswordChange}
+      onHintChange={onHintChange}
+      onSave={onPasswordSave}
+    />
+
+    <VersionHistorySection
+      snapshots={history.snapshots}
+      selectedSnapshotId={history.selectedSnapshotId}
+      isMutating={history.isMutating}
+      isNotPublished={publish.isNotPublished}
+      hasUnpublishedChanges={publish.hasUnpublishedChanges}
+      onSelect={onSelectSnapshot}
+      onActivate={onActivateSnapshot}
+      onPublish={onPublishSnapshot}
+      onRestore={onRestoreSnapshot}
+      onSaveSnapshot={onSaveOnly}
+    />
+  </PopoverContent>
+);
+
+const getSnapshotSaveConfirmLabel = (mode: DialogMode): string => {
+  switch (mode) {
+    case "saveAndPublish":
+      return "保存して公開";
+    case "saveAndActivate":
+      return "保存して公開版を更新";
+    case "saveOnly":
+      return "保存する";
+    default:
+      return "保存する";
+  }
+};
+
 export function FormPublishMenu({
   formId,
   formStatus,
@@ -650,32 +837,15 @@ export function FormPublishMenu({
     );
   };
 
-  const getConfirmLabel = (mode: DialogMode): string => {
-    switch (mode) {
-      case "saveAndPublish":
-        return "保存して公開";
-      case "saveAndActivate":
-        return "保存して公開版を更新";
-      case "saveOnly":
-        return "保存する";
-      default:
-        return "保存する";
-    }
-  };
-
   if (isArchived) {
     return (
-      <Button variant="outline" size="sm" disabled>
-        <span className="flex items-center gap-1.5">
-          <TriggerContent
-            formStatus={formStatus}
-            isArchived={isArchived}
-            isPublished={isPublished}
-            hasUnpublishedChanges={hasUnpublishedChanges}
-            activeSnapshotVersion={activeSnapshotVersion}
-          />
-        </span>
-      </Button>
+      <ArchivedPublishButton
+        formStatus={formStatus}
+        isArchived={isArchived}
+        isPublished={isPublished}
+        hasUnpublishedChanges={hasUnpublishedChanges}
+        activeSnapshotVersion={activeSnapshotVersion}
+      />
     );
   }
 
@@ -696,70 +866,56 @@ export function FormPublishMenu({
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-80 p-0">
-          <PublishToggleSection
-            isPublished={isPublished}
-            isProcessing={isProcessing}
-            hasActiveSnapshot={hasActiveSnapshot}
-            isNotPublished={isNotPublished}
-            activeSnapshotVersion={activeSnapshotVersion}
-            onToggle={(checked) => void handlePublishToggle(checked)}
-          />
-
-          {hasUnpublishedChanges && (
-            <UnpublishedChangesSection
-              isPublished={isPublished}
-              isProcessing={isProcessing}
-              totalChanges={totalChanges}
-              hasChangesFromActive={hasChangesFromActive}
-              activeSnapshotVersion={activeSnapshotVersion}
-              onPublishChanges={() =>
-                setDialogMode(
-                  isPublished ? "saveAndActivate" : "saveAndPublish",
-                )
-              }
-              onSaveOnly={() => setDialogMode("saveOnly")}
-              onReset={() => setShowResetDialog(true)}
-            />
-          )}
-
-          <PasswordProtectionSection
-            enabled={passwordProtection.enabled}
-            hasPassword={passwordProtection.hasPassword}
-            isUpdating={isPasswordUpdating}
-            isProcessing={isProcessing}
-            passwordInput={passwordInput}
-            passwordHintInput={passwordHintInput}
-            passwordDirty={passwordDirty}
-            onToggle={handlePasswordToggle}
-            onPasswordChange={(value) => {
-              setPasswordInput(value);
-              setPasswordDirty(true);
-            }}
-            onHintChange={(value) => {
-              setPasswordHintInput(value);
-              setPasswordDirty(true);
-            }}
-            onSave={handlePasswordSave}
-          />
-
-          <VersionHistorySection
-            snapshots={snapshots}
-            selectedSnapshotId={selectedSnapshotId}
-            isMutating={
+        <PublishMenuPopoverContent
+          publish={{
+            isPublished,
+            isProcessing,
+            hasActiveSnapshot,
+            isNotPublished,
+            hasUnpublishedChanges,
+            hasChangesFromActive,
+            activeSnapshotVersion,
+            totalChanges,
+          }}
+          password={{
+            enabled: passwordProtection.enabled,
+            hasPassword: passwordProtection.hasPassword,
+            isUpdating: isPasswordUpdating,
+            input: passwordInput,
+            hintInput: passwordHintInput,
+            dirty: passwordDirty,
+          }}
+          history={{
+            snapshots,
+            selectedSnapshotId,
+            isMutating:
               activateSnapshotMutation.isPending ||
               restoreEditFromSnapshotMutation.isPending ||
-              isProcessing
-            }
-            isNotPublished={isNotPublished}
-            hasUnpublishedChanges={hasUnpublishedChanges}
-            onSelect={setSelectedSnapshotId}
-            onActivate={handleActivateSnapshot}
-            onPublish={(version) => void handlePublishFromHistory(version)}
-            onRestore={handleRestoreEdit}
-            onSaveSnapshot={() => setDialogMode("saveOnly")}
-          />
-        </PopoverContent>
+              isProcessing,
+          }}
+          onPublishToggle={(checked) => void handlePublishToggle(checked)}
+          onPublishChanges={() =>
+            setDialogMode(isPublished ? "saveAndActivate" : "saveAndPublish")
+          }
+          onSaveOnly={() => setDialogMode("saveOnly")}
+          onReset={() => setShowResetDialog(true)}
+          onPasswordToggle={handlePasswordToggle}
+          onPasswordChange={(value) => {
+            setPasswordInput(value);
+            setPasswordDirty(true);
+          }}
+          onHintChange={(value) => {
+            setPasswordHintInput(value);
+            setPasswordDirty(true);
+          }}
+          onPasswordSave={handlePasswordSave}
+          onSelectSnapshot={setSelectedSnapshotId}
+          onActivateSnapshot={handleActivateSnapshot}
+          onPublishSnapshot={(version) =>
+            void handlePublishFromHistory(version)
+          }
+          onRestoreSnapshot={handleRestoreEdit}
+        />
       </Popover>
 
       {/* 保存ダイアログ */}
@@ -773,43 +929,19 @@ export function FormPublishMenu({
         hasUnpublishedChanges={hasUnpublishedChanges}
         lastPublishedVersion={lastPublishedVersion}
         totalChanges={totalChanges}
-        confirmLabel={getConfirmLabel(dialogMode)}
+        confirmLabel={getSnapshotSaveConfirmLabel(dialogMode)}
         onConfirm={(changeLog) => void handleDialogConfirm(changeLog)}
       />
 
-      {/* リセット確認ダイアログ */}
-      <AlertDialog open={showResetDialog} onOpenChange={setShowResetDialog}>
-        <AlertDialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
-          <AlertDialogHeader>
-            <AlertDialogTitle>公開版スナップショットに戻す</AlertDialogTitle>
-            <AlertDialogDescription>
-              現在の編集内容を破棄し、公開版のスナップショット
-              {activeSnapshotVersion != null && ` (v${activeSnapshotVersion})`}
-              に戻します。 この操作は元に戻せません。本当に実行しますか？
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          {totalChanges > 0 && (
-            <div className="my-4">
-              <h4 className="text-sm font-medium mb-2">
-                変更内容 ({totalChanges}件):
-              </h4>
-              <div className="max-h-96 overflow-auto">
-                <NodesDiffList formId={formId} />
-              </div>
-            </div>
-          )}
-
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isProcessing}>
-              キャンセル
-            </AlertDialogCancel>
-            <Button onClick={() => void handleReset()} disabled={isProcessing}>
-              {isProcessing ? "リセット中..." : "リセットする"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ResetSnapshotDialog
+        formId={formId}
+        open={showResetDialog}
+        activeSnapshotVersion={activeSnapshotVersion}
+        totalChanges={totalChanges}
+        isProcessing={isProcessing}
+        onOpenChange={setShowResetDialog}
+        onReset={() => void handleReset()}
+      />
     </>
   );
 }

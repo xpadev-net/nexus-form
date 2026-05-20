@@ -3,11 +3,9 @@ import type { FC } from "react";
 import { Button } from "@/components/ui/button";
 
 interface FormPageNavigationProps {
-  isFirstPage: boolean;
-  isLastPage: boolean;
-  shouldSubmit: boolean;
-  isSubmitting: boolean;
-  captchaReady: boolean;
+  step: "first" | "middle";
+  nextAction: "next" | "submit";
+  submitAvailability: "ready" | "submitting" | "captcha-pending";
   onPrevious: () => void;
   onNext: () => void;
   totalPages: number;
@@ -15,22 +13,20 @@ interface FormPageNavigationProps {
 }
 
 export const FormPageNavigation: FC<FormPageNavigationProps> = ({
-  isFirstPage,
-  isLastPage,
-  shouldSubmit,
-  isSubmitting,
-  captchaReady,
+  step,
+  nextAction,
+  submitAvailability,
   onPrevious,
   onNext,
   totalPages,
   currentPageIndex,
 }) => {
-  const showSubmitButton = isLastPage || shouldSubmit;
+  const showSubmitButton = nextAction === "submit";
 
   return (
     <div className="flex items-center justify-between pt-2">
       <div>
-        {!isFirstPage && (
+        {step !== "first" && (
           <Button
             type="button"
             variant="outline"
@@ -52,9 +48,9 @@ export const FormPageNavigation: FC<FormPageNavigationProps> = ({
           <Button
             type="submit"
             size="sm"
-            disabled={isSubmitting || !captchaReady}
+            disabled={submitAvailability !== "ready"}
           >
-            {isSubmitting ? "送信中..." : "回答を送信"}
+            {submitAvailability === "submitting" ? "送信中..." : "回答を送信"}
           </Button>
         ) : (
           <Button type="button" variant="outline" size="sm" onClick={onNext}>
