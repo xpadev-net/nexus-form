@@ -72,7 +72,10 @@ export async function closeQueues(): Promise<void> {
     ..._validationQueues.values(),
     ...(_sheetsSyncQueue ? [_sheetsSyncQueue] : []),
   ];
-  await Promise.all(queues.map((queue) => queue.close()));
-  _validationQueues.clear();
-  _sheetsSyncQueue = null;
+  try {
+    await Promise.all(queues.map((queue) => queue.close()));
+  } finally {
+    _validationQueues.clear();
+    _sheetsSyncQueue = null;
+  }
 }

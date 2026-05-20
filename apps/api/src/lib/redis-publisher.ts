@@ -77,10 +77,6 @@ export async function closePublisher(): Promise<void> {
   if (!publisher) return;
   try {
     await publisher.quit();
-  } catch (error) {
-    logError("Failed to close Redis publisher", "service", {
-      error: error instanceof Error ? error.message : String(error),
-    });
   } finally {
     publisher = null;
     hasLoggedInit = false;

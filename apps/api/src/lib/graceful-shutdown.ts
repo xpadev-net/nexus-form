@@ -164,22 +164,25 @@ export function createApiGracefulShutdown({
           captureError,
         ),
       );
-      const sharedResourceResults = await Promise.all([
-        runCleanupStep("close queues", closeQueues, logger, captureError),
-        runCleanupStep(
+      cleanupResults.push(
+        await runCleanupStep("close queues", closeQueues, logger, captureError),
+      );
+      cleanupResults.push(
+        await runCleanupStep(
           "close Redis publisher",
           closePublisher,
           logger,
           captureError,
         ),
-        runCleanupStep(
+      );
+      cleanupResults.push(
+        await runCleanupStep(
           "close Redis cache client",
           closeRedisClient,
           logger,
           captureError,
         ),
-      ]);
-      cleanupResults.push(...sharedResourceResults);
+      );
       cleanupResults.push(
         await runCleanupStep(
           "close database",

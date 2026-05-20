@@ -16,6 +16,10 @@ function createDeferred<T = void>() {
   return { promise, resolve, reject };
 }
 
+function waitForAsyncWork(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
+}
+
 function createProcessEmitter() {
   const signalHandlers = new Map<"SIGTERM" | "SIGINT", () => void>();
   let rejectionHandler: ((reason: unknown) => void) | undefined;
@@ -46,6 +50,8 @@ function createProcessEmitter() {
 describe("createApiGracefulShutdown", () => {
   it("closes the HTTP server before shared resources and exits cleanly", async () => {
     const events: string[] = [];
+    const queuesClosed = createDeferred();
+    const publisherClosed = createDeferred();
     const server = {
       close: vi.fn((callback: (error?: Error) => void) => {
         events.push("server");
@@ -56,12 +62,14 @@ describe("createApiGracefulShutdown", () => {
     const stopPluginDriftGuard = vi
       .fn()
       .mockImplementation(async () => events.push("plugin"));
-    const closeQueues = vi
-      .fn()
-      .mockImplementation(async () => events.push("queues"));
-    const closePublisher = vi
-      .fn()
-      .mockImplementation(async () => events.push("publisher"));
+    const closeQueues = vi.fn().mockImplementation(() => {
+      events.push("queues");
+      return queuesClosed.promise;
+    });
+    const closePublisher = vi.fn().mockImplementation(() => {
+      events.push("publisher");
+      return publisherClosed.promise;
+    });
     const closeRedisClient = vi
       .fn()
       .mockImplementation(async () => events.push("redis"));
@@ -86,7 +94,21 @@ describe("createApiGracefulShutdown", () => {
       logger: { log: vi.fn(), error: vi.fn() },
     });
 
-    await shutdown({ trigger: "SIGTERM" });
+    const shutdownPromise = shutdown({ trigger: "SIGTERM" });
+    await waitForAsyncWork();
+
+    expect(closeQueues).toHaveBeenCalledTimes(1);
+    expect(closePublisher).not.toHaveBeenCalled();
+    expect(closeRedisClient).not.toHaveBeenCalled();
+
+    queuesClosed.resolve();
+    await waitForAsyncWork();
+
+    expect(closePublisher).toHaveBeenCalledTimes(1);
+    expect(closeRedisClient).not.toHaveBeenCalled();
+
+    publisherClosed.resolve();
+    await shutdownPromise;
 
     expect(stopServiceMonitor).toHaveBeenCalledTimes(1);
     expect(server.close).toHaveBeenCalledTimes(1);
@@ -97,9 +119,15 @@ describe("createApiGracefulShutdown", () => {
     expect(closeDatabase).toHaveBeenCalledTimes(1);
     expect(flushSentry).toHaveBeenCalledTimes(1);
     expect(exit).toHaveBeenCalledWith(0);
-    expect(events[0]).toBe("server");
-    expect(events[1]).toBe("monitor");
-    expect(events.at(-1)).toBe("database");
+    expect(events).toEqual([
+      "server",
+      "monitor",
+      "plugin",
+      "queues",
+      "publisher",
+      "redis",
+      "database",
+    ]);
   });
 
   it("continues closing later resources when one cleanup step fails", async () => {
