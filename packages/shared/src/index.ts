@@ -107,6 +107,17 @@ export {
   questionValidationSchema,
   responsePayloadItemSchema,
 } from "./response-data";
+export type {
+  TextLengthRules,
+  TextLengthViolation,
+  TextLengthViolationCode,
+} from "./response-validation-rules";
+export {
+  getTextLengthViolations,
+  isBlankResponseValue,
+  parseFiniteResponseNumber,
+  textMatchesPattern,
+} from "./response-validation-rules";
 export type { EditorSSEEvent, ValidationSSEEvent } from "./sse-events";
 export {
   EDITOR_CHANNEL_PREFIX,

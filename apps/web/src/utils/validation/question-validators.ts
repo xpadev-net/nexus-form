@@ -1,3 +1,8 @@
+import {
+  getTextLengthViolations,
+  isBlankResponseValue,
+  textMatchesPattern,
+} from "@nexus-form/shared";
 import { getPatternTemplate } from "@/lib/constants/validation-patterns";
 import { isValidEmail } from "@/lib/validation/email";
 import { getValidationMessage } from "@/lib/validation-messages";
@@ -105,7 +110,7 @@ export const validateShortText = (
   const requiresEmailFormat = template?.inputType === "email";
 
   // 必須チェック
-  if (validation.required && (!value || value.trim() === "")) {
+  if (validation.required && isBlankResponseValue(value)) {
     errors.push(
       createValidationError(
         question.blockId,
@@ -117,38 +122,34 @@ export const validateShortText = (
   }
 
   // 空の場合は他のバリデーションをスキップ
-  if (!value || value.trim() === "") {
+  if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
   }
 
-  // 最小文字数チェック
-  if (
-    shortTextValidation?.minLength &&
-    value.length < shortTextValidation.minLength
-  ) {
-    errors.push(
-      createValidationError(
-        question.blockId,
-        `${shortTextValidation.minLength}文字以上で入力してください`,
-        "MIN_LENGTH",
-        value.length,
-      ),
-    );
-  }
-
-  // 最大文字数チェック
-  if (
-    shortTextValidation?.maxLength &&
-    value.length > shortTextValidation.maxLength
-  ) {
-    errors.push(
-      createValidationError(
-        question.blockId,
-        `${shortTextValidation.maxLength}文字以下で入力してください`,
-        "MAX_LENGTH",
-        value.length,
-      ),
-    );
+  for (const violation of getTextLengthViolations(
+    value,
+    shortTextValidation ?? {},
+  )) {
+    if (violation.code === "MIN_LENGTH") {
+      errors.push(
+        createValidationError(
+          question.blockId,
+          `${violation.limit}文字以上で入力してください`,
+          "MIN_LENGTH",
+          violation.length,
+        ),
+      );
+    }
+    if (violation.code === "MAX_LENGTH") {
+      errors.push(
+        createValidationError(
+          question.blockId,
+          `${violation.limit}文字以下で入力してください`,
+          "MAX_LENGTH",
+          violation.length,
+        ),
+      );
+    }
   }
 
   // パターンマッチングチェック
@@ -156,8 +157,7 @@ export const validateShortText = (
     shortTextValidation?.pattern &&
     !shortTextValidation.allowPatternMismatch
   ) {
-    const regex = new RegExp(shortTextValidation.pattern);
-    if (!regex.test(value)) {
+    if (!textMatchesPattern(value, shortTextValidation.pattern)) {
       // テンプレートが設定されている場合は具体的なエラーメッセージを表示
       let errorMessage = "入力形式が正しくありません";
       if (template) {
@@ -204,7 +204,7 @@ export const validateLongText = (
   const { value } = response;
 
   // 必須チェック
-  if (validation.required && (!value || value.trim() === "")) {
+  if (validation.required && isBlankResponseValue(value)) {
     errors.push(
       createValidationError(
         question.blockId,
@@ -216,40 +216,34 @@ export const validateLongText = (
   }
 
   // 空の場合は他のバリデーションをスキップ
-  if (!value || value.trim() === "") {
+  if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
   }
 
-  // 最小文字数チェック
-  if (
-    isLongTextValidation(validation) &&
-    validation.minLength &&
-    value.length < validation.minLength
-  ) {
-    errors.push(
-      createValidationError(
-        question.blockId,
-        `${validation.minLength}文字以上で入力してください`,
-        "MIN_LENGTH",
-        value.length,
-      ),
-    );
-  }
-
-  // 最大文字数チェック
-  if (
-    isLongTextValidation(validation) &&
-    validation.maxLength &&
-    value.length > validation.maxLength
-  ) {
-    errors.push(
-      createValidationError(
-        question.blockId,
-        `${validation.maxLength}文字以下で入力してください`,
-        "MAX_LENGTH",
-        value.length,
-      ),
-    );
+  for (const violation of getTextLengthViolations(
+    value,
+    isLongTextValidation(validation) ? validation : {},
+  )) {
+    if (violation.code === "MIN_LENGTH") {
+      errors.push(
+        createValidationError(
+          question.blockId,
+          `${violation.limit}文字以上で入力してください`,
+          "MIN_LENGTH",
+          violation.length,
+        ),
+      );
+    }
+    if (violation.code === "MAX_LENGTH") {
+      errors.push(
+        createValidationError(
+          question.blockId,
+          `${violation.limit}文字以下で入力してください`,
+          "MAX_LENGTH",
+          violation.length,
+        ),
+      );
+    }
   }
 
   return {
@@ -810,7 +804,7 @@ export const validateDate = (
   const { value } = response;
 
   // 必須チェック
-  if (validation.required && (!value || value.trim() === "")) {
+  if (validation.required && isBlankResponseValue(value)) {
     errors.push(
       createValidationError(
         question.blockId,
@@ -822,7 +816,7 @@ export const validateDate = (
   }
 
   // 空の場合は他のバリデーションをスキップ
-  if (!value || value.trim() === "") {
+  if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
   }
 
@@ -956,7 +950,7 @@ export const validateTime = (
   const { value } = response;
 
   // 必須チェック
-  if (validation.required && (!value || value.trim() === "")) {
+  if (validation.required && isBlankResponseValue(value)) {
     errors.push(
       createValidationError(
         question.blockId,
@@ -968,7 +962,7 @@ export const validateTime = (
   }
 
   // 空の場合は他のバリデーションをスキップ
-  if (!value || value.trim() === "") {
+  if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
   }
 

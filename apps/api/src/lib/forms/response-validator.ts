@@ -1,4 +1,11 @@
-import type { ResponseDataItem, ValidatorQuestion } from "@nexus-form/shared";
+import {
+  getTextLengthViolations,
+  isBlankResponseValue,
+  parseFiniteResponseNumber,
+  type ResponseDataItem,
+  textMatchesPattern,
+  type ValidatorQuestion,
+} from "@nexus-form/shared";
 import safeRegex from "safe-regex2";
 
 import { logError, logWarn } from "../logger";
@@ -81,10 +88,8 @@ export function validateResponseData(
           );
         } else if (
           isRequired &&
-          (response.value === undefined ||
-            response.value === null ||
-            typeof response.value !== "string" ||
-            response.value.trim() === "")
+          (typeof response.value !== "string" ||
+            isBlankResponseValue(response.value))
         ) {
           errors.push(
             `Response ${i + 1}: Text value is required for question ${response.question_id}`,
@@ -101,13 +106,7 @@ export function validateResponseData(
           errors.push(
             `Response ${i + 1}: Selection value must be a string for question ${response.question_id}`,
           );
-        } else if (
-          isRequired &&
-          (response.value === undefined ||
-            response.value === null ||
-            (typeof response.value === "string" &&
-              response.value.trim() === ""))
-        ) {
+        } else if (isRequired && isBlankResponseValue(response.value)) {
           errors.push(
             `Response ${i + 1}: Selection value is required for question ${response.question_id}`,
           );
@@ -199,28 +198,20 @@ export function validateResponseData(
       case "linear_scale":
       case "rating": {
         const numVal = response.value;
-        const isEmpty =
-          numVal === undefined ||
-          numVal === null ||
-          (typeof numVal === "string" && numVal.trim() === "");
+        const isEmpty = isBlankResponseValue(numVal);
         if (isRequired && isEmpty) {
           errors.push(
             `Response ${i + 1}: Numeric value is required for question ${response.question_id}`,
           );
         } else if (!isEmpty) {
-          const isNumeric =
-            typeof numVal === "number"
-              ? Number.isFinite(numVal)
-              : typeof numVal === "string" &&
-                Number.isFinite(Number(numVal.trim()));
-          if (!isNumeric) {
+          const parsed = parseFiniteResponseNumber(numVal);
+          if (parsed == null) {
             errors.push(
               `Response ${i + 1}: Numeric value is invalid for question ${response.question_id}`,
             );
             // linear_scale allows non-integer values (e.g. 4.5 for slider-style fields);
             // only rating questions enforce integer-only values.
           } else if (response.question_type === "rating") {
-            const parsed = typeof numVal === "number" ? numVal : Number(numVal);
             if (!Number.isInteger(parsed)) {
               errors.push(
                 `Response ${i + 1}: Rating value must be an integer for question ${response.question_id}`,
@@ -271,13 +262,7 @@ export function validateResponseData(
           errors.push(
             `Response ${i + 1}: Date/time value must be a string for question ${response.question_id}`,
           );
-        } else if (
-          isRequired &&
-          (response.value === undefined ||
-            response.value === null ||
-            (typeof response.value === "string" &&
-              response.value.trim() === ""))
-        ) {
+        } else if (isRequired && isBlankResponseValue(response.value)) {
           errors.push(
             `Response ${i + 1}: Date/time value is required for question ${response.question_id}`,
           );
@@ -441,19 +426,23 @@ export function validateResponseData(
         (response.question_type === "short_text" ||
           response.question_type === "long_text") &&
         typeof response.value === "string" &&
-        response.value !== ""
+        !isBlankResponseValue(response.value)
       ) {
-        const { minLength, maxLength } = question.validation;
-        const len = response.value.length;
-        if (minLength != null && len < minLength) {
-          errors.push(
-            `Response ${i + 1}: Text must be at least ${minLength} character(s) for question ${response.question_id}`,
-          );
-        }
-        if (maxLength != null && len > maxLength) {
-          errors.push(
-            `Response ${i + 1}: Text must be at most ${maxLength} character(s) for question ${response.question_id}`,
-          );
+        const violations = getTextLengthViolations(
+          response.value,
+          question.validation,
+        );
+        for (const violation of violations) {
+          if (violation.code === "MIN_LENGTH") {
+            errors.push(
+              `Response ${i + 1}: Text must be at least ${violation.limit} character(s) for question ${response.question_id}`,
+            );
+          }
+          if (violation.code === "MAX_LENGTH") {
+            errors.push(
+              `Response ${i + 1}: Text must be at most ${violation.limit} character(s) for question ${response.question_id}`,
+            );
+          }
         }
       }
 
@@ -464,14 +453,8 @@ export function validateResponseData(
         response.value !== undefined &&
         response.value !== null
       ) {
-        const numVal = response.value;
-        const parsed =
-          typeof numVal === "number"
-            ? numVal
-            : typeof numVal === "string"
-              ? Number(numVal.trim())
-              : Number.NaN;
-        if (Number.isFinite(parsed)) {
+        const parsed = parseFiniteResponseNumber(response.value);
+        if (parsed != null) {
           const { min, max } = question.validation;
           if (min != null && parsed < min) {
             errors.push(
@@ -490,7 +473,7 @@ export function validateResponseData(
       if (
         response.question_type === "short_text" &&
         typeof response.value === "string" &&
-        response.value !== "" &&
+        !isBlankResponseValue(response.value) &&
         question.validation.pattern &&
         !question.validation.allowPatternMismatch
       ) {
@@ -502,8 +485,9 @@ export function validateResponseData(
               { questionId: question.id },
             );
           } else {
-            const re = new RegExp(question.validation.pattern);
-            if (!re.test(response.value)) {
+            if (
+              !textMatchesPattern(response.value, question.validation.pattern)
+            ) {
               errors.push(
                 `Response ${i + 1}: Value does not match the required pattern for question ${response.question_id}`,
               );
@@ -518,7 +502,7 @@ export function validateResponseData(
       if (
         response.question_type === "date" &&
         typeof response.value === "string" &&
-        response.value !== ""
+        !isBlankResponseValue(response.value)
       ) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(response.value)) {
           errors.push(
@@ -543,7 +527,7 @@ export function validateResponseData(
       if (
         response.question_type === "time" &&
         typeof response.value === "string" &&
-        response.value !== ""
+        !isBlankResponseValue(response.value)
       ) {
         if (!/^\d{2}:\d{2}$/.test(response.value)) {
           errors.push(
