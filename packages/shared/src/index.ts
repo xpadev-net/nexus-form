@@ -58,13 +58,22 @@ export {
   evaluateCondition,
   evaluateRule,
 } from "./forms/condition-evaluator";
+export type { BlockTypeValue, PlateQuestionType } from "./forms/form-block";
+export {
+  BLOCK_TYPES,
+  BlockType,
+  FORM_QUESTION_TYPES,
+  fromPlateQuestionType,
+  isBlockType,
+  isPlateQuestionType,
+  toPlateQuestionType,
+} from "./forms/form-block";
 export type { ExtractedQuestion, PlatePage } from "./plate-content-utils";
 export {
   ensureNodeIds,
   extractQuestionsFromPlateContent,
   extractTextFromChildren,
   extractTitleFromChildren,
-  FORM_QUESTION_TYPES,
   regenerateBlockIds,
   resolvePageIndexByPageId,
   splitPlateContentIntoPages,

@@ -52,8 +52,8 @@ export type FormLogicAction = z.infer<typeof FormLogicActionSchema>;
 export type FormLogicRule = z.infer<typeof FormLogicRuleSchema>;
 
 // ===== Question型定義の移行 =====
-// 質問タイプの列挙型
-export const BlockType = z.enum([
+// 質問タイプの正準リスト
+export const BLOCK_TYPES = [
   "short_text",
   "long_text",
   "radio",
@@ -66,7 +66,73 @@ export const BlockType = z.enum([
   "date",
   "time",
   "section_separator",
-]);
+] as const;
+
+export type BlockTypeValue = (typeof BLOCK_TYPES)[number];
+
+export type PlateQuestionType = `form_${BlockTypeValue}`;
+
+export const FORM_QUESTION_TYPES = BLOCK_TYPES.map(
+  (type) => `form_${type}`,
+) as readonly PlateQuestionType[];
+
+/**
+ * Check whether an unknown value is one of the canonical form block types.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is a valid `BlockTypeValue`, and narrows the input.
+ */
+export function isBlockType(type: unknown): type is BlockTypeValue {
+  return (
+    typeof type === "string" &&
+    (BLOCK_TYPES as readonly string[]).includes(type)
+  );
+}
+
+/**
+ * Check whether an unknown value is one of the derived Plate question node types.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is a valid `PlateQuestionType`, and narrows the input.
+ */
+export function isPlateQuestionType(type: unknown): type is PlateQuestionType {
+  return (
+    typeof type === "string" &&
+    (FORM_QUESTION_TYPES as readonly string[]).includes(type)
+  );
+}
+
+/**
+ * Convert a canonical block type to the prefixed Plate question node type.
+ *
+ * @param type - Canonical form block type, for example `"short_text"`.
+ * @returns The matching Plate question type, for example `"form_short_text"`.
+ * @example
+ * toPlateQuestionType("short_text"); // "form_short_text"
+ */
+export function toPlateQuestionType(type: BlockTypeValue): PlateQuestionType {
+  return `form_${type}`;
+}
+
+/**
+ * Convert a prefixed Plate question node type back to the canonical block type.
+ *
+ * @param type - Plate question type, for example `"form_short_text"`.
+ * @returns The matching canonical block type, for example `"short_text"`.
+ * @throws Error when stripping the `"form_"` prefix does not produce a valid `BlockTypeValue`.
+ * @example
+ * fromPlateQuestionType("form_short_text"); // "short_text"
+ */
+export function fromPlateQuestionType(type: PlateQuestionType): BlockTypeValue {
+  const blockType = type.slice("form_".length);
+  if (!isBlockType(blockType)) {
+    throw new Error(`Unsupported Plate question type: ${type}`);
+  }
+  return blockType;
+}
+
+// 質問タイプの列挙型
+export const BlockType = z.enum(BLOCK_TYPES);
 
 export type BlockType = z.infer<typeof BlockType>;
 

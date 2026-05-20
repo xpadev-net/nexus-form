@@ -1,3 +1,4 @@
+import { isPlateQuestionType } from "@nexus-form/shared";
 import { GitCompare, Plus, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDiffDisplay, useFormDiff } from "@/hooks/forms/use-form-diff";
@@ -66,7 +67,9 @@ export function NodesDiffList({ formId }: NodesDiffListProps) {
             )}
             {node.nodeType && (
               <Badge variant="outline" className="text-xs shrink-0">
-                {questionTypeLabels[node.nodeType] ?? node.nodeType}
+                {isPlateQuestionType(node.nodeType)
+                  ? questionTypeLabels[node.nodeType]
+                  : node.nodeType}
               </Badge>
             )}
             <span className="text-xs text-muted-foreground font-mono shrink-0">

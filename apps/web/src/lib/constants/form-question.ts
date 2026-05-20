@@ -1,4 +1,6 @@
-export const questionTypeLabels: Record<string, string> = {
+import type { PlateQuestionType } from "@nexus-form/shared";
+
+export const questionTypeLabels: Record<PlateQuestionType, string> = {
   form_short_text: "テキスト入力",
   form_long_text: "テキストエリア",
   form_radio: "ラジオボタン",

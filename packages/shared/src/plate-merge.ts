@@ -6,6 +6,7 @@
  * Each top-level node is identified by its `nodeId` property.
  */
 
+import { fromPlateQuestionType, isPlateQuestionType } from "./forms/form-block";
 import { ensureNodeIds, extractTextFromChildren } from "./plate-content-utils";
 
 // ---------------------------------------------------------------------------
@@ -112,8 +113,8 @@ function nodeDisplayLabel(node: unknown): string {
   const el = node as PlateNode;
 
   // Form question nodes — show type + title
-  if (typeof el.type === "string" && (el.type as string).startsWith("form_")) {
-    const typeName = (el.type as string).replace(/^form_/, "");
+  if (isPlateQuestionType(el.type)) {
+    const typeName = fromPlateQuestionType(el.type);
     if (Array.isArray(el.children)) {
       const text = extractTextFromChildren(el.children as unknown[]).trim();
       if (text) return `${typeName}: ${text.slice(0, 40)}`;

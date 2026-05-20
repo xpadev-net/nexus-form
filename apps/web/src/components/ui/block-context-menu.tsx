@@ -3,25 +3,11 @@ import {
   BlockMenuPlugin,
   BlockSelectionPlugin,
 } from "@platejs/selection/react";
-import {
-  CalendarIcon,
-  CheckSquareIcon,
-  ChevronDownIcon,
-  CircleDotIcon,
-  ClipboardListIcon,
-  FileTextIcon,
-  GaugeIcon,
-  GridIcon,
-  SeparatorHorizontalIcon,
-  StarIcon,
-  TextIcon,
-  TimerIcon,
-} from "lucide-react";
+import { ClipboardListIcon } from "lucide-react";
 import { KEYS } from "platejs";
 import { useEditorPlugin, usePlateState, usePluginOption } from "platejs/react";
 import { type ReactNode, useCallback } from "react";
 
-import { type FormQuestionType } from "@/components/editor/plate-types";
 import { setBlockType } from "@/components/editor/transforms";
 import {
   ContextMenu,
@@ -34,35 +20,11 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import { FORM_QUESTION_MENU_ITEMS } from "@/components/ui/form-question-menu-items";
 import { turnIntoItems } from "@/components/ui/turn-into-toolbar-button";
 import { useIsTouchDevice } from "@/hooks/use-is-touch-device";
 
-const formQuestionItems: Array<{
-  icon: ReactNode;
-  label: string;
-  value: FormQuestionType;
-}> = [
-  { icon: <TextIcon />, label: "Short text", value: "form_short_text" },
-  { icon: <FileTextIcon />, label: "Long text", value: "form_long_text" },
-  { icon: <CircleDotIcon />, label: "Radio", value: "form_radio" },
-  { icon: <CheckSquareIcon />, label: "Checkbox", value: "form_checkbox" },
-  { icon: <ChevronDownIcon />, label: "Dropdown", value: "form_dropdown" },
-  { icon: <GaugeIcon />, label: "Linear scale", value: "form_linear_scale" },
-  { icon: <StarIcon />, label: "Rating", value: "form_rating" },
-  { icon: <GridIcon />, label: "Choice grid", value: "form_choice_grid" },
-  {
-    icon: <ClipboardListIcon />,
-    label: "Checkbox grid",
-    value: "form_checkbox_grid",
-  },
-  { icon: <CalendarIcon />, label: "Date", value: "form_date" },
-  { icon: <TimerIcon />, label: "Time", value: "form_time" },
-  {
-    icon: <SeparatorHorizontalIcon />,
-    label: "Section separator",
-    value: "form_section_separator",
-  },
-];
+const formQuestionItems = FORM_QUESTION_MENU_ITEMS;
 
 export function BlockContextMenu({ children }: { children: ReactNode }) {
   const { api, editor } = useEditorPlugin(BlockMenuPlugin);

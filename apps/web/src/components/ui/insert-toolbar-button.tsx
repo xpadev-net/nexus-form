@@ -1,19 +1,15 @@
 import type { DropdownMenuProps } from "@radix-ui/react-dropdown-menu";
 import {
   CalendarIcon,
-  CheckSquareIcon,
   ChevronRightIcon,
   ClockIcon,
   Columns3Icon,
   FileCodeIcon,
   FilmIcon,
-  FormInputIcon,
-  GripHorizontalIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
   ImageIcon,
-  LayoutGridIcon,
   Link2Icon,
   ListIcon,
   ListOrderedIcon,
@@ -23,13 +19,10 @@ import {
   PlusIcon,
   QuoteIcon,
   RadicalIcon,
-  RadioIcon,
   SquareIcon,
-  StarIcon,
   TableIcon,
   TableOfContentsIcon,
   TextIcon,
-  ToggleLeftIcon,
 } from "lucide-react";
 import { KEYS } from "platejs";
 import { type PlateEditor, useEditorRef } from "platejs/react";
@@ -39,13 +32,13 @@ import {
   insertFormQuestion,
   insertInlineElement,
 } from "@/components/editor/transforms";
-import type { FormQuestionType } from "@/components/editor/plate-types";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { FORM_QUESTION_MENU_ITEMS } from "@/components/ui/form-question-menu-items";
 
 import { ToolbarButton, ToolbarMenuGroup } from "./toolbar";
 
@@ -223,71 +216,10 @@ const groups: Group[] = [
   },
   {
     group: "Form questions",
-    items: [
-      {
-        icon: <TextIcon />,
-        label: "Short text",
-        value: "form_short_text",
-      },
-      {
-        icon: <FormInputIcon />,
-        label: "Long text",
-        value: "form_long_text",
-      },
-      {
-        icon: <RadioIcon />,
-        label: "Radio",
-        value: "form_radio",
-      },
-      {
-        icon: <CheckSquareIcon />,
-        label: "Checkbox",
-        value: "form_checkbox",
-      },
-      {
-        icon: <ToggleLeftIcon />,
-        label: "Dropdown",
-        value: "form_dropdown",
-      },
-      {
-        icon: <GripHorizontalIcon />,
-        label: "Linear scale",
-        value: "form_linear_scale",
-      },
-      {
-        icon: <StarIcon />,
-        label: "Rating",
-        value: "form_rating",
-      },
-      {
-        icon: <LayoutGridIcon />,
-        label: "Choice grid",
-        value: "form_choice_grid",
-      },
-      {
-        icon: <LayoutGridIcon />,
-        label: "Checkbox grid",
-        value: "form_checkbox_grid",
-      },
-      {
-        icon: <CalendarIcon />,
-        label: "Date",
-        value: "form_date",
-      },
-      {
-        icon: <ClockIcon />,
-        label: "Time",
-        value: "form_time",
-      },
-      {
-        icon: <MinusIcon />,
-        label: "Section separator",
-        value: "form_section_separator",
-      },
-    ].map((item) => ({
+    items: FORM_QUESTION_MENU_ITEMS.map((item) => ({
       ...item,
-      onSelect: (editor: PlateEditor, value: string) => {
-        insertFormQuestion(editor, value as FormQuestionType);
+      onSelect: (editor: PlateEditor) => {
+        insertFormQuestion(editor, item.value);
       },
     })),
   },

@@ -1,15 +1,8 @@
 import {
   CalendarIcon,
-  CheckSquareIcon,
-  ChevronDownIcon,
   ChevronRightIcon,
-  CircleDotIcon,
-  ClipboardListIcon,
   Code2,
   Columns3Icon,
-  FileTextIcon,
-  GaugeIcon,
-  GridIcon,
   Heading1Icon,
   Heading2Icon,
   Heading3Icon,
@@ -19,13 +12,9 @@ import {
   PilcrowIcon,
   Quote,
   RadicalIcon,
-  SeparatorHorizontalIcon,
   Square,
-  StarIcon,
   Table,
   TableOfContentsIcon,
-  TextIcon,
-  TimerIcon,
 } from "lucide-react";
 import { KEYS, type TComboboxInputElement } from "platejs";
 import type { PlateEditor, PlateElementProps } from "platejs/react";
@@ -37,8 +26,8 @@ import {
   insertFormQuestion,
   insertInlineElement,
 } from "@/components/editor/transforms";
-import type { FormQuestionType } from "@/components/editor/plate-types";
 
+import { FORM_QUESTION_MENU_ITEMS } from "./form-question-menu-items";
 import {
   InlineCombobox,
   InlineComboboxContent,
@@ -196,83 +185,10 @@ const groups: Group[] = [
   },
   {
     group: "Form questions",
-    items: [
-      {
-        icon: <TextIcon />,
-        keywords: ["short", "text", "input"],
-        label: "Short text",
-        value: "form_short_text",
-      },
-      {
-        icon: <FileTextIcon />,
-        keywords: ["long", "textarea", "paragraph"],
-        label: "Long text",
-        value: "form_long_text",
-      },
-      {
-        icon: <CircleDotIcon />,
-        keywords: ["radio", "single", "choice"],
-        label: "Radio",
-        value: "form_radio",
-      },
-      {
-        icon: <CheckSquareIcon />,
-        keywords: ["checkbox", "multiple", "choice"],
-        label: "Checkbox",
-        value: "form_checkbox",
-      },
-      {
-        icon: <ChevronDownIcon />,
-        keywords: ["dropdown", "select"],
-        label: "Dropdown",
-        value: "form_dropdown",
-      },
-      {
-        icon: <GaugeIcon />,
-        keywords: ["linear", "scale", "slider"],
-        label: "Linear scale",
-        value: "form_linear_scale",
-      },
-      {
-        icon: <StarIcon />,
-        keywords: ["rating", "star"],
-        label: "Rating",
-        value: "form_rating",
-      },
-      {
-        icon: <GridIcon />,
-        keywords: ["choice", "grid", "matrix"],
-        label: "Choice grid",
-        value: "form_choice_grid",
-      },
-      {
-        icon: <ClipboardListIcon />,
-        keywords: ["checkbox", "grid", "matrix"],
-        label: "Checkbox grid",
-        value: "form_checkbox_grid",
-      },
-      {
-        icon: <CalendarIcon />,
-        keywords: ["date", "calendar"],
-        label: "Date",
-        value: "form_date",
-      },
-      {
-        icon: <TimerIcon />,
-        keywords: ["time", "clock"],
-        label: "Time",
-        value: "form_time",
-      },
-      {
-        icon: <SeparatorHorizontalIcon />,
-        keywords: ["section", "separator", "divider"],
-        label: "Section separator",
-        value: "form_section_separator",
-      },
-    ].map((item) => ({
+    items: FORM_QUESTION_MENU_ITEMS.map((item) => ({
       ...item,
-      onSelect: (editor: PlateEditor, value: string) => {
-        insertFormQuestion(editor, value as FormQuestionType);
+      onSelect: (editor: PlateEditor) => {
+        insertFormQuestion(editor, item.value);
       },
     })),
   },
