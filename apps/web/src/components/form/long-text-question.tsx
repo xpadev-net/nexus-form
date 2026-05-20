@@ -29,6 +29,34 @@ interface LongTextQuestionProps {
   warningThreshold?: number;
 }
 
+interface CharacterCountProps {
+  display: string | null;
+  isOverLimit: boolean;
+  isNearLimit: boolean;
+}
+
+const CharacterCount: FC<CharacterCountProps> = ({
+  display,
+  isOverLimit,
+  isNearLimit,
+}) => {
+  if (!display) return null;
+
+  return (
+    <div className="flex justify-end">
+      <span
+        className={cn(
+          "text-xs text-muted-foreground",
+          isOverLimit && "text-destructive",
+          isNearLimit && !isOverLimit && "text-yellow-600",
+        )}
+      >
+        {display}
+      </span>
+    </div>
+  );
+};
+
 /**
  * 長文テキスト入力用の質問コンポーネント
  *
@@ -108,28 +136,9 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
     [onChange, triggerValidation],
   );
 
-  // 文字数制限の表示
-  const renderCharacterCount = () => {
-    const display = getCharacterCountDisplay();
-    if (!display) return null;
-
-    return (
-      <div className="flex justify-end">
-        <span
-          className={cn(
-            "text-xs text-muted-foreground",
-            isOverLimit && "text-destructive",
-            isNearLimit && !isOverLimit && "text-yellow-600",
-          )}
-        >
-          {display}
-        </span>
-      </div>
-    );
-  };
-
   // エラーメッセージの表示
   const displayError = validationError || error;
+  const characterCountDisplay = getCharacterCountDisplay();
 
   return (
     <div className={cn("space-y-2", className)}>
@@ -170,7 +179,11 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
 
         {/* 文字数カウンターとバリデーション状態 */}
         <div className="flex justify-between items-center">
-          {renderCharacterCount()}
+          <CharacterCount
+            display={characterCountDisplay}
+            isOverLimit={isOverLimit}
+            isNearLimit={isNearLimit}
+          />
           {isValidating && (
             <span className="text-xs text-muted-foreground">
               バリデーション中...

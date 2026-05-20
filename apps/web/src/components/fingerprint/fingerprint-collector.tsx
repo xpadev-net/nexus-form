@@ -30,6 +30,224 @@ interface FingerprintCollectorProps {
   showPrivacyNotice?: boolean; // プライバシー注意書きを表示するか
 }
 
+interface FingerprintComponentItem {
+  componentName: string;
+  componentValueHash: string;
+  confidence?: number;
+}
+
+interface CollectedFingerprint {
+  fingerprintType: string;
+}
+
+interface ExistingFingerprintItem {
+  id: string;
+  fingerprintType: string;
+  componentName: string;
+  componentValueHash: string;
+}
+
+interface FingerprintStats {
+  totalComponents: number;
+  averageConfidence: number;
+}
+
+interface CollectionResultSectionProps {
+  hasCollected: boolean;
+  fingerprint: CollectedFingerprint | null;
+  components: FingerprintComponentItem[];
+  stats: FingerprintStats;
+  responseId?: string;
+  isSaving: boolean;
+  showDetails: boolean;
+  onSave: () => void;
+}
+
+const CollectionResultSection = ({
+  hasCollected,
+  fingerprint,
+  components,
+  stats,
+  responseId,
+  isSaving,
+  showDetails,
+  onSave,
+}: CollectionResultSectionProps) => {
+  if (!hasCollected || !fingerprint) return null;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h4 className="font-medium text-sm text-muted-foreground mb-2">
+          フィンガープリント情報
+        </h4>
+        <div className="space-y-1">
+          <div className="text-xs text-muted-foreground">
+            タイプ: {fingerprint.fingerprintType}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            コンポーネント数: {components.length}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Badge variant="secondary">Total: {stats.totalComponents}</Badge>
+        <Badge variant="secondary">
+          Confidence: {(stats.averageConfidence * 100).toFixed(1)}%
+        </Badge>
+      </div>
+
+      {responseId && (
+        <Button onClick={onSave} disabled={isSaving} className="w-full">
+          {isSaving ? "保存中..." : "フィンガープリントを保存"}
+        </Button>
+      )}
+
+      {showDetails && components.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="font-medium text-sm">収集されたコンポーネント</h4>
+          <div className="max-h-32 overflow-y-auto space-y-1">
+            {components.map((component) => (
+              <div
+                key={component.componentName}
+                className="flex justify-between items-center text-xs"
+              >
+                <span className="font-mono">{component.componentName}</span>
+                <div className="flex items-center space-x-2">
+                  <Badge variant="outline" className="text-xs">
+                    {component.componentValueHash.slice(0, 8)}...
+                  </Badge>
+                  {component.confidence != null && (
+                    <span className="text-muted-foreground/70">
+                      {(component.confidence * 100).toFixed(0)}%
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface ExistingFingerprintsSectionProps {
+  existingFingerprints: ExistingFingerprintItem[];
+  isLoadingFingerprints: boolean;
+  isDeleting: boolean;
+  onDelete: () => void;
+}
+
+const ExistingFingerprintsSection = ({
+  existingFingerprints,
+  isLoadingFingerprints,
+  isDeleting,
+  onDelete,
+}: ExistingFingerprintsSectionProps) => {
+  if (existingFingerprints.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <h4 className="font-medium text-sm">既存のフィンガープリント</h4>
+      <div className="space-y-1">
+        {existingFingerprints.map((fp) => (
+          <div
+            key={fp.id}
+            className="flex justify-between items-center p-2 bg-muted rounded-md"
+          >
+            <div className="text-sm">
+              <div className="font-medium">{fp.fingerprintType}</div>
+              <div className="text-muted-foreground/70">
+                {fp.componentName}: {fp.componentValueHash.slice(0, 12)}...
+              </div>
+            </div>
+            <Button
+              onClick={onDelete}
+              variant="outline"
+              size="sm"
+              disabled={isLoadingFingerprints || isDeleting}
+            >
+              削除
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const FingerprintErrors = ({
+  activeError,
+}: {
+  activeError: Error | null | undefined;
+}) => {
+  if (!activeError) return null;
+
+  return (
+    <Alert variant="destructive">
+      <AlertDescription>{activeError.message}</AlertDescription>
+    </Alert>
+  );
+};
+
+interface FingerprintProgressProps {
+  isLoading: boolean;
+  collectionStage: string;
+  collectionProgress: number;
+}
+
+const FingerprintProgress = ({
+  isLoading,
+  collectionStage,
+  collectionProgress,
+}: FingerprintProgressProps) => {
+  if (!isLoading) return null;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex justify-between text-sm">
+        <span>{collectionStage}</span>
+        <span>{collectionProgress}%</span>
+      </div>
+      <Progress value={collectionProgress} className="w-full" />
+    </div>
+  );
+};
+
+interface CollectButtonsProps {
+  isConsented: boolean;
+  isLoading: boolean;
+  hasCollected: boolean;
+  onCollect: () => void;
+  onClear: () => void;
+}
+
+const CollectButtons = ({
+  isConsented,
+  isLoading,
+  hasCollected,
+  onCollect,
+  onClear,
+}: CollectButtonsProps) => (
+  <div className="flex space-x-2">
+    <Button
+      onClick={onCollect}
+      disabled={!isConsented || isLoading}
+      className="flex-1"
+    >
+      {isLoading ? "収集中..." : "フィンガープリント収集"}
+    </Button>
+
+    {hasCollected && (
+      <Button onClick={onClear} variant="outline" disabled={isLoading}>
+        クリア
+      </Button>
+    )}
+  </div>
+);
+
 export function FingerprintCollector({
   responseId,
   onCollected,
@@ -159,151 +377,7 @@ export function FingerprintCollector({
 
   const saveError = saveMutation.error;
   const isSaving = saveMutation.isPending;
-
-  /** 収集結果の表示セクション */
-  const renderCollectionResult = () => {
-    if (!hasCollected || !fingerprint) return null;
-
-    return (
-      <div className="space-y-4">
-        <div>
-          <h4 className="font-medium text-sm text-muted-foreground mb-2">
-            フィンガープリント情報
-          </h4>
-          <div className="space-y-1">
-            <div className="text-xs text-muted-foreground">
-              タイプ: {fingerprint.fingerprintType}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              コンポーネント数: {components.length}
-            </div>
-          </div>
-        </div>
-
-        {/* 統計情報 */}
-        <div className="grid grid-cols-2 gap-2">
-          <Badge variant="secondary">Total: {stats.totalComponents}</Badge>
-          <Badge variant="secondary">
-            Confidence: {(stats.averageConfidence * 100).toFixed(1)}%
-          </Badge>
-        </div>
-
-        {/* 保存ボタン */}
-        {responseId && (
-          <Button onClick={handleSave} disabled={isSaving} className="w-full">
-            {isSaving ? "保存中..." : "フィンガープリントを保存"}
-          </Button>
-        )}
-
-        {/* 詳細表示 */}
-        {showDetails && components.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="font-medium text-sm">収集されたコンポーネント</h4>
-            <div className="max-h-32 overflow-y-auto space-y-1">
-              {components.map((component) => (
-                <div
-                  key={component.componentName}
-                  className="flex justify-between items-center text-xs"
-                >
-                  <span className="font-mono">{component.componentName}</span>
-                  <div className="flex items-center space-x-2">
-                    <Badge variant="outline" className="text-xs">
-                      {component.componentValueHash.slice(0, 8)}...
-                    </Badge>
-                    {component.confidence != null && (
-                      <span className="text-muted-foreground/70">
-                        {(component.confidence * 100).toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  /** 既存フィンガープリント一覧 */
-  const renderExistingFingerprints = () => {
-    if (existingFingerprints.length === 0) return null;
-
-    return (
-      <div className="space-y-2">
-        <h4 className="font-medium text-sm">既存のフィンガープリント</h4>
-        <div className="space-y-1">
-          {existingFingerprints.map((fp) => (
-            <div
-              key={fp.id}
-              className="flex justify-between items-center p-2 bg-muted rounded-md"
-            >
-              <div className="text-sm">
-                <div className="font-medium">{fp.fingerprintType}</div>
-                <div className="text-muted-foreground/70">
-                  {fp.componentName}: {fp.componentValueHash.slice(0, 12)}...
-                </div>
-              </div>
-              <Button
-                onClick={() => handleDeleteFingerprint()}
-                variant="outline"
-                size="sm"
-                disabled={isLoadingFingerprints || deleteMutation.isPending}
-              >
-                削除
-              </Button>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  /** エラー表示 */
-  const renderErrors = () => {
-    const activeError = error ?? saveError ?? fingerprintManageError;
-    if (!activeError) return null;
-
-    return (
-      <Alert variant="destructive">
-        <AlertDescription>{activeError.message}</AlertDescription>
-      </Alert>
-    );
-  };
-
-  /** プログレスバー */
-  const renderProgress = () => {
-    if (!isLoading) return null;
-
-    return (
-      <div className="space-y-2">
-        <div className="flex justify-between text-sm">
-          <span>{collectionStage}</span>
-          <span>{collectionProgress}%</span>
-        </div>
-        <Progress value={collectionProgress} className="w-full" />
-      </div>
-    );
-  };
-
-  /** 収集ボタン */
-  const renderCollectButtons = () => (
-    <div className="flex space-x-2">
-      <Button
-        onClick={handleCollect}
-        disabled={!isConsented || isLoading}
-        className="flex-1"
-      >
-        {isLoading ? "収集中..." : "フィンガープリント収集"}
-      </Button>
-
-      {hasCollected && (
-        <Button onClick={handleClear} variant="outline" disabled={isLoading}>
-          クリア
-        </Button>
-      )}
-    </div>
-  );
+  const activeError = error ?? saveError ?? fingerprintManageError;
 
   return (
     <div className={className}>
@@ -352,11 +426,35 @@ export function FingerprintCollector({
                   </div>
                 </div>
 
-                {renderErrors()}
-                {renderProgress()}
-                {renderCollectButtons()}
-                {renderCollectionResult()}
-                {renderExistingFingerprints()}
+                <FingerprintErrors activeError={activeError} />
+                <FingerprintProgress
+                  isLoading={isLoading}
+                  collectionStage={collectionStage}
+                  collectionProgress={collectionProgress}
+                />
+                <CollectButtons
+                  isConsented={isConsented}
+                  isLoading={isLoading}
+                  hasCollected={hasCollected}
+                  onCollect={handleCollect}
+                  onClear={handleClear}
+                />
+                <CollectionResultSection
+                  hasCollected={hasCollected}
+                  fingerprint={fingerprint}
+                  components={components}
+                  stats={stats}
+                  responseId={responseId}
+                  isSaving={isSaving}
+                  showDetails={showDetails}
+                  onSave={handleSave}
+                />
+                <ExistingFingerprintsSection
+                  existingFingerprints={existingFingerprints}
+                  isLoadingFingerprints={isLoadingFingerprints}
+                  isDeleting={deleteMutation.isPending}
+                  onDelete={handleDeleteFingerprint}
+                />
               </CardContent>
             </Card>
           </TabsContent>
@@ -387,11 +485,35 @@ export function FingerprintCollector({
               </label>
             </div>
 
-            {renderErrors()}
-            {renderProgress()}
-            {renderCollectButtons()}
-            {renderCollectionResult()}
-            {renderExistingFingerprints()}
+            <FingerprintErrors activeError={activeError} />
+            <FingerprintProgress
+              isLoading={isLoading}
+              collectionStage={collectionStage}
+              collectionProgress={collectionProgress}
+            />
+            <CollectButtons
+              isConsented={isConsented}
+              isLoading={isLoading}
+              hasCollected={hasCollected}
+              onCollect={handleCollect}
+              onClear={handleClear}
+            />
+            <CollectionResultSection
+              hasCollected={hasCollected}
+              fingerprint={fingerprint}
+              components={components}
+              stats={stats}
+              responseId={responseId}
+              isSaving={isSaving}
+              showDetails={showDetails}
+              onSave={handleSave}
+            />
+            <ExistingFingerprintsSection
+              existingFingerprints={existingFingerprints}
+              isLoadingFingerprints={isLoadingFingerprints}
+              isDeleting={deleteMutation.isPending}
+              onDelete={handleDeleteFingerprint}
+            />
           </CardContent>
         </Card>
       )}

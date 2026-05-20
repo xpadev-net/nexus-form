@@ -24,6 +24,54 @@ interface RatingQuestionProps {
   className?: string;
 }
 
+interface RatingOptionProps {
+  blockId: string;
+  ratingValue: number;
+  isActive: boolean;
+  isSelected: boolean;
+  iconType: "star" | "heart" | "thumbs";
+  disabled: boolean;
+  label: string;
+  onChange: (value: number) => void;
+}
+
+const RatingOption: FC<RatingOptionProps> = ({
+  blockId,
+  ratingValue,
+  isActive,
+  isSelected,
+  iconType,
+  disabled,
+  label,
+  onChange,
+}) => (
+  <label
+    className={cn(
+      "inline-block p-1 rounded-lg transition-all duration-200 cursor-pointer",
+      "hover:bg-muted focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2",
+      disabled && "cursor-not-allowed opacity-50",
+    )}
+  >
+    <input
+      type="radio"
+      name={`${blockId}-rating`}
+      value={ratingValue}
+      checked={isSelected}
+      onChange={() => onChange(ratingValue)}
+      disabled={disabled}
+      className="sr-only"
+      aria-label={label}
+    />
+    <RatingIcon
+      type={iconType}
+      isActive={isActive}
+      isHovered={false}
+      disabled={disabled}
+      size={8}
+    />
+  </label>
+);
+
 /**
  * 評価質問用のコンポーネント
  *
@@ -72,22 +120,6 @@ const RatingQuestionBase: FC<RatingQuestionProps> = ({
 
   // 現在の値の正規化（未選択の場合は0）
   const currentValue = value ?? 0;
-
-  // アイコンのレンダリング
-  const renderIcon = useCallback(
-    (_index: number, isActive: boolean, isHovered: boolean) => {
-      return (
-        <RatingIcon
-          type={iconType}
-          isActive={isActive}
-          isHovered={isHovered}
-          disabled={disabled}
-          size={8}
-        />
-      );
-    },
-    [iconType, disabled],
-  );
 
   // 評価値の変更ハンドラー
   const handleRatingChange = useCallback(
@@ -175,33 +207,22 @@ const RatingQuestionBase: FC<RatingQuestionProps> = ({
           {ratingValues.map((ratingValue) => {
             const isActive = ratingValue <= currentValue;
             const isSelected = ratingValue === currentValue;
-            const isHovered = false; // ホバー状態はCSSで管理
 
             return (
-              <label
+              <RatingOption
                 key={ratingValue}
-                className={cn(
-                  "inline-block p-1 rounded-lg transition-all duration-200 cursor-pointer",
-                  "hover:bg-muted focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2",
-                  disabled && "cursor-not-allowed opacity-50",
-                )}
-              >
-                <input
-                  type="radio"
-                  name={`${block.blockId}-rating`}
-                  value={ratingValue}
-                  checked={isSelected}
-                  onChange={() => handleRatingChange(ratingValue)}
-                  disabled={disabled}
-                  className="sr-only"
-                  aria-invalid={!!error}
-                  aria-label={
-                    customRatingLabels[ratingValue] ||
-                    `評価 ${ratingValue} を選択`
-                  }
-                />
-                {renderIcon(ratingValue, isActive, isHovered)}
-              </label>
+                blockId={block.blockId}
+                ratingValue={ratingValue}
+                isActive={isActive}
+                isSelected={isSelected}
+                iconType={iconType}
+                disabled={disabled}
+                label={
+                  customRatingLabels[ratingValue] ||
+                  `評価 ${ratingValue} を選択`
+                }
+                onChange={handleRatingChange}
+              />
             );
           })}
         </div>

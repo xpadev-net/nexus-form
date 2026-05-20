@@ -26,6 +26,96 @@ interface CheckboxGridQuestionProps {
   className?: string;
 }
 
+interface CheckboxGridTableProps {
+  block: z.infer<typeof CheckboxGridFormBlock>;
+  value: Record<string, string[]>;
+  disabled: boolean;
+  onRowChange: (rowId: string, columnId: string, checked: boolean) => void;
+}
+
+const CheckboxGridTable: FC<CheckboxGridTableProps> = ({
+  block,
+  value,
+  disabled,
+  onRowChange,
+}) => (
+  <div className="overflow-x-auto">
+    <table className="w-full border-collapse">
+      <thead>
+        <tr>
+          <th className="border border-border p-2 text-left font-medium bg-muted/50">
+            {/* 空のヘッダー（行ラベル用） */}
+          </th>
+          {block.validation.columns.map((column) => (
+            <th
+              key={column.id}
+              className="border border-border p-2 text-center font-medium bg-muted/50"
+            >
+              {column.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {block.validation.rows.map((row) => (
+          <tr key={row.id}>
+            <td className="border border-border p-2 font-medium bg-muted/30">
+              {row.label}
+            </td>
+            {block.validation.columns.map((column) => {
+              const rowValues = value[row.id] || [];
+              const isChecked = rowValues.includes(column.id);
+              const inputId = `${block.blockId}-${row.id}-${column.id}`;
+
+              return (
+                <td
+                  key={column.id}
+                  className="border border-border p-2 text-center"
+                >
+                  <Checkbox
+                    id={inputId}
+                    checked={isChecked}
+                    onCheckedChange={(checked) =>
+                      onRowChange(row.id, column.id, !!checked)
+                    }
+                    disabled={disabled}
+                    aria-label={`${row.label} - ${column.label}`}
+                    className="mx-auto"
+                  />
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+interface CheckboxGridSelectionSummaryProps {
+  value: Record<string, string[]>;
+  maxSelectionsPerRow?: number;
+}
+
+const CheckboxGridSelectionSummary: FC<CheckboxGridSelectionSummaryProps> = ({
+  value,
+  maxSelectionsPerRow,
+}) => {
+  const totalSelected = Object.values(value).reduce(
+    (sum, selections) => sum + selections.length,
+    0,
+  );
+
+  if (totalSelected === 0) return null;
+
+  return (
+    <div className="text-sm text-muted-foreground">
+      選択済み: {totalSelected}個
+      {maxSelectionsPerRow && <span> / {maxSelectionsPerRow}個</span>}
+    </div>
+  );
+};
+
 /**
  * チェックボックスグリッド質問コンポーネント
  *
@@ -116,82 +206,6 @@ const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
     return null;
   }, [error, block, value, getRequiredMessage]);
 
-  // グリッドのレンダリング
-  const renderGrid = () => {
-    return (
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr>
-              <th className="border border-border p-2 text-left font-medium bg-muted/50">
-                {/* 空のヘッダー（行ラベル用） */}
-              </th>
-              {block.validation.columns.map((column) => (
-                <th
-                  key={column.id}
-                  className="border border-border p-2 text-center font-medium bg-muted/50"
-                >
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {block.validation.rows.map((row) => (
-              <tr key={row.id}>
-                <td className="border border-border p-2 font-medium bg-muted/30">
-                  {row.label}
-                </td>
-                {block.validation.columns.map((column) => {
-                  const rowValues = value[row.id] || [];
-                  const isChecked = rowValues.includes(column.id);
-                  const inputId = `${block.blockId}-${row.id}-${column.id}`;
-
-                  return (
-                    <td
-                      key={column.id}
-                      className="border border-border p-2 text-center"
-                    >
-                      <Checkbox
-                        id={inputId}
-                        checked={isChecked}
-                        onCheckedChange={(checked) =>
-                          handleRowChange(row.id, column.id, !!checked)
-                        }
-                        disabled={disabled}
-                        aria-label={`${row.label} - ${column.label}`}
-                        className="mx-auto"
-                      />
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
-
-  // 選択状況の表示
-  const renderSelectionSummary = () => {
-    const totalSelected = Object.values(value).reduce(
-      (sum, selections) => sum + selections.length,
-      0,
-    );
-
-    if (totalSelected === 0) return null;
-
-    return (
-      <div className="text-sm text-muted-foreground">
-        選択済み: {totalSelected}個
-        {block.validation?.maxSelectionsPerRow && (
-          <span> / {block.validation.maxSelectionsPerRow}個</span>
-        )}
-      </div>
-    );
-  };
-
   return (
     <ErrorBoundary>
       <div className={cn("space-y-3", className)}>
@@ -220,11 +234,19 @@ const CheckboxGridQuestionInner: FC<CheckboxGridQuestionProps> = ({
             validationError && "border-destructive",
           )}
         >
-          {renderGrid()}
+          <CheckboxGridTable
+            block={block}
+            value={value}
+            disabled={disabled}
+            onRowChange={handleRowChange}
+          />
         </div>
 
         {/* 選択状況 */}
-        {renderSelectionSummary()}
+        <CheckboxGridSelectionSummary
+          value={value}
+          maxSelectionsPerRow={block.validation?.maxSelectionsPerRow}
+        />
 
         {/* バリデーション情報 */}
         <div className="space-y-1">
