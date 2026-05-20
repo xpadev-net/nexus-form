@@ -1,9 +1,11 @@
 import { z } from "zod";
 
-/** `{ error: string }` のみを返すエラーレスポンス。 */
-export const ErrorResponseSchema = z.object({
-  error: z.string(),
-});
+/** 汎用エラーレスポンスは `{ error: string }` のみを返します。 */
+export const ErrorResponseSchema = z
+  .object({
+    error: z.string(),
+  })
+  .strict();
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 /**
