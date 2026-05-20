@@ -26,6 +26,7 @@ type ImagesPageAction =
   | { type: "upload-start" }
   | { type: "upload-complete" }
   | { type: "upload-error"; message: string }
+  | { type: "delete-error"; message: string }
   | { type: "clear-error" };
 
 const initialImagesPageState: ImagesPageState = {
@@ -55,6 +56,8 @@ function imagesPageReducer(
       return { ...state, selectedFile: null, isUploading: false };
     case "upload-error":
       return { ...state, isUploading: false, error: action.message };
+    case "delete-error":
+      return { ...state, error: action.message };
     case "clear-error":
       return { ...state, error: null };
   }
@@ -160,7 +163,10 @@ export function ImagesPage() {
       }
       await loadImages();
     } catch (deleteError) {
-      dispatch({ type: "load-error", message: getErrorMessage(deleteError) });
+      dispatch({
+        type: "delete-error",
+        message: getErrorMessage(deleteError),
+      });
     }
   };
 
