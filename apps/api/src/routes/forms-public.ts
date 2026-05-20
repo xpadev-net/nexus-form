@@ -7,6 +7,7 @@ import {
   form,
   formIntegration,
   formResponse,
+  formSchedule,
   formStructure,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
@@ -20,7 +21,7 @@ import {
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
@@ -86,6 +87,24 @@ const sharedLinkGetRateLimit = createRateLimit({
   maxRequests: 60,
   keyGenerator: (c) => `rate_limit:shared_link_get:${getClientIp(c)}`,
 });
+const publicFormSelect = {
+  id: form.id,
+  publicId: form.publicId,
+  title: form.title,
+  description: form.description,
+  creatorId: form.creatorId,
+  status: form.status,
+  publishedAt: form.publishedAt,
+  unpublishedAt: form.unpublishedAt,
+  allowEditResponses: form.allowEditResponses,
+  createdAt: form.createdAt,
+  updatedAt: form.updatedAt,
+  version: form.version,
+  plateContent: form.plateContent,
+  plateContentVersion: form.plateContentVersion,
+  baseSnapshotVersion: form.baseSnapshotVersion,
+  dueScheduleId: formSchedule.id,
+};
 
 const publicSubmitSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
@@ -231,30 +250,62 @@ function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
   }
 }
 
+async function resolveScheduledStatus(params: {
+  formId: string;
+  currentStatus: "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "ARCHIVED";
+  dueScheduleId: string | null | undefined;
+  currentTime: Date;
+  publicId: string;
+  operation: string;
+}) {
+  const { formId, currentStatus, dueScheduleId, currentTime, publicId } =
+    params;
+  if (!dueScheduleId) return currentStatus;
+
+  const scheduleResult = await processFormSchedule(formId, currentTime).catch(
+    (error) =>
+      logFormScheduleError(error, {
+        formId,
+        publicId,
+        operation: params.operation,
+      }),
+  );
+  return scheduleResult?.statusChanged
+    ? scheduleResult.newStatus
+    : currentStatus;
+}
+
 // ── Router ───────────────────────────────────────────────────────────
 
 export const formsPublicRouter = createHonoApp()
   // ── GET /public/:publicId ────────────────────────────────────────
   .get("/public/:publicId", publicFormGetRateLimit, async (c) => {
     const publicId = c.req.param("publicId");
+    const currentTime = new Date();
     const [target] = await db
-      .select()
+      .select(publicFormSelect)
       .from(form)
+      .leftJoin(
+        formSchedule,
+        and(
+          eq(formSchedule.formId, form.id),
+          isNull(formSchedule.processedAt),
+          lte(formSchedule.triggerAt, currentTime),
+        ),
+      )
       .where(eq(form.publicId, publicId))
       .limit(1);
 
     if (!target) return c.json(errorResponse("Form not found"), 404);
 
-    const scheduleResult = await processFormSchedule(target.id).catch((error) =>
-      logFormScheduleError(error, {
-        formId: target.id,
-        publicId,
-        operation: "GET /public/:publicId",
-      }),
-    );
-    const currentStatus = scheduleResult?.statusChanged
-      ? scheduleResult.newStatus
-      : target.status;
+    const currentStatus = await resolveScheduledStatus({
+      formId: target.id,
+      currentStatus: target.status,
+      dueScheduleId: target.dueScheduleId,
+      currentTime,
+      publicId,
+      operation: "GET /public/:publicId",
+    });
 
     if (currentStatus !== "PUBLISHED")
       return c.json(errorResponse("Form not found"), 404);
@@ -367,28 +418,35 @@ export const formsPublicRouter = createHonoApp()
       }
 
       // 2. Look up form
+      const currentTime = new Date();
       const [target] = await db
         .select({
           id: form.id,
           status: form.status,
           plateContent: form.plateContent,
+          dueScheduleId: formSchedule.id,
         })
         .from(form)
+        .leftJoin(
+          formSchedule,
+          and(
+            eq(formSchedule.formId, form.id),
+            isNull(formSchedule.processedAt),
+            lte(formSchedule.triggerAt, currentTime),
+          ),
+        )
         .where(eq(form.publicId, publicId))
         .limit(1);
       if (!target) return c.json(errorResponse("Form not found"), 404);
 
-      const submitScheduleResult = await processFormSchedule(target.id).catch(
-        (error) =>
-          logFormScheduleError(error, {
-            formId: target.id,
-            publicId,
-            operation: "POST /public/:publicId/submit",
-          }),
-      );
-      const submitStatus = submitScheduleResult?.statusChanged
-        ? submitScheduleResult.newStatus
-        : target.status;
+      const submitStatus = await resolveScheduledStatus({
+        formId: target.id,
+        currentStatus: target.status,
+        dueScheduleId: target.dueScheduleId,
+        currentTime,
+        publicId,
+        operation: "POST /public/:publicId/submit",
+      });
       if (submitStatus !== "PUBLISHED")
         return c.json(errorResponse("Form not found"), 404);
 

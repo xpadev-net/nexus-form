@@ -11,6 +11,7 @@ vi.mock("@nexus-form/database", () => ({
     },
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
     innerJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     orderBy: vi.fn().mockReturnThis(),
@@ -32,6 +33,12 @@ vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
   form: {},
   formStructure: {},
+  formSchedule: {
+    id: "formSchedule.id",
+    formId: "formSchedule.formId",
+    processedAt: "formSchedule.processedAt",
+    triggerAt: "formSchedule.triggerAt",
+  },
   formShareLink: {},
   formIntegration: {},
   formResponse: {},
@@ -99,6 +106,8 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(),
   or: vi.fn(),
   sql: vi.fn(),
+  isNull: vi.fn(),
+  lte: vi.fn(),
 }));
 
 let app: Awaited<typeof import("../index")>["default"];

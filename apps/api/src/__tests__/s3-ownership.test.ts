@@ -14,6 +14,7 @@ vi.mock("@nexus-form/database", () => ({
   db: {
     select: vi.fn().mockReturnThis(),
     from: vi.fn().mockReturnThis(),
+    leftJoin: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
     limit: vi.fn().mockResolvedValue([]),
   },
@@ -27,6 +28,12 @@ vi.mock("@nexus-form/database", () => ({
 vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
   form: {},
+  formSchedule: {
+    id: "formSchedule.id",
+    formId: "formSchedule.formId",
+    processedAt: "formSchedule.processedAt",
+    triggerAt: "formSchedule.triggerAt",
+  },
   formPermission: {},
   formShareLink: {},
   discordGuild: {},
@@ -78,6 +85,8 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(),
   or: vi.fn(),
   sql: vi.fn(),
+  isNull: vi.fn(),
+  lte: vi.fn(),
 }));
 
 vi.mock("../lib/rate-limit", () => {
