@@ -275,6 +275,20 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
   const [name, setName] = useState(rule.name);
   const provider = providers.find((p) => p.name === rule.providerName);
   const providerRules = provider?.rules ?? [];
+  const availableBlockIds = useMemo(
+    () => new Set(blocks.map((block) => block.blockId)),
+    [blocks],
+  );
+  const missingReferencedBlockIds = useMemo(
+    () =>
+      rule.referencedBlockIds.reduce<string[]>((missingIds, id) => {
+        if (!availableBlockIds.has(id)) {
+          missingIds.push(id);
+        }
+        return missingIds;
+      }, []),
+    [availableBlockIds, rule.referencedBlockIds],
+  );
 
   const handleProviderChange = (providerName: string) => {
     const target = providers.find((p) => p.name === providerName);
@@ -401,17 +415,15 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
                   </div>
                 );
               })}
-              {rule.referencedBlockIds
-                .filter((id) => !blocks.some((b) => b.blockId === id))
-                .map((id) => (
-                  <p
-                    key={id}
-                    className="rounded-sm bg-destructive/10 px-2 py-1 text-xs text-destructive"
-                  >
-                    参照ブロックが見つかりません（削除された可能性があります）。検証時に
-                    missing として扱われます。
-                  </p>
-                ))}
+              {missingReferencedBlockIds.map((id) => (
+                <p
+                  key={id}
+                  className="rounded-sm bg-destructive/10 px-2 py-1 text-xs text-destructive"
+                >
+                  参照ブロックが見つかりません（削除された可能性があります）。検証時に
+                  missing として扱われます。
+                </p>
+              ))}
             </div>
           )}
         </div>
