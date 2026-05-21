@@ -301,7 +301,7 @@ export const VerticalBarChartDisplay: FC<VerticalBarChartDisplayProps> = ({
 
   // Linear Scale と Rating 用のデータを準備
   // スケール値（1, 2, 3, 4, 5など）でソート
-  const sortedData = [...data].sort((a, b) => {
+  const sortedData = Array.from(data).sort((a, b) => {
     const aValue = parseFloat(a.label);
     const bValue = parseFloat(b.label);
     return aValue - bValue;

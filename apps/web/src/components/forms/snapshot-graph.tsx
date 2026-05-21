@@ -73,7 +73,7 @@ function computeLayout(snapshots: SnapshotInput[]): {
   const versionToLane = new Map<number, number>();
   let nextLane = 1;
 
-  const sortedAsc = [...snapshots].sort((a, b) => a.version - b.version);
+  const sortedAsc = Array.from(snapshots).sort((a, b) => a.version - b.version);
   for (const s of sortedAsc) {
     if (s.parentVersion == null) {
       versionToLane.set(s.version, 0);
@@ -90,7 +90,9 @@ function computeLayout(snapshots: SnapshotInput[]): {
   }
 
   // Display newest first (row 0 = highest version).
-  const sortedDesc = [...snapshots].sort((a, b) => b.version - a.version);
+  const sortedDesc = Array.from(snapshots).sort(
+    (a, b) => b.version - a.version,
+  );
   const versionToRow = new Map<number, number>();
   for (let i = 0; i < sortedDesc.length; i++) {
     const s = sortedDesc[i];

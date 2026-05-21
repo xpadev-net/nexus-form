@@ -38,7 +38,7 @@ export function TextResponseList({
 
   // 回答をソート
   const sortedResponses = useMemo(() => {
-    const sorted = [...responses].sort((a, b) => {
+    const sorted = Array.from(responses).sort((a, b) => {
       const dateA = new Date(a.submitted_at);
       const dateB = new Date(b.submitted_at);
       return sortOrder === "newest"
