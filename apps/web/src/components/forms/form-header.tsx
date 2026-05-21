@@ -43,7 +43,7 @@ export function FormHeader({
   onTitleBlurRef.current = onTitleBlur;
   const isTitleSavingRef = useRef(isTitleSaving);
   isTitleSavingRef.current = isTitleSaving;
-  // Escape でキャンセルした場合に handleBlur での保存をスキップするフラグ
+  // Escape でキャンセルした場合に saveTitleOnBlur での保存をスキップするフラグ
   const cancelRef = useRef(false);
 
   // サーバーから title が更新されたとき（保存成功後など）、未フォーカス状態なら同期
@@ -66,14 +66,14 @@ export function FormHeader({
     }
   }, [titleSaveFailureCount]);
 
-  const handleFocus = useCallback(() => {
+  const enterTitleEditing = useCallback(() => {
     isFocusedRef.current = true;
     setIsFocused(true);
     // 前回 Escape でキャンセルした状態が残っていた場合に備えてリセット
     cancelRef.current = false;
   }, []);
 
-  const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
+  const updateLocalTitle = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     setLocalTitle(e.target.value);
   }, []);
 
@@ -84,14 +84,14 @@ export function FormHeader({
       e.preventDefault();
       e.currentTarget.blur();
     } else if (e.key === "Escape") {
-      // キャンセル: 元の値に戻してフォーカスを外す（handleBlur で保存しないよう cancelRef を立てる）
+      // キャンセル: 元の値に戻してフォーカスを外す（saveTitleOnBlur で保存しないよう cancelRef を立てる）
       cancelRef.current = true;
       setLocalTitle(titleRef.current);
       e.currentTarget.blur();
     }
   }, []);
 
-  const handleBlur = useCallback(() => {
+  const saveTitleOnBlur = useCallback(() => {
     isFocusedRef.current = false;
     setIsFocused(false);
     if (cancelRef.current) {
@@ -136,10 +136,10 @@ export function FormHeader({
                   maxLength={255}
                   disabled={isTitleSaving}
                   aria-busy={isTitleSaving}
-                  onChange={handleChange}
+                  onChange={updateLocalTitle}
                   onKeyDown={handleKeyDown}
-                  onFocus={handleFocus}
-                  onBlur={handleBlur}
+                  onFocus={enterTitleEditing}
+                  onBlur={saveTitleOnBlur}
                 />
                 {isTitleSaving && (
                   <Spinner className="absolute right-0 top-1/2 -translate-y-1/2 text-muted-foreground" />

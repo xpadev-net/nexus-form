@@ -62,7 +62,7 @@ function DateQuestionBase({
   const displayError = error || validationError;
 
   // 入力値の正規化とマスキング
-  const handleChange = useCallback(
+  const updateDateValue = useCallback(
     (inputValue: string) => {
       let normalizedValue = DateTimeUtils.normalizeDateValue(
         inputValue,
@@ -111,7 +111,7 @@ function DateQuestionBase({
       title={block.title}
       description={block.description}
       value={value}
-      onChange={handleChange}
+      onChange={updateDateValue}
       type={DateTimeUtils.getDateInputType(dateFormat)}
       placeholder={DateTimeUtils.getDatePlaceholder(dateFormat)}
       disabled={disabled}
