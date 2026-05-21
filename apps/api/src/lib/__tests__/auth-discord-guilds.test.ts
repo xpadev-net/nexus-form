@@ -190,4 +190,38 @@ describe("syncDiscordGuilds", () => {
     );
     expect(mocks.logError).not.toHaveBeenCalled();
   });
+
+  it("fails closed when bot guild response is an HTTP error", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse([
+            {
+              id: "guild-1",
+              name: "Admins",
+              icon: null,
+              permissions: "8",
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ error: "rate limited" }, false, 429),
+        ),
+    );
+    const { syncDiscordGuilds } = await import("../auth");
+
+    await syncDiscordGuilds("discord-user-1", "access-token");
+
+    expect(mocks.db.delete).not.toHaveBeenCalled();
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "Failed to fetch Bot guilds",
+      "integration",
+      {},
+    );
+    expect(mocks.logError).not.toHaveBeenCalled();
+  });
 });

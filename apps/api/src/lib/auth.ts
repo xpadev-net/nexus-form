@@ -251,18 +251,14 @@ export async function syncDiscordGuilds(
             botGuildIds.has(guild.id),
           );
         } else {
-          logWarn(
-            "Failed to fetch Bot guilds, syncing all administrator guilds",
-            "integration",
-            {},
-          );
+          logWarn("Failed to fetch Bot guilds", "integration", {});
+          return;
         }
       } catch (botError) {
-        logWarn(
-          "Failed to fetch Bot guilds, syncing all administrator guilds",
-          "integration",
-          { error: botError },
-        );
+        logWarn("Failed to fetch Bot guilds", "integration", {
+          error: botError,
+        });
+        return;
       }
     }
 
