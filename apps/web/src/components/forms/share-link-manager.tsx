@@ -77,6 +77,11 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
     });
   };
 
+  const errorMessage =
+    shareLinksQuery.error instanceof Error
+      ? shareLinksQuery.error.message
+      : "共有リンクの取得に失敗しました。";
+
   return (
     <div className="space-y-4 rounded border p-4">
       <div className="flex items-center justify-between">
@@ -114,6 +119,19 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
 
       {shareLinksQuery.isLoading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
+      ) : shareLinksQuery.isError ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="share-link-query-retry"
+            onClick={() => void shareLinksQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
       ) : shareLinks.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           共有リンクはまだありません。

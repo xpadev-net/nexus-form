@@ -53,6 +53,11 @@ export function InvitationManager({ formId }: InvitationManagerProps) {
     });
   };
 
+  const errorMessage =
+    invitationsQuery.error instanceof Error
+      ? invitationsQuery.error.message
+      : "招待一覧の取得に失敗しました。";
+
   return (
     <div className="space-y-4 rounded border p-4">
       <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -103,6 +108,19 @@ export function InvitationManager({ formId }: InvitationManagerProps) {
 
       {invitationsQuery.isLoading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
+      ) : invitationsQuery.isError ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="invitation-query-retry"
+            onClick={() => void invitationsQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
       ) : invitations.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           保留中の招待はありません。

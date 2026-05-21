@@ -37,6 +37,11 @@ export function PermissionEditor({ formId }: PermissionEditorProps) {
     removePermissionMutation.mutate(userId);
   };
 
+  const errorMessage =
+    permissionsQuery.error instanceof Error
+      ? permissionsQuery.error.message
+      : "権限設定の取得に失敗しました。";
+
   return (
     <div className="space-y-4 rounded border p-4">
       <h3 className="flex items-center gap-2 text-sm font-semibold">
@@ -46,6 +51,19 @@ export function PermissionEditor({ formId }: PermissionEditorProps) {
 
       {permissionsQuery.isLoading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
+      ) : permissionsQuery.isError ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{errorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="permission-query-retry"
+            onClick={() => void permissionsQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
       ) : permissions.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           権限が設定されているユーザーはいません。
