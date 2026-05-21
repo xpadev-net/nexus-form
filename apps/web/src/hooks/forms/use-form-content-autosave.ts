@@ -37,7 +37,13 @@ function clearResolvedPendingSave(
   savedContent: { expectedVersion: number; plateContent: string },
 ) {
   const key = `pendingSave:${formId}`;
-  const saved = localStorage.getItem(key);
+  let saved: string | null;
+  try {
+    saved = localStorage.getItem(key);
+  } catch {
+    clearPendingSave(formId);
+    return;
+  }
   if (!saved) return;
   let rawParsed: unknown;
   try {
@@ -52,9 +58,8 @@ function clearResolvedPendingSave(
     return;
   }
   if (
-    result.data.retryBlocked === "conflict" ||
-    (result.data.expectedVersion === savedContent.expectedVersion &&
-      result.data.plateContent === savedContent.plateContent)
+    result.data.expectedVersion === savedContent.expectedVersion &&
+    result.data.plateContent === savedContent.plateContent
   ) {
     clearPendingSave(formId);
   }
@@ -425,9 +430,10 @@ export function useFormContentAutosave({
       }
       const valueToSave = pendingValueRef.current ?? inFlightValueRef.current;
       if (valueToSave != null) {
+        const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({
           plateContent: valueToSave,
-          expectedVersion: versionRef.current,
+          expectedVersion: keepaliveVersion,
         });
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
           fetch(`${baseUrl}/api/forms/${formId}/content`, {
@@ -440,14 +446,11 @@ export function useFormContentAutosave({
             .then((response) => {
               if (response.ok) {
                 clearResolvedPendingSave(formId, {
-                  expectedVersion: versionRef.current,
+                  expectedVersion: keepaliveVersion,
                   plateContent: valueToSave,
                 });
               } else if (baseContentRef.current === valueToSave) {
-                clearResolvedPendingSave(formId, {
-                  expectedVersion: versionRef.current,
-                  plateContent: valueToSave,
-                });
+                // Regular autosave already saved this content; do not write a duplicate fallback.
               } else {
                 storePendingSave(formId, body);
               }
@@ -465,22 +468,28 @@ export function useFormContentAutosave({
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
     const key = `pendingSave:${formId}`;
-    const saved = localStorage.getItem(key);
+    let saved: string | null;
+    try {
+      saved = localStorage.getItem(key);
+    } catch {
+      clearPendingSave(formId);
+      return;
+    }
     if (!saved) return;
     let rawParsed: unknown;
     try {
       rawParsed = JSON.parse(saved);
     } catch {
-      localStorage.removeItem(key);
+      clearPendingSave(formId);
       return;
     }
     const result = pendingSaveSchema.safeParse(rawParsed);
     if (!result.success) {
-      localStorage.removeItem(key);
+      clearPendingSave(formId);
       return;
     }
     if (result.data.retryBlocked === "conflict") return;
-    localStorage.removeItem(key);
+    clearPendingSave(formId);
     const retryPayload = {
       expectedVersion: result.data.expectedVersion,
       plateContent: result.data.plateContent,

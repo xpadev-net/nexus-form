@@ -181,6 +181,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("keeps a pending save when keepalive fetch returns a non-2xx response", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
@@ -189,26 +190,32 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     act(() => {
-      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+      hook?.handleContentChange(draftContent);
     });
     act(() => {
       root.unmount();
     });
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "http://localhost:3001/api/forms/form-1/content",
+    );
+    expect(requestInit).toEqual(
       expect.objectContaining({
-        body: expect.stringContaining("draft"),
         keepalive: true,
         method: "PUT",
       }),
     );
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
     ).toEqual({
       expectedVersion: 7,
-      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      plateContent: draftContent,
     });
   });
 
@@ -228,15 +235,21 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
     await flushPromises();
 
-    expect(localStorage.getItem("pendingSave:form-1")).not.toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    });
   });
 
   it("does not keep a pending save when keepalive fetch succeeds", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     localStorage.setItem(
       "pendingSave:form-1",
       JSON.stringify({
         expectedVersion: 7,
-        plateContent: "stale draft",
+        plateContent: draftContent,
         retryBlocked: "conflict",
       }),
     );
@@ -247,8 +260,11 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       hook = currentHook;
     });
 
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(toastWarningMock).not.toHaveBeenCalled();
+
     act(() => {
-      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+      hook?.handleContentChange(draftContent);
     });
     act(() => {
       root.unmount();
@@ -285,8 +301,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       retryBlocked: "conflict",
     });
     expect(toastWarningMock).toHaveBeenCalledWith(
-      "前回未保存の変更が競合しています",
+      expect.stringContaining("競合"),
     );
+    expect(toastWarningMock).toHaveBeenCalledTimes(1);
 
     act(() => {
       root.unmount();
@@ -300,10 +317,37 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(rpcMock).not.toHaveBeenCalled();
     expect(toastWarningMock).not.toHaveBeenCalled();
-    expect(localStorage.getItem("pendingSave:form-1")).not.toBeNull();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      retryBlocked: "conflict",
+    });
 
     act(() => {
       retryBlockedRoot.unmount();
+    });
+  });
+
+  it("does not throw when pending save storage cannot be read on mount", async () => {
+    const removeItemMock = vi.fn();
+    vi.stubGlobal("localStorage", {
+      ...createMemoryStorage(),
+      getItem: vi.fn(() => {
+        throw new Error("storage unavailable");
+      }),
+      removeItem: removeItemMock,
+    });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(removeItemMock).toHaveBeenCalledWith("pendingSave:form-1");
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
     });
   });
 
@@ -356,7 +400,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("falls back to localStorage without fetch when the body exceeds the keepalive limit", () => {
+  it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
@@ -371,6 +415,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       root.unmount();
     });
+    await flushPromises();
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(
@@ -397,7 +442,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         { plateContentVersion: 8 },
         {
           expectedVersion: 7,
-          plateContent: "saved draft",
+          plateContent: "stale draft",
           restoreGeneration: 0,
         },
       );
@@ -416,6 +461,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       plateContent: "newer draft",
     });
     const root = renderAutosave(() => {});
+    // Set after mount to simulate a keepalive/async write that happens after the initial restore pass.
     localStorage.setItem("pendingSave:form-1", newerPendingSave);
 
     act(() => {
