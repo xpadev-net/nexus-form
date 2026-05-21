@@ -146,6 +146,7 @@ describe("GET /get fingerprint authorization", () => {
       "fingerprintDetail.responseId",
       "response-b",
     );
+    expect(mocks.fingerprintRows).not.toHaveBeenCalled();
   });
 
   it("allows matching formId and responseId to read fingerprint rows", async () => {
