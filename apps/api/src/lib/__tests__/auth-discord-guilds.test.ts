@@ -52,12 +52,15 @@ vi.mock("../logger", () => ({
   logWarn: mocks.logWarn,
 }));
 
-function jsonResponse(body: unknown, ok = true, status = ok ? 200 : 500) {
-  return {
-    ok,
+function jsonResponse(
+  body: unknown,
+  _ok = true,
+  status = _ok ? 200 : 500,
+): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { "Content-Type": "application/json" },
     status,
-    json: vi.fn(async () => body),
-  } as unknown as Response;
+  });
 }
 
 describe("syncDiscordGuilds", () => {
