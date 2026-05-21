@@ -3,8 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@nexus-form/database", () => ({
   db: { select: vi.fn() },
-  formIntegration: {},
-  formResponse: {},
+  formIntegration: {
+    id: "formIntegration.id",
+    formId: "formIntegration.formId",
+  },
+  formResponse: {
+    id: "formResponse.id",
+    formId: "formResponse.formId",
+  },
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
@@ -21,8 +27,12 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
 });
 
 vi.mock("drizzle-orm", () => ({
-  and: vi.fn(),
-  eq: vi.fn(),
+  and: vi.fn((...conditions: unknown[]) => ({ conditions, type: "and" })),
+  eq: vi.fn((column: unknown, value: unknown) => ({
+    column,
+    type: "eq",
+    value,
+  })),
 }));
 
 vi.mock("../../lib/google-sheets-client", () => ({
@@ -46,8 +56,9 @@ vi.mock("../../lib/response-data-extractor", () => ({
   safeParseResponseData: vi.fn(),
 }));
 
-import { db } from "@nexus-form/database";
+import { db, formIntegration, formResponse } from "@nexus-form/database";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import { and } from "drizzle-orm";
 import {
   appendRows,
   readRange,
@@ -66,6 +77,7 @@ import { safeParseResponseData } from "../../lib/response-data-extractor";
 import { DONE_IDEMPOTENCY_TTL_SECONDS, handleSheetsSync } from "../sheets-sync";
 
 const mockDb = vi.mocked(db);
+const mockAnd = vi.mocked(and);
 const mockExtractQuestionsFromPlateContent = vi.mocked(
   extractQuestionsFromPlateContent,
 );
@@ -214,6 +226,51 @@ describe("handleSheetsSync — idempotency states", () => {
       "Google Sheets integration setting must be an object",
     );
     expect(mockGetOAuthToken).not.toHaveBeenCalled();
+  });
+
+  it("integration が job の formId に属さない場合はSheets API呼び出し前に失敗する", async () => {
+    setupDbSelect([]);
+
+    await expect(
+      handleSheetsSync(
+        makeJob({
+          formId: "form-2",
+          integrationId: "integration-1",
+          responseId: "response-1",
+        }),
+      ),
+    ).rejects.toThrow("Form integration not found: integration-1");
+
+    expect(mockAnd).toHaveBeenCalledWith(
+      { column: formIntegration.id, type: "eq", value: "integration-1" },
+      { column: formIntegration.formId, type: "eq", value: "form-2" },
+    );
+    expect(mockGetOAuthToken).not.toHaveBeenCalled();
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+  });
+
+  it("response が job の formId に属さない場合はSheets API呼び出し前に失敗する", async () => {
+    setupDbSelect([INTEGRATION], []);
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+
+    await expect(
+      handleSheetsSync(
+        makeJob({
+          formId: "form-2",
+          integrationId: "integration-1",
+          responseId: "response-1",
+        }),
+      ),
+    ).rejects.toThrow("Form response not found: response-1");
+
+    expect(mockAnd).toHaveBeenCalledWith(
+      { column: formResponse.id, type: "eq", value: "response-1" },
+      { column: formResponse.formId, type: "eq", value: "form-2" },
+    );
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
   it('returns {skipped, reason:"duplicate"} when idempotency key is "done"', async () => {
