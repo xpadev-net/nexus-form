@@ -86,8 +86,16 @@ describe("SSE channel subscriber registry", () => {
 
     subscribers[0]?.emitMessage("form:validation:form-1", '{"type":"ok"}');
 
-    expect(firstClient.sendMessage).toHaveBeenCalledWith("1", '{"type":"ok"}');
-    expect(secondClient.sendMessage).toHaveBeenCalledWith("1", '{"type":"ok"}');
+    await vi.waitFor(() => {
+      expect(firstClient.sendMessage).toHaveBeenCalledWith(
+        "1",
+        '{"type":"ok"}',
+      );
+      expect(secondClient.sendMessage).toHaveBeenCalledWith(
+        "1",
+        '{"type":"ok"}',
+      );
+    });
 
     await detachFirst();
     expect(subscribers[0]?.unsubscribe).not.toHaveBeenCalled();
@@ -279,6 +287,146 @@ describe("SSE channel subscriber registry", () => {
     await expect(response.text()).resolves.toBe("SSE subscription unavailable");
     expect(subscribers).toHaveLength(0);
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("serializes consecutive Redis messages per client", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const firstSent = createDeferred();
+    const secondSent = createDeferred();
+    const thirdSent = createDeferred();
+    const completedIds: string[] = [];
+    const client = {
+      sendMessage: vi.fn((id: string, _data: string) => {
+        const deferred =
+          id === "1" ? firstSent : id === "2" ? secondSent : thirdSent;
+        return deferred.promise.then(() => {
+          completedIds.push(id);
+        });
+      }),
+      close: vi.fn(),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "first");
+    subscribers[0]?.emitMessage("form:validation:form-1", "second");
+    subscribers[0]?.emitMessage("form:validation:form-1", "third");
+
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+    });
+    expect(client.sendMessage).toHaveBeenNthCalledWith(1, "1", "first");
+
+    firstSent.resolve();
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(2);
+    });
+    expect(client.sendMessage).toHaveBeenNthCalledWith(2, "2", "second");
+    expect(completedIds).toEqual(["1"]);
+
+    secondSent.resolve();
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(3);
+    });
+    expect(client.sendMessage).toHaveBeenNthCalledWith(3, "3", "third");
+    expect(completedIds).toEqual(["1", "2"]);
+
+    thirdSent.resolve();
+    await vi.waitFor(() => {
+      expect(completedIds).toEqual(["1", "2", "3"]);
+    });
+
+    await detach();
+  });
+
+  it("closes the last client subscription when a queued send fails", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const firstSent = createDeferred();
+    const client = {
+      sendMessage: vi.fn((id: string, _data: string) => {
+        if (id === "1") return firstSent.promise;
+        return Promise.resolve();
+      }),
+      close: vi.fn(),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "first");
+    subscribers[0]?.emitMessage("form:validation:form-1", "second");
+
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    firstSent.reject(new Error("client disconnected"));
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+    expect(client.sendMessage).toHaveBeenCalledTimes(1);
+
+    await detach();
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes a client when its pending send queue grows too large", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const firstSent = createDeferred();
+    const client = {
+      sendMessage: vi.fn((id: string, _data: string) => {
+        if (id === "1") return firstSent.promise;
+        return Promise.resolve();
+      }),
+      close: vi.fn(),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "message-0");
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    for (let i = 1; i <= 100; i++) {
+      subscribers[0]?.emitMessage("form:validation:form-1", `message-${i}`);
+    }
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+    expect(client.sendMessage).toHaveBeenCalledTimes(1);
+
+    firstSent.resolve();
+    await detach();
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -35,6 +35,10 @@ const MAX_SSE_CONNECTIONS_PER_FORM = Number.parseInt(
   process.env.SSE_MAX_CONNECTIONS_PER_FORM || "50",
   10,
 );
+const MAX_SSE_PENDING_MESSAGES_PER_CLIENT = Number.parseInt(
+  process.env.SSE_MAX_PENDING_MESSAGES_PER_CLIENT || "100",
+  10,
+);
 
 interface SseConnectionScope {
   userId: string;
@@ -140,9 +144,17 @@ interface RedisSubscriber {
   quit(): Promise<unknown>;
 }
 
+interface SseClientEntry {
+  eventId: number;
+  client: SseMessageClient;
+  sendChain: Promise<void>;
+  pendingMessages: number;
+  closed: boolean;
+}
+
 interface ChannelSubscription {
   subscriber: RedisSubscriber;
-  clients: Map<symbol, { eventId: number; client: SseMessageClient }>;
+  clients: Map<symbol, SseClientEntry>;
   subscribePromise: Promise<unknown>;
   closingPromise: Promise<void> | null;
 }
@@ -207,6 +219,7 @@ export function createSseChannelRegistry(
       const clients = Array.from(subscription.clients.values());
       subscription.clients.clear();
       for (const entry of clients) {
+        entry.closed = true;
         entry.client.close();
       }
       await subscription.subscriber.unsubscribe(channel).catch(() => {});
@@ -230,11 +243,40 @@ export function createSseChannelRegistry(
     subscriber.on("message", (receivedChannel: string, message: string) => {
       if (receivedChannel !== channel) return;
 
-      for (const entry of subscription.clients.values()) {
+      function closeClientEntry(clientId: symbol, entry: SseClientEntry): void {
+        if (entry.closed) return;
+        entry.closed = true;
+        subscription.clients.delete(clientId);
+        entry.client.close();
+        // Safety net for races where the stream detach path already ran while
+        // sibling clients still existed; this may be the last remaining client.
+        if (subscription.clients.size === 0) {
+          void closeSubscription(channel, subscription);
+        }
+      }
+
+      for (const [clientId, entry] of subscription.clients.entries()) {
+        if (entry.closed) continue;
+        if (entry.pendingMessages >= MAX_SSE_PENDING_MESSAGES_PER_CLIENT) {
+          closeClientEntry(clientId, entry);
+          continue;
+        }
+
         entry.eventId++;
-        entry.client.sendMessage(String(entry.eventId), message).catch(() => {
-          // クライアントが切断済みの場合はエラーを無視
-        });
+        const eventId = String(entry.eventId);
+        entry.pendingMessages++;
+        entry.sendChain = entry.sendChain
+          .then(async () => {
+            try {
+              if (entry.closed) return;
+              await entry.client.sendMessage(eventId, message);
+            } finally {
+              entry.pendingMessages--;
+            }
+          })
+          .catch(() => {
+            closeClientEntry(clientId, entry);
+          });
       }
     });
 
@@ -272,7 +314,14 @@ export function createSseChannelRegistry(
 
       const subscription = getSubscription(channel);
       const clientId = Symbol(channel);
-      subscription.clients.set(clientId, { eventId: 0, client });
+      const entry: SseClientEntry = {
+        eventId: 0,
+        client,
+        sendChain: Promise.resolve(),
+        pendingMessages: 0,
+        closed: false,
+      };
+      subscription.clients.set(clientId, entry);
 
       try {
         if (!options.preflighted) {
@@ -291,6 +340,7 @@ export function createSseChannelRegistry(
         if (detached) return;
         detached = true;
 
+        entry.closed = true;
         subscription.clients.delete(clientId);
         if (subscription.clients.size === 0) {
           await closeSubscription(channel, subscription);
@@ -351,7 +401,10 @@ async function createSSEStream(
         return cleanupPromise;
       };
       const closeStream = (): void => {
+        if (closeRequested) return;
         closeRequested = true;
+        stream.abort();
+        void stream.close();
         cleanupClient().catch(() => {});
         resolveStream?.();
       };
