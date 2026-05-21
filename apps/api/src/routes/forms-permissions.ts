@@ -26,6 +26,7 @@ import {
   getFormPermissions,
   getShareLinks,
   getUserFormPermission,
+  removePermission,
   transferOwnership,
   updatePermissionRole,
   updateShareLink,
@@ -247,21 +248,23 @@ export const formsPermissionsRouter = createHonoApp()
     const formId = c.req.param("id");
     const userId = c.req.param("userId");
 
-    const [target] = await db
-      .select({ id: formPermission.id })
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .limit(1);
-    if (!target) {
-      return c.json(errorResponse("Permission not found"), 404);
+    try {
+      await removePermission(formId, userId);
+    } catch (error) {
+      if (error instanceof Error) {
+        if (
+          error.message === "Permission not found" ||
+          error.message === "Form not found"
+        ) {
+          return c.json(errorResponse(error.message), 404);
+        }
+        if (error.message.startsWith("Cannot remove owner permission")) {
+          return c.json(errorResponse(error.message), 409);
+        }
+      }
+      throw error;
     }
 
-    await db.delete(formPermission).where(eq(formPermission.id, target.id));
     return c.json(OkResponseSchema.parse({ ok: true }));
   })
   .post(
