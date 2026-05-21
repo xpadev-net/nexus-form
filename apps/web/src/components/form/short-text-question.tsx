@@ -95,7 +95,7 @@ export const ShortTextQuestionComponent: FC<ShortTextQuestionProps> = ({
   const displayError = error || localError;
 
   // 入力値変更ハンドラー
-  const handleChange = useCallback(
+  const updateTextValue = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const newValue = event.target.value;
       onChange(newValue);
@@ -104,7 +104,7 @@ export const ShortTextQuestionComponent: FC<ShortTextQuestionProps> = ({
   );
 
   // フォーカスアウトハンドラー
-  const handleBlur = useCallback(
+  const validateTextOnBlur = useCallback(
     async (event: FocusEvent<HTMLInputElement>) => {
       const inputValue = event.target.value;
 
@@ -169,8 +169,8 @@ export const ShortTextQuestionComponent: FC<ShortTextQuestionProps> = ({
           id={block.blockId}
           type={inputType}
           value={value}
-          onChange={handleChange}
-          onBlur={handleBlur}
+          onChange={updateTextValue}
+          onBlur={validateTextOnBlur}
           placeholder={displayPlaceholder}
           disabled={disabled}
           aria-describedby={[

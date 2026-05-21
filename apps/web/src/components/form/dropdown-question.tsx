@@ -102,7 +102,7 @@ const DropdownQuestionBase: FC<DropdownQuestionProps> = ({
   );
 
   // フォーカスアウトハンドラー
-  const handleBlur = useCallback(() => {
+  const validateOtherValueOnBlur = useCallback(() => {
     onBlur?.();
   }, [onBlur]);
 
@@ -185,7 +185,7 @@ const DropdownQuestionBase: FC<DropdownQuestionProps> = ({
             <Input
               value={otherValue}
               onChange={handleOtherChange}
-              onBlur={handleBlur}
+              onBlur={validateOtherValueOnBlur}
               placeholder="具体的な内容を入力してください"
               disabled={disabled}
               className="w-full"

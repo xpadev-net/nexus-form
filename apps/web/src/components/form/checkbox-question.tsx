@@ -119,7 +119,7 @@ const CheckboxQuestionBase: FC<CheckboxQuestionProps> = ({
   );
 
   // フォーカスアウトハンドラー
-  const handleBlur = useCallback(() => {
+  const validateOtherValueOnBlur = useCallback(() => {
     onBlur?.();
   }, [onBlur]);
 
@@ -178,7 +178,7 @@ const CheckboxQuestionBase: FC<CheckboxQuestionProps> = ({
             <Input
               value={otherValue}
               onChange={handleOtherInputChange}
-              onBlur={handleBlur}
+              onBlur={validateOtherValueOnBlur}
               placeholder="具体的な内容を入力してください"
               disabled={disabled}
               className="w-full"
@@ -197,7 +197,7 @@ const CheckboxQuestionBase: FC<CheckboxQuestionProps> = ({
     otherValue,
     handleOtherChange,
     handleOtherInputChange,
-    handleBlur,
+    validateOtherValueOnBlur,
     error,
   ]);
 
