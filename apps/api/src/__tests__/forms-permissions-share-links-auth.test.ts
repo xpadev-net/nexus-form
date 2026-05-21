@@ -277,6 +277,7 @@ describe("R9-C1 share-link management authorization", () => {
       "EDITOR",
       "VIEWER",
     );
+    expect(mocks.checkShareLinkPermission).not.toHaveBeenCalled();
     expect(mocks.createShareLink).not.toHaveBeenCalled();
   });
 
@@ -310,6 +311,7 @@ describe("R9-C1 share-link management authorization", () => {
       "VIEWER",
       "EDITOR",
     );
+    expect(mocks.checkShareLinkPermission).not.toHaveBeenCalled();
     expect(mocks.createShareLink).toHaveBeenCalledWith(
       "form-1",
       "VIEWER",
