@@ -73,6 +73,9 @@ vi.mock("@nexus-form/database", () => ({
         select: vi.fn(() => ({
           from: selectFrom,
         })),
+        update: vi.fn(() => ({
+          set: updateSet,
+        })),
       }),
     ),
   },
@@ -430,6 +433,25 @@ describe("writeValidationResult", () => {
     expect(insertValues).not.toHaveBeenCalled();
     expect(publishValidationEvent).not.toHaveBeenCalled();
   });
+
+  it("does not overwrite an owned row when the worker job id is missing", async () => {
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "PENDING", errorCode: null, jobId: "job-b" },
+    ]);
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+    };
+
+    await writeValidationResult(params);
+
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe("markValidationProcessing", () => {
@@ -479,7 +501,7 @@ describe("markValidationProcessing", () => {
 
   it("throws before publishing when a cancelled row is excluded from PROCESSING", async () => {
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
-    selectLimit.mockResolvedValueOnce([
+    selectForUpdate.mockResolvedValueOnce([
       { status: "FAILED", errorCode: "CANCELLED_BY_USER" },
     ]);
 
@@ -497,7 +519,7 @@ describe("markValidationProcessing", () => {
 
   it("throws before publishing when a newer job owns the validation result", async () => {
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
-    selectLimit.mockResolvedValueOnce([
+    selectForUpdate.mockResolvedValueOnce([
       { status: "PENDING", errorCode: null, jobId: "job-b" },
     ]);
 
@@ -509,6 +531,24 @@ describe("markValidationProcessing", () => {
         referencedBlockId: "question-1",
         service: "discord",
         jobId: "job-a",
+      }),
+    ).rejects.toBeInstanceOf(StaleValidationJobError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("throws before publishing when the worker job id is missing but the row is owned", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "PENDING", errorCode: null, jobId: "job-b" },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
       }),
     ).rejects.toBeInstanceOf(StaleValidationJobError);
     expect(publishValidationEvent).not.toHaveBeenCalled();
