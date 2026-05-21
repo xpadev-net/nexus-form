@@ -12,9 +12,10 @@ type AutosaveState = {
 };
 
 const keyPrefix = "cf:autosave";
-const generateKey = (formId: string, respondentUuid: string) =>
+const generateKey = (formId: string, respondentUuid: string): string =>
   `${keyPrefix}:${formId}:${respondentUuid}`;
-const generateRespondentKey = (formId: string) => `cf:respondent:${formId}`;
+const generateRespondentKey = (formId: string): string =>
+  `cf:respondent:${formId}`;
 
 const resolveRespondentUuid = (formId: string): string => {
   if (typeof window === "undefined") return "";
@@ -50,27 +51,20 @@ export const useAutosave = (
 
   const enabled = options.enabled ?? true;
   const timerRef = useRef<number | null>(null);
-  const respondentRef = useRef<RespondentIdentity>({
-    formId,
-    uuid: resolveRespondentUuid(formId),
-  });
+  const respondentRef = useRef<RespondentIdentity | null>(null);
   const lastHashRef = useRef<string>("");
 
-  const getRespondentUuid = useCallback(() => {
-    if (respondentRef.current.formId === formId && respondentRef.current.uuid) {
+  const getRespondentUuid = useCallback((): string => {
+    if (
+      respondentRef.current?.formId === formId &&
+      respondentRef.current.uuid
+    ) {
       return respondentRef.current.uuid;
     }
 
     const uuid = resolveRespondentUuid(formId);
     respondentRef.current = { formId, uuid };
     return uuid;
-  }, [formId]);
-
-  useEffect(() => {
-    respondentRef.current = {
-      formId,
-      uuid: resolveRespondentUuid(formId),
-    };
   }, [formId]);
 
   const saveNow = useCallback(async () => {

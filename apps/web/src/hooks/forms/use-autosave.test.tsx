@@ -5,16 +5,18 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutosave } from "./use-autosave";
 
-(
-  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
+declare global {
+  var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
+}
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 type AutosaveControls = ReturnType<typeof useAutosave>;
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 
-const createAutosaveKey = (formId: string, respondentUuid: string) =>
+const createAutosaveKey = (formId: string, respondentUuid: string): string =>
   `cf:autosave:${formId}:${respondentUuid}`;
 
 function createMemoryStorage(): Storage {
@@ -47,7 +49,7 @@ function AutosaveProbe({
   formId: string;
   layoutKey?: string;
   onLayout: (controls: AutosaveControls) => void;
-}) {
+}): null {
   const lastLayoutKeyRef = useRef<string | null>(null);
   const controls = useAutosave(
     formId,
