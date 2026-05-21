@@ -89,17 +89,21 @@ const bulkRetrySchema = z.object({
     .max(100, "Cannot retry more than 100 validation results at once"),
 });
 
-const cancellableValidationStatuses = new Set<ValidationStatusValue>([
+const cancellableValidationStatusValues = [
   "PENDING",
   "PROCESSING",
   "FAILED",
-]);
+] as const satisfies ReadonlyArray<ValidationStatusValue>;
+
+const cancellableValidationStatuses = new Set<ValidationStatusValue>(
+  cancellableValidationStatusValues,
+);
 
 function cancellableValidationStatusCondition() {
   return or(
-    eq(externalServiceValidationResult.status, "PENDING"),
-    eq(externalServiceValidationResult.status, "PROCESSING"),
-    eq(externalServiceValidationResult.status, "FAILED"),
+    ...cancellableValidationStatusValues.map((status) =>
+      eq(externalServiceValidationResult.status, status),
+    ),
   );
 }
 
