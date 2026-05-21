@@ -15,6 +15,15 @@ const mocks = vi.hoisted(() => ({
   dbSelect: vi.fn(),
   deleteShareLink: vi.fn(),
   getShareLinks: vi.fn(),
+  PermissionRemovalError: class PermissionRemovalError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.name = "PermissionRemovalError";
+      this.code = code;
+    }
+  },
   removePermission: vi.fn(),
   updateShareLink: vi.fn(),
 }));
@@ -78,6 +87,7 @@ vi.mock("../lib/forms/permission-service", () => ({
   getFormPermissions: vi.fn(),
   getShareLinks: mocks.getShareLinks,
   getUserFormPermission: vi.fn(),
+  PermissionRemovalError: mocks.PermissionRemovalError,
   removePermission: mocks.removePermission,
   transferOwnership: vi.fn(),
   updatePermissionRole: vi.fn(),
@@ -253,7 +263,8 @@ describe("R10-C2 permission deletion invariants", () => {
 
   it("maps owner deletion invariant failures to conflict responses", async () => {
     mocks.removePermission.mockRejectedValue(
-      new Error(
+      new mocks.PermissionRemovalError(
+        "OWNER_PERMISSION_REMOVAL_FORBIDDEN",
         "Cannot remove owner permission. Use transfer ownership instead.",
       ),
     );
@@ -273,7 +284,12 @@ describe("R10-C2 permission deletion invariants", () => {
   });
 
   it("maps missing permission failures to not found responses", async () => {
-    mocks.removePermission.mockRejectedValue(new Error("Permission not found"));
+    mocks.removePermission.mockRejectedValue(
+      new mocks.PermissionRemovalError(
+        "PERMISSION_NOT_FOUND",
+        "Permission not found",
+      ),
+    );
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
     );
@@ -287,6 +303,26 @@ describe("R10-C2 permission deletion invariants", () => {
     expect(mocks.removePermission).toHaveBeenCalledWith(
       "form-1",
       "missing-user",
+    );
+  });
+
+  it("maps missing form failures to not found responses", async () => {
+    mocks.removePermission.mockRejectedValue(
+      new mocks.PermissionRemovalError("FORM_NOT_FOUND", "Form not found"),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/missing-form/permissions/editor-1",
+      { method: "DELETE" },
+    );
+
+    expect(response.status).toBe(404);
+    expect(mocks.removePermission).toHaveBeenCalledWith(
+      "missing-form",
+      "editor-1",
     );
   });
 });

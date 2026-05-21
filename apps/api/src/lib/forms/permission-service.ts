@@ -86,6 +86,21 @@ interface GetFormByShareLinkResponse {
   share_link: FormShareLinkResult;
 }
 
+export type PermissionRemovalErrorCode =
+  | "FORM_NOT_FOUND"
+  | "OWNER_PERMISSION_REMOVAL_FORBIDDEN"
+  | "PERMISSION_NOT_FOUND";
+
+export class PermissionRemovalError extends Error {
+  constructor(
+    readonly code: PermissionRemovalErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PermissionRemovalError";
+  }
+}
+
 // ── Implementation ──
 
 /**
@@ -540,7 +555,7 @@ export async function removePermission(
       .limit(1);
 
     if (!foundForm) {
-      throw new Error("Form not found");
+      throw new PermissionRemovalError("FORM_NOT_FOUND", "Form not found");
     }
 
     // 削除対象の権限を取得
@@ -556,12 +571,16 @@ export async function removePermission(
       .limit(1);
 
     if (!targetPermission) {
-      throw new Error("Permission not found");
+      throw new PermissionRemovalError(
+        "PERMISSION_NOT_FOUND",
+        "Permission not found",
+      );
     }
 
     // OWNER削除を完全に禁止
     if (targetPermission.role === "OWNER") {
-      throw new Error(
+      throw new PermissionRemovalError(
+        "OWNER_PERMISSION_REMOVAL_FORBIDDEN",
         "Cannot remove owner permission. Use transfer ownership instead.",
       );
     }

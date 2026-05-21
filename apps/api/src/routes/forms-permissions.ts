@@ -26,6 +26,7 @@ import {
   getFormPermissions,
   getShareLinks,
   getUserFormPermission,
+  PermissionRemovalError,
   removePermission,
   transferOwnership,
   updatePermissionRole,
@@ -251,14 +252,14 @@ export const formsPermissionsRouter = createHonoApp()
     try {
       await removePermission(formId, userId);
     } catch (error) {
-      if (error instanceof Error) {
+      if (error instanceof PermissionRemovalError) {
         if (
-          error.message === "Permission not found" ||
-          error.message === "Form not found"
+          error.code === "FORM_NOT_FOUND" ||
+          error.code === "PERMISSION_NOT_FOUND"
         ) {
           return c.json(errorResponse(error.message), 404);
         }
-        if (error.message.startsWith("Cannot remove owner permission")) {
+        if (error.code === "OWNER_PERMISSION_REMOVAL_FORBIDDEN") {
           return c.json(errorResponse(error.message), 409);
         }
       }
