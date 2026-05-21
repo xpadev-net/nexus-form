@@ -69,7 +69,12 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const [integration] = await db
     .select()
     .from(formIntegration)
-    .where(eq(formIntegration.id, integrationId))
+    .where(
+      and(
+        eq(formIntegration.id, integrationId),
+        eq(formIntegration.formId, formId),
+      ),
+    )
     .limit(1);
 
   if (!integration) {
@@ -126,7 +131,9 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const [response] = await db
     .select()
     .from(formResponse)
-    .where(eq(formResponse.id, responseId))
+    .where(
+      and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
+    )
     .limit(1);
 
   if (!response) {
