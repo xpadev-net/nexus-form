@@ -63,7 +63,20 @@ describe("extractClientIP", () => {
   });
 
   describe("general strategy", () => {
-    it("should ignore x-forwarded-for header when no trusted proxy is configured", () => {
+    it("should use socket IP when no trusted proxy is configured", () => {
+      const request = {
+        headers: new Headers({
+          "x-forwarded-for": "192.168.1.1, 10.0.0.1",
+        }),
+        remoteAddress: "198.51.100.10",
+      };
+
+      const result = extractClientIP(request, { strategy: "general" });
+      expect(result.ip).toBe("198.51.100.10");
+      expect(result.source).toBe("socket");
+    });
+
+    it("should ignore x-forwarded-for header when no trusted proxy is configured and socket IP is unavailable", () => {
       const request = new Request("http://localhost", {
         headers: {
           "x-forwarded-for": "192.168.1.1, 10.0.0.1",

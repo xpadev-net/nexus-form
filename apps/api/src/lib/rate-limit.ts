@@ -18,7 +18,26 @@ interface RateLimitEntry {
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 export function getClientIp(c: Context): string {
-  return extractClientIP(c.req.raw, { strategy: "general" }).ip;
+  const maybeEnv = c.env as Record<string, unknown> | undefined;
+  const maybeIncoming = maybeEnv?.incoming;
+  const remoteAddress =
+    typeof maybeIncoming === "object" &&
+    maybeIncoming !== null &&
+    "socket" in maybeIncoming &&
+    typeof maybeIncoming.socket === "object" &&
+    maybeIncoming.socket !== null &&
+    "remoteAddress" in maybeIncoming.socket &&
+    typeof maybeIncoming.socket.remoteAddress === "string"
+      ? maybeIncoming.socket.remoteAddress
+      : undefined;
+
+  return extractClientIP(
+    {
+      headers: c.req.raw.headers,
+      remoteAddress,
+    },
+    { strategy: "general" },
+  ).ip;
 }
 
 function getDefaultKey(c: Context): string {
