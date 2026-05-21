@@ -37,12 +37,16 @@ export type SheetsSyncJob = SheetsSyncJobData;
 const RESPONSE_ID_HEADER = "Response ID";
 const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 3;
 const SHEETS_SYNC_LOCK_BUFFER_MS = 30_000;
+const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
+/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 3 sequential calls plus a lock buffer. */
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
   SHEETS_SYNC_LOCK_BUFFER_MS;
+/** Exported public API: Redis lock wait timeout in ms; must exceed SHEETS_SYNC_LOCK_TTL_MS so contenders can observe completion. */
 export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
+/** Exported public API: pending idempotency TTL in seconds; must outlive the lock TTL plus an extra retry margin. */
 export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
-  (SHEETS_SYNC_LOCK_TTL_MS + SHEETS_SYNC_LOCK_BUFFER_MS) / 1000,
+  (SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) / 1000,
 );
 export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -244,7 +248,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         );
       }
 
-      // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+      // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
       const responseData = safeParseResponseData(
         response.responseDataJson,
         response.id,
@@ -277,7 +281,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         return markDuplicateWritten();
       }
 
-      // 5. ヘッダー行を取得
+      // 6. ヘッダー行を取得
       const existingHeaders = sheetCheck.headers;
 
       await job.updateProgress(60);
