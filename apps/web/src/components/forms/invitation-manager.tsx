@@ -115,6 +115,7 @@ export function InvitationManager({ formId }: InvitationManagerProps) {
             type="button"
             variant="outline"
             size="sm"
+            data-testid="invitation-query-retry"
             onClick={() => void invitationsQuery.refetch()}
           >
             再読み込み

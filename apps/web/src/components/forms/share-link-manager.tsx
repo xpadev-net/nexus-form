@@ -126,6 +126,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
             type="button"
             variant="outline"
             size="sm"
+            data-testid="share-link-query-retry"
             onClick={() => void shareLinksQuery.refetch()}
           >
             再読み込み

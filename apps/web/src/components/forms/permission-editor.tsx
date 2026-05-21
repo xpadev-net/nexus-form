@@ -58,6 +58,7 @@ export function PermissionEditor({ formId }: PermissionEditorProps) {
             type="button"
             variant="outline"
             size="sm"
+            data-testid="permission-query-retry"
             onClick={() => void permissionsQuery.refetch()}
           >
             再読み込み

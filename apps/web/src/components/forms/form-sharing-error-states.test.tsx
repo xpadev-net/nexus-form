@@ -152,8 +152,8 @@ describe("form sharing query error states", () => {
       "権限が設定されているユーザーはいません。",
     );
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      '[data-testid="permission-query-retry"]',
     );
     expect(retryButton).toBeDefined();
 
@@ -173,8 +173,8 @@ describe("form sharing query error states", () => {
     expect(container.textContent).toContain("招待の取得に失敗しました");
     expect(container.textContent).not.toContain("保留中の招待はありません。");
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      '[data-testid="invitation-query-retry"]',
     );
     expect(retryButton).toBeDefined();
 
@@ -194,8 +194,8 @@ describe("form sharing query error states", () => {
     expect(container.textContent).toContain("共有リンクの取得に失敗しました");
     expect(container.textContent).not.toContain("共有リンクはまだありません。");
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      '[data-testid="share-link-query-retry"]',
     );
     expect(retryButton).toBeDefined();
 
