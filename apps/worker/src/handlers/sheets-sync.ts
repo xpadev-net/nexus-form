@@ -17,6 +17,7 @@ import { z } from "zod";
 import {
   appendRows,
   readRange,
+  SHEETS_API_TIMEOUT_MS,
   updateRange,
 } from "../lib/google-sheets-client";
 import {
@@ -34,7 +35,15 @@ import { safeParseResponseData } from "../lib/response-data-extractor";
 export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
-const PENDING_IDEMPOTENCY_TTL_SECONDS = 90;
+const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 3;
+const SHEETS_SYNC_LOCK_BUFFER_MS = 30_000;
+export const SHEETS_SYNC_LOCK_TTL_MS =
+  SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
+  SHEETS_SYNC_LOCK_BUFFER_MS;
+export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
+export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
+  (SHEETS_SYNC_LOCK_TTL_MS + SHEETS_SYNC_LOCK_BUFFER_MS) / 1000,
+);
 export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const GoogleSheetsIntegrationSettingSchema = z.object({
@@ -235,20 +244,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         );
       }
 
-      const sheetCheck = await readSheetForIdempotency(token, {
-        spreadsheetId,
-        sheetName,
-        responseId: response.id,
-      });
-      if (sheetCheck.exists) {
-        return markDuplicateWritten();
-      }
-
-      // 5. ヘッダー行を取得
-      const existingHeaders = sheetCheck.headers;
-
-      await job.updateProgress(60);
-
       // 6. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
       const responseData = safeParseResponseData(
         response.responseDataJson,
@@ -263,6 +258,29 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           jobId: job.id,
         };
       }
+
+      // Mark as "pending" before any Sheets API call in this critical section.
+      // If Redis is unavailable, throw so the job retries rather than writing
+      // without the duplicate guard. The TTL exceeds the lock TTL.
+      await setIdempotencyKey(
+        idempotencyKey,
+        PENDING_IDEMPOTENCY_TTL_SECONDS,
+        "pending",
+      );
+
+      const sheetCheck = await readSheetForIdempotency(token, {
+        spreadsheetId,
+        sheetName,
+        responseId: response.id,
+      });
+      if (sheetCheck.exists) {
+        return markDuplicateWritten();
+      }
+
+      // 5. ヘッダー行を取得
+      const existingHeaders = sheetCheck.headers;
+
+      await job.updateProgress(60);
 
       // 7. ヘッダーと行データを構築
       const { headers, row } = buildRowFromResponse(
@@ -289,15 +307,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         }
       }
       await job.updateProgress(80);
-
-      // Mark as "pending" BEFORE appendRows — fail-closed: if Redis is unavailable
-      // here, throw so the job retries rather than proceeding without the guard.
-      // TTL (90 s) slightly exceeds the lock TTL (60 s) so the window is covered.
-      await setIdempotencyKey(
-        idempotencyKey,
-        PENDING_IDEMPOTENCY_TTL_SECONDS,
-        "pending",
-      );
 
       // 9. 行を追記
       const appendResult = await appendRows(token, {
@@ -341,9 +350,13 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         updatedRows: appendResult.data.updatedRows,
       };
     },
-    // Critical section contains up to 3 sequential Sheets API calls; use a
-    // generous TTL so a slow API doesn't expire the lock mid-write.
-    { ttlMs: 60_000, waitTimeoutMs: 65_000 },
+    // Critical section contains up to 3 sequential Sheets API calls.
+    // Size the lock from the configured Sheets API timeout plus a buffer so
+    // slow successful calls cannot expire the lock mid-write.
+    {
+      ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
+      waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
+    },
   );
 };
 
