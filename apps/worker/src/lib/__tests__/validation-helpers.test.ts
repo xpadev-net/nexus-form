@@ -1,5 +1,8 @@
 import { db } from "@nexus-form/database";
-import { getValidationResultId } from "@nexus-form/shared";
+import {
+  getValidationResultId,
+  VALIDATION_RETRY_JOB_PREFIX,
+} from "@nexus-form/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractReferencedValueFromJson } from "../response-data-extractor";
@@ -474,6 +477,9 @@ describe("markValidationProcessing", () => {
       jobId: "job-1",
       status: "PROCESSING",
     });
+    expect(flattenSqlChunks(updateWhere.mock.calls[0]?.[0])).toEqual(
+      expect.arrayContaining(["jobId", " is null", "job-1"]),
+    );
     expect(publishValidationEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         validationResultId: expectedId,
@@ -482,6 +488,28 @@ describe("markValidationProcessing", () => {
         referencedBlockId: params.referencedBlockId,
         status: "PROCESSING",
       }),
+    );
+  });
+
+  it("requires retry jobs to match the persisted job id before PROCESSING", async () => {
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
+
+    await markValidationProcessing({
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      jobId: retryJobId,
+    });
+
+    const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
+    expect(updateCondition).toEqual(
+      expect.arrayContaining(["jobId", " = ", retryJobId]),
+    );
+    expect(updateCondition).not.toContain(" is null");
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
     );
   });
 
@@ -533,6 +561,29 @@ describe("markValidationProcessing", () => {
         jobId: "job-a",
       }),
     ).rejects.toBeInstanceOf(StaleValidationJobError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("throws before publishing when a retry job starts before its job id is persisted", async () => {
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "PENDING", errorCode: null, jobId: null },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: retryJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: retryJobId,
+      actualJobId: null,
+    });
     expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 

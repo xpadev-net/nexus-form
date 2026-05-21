@@ -16,6 +16,7 @@ import {
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
+  VALIDATION_RETRY_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -322,7 +323,7 @@ export async function enqueueValidationRetries(
       preparedJobs.push({
         result,
         jobData,
-        jobId: `validation-retry:${result.id}:${randomUUID()}`,
+        jobId: `${VALIDATION_RETRY_JOB_PREFIX}${result.id}:${randomUUID()}`,
       });
     } catch (error) {
       logError("Failed to prepare validation retry job", "forms-responses", {
