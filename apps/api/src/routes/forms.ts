@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db, form } from "@nexus-form/database";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
@@ -26,6 +26,9 @@ const formsListQuerySchema = z.object({
 function createFormsListWhere(auth: DualAuthContext) {
   const ownerFilter = eq(form.creatorId, auth.user_id);
   if (auth.auth_type === "api_token" && auth.form_ids) {
+    if (auth.form_ids.length === 0) {
+      return and(ownerFilter, sql`1 = 0`);
+    }
     return and(ownerFilter, inArray(form.id, auth.form_ids));
   }
   return ownerFilter;

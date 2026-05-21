@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   inArray: vi.fn(),
   insertValues: vi.fn(),
+  sql: vi.fn(),
 }));
 
 const baseForm = {
@@ -92,6 +93,11 @@ vi.mock("drizzle-orm", () => ({
   inArray: (column: unknown, values: unknown[]) => {
     const condition = { column, type: "inArray", values };
     mocks.inArray(column, values);
+    return condition;
+  },
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => {
+    const condition = { strings: [...strings], type: "sql", values };
+    mocks.sql([...strings], ...values);
     return condition;
   },
 }));
@@ -247,6 +253,48 @@ describe("R9-C2 forms API token authorization", () => {
     expect(body).toMatchObject({
       forms: [{ id: "allowed-form" }],
       pagination: { limit: 50, page: 1, total: 1, totalPages: 1 },
+    });
+  });
+
+  it("returns an empty list for API tokens with empty form_ids", async () => {
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "user-1",
+      token_id: "token-1",
+      scopes: ["read"],
+      form_ids: [],
+    };
+    mocks.countWhere.mockResolvedValue([{ count: 0 }]);
+    mocks.findMany.mockResolvedValue([]);
+
+    const { formsRouter } = await import("../routes/forms");
+    const response = await formsRouter.request("/?page=1&limit=50");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mocks.inArray).not.toHaveBeenCalled();
+    expect(mocks.sql).toHaveBeenCalledWith(["1 = 0"]);
+    expect(mocks.countWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          expect.objectContaining({ type: "sql" }),
+        ]),
+        type: "and",
+      }),
+    );
+    expect(mocks.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          conditions: expect.arrayContaining([
+            expect.objectContaining({ type: "sql" }),
+          ]),
+          type: "and",
+        }),
+      }),
+    );
+    expect(body).toMatchObject({
+      forms: [],
+      pagination: { limit: 50, page: 1, total: 0, totalPages: 0 },
     });
   });
 });
