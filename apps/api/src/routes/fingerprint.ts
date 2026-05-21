@@ -196,6 +196,16 @@ export const fingerprintRouter = createHonoApp()
         if (!hasAccess) {
           return c.json(errorResponse("Access denied to this form"), 403);
         }
+        if (responseId) {
+          const [resp] = await db
+            .select({ formId: formResponse.formId })
+            .from(formResponse)
+            .where(eq(formResponse.id, responseId))
+            .limit(1);
+          if (!resp || resp.formId !== formId) {
+            return c.json(errorResponse("Response not found"), 404);
+          }
+        }
       } else if (responseId) {
         const [resp] = await db
           .select({ formId: formResponse.formId })
