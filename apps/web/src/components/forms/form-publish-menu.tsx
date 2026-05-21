@@ -669,7 +669,7 @@ const getSnapshotSaveConfirmLabel = (mode: DialogMode): string => {
   }
 };
 
-export function FormPublishMenu({
+function useFormPublishMenuModel({
   formId,
   formStatus,
   onStatusChange,
@@ -730,54 +730,62 @@ export function FormPublishMenu({
   const isNotPublished = formStatus === "DRAFT" || formStatus === "UNPUBLISHED";
 
   // --- Handlers ---
-  const handleDialogConfirm = async (changeLog: string) => {
-    try {
-      switch (dialogMode) {
-        case "saveAndPublish": {
-          await saveAndPublish(changeLog);
-          toast.success("スナップショットを保存し、フォームを公開しました");
-          break;
+  const handleDialogConfirm = useCallback(
+    async (changeLog: string) => {
+      try {
+        switch (dialogMode) {
+          case "saveAndPublish": {
+            await saveAndPublish(changeLog);
+            toast.success("スナップショットを保存し、フォームを公開しました");
+            break;
+          }
+          case "saveAndActivate": {
+            await saveAndActivate(changeLog);
+            toast.success("スナップショットを保存し、公開版を更新しました");
+            break;
+          }
+          case "saveOnly": {
+            const result = await saveSnapshot(changeLog);
+            toast.success(
+              `スナップショットを保存しました (v${result.version})`,
+            );
+            break;
+          }
+          default:
+            return;
         }
-        case "saveAndActivate": {
-          await saveAndActivate(changeLog);
-          toast.success("スナップショットを保存し、公開版を更新しました");
-          break;
-        }
-        case "saveOnly": {
-          const result = await saveSnapshot(changeLog);
-          toast.success(`スナップショットを保存しました (v${result.version})`);
-          break;
-        }
-        default:
-          return;
+        dispatch({ type: "close-save-dialog" });
+        onStatusChange?.();
+      } catch (error) {
+        toast.error(
+          `処理に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
       }
-      dispatch({ type: "close-save-dialog" });
-      onStatusChange?.();
-    } catch (error) {
-      toast.error(
-        `処理に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    }
-  };
+    },
+    [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
+  );
 
-  const handlePublishToggle = async (checked: boolean) => {
-    try {
-      if (checked) {
-        await publishForm();
-        toast.success("フォームを公開しました");
-      } else {
-        await unpublishForm();
-        toast.success("フォームを非公開にしました");
+  const handlePublishToggle = useCallback(
+    async (checked: boolean) => {
+      try {
+        if (checked) {
+          await publishForm();
+          toast.success("フォームを公開しました");
+        } else {
+          await unpublishForm();
+          toast.success("フォームを非公開にしました");
+        }
+        onStatusChange?.();
+      } catch (error) {
+        toast.error(
+          `操作に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
+        );
       }
-      onStatusChange?.();
-    } catch (error) {
-      toast.error(
-        `操作に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
-    }
-  };
+    },
+    [onStatusChange, publishForm, unpublishForm],
+  );
 
-  const handleReset = async () => {
+  const handleReset = useCallback(async () => {
     try {
       await resetToActiveSnapshot();
       toast.success("公開版スナップショットにリセットしました");
@@ -788,7 +796,7 @@ export function FormPublishMenu({
         `リセットに失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
     }
-  };
+  }, [onResetSuccess, resetToActiveSnapshot]);
 
   const handleActivateSnapshot = useCallback(
     (version: number) => {
@@ -916,14 +924,122 @@ export function FormPublishMenu({
     );
   };
 
-  if (isArchived) {
+  const handlePublishToggleClick = useCallback(
+    (checked: boolean) => {
+      void handlePublishToggle(checked);
+    },
+    [handlePublishToggle],
+  );
+
+  const handlePublishChanges = useCallback(() => {
+    dispatch({
+      type: "open-save-dialog",
+      mode: isPublished ? "saveAndActivate" : "saveAndPublish",
+    });
+  }, [isPublished]);
+
+  const handleSaveOnly = useCallback(() => {
+    dispatch({ type: "open-save-dialog", mode: "saveOnly" });
+  }, []);
+
+  const handleOpenResetDialog = useCallback(() => {
+    dispatch({ type: "set-reset-dialog", open: true });
+  }, []);
+
+  const handlePasswordChange = useCallback((value: string) => {
+    dispatch({ type: "set-password-input", value });
+  }, []);
+
+  const handleHintChange = useCallback((value: string) => {
+    dispatch({ type: "set-password-hint", value });
+  }, []);
+
+  const handleSelectSnapshot = useCallback((snapshotId: string | null) => {
+    dispatch({ type: "select-snapshot", snapshotId });
+  }, []);
+
+  const handlePublishSnapshot = useCallback(
+    (version: number) => {
+      void handlePublishFromHistory(version);
+    },
+    [handlePublishFromHistory],
+  );
+
+  const handleSaveDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) dispatch({ type: "close-save-dialog" });
+  }, []);
+
+  const handleDialogConfirmClick = useCallback(
+    (changeLog: string) => {
+      void handleDialogConfirm(changeLog);
+    },
+    [handleDialogConfirm],
+  );
+
+  const handleResetDialogOpenChange = useCallback((open: boolean) => {
+    dispatch({ type: "set-reset-dialog", open });
+  }, []);
+
+  const handleResetClick = useCallback(() => {
+    void handleReset();
+  }, [handleReset]);
+
+  return {
+    activeSnapshotVersion,
+    dialogMode,
+    formId,
+    formStatus,
+    handleActivateSnapshot,
+    handleDialogConfirmClick,
+    handleHintChange,
+    handleOpenResetDialog,
+    handlePasswordChange,
+    handlePasswordSave,
+    handlePasswordToggle,
+    handlePublishChanges,
+    handlePublishSnapshot,
+    handlePublishToggleClick,
+    handleResetClick,
+    handleResetDialogOpenChange,
+    handleRestoreEdit,
+    handleSaveDialogOpenChange,
+    handleSaveOnly,
+    handleSelectSnapshot,
+    hasActiveSnapshot,
+    hasChangesFromActive,
+    hasUnpublishedChanges,
+    isArchived,
+    isNotPublished,
+    isPasswordUpdating,
+    isProcessing,
+    isPublished,
+    lastPublishedVersion,
+    passwordDirty,
+    passwordHintInput,
+    passwordInput,
+    passwordProtection,
+    selectedSnapshotId,
+    showResetDialog,
+    snapshots,
+    snapshotsAreMutating:
+      activateSnapshotMutation.isPending ||
+      restoreEditFromSnapshotMutation.isPending ||
+      isProcessing,
+    totalChanges,
+  } as const;
+}
+
+export function FormPublishMenu(props: FormPublishMenuProps) {
+  const model = useFormPublishMenuModel(props);
+
+  if (model.isArchived) {
     return (
       <ArchivedPublishButton
-        formStatus={formStatus}
-        isArchived={isArchived}
-        isPublished={isPublished}
-        hasUnpublishedChanges={hasUnpublishedChanges}
-        activeSnapshotVersion={activeSnapshotVersion}
+        formStatus={model.formStatus}
+        isArchived={model.isArchived}
+        isPublished={model.isPublished}
+        hasUnpublishedChanges={model.hasUnpublishedChanges}
+        activeSnapshotVersion={model.activeSnapshotVersion}
       />
     );
   }
@@ -935,11 +1051,11 @@ export function FormPublishMenu({
           <Button variant="outline" size="sm">
             <span className="flex items-center gap-1.5">
               <TriggerContent
-                formStatus={formStatus}
-                isArchived={isArchived}
-                isPublished={isPublished}
-                hasUnpublishedChanges={hasUnpublishedChanges}
-                activeSnapshotVersion={activeSnapshotVersion}
+                formStatus={model.formStatus}
+                isArchived={model.isArchived}
+                isPublished={model.isPublished}
+                hasUnpublishedChanges={model.hasUnpublishedChanges}
+                activeSnapshotVersion={model.activeSnapshotVersion}
               />
             </span>
             <ChevronDown className="ml-1 h-3.5 w-3.5" />
@@ -947,84 +1063,64 @@ export function FormPublishMenu({
         </PopoverTrigger>
         <PublishMenuPopoverContent
           publish={{
-            isPublished,
-            isProcessing,
-            hasActiveSnapshot,
-            isNotPublished,
-            hasUnpublishedChanges,
-            hasChangesFromActive,
-            activeSnapshotVersion,
-            totalChanges,
+            isPublished: model.isPublished,
+            isProcessing: model.isProcessing,
+            hasActiveSnapshot: model.hasActiveSnapshot,
+            isNotPublished: model.isNotPublished,
+            hasUnpublishedChanges: model.hasUnpublishedChanges,
+            hasChangesFromActive: model.hasChangesFromActive,
+            activeSnapshotVersion: model.activeSnapshotVersion,
+            totalChanges: model.totalChanges,
           }}
           password={{
-            enabled: passwordProtection.enabled,
-            hasPassword: passwordProtection.hasPassword,
-            isUpdating: isPasswordUpdating,
-            input: passwordInput,
-            hintInput: passwordHintInput,
-            dirty: passwordDirty,
+            enabled: model.passwordProtection.enabled,
+            hasPassword: model.passwordProtection.hasPassword,
+            isUpdating: model.isPasswordUpdating,
+            input: model.passwordInput,
+            hintInput: model.passwordHintInput,
+            dirty: model.passwordDirty,
           }}
           history={{
-            snapshots,
-            selectedSnapshotId,
-            isMutating:
-              activateSnapshotMutation.isPending ||
-              restoreEditFromSnapshotMutation.isPending ||
-              isProcessing,
+            snapshots: model.snapshots,
+            selectedSnapshotId: model.selectedSnapshotId,
+            isMutating: model.snapshotsAreMutating,
           }}
-          onPublishToggle={(checked) => void handlePublishToggle(checked)}
-          onPublishChanges={() =>
-            dispatch({
-              type: "open-save-dialog",
-              mode: isPublished ? "saveAndActivate" : "saveAndPublish",
-            })
-          }
-          onSaveOnly={() =>
-            dispatch({ type: "open-save-dialog", mode: "saveOnly" })
-          }
-          onReset={() => dispatch({ type: "set-reset-dialog", open: true })}
-          onPasswordToggle={handlePasswordToggle}
-          onPasswordChange={(value) => {
-            dispatch({ type: "set-password-input", value });
-          }}
-          onHintChange={(value) => {
-            dispatch({ type: "set-password-hint", value });
-          }}
-          onPasswordSave={handlePasswordSave}
-          onSelectSnapshot={(snapshotId) =>
-            dispatch({ type: "select-snapshot", snapshotId })
-          }
-          onActivateSnapshot={handleActivateSnapshot}
-          onPublishSnapshot={(version) =>
-            void handlePublishFromHistory(version)
-          }
-          onRestoreSnapshot={handleRestoreEdit}
+          onPublishToggle={model.handlePublishToggleClick}
+          onPublishChanges={model.handlePublishChanges}
+          onSaveOnly={model.handleSaveOnly}
+          onReset={model.handleOpenResetDialog}
+          onPasswordToggle={model.handlePasswordToggle}
+          onPasswordChange={model.handlePasswordChange}
+          onHintChange={model.handleHintChange}
+          onPasswordSave={model.handlePasswordSave}
+          onSelectSnapshot={model.handleSelectSnapshot}
+          onActivateSnapshot={model.handleActivateSnapshot}
+          onPublishSnapshot={model.handlePublishSnapshot}
+          onRestoreSnapshot={model.handleRestoreEdit}
         />
       </Popover>
 
       {/* 保存ダイアログ */}
       <SnapshotSaveDialog
-        formId={formId}
-        open={dialogMode !== null}
-        onOpenChange={(open) => {
-          if (!open) dispatch({ type: "close-save-dialog" });
-        }}
-        isProcessing={isProcessing}
-        hasUnpublishedChanges={hasUnpublishedChanges}
-        lastPublishedVersion={lastPublishedVersion}
-        totalChanges={totalChanges}
-        confirmLabel={getSnapshotSaveConfirmLabel(dialogMode)}
-        onConfirm={(changeLog) => void handleDialogConfirm(changeLog)}
+        formId={model.formId}
+        open={model.dialogMode !== null}
+        onOpenChange={model.handleSaveDialogOpenChange}
+        isProcessing={model.isProcessing}
+        hasUnpublishedChanges={model.hasUnpublishedChanges}
+        lastPublishedVersion={model.lastPublishedVersion}
+        totalChanges={model.totalChanges}
+        confirmLabel={getSnapshotSaveConfirmLabel(model.dialogMode)}
+        onConfirm={model.handleDialogConfirmClick}
       />
 
       <ResetSnapshotDialog
-        formId={formId}
-        open={showResetDialog}
-        activeSnapshotVersion={activeSnapshotVersion}
-        totalChanges={totalChanges}
-        isProcessing={isProcessing}
-        onOpenChange={(open) => dispatch({ type: "set-reset-dialog", open })}
-        onReset={() => void handleReset()}
+        formId={model.formId}
+        open={model.showResetDialog}
+        activeSnapshotVersion={model.activeSnapshotVersion}
+        totalChanges={model.totalChanges}
+        isProcessing={model.isProcessing}
+        onOpenChange={model.handleResetDialogOpenChange}
+        onReset={model.handleResetClick}
       />
     </>
   );
