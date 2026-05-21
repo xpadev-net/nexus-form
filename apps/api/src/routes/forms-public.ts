@@ -954,10 +954,10 @@ function buildExternalValidationOutbox(
 
   return {
     inserts,
-    pendingJobs: validRows.flatMap((pair, index) => {
-      const pendingRow = pendingRows[index];
-      return pendingRow ? [{ pair, resultId: pendingRow.id }] : [];
-    }),
+    pendingJobs: validRows.map((pair) => ({
+      pair,
+      resultId: getPairValidationResultId(pair),
+    })),
     snapshotVersion: activeSnapshot.version,
   };
 }
