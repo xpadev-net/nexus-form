@@ -1,6 +1,6 @@
 import HCaptcha from "@hcaptcha/react-hcaptcha";
 import {
-  forwardRef,
+  type Ref,
   useCallback,
   useImperativeHandle,
   useRef,
@@ -21,26 +21,22 @@ interface HCaptchaWidgetProps {
   theme?: "light" | "dark";
   /** カスタムクラス名 */
   className?: string;
+  ref?: Ref<HCaptchaWidgetHandle>;
 }
 
 export interface HCaptchaWidgetHandle {
   reset: () => void;
 }
 
-export const HCaptchaWidget = forwardRef<
-  HCaptchaWidgetHandle,
-  HCaptchaWidgetProps
->(function HCaptchaWidget(
-  {
-    onVerify,
-    onError,
-    onExpire,
-    size = "normal",
-    theme = "light",
-    className = "",
-  },
+export function HCaptchaWidget({
+  onVerify,
+  onError,
+  onExpire,
+  size = "normal",
+  theme = "light",
+  className = "",
   ref,
-) {
+}: HCaptchaWidgetProps) {
   const captchaRef = useRef<HCaptcha>(null);
   const [error, setError] = useState<string | null>(null);
   const siteKey = getRuntimeConfigValue(
@@ -106,4 +102,4 @@ export const HCaptchaWidget = forwardRef<
       </section>
     </div>
   );
-});
+}
