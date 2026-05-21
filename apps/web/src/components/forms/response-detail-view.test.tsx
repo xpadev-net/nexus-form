@@ -90,6 +90,13 @@ describe("ResponseDetailView", () => {
                 value: "選択肢A",
                 other_value: null,
               },
+              {
+                question_id: "empty-other",
+                question_type: "radio",
+                question_title: "空のその他",
+                value: "選択肢B",
+                other_value: "",
+              },
             ]),
           },
         },
@@ -116,6 +123,8 @@ describe("ResponseDetailView", () => {
     expect(container.textContent).toContain('"label": "Soccer"');
     expect(container.textContent).toContain("その他なし (blank-other)");
     expect(container.textContent).toContain("選択肢A");
+    expect(container.textContent).toContain("空のその他 (empty-other)");
+    expect(container.textContent).toContain("選択肢B");
     expect(container.textContent).not.toContain("その他: 未回答");
     expect(container.textContent).not.toContain("回答内容はありません。");
 
