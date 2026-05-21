@@ -18,7 +18,7 @@ vi.mock("@/hooks/forms/use-validation-results", () => ({
   useValidationResults: useValidationResultsMock,
 }));
 
-vi.mock("@/components/forms/validation-result-list", () => ({
+vi.mock("./validation-result-list", () => ({
   ValidationResultList: () => <section data-testid="validation-results" />,
 }));
 
@@ -177,6 +177,23 @@ describe("ResponseDetailView", () => {
 
     expect(container.textContent).toContain("回答内容はありません。");
     expect(container.textContent).toContain("response-1");
+
+    act(() => root.unmount());
+  });
+
+  it("falls back to the empty response state when detail data has no response payload", () => {
+    useValidationResultsMock.mockReturnValue({
+      validationResultsQuery: {
+        data: {},
+        isError: false,
+        isLoading: false,
+      },
+    });
+    const container = document.createElement("div");
+
+    const root = renderResponseDetail(container);
+
+    expect(container.textContent).toContain("回答内容はありません。");
 
     act(() => root.unmount());
   });

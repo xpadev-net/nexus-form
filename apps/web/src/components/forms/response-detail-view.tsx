@@ -70,7 +70,7 @@ function formatResponseItemValue(item: ResponseDetailItem): string {
         ([rowId, rowValue]) => `${rowId}: ${formatResponseValue(rowValue)}`,
       ),
     );
-  } else if (item.values) {
+  } else if (Array.isArray(item.values)) {
     parts.push(formatResponseValue(item.values));
   } else if ("value" in item) {
     parts.push(formatResponseValue(item.value));
@@ -126,9 +126,9 @@ export function ResponseDetailView({
     () =>
       fields ??
       parseResponseFields(
-        validationResultsQuery.data?.response.responseDataJson ?? null,
+        validationResultsQuery.data?.response?.responseDataJson ?? null,
       ),
-    [fields, validationResultsQuery.data?.response.responseDataJson],
+    [fields, validationResultsQuery.data?.response?.responseDataJson],
   );
 
   return (
