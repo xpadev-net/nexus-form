@@ -152,6 +152,7 @@ interface SseChannelRegistry {
   attach: (
     channel: string,
     client: SseMessageClient,
+    options?: { preflighted?: boolean },
   ) => Promise<() => Promise<void>>;
   closeAll: () => Promise<void>;
 }
@@ -262,6 +263,7 @@ export function createSseChannelRegistry(
     async attach(
       channel: string,
       client: SseMessageClient,
+      options: { preflighted?: boolean } = {},
     ): Promise<() => Promise<void>> {
       if (!acceptingClients) {
         client.close();
@@ -273,7 +275,9 @@ export function createSseChannelRegistry(
       subscription.clients.set(clientId, { eventId: 0, client });
 
       try {
-        await ensureSubscribed(channel);
+        if (!options.preflighted) {
+          await subscription.subscribePromise;
+        }
       } catch (error) {
         subscription.clients.delete(clientId);
         if (subscription.clients.size === 0) {
@@ -357,15 +361,19 @@ async function createSSEStream(
           resolveStream = resolve;
           stream.onAbort(closeStream);
         });
-        detachClient = await options.channelRegistry.attach(channel, {
-          sendMessage: (id, data) =>
-            stream.writeSSE({
-              id,
-              event: "message",
-              data,
-            }),
-          close: closeStream,
-        });
+        detachClient = await options.channelRegistry.attach(
+          channel,
+          {
+            sendMessage: (id, data) =>
+              stream.writeSSE({
+                id,
+                event: "message",
+                data,
+              }),
+            close: closeStream,
+          },
+          { preflighted: true },
+        );
         if (closeRequested) return;
 
         // Keepalive: 30秒ごとにコメントを送信して接続を維持
