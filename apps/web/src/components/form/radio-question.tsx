@@ -93,7 +93,7 @@ const RadioQuestionBase: FC<RadioQuestionProps> = ({
   );
 
   // フォーカスアウトハンドラー
-  const validateOtherValueOnBlur = useCallback(() => {
+  const notifyOtherBlur = useCallback(() => {
     onBlur?.();
   }, [onBlur]);
 
@@ -142,7 +142,7 @@ const RadioQuestionBase: FC<RadioQuestionProps> = ({
             <Input
               value={otherValue}
               onChange={handleOtherChange}
-              onBlur={validateOtherValueOnBlur}
+              onBlur={notifyOtherBlur}
               placeholder="具体的な内容を入力してください"
               disabled={disabled}
               className="w-full"
@@ -160,7 +160,7 @@ const RadioQuestionBase: FC<RadioQuestionProps> = ({
     isOtherSelected,
     otherValue,
     handleOtherChange,
-    validateOtherValueOnBlur,
+    notifyOtherBlur,
     error,
   ]);
 
