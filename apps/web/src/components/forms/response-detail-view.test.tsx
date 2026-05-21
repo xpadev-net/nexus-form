@@ -83,6 +83,13 @@ describe("ResponseDetailView", () => {
                 question_title: "分類",
                 value: { tag: "sports", label: "Soccer" },
               },
+              {
+                question_id: "blank-other",
+                question_type: "radio",
+                question_title: "その他なし",
+                value: "選択肢A",
+                other_value: null,
+              },
             ]),
           },
         },
@@ -107,6 +114,9 @@ describe("ResponseDetailView", () => {
     expect(container.textContent).toContain("分類 (metadata-like)");
     expect(container.textContent).toContain('"tag": "sports"');
     expect(container.textContent).toContain('"label": "Soccer"');
+    expect(container.textContent).toContain("その他なし (blank-other)");
+    expect(container.textContent).toContain("選択肢A");
+    expect(container.textContent).not.toContain("その他: 未回答");
     expect(container.textContent).not.toContain("回答内容はありません。");
 
     act(() => root.unmount());

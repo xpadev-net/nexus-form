@@ -76,7 +76,11 @@ function formatResponseItemValue(item: ResponseDetailItem): string {
     parts.push(formatResponseValue(item.value));
   }
 
-  if ("other_value" in item && item.other_value !== undefined) {
+  if (
+    "other_value" in item &&
+    item.other_value !== undefined &&
+    item.other_value !== null
+  ) {
     parts.push(`その他: ${formatResponseValue(item.other_value)}`);
   }
   if (item.other_values && item.other_values.length > 0) {
