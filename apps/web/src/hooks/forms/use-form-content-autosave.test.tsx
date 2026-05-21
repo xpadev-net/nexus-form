@@ -154,6 +154,14 @@ async function flushPromises() {
   });
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 describe("useFormContentAutosave unmount keepalive fallback", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
@@ -168,6 +176,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -296,6 +305,55 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       retryBlockedRoot.unmount();
     });
+  });
+
+  it("does not keep a pending save when an in-flight mutation already saved the keepalive body", async () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const keepaliveResult = createDeferred<{ ok: boolean; status: number }>();
+    const fetchMock = vi.fn().mockReturnValue(keepaliveResult.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.unmount();
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    await act(async () => {
+      keepaliveResult.resolve({ ok: false, status: 409 });
+      await keepaliveResult.promise;
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        body: JSON.stringify({
+          plateContent: draftContent,
+          expectedVersion: 7,
+        }),
+        keepalive: true,
+        method: "PUT",
+      }),
+    );
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", () => {

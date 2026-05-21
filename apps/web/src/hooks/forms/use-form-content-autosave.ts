@@ -443,6 +443,11 @@ export function useFormContentAutosave({
                   expectedVersion: versionRef.current,
                   plateContent: valueToSave,
                 });
+              } else if (baseContentRef.current === valueToSave) {
+                clearResolvedPendingSave(formId, {
+                  expectedVersion: versionRef.current,
+                  plateContent: valueToSave,
+                });
               } else {
                 storePendingSave(formId, body);
               }
