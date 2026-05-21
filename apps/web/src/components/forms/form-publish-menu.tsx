@@ -873,7 +873,7 @@ export function FormPublishMenu({
           if (checked && !passwordProtection.hasPassword) {
             dispatch({
               type: "complete-password-edit",
-              hintInput: passwordProtection.password_hint ?? "",
+              hintInput: passwordHintInput,
             });
           }
         },
