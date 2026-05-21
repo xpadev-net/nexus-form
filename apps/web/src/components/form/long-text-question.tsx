@@ -204,7 +204,7 @@ const LongTextQuestionBase: FC<LongTextQuestionProps> = ({
       </div>
 
       {/* バリデーション情報 */}
-      {minLength && (
+      {(minLength ?? 0) > 0 && (
         <p className="text-xs text-muted-foreground">
           最小文字数: {minLength}文字
         </p>
