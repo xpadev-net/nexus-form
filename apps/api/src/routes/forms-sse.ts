@@ -148,12 +148,21 @@ interface ChannelSubscription {
 }
 
 interface SseChannelRegistry {
+  ensureSubscribed: (channel: string) => Promise<void>;
   attach: (
     channel: string,
     client: SseMessageClient,
+    options?: { preflighted?: boolean },
   ) => Promise<() => Promise<void>>;
   closeAll: () => Promise<void>;
 }
+
+interface FormsSSERouterOptions {
+  channelRegistry?: SseChannelRegistry;
+  connectionLimiter?: SseConnectionLimiter;
+}
+
+type FormsSSERouter = ReturnType<typeof createHonoApp>;
 
 /**
  * Redis subscriber 用の接続オプションを取得する
@@ -233,10 +242,28 @@ export function createSseChannelRegistry(
     return subscription;
   }
 
+  async function ensureSubscribed(channel: string): Promise<void> {
+    if (!acceptingClients) {
+      throw new Error("SSE subscribers are shutting down");
+    }
+
+    const subscription = getSubscription(channel);
+    try {
+      await subscription.subscribePromise;
+    } catch (error) {
+      if (subscription.clients.size === 0) {
+        await closeSubscription(channel, subscription);
+      }
+      throw error;
+    }
+  }
+
   return {
+    ensureSubscribed,
     async attach(
       channel: string,
       client: SseMessageClient,
+      options: { preflighted?: boolean } = {},
     ): Promise<() => Promise<void>> {
       if (!acceptingClients) {
         client.close();
@@ -248,7 +275,9 @@ export function createSseChannelRegistry(
       subscription.clients.set(clientId, { eventId: 0, client });
 
       try {
-        await subscription.subscribePromise;
+        if (!options.preflighted) {
+          await subscription.subscribePromise;
+        }
       } catch (error) {
         subscription.clients.delete(clientId);
         if (subscription.clients.size === 0) {
@@ -288,17 +317,27 @@ export async function closeSseSubscribers(): Promise<void> {
 /**
  * SSE ストリームを作成する共通ヘルパー
  */
-function createSSEStream(c: Context<Env>, channel: string, formId: string) {
+async function createSSEStream(
+  c: Context<Env>,
+  channel: string,
+  formId: string,
+  options: {
+    channelRegistry: SseChannelRegistry;
+    connectionLimiter: SseConnectionLimiter;
+  },
+) {
   const auth = c.get("dualAuthContext");
   if (!auth) return c.text("SSE auth context unavailable", 500);
 
-  const permit = sseConnectionLimiter.tryAcquire({
+  const permit = options.connectionLimiter.tryAcquire({
     userId: auth.user_id,
     formId,
   });
   if ("status" in permit) return c.text(permit.message, permit.status);
 
   try {
+    await options.channelRegistry.ensureSubscribed(channel);
+
     return streamSSE(c, async (stream) => {
       let detachClient: (() => Promise<void>) | null = null;
       let cleanupPromise: Promise<void> | null = null;
@@ -322,15 +361,19 @@ function createSSEStream(c: Context<Env>, channel: string, formId: string) {
           resolveStream = resolve;
           stream.onAbort(closeStream);
         });
-        detachClient = await sseChannelRegistry.attach(channel, {
-          sendMessage: (id, data) =>
-            stream.writeSSE({
-              id,
-              event: "message",
-              data,
-            }),
-          close: closeStream,
-        });
+        detachClient = await options.channelRegistry.attach(
+          channel,
+          {
+            sendMessage: (id, data) =>
+              stream.writeSSE({
+                id,
+                event: "message",
+                data,
+              }),
+            close: closeStream,
+          },
+          { preflighted: true },
+        );
         if (closeRequested) return;
 
         // Keepalive: 30秒ごとにコメントを送信して接続を維持
@@ -355,21 +398,45 @@ function createSSEStream(c: Context<Env>, channel: string, formId: string) {
       }
     });
   } catch (error) {
+    console.error("SSE subscription preflight failed", error);
     permit.release();
-    throw error;
+    return c.text("SSE subscription unavailable", 503);
   }
 }
 
-export const formsSSERouter = createHonoApp()
-  // バリデーション SSE: form:validation:{formId}
-  .get("/:id/responses/events", withDualFormAuth("EDITOR"), async (c) => {
-    const formId = c.req.param("id");
-    const channel = getValidationChannel(formId);
-    return createSSEStream(c, channel, formId);
-  })
-  // エディタ SSE: form:editor:{formId}
-  .get("/:id/editor/events", withDualFormAuth("EDITOR"), async (c) => {
-    const formId = c.req.param("id");
-    const channel = getEditorChannel(formId);
-    return createSSEStream(c, channel, formId);
-  });
+/**
+ * Creates the form SSE router.
+ *
+ * @param options Optional registry/limiter overrides for tests and controlled wiring.
+ * @returns A typed Hono router serving validation and editor SSE endpoints.
+ */
+export function createFormsSSERouter(
+  options: FormsSSERouterOptions = {},
+): FormsSSERouter {
+  const channelRegistry = options.channelRegistry ?? sseChannelRegistry;
+  const connectionLimiter = options.connectionLimiter ?? sseConnectionLimiter;
+
+  return (
+    createHonoApp()
+      // バリデーション SSE: form:validation:{formId}
+      .get("/:id/responses/events", withDualFormAuth("EDITOR"), async (c) => {
+        const formId = c.req.param("id");
+        const channel = getValidationChannel(formId);
+        return createSSEStream(c, channel, formId, {
+          channelRegistry,
+          connectionLimiter,
+        });
+      })
+      // エディタ SSE: form:editor:{formId}
+      .get("/:id/editor/events", withDualFormAuth("EDITOR"), async (c) => {
+        const formId = c.req.param("id");
+        const channel = getEditorChannel(formId);
+        return createSSEStream(c, channel, formId, {
+          channelRegistry,
+          connectionLimiter,
+        });
+      })
+  );
+}
+
+export const formsSSERouter: FormsSSERouter = createFormsSSERouter();

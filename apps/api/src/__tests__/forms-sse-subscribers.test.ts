@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createFormsSSERouter,
   createSseChannelRegistry,
   createSseConnectionLimiter,
 } from "../routes/forms-sse";
 
 vi.mock("../lib/dual-auth", () => ({
-  withDualFormAuth: () => async (_c: unknown, next: () => Promise<void>) =>
-    next(),
+  withDualFormAuth:
+    () =>
+    async (
+      c: { set: (key: string, value: unknown) => void },
+      next: () => Promise<void>,
+    ) => {
+      c.set("dualAuthContext", { user_id: "user-1" });
+      await next();
+    },
 }));
 
 class FakeSubscriber {
@@ -211,6 +219,66 @@ describe("SSE channel subscriber registry", () => {
 
     expect(client.close).toHaveBeenCalledTimes(1);
     expect(subscribers).toHaveLength(0);
+  });
+
+  it("returns HTTP 503 before opening an SSE stream when subscribe fails", async () => {
+    const release = vi.fn();
+    const channelRegistry = {
+      ensureSubscribed: vi.fn(async () => {
+        throw new Error("Redis subscribe failed");
+      }),
+      attach: vi.fn(),
+      closeAll: vi.fn(async () => undefined),
+    };
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({ release })),
+    };
+    const router = createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    });
+
+    const response = await router.request(
+      "http://localhost/form-1/responses/events",
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type") ?? "").not.toContain(
+      "text/event-stream",
+    );
+    await expect(response.text()).resolves.toBe("SSE subscription unavailable");
+    expect(channelRegistry.ensureSubscribed).toHaveBeenCalledWith(
+      "form:validation:form-1",
+    );
+    expect(channelRegistry.attach).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not create a subscriber for router requests after shutdown starts", async () => {
+    const release = vi.fn();
+    const subscribers: FakeSubscriber[] = [];
+    const channelRegistry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({ release })),
+    };
+    await channelRegistry.closeAll();
+    const router = createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    });
+
+    const response = await router.request(
+      "http://localhost/form-1/responses/events",
+    );
+
+    expect(response.status).toBe(503);
+    await expect(response.text()).resolves.toBe("SSE subscription unavailable");
+    expect(subscribers).toHaveLength(0);
+    expect(release).toHaveBeenCalledTimes(1);
   });
 });
 
