@@ -9,6 +9,7 @@ import {
   formValidationRule,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
+import type { ValidationStatusValue } from "@nexus-form/shared";
 import {
   genericValidationJobDataSchema,
   MAX_RESPONSE_BODY_BYTES,
@@ -87,6 +88,20 @@ const bulkRetrySchema = z.object({
     .min(1)
     .max(100, "Cannot retry more than 100 validation results at once"),
 });
+
+const cancellableValidationStatuses = new Set<ValidationStatusValue>([
+  "PENDING",
+  "PROCESSING",
+  "FAILED",
+]);
+
+function cancellableValidationStatusCondition() {
+  return or(
+    eq(externalServiceValidationResult.status, "PENDING"),
+    eq(externalServiceValidationResult.status, "PROCESSING"),
+    eq(externalServiceValidationResult.status, "FAILED"),
+  );
+}
 
 function escapeLikePattern(value: string): string {
   return value.replace(/[!%_]/g, (char) => `${LIKE_ESCAPE_CHAR}${char}`);
@@ -1053,6 +1068,7 @@ export const formsResponsesRouter = createHonoApp()
           id: externalServiceValidationResult.id,
           service: externalServiceValidationResult.service,
           jobId: externalServiceValidationResult.jobId,
+          status: externalServiceValidationResult.status,
         })
         .from(externalServiceValidationResult)
         .innerJoin(
@@ -1072,13 +1088,22 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(errorResponse("Validation result not found"), 404);
       }
 
+      if (!cancellableValidationStatuses.has(target.status)) {
+        return c.json(
+          errorResponse(
+            "Validation result cannot be cancelled in its current status",
+          ),
+          409,
+        );
+      }
+
       await discardQueuedValidationJob({
         service: target.service,
         jobId: target.jobId,
         validationResultId,
       });
 
-      await db
+      const updateResult = await db
         .update(externalServiceValidationResult)
         .set({
           status: "FAILED",
@@ -1086,7 +1111,44 @@ export const formsResponsesRouter = createHonoApp()
           errorCode: "CANCELLED_BY_USER",
           errorMessage: "Validation cancelled by user",
         })
-        .where(eq(externalServiceValidationResult.id, validationResultId));
+        .where(
+          and(
+            eq(externalServiceValidationResult.id, validationResultId),
+            cancellableValidationStatusCondition(),
+          ),
+        );
+
+      if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+        const [current] = await db
+          .select({
+            id: externalServiceValidationResult.id,
+            status: externalServiceValidationResult.status,
+          })
+          .from(externalServiceValidationResult)
+          .innerJoin(
+            formResponse,
+            eq(formResponse.id, externalServiceValidationResult.responseId),
+          )
+          .where(
+            and(
+              eq(formResponse.formId, formId),
+              eq(formResponse.id, responseId),
+              eq(externalServiceValidationResult.id, validationResultId),
+            ),
+          )
+          .limit(1);
+
+        if (!current) {
+          return c.json(errorResponse("Validation result not found"), 404);
+        }
+
+        return c.json(
+          errorResponse(
+            "Validation result cannot be cancelled in its current status",
+          ),
+          409,
+        );
+      }
 
       return c.json(OkResponseSchema.parse({ ok: true }));
     },

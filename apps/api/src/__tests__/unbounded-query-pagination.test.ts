@@ -202,10 +202,10 @@ function validationTargetQuery(result: unknown[]): ValidationTargetQuery {
   return query;
 }
 
-function updateQuery(): UpdateQuery {
+function updateQuery(affectedRows = 1): UpdateQuery {
   const query = {
     set: vi.fn(() => query),
-    where: vi.fn(() => Promise.resolve([{ affectedRows: 1 }])),
+    where: vi.fn(() => Promise.resolve([{ affectedRows }])),
   };
   return query;
 }
@@ -544,7 +544,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
     mocks.db.select.mockReturnValueOnce(
       validationTargetQuery([
-        { id: "validation-1", service: "discord", jobId: "job-1" },
+        {
+          id: "validation-1",
+          service: "discord",
+          jobId: "job-1",
+          status: "PENDING",
+        },
       ]),
     );
     mocks.db.update.mockReturnValueOnce(updateQuery());
@@ -572,7 +577,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
     mocks.db.select.mockReturnValueOnce(
       validationTargetQuery([
-        { id: "validation-1", service: "discord", jobId: "job-1" },
+        {
+          id: "validation-1",
+          service: "discord",
+          jobId: "job-1",
+          status: "PROCESSING",
+        },
       ]),
     );
     mocks.db.update.mockReturnValueOnce(updateQuery());
@@ -595,7 +605,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
     mocks.db.select.mockReturnValueOnce(
       validationTargetQuery([
-        { id: "validation-1", service: "discord", jobId: "job-1" },
+        {
+          id: "validation-1",
+          service: "discord",
+          jobId: "job-1",
+          status: "FAILED",
+        },
       ]),
     );
     mocks.db.update.mockReturnValueOnce(updateQuery());
@@ -619,7 +634,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
     mocks.db.select.mockReturnValueOnce(
       validationTargetQuery([
-        { id: "validation-1", service: "discord", jobId: "job-1" },
+        {
+          id: "validation-1",
+          service: "discord",
+          jobId: "job-1",
+          status: "PENDING",
+        },
       ]),
     );
     mocks.db.update.mockReturnValueOnce(updateQuery());
@@ -631,6 +651,73 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     );
 
     expect(res.status).toBe(200);
+    expect(remove).toHaveBeenCalled();
+    expect(mocks.db.update).toHaveBeenCalled();
+  });
+
+  it("rejects cancellation when validation already completed", async () => {
+    const getJob = vi.fn();
+    const { getValidationQueue } = await import("../lib/queues");
+    vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
+    mocks.db.select.mockReturnValueOnce(
+      validationTargetQuery([
+        {
+          id: "validation-1",
+          service: "discord",
+          jobId: "job-1",
+          status: "COMPLETED",
+        },
+      ]),
+    );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses/response-1/validation/validation-1/cancel",
+      { method: "POST" },
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: "Validation result cannot be cancelled in its current status",
+    });
+    expect(getValidationQueue).not.toHaveBeenCalled();
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a validation result completed during cancellation", async () => {
+    const discard = vi.fn().mockResolvedValue(undefined);
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const getState = vi.fn().mockResolvedValue("waiting");
+    const getJob = vi.fn().mockResolvedValue({ discard, getState, remove });
+    const { getValidationQueue } = await import("../lib/queues");
+    vi.mocked(getValidationQueue).mockReturnValue({ getJob } as never);
+    mocks.db.select
+      .mockReturnValueOnce(
+        validationTargetQuery([
+          {
+            id: "validation-1",
+            service: "discord",
+            jobId: "job-1",
+            status: "PROCESSING",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        validationTargetQuery([{ id: "validation-1", status: "COMPLETED" }]),
+      );
+    mocks.db.update.mockReturnValueOnce(updateQuery(0));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses/response-1/validation/validation-1/cancel",
+      { method: "POST" },
+    );
+
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: "Validation result cannot be cancelled in its current status",
+    });
+    expect(discard).toHaveBeenCalled();
     expect(remove).toHaveBeenCalled();
     expect(mocks.db.update).toHaveBeenCalled();
   });
