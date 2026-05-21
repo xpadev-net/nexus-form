@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
-import type { FC } from "react";
+import { type FC, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,6 +44,14 @@ const OPERATOR_LABELS: Record<FormLogicCondition["operator"], string> = {
   after: "より後",
 };
 
+function getConditionKeySignature(condition: FormLogicCondition): string {
+  return JSON.stringify({
+    questionId: condition.question_id,
+    operator: condition.operator,
+    value: condition.value,
+  });
+}
+
 export const LogicConditionBuilder: FC<LogicConditionBuilderProps> = ({
   conditions,
   availableBlocks,
@@ -74,6 +82,21 @@ export const LogicConditionBuilder: FC<LogicConditionBuilderProps> = ({
     onChange(conditions.filter((_, i) => i !== index));
   };
 
+  const keyedConditions = useMemo(() => {
+    const signatureCounts = new Map<string, number>();
+
+    return conditions.map((condition) => {
+      const signature = getConditionKeySignature(condition);
+      const occurrence = signatureCounts.get(signature) ?? 0;
+      signatureCounts.set(signature, occurrence + 1);
+
+      return {
+        condition,
+        key: `${signature}:${occurrence}`,
+      };
+    });
+  }, [conditions]);
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -95,11 +118,8 @@ export const LogicConditionBuilder: FC<LogicConditionBuilderProps> = ({
         )}
       </div>
 
-      {conditions.map((condition, index) => (
-        <div
-          key={`condition-${condition.question_id}-${index}`}
-          className="flex items-start gap-2"
-        >
+      {keyedConditions.map(({ condition, key }, index) => (
+        <div key={key} className="flex items-start gap-2">
           <div className="flex-1 grid grid-cols-3 gap-2">
             <Select
               value={condition.question_id}
