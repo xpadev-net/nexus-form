@@ -297,13 +297,17 @@ export async function markValidationProcessing(params: {
     processingUpdate.jobId = params.jobId;
   }
 
+  const usesStrictJobOwnership =
+    params.jobId?.startsWith("validation-retry:") === true;
   const ownershipCondition =
     params.jobId === undefined
       ? isNull(externalServiceValidationResult.jobId)
-      : or(
-          isNull(externalServiceValidationResult.jobId),
-          eq(externalServiceValidationResult.jobId, params.jobId),
-        );
+      : usesStrictJobOwnership
+        ? eq(externalServiceValidationResult.jobId, params.jobId)
+        : or(
+            isNull(externalServiceValidationResult.jobId),
+            eq(externalServiceValidationResult.jobId, params.jobId),
+          );
 
   const processingResult = await db.transaction(async (tx) => {
     const updateResult = await tx
@@ -350,6 +354,9 @@ export async function markValidationProcessing(params: {
       existing.errorCode === "CANCELLED_BY_USER"
     ) {
       return { type: "cancelled" as const };
+    }
+    if (usesStrictJobOwnership && existing?.jobId !== params.jobId) {
+      return { actualJobId: existing?.jobId ?? null, type: "stale" as const };
     }
     if (
       existing?.jobId !== null &&
