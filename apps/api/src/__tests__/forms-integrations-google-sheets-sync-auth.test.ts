@@ -5,6 +5,7 @@ vi.mock("../load-env", () => ({}));
 const mocks = vi.hoisted(() => ({
   getFormIntegration: vi.fn(),
   getJob: vi.fn(),
+  upsertFormIntegrationForCurrentOwner: vi.fn(),
 }));
 
 vi.mock("../lib/dual-auth", () => ({
@@ -29,9 +30,11 @@ vi.mock("../lib/forms/form-integration-service", async () => {
     GoogleSheetsIntegrationSettingSchema: z.object({
       spreadsheetId: z.string(),
       sheetName: z.string(),
+      headerPolicy: z.literal("extend"),
     }),
     getFormIntegration: mocks.getFormIntegration,
-    upsertFormIntegration: vi.fn(),
+    upsertFormIntegrationForCurrentOwner:
+      mocks.upsertFormIntegrationForCurrentOwner,
   };
 });
 
@@ -50,6 +53,7 @@ function configuredIntegration(formId: string) {
     config: {
       spreadsheetId: "spreadsheet-1",
       sheetName: "Sheet1",
+      headerPolicy: "extend",
     },
     createdAt: new Date("2026-05-21T00:00:00.000Z"),
     updatedAt: new Date("2026-05-21T00:00:00.000Z"),
@@ -78,6 +82,42 @@ describe("Google Sheets sync job status authorization", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.getFormIntegration.mockResolvedValue(configuredIntegration("form-1"));
+  });
+
+  it("saves a Google Sheets integration through the current-owner service path", async () => {
+    mocks.upsertFormIntegrationForCurrentOwner.mockResolvedValueOnce({
+      ...configuredIntegration("form-1"),
+      ownerUserId: "new-owner-user-id",
+      userId: "new-owner-user-id",
+    });
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          spreadsheetId: "spreadsheet-1",
+          sheetName: "Sheet1",
+          headerPolicy: "extend",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.upsertFormIntegrationForCurrentOwner).toHaveBeenCalledWith({
+      formId: "form-1",
+      config: {
+        spreadsheetId: "spreadsheet-1",
+        sheetName: "Sheet1",
+        headerPolicy: "extend",
+      },
+    });
   });
 
   it("returns 404 without leaking job details when the job belongs to another form", async () => {

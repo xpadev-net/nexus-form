@@ -333,6 +333,14 @@ export const formsDetailRouter = createHonoApp()
           .set({ creatorId: newOwnerUserId })
           .where(eq(form.id, id));
 
+        await tx
+          .update(formIntegration)
+          .set({
+            ownerUserId: newOwnerUserId,
+            userId: newOwnerUserId,
+          })
+          .where(eq(formIntegration.formId, id));
+
         // Grant the previous owner EDITOR access so they don't lose access.
         if (previousOwnerId && previousOwnerId !== newOwnerUserId) {
           await tx
