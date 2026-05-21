@@ -12,6 +12,7 @@ import { ShareLinkManager } from "./share-link-manager";
 
 const mocks = vi.hoisted(() => ({
   copyShareLinkUrl: vi.fn(),
+  deleteShareLinkMutate: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -42,7 +43,7 @@ vi.mock("@/hooks/forms/use-share-links", () => ({
     },
     deleteShareLinkMutation: {
       isPending: false,
-      mutate: vi.fn(),
+      mutate: mocks.deleteShareLinkMutate,
     },
     shareLinksQuery: {
       data: {
@@ -106,6 +107,11 @@ vi.mock("@/components/ui/switch", () => ({
 describe("ShareLinkManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.deleteShareLinkMutate.mockImplementation(
+      (_linkId: string, options?: { onSuccess?: () => void }) => {
+        options?.onSuccess?.();
+      },
+    );
   });
 
   it("shows a failure toast and manual copy URL when clipboard copy returns false", async () => {
@@ -134,6 +140,78 @@ describe("ShareLinkManager", () => {
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
     ).toBe("https://example.test/forms/shared/share-token");
+
+    act(() => root.unmount());
+  });
+
+  it("lets users dismiss the manual copy URL panel", async () => {
+    mocks.copyShareLinkUrl.mockResolvedValueOnce({
+      copied: false,
+      url: "https://example.test/forms/shared/share-token",
+    });
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const copyButton = container.querySelector(
+      'button[aria-label="リンクをコピー"]',
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('input[aria-label="手動コピー用共有リンク"]'),
+    ).not.toBeNull();
+
+    const closeButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "閉じる",
+    );
+    expect(closeButton).toBeDefined();
+
+    act(() => {
+      closeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('input[aria-label="手動コピー用共有リンク"]'),
+    ).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("clears the manual copy URL panel after deleting a share link", async () => {
+    mocks.copyShareLinkUrl.mockResolvedValueOnce({
+      copied: false,
+      url: "https://example.test/forms/shared/share-token",
+    });
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const copyButton = container.querySelector(
+      'button[aria-label="リンクをコピー"]',
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector('input[aria-label="手動コピー用共有リンク"]'),
+    ).not.toBeNull();
+
+    const deleteButton = container.querySelector(
+      'button[aria-label="リンクを削除"]',
+    );
+    act(() => {
+      deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.deleteShareLinkMutate).toHaveBeenCalledWith(
+      "link-1",
+      expect.objectContaining({ onSuccess: expect.any(Function) }),
+    );
+    expect(
+      container.querySelector('input[aria-label="手動コピー用共有リンク"]'),
+    ).toBeNull();
 
     act(() => root.unmount());
   });
