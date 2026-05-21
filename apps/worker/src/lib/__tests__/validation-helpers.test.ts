@@ -8,6 +8,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  StaleValidationJobError,
   ValidationCancelledError,
   writeValidationResult,
 } from "../validation-helpers";
@@ -409,6 +410,26 @@ describe("writeValidationResult", () => {
       expect.objectContaining({ status: "COMPLETED" }),
     );
   });
+
+  it("does not overwrite or publish when the current row belongs to a newer job", async () => {
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "PENDING", errorCode: null, jobId: "job-b" },
+    ]);
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      jobId: "job-a",
+    };
+
+    await writeValidationResult(params);
+
+    expect(insertValues).not.toHaveBeenCalled();
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
 });
 
 describe("markValidationProcessing", () => {
@@ -471,6 +492,25 @@ describe("markValidationProcessing", () => {
         service: "discord",
       }),
     ).rejects.toBeInstanceOf(ValidationCancelledError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("throws before publishing when a newer job owns the validation result", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectLimit.mockResolvedValueOnce([
+      { status: "PENDING", errorCode: null, jobId: "job-b" },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: "job-a",
+      }),
+    ).rejects.toBeInstanceOf(StaleValidationJobError);
     expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 

@@ -13,7 +13,7 @@ import {
   extractQuestionsFromPlateContent,
   getValidationResultId,
 } from "@nexus-form/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
 
@@ -40,6 +40,21 @@ export class ValidationCancelledError extends Error {
       `Validation cancelled concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
     );
     this.name = "ValidationCancelledError";
+  }
+}
+
+export class StaleValidationJobError extends Error {
+  constructor(
+    public readonly responseId: string,
+    public readonly ruleId: string,
+    public readonly referencedBlockId: string,
+    public readonly expectedJobId: string,
+    public readonly actualJobId: string | null,
+  ) {
+    super(
+      `Stale validation job ignored for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId} expectedJobId=${expectedJobId} actualJobId=${actualJobId ?? "null"}`,
+    );
+    this.name = "StaleValidationJobError";
   }
 }
 
@@ -185,6 +200,7 @@ export async function writeValidationResult(params: {
       .select({
         status: externalServiceValidationResult.status,
         errorCode: externalServiceValidationResult.errorCode,
+        jobId: externalServiceValidationResult.jobId,
       })
       .from(externalServiceValidationResult)
       .where(eq(externalServiceValidationResult.id, resultId))
@@ -193,6 +209,14 @@ export async function writeValidationResult(params: {
     if (
       existing?.status === "FAILED" &&
       existing.errorCode === "CANCELLED_BY_USER"
+    ) {
+      return { skipped: true };
+    }
+    if (
+      params.jobId !== undefined &&
+      existing?.jobId !== null &&
+      existing?.jobId !== undefined &&
+      existing.jobId !== params.jobId
     ) {
       return { skipped: true };
     }
@@ -285,6 +309,12 @@ export async function markValidationProcessing(params: {
           externalServiceValidationResult.referencedBlockId,
           params.referencedBlockId,
         ),
+        params.jobId === undefined
+          ? undefined
+          : or(
+              isNull(externalServiceValidationResult.jobId),
+              eq(externalServiceValidationResult.jobId, params.jobId),
+            ),
         sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
       ),
     );
@@ -297,6 +327,7 @@ export async function markValidationProcessing(params: {
       .select({
         status: externalServiceValidationResult.status,
         errorCode: externalServiceValidationResult.errorCode,
+        jobId: externalServiceValidationResult.jobId,
       })
       .from(externalServiceValidationResult)
       .where(
@@ -319,6 +350,20 @@ export async function markValidationProcessing(params: {
         params.responseId,
         params.ruleId,
         params.referencedBlockId,
+      );
+    }
+    if (
+      params.jobId !== undefined &&
+      existing?.jobId !== null &&
+      existing?.jobId !== undefined &&
+      existing.jobId !== params.jobId
+    ) {
+      throw new StaleValidationJobError(
+        params.responseId,
+        params.ruleId,
+        params.referencedBlockId,
+        params.jobId,
+        existing?.jobId ?? null,
       );
     }
 
