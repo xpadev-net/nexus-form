@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   createShareLink: vi.fn(),
   dbSelect: vi.fn(),
   deleteShareLink: vi.fn(),
+  checkShareLinkPermission: vi.fn(),
+  getUserFormPermission: vi.fn(),
   getShareLinks: vi.fn(),
   PermissionRemovalError: class PermissionRemovalError extends Error {
     code: string;
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   },
   removePermission: vi.fn(),
   updateShareLink: vi.fn(),
+  validateShareLinkRole: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -79,19 +82,20 @@ vi.mock("../lib/dual-auth", () => ({
 vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: vi.fn(),
   cancelInvitation: vi.fn(),
-  checkShareLinkPermission: vi.fn(),
+  checkShareLinkPermission: mocks.checkShareLinkPermission,
   createInvitation: vi.fn(),
   createShareLink: mocks.createShareLink,
   deleteShareLink: mocks.deleteShareLink,
   getFormInvitations: vi.fn(),
   getFormPermissions: vi.fn(),
   getShareLinks: mocks.getShareLinks,
-  getUserFormPermission: vi.fn(),
+  getUserFormPermission: mocks.getUserFormPermission,
   PermissionRemovalError: mocks.PermissionRemovalError,
   removePermission: mocks.removePermission,
   transferOwnership: vi.fn(),
   updatePermissionRole: vi.fn(),
   updateShareLink: mocks.updateShareLink,
+  validateShareLinkRole: mocks.validateShareLinkRole,
 }));
 
 describe("R9-C1 share-link management authorization", () => {
@@ -114,6 +118,19 @@ describe("R9-C1 share-link management authorization", () => {
       total: 1,
       page: 1,
       limit: 20,
+    });
+    mocks.checkShareLinkPermission.mockResolvedValue(true);
+    mocks.getUserFormPermission.mockResolvedValue("VIEWER");
+    mocks.validateShareLinkRole.mockReturnValue(true);
+    mocks.createShareLink.mockResolvedValue({
+      id: "new-link",
+      form_id: "form-1",
+      token: "new-share-token",
+      role: "VIEWER",
+      is_active: true,
+      created_at: "2026-05-21T00:00:00.000Z",
+      updated_at: "2026-05-21T00:00:00.000Z",
+      created_by: "editor-1",
     });
   });
 
@@ -231,6 +248,72 @@ describe("R9-C1 share-link management authorization", () => {
       "form-1",
       1,
       20,
+      undefined,
+    );
+  });
+
+  it("rejects share-link creation when the requested role exceeds the user's role", async () => {
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "editor-1",
+    };
+    mocks.getUserFormPermission.mockResolvedValue("VIEWER");
+    mocks.validateShareLinkRole.mockReturnValue(false);
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/share-links",
+      {
+        body: JSON.stringify({ role: "EDITOR" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.validateShareLinkRole).toHaveBeenCalledWith(
+      "EDITOR",
+      "VIEWER",
+    );
+    expect(mocks.createShareLink).not.toHaveBeenCalled();
+  });
+
+  it("creates share links only after validating the requested role against the current user role", async () => {
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "editor-1",
+    };
+    mocks.getUserFormPermission.mockResolvedValue("EDITOR");
+    mocks.validateShareLinkRole.mockReturnValue(true);
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/share-links",
+      {
+        body: JSON.stringify({ role: "VIEWER" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.getUserFormPermission).toHaveBeenCalledWith(
+      "editor-1",
+      "form-1",
+      { auth_type: "session", form_ids: undefined },
+    );
+    expect(mocks.validateShareLinkRole).toHaveBeenCalledWith(
+      "VIEWER",
+      "EDITOR",
+    );
+    expect(mocks.createShareLink).toHaveBeenCalledWith(
+      "form-1",
+      "VIEWER",
+      "editor-1",
       undefined,
     );
   });
