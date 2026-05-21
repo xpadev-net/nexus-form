@@ -157,14 +157,7 @@ export const fingerprintRouter = createHonoApp()
           return c.json(errorResponse("Response not found"), 404);
         }
         if (responseId) {
-          const responseAndFormWhere = and(
-            eq(fingerprintDetail.responseId, responseId),
-            eq(formResponse.formId, formId),
-          );
-          if (!responseAndFormWhere) {
-            return c.json(errorResponse("Invalid fingerprint query"), 500);
-          }
-          fingerprintWhere = responseAndFormWhere;
+          fingerprintWhere = eq(fingerprintDetail.responseId, responseId);
         } else {
           fingerprintWhere = eq(formResponse.formId, formId);
         }
