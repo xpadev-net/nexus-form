@@ -12,13 +12,16 @@ const mocks = vi.hoisted(() => ({
     share_link_id?: string;
   } | null,
   createShareLink: vi.fn(),
+  dbSelect: vi.fn(),
   deleteShareLink: vi.fn(),
   getShareLinks: vi.fn(),
   updateShareLink: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database", () => ({
-  db: {},
+  db: {
+    select: mocks.dbSelect,
+  },
   user: {
     id: "user.id",
     name: "user.name",
@@ -120,7 +123,7 @@ describe("R9-C1 share-link management authorization", () => {
     {
       method: "GET",
       path: "/form-1/share-links/managed-link",
-      service: "getShareLinks",
+      service: "dbSelect",
     },
     {
       method: "POST",
@@ -165,6 +168,26 @@ describe("R9-C1 share-link management authorization", () => {
 
     expect(response.status).toBe(403);
     expect(mocks[service]).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous synthetic API tokens before listing managed share links", async () => {
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "anon:visitor-1",
+      token_id: "token-1",
+      scopes: ["read"],
+      form_ids: ["form-1"],
+    };
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/share-links?page=1&pageSize=20",
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.getShareLinks).not.toHaveBeenCalled();
   });
 
   it("allows session users to list managed share links", async () => {
