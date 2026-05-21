@@ -65,7 +65,7 @@ vi.mock("../lib/forms/permission-service", () => ({
   updateShareLink: vi.fn(),
 }));
 
-describe("R9-C4 invitation accept authorization", () => {
+describe("R11-C3 duplicate form-scoped invitation accept route", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
@@ -88,7 +88,7 @@ describe("R9-C4 invitation accept authorization", () => {
     });
   });
 
-  it("allows an authenticated invitee without existing form access to accept", async () => {
+  it("does not expose the removed form-scoped invitation accept route", async () => {
     mocks.authContext = { auth_type: "session", user_id: "invitee-1" };
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
@@ -99,14 +99,11 @@ describe("R9-C4 invitation accept authorization", () => {
       { method: "POST" },
     );
 
-    expect(response.status).toBe(200);
-    expect(mocks.acceptInvitation).toHaveBeenCalledWith(
-      "invite-token",
-      "invitee-1",
-    );
+    expect(response.status).toBe(404);
+    expect(mocks.acceptInvitation).not.toHaveBeenCalled();
   });
 
-  it("requires authentication before accepting an invitation", async () => {
+  it("does not authenticate or accept through the removed route", async () => {
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
     );
@@ -116,7 +113,7 @@ describe("R9-C4 invitation accept authorization", () => {
       { method: "POST" },
     );
 
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(404);
     expect(mocks.acceptInvitation).not.toHaveBeenCalled();
   });
 });

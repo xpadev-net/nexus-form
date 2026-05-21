@@ -92,6 +92,22 @@ function mockInvitationLookup(rows: Array<Record<string, unknown>>) {
 describe("GET /api/forms/invites/:token", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.acceptInvitation.mockResolvedValue({
+      id: "permission-1",
+      form_id: "form-1",
+      user_id: "user-1",
+      role: "VIEWER",
+      created_at: "2026-05-21T00:00:00.000Z",
+      updated_at: "2026-05-21T00:00:00.000Z",
+      user: {
+        id: "user-1",
+        name: "Invitee",
+        email: "invitee@example.com",
+        discord_id: null,
+        created_at: "2026-05-21T00:00:00.000Z",
+        updated_at: "2026-05-21T00:00:00.000Z",
+      },
+    });
   });
 
   it("does not expose the invitation recipient email to unauthenticated callers", async () => {
@@ -152,5 +168,35 @@ describe("GET /api/forms/invites/:token", () => {
       error: "Invalid invite token",
     });
     expect(mocks.acceptInvitation).not.toHaveBeenCalled();
+  });
+
+  it("accepts valid invite tokens through the canonical invite route", async () => {
+    const app = createApp();
+    const token = "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-";
+
+    const response = await app.request(`/api/forms/invites/${token}/accept`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      permission: {
+        id: "permission-1",
+        form_id: "form-1",
+        user_id: "user-1",
+        role: "VIEWER",
+        created_at: "2026-05-21T00:00:00.000Z",
+        updated_at: "2026-05-21T00:00:00.000Z",
+        user: {
+          id: "user-1",
+          name: "Invitee",
+          email: "invitee@example.com",
+          discord_id: null,
+          created_at: "2026-05-21T00:00:00.000Z",
+          updated_at: "2026-05-21T00:00:00.000Z",
+        },
+      },
+    });
+    expect(mocks.acceptInvitation).toHaveBeenCalledWith(token, "user-1");
   });
 });

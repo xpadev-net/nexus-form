@@ -10,13 +10,8 @@ import { and, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
+import { type DualAuthContext, withDualFormAuth } from "../lib/dual-auth";
 import {
-  type DualAuthContext,
-  withDualAuth,
-  withDualFormAuth,
-} from "../lib/dual-auth";
-import {
-  acceptInvitation,
   cancelInvitation,
   checkShareLinkPermission,
   createInvitation,
@@ -496,11 +491,4 @@ export const formsPermissionsRouter = createHonoApp()
       await deleteShareLink(linkId, formId);
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
-  )
-  .post("/:id/invitations/:token/accept", withDualAuth(), async (c) => {
-    const auth = c.get("dualAuthContext");
-    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-    const token = c.req.param("token");
-    const permission = await acceptInvitation(token, auth.user_id);
-    return c.json(FormPermissionResponseSchema.parse({ permission }));
-  });
+  );
