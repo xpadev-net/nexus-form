@@ -65,6 +65,22 @@ const retentionConfigSchema = z.object({
   cleanupSchedule: z.string().optional(),
 });
 
+async function getResponseFormId(responseId: string): Promise<string | null> {
+  const [resp] = await db
+    .select({ formId: formResponse.formId })
+    .from(formResponse)
+    .where(eq(formResponse.id, responseId))
+    .limit(1);
+  return resp?.formId ?? null;
+}
+
+async function responseBelongsToForm(
+  responseId: string,
+  formId: string,
+): Promise<boolean> {
+  return (await getResponseFormId(responseId)) === formId;
+}
+
 export const fingerprintRouter = createHonoApp()
   .post(
     "/save",
@@ -137,19 +153,27 @@ export const fingerprintRouter = createHonoApp()
         if (!hasAccess) {
           return c.json(errorResponse("Access denied to this form"), 403);
         }
-        fingerprintWhere = responseId
-          ? eq(fingerprintDetail.responseId, responseId)
-          : eq(formResponse.formId, formId);
-      } else if (responseId) {
-        const [resp] = await db
-          .select({ formId: formResponse.formId })
-          .from(formResponse)
-          .where(eq(formResponse.id, responseId))
-          .limit(1);
-        if (!resp) {
+        if (responseId && !(await responseBelongsToForm(responseId, formId))) {
           return c.json(errorResponse("Response not found"), 404);
         }
-        const hasAccess = await checkFormAccess(context, resp.formId);
+        if (responseId) {
+          const responseAndFormWhere = and(
+            eq(fingerprintDetail.responseId, responseId),
+            eq(formResponse.formId, formId),
+          );
+          if (!responseAndFormWhere) {
+            return c.json(errorResponse("Invalid fingerprint query"), 500);
+          }
+          fingerprintWhere = responseAndFormWhere;
+        } else {
+          fingerprintWhere = eq(formResponse.formId, formId);
+        }
+      } else if (responseId) {
+        const responseFormId = await getResponseFormId(responseId);
+        if (!responseFormId) {
+          return c.json(errorResponse("Response not found"), 404);
+        }
+        const hasAccess = await checkFormAccess(context, responseFormId);
         if (!hasAccess) {
           return c.json(errorResponse("Access denied to this form"), 403);
         }
@@ -196,26 +220,15 @@ export const fingerprintRouter = createHonoApp()
         if (!hasAccess) {
           return c.json(errorResponse("Access denied to this form"), 403);
         }
-        if (responseId) {
-          const [resp] = await db
-            .select({ formId: formResponse.formId })
-            .from(formResponse)
-            .where(eq(formResponse.id, responseId))
-            .limit(1);
-          if (!resp || resp.formId !== formId) {
-            return c.json(errorResponse("Response not found"), 404);
-          }
-        }
-      } else if (responseId) {
-        const [resp] = await db
-          .select({ formId: formResponse.formId })
-          .from(formResponse)
-          .where(eq(formResponse.id, responseId))
-          .limit(1);
-        if (!resp) {
+        if (responseId && !(await responseBelongsToForm(responseId, formId))) {
           return c.json(errorResponse("Response not found"), 404);
         }
-        const hasAccess = await checkFormAccess(context, resp.formId);
+      } else if (responseId) {
+        const responseFormId = await getResponseFormId(responseId);
+        if (!responseFormId) {
+          return c.json(errorResponse("Response not found"), 404);
+        }
+        const hasAccess = await checkFormAccess(context, responseFormId);
         if (!hasAccess) {
           return c.json(errorResponse("Access denied to this form"), 403);
         }

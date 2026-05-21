@@ -112,3 +112,33 @@ describe("GET /anonymized fingerprint authorization", () => {
     expect(mocks.anonymized).toHaveBeenCalledWith("response-a", "form-a", true);
   });
 });
+
+describe("GET /get fingerprint authorization", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.checkFormAccess.mockResolvedValue(true);
+    mocks.responseLimit.mockResolvedValue([{ formId: "form-a" }]);
+    mocks.anonymized.mockResolvedValue({ fingerprints: [] });
+  });
+
+  it("rejects mismatched formId and responseId before reading fingerprint rows", async () => {
+    mocks.responseLimit.mockResolvedValue([{ formId: "other-form" }]);
+    const { fingerprintRouter } = await import("../routes/fingerprint");
+
+    const response = await fingerprintRouter.request(
+      "/get?formId=form-a&responseId=response-b",
+    );
+
+    expect(response.status).toBe(404);
+    expect(mocks.checkFormAccess).toHaveBeenCalledWith(
+      mocks.authContext,
+      "form-a",
+    );
+    expect(mocks.responseLimit).toHaveBeenCalledWith(1);
+    expect(mocks.eq).toHaveBeenCalledWith("formResponse.id", "response-b");
+    expect(mocks.eq).not.toHaveBeenCalledWith(
+      "fingerprintDetail.responseId",
+      "response-b",
+    );
+  });
+});
