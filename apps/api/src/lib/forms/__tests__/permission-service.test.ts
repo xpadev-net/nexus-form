@@ -54,7 +54,10 @@ vi.mock("drizzle-orm", () => ({
   })),
 }));
 
-import { validateShareLink } from "../permission-service";
+import {
+  validateShareLink,
+  validateShareLinkRole,
+} from "../permission-service";
 
 function shareLinkRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -127,5 +130,18 @@ describe("validateShareLink", () => {
     await expect(validateShareLink("share-token")).rejects.toThrow(
       "Share link has expired",
     );
+  });
+});
+
+describe("validateShareLinkRole", () => {
+  it.each([
+    ["OWNER", "EDITOR", true],
+    ["OWNER", "VIEWER", true],
+    ["EDITOR", "EDITOR", true],
+    ["EDITOR", "VIEWER", true],
+    ["VIEWER", "VIEWER", true],
+    ["VIEWER", "EDITOR", false],
+  ] as const)("allows %s users to create %s share links: %s", (userRole, requestedRole, expected) => {
+    expect(validateShareLinkRole(requestedRole, userRole)).toBe(expected);
   });
 });

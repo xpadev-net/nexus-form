@@ -13,7 +13,6 @@ import { paginationQuerySchema } from "../lib/constants/pagination";
 import { type DualAuthContext, withDualFormAuth } from "../lib/dual-auth";
 import {
   cancelInvitation,
-  checkShareLinkPermission,
   createInvitation,
   createShareLink,
   deleteShareLink,
@@ -26,6 +25,7 @@ import {
   transferOwnership,
   updatePermissionRole,
   updateShareLink,
+  validateShareLinkRole,
 } from "../lib/forms/permission-service";
 import { createHonoApp, type Env } from "../lib/hono";
 import {
@@ -410,15 +410,20 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      const allowed = await checkShareLinkPermission(auth.user_id, formId, {
+      const context = {
         auth_type: auth.auth_type,
         form_ids: auth.form_ids,
-      });
-      if (!allowed) {
+      };
+      const payload = c.req.valid("json");
+      const userRole = await getUserFormPermission(
+        auth.user_id,
+        formId,
+        context,
+      );
+      if (!userRole || !validateShareLinkRole(payload.role, userRole)) {
         return c.json(errorResponse("Insufficient permissions"), 403);
       }
 
-      const payload = c.req.valid("json");
       const link = await createShareLink(
         formId,
         payload.role,

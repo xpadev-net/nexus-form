@@ -594,6 +594,17 @@ export async function removePermission(
           eq(formPermission.userId, userId),
         ),
       );
+
+    await tx
+      .update(formShareLink)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(formShareLink.formId, formId),
+          eq(formShareLink.createdBy, userId),
+          eq(formShareLink.isActive, true),
+        ),
+      );
   });
 }
 
@@ -748,6 +759,20 @@ export async function updatePermissionRole(
           eq(formPermission.userId, userId),
         ),
       );
+
+    if (newRole === "VIEWER") {
+      await tx
+        .update(formShareLink)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(formShareLink.formId, formId),
+            eq(formShareLink.createdBy, userId),
+            eq(formShareLink.isActive, true),
+            eq(formShareLink.role, "EDITOR"),
+          ),
+        );
+    }
 
     // 更新した権限を取得
     const [updatedPermission] = await tx
