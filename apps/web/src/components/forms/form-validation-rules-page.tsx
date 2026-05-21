@@ -88,12 +88,20 @@ export const FormValidationRulesPage: FC<Props> = ({
       return [];
     }
     if (!Array.isArray(parsed)) return [];
-    return extractQuestionsFromPlateContent(parsed)
-      .filter((q) => q.type === "short_text")
-      .map((q) => ({
-        blockId: q.blockId,
-        title: q.title.trim() || "（タイトル未設定）",
-      }));
+    return extractQuestionsFromPlateContent(parsed).reduce<BlockOption[]>(
+      (options, q) => {
+        if (q.type !== "short_text") {
+          return options;
+        }
+
+        options.push({
+          blockId: q.blockId,
+          title: q.title.trim() || "（タイトル未設定）",
+        });
+        return options;
+      },
+      [],
+    );
   }, [plateContent]);
 
   const createMutation = useMutation({
