@@ -80,6 +80,27 @@ async function resolveEffectiveUserId(
   return authUserId;
 }
 
+function isSyntheticApiTokenPrincipal(authContext: DualAuthContext): boolean {
+  return (
+    authContext.auth_type === "api_token" &&
+    (authContext.share_link_id !== undefined ||
+      authContext.user_id.startsWith("anon:") ||
+      authContext.user_id.startsWith("share-link:"))
+  );
+}
+
+function apiTokenExternalServiceErrorResponse(
+  code: string,
+  message: string,
+): ExternalServicePermissionErrorResponse {
+  return ExternalServicePermissionErrorResponseSchema.parse({
+    error: {
+      message,
+      code,
+    },
+  });
+}
+
 function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {
   return formPermissionErrorStatusSchema.parse(error.statusCode);
 }
@@ -122,13 +143,33 @@ export const externalServiceRouter = createHonoApp()
       return c.json(errorResponse("Invalid external service API path"), 400);
     }
 
+    const formId = c.req.query("formId") || undefined;
+
+    if (isSyntheticApiTokenPrincipal(auth)) {
+      return c.json(
+        apiTokenExternalServiceErrorResponse(
+          "SYNTHETIC_PRINCIPAL_NOT_ALLOWED",
+          "External service API token calls require a user-scoped token",
+        ),
+        403,
+      );
+    }
+
+    if (auth.auth_type === "api_token" && !formId) {
+      return c.json(
+        apiTokenExternalServiceErrorResponse(
+          "API_TOKEN_FORM_CONTEXT_REQUIRED",
+          "External service API token calls require formId",
+        ),
+        403,
+      );
+    }
+
     const provider = providerRegistry.get(providerName.data);
     const handler = provider?.apiHandlers?.[apiName.data];
     if (!handler) {
       return c.json(errorResponse("External service API not found"), 404);
     }
-
-    const formId = c.req.query("formId") || undefined;
 
     let effectiveUserId: string;
     try {
