@@ -89,21 +89,6 @@ describe("R11-C3 duplicate form-scoped invitation accept route", () => {
   });
 
   it("does not expose the removed form-scoped invitation accept route", async () => {
-    mocks.authContext = { auth_type: "session", user_id: "invitee-1" };
-    const { formsPermissionsRouter } = await import(
-      "../routes/forms-permissions"
-    );
-
-    const response = await formsPermissionsRouter.request(
-      "/form-1/invitations/invite-token/accept",
-      { method: "POST" },
-    );
-
-    expect(response.status).toBe(404);
-    expect(mocks.acceptInvitation).not.toHaveBeenCalled();
-  });
-
-  it("does not authenticate or accept through the removed route", async () => {
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
     );

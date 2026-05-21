@@ -5,6 +5,7 @@ vi.mock("../load-env", () => ({}));
 const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   acceptInvitation: vi.fn(),
+  authContext: null as { auth_type: "session"; user_id: string } | null,
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -58,13 +59,14 @@ vi.mock("../lib/dual-auth", () => ({
           key: string,
           value: { auth_type: "session"; user_id: string },
         ) => void;
+        json: (body: unknown, status?: number) => Response;
       },
       next: () => Promise<void>,
     ) => {
-      c.set("dualAuthContext", {
-        auth_type: "session",
-        user_id: "user-1",
-      });
+      if (!mocks.authContext) {
+        return c.json({ error: { message: "Unauthorized" } }, 401);
+      }
+      c.set("dualAuthContext", mocks.authContext);
       await next();
     },
 }));
@@ -92,6 +94,7 @@ function mockInvitationLookup(rows: Array<Record<string, unknown>>) {
 describe("GET /api/forms/invites/:token", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.authContext = { auth_type: "session", user_id: "user-1" };
     mocks.acceptInvitation.mockResolvedValue({
       id: "permission-1",
       form_id: "form-1",
@@ -198,5 +201,21 @@ describe("GET /api/forms/invites/:token", () => {
       },
     });
     expect(mocks.acceptInvitation).toHaveBeenCalledWith(token, "user-1");
+  });
+
+  it("rejects unauthenticated callers before accepting canonical invite tokens", async () => {
+    mocks.authContext = null;
+    const app = createApp();
+    const token = "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-";
+
+    const response = await app.request(`/api/forms/invites/${token}/accept`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({
+      error: { message: "Unauthorized" },
+    });
+    expect(mocks.acceptInvitation).not.toHaveBeenCalled();
   });
 });
