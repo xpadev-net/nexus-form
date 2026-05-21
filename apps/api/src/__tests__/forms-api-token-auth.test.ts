@@ -218,6 +218,17 @@ describe("R9-C2 forms API token authorization", () => {
     expect(response.status).toBe(200);
     expect(mocks.eq).toHaveBeenCalledWith("form.creatorId", "user-1");
     expect(mocks.inArray).toHaveBeenCalledWith("form.id", ["allowed-form"]);
+    expect(mocks.countWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          expect.objectContaining({
+            type: "inArray",
+            values: ["allowed-form"],
+          }),
+        ]),
+        type: "and",
+      }),
+    );
     expect(mocks.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         limit: 50,

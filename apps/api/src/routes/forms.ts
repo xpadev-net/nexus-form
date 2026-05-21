@@ -6,6 +6,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
 import { createHonoApp, type Env } from "../lib/hono";
+import type { TokenScope } from "../types/api/auth";
 import { errorResponse } from "../types/domain/common";
 import {
   FormCreateResponseSchema,
@@ -35,7 +36,10 @@ const requireFormCreationAuth = createMiddleware<Env>(async (c, next) => {
   if (!auth) return c.json(errorResponse("Unauthorized"), 401);
   if (auth.auth_type === "api_token") {
     const scopes = auth.scopes ?? [];
-    if (!scopes.includes("write") && !scopes.includes("admin")) {
+    if (
+      !scopes.includes("write" as TokenScope) &&
+      !scopes.includes("admin" as TokenScope)
+    ) {
       return c.json(errorResponse("Insufficient permissions"), 403);
     }
     if (auth.form_ids) {
