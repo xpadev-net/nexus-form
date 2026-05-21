@@ -647,7 +647,7 @@ export const formsPublicRouter = createHonoApp()
       setSessionCookie(c, newJwt);
 
       // 11. Queue external validation jobs (non-blocking)
-      if (activeSnapshot && validationOutbox) {
+      if (validationOutbox && validationOutbox.pendingJobs.length > 0) {
         enqueueExternalValidationJobs(responseId, validationOutbox).catch(
           (error) => {
             logError("Failed to queue external validations", "api", {

@@ -418,4 +418,38 @@ describe("R11-C2-a public validation outbox", () => {
       expect.objectContaining({ ruleId: "rule-valid" }),
     );
   });
+
+  it("skips enqueue when every validation row is resolved before queueing", async () => {
+    const snapshot = activeSnapshot([
+      {
+        id: "rule-missing-block",
+        name: "Missing block",
+        providerName: "discord",
+        ruleType: "guild_member",
+        referencedBlockIds: ["missing-block"],
+        configJson: { guildId: "guild-1" },
+        orderIndex: 0,
+      },
+    ]);
+    useSuccessfulSubmitSelects(snapshot);
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(getInsertedValidationRows()).toEqual([
+      expect.objectContaining({
+        ruleId: "rule-missing-block",
+        status: "MISSING",
+        errorCode: "REFERENCED_BLOCK_MISSING",
+      }),
+    ]);
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    expect(mocks.sequence).toEqual([
+      "tx:start",
+      "tx:response",
+      "tx:validation",
+      "tx:commit",
+    ]);
+  });
 });
