@@ -9,8 +9,24 @@ import { discordGuild, discordUser } from "@nexus-form/database/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { brandConfig } from "./brand-config";
 import { logError, logInfo, logWarn } from "./logger";
+
+const discordGuildResponseSchema = z.array(
+  z.object({
+    id: z.string().min(1),
+    name: z.string(),
+    icon: z.string().nullable(),
+    permissions: z.string().regex(/^\d+$/),
+  }),
+);
+
+const discordBotGuildResponseSchema = z.array(
+  z.object({
+    id: z.string().min(1),
+  }),
+);
 
 function getDiscordProvider():
   | { discord: { clientId: string; clientSecret: string; scope: string[] } }
@@ -187,12 +203,16 @@ export async function syncDiscordGuilds(
       return;
     }
 
-    const guilds = (await guildsResponse.json()) as Array<{
-      id: string;
-      name: string;
-      icon: string | null;
-      permissions: string;
-    }>;
+    const parsedGuilds = discordGuildResponseSchema.safeParse(
+      await guildsResponse.json(),
+    );
+    if (!parsedGuilds.success) {
+      logWarn("Invalid Discord guilds response", "integration", {
+        error: parsedGuilds.error,
+      });
+      return;
+    }
+    const guilds = parsedGuilds.data;
 
     // 管理者権限 (0x8) を持つギルドのみフィルタリング
     const ADMINISTRATOR = BigInt(0x8);
@@ -216,9 +236,16 @@ export async function syncDiscordGuilds(
         );
 
         if (botGuildsResponse.ok) {
-          const botGuilds = (await botGuildsResponse.json()) as Array<{
-            id: string;
-          }>;
+          const parsedBotGuilds = discordBotGuildResponseSchema.safeParse(
+            await botGuildsResponse.json(),
+          );
+          if (!parsedBotGuilds.success) {
+            logWarn("Invalid Discord bot guilds response", "integration", {
+              error: parsedBotGuilds.error,
+            });
+            return;
+          }
+          const botGuilds = parsedBotGuilds.data;
           const botGuildIds = new Set(botGuilds.map((g) => g.id));
           filteredGuilds = adminGuilds.filter((guild) =>
             botGuildIds.has(guild.id),
