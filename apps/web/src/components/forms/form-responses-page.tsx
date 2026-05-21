@@ -247,7 +247,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                           className={[
                             "flex w-full items-center justify-between rounded border p-3 text-left transition-colors hover:bg-muted/50",
                             isStalePageData
-                              ? "cursor-wait opacity-60 hover:bg-transparent"
+                              ? "cursor-not-allowed opacity-60 hover:bg-transparent"
                               : "",
                             state.selectedResponseId === response.id
                               ? "border-primary bg-primary/5"
