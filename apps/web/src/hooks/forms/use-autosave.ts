@@ -12,11 +12,30 @@ type AutosaveState = {
 };
 
 const keyPrefix = "cf:autosave";
-const generateKey = (formId: string, respondentUuid: string) =>
+const generateKey = (formId: string, respondentUuid: string): string =>
   `${keyPrefix}:${formId}:${respondentUuid}`;
+const generateRespondentKey = (formId: string): string =>
+  `cf:respondent:${formId}`;
+
+const resolveRespondentUuid = (formId: string): string => {
+  if (typeof window === "undefined") return "";
+
+  const storageKey = generateRespondentKey(formId);
+  const existing = window.localStorage.getItem(storageKey);
+  if (existing) return existing;
+
+  const nextId = crypto.randomUUID();
+  window.localStorage.setItem(storageKey, nextId);
+  return nextId;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+};
+
+type RespondentIdentity = {
+  formId: string;
+  uuid: string;
 };
 
 export const useAutosave = (
@@ -32,31 +51,33 @@ export const useAutosave = (
 
   const enabled = options.enabled ?? true;
   const timerRef = useRef<number | null>(null);
-  const respondentUuidRef = useRef<string>("");
+  const respondentRef = useRef<RespondentIdentity | null>(null);
   const lastHashRef = useRef<string>("");
-  const initializedRef = useRef(false);
 
-  useEffect(() => {
-    if (initializedRef.current || typeof window === "undefined") return;
-    initializedRef.current = true;
-
-    const storageKey = `cf:respondent:${formId}`;
-    const existing = window.localStorage.getItem(storageKey);
-    if (existing) {
-      respondentUuidRef.current = existing;
-    } else {
-      const nextId = crypto.randomUUID();
-      respondentUuidRef.current = nextId;
-      window.localStorage.setItem(storageKey, nextId);
+  const getRespondentUuid = useCallback((): string => {
+    if (
+      respondentRef.current?.formId === formId &&
+      respondentRef.current.uuid
+    ) {
+      return respondentRef.current.uuid;
     }
+
+    const uuid = resolveRespondentUuid(formId);
+    respondentRef.current = { formId, uuid };
+    return uuid;
   }, [formId]);
 
   const saveNow = useCallback(async () => {
     if (!enabled || typeof window === "undefined") return;
-    if (!respondentUuidRef.current) return;
+    const respondentUuid = getRespondentUuid();
+    if (!respondentUuid) return;
     if (!isRecord(responses)) return;
 
-    const responseHash = JSON.stringify(responses);
+    const responseHash = JSON.stringify({
+      formId,
+      respondentUuid,
+      responses,
+    });
     if (responseHash === lastHashRef.current) return;
 
     setState((current) => ({ ...current, isSaving: true, error: null }));
@@ -64,7 +85,7 @@ export const useAutosave = (
     try {
       const payload: AutosaveData = {
         formId,
-        respondentUuid: respondentUuidRef.current,
+        respondentUuid,
         responses,
         savedAt: new Date().toISOString(),
         version: 1,
@@ -90,13 +111,15 @@ export const useAutosave = (
           error instanceof Error ? error.message : "下書き保存に失敗しました",
       }));
     }
-  }, [enabled, formId, responses]);
+  }, [enabled, formId, getRespondentUuid, responses]);
 
   const loadDraft = useCallback(() => {
     if (typeof window === "undefined") return null;
+    const respondentUuid = getRespondentUuid();
+    if (!respondentUuid) return null;
 
     const raw = window.localStorage.getItem(
-      generateKey(formId, respondentUuidRef.current),
+      generateKey(formId, respondentUuid),
     );
     if (!raw) return null;
 
@@ -107,16 +130,17 @@ export const useAutosave = (
     if (!parsed.success) return null;
 
     return parsed.data;
-  }, [formId]);
+  }, [formId, getRespondentUuid]);
 
   const clearDraft = useCallback(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.removeItem(
-      generateKey(formId, respondentUuidRef.current),
-    );
+    const respondentUuid = getRespondentUuid();
+    if (respondentUuid) {
+      window.localStorage.removeItem(generateKey(formId, respondentUuid));
+    }
     setState((current) => ({ ...current, lastSaved: null, error: null }));
     lastHashRef.current = "";
-  }, [formId]);
+  }, [formId, getRespondentUuid]);
 
   useEffect(() => {
     if (!enabled) return;
