@@ -2,10 +2,14 @@ import axios from "axios";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { getTwitterClient } from "../client";
 
+const { requestMock } = vi.hoisted(() => ({
+  requestMock: vi.fn(),
+}));
+
 vi.mock("axios", () => ({
   default: {
     create: vi.fn(() => ({
-      request: vi.fn(),
+      request: requestMock,
     })),
   },
 }));
@@ -38,6 +42,39 @@ describe("getTwitterClient", () => {
           Authorization: "Bearer new-token",
         }),
       }),
+    );
+  });
+
+  it("rejects malformed successful user lookup responses", async () => {
+    vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
+    requestMock.mockResolvedValueOnce({
+      data: {
+        data: { id: "123" },
+      },
+    });
+    const client = getTwitterClient();
+
+    await expect(client.getUserByUsername("username")).rejects.toThrow(
+      "Twitter API returned malformed user data",
+    );
+  });
+
+  it("rejects successful user lookup responses with malformed profile image URLs", async () => {
+    vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
+    requestMock.mockResolvedValueOnce({
+      data: {
+        data: {
+          id: "123",
+          username: "username",
+          name: "User Name",
+          profile_image_url: "not-a-url",
+        },
+      },
+    });
+    const client = getTwitterClient();
+
+    await expect(client.getUserByUsername("username")).rejects.toThrow(
+      "Twitter API returned malformed user data",
     );
   });
 });
