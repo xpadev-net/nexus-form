@@ -380,10 +380,19 @@ describe("handleSheetsSync — idempotency states", () => {
       jobId: "job-1",
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledTimes(2);
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
       "sheets-written:integration-1:response-1",
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
+    );
+    expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
+      getInvocationCallOrder(mockReadRange, 0),
     );
   });
 
@@ -584,6 +593,7 @@ describe("handleSheetsSync — write path", () => {
       jobId: "job-1",
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
   it("rethrows on rate limit from appendRows", async () => {
