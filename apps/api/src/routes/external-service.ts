@@ -91,12 +91,14 @@ function isSyntheticApiTokenPrincipal(authContext: DualAuthContext): boolean {
   );
 }
 
-function tokenFormContextRequiredResponse(): ExternalServicePermissionErrorResponse {
+function apiTokenExternalServiceErrorResponse(
+  code: string,
+  message: string,
+): ExternalServicePermissionErrorResponse {
   return tokenFormContextRequiredResponseSchema.parse({
     error: {
-      message:
-        "External service API token calls require a user-scoped token and formId",
-      code: "API_TOKEN_FORM_CONTEXT_REQUIRED",
+      message,
+      code,
     },
   });
 }
@@ -146,11 +148,23 @@ export const externalServiceRouter = createHonoApp()
     const formId = c.req.query("formId") || undefined;
 
     if (auth.auth_type === "api_token" && !formId) {
-      return c.json(tokenFormContextRequiredResponse(), 403);
+      return c.json(
+        apiTokenExternalServiceErrorResponse(
+          "API_TOKEN_FORM_CONTEXT_REQUIRED",
+          "External service API token calls require formId",
+        ),
+        403,
+      );
     }
 
     if (isSyntheticApiTokenPrincipal(auth)) {
-      return c.json(tokenFormContextRequiredResponse(), 403);
+      return c.json(
+        apiTokenExternalServiceErrorResponse(
+          "SYNTHETIC_PRINCIPAL_NOT_ALLOWED",
+          "External service API token calls require a user-scoped token",
+        ),
+        403,
+      );
     }
 
     const provider = providerRegistry.get(providerName.data);

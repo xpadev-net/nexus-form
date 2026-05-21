@@ -250,7 +250,39 @@ describe("external service form OAuth authorization", () => {
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({
       error: {
-        code: "API_TOKEN_FORM_CONTEXT_REQUIRED",
+        code: "SYNTHETIC_PRINCIPAL_NOT_ALLOWED",
+      },
+    });
+    expect(providerGet).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous API token principals before using linked accounts", async () => {
+    validateApiToken.mockResolvedValueOnce({
+      user_id: "anon:token-id",
+      token_id: "token-id",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+      {
+        headers: {
+          authorization: "Bearer token-value",
+        },
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "SYNTHETIC_PRINCIPAL_NOT_ALLOWED",
       },
     });
     expect(providerGet).not.toHaveBeenCalled();
