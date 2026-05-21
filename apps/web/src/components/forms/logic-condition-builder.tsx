@@ -48,7 +48,6 @@ function getConditionKeySignature(condition: FormLogicCondition): string {
   return JSON.stringify({
     questionId: condition.question_id,
     operator: condition.operator,
-    value: condition.value,
   });
 }
 
