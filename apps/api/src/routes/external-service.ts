@@ -37,8 +37,6 @@ export type ExternalServiceFailureResponse = z.infer<
 const formPermissionErrorStatusSchema = z
   .union([z.literal(403), z.literal(404)])
   .catch(403);
-const tokenFormContextRequiredResponseSchema =
-  ExternalServicePermissionErrorResponseSchema;
 
 async function getLinkedAccount(userId: string, providerId: string) {
   const [linkedAccount] = await db
@@ -95,7 +93,7 @@ function apiTokenExternalServiceErrorResponse(
   code: string,
   message: string,
 ): ExternalServicePermissionErrorResponse {
-  return tokenFormContextRequiredResponseSchema.parse({
+  return ExternalServicePermissionErrorResponseSchema.parse({
     error: {
       message,
       code,
