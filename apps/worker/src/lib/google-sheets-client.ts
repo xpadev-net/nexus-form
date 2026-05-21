@@ -4,6 +4,7 @@
  * apps/api/src/lib/google/google-sheets-client.ts のロジックを再利用
  */
 
+import { z } from "zod";
 import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import type { OAuthToken } from "./oauth-token-store";
 
@@ -33,6 +34,37 @@ export interface GoogleApiError {
 export type Result<TData> =
   | { ok: true; data: TData }
   | { ok: false; error: GoogleApiError };
+
+const SheetsAppendResponseSchema = z.object({
+  updates: z.object({
+    updatedRange: z.string().min(1),
+    updatedRows: z.number().int().nonnegative().optional(),
+  }),
+});
+
+const SheetsValueRangeResponseSchema = z.object({
+  range: z.string().min(1),
+  majorDimension: z.string().min(1),
+  values: z
+    .array(
+      z.array(z.union([z.string(), z.number(), z.boolean()]).transform(String)),
+    )
+    .optional()
+    .default([]),
+});
+
+const SheetsUpdateResponseSchema = z.object({
+  updatedRange: z.string().min(1).optional(),
+  updatedRows: z.number().int().nonnegative().optional(),
+});
+
+function invalidSuccessResponseError(operation: string, cause: unknown) {
+  return {
+    code: "internal",
+    message: `Google Sheets API returned malformed ${operation} response`,
+    cause,
+  } satisfies GoogleApiError;
+}
 
 async function fetchGoogleSheetsAPI<T = unknown>(opts: {
   accessToken: string;
@@ -117,9 +149,14 @@ export async function appendRows(
       method: "POST",
       body: { values: params.rows },
     });
-    const data = raw as {
-      updates: { updatedRange: string; updatedRows?: number };
-    };
+    const parsed = SheetsAppendResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: invalidSuccessResponseError("append", parsed.error),
+      };
+    }
+    const data = parsed.data;
     return {
       ok: true,
       data: {
@@ -153,15 +190,18 @@ export async function readRange(
       endpoint,
       method: "GET",
     });
-    const data = raw as {
-      range: string;
-      majorDimension: string;
-      values?: string[][];
-    };
+    const parsed = SheetsValueRangeResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: invalidSuccessResponseError("read", parsed.error),
+      };
+    }
+    const data = parsed.data;
     return {
       ok: true,
       data: {
-        values: data.values ?? [],
+        values: data.values,
         range: data.range,
         majorDimension: data.majorDimension,
       },
@@ -187,12 +227,19 @@ export async function updateRange(
       method: "PUT",
       body: { values: params.values },
     });
-    const rawObj = raw as Record<string, unknown>;
+    const parsed = SheetsUpdateResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: invalidSuccessResponseError("update", parsed.error),
+      };
+    }
+    const data = parsed.data;
     return {
       ok: true,
       data: {
-        updatedRange: (rawObj.updatedRange as string) || params.rangeA1,
-        updatedRows: rawObj.updatedRows as number | undefined,
+        updatedRange: data.updatedRange ?? params.rangeA1,
+        updatedRows: data.updatedRows,
       },
     };
   } catch (e) {
