@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+export const VALIDATION_RETRY_JOB_PREFIX = "validation-retry:";
+
 export const genericValidationJobDataSchema = z.object({
   responseId: z.string().min(1),
   ruleId: z.string().min(1),

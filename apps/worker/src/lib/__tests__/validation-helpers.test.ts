@@ -1,5 +1,8 @@
 import { db } from "@nexus-form/database";
-import { getValidationResultId } from "@nexus-form/shared";
+import {
+  getValidationResultId,
+  VALIDATION_RETRY_JOB_PREFIX,
+} from "@nexus-form/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { extractReferencedValueFromJson } from "../response-data-extractor";
@@ -489,7 +492,7 @@ describe("markValidationProcessing", () => {
   });
 
   it("requires retry jobs to match the persisted job id before PROCESSING", async () => {
-    const retryJobId = "validation-retry:result-1:job-a";
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
 
     await markValidationProcessing({
       responseId: "response-1",
@@ -562,6 +565,7 @@ describe("markValidationProcessing", () => {
   });
 
   it("throws before publishing when a retry job starts before its job id is persisted", async () => {
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "PENDING", errorCode: null, jobId: null },
@@ -574,10 +578,10 @@ describe("markValidationProcessing", () => {
         ruleId: "rule-1",
         referencedBlockId: "question-1",
         service: "discord",
-        jobId: "validation-retry:result-1:job-a",
+        jobId: retryJobId,
       }),
     ).rejects.toMatchObject({
-      expectedJobId: "validation-retry:result-1:job-a",
+      expectedJobId: retryJobId,
       actualJobId: null,
     });
     expect(publishValidationEvent).not.toHaveBeenCalled();

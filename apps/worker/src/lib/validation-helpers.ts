@@ -12,6 +12,7 @@ import type { ValidationSSEEvent } from "@nexus-form/shared";
 import {
   extractQuestionsFromPlateContent,
   getValidationResultId,
+  VALIDATION_RETRY_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
@@ -298,7 +299,7 @@ export async function markValidationProcessing(params: {
   }
 
   const usesStrictJobOwnership =
-    params.jobId?.startsWith("validation-retry:") === true;
+    params.jobId?.startsWith(VALIDATION_RETRY_JOB_PREFIX) === true;
   const ownershipCondition =
     params.jobId === undefined
       ? isNull(externalServiceValidationResult.jobId)
