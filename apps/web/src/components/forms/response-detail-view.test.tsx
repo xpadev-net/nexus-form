@@ -75,7 +75,13 @@ describe("ResponseDetailView", () => {
               {
                 question_id: "secure-field",
                 question_type: "short_text",
-                value: { ciphertext: "secret" },
+                value: { ciphertext: "secret", iv: "nonce" },
+              },
+              {
+                question_id: "metadata-like",
+                question_type: "short_text",
+                question_title: "分類",
+                value: { tag: "sports", label: "Soccer" },
               },
             ]),
           },
@@ -98,6 +104,46 @@ describe("ResponseDetailView", () => {
     expect(container.textContent).toContain("tuesday: 未回答");
     expect(container.textContent).toContain("未設定の質問 (secure-field)");
     expect(container.textContent).toContain("暗号化済みの回答");
+    expect(container.textContent).toContain("分類 (metadata-like)");
+    expect(container.textContent).toContain('"tag": "sports"');
+    expect(container.textContent).toContain('"label": "Soccer"');
+    expect(container.textContent).not.toContain("回答内容はありません。");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps valid answers visible when one responseDataJson item is malformed", () => {
+    useValidationResultsMock.mockReturnValue({
+      validationResultsQuery: {
+        data: {
+          response: {
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "valid-question",
+                question_type: "short_text",
+                question_title: "有効な質問",
+                value: "表示される回答",
+              },
+              {
+                question_id: "",
+                question_type: "checkbox",
+                question_title: "壊れた質問",
+                values: null,
+              },
+            ]),
+          },
+        },
+        isError: false,
+        isLoading: false,
+      },
+    });
+    const container = document.createElement("div");
+
+    const root = renderResponseDetail(container);
+
+    expect(container.textContent).toContain("有効な質問 (valid-question)");
+    expect(container.textContent).toContain("表示される回答");
+    expect(container.textContent).not.toContain("壊れた質問");
     expect(container.textContent).not.toContain("回答内容はありません。");
 
     act(() => root.unmount());

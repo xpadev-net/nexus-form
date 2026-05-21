@@ -19,8 +19,6 @@ const ResponseDetailItemSchema = z
   })
   .passthrough();
 
-const ResponseDetailDataSchema = z.array(ResponseDetailItemSchema);
-
 type ResponseDetailItem = z.infer<typeof ResponseDetailItemSchema>;
 type ResponseField = { label: string; value: string };
 
@@ -37,9 +35,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function isEncryptedValue(value: Record<string, unknown>): boolean {
   return (
     value.encrypted === true ||
-    typeof value.ciphertext === "string" ||
-    typeof value.iv === "string" ||
-    typeof value.tag === "string"
+    (typeof value.ciphertext === "string" &&
+      (typeof value.iv === "string" || typeof value.tag === "string"))
   );
 }
 
@@ -99,15 +96,20 @@ function parseResponseFields(responseDataJson: string | null): ResponseField[] {
     return [];
   }
 
-  const result = ResponseDetailDataSchema.safeParse(parsed);
-  if (!result.success) return [];
+  if (!Array.isArray(parsed)) return [];
 
-  return result.data.map((item) => ({
-    label: item.question_title
-      ? `${item.question_title} (${item.question_id})`
-      : `未設定の質問 (${item.question_id})`,
-    value: formatResponseItemValue(item),
-  }));
+  return parsed.flatMap((item) => {
+    const result = ResponseDetailItemSchema.safeParse(item);
+    if (!result.success) return [];
+    return [
+      {
+        label: result.data.question_title
+          ? `${result.data.question_title} (${result.data.question_id})`
+          : `未設定の質問 (${result.data.question_id})`,
+        value: formatResponseItemValue(result.data),
+      },
+    ];
+  });
 }
 
 export function ResponseDetailView({
