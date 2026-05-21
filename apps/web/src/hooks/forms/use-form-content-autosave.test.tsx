@@ -225,7 +225,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("keeps a pending save when retrying it on mount fails with a conflict", async () => {
+  it("keeps a pending save without retry loops when retrying it on mount fails with a conflict", async () => {
     const pendingSave = JSON.stringify({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
@@ -244,13 +244,33 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         },
       }),
     );
-    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      retryBlocked: "conflict",
+    });
     expect(toastWarningMock).toHaveBeenCalledWith(
       "前回未保存の変更が競合しています",
     );
 
     act(() => {
       root.unmount();
+    });
+
+    rpcMock.mockClear();
+    toastWarningMock.mockClear();
+
+    const retryBlockedRoot = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(toastWarningMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).not.toBeNull();
+
+    act(() => {
+      retryBlockedRoot.unmount();
     });
   });
 

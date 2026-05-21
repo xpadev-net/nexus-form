@@ -11,6 +11,7 @@ import { baseUrl, client, RpcError, rpc } from "@/lib/api";
 const pendingSaveSchema = z.object({
   plateContent: z.string(),
   expectedVersion: z.number().int(),
+  retryBlocked: z.literal("conflict").optional(),
 });
 
 const KEEPALIVE_LIMIT = 64 * 1024;
@@ -416,19 +417,28 @@ export function useFormContentAutosave({
     const key = `pendingSave:${formId}`;
     const saved = localStorage.getItem(key);
     if (!saved) return;
-    localStorage.removeItem(key);
     let rawParsed: unknown;
     try {
       rawParsed = JSON.parse(saved);
     } catch {
+      localStorage.removeItem(key);
       return;
     }
     const result = pendingSaveSchema.safeParse(rawParsed);
-    if (!result.success) return;
+    if (!result.success) {
+      localStorage.removeItem(key);
+      return;
+    }
+    if (result.data.retryBlocked === "conflict") return;
+    localStorage.removeItem(key);
+    const retryPayload = {
+      expectedVersion: result.data.expectedVersion,
+      plateContent: result.data.plateContent,
+    };
     rpc(
       client.api.forms[":id"].content.$put({
         param: { id: formId },
-        json: result.data,
+        json: retryPayload,
       }),
     )
       .then(() => {
@@ -438,10 +448,15 @@ export function useFormContentAutosave({
         });
       })
       .catch((err) => {
-        storePendingSave(formId, saved);
         if (err instanceof RpcError && err.status === 409) {
+          storePendingSave(
+            formId,
+            JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
+          );
           toast.warning("前回未保存の変更が競合しています");
+          return;
         }
+        storePendingSave(formId, saved);
       });
   }, [formId, queryClient]);
 
