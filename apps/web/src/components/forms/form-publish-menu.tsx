@@ -9,7 +9,7 @@ import {
   Save,
   Upload,
 } from "lucide-react";
-import { type FC, useCallback, useEffect, useState } from "react";
+import { type FC, useCallback, useEffect, useReducer } from "react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -342,6 +342,76 @@ interface FormPublishMenuProps {
 
 type DialogMode = "saveAndPublish" | "saveAndActivate" | "saveOnly" | null;
 
+interface PublishMenuState {
+  dialogMode: DialogMode;
+  showResetDialog: boolean;
+  selectedSnapshotId: string | null;
+  passwordInput: string;
+  passwordHintInput: string;
+  passwordDirty: boolean;
+}
+
+type PublishMenuAction =
+  | { type: "open-save-dialog"; mode: Exclude<DialogMode, null> }
+  | { type: "close-save-dialog" }
+  | { type: "set-reset-dialog"; open: boolean }
+  | { type: "select-snapshot"; snapshotId: string | null }
+  | { type: "set-password-input"; value: string }
+  | { type: "set-password-hint"; value: string }
+  | { type: "sync-password-hint"; value: string }
+  | { type: "complete-password-edit"; hintInput: string };
+
+const initialPublishMenuState: PublishMenuState = {
+  dialogMode: null,
+  showResetDialog: false,
+  selectedSnapshotId: null,
+  passwordInput: "",
+  passwordHintInput: "",
+  passwordDirty: false,
+};
+
+const publishMenuReducer = (
+  state: PublishMenuState,
+  action: PublishMenuAction,
+): PublishMenuState => {
+  switch (action.type) {
+    case "open-save-dialog":
+      return { ...state, dialogMode: action.mode };
+    case "close-save-dialog":
+      return { ...state, dialogMode: null };
+    case "set-reset-dialog":
+      return { ...state, showResetDialog: action.open };
+    case "select-snapshot":
+      return { ...state, selectedSnapshotId: action.snapshotId };
+    case "set-password-input":
+      return {
+        ...state,
+        passwordInput: action.value,
+        passwordDirty: true,
+      };
+    case "set-password-hint":
+      return {
+        ...state,
+        passwordHintInput: action.value,
+        passwordDirty: true,
+      };
+    case "sync-password-hint":
+      if (state.passwordDirty) {
+        return state;
+      }
+      return { ...state, passwordHintInput: action.value };
+    case "complete-password-edit":
+      return {
+        ...state,
+        passwordInput: "",
+        passwordHintInput: action.hintInput,
+        passwordDirty: false,
+      };
+    default:
+      return state;
+  }
+};
+
 interface TriggerContentProps {
   formStatus: FormStatus;
   isArchived: boolean;
@@ -605,14 +675,18 @@ export function FormPublishMenu({
   onStatusChange,
   onResetSuccess,
 }: FormPublishMenuProps) {
-  const [dialogMode, setDialogMode] = useState<DialogMode>(null);
-  const [showResetDialog, setShowResetDialog] = useState(false);
-  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(
-    null,
+  const [state, dispatch] = useReducer(
+    publishMenuReducer,
+    initialPublishMenuState,
   );
-  const [passwordInput, setPasswordInput] = useState("");
-  const [passwordHintInput, setPasswordHintInput] = useState("");
-  const [passwordDirty, setPasswordDirty] = useState(false);
+  const {
+    dialogMode,
+    showResetDialog,
+    selectedSnapshotId,
+    passwordInput,
+    passwordHintInput,
+    passwordDirty,
+  } = state;
 
   const {
     hasUnpublishedChanges,
@@ -644,10 +718,11 @@ export function FormPublishMenu({
 
   // パスワード保護設定の取得完了後、入力欄を既存値で初期化する
   useEffect(() => {
-    if (!passwordDirty) {
-      setPasswordHintInput(passwordProtection.password_hint ?? "");
-    }
-  }, [passwordProtection.password_hint, passwordDirty]);
+    dispatch({
+      type: "sync-password-hint",
+      value: passwordProtection.password_hint ?? "",
+    });
+  }, [passwordProtection.password_hint]);
 
   const snapshots = snapshotsQuery.data?.snapshots ?? [];
   const isArchived = formStatus === "ARCHIVED";
@@ -676,7 +751,7 @@ export function FormPublishMenu({
         default:
           return;
       }
-      setDialogMode(null);
+      dispatch({ type: "close-save-dialog" });
       onStatusChange?.();
     } catch (error) {
       toast.error(
@@ -706,7 +781,7 @@ export function FormPublishMenu({
     try {
       await resetToActiveSnapshot();
       toast.success("公開版スナップショットにリセットしました");
-      setShowResetDialog(false);
+      dispatch({ type: "set-reset-dialog", open: false });
       onResetSuccess?.();
     } catch (error) {
       toast.error(
@@ -720,7 +795,7 @@ export function FormPublishMenu({
       activateSnapshotMutation.mutate(version, {
         onSuccess: () => {
           toast.success(`バージョン ${version} を公開版にしました`);
-          setSelectedSnapshotId(null);
+          dispatch({ type: "select-snapshot", snapshotId: null });
           onStatusChange?.();
         },
         onError: (error) => {
@@ -741,7 +816,7 @@ export function FormPublishMenu({
         await activateSnapshotMutation.mutateAsync(version);
         await publishForm();
         toast.success(`バージョン ${version} を公開版にして公開しました`);
-        setSelectedSnapshotId(null);
+        dispatch({ type: "select-snapshot", snapshotId: null });
         onStatusChange?.();
       } catch (error) {
         toast.error(
@@ -759,7 +834,7 @@ export function FormPublishMenu({
           toast.success(
             `バージョン ${version} の内容で編集データを復元しました`,
           );
-          setSelectedSnapshotId(null);
+          dispatch({ type: "select-snapshot", snapshotId: null });
           onResetSuccess?.();
         },
         onError: (error) => {
@@ -796,8 +871,10 @@ export function FormPublishMenu({
           );
           // パスワードを同時に設定した場合は入力欄をクリアする
           if (checked && !passwordProtection.hasPassword) {
-            setPasswordInput("");
-            setPasswordDirty(false);
+            dispatch({
+              type: "complete-password-edit",
+              hintInput: passwordHintInput,
+            });
           }
         },
         onError: (error) => {
@@ -823,8 +900,10 @@ export function FormPublishMenu({
       {
         onSuccess: () => {
           toast.success("パスワードを更新しました");
-          setPasswordInput("");
-          setPasswordDirty(false);
+          dispatch({
+            type: "complete-password-edit",
+            hintInput: passwordHintInput,
+          });
         },
         onError: (error) => {
           toast.error(
@@ -895,21 +974,26 @@ export function FormPublishMenu({
           }}
           onPublishToggle={(checked) => void handlePublishToggle(checked)}
           onPublishChanges={() =>
-            setDialogMode(isPublished ? "saveAndActivate" : "saveAndPublish")
+            dispatch({
+              type: "open-save-dialog",
+              mode: isPublished ? "saveAndActivate" : "saveAndPublish",
+            })
           }
-          onSaveOnly={() => setDialogMode("saveOnly")}
-          onReset={() => setShowResetDialog(true)}
+          onSaveOnly={() =>
+            dispatch({ type: "open-save-dialog", mode: "saveOnly" })
+          }
+          onReset={() => dispatch({ type: "set-reset-dialog", open: true })}
           onPasswordToggle={handlePasswordToggle}
           onPasswordChange={(value) => {
-            setPasswordInput(value);
-            setPasswordDirty(true);
+            dispatch({ type: "set-password-input", value });
           }}
           onHintChange={(value) => {
-            setPasswordHintInput(value);
-            setPasswordDirty(true);
+            dispatch({ type: "set-password-hint", value });
           }}
           onPasswordSave={handlePasswordSave}
-          onSelectSnapshot={setSelectedSnapshotId}
+          onSelectSnapshot={(snapshotId) =>
+            dispatch({ type: "select-snapshot", snapshotId })
+          }
           onActivateSnapshot={handleActivateSnapshot}
           onPublishSnapshot={(version) =>
             void handlePublishFromHistory(version)
@@ -923,7 +1007,7 @@ export function FormPublishMenu({
         formId={formId}
         open={dialogMode !== null}
         onOpenChange={(open) => {
-          if (!open) setDialogMode(null);
+          if (!open) dispatch({ type: "close-save-dialog" });
         }}
         isProcessing={isProcessing}
         hasUnpublishedChanges={hasUnpublishedChanges}
@@ -939,7 +1023,7 @@ export function FormPublishMenu({
         activeSnapshotVersion={activeSnapshotVersion}
         totalChanges={totalChanges}
         isProcessing={isProcessing}
-        onOpenChange={setShowResetDialog}
+        onOpenChange={(open) => dispatch({ type: "set-reset-dialog", open })}
         onReset={() => void handleReset()}
       />
     </>
