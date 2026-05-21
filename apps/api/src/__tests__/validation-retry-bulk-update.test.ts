@@ -148,6 +148,7 @@ function retryTarget(id: string) {
 describe("R6-M9: validation retry bulk updates", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.where.mockResolvedValue([{ affectedRows: 1 }]);
     mocks.queueAdd.mockImplementation(
       async (
         _name: string,
@@ -159,10 +160,11 @@ describe("R6-M9: validation retry bulk updates", () => {
     );
   });
 
-  it("updates enqueued validation retry rows in a single DB round trip", async () => {
+  it("claims retry rows before enqueueing validation jobs", async () => {
     const { enqueueValidationRetries } = await import(
       "../routes/forms-responses"
     );
+    const minimumLeaseExpiry = Date.now() + 4 * 60 * 1000;
 
     const result = await enqueueValidationRetries([
       retryTarget("result-1"),
@@ -178,15 +180,14 @@ describe("R6-M9: validation retry bulk updates", () => {
       ],
     });
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
-    expect(mocks.update).toHaveBeenCalledTimes(1);
-    expect(mocks.set).toHaveBeenCalledTimes(1);
-    expect(mocks.where).toHaveBeenCalledTimes(1);
-    expect(mocks.queueAdd.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.update.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    expect(mocks.update).toHaveBeenCalledTimes(2);
+    expect(mocks.set).toHaveBeenCalledTimes(2);
+    expect(mocks.where).toHaveBeenCalledTimes(2);
+    expect(mocks.update.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.queueAdd.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
     );
-    expect(mocks.inArray).toHaveBeenCalledWith(
-      "externalServiceValidationResult.id",
-      ["result-1", "result-2"],
+    expect(mocks.update.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.queueAdd.mock.invocationCallOrder[1] ?? Number.POSITIVE_INFINITY,
     );
     expect(mocks.queueAdd).toHaveBeenNthCalledWith(
       1,
@@ -207,57 +208,49 @@ describe("R6-M9: validation retry bulk updates", () => {
         jobId: expect.stringMatching(/^validation-retry:result-2:/),
       }),
     );
-    const firstJobId = mocks.queueAdd.mock.calls[0]?.[2]?.jobId;
-    const secondJobId = mocks.queueAdd.mock.calls[1]?.[2]?.jobId;
-    expect(mocks.notInArray).toHaveBeenCalledWith(
-      "externalServiceValidationResult.jobId",
-      [firstJobId, secondJobId],
-    );
-    expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["when ", " = ", " then ", ""],
-      "externalServiceValidationResult.id",
-      "result-1",
-      firstJobId,
-    );
-    expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["when ", " = ", " then ", ""],
-      "externalServiceValidationResult.id",
-      "result-2",
-      secondJobId,
-    );
-    expect(mocks.sqlMock.join).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({
-          strings: ["when ", " = ", " then ", ""],
-          values: [
-            "externalServiceValidationResult.id",
-            "result-1",
-            firstJobId,
-          ],
-        }),
-        expect.objectContaining({
-          strings: ["when ", " = ", " then ", ""],
-          values: [
-            "externalServiceValidationResult.id",
-            "result-2",
-            secondJobId,
-          ],
-        }),
-      ],
-      expect.objectContaining({ strings: [" "] }),
-    );
-    expect(mocks.sqlMock).toHaveBeenCalledWith(
-      ["case ", " else ", " end"],
-      expect.objectContaining({ kind: "sql-join" }),
-      "externalServiceValidationResult.jobId",
+    expect(mocks.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "PENDING",
+        errorCode: null,
+        errorMessage: null,
+        jobId: expect.stringMatching(/^validation-retry:result-1:/),
+      }),
     );
     expect(mocks.set).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "PENDING",
         errorCode: null,
         errorMessage: null,
-        jobId: expect.anything(),
+        jobId: expect.stringMatching(/^validation-retry:result-2:/),
       }),
     );
+    const setCalls = mocks.set.mock.calls as unknown as Array<
+      [Record<string, unknown> & { nextRetryAt: Date }]
+    >;
+    for (const [update] of setCalls) {
+      expect(update).toEqual(
+        expect.objectContaining({ nextRetryAt: expect.any(Date) }),
+      );
+      expect(update.nextRetryAt.getTime()).toBeGreaterThanOrEqual(
+        minimumLeaseExpiry,
+      );
+    }
+  });
+
+  it("does not enqueue when another retry already claimed the result", async () => {
+    mocks.where.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    const { enqueueValidationRetries } = await import(
+      "../routes/forms-responses"
+    );
+
+    const result = await enqueueValidationRetries([retryTarget("result-1")]);
+
+    expect(result).toEqual({
+      enqueuedCount: 0,
+      skippedCount: 1,
+      jobIds: [],
+    });
+    expect(mocks.update).toHaveBeenCalledTimes(1);
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
 });

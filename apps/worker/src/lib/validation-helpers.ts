@@ -13,7 +13,7 @@ import {
   extractQuestionsFromPlateContent,
   getValidationResultId,
 } from "@nexus-form/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
 
@@ -40,6 +40,21 @@ export class ValidationCancelledError extends Error {
       `Validation cancelled concurrently for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId}`,
     );
     this.name = "ValidationCancelledError";
+  }
+}
+
+export class StaleValidationJobError extends Error {
+  constructor(
+    public readonly responseId: string,
+    public readonly ruleId: string,
+    public readonly referencedBlockId: string,
+    public readonly expectedJobId: string | null,
+    public readonly actualJobId: string | null,
+  ) {
+    super(
+      `Stale validation job ignored for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId} expectedJobId=${expectedJobId} actualJobId=${actualJobId ?? "null"}`,
+    );
+    this.name = "StaleValidationJobError";
   }
 }
 
@@ -185,6 +200,7 @@ export async function writeValidationResult(params: {
       .select({
         status: externalServiceValidationResult.status,
         errorCode: externalServiceValidationResult.errorCode,
+        jobId: externalServiceValidationResult.jobId,
       })
       .from(externalServiceValidationResult)
       .where(eq(externalServiceValidationResult.id, resultId))
@@ -193,6 +209,13 @@ export async function writeValidationResult(params: {
     if (
       existing?.status === "FAILED" &&
       existing.errorCode === "CANCELLED_BY_USER"
+    ) {
+      return { skipped: true };
+    }
+    if (
+      existing?.jobId !== null &&
+      existing?.jobId !== undefined &&
+      existing.jobId !== params.jobId
     ) {
       return { skipped: true };
     }
@@ -274,29 +297,40 @@ export async function markValidationProcessing(params: {
     processingUpdate.jobId = params.jobId;
   }
 
-  const updateResult = await db
-    .update(externalServiceValidationResult)
-    .set(processingUpdate)
-    .where(
-      and(
-        eq(externalServiceValidationResult.responseId, params.responseId),
-        eq(externalServiceValidationResult.ruleId, params.ruleId),
-        eq(
-          externalServiceValidationResult.referencedBlockId,
-          params.referencedBlockId,
-        ),
-        sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
-      ),
-    );
+  const ownershipCondition =
+    params.jobId === undefined
+      ? isNull(externalServiceValidationResult.jobId)
+      : or(
+          isNull(externalServiceValidationResult.jobId),
+          eq(externalServiceValidationResult.jobId, params.jobId),
+        );
 
-  // mysql2 includes CLIENT_FOUND_ROWS by default, so affectedRows counts matched
-  // rows (not changed rows). affectedRows === 0 means the row is gone or is a
-  // user-cancelled result excluded by the WHERE condition above.
-  if ((updateResult[0]?.affectedRows ?? 0) === 0) {
-    const [existing] = await db
+  const processingResult = await db.transaction(async (tx) => {
+    const updateResult = await tx
+      .update(externalServiceValidationResult)
+      .set(processingUpdate)
+      .where(
+        and(
+          eq(externalServiceValidationResult.responseId, params.responseId),
+          eq(externalServiceValidationResult.ruleId, params.ruleId),
+          eq(
+            externalServiceValidationResult.referencedBlockId,
+            params.referencedBlockId,
+          ),
+          ownershipCondition,
+          sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
+        ),
+      );
+
+    if ((updateResult[0]?.affectedRows ?? 0) > 0) {
+      return { type: "updated" as const };
+    }
+
+    const [existing] = await tx
       .select({
         status: externalServiceValidationResult.status,
         errorCode: externalServiceValidationResult.errorCode,
+        jobId: externalServiceValidationResult.jobId,
       })
       .from(externalServiceValidationResult)
       .where(
@@ -309,19 +343,45 @@ export async function markValidationProcessing(params: {
           ),
         ),
       )
-      .limit(1);
+      .for("update");
 
     if (
       existing?.status === "FAILED" &&
       existing.errorCode === "CANCELLED_BY_USER"
     ) {
-      throw new ValidationCancelledError(
-        params.responseId,
-        params.ruleId,
-        params.referencedBlockId,
-      );
+      return { type: "cancelled" as const };
+    }
+    if (
+      existing?.jobId !== null &&
+      existing?.jobId !== undefined &&
+      existing.jobId !== params.jobId
+    ) {
+      return { actualJobId: existing.jobId, type: "stale" as const };
     }
 
+    return { type: "deleted" as const };
+  });
+
+  // mysql2 includes CLIENT_FOUND_ROWS by default, so affectedRows counts matched
+  // rows (not changed rows). affectedRows === 0 is diagnosed under the same
+  // transaction so stale ownership, cancellation, and deletion stay distinct.
+  if (processingResult.type === "cancelled") {
+    throw new ValidationCancelledError(
+      params.responseId,
+      params.ruleId,
+      params.referencedBlockId,
+    );
+  }
+  if (processingResult.type === "stale") {
+    throw new StaleValidationJobError(
+      params.responseId,
+      params.ruleId,
+      params.referencedBlockId,
+      params.jobId ?? null,
+      processingResult.actualJobId,
+    );
+  }
+  if (processingResult.type === "deleted") {
     throw new ConcurrentDeleteError(
       params.responseId,
       params.ruleId,

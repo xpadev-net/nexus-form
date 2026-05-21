@@ -21,6 +21,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  StaleValidationJobError,
   ValidationCancelledError,
   writeValidationResult,
 } from "../lib/validation-helpers";
@@ -175,6 +176,9 @@ export const handleGenericValidation = async (
     }
     if (error instanceof ConcurrentDeleteError) {
       return { ok: false, error: "Result row deleted" };
+    }
+    if (error instanceof StaleValidationJobError) {
+      return { ok: false, error: "Stale validation job" };
     }
     throw error;
   }

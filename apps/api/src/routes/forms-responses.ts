@@ -16,18 +16,7 @@ import {
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import {
-  and,
-  desc,
-  eq,
-  inArray,
-  isNull,
-  ne,
-  notInArray,
-  or,
-  type SQL,
-  sql,
-} from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -64,6 +53,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 const MAX_USER_AGENT_LENGTH = 512;
 const MAX_SESSION_ID_LENGTH = 128;
+const VALIDATION_RETRY_CLAIM_LEASE_MS = 5 * 60 * 1000;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
@@ -121,12 +111,24 @@ function snapshotRuleMapKey(
   return `${formId}:${snapshotVersion ?? "latest"}:${ruleId}`;
 }
 
+function validationRetryClaimableCondition(now: Date) {
+  return and(
+    ne(externalServiceValidationResult.status, "PROCESSING"),
+    or(
+      ne(externalServiceValidationResult.status, "PENDING"),
+      sql`${externalServiceValidationResult.nextRetryAt} <= ${now}`,
+    ),
+  );
+}
+
 /**
- * validation result 行に対して BullMQ ジョブを投入し、enqueue 成功行のステータスを
- * まとめて PENDING に更新する。
+ * validation result 行を lease 付きで PENDING に claim してから BullMQ ジョブを投入する。
+ * claim に失敗した result は並行 retry 済みとして enqueue しない。bulk retry でも
+ * claim はレコードごとに行うため、最大 100 件では 100 回の UPDATE になるが、
+ * 同一 result の二重 enqueue を避けるためこの順序を優先する。
  *
- * @returns enqueuedCount は BullMQ キューへの投入に成功した件数。
- *          DB 更新（PENDING 設定）に失敗した場合もジョブは既に投入済みのためカウントに含む。
+ * @returns enqueuedCount は claim と BullMQ キュー投入の両方に成功した件数。
+ *          enqueue 失敗時は同じ jobId を保持している行だけ FAILED に戻す。
  */
 export async function enqueueValidationRetries(
   results: Array<{
@@ -208,7 +210,6 @@ export async function enqueueValidationRetries(
     jobData: z.infer<typeof genericValidationJobDataSchema>;
     jobId: string;
   }> = [];
-  const pendingUpdates: Array<{ resultId: string; jobId: string }> = [];
   let enqueuedCount = 0;
 
   for (const result of validResults) {
@@ -341,6 +342,23 @@ export async function enqueueValidationRetries(
   }
 
   for (const { result, jobData, jobId } of preparedJobs) {
+    const claimed = await claimValidationRetryPending(result.id, jobId);
+    if (!claimed) {
+      logWarn(
+        "Skipping validation retry because result was claimed concurrently",
+        "forms-responses",
+        {
+          resultId: result.id,
+          responseId: result.responseId,
+          ruleId: result.ruleId,
+          service: result.service,
+          formId: result.formId,
+          jobId,
+        },
+      );
+      continue;
+    }
+
     const queue = getValidationQueue(result.service);
 
     let job: { id?: string };
@@ -366,7 +384,12 @@ export async function enqueueValidationRetries(
             errorCode: "ENQUEUE_FAILED",
             errorMessage: "Failed to enqueue retry job",
           })
-          .where(eq(externalServiceValidationResult.id, result.id));
+          .where(
+            and(
+              eq(externalServiceValidationResult.id, result.id),
+              eq(externalServiceValidationResult.jobId, jobId),
+            ),
+          );
       } catch (error) {
         logError(
           "Failed to mark validation result as FAILED after enqueue error",
@@ -388,25 +411,7 @@ export async function enqueueValidationRetries(
     if (job.id) {
       jobIds.push(job.id);
     }
-    pendingUpdates.push({ resultId: result.id, jobId });
     enqueuedCount++;
-  }
-
-  if (pendingUpdates.length > 0) {
-    try {
-      await markValidationRetriesPending(pendingUpdates);
-    } catch (error) {
-      // ジョブは既にキューに投入済み。Worker 側は実行時に行を PROCESSING/最終状態へ進める。
-      logError(
-        "Failed to set PENDING status for validation retry results",
-        "forms-responses",
-        {
-          error,
-          resultIds: pendingUpdates.map((entry) => entry.resultId),
-          jobIds: pendingUpdates.map((entry) => entry.jobId),
-        },
-      );
-    }
   }
 
   return {
@@ -416,52 +421,29 @@ export async function enqueueValidationRetries(
   };
 }
 
-function buildRetryJobIdCase(
-  updates: ReadonlyArray<{ resultId: string; jobId: string }>,
-): SQL<string | null> {
-  const cases = updates.map(
-    ({ resultId, jobId }) =>
-      sql`when ${externalServiceValidationResult.id} = ${resultId} then ${jobId}`,
-  );
-  return sql<
-    string | null
-  >`case ${sql.join(cases, sql` `)} else ${externalServiceValidationResult.jobId} end`;
-}
-
-async function markValidationRetriesPending(
-  updates: ReadonlyArray<{ resultId: string; jobId: string }>,
-): Promise<void> {
-  if (updates.length === 0) return;
-
-  await db
+async function claimValidationRetryPending(
+  resultId: string,
+  jobId: string,
+): Promise<boolean> {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + VALIDATION_RETRY_CLAIM_LEASE_MS);
+  const updateResult = await db
     .update(externalServiceValidationResult)
     .set({
       status: "PENDING",
       lastAttemptAt: null,
-      nextRetryAt: new Date(),
+      nextRetryAt: leaseUntil,
       errorCode: null,
       errorMessage: null,
-      jobId: buildRetryJobIdCase(updates),
+      jobId,
     })
     .where(
       and(
-        inArray(
-          externalServiceValidationResult.id,
-          updates.map((entry) => entry.resultId),
-        ),
-        ne(externalServiceValidationResult.status, "PROCESSING"),
-        ne(externalServiceValidationResult.status, "PENDING"),
-        // Worker writes the same jobId when it reaches PROCESSING/final states;
-        // skip those rows so a fast Worker cannot be reset to PENDING here.
-        or(
-          isNull(externalServiceValidationResult.jobId),
-          notInArray(
-            externalServiceValidationResult.jobId,
-            updates.map((entry) => entry.jobId),
-          ),
-        ),
+        eq(externalServiceValidationResult.id, resultId),
+        validationRetryClaimableCondition(now),
       ),
     );
+  return (updateResult[0]?.affectedRows ?? 0) > 0;
 }
 
 async function discardQueuedValidationJob(params: {
@@ -907,9 +889,7 @@ export const formsResponsesRouter = createHonoApp()
           and(
             eq(formResponse.formId, formId),
             inArray(externalServiceValidationResult.id, validationResultIds),
-            // PROCESSING/PENDING 中のレコードを除外し、既存ワーカーとの重複実行を防止する
-            ne(externalServiceValidationResult.status, "PROCESSING"),
-            ne(externalServiceValidationResult.status, "PENDING"),
+            validationRetryClaimableCondition(new Date()),
           ),
         );
 
@@ -944,7 +924,7 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で一括更新する
+      // PENDING への claim は enqueueValidationRetries 内でレコードごとに行う
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(targets);
 
@@ -952,7 +932,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(
           ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
-              "No validation jobs could be enqueued; check service configuration",
+              "No validation jobs could be enqueued; results may already be claimed or service configuration may be invalid",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],
@@ -1003,9 +983,7 @@ export const formsResponsesRouter = createHonoApp()
           and(
             eq(formResponse.formId, formId),
             eq(formResponse.id, responseId),
-            // PROCESSING/PENDING 中のレコードを除外し、既存ワーカーとの重複実行を防止する
-            ne(externalServiceValidationResult.status, "PROCESSING"),
-            ne(externalServiceValidationResult.status, "PENDING"),
+            validationRetryClaimableCondition(new Date()),
           ),
         );
       if (rows.length === 0) {
@@ -1036,7 +1014,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(errorResponse("Validation result not found"), 404);
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で一括更新する
+      // PENDING への claim は enqueueValidationRetries 内でレコードごとに行う
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(rows);
 
@@ -1044,7 +1022,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(
           ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
-              "No validation jobs could be enqueued; check service configuration",
+              "No validation jobs could be enqueued; results may already be claimed or service configuration may be invalid",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],

@@ -45,6 +45,21 @@ vi.mock("../../lib/validation-helpers", () => {
     }
   }
 
+  class StaleValidationJobError extends Error {
+    constructor(
+      public readonly responseId: string,
+      public readonly ruleId: string,
+      public readonly referencedBlockId: string,
+      public readonly expectedJobId: string,
+      public readonly actualJobId: string | null,
+    ) {
+      super(
+        `Stale validation job ignored for responseId=${responseId} ruleId=${ruleId} referencedBlockId=${referencedBlockId} expectedJobId=${expectedJobId} actualJobId=${actualJobId ?? "null"}`,
+      );
+      this.name = "StaleValidationJobError";
+    }
+  }
+
   class ReferencedBlockMissingError extends Error {
     constructor(
       public readonly formId: string,
@@ -61,6 +76,7 @@ vi.mock("../../lib/validation-helpers", () => {
     markValidationProcessing: vi.fn(),
     writeValidationResult: vi.fn(),
     ConcurrentDeleteError,
+    StaleValidationJobError,
     ValidationCancelledError,
     ReferencedBlockMissingError,
   };
@@ -104,6 +120,7 @@ import {
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
+  StaleValidationJobError,
   ValidationCancelledError,
   writeValidationResult,
 } from "../../lib/validation-helpers";
@@ -278,6 +295,23 @@ describe("handleGenericValidation", () => {
     const result = await handleGenericValidation(job);
 
     expect(result).toEqual({ ok: false, error: "Validation cancelled" });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+    expect(mockProviderRegistryGet).not.toHaveBeenCalled();
+  });
+
+  it("markValidationProcessingがStaleValidationJobErrorをスローした場合は結果を書かずに終端化する", async () => {
+    mockMarkValidationProcessing.mockRejectedValue(
+      new StaleValidationJobError("r-1", "rule-1", "block-a", "job-a", "job-b"),
+    );
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Stale validation job" });
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
     expect(mockProviderRegistryGet).not.toHaveBeenCalled();
   });
