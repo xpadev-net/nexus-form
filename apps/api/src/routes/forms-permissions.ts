@@ -7,9 +7,10 @@ import {
   formShareLink,
 } from "@nexus-form/database/schema";
 import { and, eq } from "drizzle-orm";
+import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
-import { withDualFormAuth } from "../lib/dual-auth";
+import { type DualAuthContext, withDualFormAuth } from "../lib/dual-auth";
 import {
   acceptInvitation,
   cancelInvitation,
@@ -25,7 +26,7 @@ import {
   updatePermissionRole,
   updateShareLink,
 } from "../lib/forms/permission-service";
-import { createHonoApp } from "../lib/hono";
+import { createHonoApp, type Env } from "../lib/hono";
 import {
   FormInvitationListResponse,
   FormInvitationStatus,
@@ -79,6 +80,26 @@ const shareLinkUpdateSchema = z.object({
 const shareLinksQuerySchema = paginationQuerySchema.extend({
   isActive: z.coerce.boolean().optional(),
 });
+
+function isSyntheticShareLinkPrincipal(auth: DualAuthContext): boolean {
+  return (
+    auth.auth_type === "api_token" &&
+    (auth.share_link_id !== undefined ||
+      auth.user_id.startsWith("share-link:") ||
+      auth.user_id.startsWith("anon:"))
+  );
+}
+
+const rejectSyntheticShareLinkManagementAuth = createMiddleware<Env>(
+  async (c, next) => {
+    const auth = c.get("dualAuthContext");
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+    if (isSyntheticShareLinkPrincipal(auth)) {
+      return c.json(errorResponse("Insufficient permissions"), 403);
+    }
+    return next();
+  },
+);
 
 export const FormPermissionResponseSchema = z.object({
   permission: FormPermissionWithUser,
@@ -363,6 +384,8 @@ export const formsPermissionsRouter = createHonoApp()
   )
   .get(
     "/:id/share-links",
+    withDualFormAuth("EDITOR"),
+    rejectSyntheticShareLinkManagementAuth,
     zValidator("query", shareLinksQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -379,6 +402,7 @@ export const formsPermissionsRouter = createHonoApp()
   .post(
     "/:id/share-links",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticShareLinkManagementAuth,
     zValidator("json", shareLinkCreateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -405,38 +429,44 @@ export const formsPermissionsRouter = createHonoApp()
       );
     },
   )
-  .get("/:id/share-links/:linkId", async (c) => {
-    const formId = c.req.param("id");
-    const linkId = c.req.param("linkId");
-    const [link] = await db
-      .select()
-      .from(formShareLink)
-      .where(
-        and(eq(formShareLink.id, linkId), eq(formShareLink.formId, formId)),
-      )
-      .limit(1);
-    if (!link) {
-      return c.json(errorResponse("Share link not found"), 404);
-    }
-    return c.json(
-      FormShareLinkResponseSchema.parse({
-        shareLink: {
-          id: link.id,
-          form_id: link.formId,
-          token: link.token,
-          role: link.role,
-          is_active: link.isActive,
-          expires_at: link.expiresAt?.toISOString(),
-          created_at: link.createdAt.toISOString(),
-          updated_at: link.updatedAt.toISOString(),
-          created_by: link.createdBy,
-        },
-      }),
-    );
-  })
+  .get(
+    "/:id/share-links/:linkId",
+    withDualFormAuth("EDITOR"),
+    rejectSyntheticShareLinkManagementAuth,
+    async (c) => {
+      const formId = c.req.param("id");
+      const linkId = c.req.param("linkId");
+      const [link] = await db
+        .select()
+        .from(formShareLink)
+        .where(
+          and(eq(formShareLink.id, linkId), eq(formShareLink.formId, formId)),
+        )
+        .limit(1);
+      if (!link) {
+        return c.json(errorResponse("Share link not found"), 404);
+      }
+      return c.json(
+        FormShareLinkResponseSchema.parse({
+          shareLink: {
+            id: link.id,
+            form_id: link.formId,
+            token: link.token,
+            role: link.role,
+            is_active: link.isActive,
+            expires_at: link.expiresAt?.toISOString(),
+            created_at: link.createdAt.toISOString(),
+            updated_at: link.updatedAt.toISOString(),
+            created_by: link.createdBy,
+          },
+        }),
+      );
+    },
+  )
   .put(
     "/:id/share-links/:linkId",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticShareLinkManagementAuth,
     zValidator("json", shareLinkUpdateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -449,12 +479,17 @@ export const formsPermissionsRouter = createHonoApp()
       return c.json(FormShareLinkResponseSchema.parse({ shareLink: link }));
     },
   )
-  .delete("/:id/share-links/:linkId", withDualFormAuth("EDITOR"), async (c) => {
-    const formId = c.req.param("id");
-    const linkId = c.req.param("linkId");
-    await deleteShareLink(linkId, formId);
-    return c.json(OkResponseSchema.parse({ ok: true }));
-  })
+  .delete(
+    "/:id/share-links/:linkId",
+    withDualFormAuth("EDITOR"),
+    rejectSyntheticShareLinkManagementAuth,
+    async (c) => {
+      const formId = c.req.param("id");
+      const linkId = c.req.param("linkId");
+      await deleteShareLink(linkId, formId);
+      return c.json(OkResponseSchema.parse({ ok: true }));
+    },
+  )
   .post(
     "/:id/invitations/:token/accept",
     withDualFormAuth("VIEWER"),
