@@ -251,7 +251,9 @@ export async function syncDiscordGuilds(
             botGuildIds.has(guild.id),
           );
         } else {
-          logWarn("Failed to fetch Bot guilds", "integration", {});
+          logWarn("Failed to fetch Bot guilds", "integration", {
+            status: botGuildsResponse.status,
+          });
           return;
         }
       } catch (botError) {

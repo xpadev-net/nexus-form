@@ -113,6 +113,52 @@ describe("syncDiscordGuilds", () => {
     );
   });
 
+  it("filters administrator guilds by validated bot guild membership", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          jsonResponse([
+            {
+              id: "guild-1",
+              name: "Admins with bot",
+              icon: null,
+              permissions: "8",
+            },
+            {
+              id: "guild-2",
+              name: "Admins without bot",
+              icon: null,
+              permissions: "8",
+            },
+            {
+              id: "guild-3",
+              name: "Members with bot",
+              icon: null,
+              permissions: "0",
+            },
+          ]),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse([{ id: "guild-1" }, { id: "guild-3" }]),
+        ),
+    );
+    const { syncDiscordGuilds } = await import("../auth");
+
+    await syncDiscordGuilds("discord-user-1", "access-token");
+
+    expect(mocks.db.delete).toHaveBeenCalledTimes(1);
+    expect(mocks.insertValues).toHaveBeenCalledWith([
+      expect.objectContaining({
+        guildId: "guild-1",
+        name: "Admins with bot",
+        discordUserId: "discord-user-1",
+      }),
+    ]);
+  });
+
   it("fails closed when Discord guild response has malformed permissions", async () => {
     vi.stubGlobal(
       "fetch",
@@ -220,7 +266,7 @@ describe("syncDiscordGuilds", () => {
     expect(mocks.logWarn).toHaveBeenCalledWith(
       "Failed to fetch Bot guilds",
       "integration",
-      {},
+      { status: 429 },
     );
     expect(mocks.logError).not.toHaveBeenCalled();
   });
