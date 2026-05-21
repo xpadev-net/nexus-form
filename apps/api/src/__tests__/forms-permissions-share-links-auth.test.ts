@@ -46,6 +46,15 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../lib/dual-auth", () => ({
+  withDualAuth: () => {
+    return async (
+      c: { set: (key: string, value: unknown) => void },
+      next: () => Promise<void>,
+    ) => {
+      c.set("dualAuthContext", mocks.authContext);
+      await next();
+    };
+  },
   withDualFormAuth: () => {
     return async (
       c: { set: (key: string, value: unknown) => void },
