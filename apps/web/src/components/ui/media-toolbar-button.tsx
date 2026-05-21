@@ -222,7 +222,6 @@ function MediaUrlDialogContent({
           }}
           placeholder=""
           type="url"
-          autoFocus
         />
       </AlertDialogDescription>
 
