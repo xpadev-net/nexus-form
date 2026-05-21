@@ -351,6 +351,33 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps the pending save when retrying it on mount fails transiently", async () => {
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockRejectedValue(new Error("network error"));
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: {
+          expectedVersion: 7,
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      }),
+    );
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+    expect(toastWarningMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not keep a pending save when an in-flight mutation already saved the keepalive body", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
