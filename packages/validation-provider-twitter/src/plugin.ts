@@ -4,7 +4,7 @@ import type {
   ValidationProviderRule,
 } from "@nexus-form/integrations";
 import { z } from "zod";
-import { getTwitterClient } from "./client";
+import { getTwitterClient, TwitterUserInfoSchema } from "./client";
 import { TwitterErrorCode } from "./error-codes";
 import { parseTwitterError } from "./utils";
 
@@ -70,22 +70,35 @@ const userExistsRule: ValidationProviderRule = {
           errorMessage: "Twitterユーザーが見つかりません",
         };
       }
+      // Keep this boundary check even though the bundled client validates
+      // upstream responses; tests and external client implementations can
+      // still inject malformed user objects.
+      const parsedUserInfo = TwitterUserInfoSchema.safeParse(userInfo);
+      if (!parsedUserInfo.success) {
+        return {
+          isValid: false,
+          errorCode: TwitterErrorCode.TWITTER_API_ERROR,
+          errorMessage: "Twitter API returned malformed user data",
+          retryable: false,
+        };
+      }
+      const user = parsedUserInfo.data;
 
       return {
         isValid: true,
         metadata: {
-          username: userInfo.username,
-          userId: userInfo.id,
-          displayName: userInfo.name || userInfo.username,
+          username: user.username,
+          userId: user.id,
+          displayName: user.name || user.username,
           avatarUrl:
-            userInfo.profile_image_url?.replace("http://", "https://") || null,
-          verified: userInfo.verified ?? false,
-          profileUrl: `https://twitter.com/${userInfo.username}`,
-          bio: userInfo.description ?? null,
-          followersCount: userInfo.public_metrics?.followers_count ?? null,
-          followingCount: userInfo.public_metrics?.following_count ?? null,
-          tweetCount: userInfo.public_metrics?.tweet_count ?? null,
-          createdAt: userInfo.created_at ?? null,
+            user.profile_image_url?.replace("http://", "https://") || null,
+          verified: user.verified ?? false,
+          profileUrl: `https://twitter.com/${user.username}`,
+          bio: user.description ?? null,
+          followersCount: user.public_metrics?.followers_count ?? null,
+          followingCount: user.public_metrics?.following_count ?? null,
+          tweetCount: user.public_metrics?.tweet_count ?? null,
+          createdAt: user.created_at ?? null,
         },
       };
     } catch (error) {

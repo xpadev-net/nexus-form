@@ -7,11 +7,15 @@ const { getUserByUsernameMock } = vi.hoisted(() => ({
   getUserByUsernameMock: vi.fn(),
 }));
 
-vi.mock("../client", () => ({
-  getTwitterClient: () => ({
-    getUserByUsername: getUserByUsernameMock,
-  }),
-}));
+vi.mock("../client", async (importActual) => {
+  const actual = await importActual<typeof import("../client")>();
+  return {
+    ...actual,
+    getTwitterClient: () => ({
+      getUserByUsername: getUserByUsernameMock,
+    }),
+  };
+});
 
 beforeEach(() => {
   getUserByUsernameMock.mockReset();
@@ -176,6 +180,43 @@ describe("twitterProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: TwitterErrorCode.TWITTER_AUTH_FAILED,
+      retryable: false,
+    });
+  });
+
+  it("does not mark malformed Twitter user data as valid", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce({ id: "123" });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_ERROR,
+      errorMessage: "Twitter API returned malformed user data",
+      retryable: false,
+    });
+  });
+
+  it("does not mark malformed Twitter profile image URLs as valid", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce({
+      id: "123",
+      username: "username",
+      name: "User Name",
+      profile_image_url: "not-a-url",
+    });
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "username",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_API_ERROR,
+      errorMessage: "Twitter API returned malformed user data",
       retryable: false,
     });
   });

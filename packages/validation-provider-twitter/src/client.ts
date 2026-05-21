@@ -1,4 +1,5 @@
 import axios, { type AxiosInstance, type AxiosRequestConfig } from "axios";
+import { z } from "zod";
 import {
   getTwitterConfig,
   TWITTER_CONFIG_DEFAULTS,
@@ -12,26 +13,74 @@ import {
   parseTwitterError,
 } from "./utils";
 
-export interface TwitterUserInfo {
-  id: string;
-  username: string;
-  name: string;
-  description?: string;
-  profile_image_url?: string;
-  verified?: boolean;
-  public_metrics?: {
-    followers_count?: number;
-    following_count?: number;
-    tweet_count?: number;
-    listed_count?: number;
-  };
-  created_at?: string;
-}
+export const TwitterUserInfoSchema = z.object({
+  id: z.string().min(1),
+  username: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  profile_image_url: z.string().url().optional(),
+  verified: z.boolean().optional(),
+  public_metrics: z
+    .object({
+      followers_count: z.number().int().nonnegative().optional(),
+      following_count: z.number().int().nonnegative().optional(),
+      tweet_count: z.number().int().nonnegative().optional(),
+      listed_count: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  created_at: z.string().optional(),
+});
+
+export type TwitterUserInfo = z.infer<typeof TwitterUserInfoSchema>;
 
 interface TwitterApiResponse<T> {
   data?: T;
   errors?: Array<{ code: number; message: string }>;
   meta?: Record<string, unknown>;
+}
+
+const TwitterApiErrorSchema = z.object({
+  code: z.number(),
+  message: z.string(),
+});
+
+const TwitterApiResponseBaseSchema = z.object({
+  data: z.unknown().optional(),
+  errors: z.array(TwitterApiErrorSchema).optional(),
+  meta: z.record(z.string(), z.unknown()).optional(),
+});
+
+function parseTwitterApiResponse<T>(
+  raw: unknown,
+  dataSchema: z.ZodSchema<T>,
+): TwitterApiResponse<T> {
+  const responseResult = TwitterApiResponseBaseSchema.safeParse(raw);
+  if (!responseResult.success) {
+    throw new Error("Twitter API returned malformed response", {
+      cause: responseResult.error,
+    });
+  }
+
+  const response = responseResult.data;
+  if (response.data == null) {
+    return {
+      errors: response.errors,
+      meta: response.meta,
+    };
+  }
+
+  const dataResult = dataSchema.safeParse(response.data);
+  if (!dataResult.success) {
+    throw new Error("Twitter API returned malformed user data", {
+      cause: dataResult.error,
+    });
+  }
+
+  return {
+    data: dataResult.data,
+    errors: response.errors,
+    meta: response.meta,
+  };
 }
 
 export class TwitterApiClient {
@@ -63,11 +112,8 @@ export class TwitterApiClient {
     });
   }
 
-  private async request<T>(
-    config: AxiosRequestConfig,
-  ): Promise<TwitterApiResponse<T>> {
-    const response =
-      await this.axiosInstance.request<TwitterApiResponse<T>>(config);
+  private async request(config: AxiosRequestConfig): Promise<unknown> {
+    const response = await this.axiosInstance.request<unknown>(config);
     return response.data;
   }
 
@@ -77,14 +123,17 @@ export class TwitterApiClient {
       if (!isValidTwitterUsername(normalizedUsername)) {
         throw new Error(`Invalid Twitter username format: ${username}`);
       }
-      const response = await this.request<TwitterUserInfo>({
-        method: "GET",
-        url: `/users/by/username/${normalizedUsername}`,
-        params: {
-          "user.fields":
-            "description,profile_image_url,verified,public_metrics,created_at",
-        },
-      });
+      const response = parseTwitterApiResponse(
+        await this.request({
+          method: "GET",
+          url: `/users/by/username/${normalizedUsername}`,
+          params: {
+            "user.fields":
+              "description,profile_image_url,verified,public_metrics,created_at",
+          },
+        }),
+        TwitterUserInfoSchema,
+      );
       if (response.errors && response.errors.length > 0) {
         const error = response.errors[0];
         if (error?.code === 50) return null;
@@ -106,14 +155,17 @@ export class TwitterApiClient {
       if (!/^\d+$/.test(userId)) {
         throw new Error(`Invalid Twitter user ID format: ${userId}`);
       }
-      const response = await this.request<TwitterUserInfo>({
-        method: "GET",
-        url: `/users/${userId}`,
-        params: {
-          "user.fields":
-            "description,profile_image_url,verified,public_metrics,created_at",
-        },
-      });
+      const response = parseTwitterApiResponse(
+        await this.request({
+          method: "GET",
+          url: `/users/${userId}`,
+          params: {
+            "user.fields":
+              "description,profile_image_url,verified,public_metrics,created_at",
+          },
+        }),
+        TwitterUserInfoSchema,
+      );
       if (response.errors && response.errors.length > 0) {
         const error = response.errors[0];
         if (error?.code === 50) return null;
