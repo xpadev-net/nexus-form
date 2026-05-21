@@ -385,6 +385,49 @@ describe("SSE channel subscriber registry", () => {
     expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
     expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
+
+  it("closes a client when its pending send queue grows too large", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const firstSent = createDeferred();
+    const client = {
+      sendMessage: vi.fn((id: string, _data: string) => {
+        if (id === "1") return firstSent.promise;
+        return Promise.resolve();
+      }),
+      close: vi.fn(),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "message-0");
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    for (let i = 1; i <= 100; i++) {
+      subscribers[0]?.emitMessage("form:validation:form-1", `message-${i}`);
+    }
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+    expect(client.sendMessage).toHaveBeenCalledTimes(1);
+
+    firstSent.resolve();
+    await detach();
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("SSE connection limiter", () => {
