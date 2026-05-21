@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, type ReactNode, useEffect } from "react";
+import { act, type ReactNode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -127,6 +127,7 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
   const root = createRoot(container);
 
   function Harness({ children }: { children?: ReactNode }) {
+    const didNotifyReadyRef = useRef(false);
     const hook = useFormContentAutosave({
       contentData: { plateContent: "[]", plateContentVersion: 7 },
       contentRefetch: refetchMock,
@@ -135,6 +136,8 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
     });
 
     useEffect(() => {
+      if (didNotifyReadyRef.current) return;
+      didNotifyReadyRef.current = true;
       onReady(hook);
     }, [hook]);
 
