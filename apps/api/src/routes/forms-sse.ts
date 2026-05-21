@@ -140,9 +140,16 @@ interface RedisSubscriber {
   quit(): Promise<unknown>;
 }
 
+interface SseClientEntry {
+  eventId: number;
+  client: SseMessageClient;
+  sendChain: Promise<void>;
+  closed: boolean;
+}
+
 interface ChannelSubscription {
   subscriber: RedisSubscriber;
-  clients: Map<symbol, { eventId: number; client: SseMessageClient }>;
+  clients: Map<symbol, SseClientEntry>;
   subscribePromise: Promise<unknown>;
   closingPromise: Promise<void> | null;
 }
@@ -207,6 +214,7 @@ export function createSseChannelRegistry(
       const clients = Array.from(subscription.clients.values());
       subscription.clients.clear();
       for (const entry of clients) {
+        entry.closed = true;
         entry.client.close();
       }
       await subscription.subscriber.unsubscribe(channel).catch(() => {});
@@ -230,11 +238,22 @@ export function createSseChannelRegistry(
     subscriber.on("message", (receivedChannel: string, message: string) => {
       if (receivedChannel !== channel) return;
 
-      for (const entry of subscription.clients.values()) {
+      for (const [clientId, entry] of subscription.clients.entries()) {
         entry.eventId++;
-        entry.client.sendMessage(String(entry.eventId), message).catch(() => {
-          // クライアントが切断済みの場合はエラーを無視
-        });
+        const eventId = String(entry.eventId);
+        entry.sendChain = entry.sendChain
+          .then(async () => {
+            if (entry.closed) return;
+            await entry.client.sendMessage(eventId, message);
+          })
+          .catch(() => {
+            entry.closed = true;
+            subscription.clients.delete(clientId);
+            entry.client.close();
+            if (subscription.clients.size === 0) {
+              void closeSubscription(channel, subscription);
+            }
+          });
       }
     });
 
@@ -272,7 +291,13 @@ export function createSseChannelRegistry(
 
       const subscription = getSubscription(channel);
       const clientId = Symbol(channel);
-      subscription.clients.set(clientId, { eventId: 0, client });
+      const entry: SseClientEntry = {
+        eventId: 0,
+        client,
+        sendChain: Promise.resolve(),
+        closed: false,
+      };
+      subscription.clients.set(clientId, entry);
 
       try {
         if (!options.preflighted) {
@@ -291,6 +316,7 @@ export function createSseChannelRegistry(
         if (detached) return;
         detached = true;
 
+        entry.closed = true;
         subscription.clients.delete(clientId);
         if (subscription.clients.size === 0) {
           await closeSubscription(channel, subscription);
