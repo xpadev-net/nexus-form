@@ -37,6 +37,8 @@ export type ExternalServiceFailureResponse = z.infer<
 const formPermissionErrorStatusSchema = z
   .union([z.literal(403), z.literal(404)])
   .catch(403);
+const tokenFormContextRequiredResponseSchema =
+  ExternalServicePermissionErrorResponseSchema;
 
 async function getLinkedAccount(userId: string, providerId: string) {
   const [linkedAccount] = await db
@@ -78,6 +80,25 @@ async function resolveEffectiveUserId(
   }
 
   return authUserId;
+}
+
+function isSyntheticApiTokenPrincipal(authContext: DualAuthContext): boolean {
+  return (
+    authContext.auth_type === "api_token" &&
+    (authContext.share_link_id !== undefined ||
+      authContext.user_id.startsWith("anon:") ||
+      authContext.user_id.startsWith("share-link:"))
+  );
+}
+
+function tokenFormContextRequiredResponse(): ExternalServicePermissionErrorResponse {
+  return tokenFormContextRequiredResponseSchema.parse({
+    error: {
+      message:
+        "External service API token calls require a user-scoped token and formId",
+      code: "API_TOKEN_FORM_CONTEXT_REQUIRED",
+    },
+  });
 }
 
 function formPermissionErrorStatus(error: FormPermissionError): 403 | 404 {
@@ -122,13 +143,21 @@ export const externalServiceRouter = createHonoApp()
       return c.json(errorResponse("Invalid external service API path"), 400);
     }
 
+    const formId = c.req.query("formId") || undefined;
+
+    if (auth.auth_type === "api_token" && !formId) {
+      return c.json(tokenFormContextRequiredResponse(), 403);
+    }
+
+    if (isSyntheticApiTokenPrincipal(auth)) {
+      return c.json(tokenFormContextRequiredResponse(), 403);
+    }
+
     const provider = providerRegistry.get(providerName.data);
     const handler = provider?.apiHandlers?.[apiName.data];
     if (!handler) {
       return c.json(errorResponse("External service API not found"), 404);
     }
-
-    const formId = c.req.query("formId") || undefined;
 
     let effectiveUserId: string;
     try {

@@ -196,6 +196,68 @@ describe("external service form OAuth authorization", () => {
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 
+  it("rejects API token calls without an explicit form context", async () => {
+    validateApiToken.mockResolvedValueOnce({
+      user_id: OWNER_ID,
+      token_id: "token-id",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request("/discord/guilds", {
+      headers: {
+        authorization: "Bearer token-value",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "API_TOKEN_FORM_CONTEXT_REQUIRED",
+      },
+    });
+    expect(providerGet).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
+  it("rejects share-link API token principals before using linked accounts", async () => {
+    validateApiToken.mockResolvedValueOnce({
+      user_id: "share-link:link-id",
+      token_id: "token-id",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+      share_link_id: "link-id",
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+      {
+        headers: {
+          authorization: "Bearer token-value",
+        },
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "API_TOKEN_FORM_CONTEXT_REQUIRED",
+      },
+    });
+    expect(providerGet).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
   it("allows form owners to call service APIs with their own linked account", async () => {
     mockSession(OWNER_ID);
     mockDbSelectResults([
