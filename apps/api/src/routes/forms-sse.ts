@@ -156,6 +156,13 @@ interface SseChannelRegistry {
   closeAll: () => Promise<void>;
 }
 
+interface FormsSSERouterOptions {
+  channelRegistry?: SseChannelRegistry;
+  connectionLimiter?: SseConnectionLimiter;
+}
+
+type FormsSSERouter = ReturnType<typeof createHonoApp>;
+
 /**
  * Redis subscriber 用の接続オプションを取得する
  *
@@ -382,18 +389,22 @@ async function createSSEStream(
         await cleanupClient();
       }
     });
-  } catch (_error) {
+  } catch (error) {
+    console.error("SSE subscription preflight failed", error);
     permit.release();
     return c.text("SSE subscription unavailable", 503);
   }
 }
 
+/**
+ * Creates the form SSE router.
+ *
+ * @param options Optional registry/limiter overrides for tests and controlled wiring.
+ * @returns A typed Hono router serving validation and editor SSE endpoints.
+ */
 export function createFormsSSERouter(
-  options: {
-    channelRegistry?: SseChannelRegistry;
-    connectionLimiter?: SseConnectionLimiter;
-  } = {},
-) {
+  options: FormsSSERouterOptions = {},
+): FormsSSERouter {
   const channelRegistry = options.channelRegistry ?? sseChannelRegistry;
   const connectionLimiter = options.connectionLimiter ?? sseConnectionLimiter;
 
@@ -420,4 +431,4 @@ export function createFormsSSERouter(
   );
 }
 
-export const formsSSERouter = createFormsSSERouter();
+export const formsSSERouter: FormsSSERouter = createFormsSSERouter();
