@@ -447,7 +447,7 @@ export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
         clearInterval(timer);
       }
       timer = null;
-      await running;
+      await running?.catch(() => undefined);
     },
   };
 }

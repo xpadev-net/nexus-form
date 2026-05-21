@@ -391,6 +391,24 @@ describe("validation outbox sweeper", () => {
     expect(stopped).toBe(true);
   });
 
+  it("swallows an in-flight sweep rejection when stop is called", async () => {
+    const pendingRows = createDeferred<PendingRow[]>();
+    usePendingRowsResult(pendingRows.promise);
+
+    const { createValidationOutboxSweeper } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const sweeper = createValidationOutboxSweeper();
+    const run = sweeper.runOnce();
+    const runExpectation = expect(run).rejects.toThrow("db down");
+    const stop = sweeper.stop();
+
+    pendingRows.reject(new Error("db down"));
+
+    await expect(stop).resolves.toBeUndefined();
+    await runExpectation;
+  });
+
   it("starts one interval and schedules recurring sweeps", async () => {
     vi.useFakeTimers();
     process.env.VALIDATION_OUTBOX_SWEEP_INTERVAL_MS = "25";
