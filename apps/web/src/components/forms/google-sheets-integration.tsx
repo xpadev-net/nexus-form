@@ -1,13 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -132,12 +125,113 @@ interface SyncMonitorState {
   activeJobId: string | null;
 }
 
+interface GoogleSheetsUiState {
+  searchQuery: string;
+  selectedSpreadsheetId: string;
+  selectedSheetName: string;
+  isSpreadsheetDialogOpen: boolean;
+  newSpreadsheetTitle: string;
+  isCreatingSpreadsheet: boolean;
+  isSheetDialogOpen: boolean;
+  newSheetTitle: string;
+  isAddingSheet: boolean;
+}
+
 type SyncMonitorAction =
   | { type: "start"; status: UiSyncState }
   | { type: "update"; status: UiSyncState }
   | { type: "finish"; status: UiSyncState }
   | { type: "dismiss-status" }
   | { type: "clear" };
+
+type GoogleSheetsUiAction =
+  | { type: "set-search-query"; value: string }
+  | { type: "initialize-config"; config: GoogleSheetsIntegrationSetting }
+  | { type: "select-spreadsheet"; spreadsheetId: string }
+  | { type: "select-sheet"; sheetName: string }
+  | { type: "set-spreadsheet-dialog-open"; open: boolean }
+  | { type: "set-new-spreadsheet-title"; title: string }
+  | { type: "set-creating-spreadsheet"; isCreating: boolean }
+  | {
+      type: "complete-create-spreadsheet";
+      spreadsheetId: string;
+      sheetName: string;
+    }
+  | { type: "set-sheet-dialog-open"; open: boolean }
+  | { type: "set-new-sheet-title"; title: string }
+  | { type: "set-adding-sheet"; isAdding: boolean }
+  | { type: "close-sheet-dialog" }
+  | { type: "complete-add-sheet"; sheetName: string };
+
+const initialGoogleSheetsUiState: GoogleSheetsUiState = {
+  searchQuery: "",
+  selectedSpreadsheetId: "",
+  selectedSheetName: "",
+  isSpreadsheetDialogOpen: false,
+  newSpreadsheetTitle: "",
+  isCreatingSpreadsheet: false,
+  isSheetDialogOpen: false,
+  newSheetTitle: "",
+  isAddingSheet: false,
+};
+
+const googleSheetsUiReducer = (
+  state: GoogleSheetsUiState,
+  action: GoogleSheetsUiAction,
+): GoogleSheetsUiState => {
+  switch (action.type) {
+    case "set-search-query":
+      return { ...state, searchQuery: action.value };
+    case "initialize-config":
+      return {
+        ...state,
+        selectedSpreadsheetId:
+          action.config.spreadsheetId ?? state.selectedSpreadsheetId,
+        selectedSheetName: action.config.sheetName ?? state.selectedSheetName,
+      };
+    case "select-spreadsheet":
+      return {
+        ...state,
+        selectedSpreadsheetId: action.spreadsheetId,
+        selectedSheetName: "",
+      };
+    case "select-sheet":
+      return { ...state, selectedSheetName: action.sheetName };
+    case "set-spreadsheet-dialog-open":
+      return { ...state, isSpreadsheetDialogOpen: action.open };
+    case "set-new-spreadsheet-title":
+      return { ...state, newSpreadsheetTitle: action.title };
+    case "set-creating-spreadsheet":
+      return { ...state, isCreatingSpreadsheet: action.isCreating };
+    case "complete-create-spreadsheet":
+      return {
+        ...state,
+        isSpreadsheetDialogOpen: false,
+        newSpreadsheetTitle: "",
+        selectedSpreadsheetId: action.spreadsheetId,
+        selectedSheetName: action.sheetName,
+      };
+    case "set-sheet-dialog-open":
+      return { ...state, isSheetDialogOpen: action.open };
+    case "set-new-sheet-title":
+      return { ...state, newSheetTitle: action.title };
+    case "set-adding-sheet":
+      return { ...state, isAddingSheet: action.isAdding };
+    case "close-sheet-dialog":
+      return {
+        ...state,
+        isSheetDialogOpen: false,
+        newSheetTitle: "",
+      };
+    case "complete-add-sheet":
+      return {
+        ...state,
+        selectedSheetName: action.sheetName,
+      };
+    default:
+      return state;
+  }
+};
 
 const syncMonitorReducer = (
   state: SyncMonitorState,
@@ -181,12 +275,22 @@ export function GoogleSheetsIntegration({
 }: GoogleSheetsIntegrationProps) {
   const queryClient = useQueryClient();
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const [uiState, dispatchUi] = useReducer(
+    googleSheetsUiReducer,
+    initialGoogleSheetsUiState,
+  );
+  const {
+    searchQuery,
+    selectedSpreadsheetId,
+    selectedSheetName,
+    isSpreadsheetDialogOpen,
+    newSpreadsheetTitle,
+    isCreatingSpreadsheet,
+    isSheetDialogOpen,
+    newSheetTitle,
+    isAddingSheet,
+  } = uiState;
   const searchQueryRef = useRef(searchQuery);
-  const [selectedSpreadsheetId, setSelectedSpreadsheetId] =
-    useState<string>("");
-
-  const [selectedSheetName, setSelectedSheetName] = useState<string>("");
 
   // 同期状態
   const [syncMonitor, dispatchSyncMonitor] = useReducer(syncMonitorReducer, {
@@ -195,14 +299,6 @@ export function GoogleSheetsIntegration({
     activeJobId: null,
   });
   const { activeJobId, isSyncing, syncStatus } = syncMonitor;
-
-  const [isSpreadsheetDialogOpen, setIsSpreadsheetDialogOpen] = useState(false);
-  const [newSpreadsheetTitle, setNewSpreadsheetTitle] = useState("");
-  const [isCreatingSpreadsheet, setIsCreatingSpreadsheet] = useState(false);
-
-  const [isSheetDialogOpen, setIsSheetDialogOpen] = useState(false);
-  const [newSheetTitle, setNewSheetTitle] = useState("");
-  const [isAddingSheet, setIsAddingSheet] = useState(false);
 
   const authWindowRef = useRef<Window | null>(null);
   const popupIntervalRef = useRef<number | null>(null);
@@ -365,12 +461,7 @@ export function GoogleSheetsIntegration({
   useEffect(() => {
     if (hasInitializedConfigRef.current || !savedConfig) return;
 
-    if (savedConfig.spreadsheetId) {
-      setSelectedSpreadsheetId(savedConfig.spreadsheetId);
-    }
-    if (savedConfig.sheetName) {
-      setSelectedSheetName(savedConfig.sheetName);
-    }
+    dispatchUi({ type: "initialize-config", config: savedConfig });
     hasInitializedConfigRef.current = true;
   }, [savedConfig]);
 
@@ -472,11 +563,22 @@ export function GoogleSheetsIntegration({
     };
   }, [queryClient]);
 
+  const handleSearchQueryChange = useCallback((value: string) => {
+    dispatchUi({ type: "set-search-query", value });
+  }, []);
+
+  const handleSpreadsheetDialogOpenChange = useCallback((open: boolean) => {
+    dispatchUi({ type: "set-spreadsheet-dialog-open", open });
+  }, []);
+
+  const handleNewSpreadsheetTitleChange = useCallback((title: string) => {
+    dispatchUi({ type: "set-new-spreadsheet-title", title });
+  }, []);
+
   // スプレッドシート選択時
   const handleSelectSpreadsheet = useCallback(
     (spreadsheetId: string) => {
-      setSelectedSpreadsheetId(spreadsheetId);
-      setSelectedSheetName("");
+      dispatchUi({ type: "select-spreadsheet", spreadsheetId });
       void queryClient.invalidateQueries({
         queryKey: ["sheets", spreadsheetId],
       });
@@ -486,7 +588,15 @@ export function GoogleSheetsIntegration({
 
   // シート選択時の処理
   const handleSelectSheet = useCallback((sheetName: string) => {
-    setSelectedSheetName(sheetName);
+    dispatchUi({ type: "select-sheet", sheetName });
+  }, []);
+
+  const handleSheetDialogOpenChange = useCallback((open: boolean) => {
+    dispatchUi({ type: "set-sheet-dialog-open", open });
+  }, []);
+
+  const handleNewSheetTitleChange = useCallback((title: string) => {
+    dispatchUi({ type: "set-new-sheet-title", title });
   }, []);
 
   const handleCreateSpreadsheet = useCallback(async () => {
@@ -496,7 +606,7 @@ export function GoogleSheetsIntegration({
       return;
     }
 
-    setIsCreatingSpreadsheet(true);
+    dispatchUi({ type: "set-creating-spreadsheet", isCreating: true });
     try {
       const data = await fetchJson<{
         spreadsheetId: string;
@@ -510,10 +620,11 @@ export function GoogleSheetsIntegration({
         }),
       );
       toast.success("スプレッドシートを作成しました");
-      setIsSpreadsheetDialogOpen(false);
-      setNewSpreadsheetTitle("");
-      setSelectedSpreadsheetId(data.spreadsheetId);
-      setSelectedSheetName(data.defaultSheetTitle || "");
+      dispatchUi({
+        type: "complete-create-spreadsheet",
+        spreadsheetId: data.spreadsheetId,
+        sheetName: data.defaultSheetTitle || "",
+      });
       await queryClient.invalidateQueries({ queryKey: ["spreadsheets"] });
       void queryClient.invalidateQueries({
         queryKey: ["sheets", data.spreadsheetId],
@@ -522,7 +633,7 @@ export function GoogleSheetsIntegration({
       logError("Failed to create spreadsheet:", "ui", { error: error });
       toast.error("スプレッドシートの作成に失敗しました");
     } finally {
-      setIsCreatingSpreadsheet(false);
+      dispatchUi({ type: "set-creating-spreadsheet", isCreating: false });
     }
   }, [queryClient, newSpreadsheetTitle]);
 
@@ -537,7 +648,7 @@ export function GoogleSheetsIntegration({
       return;
     }
 
-    setIsAddingSheet(true);
+    dispatchUi({ type: "set-adding-sheet", isAdding: true });
     try {
       const data = await fetchJson<{ title?: string }>(
         apiUrl(
@@ -550,17 +661,19 @@ export function GoogleSheetsIntegration({
         }),
       );
       toast.success("シートを追加しました");
-      setIsSheetDialogOpen(false);
-      setNewSheetTitle("");
+      dispatchUi({ type: "close-sheet-dialog" });
       await queryClient.invalidateQueries({
         queryKey: ["sheets", selectedSpreadsheetId],
       });
-      setSelectedSheetName(data.title || title);
+      dispatchUi({
+        type: "complete-add-sheet",
+        sheetName: data.title || title,
+      });
     } catch (error) {
       logError("Failed to add sheet:", "ui", { error: error });
       toast.error("シートの追加に失敗しました");
     } finally {
-      setIsAddingSheet(false);
+      dispatchUi({ type: "set-adding-sheet", isAdding: false });
     }
   }, [queryClient, newSheetTitle, selectedSpreadsheetId]);
 
@@ -741,15 +854,15 @@ export function GoogleSheetsIntegration({
           isSpreadsheetDialogOpen={isSpreadsheetDialogOpen}
           newSpreadsheetTitle={newSpreadsheetTitle}
           isCreatingSpreadsheet={isCreatingSpreadsheet}
-          onSearchQueryChange={setSearchQuery}
+          onSearchQueryChange={handleSearchQueryChange}
           onRefreshSpreadsheets={() =>
             void queryClient.invalidateQueries({
               queryKey: ["spreadsheets"],
             })
           }
           onSelectSpreadsheet={handleSelectSpreadsheet}
-          onSpreadsheetDialogOpenChange={setIsSpreadsheetDialogOpen}
-          onNewSpreadsheetTitleChange={setNewSpreadsheetTitle}
+          onSpreadsheetDialogOpenChange={handleSpreadsheetDialogOpenChange}
+          onNewSpreadsheetTitleChange={handleNewSpreadsheetTitleChange}
           onCreateSpreadsheet={() => void handleCreateSpreadsheet()}
         />
 
@@ -765,8 +878,8 @@ export function GoogleSheetsIntegration({
               newSheetTitle={newSheetTitle}
               isAddingSheet={isAddingSheet}
               onSelectSheet={handleSelectSheet}
-              onSheetDialogOpenChange={setIsSheetDialogOpen}
-              onNewSheetTitleChange={setNewSheetTitle}
+              onSheetDialogOpenChange={handleSheetDialogOpenChange}
+              onNewSheetTitleChange={handleNewSheetTitleChange}
               onAddSheet={() => void handleAddSheet()}
             />
           </>
