@@ -55,6 +55,47 @@ describe("google-sheets-client", () => {
     );
   });
 
+  it("returns an error when append success response is malformed", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        updates: { updatedRange: "Sheet 1!A1:B1", updatedRows: "1" },
+      }),
+    );
+
+    const result = await appendRows(token, {
+      spreadsheetId: "sheet-id",
+      sheetName: "Sheet 1",
+      rows: [["a", "b"]],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "internal",
+        message: "Google Sheets API returned malformed append response",
+      },
+    });
+  });
+
+  it("keeps append updatedRows fallback when the field is omitted", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        updates: { updatedRange: "Sheet 1!A1:B1" },
+      }),
+    );
+
+    const result = await appendRows(token, {
+      spreadsheetId: "sheet-id",
+      sheetName: "Sheet 1",
+      rows: [["a", "b"]],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: { updatedRange: "Sheet 1!A1:B1", updatedRows: 1 },
+    });
+  });
+
   it("encodes spreadsheetId path segments when reading ranges", async () => {
     fetchMock.mockResolvedValueOnce(
       createJsonResponse({
@@ -74,6 +115,76 @@ describe("google-sheets-client", () => {
     );
   });
 
+  it("returns an error when read success values are malformed", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:B1",
+        values: "not-an-array",
+      }),
+    );
+
+    const result = await readRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "internal",
+        message: "Google Sheets API returned malformed read response",
+      },
+    });
+  });
+
+  it("keeps empty read ranges valid when values are omitted", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:B1",
+      }),
+    );
+
+    const result = await readRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:B1",
+        values: [],
+      },
+    });
+  });
+
+  it("normalizes primitive read cells to strings", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:C1",
+        values: [["Response ID", 123, true]],
+      }),
+    );
+
+    const result = await readRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:C1",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:C1",
+        values: [["Response ID", "123", "true"]],
+      },
+    });
+  });
+
   it("encodes spreadsheetId path segments when updating ranges", async () => {
     fetchMock.mockResolvedValueOnce(
       createJsonResponse({ updatedRange: "Sheet 1!A1:B1", updatedRows: 1 }),
@@ -88,5 +199,58 @@ describe("google-sheets-client", () => {
     expect(getRequestedUrl(fetchMock)).toBe(
       "https://sheets.googleapis.com/v4/spreadsheets/sheet%2Fid%20with%20space/values/Sheet%201!A1%3AB1?valueInputOption=RAW",
     );
+  });
+
+  it("returns an error when update success response is malformed", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({ updatedRange: "Sheet 1!A1:B1", updatedRows: "1" }),
+    );
+
+    const result = await updateRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+      values: [["a", "b"]],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "internal",
+        message: "Google Sheets API returned malformed update response",
+      },
+    });
+  });
+
+  it("returns an error when update success response has no recognized fields", async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse({}));
+
+    const result = await updateRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+      values: [["a", "b"]],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "internal",
+        message: "Google Sheets API returned malformed update response",
+      },
+    });
+  });
+
+  it("keeps update range fallback when only updatedRows is present", async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse({ updatedRows: 1 }));
+
+    const result = await updateRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+      values: [["a", "b"]],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: { updatedRange: "Sheet 1!A1:B1", updatedRows: 1 },
+    });
   });
 });
