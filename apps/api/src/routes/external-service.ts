@@ -131,6 +131,20 @@ const externalServiceFailureResponse = (): ExternalServiceFailureResponse => {
   return parsed.success ? parsed.data : response;
 };
 
+function externalServiceErrorLogMetadata(
+  error: unknown,
+): Record<string, string> {
+  if (error instanceof Error) {
+    return {
+      errorName: error.name,
+    };
+  }
+
+  return {
+    errorType: typeof error,
+  };
+}
+
 export const externalServiceRouter = createHonoApp()
   .use("/*", withDualAuth())
   .get("/:provider/:api", async (c) => {
@@ -203,11 +217,11 @@ export const externalServiceRouter = createHonoApp()
       return c.json(response);
     } catch (error) {
       logError("External service API handler failed", "api", {
-        error,
         provider: providerName.data,
         api: apiName.data,
         formId,
         userId: auth.user_id,
+        ...externalServiceErrorLogMetadata(error),
       });
       return c.json(externalServiceFailureResponse(), 502);
     }

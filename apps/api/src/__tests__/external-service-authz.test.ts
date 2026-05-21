@@ -400,12 +400,18 @@ describe("external service form OAuth authorization", () => {
       "External service API handler failed",
       "api",
       expect.objectContaining({
-        error: expect.any(Error),
+        errorName: "Error",
         provider: "discord",
         api: "guilds",
         formId: FORM_ID,
         userId: OWNER_ID,
       }),
+    );
+    expect(JSON.stringify(logError.mock.calls)).not.toContain(
+      "secret-internal-url",
+    );
+    expect(JSON.stringify(logError.mock.calls)).not.toContain(
+      "internal.example",
     );
   });
 });
