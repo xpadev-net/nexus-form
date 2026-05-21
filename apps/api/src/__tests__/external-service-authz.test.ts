@@ -258,6 +258,36 @@ describe("external service form OAuth authorization", () => {
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 
+  it("rejects share-link API token principals with the synthetic-principal code when formId is missing", async () => {
+    validateApiToken.mockResolvedValueOnce({
+      user_id: "share-link:link-id",
+      token_id: "token-id",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+      share_link_id: "link-id",
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request("/discord/guilds", {
+      headers: {
+        authorization: "Bearer token-value",
+      },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: {
+        code: "SYNTHETIC_PRINCIPAL_NOT_ALLOWED",
+      },
+    });
+    expect(providerGet).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
   it("rejects anonymous API token principals before using linked accounts", async () => {
     validateApiToken.mockResolvedValueOnce({
       user_id: "anon:token-id",
