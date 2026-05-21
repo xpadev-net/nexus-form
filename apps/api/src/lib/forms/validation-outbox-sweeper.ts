@@ -191,7 +191,7 @@ async function buildSnapshotRuleMap(
     Array.from(snapshotKeys.values()).map(
       async ({ formId, snapshotVersion }) => {
         const snapshot =
-          snapshotVersion === null || snapshotVersion === undefined
+          snapshotVersion === null
             ? await getLatestSnapshotByVersion(formId)
             : await getSnapshotByVersion(formId, snapshotVersion);
         if (!snapshot?.validationRulesJson) return;
@@ -437,7 +437,7 @@ export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
   return {
     runOnce,
     start: () => {
-      if (timer || intervalMs <= 0) return;
+      if (timer) return;
       runAndLog();
       timer = setInterval(runAndLog, intervalMs);
       timer.unref?.();
