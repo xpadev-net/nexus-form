@@ -29,16 +29,16 @@ export const TocElement = withRef<typeof PlateElement>(
                       paddingLeft: `${(heading.depth - 1) * 16}px`,
                     }}
                   >
-                    <a
-                      className="cursor-pointer text-sm text-muted-foreground no-underline hover:text-foreground"
-                      onClick={(e) => {
-                        e.preventDefault();
+                    <button
+                      type="button"
+                      className="cursor-pointer border-0 bg-transparent p-0 text-left text-sm text-muted-foreground no-underline hover:text-foreground"
+                      onClick={() => {
                         const element = document.getElementById(heading.id);
                         element?.scrollIntoView({ behavior: "smooth" });
                       }}
                     >
                       {heading.title}
-                    </a>
+                    </button>
                   </li>
                 ))}
               </ul>
