@@ -269,10 +269,7 @@ const syncMonitorReducer = (
   }
 };
 
-export function GoogleSheetsIntegration({
-  formId,
-  className,
-}: GoogleSheetsIntegrationProps) {
+function useGoogleSheetsIntegrationModel(formId: string) {
   const queryClient = useQueryClient();
 
   const [uiState, dispatchUi] = useReducer(
@@ -816,16 +813,89 @@ export function GoogleSheetsIntegration({
     );
   }, [spreadsheets, searchQuery]);
 
-  if (isCheckingConnection || isLoadingConfig) {
+  const handleRefreshSpreadsheets = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: ["spreadsheets"],
+    });
+  }, [queryClient]);
+
+  const handleCreateSpreadsheetClick = useCallback(() => {
+    void handleCreateSpreadsheet();
+  }, [handleCreateSpreadsheet]);
+
+  const handleAddSheetClick = useCallback(() => {
+    void handleAddSheet();
+  }, [handleAddSheet]);
+
+  const handleClearSyncStatus = useCallback(() => {
+    dispatchSyncMonitor({ type: "dismiss-status" });
+  }, []);
+
+  const handleSaveConfigClick = useCallback(() => {
+    void handleSaveConfig();
+  }, [handleSaveConfig]);
+
+  const handleSyncClick = useCallback(() => {
+    void handleSync();
+  }, [handleSync]);
+
+  return {
+    connectionLoadError,
+    filteredSpreadsheets,
+    handleAddSheetClick,
+    handleClearSyncStatus,
+    handleConnect,
+    handleCreateSpreadsheetClick,
+    handleNewSheetTitleChange,
+    handleNewSpreadsheetTitleChange,
+    handleRefreshSpreadsheets,
+    handleSaveConfigClick,
+    handleSearchQueryChange,
+    handleSelectSheet,
+    handleSelectSpreadsheet,
+    handleSheetDialogOpenChange,
+    handleSpreadsheetDialogOpenChange,
+    handleSyncClick,
+    hasUnsavedChanges,
+    isAddingSheet,
+    isCheckingConnection,
+    isConnected,
+    isCreatingSpreadsheet,
+    isFetchingSheets,
+    isFetchingSpreadsheets,
+    isLoadingConfig,
+    isSheetDialogOpen,
+    isSpreadsheetDialogOpen,
+    isSyncing,
+    newSheetTitle,
+    newSpreadsheetTitle,
+    savedConfig,
+    searchQuery,
+    selectedSheetName,
+    selectedSpreadsheetId,
+    sheets,
+    sheetsErrorMessage,
+    spreadsheetsErrorMessage,
+    syncStatus,
+  } as const;
+}
+
+export function GoogleSheetsIntegration({
+  formId,
+  className,
+}: GoogleSheetsIntegrationProps) {
+  const model = useGoogleSheetsIntegrationModel(formId);
+
+  if (model.isCheckingConnection || model.isLoadingConfig) {
     return <GoogleSheetsLoadingCard className={className} />;
   }
 
-  if (!isConnected) {
+  if (!model.isConnected) {
     return (
       <GoogleSheetsDisconnectedCard
         className={className}
-        connectionLoadError={connectionLoadError}
-        onConnect={handleConnect}
+        connectionLoadError={model.connectionLoadError}
+        onConnect={model.handleConnect}
       />
     );
   }
@@ -846,67 +916,63 @@ export function GoogleSheetsIntegration({
       </CardHeader>
       <CardContent className="space-y-6">
         <SpreadsheetSelector
-          searchQuery={searchQuery}
-          selectedSpreadsheetId={selectedSpreadsheetId}
-          filteredSpreadsheets={filteredSpreadsheets}
-          isFetchingSpreadsheets={isFetchingSpreadsheets}
-          spreadsheetsErrorMessage={spreadsheetsErrorMessage}
-          isSpreadsheetDialogOpen={isSpreadsheetDialogOpen}
-          newSpreadsheetTitle={newSpreadsheetTitle}
-          isCreatingSpreadsheet={isCreatingSpreadsheet}
-          onSearchQueryChange={handleSearchQueryChange}
-          onRefreshSpreadsheets={() =>
-            void queryClient.invalidateQueries({
-              queryKey: ["spreadsheets"],
-            })
+          searchQuery={model.searchQuery}
+          selectedSpreadsheetId={model.selectedSpreadsheetId}
+          filteredSpreadsheets={model.filteredSpreadsheets}
+          isFetchingSpreadsheets={model.isFetchingSpreadsheets}
+          spreadsheetsErrorMessage={model.spreadsheetsErrorMessage}
+          isSpreadsheetDialogOpen={model.isSpreadsheetDialogOpen}
+          newSpreadsheetTitle={model.newSpreadsheetTitle}
+          isCreatingSpreadsheet={model.isCreatingSpreadsheet}
+          onSearchQueryChange={model.handleSearchQueryChange}
+          onRefreshSpreadsheets={model.handleRefreshSpreadsheets}
+          onSelectSpreadsheet={model.handleSelectSpreadsheet}
+          onSpreadsheetDialogOpenChange={
+            model.handleSpreadsheetDialogOpenChange
           }
-          onSelectSpreadsheet={handleSelectSpreadsheet}
-          onSpreadsheetDialogOpenChange={handleSpreadsheetDialogOpenChange}
-          onNewSpreadsheetTitleChange={handleNewSpreadsheetTitleChange}
-          onCreateSpreadsheet={() => void handleCreateSpreadsheet()}
+          onNewSpreadsheetTitleChange={model.handleNewSpreadsheetTitleChange}
+          onCreateSpreadsheet={model.handleCreateSpreadsheetClick}
         />
 
-        {selectedSpreadsheetId && (
+        {model.selectedSpreadsheetId && (
           <>
             <Separator />
             <SheetSelector
-              selectedSheetName={selectedSheetName}
-              sheets={sheets}
-              isFetchingSheets={isFetchingSheets}
-              sheetsErrorMessage={sheetsErrorMessage}
-              isSheetDialogOpen={isSheetDialogOpen}
-              newSheetTitle={newSheetTitle}
-              isAddingSheet={isAddingSheet}
-              onSelectSheet={handleSelectSheet}
-              onSheetDialogOpenChange={handleSheetDialogOpenChange}
-              onNewSheetTitleChange={handleNewSheetTitleChange}
-              onAddSheet={() => void handleAddSheet()}
+              selectedSheetName={model.selectedSheetName}
+              sheets={model.sheets}
+              isFetchingSheets={model.isFetchingSheets}
+              sheetsErrorMessage={model.sheetsErrorMessage}
+              isSheetDialogOpen={model.isSheetDialogOpen}
+              newSheetTitle={model.newSheetTitle}
+              isAddingSheet={model.isAddingSheet}
+              onSelectSheet={model.handleSelectSheet}
+              onSheetDialogOpenChange={model.handleSheetDialogOpenChange}
+              onNewSheetTitleChange={model.handleNewSheetTitleChange}
+              onAddSheet={model.handleAddSheetClick}
             />
           </>
         )}
 
-        {syncStatus && (
+        {model.syncStatus && (
           <>
             <Separator />
             <SyncStatusPanel
-              syncStatus={syncStatus}
-              isSyncing={isSyncing}
-              onClearSyncStatus={() =>
-                dispatchSyncMonitor({ type: "dismiss-status" })
-              }
+              syncStatus={model.syncStatus}
+              isSyncing={model.isSyncing}
+              onClearSyncStatus={model.handleClearSyncStatus}
             />
           </>
         )}
 
         <Separator />
         <SyncActionButtons
-          selectedSpreadsheetId={selectedSpreadsheetId}
-          selectedSheetName={selectedSheetName}
-          isSyncing={isSyncing}
-          hasUnsavedChanges={hasUnsavedChanges}
-          hasSavedConfig={Boolean(savedConfig)}
-          onSaveConfig={() => void handleSaveConfig()}
-          onSync={() => void handleSync()}
+          selectedSpreadsheetId={model.selectedSpreadsheetId}
+          selectedSheetName={model.selectedSheetName}
+          isSyncing={model.isSyncing}
+          hasUnsavedChanges={model.hasUnsavedChanges}
+          hasSavedConfig={Boolean(model.savedConfig)}
+          onSaveConfig={model.handleSaveConfigClick}
+          onSync={model.handleSyncClick}
         />
 
         <GoogleSheetsSyncDescription />
