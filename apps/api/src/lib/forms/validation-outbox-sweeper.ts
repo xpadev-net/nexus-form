@@ -38,16 +38,27 @@ type PendingValidationOutboxRow = {
   liveConfigJson: unknown;
 };
 
+/**
+ * Counts produced by a single validation outbox sweep.
+ */
 export type ValidationOutboxSweepResult = {
+  /** Number of stale PENDING rows loaded from the database. */
   scanned: number;
+  /** Number of rows whose validation jobs were enqueued or already represented by the same stable job ID. */
   enqueued: number;
-  skipped: number;
+  /** Number of rows moved to FAILED because they could not be recovered. */
   failed: number;
 };
 
+/**
+ * Controller for the API-side validation outbox recovery loop.
+ */
 export type ValidationOutboxSweeper = {
+  /** Runs one sweep and returns its counts. Concurrent calls share the same in-flight promise. */
   runOnce: () => Promise<ValidationOutboxSweepResult>;
+  /** Starts an immediate sweep and a recurring interval. Repeated calls are no-ops while started. */
   start: () => void;
+  /** Stops the recurring interval and waits for any in-flight sweep to settle. */
   stop: () => Promise<void>;
 };
 
@@ -176,22 +187,29 @@ async function buildSnapshotRuleMap(
     { ruleType: string; configJson: Record<string, unknown> }
   >();
 
-  for (const { formId, snapshotVersion } of snapshotKeys.values()) {
-    const snapshot =
-      snapshotVersion === null || snapshotVersion === undefined
-        ? await getLatestSnapshotByVersion(formId)
-        : await getSnapshotByVersion(formId, snapshotVersion);
-    if (!snapshot?.validationRulesJson) continue;
+  await Promise.all(
+    Array.from(snapshotKeys.values()).map(
+      async ({ formId, snapshotVersion }) => {
+        const snapshot =
+          snapshotVersion === null || snapshotVersion === undefined
+            ? await getLatestSnapshotByVersion(formId)
+            : await getSnapshotByVersion(formId, snapshotVersion);
+        if (!snapshot?.validationRulesJson) return;
 
-    for (const entry of parseValidationRuleSnapshot(
-      snapshot.validationRulesJson,
-    )) {
-      snapshotRules.set(snapshotRuleMapKey(formId, snapshotVersion, entry.id), {
-        ruleType: entry.ruleType,
-        configJson: entry.configJson,
-      });
-    }
-  }
+        for (const entry of parseValidationRuleSnapshot(
+          snapshot.validationRulesJson,
+        )) {
+          snapshotRules.set(
+            snapshotRuleMapKey(formId, snapshotVersion, entry.id),
+            {
+              ruleType: entry.ruleType,
+              configJson: entry.configJson,
+            },
+          );
+        }
+      },
+    ),
+  );
 
   return snapshotRules;
 }
@@ -202,7 +220,7 @@ async function enqueuePendingValidationOutboxRow(
     string,
     { ruleType: string; configJson: Record<string, unknown> }
   >,
-): Promise<"enqueued" | "skipped" | "failed"> {
+): Promise<"enqueued" | "failed"> {
   if (!row.service || !isValidServiceName(row.service)) {
     await markValidationOutboxFailed(
       row.id,
@@ -339,6 +357,16 @@ function buildValidationOutboxJobId(resultId: string): string {
   return `validation-outbox-${resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }
 
+/**
+ * Recovers stale validation outbox rows by loading up to `batchSize` rows older
+ * than `staleMs`, resolving their response snapshot rule config, and enqueueing
+ * validation jobs for recoverable rows.
+ *
+ * `batchSize` defaults to `DEFAULT_BATCH_SIZE` and is capped at
+ * `MAX_BATCH_SIZE`; `staleMs` defaults to `DEFAULT_STALE_MS`. The returned
+ * counts report scanned rows, successfully enqueued rows, and rows marked
+ * failed because they cannot be recovered.
+ */
 export async function sweepValidationOutbox(
   options: { batchSize?: number; staleMs?: number } = {},
 ): Promise<ValidationOutboxSweepResult> {
@@ -353,7 +381,6 @@ export async function sweepValidationOutbox(
   const result: ValidationOutboxSweepResult = {
     scanned: rows.length,
     enqueued: 0,
-    skipped: 0,
     failed: 0,
   };
 
@@ -365,6 +392,15 @@ export async function sweepValidationOutbox(
   return result;
 }
 
+/**
+ * Creates the API-side validation outbox sweeper.
+ *
+ * The returned controller reads `VALIDATION_OUTBOX_SWEEP_BATCH_SIZE`,
+ * `VALIDATION_OUTBOX_SWEEP_STALE_MS`, and
+ * `VALIDATION_OUTBOX_SWEEP_INTERVAL_MS` when it is created. `start()` runs one
+ * immediate sweep, then schedules recurring sweeps on an unref'd timer.
+ * Sweep failures from the recurring loop are logged and captured.
+ */
 export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
   const batchSize = readPositiveInt(
     process.env.VALIDATION_OUTBOX_SWEEP_BATCH_SIZE,
@@ -383,7 +419,7 @@ export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
   let timer: SweeperTimer | null = null;
   let running: Promise<ValidationOutboxSweepResult> | null = null;
 
-  const runOnce = async (): Promise<ValidationOutboxSweepResult> => {
+  const runOnce = (): Promise<ValidationOutboxSweepResult> => {
     if (running) return running;
     running = sweepValidationOutbox({ batchSize, staleMs }).finally(() => {
       running = null;

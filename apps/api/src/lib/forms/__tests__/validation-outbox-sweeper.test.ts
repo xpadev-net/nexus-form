@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const schema = {
@@ -110,12 +110,26 @@ function pendingRow(overrides: Partial<PendingRow> = {}): PendingRow {
 }
 
 function usePendingRows(rows: PendingRow[]) {
+  usePendingRowsResult(Promise.resolve(rows));
+}
+
+function usePendingRowsResult(rows: Promise<PendingRow[]>) {
   const limit = vi.fn(async () => rows);
   const where = vi.fn(() => ({ limit }));
   const leftJoin = vi.fn(() => ({ where }));
   const innerJoin = vi.fn(() => ({ leftJoin }));
   const from = vi.fn(() => ({ innerJoin }));
   mocks.db.select.mockReturnValue({ from });
+}
+
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+  return { promise, resolve, reject };
 }
 
 function useUpdateResults(results: Array<{ affectedRows: number }>) {
@@ -149,6 +163,13 @@ describe("validation outbox sweeper", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.VALIDATION_OUTBOX_SWEEP_BATCH_SIZE;
+    delete process.env.VALIDATION_OUTBOX_SWEEP_STALE_MS;
+    delete process.env.VALIDATION_OUTBOX_SWEEP_INTERVAL_MS;
+  });
+
   it("enqueues with a stable jobId before persisting job ownership", async () => {
     usePendingRows([pendingRow({ snapshotVersion: null })]);
     useUpdateResults([{ affectedRows: 1 }]);
@@ -161,7 +182,6 @@ describe("validation outbox sweeper", () => {
     expect(result).toEqual({
       scanned: 1,
       enqueued: 1,
-      skipped: 0,
       failed: 0,
     });
     expect(mocks.sequence).toEqual(["queue:add", "db:update"]);
@@ -240,7 +260,6 @@ describe("validation outbox sweeper", () => {
     expect(result).toEqual({
       scanned: 1,
       enqueued: 0,
-      skipped: 0,
       failed: 1,
     });
     expect(mocks.updateSets[0]).toMatchObject({
@@ -283,7 +302,6 @@ describe("validation outbox sweeper", () => {
     expect(result).toEqual({
       scanned: 1,
       enqueued: 1,
-      skipped: 0,
       failed: 0,
     });
     expect(mocks.sequence).toEqual(["queue:add", "db:update"]);
@@ -313,7 +331,6 @@ describe("validation outbox sweeper", () => {
     expect(result).toEqual({
       scanned: 1,
       enqueued: 0,
-      skipped: 0,
       failed: 1,
     });
     expect(mocks.addValidationJob).not.toHaveBeenCalled();
@@ -323,5 +340,78 @@ describe("validation outbox sweeper", () => {
       errorMessage:
         "Validation rule configuration was not found in response snapshot",
     });
+  });
+
+  it("shares the same runOnce promise while a sweep is in flight", async () => {
+    const pendingRows = createDeferred<PendingRow[]>();
+    usePendingRowsResult(pendingRows.promise);
+
+    const { createValidationOutboxSweeper } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const sweeper = createValidationOutboxSweeper();
+    const first = sweeper.runOnce();
+    const second = sweeper.runOnce();
+
+    expect(second).toBe(first);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+
+    pendingRows.resolve([]);
+    await expect(first).resolves.toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+    });
+  });
+
+  it("waits for an in-flight sweep when stop is called", async () => {
+    const pendingRows = createDeferred<PendingRow[]>();
+    usePendingRowsResult(pendingRows.promise);
+
+    const { createValidationOutboxSweeper } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const sweeper = createValidationOutboxSweeper();
+    const run = sweeper.runOnce();
+    let stopped = false;
+    const stop = sweeper.stop().then(() => {
+      stopped = true;
+    });
+
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    pendingRows.resolve([]);
+    await stop;
+    await expect(run).resolves.toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+    });
+    expect(stopped).toBe(true);
+  });
+
+  it("starts one interval and schedules recurring sweeps", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_OUTBOX_SWEEP_INTERVAL_MS = "25";
+    usePendingRows([]);
+    const intervalSpy = vi.spyOn(globalThis, "setInterval");
+
+    const { createValidationOutboxSweeper } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const sweeper = createValidationOutboxSweeper();
+
+    sweeper.start();
+    sweeper.start();
+    await Promise.resolve();
+
+    expect(intervalSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(25);
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+
+    await sweeper.stop();
   });
 });
