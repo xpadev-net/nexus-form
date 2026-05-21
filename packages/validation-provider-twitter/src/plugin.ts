@@ -70,6 +70,9 @@ const userExistsRule: ValidationProviderRule = {
           errorMessage: "Twitterユーザーが見つかりません",
         };
       }
+      // Keep this boundary check even though the bundled client validates
+      // upstream responses; tests and external client implementations can
+      // still inject malformed user objects.
       const parsedUserInfo = TwitterUserInfoSchema.safeParse(userInfo);
       if (!parsedUserInfo.success) {
         return {

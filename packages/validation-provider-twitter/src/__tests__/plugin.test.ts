@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 import { TwitterErrorCode } from "../error-codes";
 import { twitterProvider } from "../plugin";
 import { parseTwitterError } from "../utils";
@@ -8,17 +7,15 @@ const { getUserByUsernameMock } = vi.hoisted(() => ({
   getUserByUsernameMock: vi.fn(),
 }));
 
-vi.mock("../client", () => ({
-  getTwitterClient: () => ({
-    getUserByUsername: getUserByUsernameMock,
-  }),
-  TwitterUserInfoSchema: z.object({
-    id: z.string().min(1),
-    username: z.string().min(1),
-    name: z.string().min(1),
-    profile_image_url: z.string().url().optional(),
-  }),
-}));
+vi.mock("../client", async (importActual) => {
+  const actual = await importActual<typeof import("../client")>();
+  return {
+    ...actual,
+    getTwitterClient: () => ({
+      getUserByUsername: getUserByUsernameMock,
+    }),
+  };
+});
 
 beforeEach(() => {
   getUserByUsernameMock.mockReset();

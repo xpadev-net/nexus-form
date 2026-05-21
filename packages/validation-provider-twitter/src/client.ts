@@ -62,7 +62,7 @@ function parseTwitterApiResponse<T>(
   }
 
   const response = responseResult.data;
-  if (response.data === undefined) {
+  if (response.data == null) {
     return {
       errors: response.errors,
       meta: response.meta,

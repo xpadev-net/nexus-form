@@ -59,6 +59,18 @@ describe("getTwitterClient", () => {
     );
   });
 
+  it("treats null user lookup data as a missing user", async () => {
+    vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
+    requestMock.mockResolvedValueOnce({
+      data: {
+        data: null,
+      },
+    });
+    const client = getTwitterClient();
+
+    await expect(client.getUserByUsername("username")).resolves.toBeNull();
+  });
+
   it("rejects successful user lookup responses with malformed profile image URLs", async () => {
     vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
     requestMock.mockResolvedValueOnce({
