@@ -22,6 +22,7 @@ import {
 } from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
 import { createCsrfOriginGuard } from "./lib/csrf-origin-guard";
+import { createValidationOutboxSweeper } from "./lib/forms/validation-outbox-sweeper";
 import {
   createApiGracefulShutdown,
   registerApiShutdownHandlers,
@@ -210,6 +211,8 @@ async function startServer() {
   if (monitoringInterval > 0) {
     serviceMonitor.startPeriodicCheck(monitoringInterval);
   }
+  const validationOutboxSweeper = createValidationOutboxSweeper();
+  validationOutboxSweeper.start();
 
   const port = Number(process.env.PORT) || 3001;
   console.log(`Server is running on http://localhost:${port}`);
@@ -222,6 +225,7 @@ async function startServer() {
     server,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     stopServiceMonitor: () => serviceMonitor.stopPeriodicCheck(),
+    stopValidationOutboxSweeper: () => validationOutboxSweeper.stop(),
     stopPluginDriftGuard: async () => {
       await pluginStartupHandle?.stop();
     },

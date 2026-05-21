@@ -11,6 +11,7 @@ export interface ApiGracefulShutdownOptions {
   server: CloseableServer;
   timeoutMs: number;
   stopServiceMonitor: () => void;
+  stopValidationOutboxSweeper?: () => void | Promise<void>;
   stopPluginDriftGuard?: () => Promise<void>;
   closeQueues: () => Promise<void>;
   closeSseSubscribers?: () => Promise<void>;
@@ -84,6 +85,7 @@ export function createApiGracefulShutdown({
   server,
   timeoutMs,
   stopServiceMonitor,
+  stopValidationOutboxSweeper = () => undefined,
   stopPluginDriftGuard = async () => undefined,
   closeQueues,
   closeSseSubscribers = async () => undefined,
@@ -162,6 +164,14 @@ export function createApiGracefulShutdown({
         await runCleanupStep(
           "stop service monitor",
           stopServiceMonitor,
+          logger,
+          captureError,
+        ),
+      );
+      cleanupResults.push(
+        await runCleanupStep(
+          "stop validation outbox sweeper",
+          stopValidationOutboxSweeper,
           logger,
           captureError,
         ),
