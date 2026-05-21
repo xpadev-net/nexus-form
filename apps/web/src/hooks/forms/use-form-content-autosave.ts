@@ -13,6 +13,16 @@ const pendingSaveSchema = z.object({
   expectedVersion: z.number().int(),
 });
 
+const KEEPALIVE_LIMIT = 64 * 1024;
+
+function storePendingSave(formId: string, body: string) {
+  try {
+    localStorage.setItem(`pendingSave:${formId}`, body);
+  } catch {
+    // localStorage も利用不可の場合は諦める
+  }
+}
+
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
@@ -378,7 +388,6 @@ export function useFormContentAutosave({
           plateContent: valueToSave,
           expectedVersion: versionRef.current,
         });
-        const KEEPALIVE_LIMIT = 64 * 1024;
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
           fetch(`${baseUrl}/api/forms/${formId}/content`, {
             method: "PUT",
@@ -386,19 +395,17 @@ export function useFormContentAutosave({
             credentials: "include",
             keepalive: true,
             body,
-          }).catch(() => {
-            try {
-              localStorage.setItem(`pendingSave:${formId}`, body);
-            } catch {
-              // localStorage も利用不可の場合は諦める
-            }
-          });
+          })
+            .then((response) => {
+              if (!response.ok) {
+                storePendingSave(formId, body);
+              }
+            })
+            .catch(() => {
+              storePendingSave(formId, body);
+            });
         } else {
-          try {
-            localStorage.setItem(`pendingSave:${formId}`, body);
-          } catch {
-            // localStorage も利用不可の場合は諦める
-          }
+          storePendingSave(formId, body);
         }
       }
     };
@@ -431,12 +438,9 @@ export function useFormContentAutosave({
         });
       })
       .catch((err) => {
-        // 409 = server already has a newer version; discard the stale entry
-        if (err instanceof RpcError && err.status === 409) return;
-        try {
-          localStorage.setItem(key, saved);
-        } catch {
-          // 諦める
+        storePendingSave(formId, saved);
+        if (err instanceof RpcError && err.status === 409) {
+          toast.warning("前回未保存の変更が競合しています");
         }
       });
   }, [formId, queryClient]);
