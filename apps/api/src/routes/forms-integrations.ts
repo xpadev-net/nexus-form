@@ -1,4 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
+import { sheetsSyncJobDataSchema } from "@nexus-form/shared";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
@@ -130,6 +131,14 @@ export const formsIntegrationsRouter = createHonoApp()
 
     const job = await getSheetsSyncQueue().getJob(jobId);
     if (!job) return c.json(formIntegrationError("Job not found"), 404);
+    const jobData = sheetsSyncJobDataSchema.safeParse(job.data);
+    if (
+      !jobData.success ||
+      jobData.data.formId !== formId ||
+      jobData.data.integrationId !== integration.id
+    ) {
+      return c.json(formIntegrationError("Job not found"), 404);
+    }
 
     const state = await job.getState();
     return c.json(
