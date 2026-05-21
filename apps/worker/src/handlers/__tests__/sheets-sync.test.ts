@@ -38,6 +38,7 @@ vi.mock("drizzle-orm", () => ({
 vi.mock("../../lib/google-sheets-client", () => ({
   appendRows: vi.fn(),
   readRange: vi.fn(),
+  SHEETS_API_TIMEOUT_MS: 30_000,
   updateRange: vi.fn(),
 }));
 
@@ -74,7 +75,13 @@ import {
   withRedisLock,
 } from "../../lib/redis-lock";
 import { safeParseResponseData } from "../../lib/response-data-extractor";
-import { DONE_IDEMPOTENCY_TTL_SECONDS, handleSheetsSync } from "../sheets-sync";
+import {
+  DONE_IDEMPOTENCY_TTL_SECONDS,
+  handleSheetsSync,
+  PENDING_IDEMPOTENCY_TTL_SECONDS,
+  SHEETS_SYNC_LOCK_TTL_MS,
+  SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
+} from "../sheets-sync";
 
 const mockDb = vi.mocked(db);
 const mockAnd = vi.mocked(and);
@@ -373,10 +380,19 @@ describe("handleSheetsSync — idempotency states", () => {
       jobId: "job-1",
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledTimes(2);
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
       "sheets-written:integration-1:response-1",
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
+    );
+    expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
+      getInvocationCallOrder(mockReadRange, 0),
     );
   });
 
@@ -392,7 +408,11 @@ describe("handleSheetsSync — idempotency states", () => {
       "Failed to read sheet for idempotency check",
     );
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
   });
 
   it("writes the row and promotes key to done when idempotency key is null", async () => {
@@ -410,11 +430,11 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(mockAppendRows).toHaveBeenCalledOnce();
 
-    // "pending" must be set BEFORE appendRows (first setIdempotencyKey call)
+    // "pending" must be set before any Sheets API call in the write path.
     const [firstCall, secondCall] = mockSetIdempotencyKey.mock.calls;
     expect(firstCall).toEqual([
       "sheets-written:integration-1:response-1",
-      90,
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
       "pending",
     ]);
     // "done" must be set AFTER appendRows (second setIdempotencyKey call)
@@ -423,8 +443,11 @@ describe("handleSheetsSync — idempotency states", () => {
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     ]);
-    // Verify ordering: pending → appendRows → done
+    // Verify ordering: pending → read sheet → appendRows → done
     expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
+      getInvocationCallOrder(mockReadRange, 0),
+    );
+    expect(getInvocationCallOrder(mockReadRange, 0)).toBeLessThan(
       getInvocationCallOrder(mockAppendRows, 0),
     );
     expect(getInvocationCallOrder(mockAppendRows, 0)).toBeLessThan(
@@ -454,10 +477,17 @@ describe("handleSheetsSync — write path", () => {
 
     await handleSheetsSync(makeJob());
 
+    expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(120_000);
+    expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
+      Math.ceil(SHEETS_SYNC_LOCK_TTL_MS / 1000),
+    );
     expect(mockWithRedisLock).toHaveBeenCalledWith(
       "sheets-sync:integration-1",
       expect.any(Function),
-      expect.objectContaining({ ttlMs: 60_000, waitTimeoutMs: 65_000 }),
+      expect.objectContaining({
+        ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
+        waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
+      }),
     );
   });
 
@@ -563,6 +593,7 @@ describe("handleSheetsSync — write path", () => {
       jobId: "job-1",
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
   it("rethrows on rate limit from appendRows", async () => {
