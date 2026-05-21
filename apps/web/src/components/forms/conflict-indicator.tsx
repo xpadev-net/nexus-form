@@ -36,6 +36,14 @@ interface ConflictItemDisplayProps {
   onResolve: (resolution: ConflictResolution) => void;
 }
 
+function getConflictKey(blockId: string, conflict: ConflictItem): string {
+  return `${blockId}:${conflict.path}:${JSON.stringify({
+    base: conflict.base,
+    local: conflict.local,
+    remote: conflict.remote,
+  })}`;
+}
+
 function ConflictItemDisplay({
   conflict,
   onResolve,
@@ -248,7 +256,7 @@ export function ConflictIndicator({
                 <div className="space-y-4">
                   {conflicts.map((conflict, index) => (
                     <ConflictItemDisplay
-                      key={`${blockId}-${conflict.path}-${index}`}
+                      key={getConflictKey(blockId, conflict)}
                       conflict={conflict}
                       onResolve={(resolution) =>
                         handleResolveConflict(index, resolution)
