@@ -345,12 +345,12 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
-      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
-      inFlightValueRef.current = null;
       clearResolvedPendingSave(formId, {
         expectedVersion: variables.expectedVersion,
         plateContent: variables.plateContent,
       });
+      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
+      inFlightValueRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;

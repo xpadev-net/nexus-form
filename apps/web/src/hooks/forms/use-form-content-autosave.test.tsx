@@ -3,6 +3,7 @@
 import { act, type ReactNode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import {
   type UseFormContentAutosaveReturn,
   useFormContentAutosave,
@@ -551,6 +552,48 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears a matching pending save when a stale autosave succeeds after restore", () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      JSON.stringify({
+        expectedVersion: 7,
+        plateContent: "stale-but-saved draft",
+        retryBlocked: "conflict",
+      }),
+    );
+    const root = renderAutosave(() => {});
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RESTORE_EDIT_EVENT, {
+          detail: {
+            formId: "form-1",
+            plateContent: "restored draft",
+          },
+        }),
+      );
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: "stale-but-saved draft",
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
+      queryKey: ["formDiff", "form-1"],
+    });
 
     act(() => {
       root.unmount();
