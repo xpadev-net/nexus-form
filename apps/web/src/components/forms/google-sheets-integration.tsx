@@ -563,6 +563,18 @@ export function GoogleSheetsIntegration({
     };
   }, [queryClient]);
 
+  const handleSearchQueryChange = useCallback((value: string) => {
+    dispatchUi({ type: "set-search-query", value });
+  }, []);
+
+  const handleSpreadsheetDialogOpenChange = useCallback((open: boolean) => {
+    dispatchUi({ type: "set-spreadsheet-dialog-open", open });
+  }, []);
+
+  const handleNewSpreadsheetTitleChange = useCallback((title: string) => {
+    dispatchUi({ type: "set-new-spreadsheet-title", title });
+  }, []);
+
   // スプレッドシート選択時
   const handleSelectSpreadsheet = useCallback(
     (spreadsheetId: string) => {
@@ -577,6 +589,14 @@ export function GoogleSheetsIntegration({
   // シート選択時の処理
   const handleSelectSheet = useCallback((sheetName: string) => {
     dispatchUi({ type: "select-sheet", sheetName });
+  }, []);
+
+  const handleSheetDialogOpenChange = useCallback((open: boolean) => {
+    dispatchUi({ type: "set-sheet-dialog-open", open });
+  }, []);
+
+  const handleNewSheetTitleChange = useCallback((title: string) => {
+    dispatchUi({ type: "set-new-sheet-title", title });
   }, []);
 
   const handleCreateSpreadsheet = useCallback(async () => {
@@ -834,21 +854,15 @@ export function GoogleSheetsIntegration({
           isSpreadsheetDialogOpen={isSpreadsheetDialogOpen}
           newSpreadsheetTitle={newSpreadsheetTitle}
           isCreatingSpreadsheet={isCreatingSpreadsheet}
-          onSearchQueryChange={(value) =>
-            dispatchUi({ type: "set-search-query", value })
-          }
+          onSearchQueryChange={handleSearchQueryChange}
           onRefreshSpreadsheets={() =>
             void queryClient.invalidateQueries({
               queryKey: ["spreadsheets"],
             })
           }
           onSelectSpreadsheet={handleSelectSpreadsheet}
-          onSpreadsheetDialogOpenChange={(open) =>
-            dispatchUi({ type: "set-spreadsheet-dialog-open", open })
-          }
-          onNewSpreadsheetTitleChange={(title) =>
-            dispatchUi({ type: "set-new-spreadsheet-title", title })
-          }
+          onSpreadsheetDialogOpenChange={handleSpreadsheetDialogOpenChange}
+          onNewSpreadsheetTitleChange={handleNewSpreadsheetTitleChange}
           onCreateSpreadsheet={() => void handleCreateSpreadsheet()}
         />
 
@@ -864,12 +878,8 @@ export function GoogleSheetsIntegration({
               newSheetTitle={newSheetTitle}
               isAddingSheet={isAddingSheet}
               onSelectSheet={handleSelectSheet}
-              onSheetDialogOpenChange={(open) =>
-                dispatchUi({ type: "set-sheet-dialog-open", open })
-              }
-              onNewSheetTitleChange={(title) =>
-                dispatchUi({ type: "set-new-sheet-title", title })
-              }
+              onSheetDialogOpenChange={handleSheetDialogOpenChange}
+              onNewSheetTitleChange={handleNewSheetTitleChange}
               onAddSheet={() => void handleAddSheet()}
             />
           </>
