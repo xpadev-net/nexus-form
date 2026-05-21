@@ -152,4 +152,26 @@ describe("Google Sheets sync job status authorization", () => {
     expect(response.status).toBe(404);
     expect(malformedJob.getState).not.toHaveBeenCalled();
   });
+
+  it("returns 404 when the job belongs to a stale integration for the same form", async () => {
+    const staleIntegrationJob = sheetsJob(
+      {
+        formId: "form-1",
+        integrationId: "stale-integration",
+        responseId: "response-1",
+      },
+      "sheets:stale-integration:response-1",
+    );
+    mocks.getJob.mockResolvedValueOnce(staleIntegrationJob);
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync/sheets:stale-integration:response-1",
+    );
+
+    expect(response.status).toBe(404);
+    expect(staleIntegrationJob.getState).not.toHaveBeenCalled();
+  });
 });

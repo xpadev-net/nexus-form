@@ -132,7 +132,11 @@ export const formsIntegrationsRouter = createHonoApp()
     const job = await getSheetsSyncQueue().getJob(jobId);
     if (!job) return c.json(formIntegrationError("Job not found"), 404);
     const jobData = sheetsSyncJobDataSchema.safeParse(job.data);
-    if (!jobData.success || jobData.data.formId !== formId) {
+    if (
+      !jobData.success ||
+      jobData.data.formId !== formId ||
+      jobData.data.integrationId !== integration.id
+    ) {
       return c.json(formIntegrationError("Job not found"), 404);
     }
 
