@@ -11,7 +11,59 @@ import { baseUrl, client, RpcError, rpc } from "@/lib/api";
 const pendingSaveSchema = z.object({
   plateContent: z.string(),
   expectedVersion: z.number().int(),
+  retryBlocked: z.literal("conflict").optional(),
 });
+
+const KEEPALIVE_LIMIT = 64 * 1024;
+
+function storePendingSave(formId: string, body: string) {
+  try {
+    localStorage.setItem(`pendingSave:${formId}`, body);
+  } catch {
+    // localStorage も利用不可の場合は諦める
+  }
+}
+
+function clearPendingSave(formId: string) {
+  try {
+    localStorage.removeItem(`pendingSave:${formId}`);
+  } catch {
+    // localStorage も利用不可の場合は諦める
+  }
+}
+
+function clearResolvedPendingSave(
+  formId: string,
+  savedContent: { expectedVersion: number; plateContent: string },
+) {
+  const key = `pendingSave:${formId}`;
+  let saved: string | null;
+  try {
+    saved = localStorage.getItem(key);
+  } catch {
+    clearPendingSave(formId);
+    return;
+  }
+  if (!saved) return;
+  let rawParsed: unknown;
+  try {
+    rawParsed = JSON.parse(saved);
+  } catch {
+    clearPendingSave(formId);
+    return;
+  }
+  const result = pendingSaveSchema.safeParse(rawParsed);
+  if (!result.success) {
+    clearPendingSave(formId);
+    return;
+  }
+  if (
+    result.data.expectedVersion === savedContent.expectedVersion &&
+    result.data.plateContent === savedContent.plateContent
+  ) {
+    clearPendingSave(formId);
+  }
+}
 
 interface ContentQueryData {
   plateContent: string | null;
@@ -293,6 +345,10 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      clearResolvedPendingSave(formId, {
+        expectedVersion: variables.expectedVersion,
+        plateContent: variables.plateContent,
+      });
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       if (data && "plateContentVersion" in data) {
@@ -374,11 +430,11 @@ export function useFormContentAutosave({
       }
       const valueToSave = pendingValueRef.current ?? inFlightValueRef.current;
       if (valueToSave != null) {
+        const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({
           plateContent: valueToSave,
-          expectedVersion: versionRef.current,
+          expectedVersion: keepaliveVersion,
         });
-        const KEEPALIVE_LIMIT = 64 * 1024;
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
           fetch(`${baseUrl}/api/forms/${formId}/content`, {
             method: "PUT",
@@ -386,19 +442,24 @@ export function useFormContentAutosave({
             credentials: "include",
             keepalive: true,
             body,
-          }).catch(() => {
-            try {
-              localStorage.setItem(`pendingSave:${formId}`, body);
-            } catch {
-              // localStorage も利用不可の場合は諦める
-            }
-          });
+          })
+            .then((response) => {
+              if (response.ok) {
+                clearResolvedPendingSave(formId, {
+                  expectedVersion: keepaliveVersion,
+                  plateContent: valueToSave,
+                });
+              } else if (baseContentRef.current === valueToSave) {
+                // Regular autosave already saved this content; do not write a duplicate fallback.
+              } else {
+                storePendingSave(formId, body);
+              }
+            })
+            .catch(() => {
+              storePendingSave(formId, body);
+            });
         } else {
-          try {
-            localStorage.setItem(`pendingSave:${formId}`, body);
-          } catch {
-            // localStorage も利用不可の場合は諦める
-          }
+          storePendingSave(formId, body);
         }
       }
     };
@@ -407,21 +468,36 @@ export function useFormContentAutosave({
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
     const key = `pendingSave:${formId}`;
-    const saved = localStorage.getItem(key);
+    let saved: string | null;
+    try {
+      saved = localStorage.getItem(key);
+    } catch {
+      clearPendingSave(formId);
+      return;
+    }
     if (!saved) return;
-    localStorage.removeItem(key);
     let rawParsed: unknown;
     try {
       rawParsed = JSON.parse(saved);
     } catch {
+      clearPendingSave(formId);
       return;
     }
     const result = pendingSaveSchema.safeParse(rawParsed);
-    if (!result.success) return;
+    if (!result.success) {
+      clearPendingSave(formId);
+      return;
+    }
+    if (result.data.retryBlocked === "conflict") return;
+    clearPendingSave(formId);
+    const retryPayload = {
+      expectedVersion: result.data.expectedVersion,
+      plateContent: result.data.plateContent,
+    };
     rpc(
       client.api.forms[":id"].content.$put({
         param: { id: formId },
-        json: result.data,
+        json: retryPayload,
       }),
     )
       .then(() => {
@@ -429,15 +505,18 @@ export function useFormContentAutosave({
         void queryClient.invalidateQueries({
           queryKey: ["formContent", formId],
         });
+        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       })
       .catch((err) => {
-        // 409 = server already has a newer version; discard the stale entry
-        if (err instanceof RpcError && err.status === 409) return;
-        try {
-          localStorage.setItem(key, saved);
-        } catch {
-          // 諦める
+        if (err instanceof RpcError && err.status === 409) {
+          storePendingSave(
+            formId,
+            JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
+          );
+          toast.warning("前回未保存の変更が競合しています");
+          return;
         }
+        storePendingSave(formId, saved);
       });
   }, [formId, queryClient]);
 
