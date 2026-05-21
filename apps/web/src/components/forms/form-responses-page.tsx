@@ -113,6 +113,9 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
   const data = responsesQuery.data;
   const hasCurrentPageData = data?.page === state.page;
+  const isStalePageData =
+    responsesQuery.isPlaceholderData ||
+    (data !== undefined && !hasCurrentPageData);
   const hasNextPage = hasCurrentPageData ? data.hasNext : false;
 
   const handleSelectResponse = useCallback((responseId: string) => {
@@ -206,7 +209,11 @@ export function FormResponsesContent({ formId }: { formId: string }) {
               <p className="text-sm text-muted-foreground">読み込み中...</p>
             )}
             {responsesQuery.isFetching && !responsesQuery.isLoading && (
-              <p className="text-xs text-muted-foreground">更新中...</p>
+              <p className="text-xs text-muted-foreground">
+                {isStalePageData
+                  ? "新しいページを読み込み中です。"
+                  : "更新中..."}
+              </p>
             )}
 
             {/* エラー */}
@@ -236,8 +243,12 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                         <button
                           type="button"
                           onClick={() => handleSelectResponse(response.id)}
+                          disabled={isStalePageData}
                           className={[
                             "flex w-full items-center justify-between rounded border p-3 text-left transition-colors hover:bg-muted/50",
+                            isStalePageData
+                              ? "cursor-wait opacity-60 hover:bg-transparent"
+                              : "",
                             state.selectedResponseId === response.id
                               ? "border-primary bg-primary/5"
                               : "",
