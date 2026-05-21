@@ -760,6 +760,20 @@ export async function updatePermissionRole(
         ),
       );
 
+    if (newRole === "VIEWER") {
+      await tx
+        .update(formShareLink)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(formShareLink.formId, formId),
+            eq(formShareLink.createdBy, userId),
+            eq(formShareLink.isActive, true),
+            eq(formShareLink.role, "EDITOR"),
+          ),
+        );
+    }
+
     // 更新した権限を取得
     const [updatedPermission] = await tx
       .select({
