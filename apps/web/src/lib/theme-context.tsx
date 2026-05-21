@@ -1,7 +1,7 @@
 import {
   createContext,
   type PropsWithChildren,
-  useContext,
+  use,
   useEffect,
   useMemo,
   useState,
@@ -55,7 +55,7 @@ export const ThemeProvider = ({ children }: PropsWithChildren) => {
 };
 
 export const useTheme = () => {
-  const context = useContext(ThemeContext);
+  const context = use(ThemeContext);
   if (!context) {
     throw new Error("useTheme must be used within ThemeProvider");
   }
