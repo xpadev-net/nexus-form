@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSession = vi.fn();
+const logError = vi.fn();
 const providerGet = vi.fn();
 const validateApiToken = vi.fn();
 
@@ -18,6 +19,10 @@ vi.mock("@nexus-form/integrations", () => ({
   providerRegistry: {
     get: providerGet,
   },
+}));
+
+vi.mock("../lib/logger", () => ({
+  logError,
 }));
 
 class MockSuspendedTokenOwnerError extends Error {
@@ -369,5 +374,38 @@ describe("external service form OAuth authorization", () => {
       accountId: "discord-account-id",
     });
     expect(eq).toHaveBeenCalledWith("account.userId", OWNER_ID);
+  });
+
+  it("does not expose provider handler exception messages", async () => {
+    mockSession(OWNER_ID);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+    guildsHandler.mockRejectedValueOnce(
+      new Error("secret-internal-url=https://internal.example/token"),
+    );
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(502);
+    const responseText = await res.text();
+    expect(responseText).toContain("External service error");
+    expect(responseText).not.toContain("secret-internal-url");
+    expect(responseText).not.toContain("internal.example");
+    expect(logError).toHaveBeenCalledWith(
+      "External service API handler failed",
+      "api",
+      expect.objectContaining({
+        error: expect.any(Error),
+        provider: "discord",
+        api: "guilds",
+        formId: FORM_ID,
+        userId: OWNER_ID,
+      }),
+    );
   });
 });

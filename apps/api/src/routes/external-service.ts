@@ -10,6 +10,7 @@ import {
   InsufficientFormPermissionError,
 } from "../lib/errors/form-errors";
 import { createHonoApp } from "../lib/hono";
+import { logError } from "../lib/logger";
 import { errorResponse } from "../types/domain/common";
 
 const providerNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/);
@@ -37,6 +38,7 @@ export type ExternalServiceFailureResponse = z.infer<
 const formPermissionErrorStatusSchema = z
   .union([z.literal(403), z.literal(404)])
   .catch(403);
+const externalServiceFailureDetails = "External service error";
 
 async function getLinkedAccount(userId: string, providerId: string) {
   const [linkedAccount] = await db
@@ -120,12 +122,10 @@ const externalServicePermissionErrorResponse = (
   return parsed.success ? parsed.data : response;
 };
 
-const externalServiceFailureResponse = (
-  details: string,
-): ExternalServiceFailureResponse => {
+const externalServiceFailureResponse = (): ExternalServiceFailureResponse => {
   const response = {
     error: "External service API failed",
-    details,
+    details: externalServiceFailureDetails,
   } satisfies ExternalServiceFailureResponse;
   const parsed = ExternalServiceFailureResponseSchema.safeParse(response);
   return parsed.success ? parsed.data : response;
@@ -202,11 +202,13 @@ export const externalServiceRouter = createHonoApp()
       const response = externalServiceApiResponseSchema.parse(result);
       return c.json(response);
     } catch (error) {
-      return c.json(
-        externalServiceFailureResponse(
-          error instanceof Error ? error.message : "Unknown error",
-        ),
-        502,
-      );
+      logError("External service API handler failed", "api", {
+        error,
+        provider: providerName.data,
+        api: apiName.data,
+        formId,
+        userId: auth.user_id,
+      });
+      return c.json(externalServiceFailureResponse(), 502);
     }
   });
