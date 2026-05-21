@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => {
   const schema = {
     externalServiceValidationResult: {
       id: "externalServiceValidationResult.id",
+      jobId: "externalServiceValidationResult.jobId",
     },
     fingerprintDetail: { table: "fingerprintDetail" },
     form: {
@@ -51,6 +52,7 @@ const mocks = vi.hoisted(() => {
     schema,
     sequence: [] as string[],
     updateSetValues: [] as unknown[],
+    updateWhereValues: [] as unknown[],
     verifyHCaptcha: vi.fn(),
   };
 });
@@ -254,6 +256,7 @@ describe("R11-C2-a public validation outbox", () => {
     vi.clearAllMocks();
     mocks.sequence.length = 0;
     mocks.updateSetValues.length = 0;
+    mocks.updateWhereValues.length = 0;
     mocks.verifyHCaptcha.mockResolvedValue(true);
     mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
     mocks.processFormSchedule.mockResolvedValue(null);
@@ -271,7 +274,12 @@ describe("R11-C2-a public validation outbox", () => {
     mocks.db.update.mockReturnValue({
       set: vi.fn((values: unknown) => {
         mocks.updateSetValues.push(values);
-        return { where: vi.fn().mockResolvedValue(undefined) };
+        return {
+          where: vi.fn((where: unknown) => {
+            mocks.updateWhereValues.push(where);
+            return Promise.resolve(undefined);
+          }),
+        };
       }),
     });
   });
@@ -314,6 +322,37 @@ describe("R11-C2-a public validation outbox", () => {
         snapshotProviderName: "discord",
         snapshotRuleType: "guild_member",
         snapshotVersion: 7,
+      }),
+    );
+  });
+
+  it("persists the enqueue jobId only while the validation row has no jobId", async () => {
+    const snapshot = activeSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.updateSetValues).toContainEqual({
+        jobId: "validation-job-1",
+      });
+    });
+    expect(mocks.updateWhereValues).toContainEqual(
+      expect.objectContaining({
+        type: "and",
+        args: expect.arrayContaining([
+          expect.objectContaining({
+            type: "eq",
+            left: mocks.schema.externalServiceValidationResult.id,
+            right: expect.any(String),
+          }),
+          expect.objectContaining({
+            type: "isNull",
+            value: mocks.schema.externalServiceValidationResult.jobId,
+          }),
+        ]),
       }),
     );
   });
