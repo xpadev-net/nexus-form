@@ -931,13 +931,20 @@ export function SectionTransitionEditor({
   // Available sections for "jump to" (exclude preceding and current sections)
   const availableSections = useMemo(
     () =>
-      sectionCtx.sections
-        .filter(
-          (s) =>
-            s.index !== sectionCtx.precedingSectionIndex &&
-            s.index !== sectionCtx.sectionIndex,
-        )
-        .map((s) => ({ id: s.id, title: `${s.title}` })),
+      sectionCtx.sections.reduce<{ id: string; title: string }[]>(
+        (sections, section) => {
+          if (
+            section.index === sectionCtx.precedingSectionIndex ||
+            section.index === sectionCtx.sectionIndex
+          ) {
+            return sections;
+          }
+
+          sections.push({ id: section.id, title: `${section.title}` });
+          return sections;
+        },
+        [],
+      ),
     [sectionCtx.sections, sectionCtx.precedingSectionIndex, sectionCtx.sectionIndex],
   );
 
