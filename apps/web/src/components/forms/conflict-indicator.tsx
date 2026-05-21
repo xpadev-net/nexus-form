@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle } from "lucide-react";
-import { useReducer, useState } from "react";
+import { useMemo, useReducer, useState } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,35 @@ export type ConflictResolution =
 interface ConflictItemDisplayProps {
   conflict: ConflictItem;
   onResolve: (resolution: ConflictResolution) => void;
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? String(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  return `{${Object.entries(value)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+    .map(
+      ([key, entryValue]) =>
+        `${JSON.stringify(key)}:${stableStringify(entryValue)}`,
+    )
+    .join(",")}}`;
+}
+
+function getConflictKeySignature(
+  blockId: string,
+  conflict: ConflictItem,
+): string {
+  return `${blockId}:${conflict.path}:${stableStringify({
+    base: conflict.base,
+    local: conflict.local,
+    remote: conflict.remote,
+  })}`;
 }
 
 function ConflictItemDisplay({
@@ -214,6 +243,21 @@ export function ConflictIndicator({
     (_, index) => !resolvedConflicts.has(`${blockId}-${index}`),
   );
 
+  const keyedConflicts = useMemo(() => {
+    const signatureCounts = new Map<string, number>();
+
+    return conflicts.map((conflict) => {
+      const signature = getConflictKeySignature(blockId, conflict);
+      const occurrence = signatureCounts.get(signature) ?? 0;
+      signatureCounts.set(signature, occurrence + 1);
+
+      return {
+        conflict,
+        key: `${signature}:${occurrence}`,
+      };
+    });
+  }, [blockId, conflicts]);
+
   if (conflicts.length === 0) {
     return null;
   }
@@ -246,9 +290,9 @@ export function ConflictIndicator({
                   各競合について、どの変更を採用するか選択してください。
                 </div>
                 <div className="space-y-4">
-                  {conflicts.map((conflict, index) => (
+                  {keyedConflicts.map(({ conflict, key }, index) => (
                     <ConflictItemDisplay
-                      key={`${blockId}-${conflict.path}-${index}`}
+                      key={key}
                       conflict={conflict}
                       onResolve={(resolution) =>
                         handleResolveConflict(index, resolution)
