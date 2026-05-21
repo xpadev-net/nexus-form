@@ -123,7 +123,9 @@ function validationRetryClaimableCondition(now: Date) {
 
 /**
  * validation result 行を lease 付きで PENDING に claim してから BullMQ ジョブを投入する。
- * claim に失敗した result は並行 retry 済みとして enqueue しない。
+ * claim に失敗した result は並行 retry 済みとして enqueue しない。bulk retry でも
+ * claim はレコードごとに行うため、最大 100 件では 100 回の UPDATE になるが、
+ * 同一 result の二重 enqueue を避けるためこの順序を優先する。
  *
  * @returns enqueuedCount は claim と BullMQ キュー投入の両方に成功した件数。
  *          enqueue 失敗時は同じ jobId を保持している行だけ FAILED に戻す。
@@ -922,7 +924,7 @@ export const formsResponsesRouter = createHonoApp()
         );
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で一括更新する
+      // PENDING への claim は enqueueValidationRetries 内でレコードごとに行う
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(targets);
 
@@ -930,7 +932,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(
           ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
-              "No validation jobs could be enqueued; check service configuration",
+              "No validation jobs could be enqueued; results may already be claimed or service configuration may be invalid",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],
@@ -1012,7 +1014,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(errorResponse("Validation result not found"), 404);
       }
 
-      // PENDING リセットは enqueueValidationRetries 内で一括更新する
+      // PENDING への claim は enqueueValidationRetries 内でレコードごとに行う
       const { jobIds, enqueuedCount, skippedCount } =
         await enqueueValidationRetries(rows);
 
@@ -1020,7 +1022,7 @@ export const formsResponsesRouter = createHonoApp()
         return c.json(
           ValidationRetryEnqueueErrorResponseSchema.parse({
             error:
-              "No validation jobs could be enqueued; check service configuration",
+              "No validation jobs could be enqueued; results may already be claimed or service configuration may be invalid",
             enqueued: 0,
             skipped: skippedCount,
             jobIds: [],
