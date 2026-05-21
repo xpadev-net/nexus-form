@@ -53,10 +53,15 @@ const SheetsValueRangeResponseSchema = z.object({
     .default([]),
 });
 
-const SheetsUpdateResponseSchema = z.object({
-  updatedRange: z.string().min(1).optional(),
-  updatedRows: z.number().int().nonnegative().optional(),
-});
+const SheetsUpdateResponseSchema = z
+  .object({
+    updatedRange: z.string().min(1).optional(),
+    updatedRows: z.number().int().nonnegative().optional(),
+  })
+  .refine(
+    (data) => data.updatedRange !== undefined || data.updatedRows !== undefined,
+    { message: "Expected updatedRange or updatedRows in update response" },
+  );
 
 function invalidSuccessResponseError(operation: string, cause: unknown) {
   return {

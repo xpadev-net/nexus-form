@@ -221,8 +221,26 @@ describe("google-sheets-client", () => {
     });
   });
 
-  it("keeps update fallbacks when optional response fields are omitted", async () => {
+  it("returns an error when update success response has no recognized fields", async () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse({}));
+
+    const result = await updateRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+      values: [["a", "b"]],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "internal",
+        message: "Google Sheets API returned malformed update response",
+      },
+    });
+  });
+
+  it("keeps update range fallback when only updatedRows is present", async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse({ updatedRows: 1 }));
 
     const result = await updateRange(token, {
       spreadsheetId: "sheet-id",
@@ -232,7 +250,7 @@ describe("google-sheets-client", () => {
 
     expect(result).toEqual({
       ok: true,
-      data: { updatedRange: "Sheet 1!A1:B1", updatedRows: undefined },
+      data: { updatedRange: "Sheet 1!A1:B1", updatedRows: 1 },
     });
   });
 });
