@@ -24,9 +24,11 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
     createShareLinkMutation,
     deleteShareLinkMutation,
     toggleShareLinkStatusMutation,
+    buildShareLinkUrl,
     copyShareLinkUrl,
   } = useShareLinks(formId);
   const [newRole, setNewRole] = useState<"EDITOR" | "VIEWER">("VIEWER");
+  const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
 
   const shareLinks = shareLinksQuery.data?.share_links ?? [];
 
@@ -44,9 +46,21 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
   };
 
   const handleCopy = async (token: string) => {
-    const copied = await copyShareLinkUrl(token);
-    if (copied) {
+    const fallbackUrl = buildShareLinkUrl(token);
+    try {
+      const { copied, url } = await copyShareLinkUrl(token);
+      if (!copied) {
+        setManualCopyUrl(url);
+        toast.error(
+          "リンクをコピーできませんでした。手動でコピーしてください。",
+        );
+        return;
+      }
+      setManualCopyUrl(null);
       toast.success("リンクをコピーしました");
+    } catch {
+      setManualCopyUrl(fallbackUrl);
+      toast.error("リンクをコピーできませんでした。手動でコピーしてください。");
     }
   };
 
@@ -56,7 +70,10 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
 
   const handleDelete = (linkId: string) => {
     deleteShareLinkMutation.mutate(linkId, {
-      onSuccess: () => toast.success("共有リンクを削除しました"),
+      onSuccess: () => {
+        setManualCopyUrl(null);
+        toast.success("共有リンクを削除しました");
+      },
     });
   };
 
@@ -153,6 +170,32 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
           ))}
         </ul>
       )}
+
+      {manualCopyUrl ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-sm text-destructive">
+              自動コピーに失敗しました。以下の URL を手動でコピーしてください。
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setManualCopyUrl(null)}
+            >
+              閉じる
+            </Button>
+          </div>
+          <input
+            className="w-full rounded border bg-background px-2 py-1 text-sm"
+            readOnly
+            value={manualCopyUrl}
+            onFocus={(event) => event.currentTarget.select()}
+            aria-label="手動コピー用共有リンク"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

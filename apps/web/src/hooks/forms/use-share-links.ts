@@ -122,11 +122,18 @@ export const useShareLinks = (
     onSuccess: invalidate,
   });
 
+  const buildShareLinkUrl = (token: string) =>
+    `${window.location.origin}/forms/shared/${token}`;
+
   const copyShareLinkUrl = async (token: string) => {
-    const url = `${window.location.origin}/forms/shared/${token}`;
+    const url = buildShareLinkUrl(token);
     if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(url);
-      return true;
+      try {
+        await navigator.clipboard.writeText(url);
+        return { copied: true, url };
+      } catch {
+        // Fall through to the legacy copy path so callers get a deterministic result.
+      }
     }
 
     const textArea = document.createElement("textarea");
@@ -136,9 +143,14 @@ export const useShareLinks = (
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    const copied = document.execCommand("copy");
-    document.body.removeChild(textArea);
-    return copied;
+    try {
+      const copied = document.execCommand("copy");
+      return { copied, url };
+    } catch {
+      return { copied: false, url };
+    } finally {
+      document.body.removeChild(textArea);
+    }
   };
 
   return {
@@ -147,6 +159,7 @@ export const useShareLinks = (
     updateShareLinkMutation,
     deleteShareLinkMutation,
     toggleShareLinkStatusMutation,
+    buildShareLinkUrl,
     copyShareLinkUrl,
   };
 };
