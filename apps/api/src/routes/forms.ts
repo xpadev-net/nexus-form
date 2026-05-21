@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db, form } from "@nexus-form/database";
-import { count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { createMiddleware } from "hono/factory";
 import { z } from "zod";
-import { withDualAuth } from "../lib/dual-auth";
-import { createHonoApp } from "../lib/hono";
+import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
+import { createHonoApp, type Env } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 import {
   FormCreateResponseSchema,
@@ -21,6 +22,29 @@ const formsListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
+function createFormsListWhere(auth: DualAuthContext) {
+  const ownerFilter = eq(form.creatorId, auth.user_id);
+  if (auth.auth_type === "api_token" && auth.form_ids) {
+    return and(ownerFilter, inArray(form.id, auth.form_ids));
+  }
+  return ownerFilter;
+}
+
+const requireFormCreationAuth = createMiddleware<Env>(async (c, next) => {
+  const auth = c.get("dualAuthContext");
+  if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+  if (auth.auth_type === "api_token") {
+    const scopes = auth.scopes ?? [];
+    if (!scopes.includes("write") && !scopes.includes("admin")) {
+      return c.json(errorResponse("Insufficient permissions"), 403);
+    }
+    if (auth.form_ids) {
+      return c.json(errorResponse("Insufficient permissions"), 403);
+    }
+  }
+  return next();
+});
+
 export const formsRouter = createHonoApp()
   .use("*", withDualAuth())
   .get("/", zValidator("query", formsListQuerySchema), async (c) => {
@@ -29,14 +53,12 @@ export const formsRouter = createHonoApp()
 
     const { page, limit } = c.req.valid("query");
     const offset = (page - 1) * limit;
+    const formsListWhere = createFormsListWhere(auth);
 
     const [totalResult, forms] = await Promise.all([
-      db
-        .select({ count: count() })
-        .from(form)
-        .where(eq(form.creatorId, auth.user_id)),
+      db.select({ count: count() }).from(form).where(formsListWhere),
       db.query.form.findMany({
-        where: eq(form.creatorId, auth.user_id),
+        where: formsListWhere,
         orderBy: [desc(form.updatedAt)],
         limit,
         offset,
@@ -55,27 +77,32 @@ export const formsRouter = createHonoApp()
     });
     return c.json(response);
   })
-  .post("/", zValidator("json", createFormSchema), async (c) => {
-    const auth = c.get("dualAuthContext");
-    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+  .post(
+    "/",
+    requireFormCreationAuth,
+    zValidator("json", createFormSchema),
+    async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
-    const payload = c.req.valid("json");
-    const id = randomUUID();
-    const publicId = randomUUID();
-    await db.insert(form).values({
-      id,
-      creatorId: auth.user_id,
-      title: payload.title,
-      description: payload.description ?? null,
-      publicId,
-      status: "DRAFT",
-    });
+      const payload = c.req.valid("json");
+      const id = randomUUID();
+      const publicId = randomUUID();
+      await db.insert(form).values({
+        id,
+        creatorId: auth.user_id,
+        title: payload.title,
+        description: payload.description ?? null,
+        publicId,
+        status: "DRAFT",
+      });
 
-    const [created] = await db
-      .select()
-      .from(form)
-      .where(eq(form.id, id))
-      .limit(1);
-    const response = FormCreateResponseSchema.parse({ form: created });
-    return c.json(response, 201);
-  });
+      const [created] = await db
+        .select()
+        .from(form)
+        .where(eq(form.id, id))
+        .limit(1);
+      const response = FormCreateResponseSchema.parse({ form: created });
+      return c.json(response, 201);
+    },
+  );
