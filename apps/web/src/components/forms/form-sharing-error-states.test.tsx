@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 
-import type { ReactNode } from "react";
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+} from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,15 +105,13 @@ vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  }: ButtonHTMLAttributes<HTMLButtonElement> & {
     children: ReactNode;
   }) => <button {...props}>{children}</button>,
 }));
 
 vi.mock("@/components/ui/input", () => ({
-  Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input {...props} />
-  ),
+  Input: (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }));
 
 vi.mock("@/components/ui/select", () => ({
@@ -121,7 +123,7 @@ vi.mock("@/components/ui/select", () => ({
   SelectTrigger: ({
     children,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  }: ButtonHTMLAttributes<HTMLButtonElement> & {
     children: ReactNode;
   }) => <button {...props}>{children}</button>,
   SelectValue: () => <span />,
@@ -132,7 +134,7 @@ vi.mock("@/components/ui/switch", () => ({
     checked: _checked,
     onCheckedChange: _onCheckedChange,
     ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  }: ButtonHTMLAttributes<HTMLButtonElement> & {
     checked?: boolean;
     onCheckedChange?: (checked: boolean) => void;
   }) => <button type="button" {...props} />,
@@ -155,10 +157,13 @@ describe("form sharing query error states", () => {
     const retryButton = container.querySelector(
       '[data-testid="permission-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
+    if (!retryButton) {
+      throw new Error("permission retry button was not rendered");
+    }
 
     act(() => {
-      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(mocks.permissionsRefetch).toHaveBeenCalledTimes(1);
@@ -176,10 +181,13 @@ describe("form sharing query error states", () => {
     const retryButton = container.querySelector(
       '[data-testid="invitation-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
+    if (!retryButton) {
+      throw new Error("invitation retry button was not rendered");
+    }
 
     act(() => {
-      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(mocks.invitationsRefetch).toHaveBeenCalledTimes(1);
@@ -197,10 +205,13 @@ describe("form sharing query error states", () => {
     const retryButton = container.querySelector(
       '[data-testid="share-link-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
+    if (!retryButton) {
+      throw new Error("share-link retry button was not rendered");
+    }
 
     act(() => {
-      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retryButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(mocks.shareLinksRefetch).toHaveBeenCalledTimes(1);
