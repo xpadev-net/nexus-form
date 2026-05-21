@@ -505,6 +505,7 @@ export function useFormContentAutosave({
         void queryClient.invalidateQueries({
           queryKey: ["formContent", formId],
         });
+        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       })
       .catch((err) => {
         if (err instanceof RpcError && err.status === 409) {

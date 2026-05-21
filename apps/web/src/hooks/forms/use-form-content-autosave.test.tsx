@@ -381,6 +381,32 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("invalidates content and diff queries when retrying a pending save succeeds on mount", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      JSON.stringify({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
+    rpcMock.mockResolvedValue({ plateContentVersion: 8 });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: ["formContent", "form-1"],
+    });
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: ["formDiff", "form-1"],
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not keep a pending save when an in-flight mutation already saved the keepalive body", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
@@ -427,6 +453,52 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         method: "PUT",
       }),
     );
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("clears a keepalive pending save after the matching in-flight mutation succeeds", async () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const keepaliveResult = createDeferred<{ ok: boolean; status: number }>();
+    const fetchMock = vi.fn().mockReturnValue(keepaliveResult.promise);
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.unmount();
+    });
+    await act(async () => {
+      keepaliveResult.resolve({ ok: false, status: 409 });
+      await keepaliveResult.promise;
+    });
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
