@@ -35,6 +35,7 @@ import { validateResponseData } from "../lib/forms/response-validator";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import type { TransactionClient } from "../lib/forms/types";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
@@ -561,6 +562,9 @@ export const formsPublicRouter = createHonoApp()
       if (!responseDataJson) {
         return c.json(errorResponse("Response payload is too large"), 400);
       }
+      const validationOutbox = activeSnapshot
+        ? buildExternalValidationOutbox(responseId, activeSnapshot)
+        : null;
 
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
@@ -622,6 +626,10 @@ export const formsPublicRouter = createHonoApp()
           );
         }
 
+        if (validationOutbox) {
+          await insertExternalValidationOutbox(tx, validationOutbox);
+        }
+
         return { limitReached: false as const };
       });
 
@@ -639,8 +647,8 @@ export const formsPublicRouter = createHonoApp()
       setSessionCookie(c, newJwt);
 
       // 11. Queue external validation jobs (non-blocking)
-      if (activeSnapshot) {
-        queueExternalValidations(target.id, responseId, activeSnapshot).catch(
+      if (activeSnapshot && validationOutbox) {
+        enqueueExternalValidationJobs(responseId, validationOutbox).catch(
           (error) => {
             logError("Failed to queue external validations", "api", {
               error,
@@ -807,15 +815,31 @@ type ValidationPair = {
   configJson: Record<string, unknown>;
 };
 
-async function queueExternalValidations(
-  _formId: string,
+type PendingValidationJob = {
+  pair: ValidationPair;
+  resultId: string;
+};
+
+type ValidationOutbox = {
+  inserts: Array<typeof externalServiceValidationResult.$inferInsert>;
+  pendingJobs: PendingValidationJob[];
+  snapshotVersion: number;
+};
+
+function buildExternalValidationOutbox(
   responseId: string,
   activeSnapshot: FormSnapshot,
-): Promise<void> {
+): ValidationOutbox {
   const snapshotEntries = parseValidationRuleSnapshot(
     activeSnapshot.validationRulesJson,
   );
-  if (snapshotEntries.length === 0) return;
+  if (snapshotEntries.length === 0) {
+    return {
+      inserts: [],
+      pendingJobs: [],
+      snapshotVersion: activeSnapshot.version,
+    };
+  }
 
   const blockIds = extractBlockIdsFromPlateContent(activeSnapshot.plateContent);
   const pairs: ValidationPair[] = snapshotEntries.flatMap((entry) =>
@@ -928,18 +952,33 @@ async function queueExternalValidations(
   }));
   inserts.push(...pendingRows);
 
-  if (inserts.length > 0) {
-    await db.insert(externalServiceValidationResult).values(inserts);
-  }
+  return {
+    inserts,
+    pendingJobs: validRows.flatMap((pair, index) => {
+      const pendingRow = pendingRows[index];
+      return pendingRow ? [{ pair, resultId: pendingRow.id }] : [];
+    }),
+    snapshotVersion: activeSnapshot.version,
+  };
+}
 
+async function insertExternalValidationOutbox(
+  tx: TransactionClient,
+  outbox: ValidationOutbox,
+): Promise<void> {
+  if (outbox.inserts.length === 0) return;
+  await tx.insert(externalServiceValidationResult).values(outbox.inserts);
+}
+
+async function enqueueExternalValidationJobs(
+  responseId: string,
+  outbox: ValidationOutbox,
+): Promise<void> {
   // リトライ経路 (forms-responses.ts) と同様に per-row で enqueue し、
   // 失敗した行のみ FAILED (ENQUEUE_FAILED) に更新してジョブ無しの
   // PENDING 行が残留しないようにする。
   await Promise.all(
-    validRows.map(async (pair, index) => {
-      // pendingRows は validRows.map で生成しているため index は 1:1 対応する。
-      const pendingRow = pendingRows[index];
-      if (!pendingRow) return;
+    outbox.pendingJobs.map(async ({ pair, resultId }) => {
       try {
         // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
         const queue = getValidationQueue(pair.providerName);
@@ -950,7 +989,7 @@ async function queueExternalValidations(
           snapshotProviderName: pair.providerName,
           snapshotRuleType: pair.ruleType,
           snapshotConfigJson: pair.configJson,
-          snapshotVersion: activeSnapshot.version,
+          snapshotVersion: outbox.snapshotVersion,
         });
         const job = await queue.add(`validate-${pair.providerName}`, jobData);
         // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
@@ -960,11 +999,11 @@ async function queueExternalValidations(
           await db
             .update(externalServiceValidationResult)
             .set({ jobId: job.id ?? null })
-            .where(eq(externalServiceValidationResult.id, pendingRow.id));
+            .where(eq(externalServiceValidationResult.id, resultId));
         } catch (updateError) {
           logError("Failed to persist jobId for validation result", "api", {
             error: updateError,
-            resultId: pendingRow.id,
+            resultId,
           });
           captureError(updateError);
         }
@@ -983,12 +1022,12 @@ async function queueExternalValidations(
               errorCode: "ENQUEUE_FAILED",
               errorMessage: "Failed to enqueue validation job",
             })
-            .where(eq(externalServiceValidationResult.id, pendingRow.id));
+            .where(eq(externalServiceValidationResult.id, resultId));
         } catch (updateError) {
           logError(
             "Failed to mark validation result as FAILED after enqueue error",
             "api",
-            { error: updateError, resultId: pendingRow.id },
+            { error: updateError, resultId },
           );
           captureError(updateError);
         }
