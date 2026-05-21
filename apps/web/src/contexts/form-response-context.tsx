@@ -1,11 +1,5 @@
 import type { FC, ReactNode } from "react";
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useReducer,
-} from "react";
+import { createContext, use, useCallback, useMemo, useReducer } from "react";
 
 /** A single response value per question block. */
 interface AnswerEntry {
@@ -87,7 +81,7 @@ export const FormResponseProvider: FC<FormResponseProviderProps> = ({
 };
 
 export function useFormResponse(): FormResponseContextValue {
-  const ctx = useContext(FormResponseContext);
+  const ctx = use(FormResponseContext);
   if (!ctx) {
     throw new Error(
       "useFormResponse must be used within a FormResponseProvider",
@@ -101,5 +95,5 @@ export function useFormResponse(): FormResponseContextValue {
  * no FormResponseProvider wraps the current tree (e.g. editor mode).
  */
 export function useFormResponseOptional(): FormResponseContextValue | null {
-  return useContext(FormResponseContext);
+  return use(FormResponseContext);
 }

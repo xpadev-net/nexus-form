@@ -17,7 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Grid3X3, GripVertical, Plus, Trash2 } from "lucide-react";
-import { useContext } from "react";
+import { use } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CompositionAwareInput } from "@/components/ui/composition-aware-input";
@@ -39,7 +39,7 @@ interface BlockOptionsEditorInternalProps<T extends BlockType> {
 
 // ドラッグハンドル用のコンポーネント
 const DragHandle = () => {
-  const dragHandle = useContext(DragHandleContext);
+  const dragHandle = use(DragHandleContext);
 
   if (!dragHandle) {
     return <GripVertical className="h-4 w-4 text-muted-foreground" />;

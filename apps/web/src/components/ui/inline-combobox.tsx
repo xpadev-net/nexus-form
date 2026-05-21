@@ -27,8 +27,8 @@ import {
   type RefObject,
   createContext,
   startTransition,
+  use,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -215,7 +215,7 @@ const InlineComboboxInput = ({
     inputRef: contextRef,
     showTrigger,
     trigger,
-  } = useContext(InlineComboboxContext);
+  } = use(InlineComboboxContext);
 
   const store = useComboboxContext();
   const value = store?.useState("value");
@@ -301,7 +301,7 @@ const InlineComboboxItem = ({
   Required<Pick<ComboboxItemProps, "value">>) => {
   const { value } = props;
 
-  const { filter, removeInput } = useContext(InlineComboboxContext);
+  const { filter, removeInput } = use(InlineComboboxContext);
 
   const store = useComboboxContext();
 
@@ -331,7 +331,7 @@ const InlineComboboxEmpty = ({
   children,
   className,
 }: HTMLAttributes<HTMLDivElement>) => {
-  const { setHasEmpty } = useContext(InlineComboboxContext);
+  const { setHasEmpty } = use(InlineComboboxContext);
   const store = useComboboxContext();
   const items = store?.useState("items");
 

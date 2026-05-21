@@ -6,7 +6,7 @@ import {
   type ElementRef,
   forwardRef,
   type HTMLAttributes,
-  useContext,
+  use,
   useId,
 } from "react";
 import {
@@ -55,8 +55,8 @@ const FormItemContext = createContext<FormItemContextValue>(
 );
 
 const useFormField = () => {
-  const fieldContext = useContext(FormFieldContext);
-  const itemContext = useContext(FormItemContext);
+  const fieldContext = use(FormFieldContext);
+  const itemContext = use(FormItemContext);
   const { getFieldState, formState } = useFormContext();
 
   const fieldState = getFieldState(fieldContext.name, formState);
