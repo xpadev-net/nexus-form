@@ -8,6 +8,30 @@ import {
 import type { FC } from "react";
 import type { UnknownObject } from "platejs";
 
+function getSelectionRectKey(rect: SelectionRect): string {
+  return [
+    rect.left,
+    rect.top,
+    rect.width,
+    rect.height,
+  ].join(":");
+}
+
+function getKeyedSelectionRects(selectionRects: SelectionRect[]) {
+  const keyCounts = new Map<string, number>();
+
+  return selectionRects.map((rect) => {
+    const baseKey = getSelectionRectKey(rect);
+    const occurrence = keyCounts.get(baseKey) ?? 0;
+    keyCounts.set(baseKey, occurrence + 1);
+
+    return {
+      key: `${baseKey}:${occurrence}`,
+      rect,
+    };
+  });
+}
+
 function Cursor<TCursorData extends UnknownObject>({
   caretPosition,
   data,
@@ -18,9 +42,9 @@ function Cursor<TCursorData extends UnknownObject>({
 
   return (
     <>
-      {selectionRects.map((rect: SelectionRect, index: number) => (
+      {getKeyedSelectionRects(selectionRects).map(({ key, rect }) => (
         <div
-          key={`selection-${rect.left}-${rect.top}-${index}`}
+          key={key}
           className="pointer-events-none absolute z-10 opacity-30"
           style={{
             top: rect.top,
