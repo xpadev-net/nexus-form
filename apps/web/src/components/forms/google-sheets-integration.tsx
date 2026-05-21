@@ -160,6 +160,7 @@ type GoogleSheetsUiAction =
   | { type: "set-sheet-dialog-open"; open: boolean }
   | { type: "set-new-sheet-title"; title: string }
   | { type: "set-adding-sheet"; isAdding: boolean }
+  | { type: "close-sheet-dialog" }
   | { type: "complete-add-sheet"; sheetName: string };
 
 const initialGoogleSheetsUiState: GoogleSheetsUiState = {
@@ -207,7 +208,6 @@ const googleSheetsUiReducer = (
         ...state,
         isSpreadsheetDialogOpen: false,
         newSpreadsheetTitle: "",
-        isCreatingSpreadsheet: false,
         selectedSpreadsheetId: action.spreadsheetId,
         selectedSheetName: action.sheetName,
       };
@@ -217,12 +217,15 @@ const googleSheetsUiReducer = (
       return { ...state, newSheetTitle: action.title };
     case "set-adding-sheet":
       return { ...state, isAddingSheet: action.isAdding };
-    case "complete-add-sheet":
+    case "close-sheet-dialog":
       return {
         ...state,
         isSheetDialogOpen: false,
         newSheetTitle: "",
-        isAddingSheet: false,
+      };
+    case "complete-add-sheet":
+      return {
+        ...state,
         selectedSheetName: action.sheetName,
       };
     default:
@@ -638,6 +641,7 @@ export function GoogleSheetsIntegration({
         }),
       );
       toast.success("シートを追加しました");
+      dispatchUi({ type: "close-sheet-dialog" });
       await queryClient.invalidateQueries({
         queryKey: ["sheets", selectedSpreadsheetId],
       });
