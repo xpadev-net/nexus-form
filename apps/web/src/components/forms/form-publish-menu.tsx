@@ -407,6 +407,8 @@ const publishMenuReducer = (
         passwordHintInput: action.hintInput,
         passwordDirty: false,
       };
+    default:
+      return state;
   }
 };
 
