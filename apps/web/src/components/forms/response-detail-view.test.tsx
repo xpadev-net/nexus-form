@@ -206,4 +206,40 @@ describe("ResponseDetailView", () => {
 
     act(() => root.unmount());
   });
+
+  it("renders duplicate question IDs as separate answer cards", () => {
+    useValidationResultsMock.mockReturnValue({
+      validationResultsQuery: {
+        data: {
+          response: {
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "duplicate",
+                question_type: "short_text",
+                question_title: "重複質問",
+                value: "1つ目",
+              },
+              {
+                question_id: "duplicate",
+                question_type: "short_text",
+                question_title: "重複質問",
+                value: "2つ目",
+              },
+            ]),
+          },
+        },
+        isError: false,
+        isLoading: false,
+      },
+    });
+    const container = document.createElement("div");
+
+    const root = renderResponseDetail(container);
+
+    expect(container.textContent).toContain("1つ目");
+    expect(container.textContent).toContain("2つ目");
+    expect(container.querySelectorAll(".rounded.border.p-3")).toHaveLength(2);
+
+    act(() => root.unmount());
+  });
 });
