@@ -36,10 +36,25 @@ const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
   },
 );
 
+interface TestMutationVariables {
+  expectedVersion: number;
+  plateContent: string;
+  restoreGeneration: number;
+}
+
+interface TestMutationOptions {
+  onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
+}
+
+let latestMutationOptions: TestMutationOptions | undefined;
+
 vi.mock("@tanstack/react-query", () => ({
-  useMutation: () => ({
-    mutate: mutateMock,
-  }),
+  useMutation: (options: TestMutationOptions) => {
+    latestMutationOptions = options;
+    return {
+      mutate: mutateMock,
+    };
+  },
   useQueryClient: () => ({
     invalidateQueries: invalidateQueriesMock,
     setQueryData: setQueryDataMock,
@@ -149,6 +164,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     refetchMock.mockClear();
     rpcMock.mockReset();
     toastWarningMock.mockClear();
+    latestMutationOptions = undefined;
   });
 
   afterEach(() => {
@@ -207,6 +223,14 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("does not keep a pending save when keepalive fetch succeeds", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      JSON.stringify({
+        expectedVersion: 7,
+        plateContent: "stale draft",
+        retryBlocked: "conflict",
+      }),
+    );
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
@@ -296,6 +320,61 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     ).toEqual({
       expectedVersion: 7,
       plateContent: largeContent,
+    });
+  });
+
+  it("clears a blocked pending save after a normal autosave succeeds", () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      JSON.stringify({
+        expectedVersion: 7,
+        plateContent: "stale draft",
+        retryBlocked: "conflict",
+      }),
+    );
+    const root = renderAutosave(() => {});
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: "saved draft",
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps a different pending save when an older normal autosave succeeds", () => {
+    const newerPendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: "newer draft",
+    });
+    const root = renderAutosave(() => {});
+    localStorage.setItem("pendingSave:form-1", newerPendingSave);
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: "older draft",
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(newerPendingSave);
+
+    act(() => {
+      root.unmount();
     });
   });
 });

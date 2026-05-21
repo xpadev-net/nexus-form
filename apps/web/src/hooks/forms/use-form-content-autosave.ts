@@ -24,6 +24,42 @@ function storePendingSave(formId: string, body: string) {
   }
 }
 
+function clearPendingSave(formId: string) {
+  try {
+    localStorage.removeItem(`pendingSave:${formId}`);
+  } catch {
+    // localStorage も利用不可の場合は諦める
+  }
+}
+
+function clearResolvedPendingSave(
+  formId: string,
+  savedContent: { expectedVersion: number; plateContent: string },
+) {
+  const key = `pendingSave:${formId}`;
+  const saved = localStorage.getItem(key);
+  if (!saved) return;
+  let rawParsed: unknown;
+  try {
+    rawParsed = JSON.parse(saved);
+  } catch {
+    clearPendingSave(formId);
+    return;
+  }
+  const result = pendingSaveSchema.safeParse(rawParsed);
+  if (!result.success) {
+    clearPendingSave(formId);
+    return;
+  }
+  if (
+    result.data.retryBlocked === "conflict" ||
+    (result.data.expectedVersion === savedContent.expectedVersion &&
+      result.data.plateContent === savedContent.plateContent)
+  ) {
+    clearPendingSave(formId);
+  }
+}
+
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
@@ -306,6 +342,10 @@ export function useFormContentAutosave({
     onSuccess: (data, variables) => {
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      clearResolvedPendingSave(formId, {
+        expectedVersion: variables.expectedVersion,
+        plateContent: variables.plateContent,
+      });
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
@@ -398,7 +438,12 @@ export function useFormContentAutosave({
             body,
           })
             .then((response) => {
-              if (!response.ok) {
+              if (response.ok) {
+                clearResolvedPendingSave(formId, {
+                  expectedVersion: versionRef.current,
+                  plateContent: valueToSave,
+                });
+              } else {
                 storePendingSave(formId, body);
               }
             })
