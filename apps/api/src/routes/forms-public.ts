@@ -999,7 +999,12 @@ async function enqueueExternalValidationJobs(
           await db
             .update(externalServiceValidationResult)
             .set({ jobId: job.id ?? null })
-            .where(eq(externalServiceValidationResult.id, resultId));
+            .where(
+              and(
+                eq(externalServiceValidationResult.id, resultId),
+                isNull(externalServiceValidationResult.jobId),
+              ),
+            );
         } catch (updateError) {
           logError("Failed to persist jobId for validation result", "api", {
             error: updateError,
