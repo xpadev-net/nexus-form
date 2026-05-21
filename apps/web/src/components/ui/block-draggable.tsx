@@ -414,13 +414,17 @@ const createDragPreviewElements = (
       if (scrollLeft > 0) {
         // Create a wrapper to handle the scroll offset
         const scrollWrapper = document.createElement("div");
-        scrollWrapper.style.overflow = "hidden";
-        scrollWrapper.style.width = `${original.clientWidth}px`;
+        Object.assign(scrollWrapper.style, {
+          overflow: "hidden",
+          width: `${original.clientWidth}px`,
+        });
 
         // Create inner container with the full content
         const innerContainer = document.createElement("div");
-        innerContainer.style.transform = `translateX(-${scrollLeft}px)`;
-        innerContainer.style.width = `${original.scrollWidth}px`;
+        Object.assign(innerContainer.style, {
+          transform: `translateX(-${scrollLeft}px)`,
+          width: `${original.scrollWidth}px`,
+        });
 
         // Move all children to the inner container
         while (cloned.firstChild) {
@@ -429,8 +433,8 @@ const createDragPreviewElements = (
 
         // Apply the original element's styles to maintain appearance
         const originalStyles = window.getComputedStyle(original);
-        cloned.style.padding = "0";
-        innerContainer.style.padding = originalStyles.padding;
+        Object.assign(cloned.style, { padding: "0" });
+        Object.assign(innerContainer.style, { padding: originalStyles.padding });
 
         scrollWrapper.append(innerContainer);
         cloned.append(scrollWrapper);
