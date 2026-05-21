@@ -50,6 +50,10 @@ interface Edge {
   toRow: number;
 }
 
+function getEdgeKey(edge: Edge): string {
+  return [edge.fromLane, edge.fromRow, edge.toLane, edge.toRow].join(":");
+}
+
 function computeLayout(snapshots: SnapshotInput[]): {
   nodes: LaneNode[];
   edges: Edge[];
@@ -206,10 +210,9 @@ export const SnapshotGraph: FC<SnapshotGraphProps> = ({
         >
           <title>バージョン履歴グラフ</title>
           {/* Edges */}
-          {edges.map((e, i) => (
+          {edges.map((e) => (
             <path
-              // biome-ignore lint/suspicious/noArrayIndexKey: stable layout order
-              key={i}
+              key={getEdgeKey(e)}
               d={edgePath(e.fromLane, e.fromRow, e.toLane, e.toRow)}
               fill="none"
               stroke={laneColor(e.fromLane)}
