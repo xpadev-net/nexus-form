@@ -297,7 +297,7 @@ export function useFormPublishMenuModel({
     [activateSnapshotMutation, onStatusChange],
   );
 
-  const handlePublishFromHistory = useCallback(
+  const handlePublishSnapshotFromHistory = useCallback(
     async (version: number) => {
       try {
         await activateSnapshotMutation.mutateAsync(version);
@@ -431,9 +431,9 @@ export function useFormPublishMenuModel({
 
   const handlePublishSnapshot = useCallback(
     (version: number) => {
-      void handlePublishFromHistory(version);
+      void handlePublishSnapshotFromHistory(version);
     },
-    [handlePublishFromHistory],
+    [handlePublishSnapshotFromHistory],
   );
 
   const handleDialogConfirmClick = useCallback(
@@ -442,6 +442,12 @@ export function useFormPublishMenuModel({
     },
     [handleDialogConfirm],
   );
+
+  const handleSaveDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      dispatch({ type: "close-save-dialog" });
+    }
+  }, []);
 
   const handleResetDialogOpenChange = useCallback((open: boolean) => {
     dispatch({ type: "set-reset-dialog", open });
@@ -464,14 +470,12 @@ export function useFormPublishMenuModel({
     handlePasswordSave,
     handlePasswordToggle,
     handlePublishChanges,
-    handlePublishFromHistory: handlePublishSnapshot,
+    handlePublishSnapshot,
     handlePublishAction,
     handleResetClick,
     handleResetDialogOpenChange,
     handleRestoreEdit,
-    handleSaveDialogOpenChange: (open: boolean) => {
-      if (!open) dispatch({ type: "close-save-dialog" });
-    },
+    handleSaveDialogOpenChange,
     handleSaveOnly,
     handleSelectSnapshot,
     hasActiveSnapshot,
@@ -487,7 +491,6 @@ export function useFormPublishMenuModel({
     passwordHintInput,
     passwordInput,
     publishSectionState,
-    unpublishedChangesState,
     passwordState,
     triggerState,
     historyState,

@@ -45,7 +45,7 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
           onPasswordSave={model.handlePasswordSave}
           onSelectSnapshot={model.handleSelectSnapshot}
           onActivateSnapshot={model.handleActivateSnapshot}
-          onPublishSnapshot={model.handlePublishFromHistory}
+          onPublishSnapshot={model.handlePublishSnapshot}
           onRestoreSnapshot={model.handleRestoreEdit}
         />
       </Popover>
