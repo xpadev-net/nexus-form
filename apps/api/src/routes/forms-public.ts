@@ -85,6 +85,9 @@ function publicFormRateLimitKey(
 ): string {
   const ip = getClientIp(c);
   if (ip === "unknown") {
+    // Per-resource bucket prevents one form from exhausting another's limit.
+    // Trade-off: one unknown-IP source may consume 60 req/min per publicId/token
+    // (vs 60 total for a known IP). Acceptable blast-radius reduction for R12-M3.
     return `rate_limit:${scope}:unknown:${resourceId}`;
   }
   return `rate_limit:${scope}:${ip}`;

@@ -173,8 +173,8 @@ export function useEditorSSE(
       }
       reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
       const pendingVal = pendingValueRefRef.current;
-      if (pendingVal?.current != null) {
-        onMergeNeededRef.current?.();
+      if (pendingVal?.current != null && onMergeNeededRef.current != null) {
+        onMergeNeededRef.current();
       } else {
         void queryClient.invalidateQueries({
           queryKey: ["formContent", formId],
