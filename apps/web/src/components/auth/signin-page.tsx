@@ -2,12 +2,12 @@ import { useSearch } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { SignInSection } from "@/components/auth/signin-section";
 import { useAuth } from "@/hooks/auth/use-auth";
-import { getAuthRedirect } from "@/lib/auth-redirect";
+import { DEFAULT_AUTH_REDIRECT } from "@/lib/auth-redirect";
 
 export function SignInPage() {
   const { redirect } = useSearch({ from: "/login" });
   const { session } = useAuth();
-  const redirectTo = getAuthRedirect(redirect);
+  const redirectTo = redirect ?? DEFAULT_AUTH_REDIRECT;
 
   useEffect(() => {
     if (session.data?.session) {

@@ -1,5 +1,8 @@
 import { authClient } from "@/lib/auth-client";
-import { DEFAULT_AUTH_REDIRECT } from "@/lib/auth-redirect";
+import {
+  DEFAULT_AUTH_REDIRECT,
+  sanitizeAuthRedirect,
+} from "@/lib/auth-redirect";
 
 export const useAuth = () => {
   const session = authClient.useSession();
@@ -9,7 +12,7 @@ export const useAuth = () => {
   ) => {
     await authClient.signIn.social({
       provider: "discord",
-      callbackURL,
+      callbackURL: sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT,
     });
   };
 
