@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
 const ANALYTICS_PAGE_SIZE = 100;
@@ -26,41 +26,43 @@ async function fetchAllResponseAnalytics(formId: string) {
 export const useResponseAnalytics = (formId: string | null | undefined) => {
   const analyticsQuery = useQuery({
     queryKey: ["responseAnalytics", formId],
-    enabled: Boolean(formId),
-    queryFn: () => fetchAllResponseAnalytics(formId as string),
+    queryFn: formId ? () => fetchAllResponseAnalytics(formId) : skipToken,
   });
 
   const aggregateQuery = useQuery({
     queryKey: ["responseAggregate", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses.aggregate.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].responses.aggregate.$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const statusesQuery = useQuery({
     queryKey: ["responseStatuses", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses.statuses.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].responses.statuses.$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const blockAnalyticsQuery = useQuery({
     queryKey: ["responseBlockAnalytics", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses["block-analytics"].$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].responses["block-analytics"].$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   return {

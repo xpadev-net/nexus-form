@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 
@@ -7,24 +12,26 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
 
   const latestSnapshotQuery = useQuery({
     queryKey: ["latestSnapshot", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].snapshots.latest.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].snapshots.latest.$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const unpublishedChangesQuery = useQuery({
     queryKey: ["unpublishedChanges", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"]["unpublished-changes"].$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"]["unpublished-changes"].$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const publishSnapshotMutation = useMutation({

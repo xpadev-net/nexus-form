@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useMemo } from "react";
 import { client, rpc } from "@/lib/api";
 
@@ -17,13 +22,15 @@ export const useValidationResults = (
 
   const validationResultsQuery = useQuery({
     queryKey: ["validationResults", formId, responseId],
-    enabled: Boolean(formId && responseId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].responses[":responseId"].$get({
-          param: { id: formId as string, responseId: responseId as string },
-        }),
-      ),
+    queryFn:
+      formId && responseId
+        ? () =>
+            rpc(
+              client.api.forms[":id"].responses[":responseId"].$get({
+                param: { id: formId, responseId },
+              }),
+            )
+        : skipToken,
   });
 
   const validations = useMemo(() => {
