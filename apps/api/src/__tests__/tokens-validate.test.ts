@@ -57,6 +57,13 @@ vi.mock("drizzle-orm", () => ({
 const { tokensRouter } = await import("../routes/tokens");
 const { db } = await import("@nexus-form/database");
 
+function validateRequestHeaders(clientIp: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-forwarded-for": clientIp,
+  };
+}
+
 function mockSelectRowsOnce(rows: Array<Record<string, unknown>>): void {
   vi.mocked(db.select).mockReturnValueOnce({
     from: vi.fn().mockReturnValue({
@@ -70,6 +77,7 @@ function mockSelectRowsOnce(rows: Array<Record<string, unknown>>): void {
 describe("POST /api/tokens/validate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.TRUSTED_PROXY_COUNT = "1";
     getSession.mockResolvedValue({
       user: { id: "request-user", role: "user" },
       session: { id: "session-id" },
@@ -86,7 +94,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.1"),
       body: JSON.stringify({ token: "ct_owned" }),
     });
 
@@ -105,12 +113,31 @@ describe("POST /api/tokens/validate", () => {
     );
   });
 
+  it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
+    validateApiTokenForUser.mockResolvedValue(null);
+
+    let res: Response | null = null;
+    for (let i = 0; i < 11; i++) {
+      res = await tokensRouter.request("/validate", {
+        method: "POST",
+        headers: validateRequestHeaders("203.0.113.88"),
+        body: JSON.stringify({ token: `ct_burst_${i}` }),
+      });
+    }
+
+    if (!res) throw new Error("Expected a response");
+    expect(res.status).toBe(429);
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
+
   it("does not leak details when the token is not owned by the session user", async () => {
     validateApiTokenForUser.mockResolvedValue(null);
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.2"),
       body: JSON.stringify({ token: "ct_other" }),
     });
 
@@ -130,7 +157,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.3"),
       body: JSON.stringify({ token: "ct_without_session" }),
     });
 
@@ -145,7 +172,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.4"),
       body: JSON.stringify({ token: "ct_suspended" }),
     });
 
