@@ -74,14 +74,27 @@ describe("repo invariants", () => {
     expect(testJob).toMatch(/^\s+permissions:\n\s+contents: read\n/m);
     expect(testJob).toContain("image: mysql:8.0");
     expect(testJob).toContain("image: redis:7-alpine");
-    expect(testJob).toContain("SET GLOBAL foreign_key_checks=0");
-    expect(testJob).toContain(
+    const migrateStep = testJob.slice(
+      testJob.indexOf("- name: Apply database migrations"),
+      testJob.indexOf("- name: Run tests"),
+    );
+    expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=0");
+    expect(migrateStep).toContain("trap ");
+    expect(migrateStep).toContain(
       "pnpm --filter @nexus-form/database exec drizzle-kit migrate",
     );
-    expect(testJob).toContain("SET GLOBAL foreign_key_checks=1");
+    expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=1");
 
     const buildJob = ciWorkflow.slice(ciWorkflow.indexOf("  build:"));
+    const removedBuildSecrets = [
+      "AUTH_SECRET: ${{ secrets.AUTH_SECRET }}",
+      "DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}",
+      "DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}",
+      "SIGNUP_INVITATION_CODE: ${{ secrets.SIGNUP_INVITATION_CODE }}",
+    ] as const;
     expect(buildJob).toContain("VITE_API_URL:");
-    expect(buildJob).not.toContain("AUTH_SECRET: ${{ secrets.AUTH_SECRET }}");
+    for (const secretLine of removedBuildSecrets) {
+      expect(buildJob).not.toContain(secretLine);
+    }
   });
 });
