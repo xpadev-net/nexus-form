@@ -10,6 +10,29 @@ import { FormResponsesContent } from "./form-responses-page";
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+type ResponsesQueryState = {
+  data:
+    | {
+        responses: {
+          countryCode: string;
+          id: string;
+          respondentUuid: string;
+          submittedAt: string;
+          updatedAt: string | null;
+        }[];
+        hasNext: boolean;
+        page: number;
+        limit: number;
+      }
+    | undefined;
+  error: Error | null;
+  isError: boolean;
+  isFetching: boolean;
+  isLoading: boolean;
+  isPlaceholderData: boolean;
+  refetch: () => void;
+};
+
 function renderResponses(container: HTMLElement): Root {
   const root = createRoot(container);
   act(() => {
@@ -18,29 +41,36 @@ function renderResponses(container: HTMLElement): Root {
   return root;
 }
 
-const queryMock = vi.hoisted(() => ({
-  state: {
-    data: {
-      responses: [
-        {
-          countryCode: "JP",
-          id: "response-1",
-          respondentUuid: "respondent-uuid-1",
-          submittedAt: "2026-01-01T00:00:00.000Z",
-          updatedAt: null,
-        },
-      ],
-      hasNext: false,
-      page: 1,
-      limit: 20,
+const queryMock = vi.hoisted(
+  (): {
+    refetch: ReturnType<typeof vi.fn>;
+    state: ResponsesQueryState;
+  } => ({
+    refetch: vi.fn(),
+    state: {
+      data: {
+        responses: [
+          {
+            countryCode: "JP",
+            id: "response-1",
+            respondentUuid: "respondent-uuid-1",
+            submittedAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: null,
+          },
+        ],
+        hasNext: false,
+        page: 1,
+        limit: 20,
+      },
+      error: null,
+      isError: false,
+      isFetching: false,
+      isLoading: false,
+      isPlaceholderData: false,
+      refetch: vi.fn(),
     },
-    error: null,
-    isError: false,
-    isFetching: false,
-    isLoading: false,
-    isPlaceholderData: false,
-  },
-}));
+  }),
+);
 
 vi.mock("@tanstack/react-query", () => ({
   keepPreviousData: Symbol("keepPreviousData"),
@@ -90,6 +120,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 beforeEach(() => {
+  vi.clearAllMocks();
   queryMock.state = {
     data: {
       responses: [
@@ -110,6 +141,7 @@ beforeEach(() => {
     isFetching: false,
     isLoading: false,
     isPlaceholderData: false,
+    refetch: queryMock.refetch,
   };
 });
 
@@ -151,8 +183,18 @@ describe("FormResponsesContent accessibility", () => {
     queryMock.state = {
       ...queryMock.state,
       data: {
-        ...queryMock.state.data,
+        responses: [
+          {
+            countryCode: "JP",
+            id: "response-1",
+            respondentUuid: "respondent-uuid-1",
+            submittedAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: null,
+          },
+        ],
         hasNext: true,
+        page: 1,
+        limit: 20,
       },
     };
     const container = document.createElement("div");
@@ -212,6 +254,33 @@ describe("FormResponsesContent accessibility", () => {
     expect(
       container.querySelector("[data-testid='response-detail']"),
     ).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows a retryable error state without rendering the empty state", () => {
+    queryMock.state = {
+      ...queryMock.state,
+      data: undefined,
+      error: new Error("回答一覧を読み込めませんでした。"),
+      isError: true,
+    };
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    expect(container.textContent).toContain("回答一覧を読み込めませんでした。");
+    expect(container.textContent).not.toContain("回答はまだありません。");
+
+    const retryButton = container.querySelector(
+      'button[data-testid="form-responses-query-retry"]',
+    );
+    expect(retryButton).not.toBeNull();
+
+    act(() => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(queryMock.refetch).toHaveBeenCalledOnce();
 
     act(() => root.unmount());
   });

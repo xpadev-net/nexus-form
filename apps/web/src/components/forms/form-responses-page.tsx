@@ -208,25 +208,38 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             {responsesQuery.isLoading && (
               <p className="text-sm text-muted-foreground">読み込み中...</p>
             )}
-            {responsesQuery.isFetching && !responsesQuery.isLoading && (
-              <p className="text-xs text-muted-foreground">
-                {isStalePageData
-                  ? "新しいページを読み込み中です。"
-                  : "更新中..."}
-              </p>
-            )}
+            {responsesQuery.isFetching &&
+              !responsesQuery.isLoading &&
+              !responsesQuery.isError && (
+                <p className="text-xs text-muted-foreground">
+                  {isStalePageData
+                    ? "新しいページを読み込み中です。"
+                    : "更新中..."}
+                </p>
+              )}
 
             {/* エラー */}
             {responsesQuery.isError && (
-              <p className="text-sm text-destructive">
-                {responsesQuery.error instanceof Error
-                  ? responsesQuery.error.message
-                  : "不明なエラーが発生しました"}
-              </p>
+              <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+                <p className="text-sm text-destructive">
+                  {responsesQuery.error instanceof Error
+                    ? responsesQuery.error.message
+                    : "回答一覧を読み込めませんでした。"}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-testid="form-responses-query-retry"
+                  onClick={() => void responsesQuery.refetch()}
+                >
+                  再読み込み
+                </Button>
+              </div>
             )}
 
             {/* 回答リスト */}
-            {data && (
+            {data && !responsesQuery.isError && (
               <>
                 {data.responses.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">

@@ -302,6 +302,14 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
 
   const schedules = schedulesQuery.data?.schedules ?? [];
   const snapshots = (snapshotsQuery.data?.snapshots ?? []) as Snapshot[];
+  const schedulesErrorMessage =
+    schedulesQuery.error instanceof Error
+      ? schedulesQuery.error.message
+      : "スケジュールを読み込めませんでした。";
+  const snapshotsErrorMessage =
+    snapshotsQuery.error instanceof Error
+      ? snapshotsQuery.error.message
+      : "スナップショットを読み込めませんでした。";
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -410,13 +418,44 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
           variant="outline"
           onClick={() => setAddOpen(true)}
           className="gap-1"
+          disabled={snapshotsQuery.isError}
         >
           <Plus className="h-3.5 w-3.5" />
           追加
         </Button>
       </div>
 
-      {schedules.length === 0 ? (
+      {snapshotsQuery.isError ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{snapshotsErrorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="schedule-snapshots-query-retry"
+            onClick={() => void snapshotsQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
+      ) : null}
+
+      {schedulesQuery.isLoading ? (
+        <p className="text-sm text-muted-foreground">読み込み中...</p>
+      ) : schedulesQuery.isError ? (
+        <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+          <p className="text-sm text-destructive">{schedulesErrorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="schedule-query-retry"
+            onClick={() => void schedulesQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
+      ) : schedules.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           スケジュールが設定されていません。「追加」から操作を登録できます。
         </p>

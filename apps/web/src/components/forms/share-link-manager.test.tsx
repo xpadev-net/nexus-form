@@ -10,12 +10,57 @@ import { ShareLinkManager } from "./share-link-manager";
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({
-  copyShareLinkUrl: vi.fn(),
-  deleteShareLinkMutate: vi.fn(),
-  toastError: vi.fn(),
-  toastSuccess: vi.fn(),
-}));
+type ShareLinksQueryMock = {
+  data:
+    | {
+        share_links: {
+          expires_at: string | null;
+          id: string;
+          is_active: boolean;
+          role: "EDITOR" | "VIEWER";
+          token: string;
+        }[];
+      }
+    | undefined;
+  error: Error | null;
+  isError: boolean;
+  isLoading: boolean;
+  refetch: () => void;
+};
+
+const mocks = vi.hoisted(
+  (): {
+    copyShareLinkUrl: ReturnType<typeof vi.fn>;
+    deleteShareLinkMutate: ReturnType<typeof vi.fn>;
+    shareLinksRefetch: ReturnType<typeof vi.fn>;
+    shareLinksQuery: ShareLinksQueryMock;
+    toastError: ReturnType<typeof vi.fn>;
+    toastSuccess: ReturnType<typeof vi.fn>;
+  } => ({
+    copyShareLinkUrl: vi.fn(),
+    deleteShareLinkMutate: vi.fn(),
+    shareLinksRefetch: vi.fn(),
+    shareLinksQuery: {
+      data: {
+        share_links: [
+          {
+            expires_at: null,
+            id: "link-1",
+            is_active: true,
+            role: "VIEWER",
+            token: "share-token",
+          },
+        ],
+      },
+      error: null,
+      isError: false,
+      isLoading: false,
+      refetch: vi.fn(),
+    },
+    toastError: vi.fn(),
+    toastSuccess: vi.fn(),
+  }),
+);
 
 function renderManager(container: HTMLElement): Root {
   const root = createRoot(container);
@@ -45,20 +90,7 @@ vi.mock("@/hooks/forms/use-share-links", () => ({
       isPending: false,
       mutate: mocks.deleteShareLinkMutate,
     },
-    shareLinksQuery: {
-      data: {
-        share_links: [
-          {
-            expires_at: null,
-            id: "link-1",
-            is_active: true,
-            role: "VIEWER",
-            token: "share-token",
-          },
-        ],
-      },
-      isLoading: false,
-    },
+    shareLinksQuery: mocks.shareLinksQuery,
     toggleShareLinkStatusMutation: {
       mutate: vi.fn(),
     },
@@ -107,6 +139,23 @@ vi.mock("@/components/ui/switch", () => ({
 describe("ShareLinkManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.shareLinksQuery = {
+      data: {
+        share_links: [
+          {
+            expires_at: null,
+            id: "link-1",
+            is_active: true,
+            role: "VIEWER",
+            token: "share-token",
+          },
+        ],
+      },
+      error: null,
+      isError: false,
+      isLoading: false,
+      refetch: mocks.shareLinksRefetch,
+    };
     mocks.deleteShareLinkMutate.mockImplementation(
       (_linkId: string, options?: { onSuccess?: () => void }) => {
         options?.onSuccess?.();
@@ -140,6 +189,33 @@ describe("ShareLinkManager", () => {
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
     ).toBe("https://example.test/forms/shared/share-token");
+
+    act(() => root.unmount());
+  });
+
+  it("shows a retryable query error instead of the empty state", () => {
+    mocks.shareLinksQuery = {
+      ...mocks.shareLinksQuery,
+      data: undefined,
+      error: new Error("共有リンクの取得に失敗しました。"),
+      isError: true,
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("共有リンクの取得に失敗しました。");
+    expect(container.textContent).not.toContain("共有リンクはまだありません。");
+
+    const retryButton = container.querySelector(
+      'button[data-testid="share-link-query-retry"]',
+    );
+    expect(retryButton).not.toBeNull();
+
+    act(() => {
+      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.shareLinksRefetch).toHaveBeenCalledOnce();
 
     act(() => root.unmount());
   });
