@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
+import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sync";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
@@ -119,6 +120,11 @@ export function useFormContentAutosave({
 
   const versionRef = useRef(0);
   const baseContentRef = useRef("[]");
+  // Written when collaborator content arrives during local edits (R12-P6).
+  // Merge still refetches via usePlateMerge; these refs reserve the payload for a
+  // future optimization and are cleared on save/merge success.
+  const pendingRemoteContentRef = useRef<string | null>(null);
+  const pendingRemoteVersionRef = useRef<number | null>(null);
   const editorValueRef = useRef("[]");
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
@@ -144,6 +150,8 @@ export function useFormContentAutosave({
       versionRef.current = newVersion;
       baseContentRef.current = mergedContent;
       lastSavedVersionRef.current = newVersion;
+      pendingRemoteContentRef.current = null;
+      pendingRemoteVersionRef.current = null;
       const hasInFlightTyping = editorValueRef.current !== mergeLocalContent;
       void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       if (!hasInFlightTyping) {
@@ -156,15 +164,17 @@ export function useFormContentAutosave({
       } else {
         const inFlightValue = editorValueRef.current;
         pendingValueRef.current = inFlightValue;
+        const saveBaseVersion = versionRef.current;
         saveTimerRef.current = window.setTimeout(() => {
           const pendingValue = pendingValueRef.current;
           saveTimerRef.current = null;
           if (pendingValue == null) return;
           inFlightValueRef.current = pendingValue;
           pendingValueRef.current = null;
+          lastSavedVersionRef.current = saveBaseVersion + 1;
           mutateRef.current({
             plateContent: pendingValue,
-            expectedVersion: versionRef.current,
+            expectedVersion: saveBaseVersion,
             restoreGeneration: restoreGenerationRef.current,
           });
         }, 2000);
@@ -218,34 +228,55 @@ export function useFormContentAutosave({
     onMergeFallback: handleMergeFallback,
   });
 
-  // Initialize refs and draft from server data.
-  // Guard: if the editor has unsaved local edits, only update version and
-  // baseContent — do NOT overwrite the live editor value or draft. This
-  // prevents background refetches (window-focus, invalidation) from silently
-  // discarding in-progress typing.
-  useEffect(() => {
-    if (!contentData) return;
-    versionRef.current = contentData.plateContentVersion;
-    const raw = contentData.plateContent ?? "[]";
-    let canonical: string;
+  const canonicalizePlateContent = useCallback((raw: string): string => {
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         ensureNodeIds(parsed);
-        canonical = JSON.stringify(parsed);
-      } else {
-        canonical = raw;
+        return JSON.stringify(parsed);
       }
+      return raw;
     } catch {
-      canonical = raw;
+      return raw;
     }
-    const hasLocalEdits =
+  }, []);
+
+  const hasUnsavedLocalEdits = useCallback((): boolean => {
+    return (
       editorValueRef.current !== baseContentRef.current ||
-      pendingValueRef.current != null;
-    baseContentRef.current = canonical;
-    if (!hasLocalEdits) {
-      editorValueRef.current = canonical;
-      setDraftContent(canonical);
+      pendingValueRef.current != null ||
+      inFlightValueRef.current != null
+    );
+  }, []);
+
+  // Initialize refs and draft from server data.
+  // When local edits are pending, keep versionRef/baseContentRef on the last
+  // saved ancestor so autosave uses the correct expectedVersion (R12-P6).
+  useEffect(() => {
+    if (!contentData) return;
+    const canonical = canonicalizePlateContent(
+      contentData.plateContent ?? "[]",
+    );
+    const hasLocalEdits = hasUnsavedLocalEdits();
+
+    const syncResult = resolveServerContentSync({
+      hasLocalEdits,
+      serverVersion: contentData.plateContentVersion,
+      serverCanonical: canonical,
+      versionRef: versionRef.current,
+      baseContentRef: baseContentRef.current,
+    });
+
+    if (syncResult.action === "stash-remote") {
+      pendingRemoteContentRef.current = syncResult.remoteCanonical;
+      pendingRemoteVersionRef.current = syncResult.remoteVersion;
+    } else if (syncResult.action === "apply-server") {
+      versionRef.current = syncResult.version;
+      baseContentRef.current = syncResult.canonical;
+      editorValueRef.current = syncResult.canonical;
+      setDraftContent(syncResult.canonical);
+      pendingRemoteContentRef.current = null;
+      pendingRemoteVersionRef.current = null;
     }
 
     if (!suspendAutosaveRef.current) return;
@@ -276,14 +307,20 @@ export function useFormContentAutosave({
       if (valueToSave == null) return;
       inFlightValueRef.current = valueToSave;
       pendingValueRef.current = null;
-      lastSavedVersionRef.current = versionRef.current + 1;
+      const saveBaseVersion = versionRef.current;
+      lastSavedVersionRef.current = saveBaseVersion + 1;
       mutateRef.current({
         plateContent: valueToSave,
-        expectedVersion: versionRef.current,
+        expectedVersion: saveBaseVersion,
         restoreGeneration: restoreGenerationRef.current,
       });
     }, 2000);
-  }, [contentData, isMergingRef]);
+  }, [
+    canonicalizePlateContent,
+    contentData,
+    hasUnsavedLocalEdits,
+    isMergingRef,
+  ]);
 
   useEffect(() => {
     const handleRestoreEdit = (event: Event) => {
@@ -355,6 +392,8 @@ export function useFormContentAutosave({
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
         lastSavedVersionRef.current = data.plateContentVersion;
+        pendingRemoteContentRef.current = null;
+        pendingRemoteVersionRef.current = null;
         queryClient.setQueryData(["formContent", formId], {
           plateContent: variables.plateContent,
           plateContentVersion: data.plateContentVersion,
@@ -414,10 +453,11 @@ export function useFormContentAutosave({
       if (pendingValue == null) return;
       inFlightValueRef.current = pendingValue;
       pendingValueRef.current = null;
-      lastSavedVersionRef.current = versionRef.current + 1;
+      const saveBaseVersion = versionRef.current;
+      lastSavedVersionRef.current = saveBaseVersion + 1;
       mutateRef.current({
         plateContent: pendingValue,
-        expectedVersion: versionRef.current,
+        expectedVersion: saveBaseVersion,
         restoreGeneration: restoreGenerationRef.current,
       });
     }, 2000);

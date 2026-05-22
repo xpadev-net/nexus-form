@@ -45,9 +45,11 @@ interface TestMutationVariables {
 
 interface TestMutationOptions {
   onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
+  onError?: (error: unknown, variables: TestMutationVariables) => void;
 }
 
 let latestMutationOptions: TestMutationOptions | undefined;
+const attemptMergeMock = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: TestMutationOptions) => {
@@ -68,7 +70,7 @@ vi.mock("@/hooks/forms/use-editor-sse", () => ({
 
 vi.mock("@/hooks/forms/use-plate-merge", () => ({
   usePlateMerge: () => ({
-    attemptMerge: vi.fn(),
+    attemptMerge: attemptMergeMock,
     conflictState: null,
     dismissConflict: vi.fn(),
     isMerging: false,
@@ -135,12 +137,14 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
       formId: "form-1",
       getActiveTab: () => "editor",
     });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
 
     useEffect(() => {
       if (didNotifyReadyRef.current) return;
       didNotifyReadyRef.current = true;
-      onReady(hook);
-    }, [hook]);
+      onReady(hookRef.current);
+    }, []);
 
     return <>{children}</>;
   }
@@ -176,6 +180,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     refetchMock.mockClear();
     rpcMock.mockReset();
     toastWarningMock.mockClear();
+    attemptMergeMock.mockClear();
     latestMutationOptions = undefined;
   });
 

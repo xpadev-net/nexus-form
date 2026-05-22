@@ -7,7 +7,7 @@
     "dev": "vite --port 3000",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
+    "test": "node ./scripts/run-vitest-sequential.mjs",
     "type-check": "tsgo --noEmit",
     "lint": "biome check",
     "lint:fix": "biome check --write --unsafe"
