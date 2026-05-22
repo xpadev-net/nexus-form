@@ -257,6 +257,9 @@ function TablePicker() {
               onMouseMove={() => {
                 onCellMove(rowIndex, columIndex);
               }}
+              onFocus={() => {
+                onCellMove(rowIndex, columIndex);
+              }}
               onClick={() => insertTableAt(rowIndex, columIndex)}
             />
           )),
