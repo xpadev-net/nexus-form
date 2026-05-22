@@ -2,6 +2,22 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+function sliceBetween(
+  source: string,
+  startMarker: string,
+  endMarker: string,
+): string {
+  const start = source.indexOf(startMarker);
+  if (start < 0) {
+    throw new Error(`Missing start marker: ${startMarker}`);
+  }
+  const end = source.indexOf(endMarker, start);
+  if (end < 0) {
+    throw new Error(`Missing end marker: ${endMarker}`);
+  }
+  return source.slice(start, end);
+}
+
 describe("repo invariants", () => {
   it("keeps a root .dockerignore that excludes local env files", () => {
     const dockerignorePath = resolve(process.cwd(), "../../.dockerignore");
@@ -52,5 +68,50 @@ describe("repo invariants", () => {
     expect(runnerSection.search(workspaceChown)).toBeLessThan(
       runnerSection.indexOf("USER node"),
     );
+  });
+
+  it("runs CI tests against MySQL and Redis with minimal job permissions", () => {
+    const ciWorkflow = readFileSync(
+      resolve(process.cwd(), "../../.github/workflows/ci.yml"),
+      "utf8",
+    );
+    const workflowPermissions = ciWorkflow.slice(
+      0,
+      ciWorkflow.indexOf("jobs:"),
+    );
+    expect(workflowPermissions).toMatch(
+      /^permissions:\n {2}contents: read\n$/m,
+    );
+
+    const testJob = ciWorkflow.slice(
+      ciWorkflow.indexOf("  test:"),
+      ciWorkflow.indexOf("  build:"),
+    );
+    expect(testJob).toMatch(/^\s+permissions:\n\s+contents: read\n/m);
+    expect(testJob).toContain("image: mysql:8.0");
+    expect(testJob).toContain("image: redis:7-alpine");
+    const migrateStep = sliceBetween(
+      testJob,
+      "- name: Apply database migrations",
+      "- name: Run tests",
+    );
+    expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=0");
+    expect(migrateStep).toContain("trap ");
+    expect(migrateStep).toContain(
+      "pnpm --filter @nexus-form/database exec drizzle-kit migrate",
+    );
+    expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=1");
+
+    const buildJob = ciWorkflow.slice(ciWorkflow.indexOf("  build:"));
+    const removedBuildSecrets = [
+      "AUTH_SECRET: ${{ secrets.AUTH_SECRET }}",
+      "DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}",
+      "DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}",
+      "SIGNUP_INVITATION_CODE: ${{ secrets.SIGNUP_INVITATION_CODE }}",
+    ] as const;
+    expect(buildJob).toContain("VITE_API_URL:");
+    for (const secretLine of removedBuildSecrets) {
+      expect(buildJob).not.toContain(secretLine);
+    }
   });
 });

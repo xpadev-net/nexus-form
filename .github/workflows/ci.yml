@@ -6,10 +6,15 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,6 +50,8 @@ jobs:
   type-check:
     name: Type Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -80,6 +87,34 @@ jobs:
   test:
     name: Unit & Integration Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root
+          MYSQL_DATABASE: nexus_form_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: mysql://root:ci_root@127.0.0.1:3306/nexus_form_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      AUTH_SECRET: ci-test-auth-secret-must-be-at-least-32-characters
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -109,12 +144,21 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Apply database migrations
+        run: |
+          set -euo pipefail
+          mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=0;"
+          trap 'mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=1;"' EXIT
+          pnpm --filter @nexus-form/database exec drizzle-kit migrate
+
       - name: Run tests
         run: pnpm test
 
   build:
     name: Build (production)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -147,7 +191,5 @@ jobs:
       - name: Run production build
         run: pnpm build
         env:
-          AUTH_SECRET: ${{ secrets.AUTH_SECRET }}
-          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
-          DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}
-          SIGNUP_INVITATION_CODE: ${{ secrets.SIGNUP_INVITATION_CODE }}
+          VITE_API_URL: http://127.0.0.1:3001
+          VITE_HCAPTCHA_SITE_KEY: ci-hcaptcha-site-key
