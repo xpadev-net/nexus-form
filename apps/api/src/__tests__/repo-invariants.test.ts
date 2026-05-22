@@ -95,7 +95,6 @@ describe("repo invariants", () => {
       "- name: Apply database migrations",
       "- name: Run tests",
     );
-    expect(migrateStep.length).toBeGreaterThan(0);
     expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=0");
     expect(migrateStep).toContain("trap ");
     expect(migrateStep).toContain(
