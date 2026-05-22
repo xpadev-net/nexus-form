@@ -247,7 +247,7 @@ export function useFormPublishMenuModel({
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
   );
 
-  const handlePublishAction = useCallback(
+  const publishAction = useCallback(
     async (action: PublishToggleAction) => {
       try {
         if (action === "publish") {
@@ -460,11 +460,17 @@ export function useFormPublishMenuModel({
     void handleReset();
   }, [handleReset]);
 
+  const handlePublishAction = useCallback(
+    (action: PublishToggleAction) => {
+      void publishAction(action);
+    },
+    [publishAction],
+  );
+
   return {
     activeSnapshotVersion,
     dialogMode,
     formId,
-    formStatus,
     handleActivateSnapshot,
     handleDialogConfirmClick,
     handleHintChange,
@@ -481,24 +487,15 @@ export function useFormPublishMenuModel({
     handleSaveDialogOpenChange,
     handleSaveOnly,
     handleSelectSnapshot,
-    hasActiveSnapshot,
-    hasChangesFromActive,
     hasUnpublishedChanges,
     isArchived,
-    isNotPublished,
-    isPasswordUpdating,
     isProcessing,
-    isPublished,
     lastPublishedVersion,
-    passwordDirty,
-    passwordHintInput,
-    passwordInput,
     publishSectionState,
     passwordState,
     triggerState,
     historyState,
     showResetDialog,
-    snapshots,
     totalChanges,
     unpublishedSection,
     snapshotSaveConfirmLabel: getSnapshotSaveConfirmLabel(dialogMode),
