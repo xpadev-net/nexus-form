@@ -18,6 +18,9 @@ interface RateLimitEntry {
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
 export function getClientIp(c: Context): string {
+  // `c.env.incoming` is provided by @hono/node-server (Node IncomingMessage).
+  // Other adapters (Bun, Deno, Workers) omit it; remoteAddress stays undefined and
+  // extractClientIP falls back to "unknown". Add adapter-specific wiring here if needed.
   const maybeEnv = c.env as Record<string, unknown> | undefined;
   const maybeIncoming = maybeEnv?.incoming;
   const remoteAddress =

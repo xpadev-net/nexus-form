@@ -12,8 +12,12 @@ function parseTrustedProxyCount(
 }
 
 function normalizeIp(value: string | null | undefined): string | null {
-  const ip = value?.trim();
-  if (!ip || isIP(ip) === 0) return null;
+  let ip = value?.trim();
+  if (!ip) return null;
+  // Strip IPv4-mapped IPv6 prefix (e.g. ::ffff:192.0.2.1 → 192.0.2.1) so dual-stack
+  // listeners and XFF-derived addresses produce the same rate-limit key.
+  if (/^::ffff:/i.test(ip)) ip = ip.slice(7);
+  if (isIP(ip) === 0) return null;
   return ip;
 }
 

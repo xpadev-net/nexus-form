@@ -76,6 +76,17 @@ describe("extractClientIP", () => {
       expect(result.source).toBe("socket");
     });
 
+    it("should normalize IPv4-mapped IPv6 socket addresses", () => {
+      const request = {
+        headers: new Headers(),
+        remoteAddress: "::ffff:198.51.100.10",
+      };
+
+      const result = extractClientIP(request, { strategy: "general" });
+      expect(result.ip).toBe("198.51.100.10");
+      expect(result.source).toBe("socket");
+    });
+
     it("should ignore x-forwarded-for header when no trusted proxy is configured and socket IP is unavailable", () => {
       const request = new Request("http://localhost", {
         headers: {
