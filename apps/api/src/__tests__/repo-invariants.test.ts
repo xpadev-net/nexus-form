@@ -31,6 +31,10 @@ describe("repo invariants", () => {
     );
     expect(webDeployment).toContain("containerPort: 8080");
     expect(webDeployment).not.toContain("containerPort: 3000");
+    expect(webDeployment).toContain("runAsNonRoot: true");
+    expect(webDeployment).toContain("runAsUser: 101");
+    expect(webDeployment).toContain("allowPrivilegeEscalation: false");
     expect(webService).toContain("targetPort: 8080");
+    expect(webService).not.toContain("targetPort: 3000");
   });
 });
