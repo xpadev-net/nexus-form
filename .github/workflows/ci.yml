@@ -144,14 +144,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Disable foreign key checks for legacy migrations
-        run: mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=0;"
-
       - name: Apply database migrations
-        run: pnpm --filter @nexus-form/database exec drizzle-kit migrate
-
-      - name: Restore foreign key checks
-        run: mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=1;"
+        run: |
+          set -euo pipefail
+          mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=0;"
+          trap 'mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=1;"' EXIT
+          pnpm --filter @nexus-form/database exec drizzle-kit migrate
 
       - name: Run tests
         run: pnpm test
