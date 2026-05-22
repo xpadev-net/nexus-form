@@ -984,7 +984,7 @@ export async function cancelInvitation(
         throw new InsufficientFormPermissionError(
           invitation.formId,
           "EDITOR",
-          null,
+          currentPermission?.role ?? null,
         );
       }
     }

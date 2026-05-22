@@ -77,7 +77,15 @@ describe("cancel invitation route authorization", () => {
     );
 
     await expect(response.json()).resolves.toEqual({
-      error: "Insufficient permissions",
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+        details: {
+          effective_role: null,
+          form_id: "form-1",
+          required_role: "EDITOR",
+        },
+        message: "Insufficient permissions",
+      },
     });
     expect(response.status).toBe(403);
     expect(mocks.cancelInvitation).toHaveBeenCalledWith(

@@ -110,7 +110,9 @@ describe("cancelInvitation current permission checks", () => {
 
     await expect(
       cancelInvitation("invitation-1", "editor-1", "form-1"),
-    ).rejects.toBeInstanceOf(InsufficientFormPermissionError);
+    ).rejects.toMatchObject({
+      details: { effective_role: "VIEWER" },
+    });
     expect(mocks.deleteWhere).not.toHaveBeenCalled();
   });
 
