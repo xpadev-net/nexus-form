@@ -45,10 +45,7 @@ export function StructureHistoryViewer({
         <p className="text-sm text-muted-foreground">読み込み中...</p>
       ) : (
         <SnapshotGraph
-          snapshots={snapshots.map((s) => ({
-            ...s,
-            publishedAt: s.publishedAt as string | Date,
-          }))}
+          snapshots={snapshots}
           isMutating={
             activateSnapshotMutation.isPending ||
             restoreEditFromSnapshotMutation.isPending

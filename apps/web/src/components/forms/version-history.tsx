@@ -10,6 +10,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { SnapshotGraph } from "./snapshot-graph";
 
@@ -80,15 +81,33 @@ export const VersionHistory: FC<VersionHistoryProps> = ({ formId }) => {
     );
   }
 
+  if (snapshotsQuery.isError) {
+    return (
+      <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+        <div className="space-y-1">
+          <h3 className="text-lg font-medium">バージョン履歴</h3>
+          <p className="text-sm text-destructive">
+            履歴を読み込めませんでした。
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void snapshotsQuery.refetch()}
+        >
+          再試行
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-medium">バージョン履歴</h3>
 
       <SnapshotGraph
-        snapshots={snapshots.map((s) => ({
-          ...s,
-          publishedAt: s.publishedAt as string | Date,
-        }))}
+        snapshots={snapshots}
         selectedId={selectedId}
         onSelect={setSelectedId}
         isMutating={

@@ -152,7 +152,7 @@ export interface SnapshotGraphItem {
   version: number;
   parentVersion?: number | null;
   isActive: boolean;
-  publishedAt: string | Date;
+  publishedAt: string;
   changeLog?: string | null;
 }
 
