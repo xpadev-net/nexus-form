@@ -1,1 +1,1 @@
-ALTER TABLE `ExternalServiceValidationResult` ADD `snapshotVersion` int;--> statement-breakpoint
+ALTER TABLE `ExternalServiceValidationResult` ADD `snapshotVersion` int;
