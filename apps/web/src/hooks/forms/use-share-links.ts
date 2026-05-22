@@ -144,8 +144,10 @@ export const useShareLinks = (
 
     const textArea = document.createElement("textarea");
     textArea.value = url;
-    textArea.style.position = "fixed";
-    textArea.style.left = "-999999px";
+    Object.assign(textArea.style, {
+      position: "fixed",
+      left: "-999999px",
+    });
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
