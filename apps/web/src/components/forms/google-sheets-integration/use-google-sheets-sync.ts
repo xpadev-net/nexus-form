@@ -9,6 +9,7 @@ import type {
   SyncJobStatusResponse,
   SyncStartResponse,
 } from "@/types/integrations/google-sheets";
+import { apiRequestInit } from "./api-request-init";
 import type { UiSyncState, UiSyncStatus } from "./types";
 
 interface SyncMonitorState {
@@ -78,11 +79,6 @@ export type SyncStatusTransition =
       action: null;
       notifyStatus: null;
     };
-
-const apiRequestInit = (init: RequestInit = {}): RequestInit => ({
-  ...init,
-  credentials: "include",
-});
 
 function mapBullMqStateToUiStatus(
   state: SyncJobStatusResponse["job"]["state"],

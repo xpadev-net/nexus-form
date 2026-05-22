@@ -17,6 +17,7 @@ import type {
   FormIntegrationResponse,
   GoogleSheetsIntegrationSetting,
 } from "@/types/integrations/google-sheets";
+import { apiRequestInit } from "./google-sheets-integration/api-request-init";
 import {
   GoogleSheetsDisconnectedCard,
   GoogleSheetsLoadingCard,
@@ -42,11 +43,6 @@ interface GoogleOAuthMessage {
   message?: string;
   state?: string | null;
 }
-
-const apiRequestInit = (init: RequestInit = {}): RequestInit => ({
-  ...init,
-  credentials: "include",
-});
 
 const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
   if (!isRecord(value)) return false;
