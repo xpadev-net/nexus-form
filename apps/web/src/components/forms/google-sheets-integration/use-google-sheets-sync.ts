@@ -5,6 +5,7 @@ import { z } from "zod";
 import { apiUrl } from "@/lib/api";
 import { fetchJson } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
+import { isRecord } from "@/lib/type-guards";
 import type {
   SyncJobStatusResponse,
   SyncStartResponse,
@@ -96,10 +97,6 @@ function mapBullMqStateToUiStatus(
   }
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
 function clampPercentage(v: number): number {
   return Math.max(0, Math.min(100, v));
 }
@@ -158,8 +155,9 @@ function areResultStatesEqual(
 }
 
 function areSyncStatesEqual(a: UiSyncState | null, b: UiSyncState): boolean {
+  if (a === null) return false;
   return (
-    a?.jobId === b.jobId &&
+    a.jobId === b.jobId &&
     a.status === b.status &&
     a.error === b.error &&
     areProgressStatesEqual(a.progress, b.progress) &&

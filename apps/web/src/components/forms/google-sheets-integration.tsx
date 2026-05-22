@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { apiUrl, baseUrl } from "@/lib/api";
 import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
+import { isRecord } from "@/lib/type-guards";
 import type {
   FormIntegrationResponse,
   GoogleSheetsIntegrationSetting,
@@ -51,10 +52,6 @@ const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
     (value.status === "success" || value.status === "error")
   );
 };
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === "object" && !Array.isArray(v);
-}
 
 interface GoogleSheetsUiState {
   searchQuery: string;
