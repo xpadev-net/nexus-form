@@ -33,6 +33,10 @@ for (const file of files) {
     cwd: webRoot,
     stdio: "inherit",
   });
+  if (result.error) {
+    console.error(`Failed to spawn vitest: ${result.error.message}`);
+    process.exit(1);
+  }
   if (result.status !== 0) {
     failed = true;
   }

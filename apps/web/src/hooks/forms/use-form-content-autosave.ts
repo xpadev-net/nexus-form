@@ -164,15 +164,17 @@ export function useFormContentAutosave({
       } else {
         const inFlightValue = editorValueRef.current;
         pendingValueRef.current = inFlightValue;
+        const saveBaseVersion = versionRef.current;
         saveTimerRef.current = window.setTimeout(() => {
           const pendingValue = pendingValueRef.current;
           saveTimerRef.current = null;
           if (pendingValue == null) return;
           inFlightValueRef.current = pendingValue;
           pendingValueRef.current = null;
+          lastSavedVersionRef.current = saveBaseVersion + 1;
           mutateRef.current({
             plateContent: pendingValue,
-            expectedVersion: versionRef.current,
+            expectedVersion: saveBaseVersion,
             restoreGeneration: restoreGenerationRef.current,
           });
         }, 2000);

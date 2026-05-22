@@ -18,6 +18,18 @@ describe("resolveServerContentSync (R12-P6)", () => {
     });
   });
 
+  it("returns noop when local edits exist but server content matches saved refs", () => {
+    const result = resolveServerContentSync({
+      hasLocalEdits: true,
+      serverVersion: 7,
+      serverCanonical: "base",
+      versionRef: 7,
+      baseContentRef: "base",
+    });
+
+    expect(result).toEqual({ action: "noop" });
+  });
+
   it("applies server content when there are no local edits", () => {
     const result = resolveServerContentSync({
       hasLocalEdits: false,
