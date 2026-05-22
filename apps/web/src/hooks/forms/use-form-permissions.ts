@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback } from "react";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
@@ -51,18 +56,19 @@ export const useFormPermissions = (
 
   const permissionsQuery = useQuery({
     queryKey: ["formPermissions", formId, permissionsPage, permissionsLimit],
-    enabled: Boolean(formId),
     staleTime: 60_000,
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].permissions.$get({
-          param: { id: formId as string },
-          query: toStringRecord({
-            page: permissionsPage ?? undefined,
-            limit: permissionsLimit ?? undefined,
-          }),
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].permissions.$get({
+              param: { id: formId },
+              query: toStringRecord({
+                page: permissionsPage ?? undefined,
+                limit: permissionsLimit ?? undefined,
+              }),
+            }),
+          )
+      : skipToken,
   });
 
   const invitationsQuery = useQuery({
@@ -73,18 +79,19 @@ export const useFormPermissions = (
       invitationsLimit,
       invitationsStatus,
     ],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].invitations.$get({
-          param: { id: formId as string },
-          query: toStringRecord({
-            page: invitationsPage ?? undefined,
-            limit: invitationsLimit ?? undefined,
-            status: invitationsStatus ?? undefined,
-          }),
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].invitations.$get({
+              param: { id: formId },
+              query: toStringRecord({
+                page: invitationsPage ?? undefined,
+                limit: invitationsLimit ?? undefined,
+                status: invitationsStatus ?? undefined,
+              }),
+            }),
+          )
+      : skipToken,
   });
 
   const invalidate = useCallback(async () => {

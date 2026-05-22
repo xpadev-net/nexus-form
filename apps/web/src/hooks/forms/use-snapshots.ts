@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 
@@ -24,36 +29,41 @@ async function fetchAllSnapshots(formId: string) {
   return { snapshots };
 }
 
+export type SnapshotListItem = Awaited<
+  ReturnType<typeof fetchAllSnapshots>
+>["snapshots"][number];
+
 export const useSnapshots = (formId: string | null | undefined) => {
   const queryClient = useQueryClient();
 
   const snapshotsQuery = useQuery({
     queryKey: ["snapshots", formId],
-    enabled: Boolean(formId),
     staleTime: 60_000,
-    queryFn: () => fetchAllSnapshots(formId as string),
+    queryFn: formId ? () => fetchAllSnapshots(formId) : skipToken,
   });
 
   const latestSnapshotQuery = useQuery({
     queryKey: ["latestSnapshot", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].snapshots.latest.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].snapshots.latest.$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const unpublishedChangesQuery = useQuery({
     queryKey: ["unpublishedChanges", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"]["unpublished-changes"].$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"]["unpublished-changes"].$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const getSnapshotDiffMutation = useMutation({

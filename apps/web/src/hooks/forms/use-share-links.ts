@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
 
@@ -37,21 +42,22 @@ export const useShareLinks = (
 
   const shareLinksQuery = useQuery({
     queryKey: ["shareLinks", formId, page, limit, isActive],
-    enabled: Boolean(formId),
     staleTime: 60_000,
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"]["share-links"].$get({
-          param: { id: formId as string },
-          query: toQueryStrings(
-            querySchema.parse({
-              page: page ?? undefined,
-              limit: limit ?? undefined,
-              isActive: isActive ?? undefined,
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"]["share-links"].$get({
+              param: { id: formId },
+              query: toQueryStrings(
+                querySchema.parse({
+                  page: page ?? undefined,
+                  limit: limit ?? undefined,
+                  isActive: isActive ?? undefined,
+                }),
+              ),
             }),
-          ),
-        }),
-      ),
+          )
+      : skipToken,
   });
 
   const invalidate = async () => {

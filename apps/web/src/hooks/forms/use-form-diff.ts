@@ -1,16 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
 
 export const useFormDiff = (formId: string | null | undefined) => {
   const formDiffQuery = useQuery({
     queryKey: ["formDiff", formId],
-    enabled: Boolean(formId),
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].diff.$get({
-          param: { id: formId as string },
-        }),
-      ),
+    queryFn: formId
+      ? () =>
+          rpc(
+            client.api.forms[":id"].diff.$get({
+              param: { id: formId },
+            }),
+          )
+      : skipToken,
   });
 
   const diffData = formDiffQuery.data;

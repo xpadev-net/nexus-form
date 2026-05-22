@@ -30,24 +30,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useSnapshots } from "@/hooks/forms/use-snapshots";
+import {
+  type SnapshotListItem,
+  useSnapshots,
+} from "@/hooks/forms/use-snapshots";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
-
-interface ScheduleEntry {
-  id: string;
-  triggerAt: string;
-  action: "PUBLISH" | "UNPUBLISH" | "SWITCH_SNAPSHOT";
-  snapshotVersion: number | null;
-  processedAt: string | null;
-}
-
-interface Snapshot {
-  version: number;
-  isActive: boolean;
-  title: string | null;
-  changeLog: string | null;
-}
 
 const entryFormSchema = z
   .object({
@@ -70,6 +58,8 @@ const entryFormSchema = z
   );
 
 type EntryFormData = z.infer<typeof entryFormSchema>;
+
+type Snapshot = SnapshotListItem;
 
 const ACTION_LABELS: Record<ScheduleEntry["action"], string> = {
   PUBLISH: "公開",
@@ -94,6 +84,13 @@ function toLocalDatetimeString(isoString: string): string {
   const h = String(date.getHours()).padStart(2, "0");
   const mi = String(date.getMinutes()).padStart(2, "0");
   return `${y}-${mo}-${d}T${h}:${mi}`;
+}
+
+function getSnapshotVersion(data: EntryFormData): number {
+  if (data.snapshotVersion == null) {
+    throw new Error("snapshotVersion is required");
+  }
+  return data.snapshotVersion;
 }
 
 interface EntryDialogProps {
@@ -266,6 +263,19 @@ interface ScheduleManagerProps {
 
 const SCHEDULE_PAGE_SIZE = 100;
 
+async function fetchSchedulePage(formId: string, page: number) {
+  return rpc(
+    client.api.forms[":id"].schedule.$get({
+      param: { id: formId },
+      query: { page: String(page), pageSize: String(SCHEDULE_PAGE_SIZE) },
+    }),
+  );
+}
+
+type ScheduleEntry = Awaited<
+  ReturnType<typeof fetchSchedulePage>
+>["schedules"][number];
+
 async function fetchAllSchedules(formId: string): Promise<{
   schedules: ScheduleEntry[];
 }> {
@@ -274,13 +284,8 @@ async function fetchAllSchedules(formId: string): Promise<{
   let totalPages = 1;
 
   do {
-    const res = await rpc(
-      client.api.forms[":id"].schedule.$get({
-        param: { id: formId },
-        query: { page: String(page), pageSize: String(SCHEDULE_PAGE_SIZE) },
-      }),
-    );
-    schedules.push(...(res.schedules as ScheduleEntry[]));
+    const res = await fetchSchedulePage(formId, page);
+    schedules.push(...res.schedules);
     totalPages = res.pagination.totalPages;
     page++;
   } while (page <= totalPages);
@@ -301,7 +306,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
   });
 
   const schedules = schedulesQuery.data?.schedules ?? [];
-  const snapshots = (snapshotsQuery.data?.snapshots ?? []) as Snapshot[];
+  const snapshots: Snapshot[] = snapshotsQuery.data?.snapshots ?? [];
   const schedulesErrorMessage =
     schedulesQuery.error instanceof Error
       ? schedulesQuery.error.message
@@ -328,7 +333,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
                 ? {
                     triggerAt: new Date(data.triggerAt).toISOString(),
                     action: "SWITCH_SNAPSHOT",
-                    snapshotVersion: data.snapshotVersion as number,
+                    snapshotVersion: getSnapshotVersion(data),
                   }
                 : {
                     triggerAt: new Date(data.triggerAt).toISOString(),
@@ -362,7 +367,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
                 ? {
                     triggerAt: new Date(data.triggerAt).toISOString(),
                     action: "SWITCH_SNAPSHOT",
-                    snapshotVersion: data.snapshotVersion as number,
+                    snapshotVersion: getSnapshotVersion(data),
                   }
                 : {
                     triggerAt: new Date(data.triggerAt).toISOString(),
