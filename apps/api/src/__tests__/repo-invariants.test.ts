@@ -53,4 +53,18 @@ describe("repo invariants", () => {
       runnerSection.indexOf("USER node"),
     );
   });
+
+  it("runs CI tests against MySQL and Redis with minimal job permissions", () => {
+    const ciWorkflow = readFileSync(
+      resolve(process.cwd(), "../../.github/workflows/ci.yml"),
+      "utf8",
+    );
+    expect(ciWorkflow).toContain("permissions:");
+    expect(ciWorkflow).toContain("contents: read");
+    expect(ciWorkflow).toContain("image: mysql:8.0");
+    expect(ciWorkflow).toContain("image: redis:7-alpine");
+    expect(ciWorkflow).toContain("pnpm db:migrate");
+    expect(ciWorkflow).toContain("VITE_API_URL:");
+    expect(ciWorkflow).not.toContain("AUTH_SECRET: ${{ secrets.AUTH_SECRET }}");
+  });
 });
