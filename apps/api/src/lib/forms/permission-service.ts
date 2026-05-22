@@ -8,6 +8,7 @@ import {
   formShareLink,
 } from "@nexus-form/database/schema";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { InsufficientFormPermissionError } from "../errors/form-errors";
 import { resolveFormPermission } from "../permissions/form-access";
 
 // ── Local type definitions (mirrors src/types/domain/form-permission) ──
@@ -960,6 +961,32 @@ export async function cancelInvitation(
     // 既に承諾済みの招待は削除不可
     if (invitation.status === "ACCEPTED") {
       throw new Error("Cannot cancel an accepted invitation");
+    }
+
+    if (isInviter && !isOwner) {
+      const [currentPermission] = await tx
+        .select({ role: formPermission.role })
+        .from(formPermission)
+        .where(
+          and(
+            eq(formPermission.formId, invitation.formId),
+            eq(formPermission.userId, userId),
+          ),
+        )
+        .for("update")
+        .limit(1);
+
+      if (
+        !currentPermission ||
+        (currentPermission.role !== "OWNER" &&
+          currentPermission.role !== "EDITOR")
+      ) {
+        throw new InsufficientFormPermissionError(
+          invitation.formId,
+          "EDITOR",
+          currentPermission?.role ?? null,
+        );
+      }
     }
 
     // 招待を削除
