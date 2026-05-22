@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { db, user } from "@nexus-form/database";
 import {
   form,
+  formIntegration,
   formInvitation,
   formPermission,
   formShareLink,
@@ -622,6 +623,7 @@ export async function transferOwnership(
       .select({ id: form.id })
       .from(form)
       .where(eq(form.id, formId))
+      .for("update")
       .limit(1);
 
     if (!foundForm) {
@@ -698,6 +700,14 @@ export async function transferOwnership(
       .update(form)
       .set({ creatorId: newOwnerId })
       .where(eq(form.id, formId));
+
+    await tx
+      .update(formIntegration)
+      .set({
+        ownerUserId: newOwnerId,
+        userId: newOwnerId,
+      })
+      .where(eq(formIntegration.formId, formId));
   });
 }
 

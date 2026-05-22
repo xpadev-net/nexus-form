@@ -5,7 +5,7 @@ import { withDualFormAuth } from "../lib/dual-auth";
 import {
   GoogleSheetsIntegrationSettingSchema,
   getFormIntegration,
-  upsertFormIntegration,
+  upsertFormIntegrationForCurrentOwner,
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
@@ -91,16 +91,13 @@ export const formsIntegrationsRouter = createHonoApp()
     zValidator("json", GoogleSheetsIntegrationSettingSchema),
     async (c) => {
       const formId = c.req.param("id");
-      const auth = c.get("dualAuthContext");
-      if (!auth) return c.json(formIntegrationError("Unauthorized"), 401);
-
       const config = c.req.valid("json");
-      const integration = await upsertFormIntegration({
+      const integration = await upsertFormIntegrationForCurrentOwner({
         formId,
-        ownerUserId: auth.user_id,
-        userId: auth.user_id,
         config,
       });
+      if (!integration)
+        return c.json(formIntegrationError("Form not found"), 404);
 
       return c.json(FormIntegrationResponseSchema.parse({ integration }));
     },
