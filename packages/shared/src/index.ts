@@ -179,7 +179,9 @@ export type {
   SheetsSyncJobData,
 } from "./worker-jobs";
 export {
+  buildValidationRetryJobId,
   genericValidationJobDataSchema,
+  sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
   VALIDATION_RETRY_JOB_PREFIX,
 } from "./worker-jobs";
