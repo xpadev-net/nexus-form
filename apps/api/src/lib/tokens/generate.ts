@@ -149,7 +149,22 @@ export async function getUserApiTokens(
     ];
   });
   const rawTotal = countRow[0]?.count ?? 0;
-  const total = rawTotal - malformedTokens.length;
+  let total = rawTotal;
+  if (malformedTokens.length > 0) {
+    const indexRows = await db
+      .select({
+        id: apiToken.id,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+      })
+      .from(apiToken)
+      .where(whereCondition);
+    total = indexRows.reduce((validCount, token) => {
+      return parseStoredApiTokenJson(token, "getUserApiTokens.total")
+        ? validCount + 1
+        : validCount;
+    }, 0);
+  }
 
   return {
     tokens: mappedTokens,

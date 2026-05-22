@@ -2,26 +2,35 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
   countSelect: vi.fn(),
+  indexSelect: vi.fn(),
   limit: vi.fn(),
   offset: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
-    select: vi.fn((fields: { count?: unknown }) => {
-      if ("count" in (fields ?? {})) {
+    select: vi.fn(
+      (fields: { count?: unknown; id?: unknown; name?: unknown }) => {
+        if ("count" in (fields ?? {})) {
+          return {
+            from: vi.fn().mockReturnThis(),
+            where: dbMocks.countSelect,
+          };
+        }
+        if ("id" in (fields ?? {}) && !("name" in (fields ?? {}))) {
+          return {
+            from: vi.fn().mockReturnThis(),
+            where: dbMocks.indexSelect,
+          };
+        }
         return {
           from: vi.fn().mockReturnThis(),
-          where: dbMocks.countSelect,
+          where: vi.fn().mockReturnThis(),
+          orderBy: vi.fn().mockReturnThis(),
+          limit: dbMocks.limit,
         };
-      }
-      return {
-        from: vi.fn().mockReturnThis(),
-        where: vi.fn().mockReturnThis(),
-        orderBy: vi.fn().mockReturnThis(),
-        limit: dbMocks.limit,
-      };
-    }),
+      },
+    ),
   },
 }));
 
@@ -63,7 +72,7 @@ describe("getUserApiTokens", () => {
     }));
   });
 
-  it("excludes malformed tokens from pagination total", async () => {
+  it("excludes malformed tokens from pagination total across all pages", async () => {
     dbMocks.limit.mockImplementation(() => ({
       offset: dbMocks.offset.mockResolvedValue([
         {
@@ -79,6 +88,11 @@ describe("getUserApiTokens", () => {
       ]),
     }));
     dbMocks.countSelect.mockResolvedValue([{ count: 3 }]);
+    dbMocks.indexSelect.mockResolvedValue([
+      { id: "token-a", scopes: ["read"], formIds: null },
+      { id: "token-b", scopes: ["write"], formIds: null },
+      { id: "token-bad", scopes: "not-an-array", formIds: null },
+    ]);
 
     const result = await getUserApiTokens("user-1", 1, 10);
 
@@ -88,6 +102,7 @@ describe("getUserApiTokens", () => {
     ]);
     expect(result.total).toBe(2);
     expect(result.pagination.totalPages).toBe(1);
+    expect(dbMocks.indexSelect).toHaveBeenCalledOnce();
   });
 
   it("queries only one page from the database for large token lists", async () => {
