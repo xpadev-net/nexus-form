@@ -120,12 +120,12 @@ describe("Google OAuth redirect URI", () => {
     });
   });
 
-  it("uses the configured OAuth base URL for authorization redirects", async () => {
+  it("uses the configured OAuth base URL and server-generated PKCE for authorization redirects", async () => {
     vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
     const app = createApp();
 
     const response = await app.request(
-      "/api/integrations/google/authorize?app_origin=https%3A%2F%2Fapp.example.com&state=abcdefghijklmnopqrstuvwxyzABCDEF",
+      "/api/integrations/google/authorize?app_origin=https%3A%2F%2Fapp.example.com",
       {
         headers: {
           origin: "https://evil.example",
@@ -140,6 +140,15 @@ describe("Google OAuth redirect URI", () => {
     expect(redirectLocation.searchParams.get("redirect_uri")).toBe(
       "https://api.example.com/api/integrations/google/callback",
     );
+    expect(redirectLocation.searchParams.get("code_challenge_method")).toBe(
+      "S256",
+    );
+    expect(redirectLocation.searchParams.get("code_challenge")).toMatch(
+      /^[A-Za-z0-9_-]+$/,
+    );
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("google_oauth_user_id=user-1");
+    expect(setCookie).toContain("google_oauth_code_verifier=");
   });
 
   it("fails callback exchange when the fixed OAuth base URL is not configured", async () => {
@@ -152,7 +161,7 @@ describe("Google OAuth redirect URI", () => {
       {
         headers: {
           cookie:
-            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com",
+            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com; google_oauth_user_id=user-1; google_oauth_code_verifier=pkce-verifier",
           origin: "https://evil.example",
         },
       },
@@ -184,7 +193,7 @@ describe("Google OAuth redirect URI", () => {
       {
         headers: {
           cookie:
-            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com",
+            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com; google_oauth_user_id=user-1; google_oauth_code_verifier=pkce-verifier",
           origin: "https://evil.example",
         },
       },
@@ -195,8 +204,33 @@ describe("Google OAuth redirect URI", () => {
     const [, init] = fetchMock.mock.calls[0] ?? [];
     expect(init).toBeDefined();
     expect(init?.body).toBeInstanceOf(URLSearchParams);
-    expect((init?.body as URLSearchParams).get("redirect_uri")).toBe(
+    const body = init?.body as URLSearchParams;
+    expect(body.get("redirect_uri")).toBe(
       "https://api.example.com/api/integrations/google/callback",
     );
+    expect(body.get("code_verifier")).toBe("pkce-verifier");
+    expect(mocks.insertValues).toHaveBeenCalled();
+  });
+
+  it("rejects callback when OAuth user binding does not match the session user", async () => {
+    vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/callback?code=oauth-code&state=state-123",
+      {
+        headers: {
+          cookie:
+            "google_oauth_state=state-123; google_oauth_app_origin=https%3A%2F%2Fapp.example.com; google_oauth_user_id=other-user; google_oauth_code_verifier=pkce-verifier",
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("Invalid OAuth session");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.insertValues).not.toHaveBeenCalled();
   });
 });

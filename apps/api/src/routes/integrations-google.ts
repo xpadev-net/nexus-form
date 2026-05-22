@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { googleOAuthToken } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
@@ -17,7 +17,6 @@ import {
 } from "../types/domain/integrations-google";
 
 const authorizeQuerySchema = z.object({
-  state: z.string().optional(),
   scope: z.string().optional(),
   prompt: z.string().optional(),
   app_origin: z.string().optional(),
@@ -219,11 +218,29 @@ function googleOAuthCookie(
     .join("; ");
 }
 
+const GOOGLE_OAUTH_COOKIE_NAMES = [
+  "google_oauth_state",
+  "google_oauth_app_origin",
+  "google_oauth_user_id",
+  "google_oauth_code_verifier",
+] as const;
+
+function generateOAuthState(): string {
+  return randomUUID().replace(/-/g, "");
+}
+
+function generatePkcePair(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
 function clearGoogleOAuthCookies(c: Context): void {
-  c.header("Set-Cookie", googleOAuthCookie("google_oauth_state", "", 0));
-  c.header("Set-Cookie", googleOAuthCookie("google_oauth_app_origin", "", 0), {
-    append: true,
-  });
+  for (const [index, name] of GOOGLE_OAUTH_COOKIE_NAMES.entries()) {
+    c.header("Set-Cookie", googleOAuthCookie(name, "", 0), {
+      append: index > 0,
+    });
+  }
 }
 
 function oauthCallbackResponse(
@@ -246,6 +263,7 @@ function buildAuthorizeUrl(params: {
   scope: string;
   state: string;
   prompt: string;
+  codeChallenge: string;
 }): string {
   const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   url.searchParams.set("client_id", params.clientId);
@@ -255,6 +273,8 @@ function buildAuthorizeUrl(params: {
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("prompt", params.prompt);
   url.searchParams.set("state", params.state);
+  url.searchParams.set("code_challenge", params.codeChallenge);
+  url.searchParams.set("code_challenge_method", "S256");
   url.searchParams.set("include_granted_scopes", "true");
   return url.toString();
 }
@@ -398,10 +418,8 @@ export const integrationsGoogleRouter = createHonoApp()
       return c.json(errorResponse("Google OAuth is not configured"), 503);
     const appOrigin = resolveAppOrigin(c, parsed.data.app_origin);
     if (!appOrigin) return c.json(errorResponse("Invalid app origin"), 400);
-    const state =
-      parsed.data.state && /^[A-Za-z0-9_-]{32,128}$/.test(parsed.data.state)
-        ? parsed.data.state
-        : randomUUID().replace(/-/g, "");
+    const state = generateOAuthState();
+    const { verifier, challenge } = generatePkcePair();
 
     c.header("Set-Cookie", googleOAuthCookie("google_oauth_state", state, 600));
     c.header(
@@ -413,6 +431,16 @@ export const integrationsGoogleRouter = createHonoApp()
       ),
       { append: true },
     );
+    c.header(
+      "Set-Cookie",
+      googleOAuthCookie("google_oauth_user_id", user.userId, 600),
+      { append: true },
+    );
+    c.header(
+      "Set-Cookie",
+      googleOAuthCookie("google_oauth_code_verifier", verifier, 600),
+      { append: true },
+    );
     return c.redirect(
       buildAuthorizeUrl({
         clientId,
@@ -420,6 +448,7 @@ export const integrationsGoogleRouter = createHonoApp()
         scope,
         state,
         prompt,
+        codeChallenge: challenge,
       }),
       302,
     );
@@ -466,6 +495,24 @@ export const integrationsGoogleRouter = createHonoApp()
         "Session expired. Please try connecting again.",
       );
     }
+    const expectedUserId = getCookieValue(cookie, "google_oauth_user_id");
+    if (!expectedUserId || expectedUserId !== user.userId) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Invalid OAuth session",
+      );
+    }
+    const codeVerifier = getCookieValue(cookie, "google_oauth_code_verifier");
+    if (!codeVerifier) {
+      return oauthCallbackResponse(
+        c,
+        callbackTargetOrigin,
+        "error",
+        "Missing OAuth verifier",
+      );
+    }
     if (parsed.data.error)
       return oauthCallbackResponse(
         c,
@@ -509,6 +556,7 @@ export const integrationsGoogleRouter = createHonoApp()
       client_secret: clientSecret,
       grant_type: "authorization_code",
       redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
     });
     const response = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",

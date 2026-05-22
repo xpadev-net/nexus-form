@@ -83,7 +83,8 @@ export async function createApiToken(
 }
 
 /**
- * ユーザーのAPIトークン一覧を取得する
+ * ユーザーのAPIトークン一覧を取得する。
+ * 軽量 index 行（id/scopes/formIds）で valid 件数と順序を確定し、現在ページ分のフル行のみ取得する。
  * @param userId ユーザーID
  * @param page ページ番号（1から開始）
  * @param pageSize ページサイズ
