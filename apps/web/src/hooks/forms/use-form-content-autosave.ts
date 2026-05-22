@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
+import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sync";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
@@ -253,19 +254,22 @@ export function useFormContentAutosave({
     );
     const hasLocalEdits = hasUnsavedLocalEdits();
 
-    if (hasLocalEdits) {
-      if (
-        contentData.plateContentVersion !== versionRef.current ||
-        canonical !== baseContentRef.current
-      ) {
-        pendingRemoteContentRef.current = canonical;
-        pendingRemoteVersionRef.current = contentData.plateContentVersion;
-      }
-    } else {
-      versionRef.current = contentData.plateContentVersion;
-      baseContentRef.current = canonical;
-      editorValueRef.current = canonical;
-      setDraftContent(canonical);
+    const syncResult = resolveServerContentSync({
+      hasLocalEdits,
+      serverVersion: contentData.plateContentVersion,
+      serverCanonical: canonical,
+      versionRef: versionRef.current,
+      baseContentRef: baseContentRef.current,
+    });
+
+    if (syncResult.action === "stash-remote") {
+      pendingRemoteContentRef.current = syncResult.remoteCanonical;
+      pendingRemoteVersionRef.current = syncResult.remoteVersion;
+    } else if (syncResult.action === "apply-server") {
+      versionRef.current = syncResult.version;
+      baseContentRef.current = syncResult.canonical;
+      editorValueRef.current = syncResult.canonical;
+      setDraftContent(syncResult.canonical);
       pendingRemoteContentRef.current = null;
       pendingRemoteVersionRef.current = null;
     }

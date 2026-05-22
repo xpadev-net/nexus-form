@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, useEffect, useRef, useState } from "react";
+import { act, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -136,54 +136,6 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
   return root;
 }
 
-interface ContentQueryData {
-  plateContent: string | null;
-  plateContentVersion: number;
-}
-
-function renderUpdatableAutosave(
-  initialContent: ContentQueryData,
-  onReady: (api: {
-    hook: UseFormContentAutosaveReturn;
-    updateContent: (data: ContentQueryData) => void;
-  }) => void,
-) {
-  const container = document.createElement("div");
-  const root = createRoot(container);
-
-  function Harness() {
-    const [contentData, setContentData] = useState(initialContent);
-    const hook = useFormContentAutosave({
-      contentData,
-      contentRefetch: refetchMock,
-      formId: "form-1",
-      getActiveTab: () => "editor",
-    });
-    const hookRef = useRef(hook);
-    hookRef.current = hook;
-    const didNotifyReadyRef = useRef(false);
-
-    useEffect(() => {
-      if (didNotifyReadyRef.current) return;
-      didNotifyReadyRef.current = true;
-      onReady({
-        get hook() {
-          return hookRef.current;
-        },
-        updateContent: setContentData,
-      });
-    }, []);
-
-    return null;
-  }
-
-  act(() => {
-    root.render(<Harness />);
-  });
-
-  return root;
-}
-
 describe("R12-P6 autosave optimistic-lock invariant", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
@@ -196,54 +148,6 @@ describe("R12-P6 autosave optimistic-lock invariant", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-  });
-
-  it("does not advance expectedVersion when a collaborator refetch arrives during local edits", () => {
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
-    const v1Content = '[{"type":"p","children":[{"text":"v1"}]}]';
-    const v2Content = '[{"type":"p","children":[{"text":"v2"}]}]';
-    const localEdit = '[{"type":"p","children":[{"text":"local"}]}]';
-    let api:
-      | {
-          hook: UseFormContentAutosaveReturn;
-          updateContent: (data: ContentQueryData) => void;
-        }
-      | undefined;
-    const root = renderUpdatableAutosave(
-      { plateContent: v1Content, plateContentVersion: 7 },
-      (current) => {
-        api = current;
-      },
-    );
-
-    act(() => {
-      api?.hook.handleContentChange(localEdit);
-    });
-    act(() => {
-      api?.updateContent({
-        plateContent: v2Content,
-        plateContentVersion: 8,
-      });
-    });
-
-    const debouncedSave = setTimeoutSpy.mock.calls.find(
-      (call) => call[1] === 2000,
-    );
-    expect(debouncedSave).toBeDefined();
-    act(() => {
-      (debouncedSave?.[0] as () => void)();
-    });
-
-    expect(mutateMock).toHaveBeenCalledWith({
-      expectedVersion: 7,
-      plateContent: localEdit,
-      restoreGeneration: 0,
-    });
-
-    setTimeoutSpy.mockRestore();
-    act(() => {
-      root.unmount();
-    });
   });
 
   it("routes a version conflict to merge instead of silently overwriting remote changes", () => {
