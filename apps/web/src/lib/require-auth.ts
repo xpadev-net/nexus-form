@@ -1,5 +1,21 @@
 import { isRedirect, redirect } from "@tanstack/react-router";
 import { authClient } from "@/lib/auth-client";
+import { sanitizeAuthRedirect } from "@/lib/auth-redirect";
+
+type RequireAuthContext = {
+  location?: {
+    href: string;
+  };
+};
+
+function loginRedirectFor(location: RequireAuthContext["location"]) {
+  return redirect({
+    to: "/login",
+    search: {
+      redirect: sanitizeAuthRedirect(location?.href),
+    },
+  });
+}
 
 /**
  * Ensures a user session exists for protected routes by calling
@@ -9,14 +25,16 @@ import { authClient } from "@/lib/auth-client";
  * @returns A promise that resolves when the current user is authenticated.
  * @throws Redirect when navigation to /login is performed.
  */
-export async function requireAuth(): Promise<void> {
+export async function requireAuth({
+  location,
+}: RequireAuthContext = {}): Promise<void> {
   try {
     const { data } = await authClient.getSession();
     if (!data?.session) {
-      throw redirect({ to: "/login" });
+      throw loginRedirectFor(location);
     }
   } catch (error) {
     if (isRedirect(error)) throw error;
-    throw redirect({ to: "/login" });
+    throw loginRedirectFor(location);
   }
 }

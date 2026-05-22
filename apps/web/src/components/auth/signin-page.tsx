@@ -1,17 +1,19 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useSearch } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { SignInSection } from "@/components/auth/signin-section";
 import { useAuth } from "@/hooks/auth/use-auth";
+import { DEFAULT_AUTH_REDIRECT } from "@/lib/auth-redirect";
 
 export function SignInPage() {
-  const navigate = useNavigate();
+  const { redirect } = useSearch({ from: "/login" });
   const { session } = useAuth();
+  const redirectTo = redirect ?? DEFAULT_AUTH_REDIRECT;
 
   useEffect(() => {
     if (session.data?.session) {
-      void navigate({ to: "/" });
+      window.location.assign(redirectTo);
     }
-  }, [navigate, session.data?.session]);
+  }, [redirectTo, session.data?.session]);
 
   if (session.isPending) {
     return (
@@ -23,7 +25,7 @@ export function SignInPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-12">
-      <SignInSection />
+      <SignInSection callbackURL={redirectTo} />
     </div>
   );
 }
