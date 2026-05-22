@@ -1,6 +1,7 @@
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { apiUrl } from "@/lib/api";
 import { fetchJson } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
@@ -28,6 +29,46 @@ type TerminalNotification = {
   status: "completed" | "failed";
 };
 
+const syncJobStatusResponseSchema = z.object({
+  job: z.object({
+    attemptsMade: z.number(),
+    failedReason: z.string().optional(),
+    id: z.string().optional(),
+    name: z.string(),
+    progress: z
+      .union([
+        z.number(),
+        z.object({
+          percentage: z.number().optional(),
+          processed: z.number().optional(),
+          total: z.number().optional(),
+        }),
+      ])
+      .nullable(),
+    result: z.unknown(),
+    state: z.enum([
+      "active",
+      "waiting",
+      "delayed",
+      "paused",
+      "completed",
+      "failed",
+      "unknown",
+    ]),
+  }),
+}) satisfies z.ZodType<SyncJobStatusResponse>;
+
+const syncStartResponseSchema = z.object({
+  jobId: z.string().min(1),
+  status: z.literal("queued"),
+}) satisfies z.ZodType<SyncStartResponse>;
+
+/**
+ * Describes how the sync monitor should react to a freshly observed job state.
+ *
+ * `action` is null when no reducer update is needed, and `notifyStatus`
+ * identifies the terminal status that should emit a toast.
+ */
 export type SyncStatusTransition =
   | {
       action: Extract<SyncMonitorAction, { type: "update" | "finish" }>;
@@ -147,6 +188,14 @@ function hasNotifiedTerminalStatus(
   );
 }
 
+/**
+ * Converts a validated BullMQ sync job response into the UI state consumed by
+ * the sync status panel.
+ *
+ * @param jobData - Runtime-validated sync job status API response.
+ * @param activeJobId - Job id currently being monitored by the hook.
+ * @returns UI-friendly sync state with mapped status, progress, result, and error.
+ */
 export function buildUiSyncState(
   jobData: SyncJobStatusResponse,
   activeJobId: string,
@@ -165,6 +214,15 @@ export function buildUiSyncState(
   };
 }
 
+/**
+ * Computes the reducer action and optional terminal notification for a sync
+ * status transition.
+ *
+ * @param previousStatus - Last status dispatched to the reducer, if any.
+ * @param nextStatus - Newly observed UI sync status.
+ * @param notifiedTerminalStatus - Terminal status already notified for a job, if any.
+ * @returns A reducer action plus terminal toast marker, or nulls when unchanged.
+ */
 export function getSyncStatusTransition(
   previousStatus: UiSyncState | null,
   nextStatus: UiSyncState,
@@ -231,10 +289,26 @@ interface UseGoogleSheetsSyncOptions {
   configQueryKey: readonly unknown[];
 }
 
+export interface UseGoogleSheetsSyncResult {
+  activeJobId: string | null;
+  dismissSyncStatus: () => void;
+  isSyncing: boolean;
+  startSync: () => Promise<void>;
+  syncStatus: UiSyncState | null;
+}
+
+/**
+ * Owns Google Sheets sync lifecycle state, polling, timeout handling, and
+ * terminal notifications.
+ *
+ * @param options.formId - Form id whose Google Sheets sync job should run.
+ * @param options.configQueryKey - Query key invalidated after a sync starts.
+ * @returns Controls and current state for starting, monitoring, and dismissing sync status.
+ */
 export function useGoogleSheetsSync({
   formId,
   configQueryKey,
-}: UseGoogleSheetsSyncOptions) {
+}: UseGoogleSheetsSyncOptions): UseGoogleSheetsSyncResult {
   const queryClient = useQueryClient();
   const [syncMonitor, dispatchSyncMonitor] = useReducer(syncMonitorReducer, {
     syncStatus: null,
@@ -269,12 +343,12 @@ export function useGoogleSheetsSync({
     queryFn:
       activeJobId && isSyncing
         ? () =>
-            fetchJson<SyncJobStatusResponse>(
+            fetchJson<unknown>(
               apiUrl(
                 `/api/forms/${formId}/integrations/google-sheets/sync/${activeJobId}`,
               ),
               apiRequestInit(),
-            )
+            ).then((data) => syncJobStatusResponseSchema.parse(data))
         : skipToken,
     refetchInterval: (query) => {
       const state = query.state.data
@@ -340,13 +414,15 @@ export function useGoogleSheetsSync({
     });
 
     try {
-      const data = await fetchJson<SyncStartResponse>(
-        apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
-        apiRequestInit({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        }),
+      const data = syncStartResponseSchema.parse(
+        await fetchJson<unknown>(
+          apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
+          apiRequestInit({
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          }),
+        ),
       );
       const startedStatus: UiSyncState = {
         jobId: data.jobId,
