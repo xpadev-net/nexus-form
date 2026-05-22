@@ -89,7 +89,7 @@ RUN chmod +x ./env-replacer.sh && \
     chmod +x ./start.sh && \
     mv .env .env.replacer && \
     mkdir -p /app/plugins/validation && \
-    chown -R node:node /app/plugins
+    chown -R node:node /app
 
 USER node
 
