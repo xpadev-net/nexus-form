@@ -124,6 +124,7 @@ describe("POST /api/tokens/validate", () => {
   });
 
   it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
     clearRateLimitStoreForTests();
     validateApiTokenForUser.mockResolvedValue(null);
     const burstClientIp = "198.51.100.1";
