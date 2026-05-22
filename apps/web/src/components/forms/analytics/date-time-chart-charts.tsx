@@ -1,14 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { ja } from "date-fns/locale/ja";
 import type { FC } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip } from "@/components/ui/chart-recharts";
 import type {
   DateAnalytics,
@@ -92,33 +85,31 @@ export const DateDistributionChartCharts: FC<
     <div className="space-y-4">
       {blockTitle && <h3 className="text-lg font-semibold">{blockTitle}</h3>}
       <ChartContainer config={chartConfig} className="h-64 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            margin={{
-              top: 20,
-              right: 30,
-              left: 20,
-              bottom: 5,
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="formattedDate"
-              tick={{ fontSize: 12 }}
-              angle={-45}
-              textAnchor="end"
-              height={60}
-            />
-            <YAxis tick={{ fontSize: 12 }} />
-            <ChartTooltip content={<DateDistributionTooltip />} />
-            <Bar
-              dataKey="count"
-              fill="var(--color-count)"
-              radius={[4, 4, 0, 0]}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+        <BarChart
+          data={chartData}
+          margin={{
+            top: 20,
+            right: 30,
+            left: 20,
+            bottom: 5,
+          }}
+        >
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis
+            dataKey="formattedDate"
+            tick={{ fontSize: 12 }}
+            angle={-45}
+            textAnchor="end"
+            height={60}
+          />
+          <YAxis tick={{ fontSize: 12 }} />
+          <ChartTooltip content={<DateDistributionTooltip />} />
+          <Bar
+            dataKey="count"
+            fill="var(--color-count)"
+            radius={[4, 4, 0, 0]}
+          />
+        </BarChart>
       </ChartContainer>
     </div>
   );
@@ -151,33 +142,31 @@ export const TimeDistributionChartCharts: FC<
     <div className="space-y-4">
       {blockTitle && <h3 className="text-lg font-semibold">{blockTitle}</h3>}
       <ChartContainer config={chartConfig} className="h-64 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            margin={{
-              top: 20,
-              right: 30,
-              left: 20,
-              bottom: 5,
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis
-              dataKey="formattedTime"
-              tick={{ fontSize: 12 }}
-              angle={-45}
-              textAnchor="end"
-              height={60}
-            />
-            <YAxis tick={{ fontSize: 12 }} />
-            <ChartTooltip content={<TimeDistributionTooltip />} />
-            <Bar
-              dataKey="count"
-              fill="var(--color-count)"
-              radius={[4, 4, 0, 0]}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+        <BarChart
+          data={chartData}
+          margin={{
+            top: 20,
+            right: 30,
+            left: 20,
+            bottom: 5,
+          }}
+        >
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis
+            dataKey="formattedTime"
+            tick={{ fontSize: 12 }}
+            angle={-45}
+            textAnchor="end"
+            height={60}
+          />
+          <YAxis tick={{ fontSize: 12 }} />
+          <ChartTooltip content={<TimeDistributionTooltip />} />
+          <Bar
+            dataKey="count"
+            fill="var(--color-count)"
+            radius={[4, 4, 0, 0]}
+          />
+        </BarChart>
       </ChartContainer>
     </div>
   );

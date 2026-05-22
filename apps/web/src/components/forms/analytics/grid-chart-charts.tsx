@@ -1,12 +1,5 @@
 import type { FC } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import {
   type ChartConfig,
   ChartLegendContent,
@@ -105,48 +98,46 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
       )}
 
       <ChartContainer config={chartConfig} className="h-96 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            layout="horizontal"
-            margin={{
-              top: 20,
-              right: 30,
-              left: 20,
-              bottom: 5,
-            }}
-          >
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" />
-            <YAxis
-              type="category"
-              dataKey="row_label"
-              width={120}
-              tick={{ fontSize: 12 }}
-            />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <ChartLegend content={<ChartLegendContent />} />
+        <BarChart
+          data={chartData}
+          layout="horizontal"
+          margin={{
+            top: 20,
+            right: 30,
+            left: 20,
+            bottom: 5,
+          }}
+        >
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis type="number" />
+          <YAxis
+            type="category"
+            dataKey="row_label"
+            width={120}
+            tick={{ fontSize: 12 }}
+          />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <ChartLegend content={<ChartLegendContent />} />
 
-            {isChoiceGrid
-              ? data.columns.map((column) => (
-                  <Bar
-                    key={column.id}
-                    dataKey={column.id}
-                    stackId="a"
-                    fill={labelToCssColor(column.label)}
-                    name={column.label}
-                  />
-                ))
-              : data.columns.map((column) => (
-                  <Bar
-                    key={column.id}
-                    dataKey={column.id}
-                    fill={labelToCssColor(column.label)}
-                    name={column.label}
-                  />
-                ))}
-          </BarChart>
-        </ResponsiveContainer>
+          {isChoiceGrid
+            ? data.columns.map((column) => (
+                <Bar
+                  key={column.id}
+                  dataKey={column.id}
+                  stackId="a"
+                  fill={labelToCssColor(column.label)}
+                  name={column.label}
+                />
+              ))
+            : data.columns.map((column) => (
+                <Bar
+                  key={column.id}
+                  dataKey={column.id}
+                  fill={labelToCssColor(column.label)}
+                  name={column.label}
+                />
+              ))}
+        </BarChart>
       </ChartContainer>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -2,14 +2,16 @@ import { type FC, lazy, Suspense } from "react";
 import { ChartLoadingFallback } from "@/components/forms/analytics/chart-loading-fallback";
 import type { DateAnalytics, TimeAnalytics } from "@/types/api/analytics";
 
+const dateTimeChartChartsImport = import("./date-time-chart-charts");
+
 const LazyDateDistributionChartCharts = lazy(() =>
-  import("./date-time-chart-charts").then((m) => ({
+  dateTimeChartChartsImport.then((m) => ({
     default: m.DateDistributionChartCharts,
   })),
 );
 
 const LazyTimeDistributionChartCharts = lazy(() =>
-  import("./date-time-chart-charts").then((m) => ({
+  dateTimeChartChartsImport.then((m) => ({
     default: m.TimeDistributionChartCharts,
   })),
 );

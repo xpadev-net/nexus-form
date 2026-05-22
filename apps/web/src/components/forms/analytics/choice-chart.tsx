@@ -2,20 +2,22 @@ import { type FC, lazy, Suspense } from "react";
 import { ChartLoadingFallback } from "@/components/forms/analytics/chart-loading-fallback";
 import type { ChoiceOptionAnalytics } from "@/types/api/analytics";
 
+const choiceChartChartsImport = import("./choice-chart-charts");
+
 const LazyPieChartDisplayCharts = lazy(() =>
-  import("./choice-chart-charts").then((m) => ({
+  choiceChartChartsImport.then((m) => ({
     default: m.PieChartDisplayCharts,
   })),
 );
 
 const LazyHorizontalBarChartDisplayCharts = lazy(() =>
-  import("./choice-chart-charts").then((m) => ({
+  choiceChartChartsImport.then((m) => ({
     default: m.HorizontalBarChartDisplayCharts,
   })),
 );
 
 const LazyVerticalBarChartDisplayCharts = lazy(() =>
-  import("./choice-chart-charts").then((m) => ({
+  choiceChartChartsImport.then((m) => ({
     default: m.VerticalBarChartDisplayCharts,
   })),
 );
