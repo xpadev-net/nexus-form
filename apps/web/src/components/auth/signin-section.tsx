@@ -43,7 +43,11 @@ function LegalAgreement() {
   );
 }
 
-export function SignInSection() {
+type SignInSectionProps = {
+  callbackURL?: string;
+};
+
+export function SignInSection({ callbackURL }: SignInSectionProps) {
   return (
     <Card className="w-full max-w-md shadow-lg">
       <CardHeader className="space-y-2 text-center">
@@ -71,7 +75,7 @@ export function SignInSection() {
               すでにアカウントをお持ちの場合はこちら
             </p>
           </div>
-          <DiscordSignInButton className="w-full" />
+          <DiscordSignInButton callbackURL={callbackURL} className="w-full" />
         </div>
 
         <div className="relative">
