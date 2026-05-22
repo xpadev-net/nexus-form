@@ -74,9 +74,11 @@ describe("repo invariants", () => {
     expect(testJob).toMatch(/^\s+permissions:\n\s+contents: read\n/m);
     expect(testJob).toContain("image: mysql:8.0");
     expect(testJob).toContain("image: redis:7-alpine");
+    expect(testJob).toContain("SET GLOBAL foreign_key_checks=0");
     expect(testJob).toContain(
       "pnpm --filter @nexus-form/database exec drizzle-kit migrate",
     );
+    expect(testJob).toContain("SET GLOBAL foreign_key_checks=1");
 
     const buildJob = ciWorkflow.slice(ciWorkflow.indexOf("  build:"));
     expect(buildJob).toContain("VITE_API_URL:");
