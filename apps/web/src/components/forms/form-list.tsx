@@ -6,6 +6,7 @@ import {
   type FormFilterStatus,
 } from "@/components/forms/form-filter-bar";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
+import { Button } from "@/components/ui/button";
 import {
   Empty,
   EmptyDescription,
@@ -93,23 +94,27 @@ export const FormList = () => {
         <ul className="space-y-2">
           {filteredForms.map((item) => (
             <li key={item.id}>
-              <Link
-                to="/forms/$id/edit"
-                params={{ id: item.id }}
-                className="flex items-center justify-between gap-2 rounded border p-3 transition-colors hover:bg-accent"
+              <Button
+                variant="outline"
+                className="flex h-auto w-full items-center justify-between gap-2 p-3 text-left font-normal"
+                asChild
               >
-                <div className="space-y-1">
-                  <p>{item.title}</p>
-                  <FormStatusBadge
-                    status={
-                      typeof item.status === "string" ? item.status : undefined
-                    }
-                  />
-                </div>
-                <span className="shrink-0 rounded border px-3 py-1 text-sm font-medium">
-                  開く
-                </span>
-              </Link>
+                <Link to="/forms/$id/edit" params={{ id: item.id }}>
+                  <div className="space-y-1">
+                    <p>{item.title}</p>
+                    <FormStatusBadge
+                      status={
+                        typeof item.status === "string"
+                          ? item.status
+                          : undefined
+                      }
+                    />
+                  </div>
+                  <span className="shrink-0 rounded border px-3 py-1 text-sm font-medium">
+                    開く
+                  </span>
+                </Link>
+              </Button>
             </li>
           ))}
         </ul>

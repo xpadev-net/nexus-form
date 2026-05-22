@@ -140,6 +140,7 @@ function SuggestionLineBreakContent({
         </>
       ) : (
         <div
+          role="group"
           className={cn(
             suggestionVariants({
               insertActive: isInsert && (isActive || isHover),

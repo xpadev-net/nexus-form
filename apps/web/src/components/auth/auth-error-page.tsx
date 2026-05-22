@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 
 export function AuthErrorPage() {
   return (
@@ -9,12 +10,9 @@ export function AuthErrorPage() {
           サインイン処理で問題が発生しました。しばらくしてから再試行してください。
         </p>
         <div className="mt-6 flex justify-center">
-          <Link
-            to="/login"
-            className="rounded border px-4 py-2 text-sm hover:bg-accent hover:text-accent-foreground"
-          >
-            ログイン画面へ戻る
-          </Link>
+          <Button variant="outline" asChild>
+            <Link to="/login">ログイン画面へ戻る</Link>
+          </Button>
         </div>
       </div>
     </div>

@@ -120,6 +120,7 @@ function Draggable(props: PlateElementProps) {
 
   return (
     <div
+      role="group"
       className={cn(
         "relative",
         isDragging && "opacity-50",
@@ -179,6 +180,7 @@ function Draggable(props: PlateElementProps) {
 
       <div
         ref={nodeRef}
+        role="group"
         className="slate-blockWrapper relative flow-root"
         onContextMenu={(event) =>
           editor

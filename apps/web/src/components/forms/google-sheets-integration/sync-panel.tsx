@@ -20,14 +20,16 @@ export function SyncStatusPanel({
       <div className="flex items-center justify-between">
         <Label>同期状態</Label>
         {!isSyncing && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-muted-foreground hover:text-foreground"
             onClick={onClearSyncStatus}
-            className="text-muted-foreground hover:text-foreground"
             aria-label="閉じる"
           >
             <X className="h-4 w-4" />
-          </button>
+          </Button>
         )}
       </div>
       <div className="space-y-2">

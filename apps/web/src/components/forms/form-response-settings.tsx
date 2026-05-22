@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FC, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { client, rpc } from "@/lib/api";
 
 // NOTE: This component initialises its local state from `initialSettings` once
@@ -96,14 +97,13 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
         </label>
       </div>
 
-      <button
+      <Button
         type="button"
         onClick={() => saveMutation.mutate()}
         disabled={saveMutation.isPending}
-        className="rounded-md bg-blue-600 px-4 py-2 text-sm text-primary-foreground hover:bg-blue-700 disabled:opacity-50"
       >
         {saveMutation.isPending ? "保存中..." : "設定を保存"}
-      </button>
+      </Button>
 
       {saveMutation.isError && (
         <p className="text-sm text-red-500">設定の保存に失敗しました</p>
