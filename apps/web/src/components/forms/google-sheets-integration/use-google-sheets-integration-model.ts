@@ -159,7 +159,7 @@ export interface GoogleSheetsIntegrationModel {
   isSyncing: boolean;
   newSheetTitle: string;
   newSpreadsheetTitle: string;
-  savedConfig: GoogleSheetsIntegrationSetting | null;
+  savedConfig: GoogleSheetsIntegrationSetting | null | undefined;
   searchQuery: string;
   selectedSheetName: string;
   selectedSpreadsheetId: string;
@@ -239,8 +239,7 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     connectionError instanceof HttpError && connectionError.status === 401;
   const isConnected = Boolean(connectionData) && !isUnauthorized;
   const connectionLoadError =
-    connectionError &&
-    !(connectionError instanceof HttpError && connectionError.status === 401)
+    connectionError && !isUnauthorized
       ? connectionError instanceof Error
         ? connectionError.message
         : null
