@@ -11,6 +11,7 @@ import {
 } from "../lib/forms/form-structure-service";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
+import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
 import { hashPassword } from "../lib/security/password";
 import {
   FormStructure,
@@ -242,7 +243,7 @@ export const formsStructureRouter = createHonoApp()
         return saveFormStructure(
           formId,
           structure,
-          auth.user_id,
+          resolveAuditUserId(auth.user_id),
           payload.changeLog,
         );
       }).catch((error) => {
@@ -296,7 +297,7 @@ export const formsStructureRouter = createHonoApp()
         restoreFormStructure(
           formId,
           payload.version,
-          auth.user_id,
+          resolveAuditUserId(auth.user_id),
           payload.changeLog,
         ),
       );
@@ -324,7 +325,7 @@ export const formsStructureRouter = createHonoApp()
             ...currentStructure,
             logic: payload.logic,
           },
-          auth.user_id,
+          resolveAuditUserId(auth.user_id),
           "Update logic rules",
         );
       }).catch((error) => {
@@ -403,7 +404,7 @@ export const formsStructureRouter = createHonoApp()
         await saveFormStructure(
           formId,
           updatedStructure,
-          auth.user_id,
+          resolveAuditUserId(auth.user_id),
           "Update password protection settings",
         );
 

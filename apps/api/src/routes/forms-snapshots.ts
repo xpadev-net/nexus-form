@@ -24,6 +24,7 @@ import {
 } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
+import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
 import { errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
 import { isoDate } from "../types/domain/iso-date";
@@ -303,9 +304,13 @@ export const formsSnapshotsRouter = createHonoApp()
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       const { changeLog } = c.req.valid("json");
       try {
-        const result = await publishSnapshot(formId, auth.user_id, {
-          changeLog,
-        });
+        const result = await publishSnapshot(
+          formId,
+          resolveAuditUserId(auth.user_id),
+          {
+            changeLog,
+          },
+        );
         const response = PublishSnapshotResponseSchema.parse(result);
         return c.json(response);
       } catch (error) {

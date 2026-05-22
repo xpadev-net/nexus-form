@@ -25,6 +25,7 @@ export function useValidationSSE(formId: string | null | undefined): void {
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
+    let consecutiveErrors = 0;
 
     const closeEventSource = (): void => {
       eventSource?.close();
@@ -53,7 +54,6 @@ export function useValidationSSE(formId: string | null | undefined): void {
 
       const source = new EventSource(url, { withCredentials: true });
       eventSource = source;
-      let consecutiveErrors = 0;
 
       source.addEventListener("open", () => {
         consecutiveErrors = 0;
