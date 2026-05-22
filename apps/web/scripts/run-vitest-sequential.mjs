@@ -24,10 +24,12 @@ const files = [];
 collectTestFiles(join(webRoot, "src"), files);
 files.sort();
 
+const extraArgs = process.argv.slice(2);
+
 let failed = false;
 for (const file of files) {
   const relative = file.slice(webRoot.length + 1);
-  const result = spawnSync(vitestBin, ["run", relative], {
+  const result = spawnSync(vitestBin, ["run", relative, ...extraArgs], {
     cwd: webRoot,
     stdio: "inherit",
   });

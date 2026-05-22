@@ -120,6 +120,9 @@ export function useFormContentAutosave({
 
   const versionRef = useRef(0);
   const baseContentRef = useRef("[]");
+  // Written when collaborator content arrives during local edits (R12-P6).
+  // Merge still refetches via usePlateMerge; these refs reserve the payload for a
+  // future optimization and are cleared on save/merge success.
   const pendingRemoteContentRef = useRef<string | null>(null);
   const pendingRemoteVersionRef = useRef<number | null>(null);
   const editorValueRef = useRef("[]");
