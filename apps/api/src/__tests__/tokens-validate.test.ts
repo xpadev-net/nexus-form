@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
 
@@ -54,6 +54,8 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
+const originalTrustedProxyCount = process.env.TRUSTED_PROXY_COUNT;
+
 const { tokensRouter } = await import("../routes/tokens");
 const { db } = await import("@nexus-form/database");
 
@@ -82,6 +84,14 @@ describe("POST /api/tokens/validate", () => {
       user: { id: "request-user", role: "user" },
       session: { id: "session-id" },
     });
+  });
+
+  afterEach(() => {
+    if (originalTrustedProxyCount === undefined) {
+      delete process.env.TRUSTED_PROXY_COUNT;
+    } else {
+      process.env.TRUSTED_PROXY_COUNT = originalTrustedProxyCount;
+    }
   });
 
   it("returns token details only for tokens owned by the session user", async () => {
@@ -116,17 +126,26 @@ describe("POST /api/tokens/validate", () => {
   it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
     validateApiTokenForUser.mockResolvedValue(null);
 
-    let res: Response | null = null;
+    const responses: Response[] = [];
     for (let i = 0; i < 11; i++) {
-      res = await tokensRouter.request("/validate", {
-        method: "POST",
-        headers: validateRequestHeaders("203.0.113.88"),
-        body: JSON.stringify({ token: `ct_burst_${i}` }),
-      });
+      responses.push(
+        await tokensRouter.request("/validate", {
+          method: "POST",
+          headers: validateRequestHeaders("203.0.113.88"),
+          body: JSON.stringify({ token: `ct_burst_${i}` }),
+        }),
+      );
     }
 
+    for (const allowed of responses.slice(0, 10)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const res = responses[10];
     if (!res) throw new Error("Expected a response");
     expect(res.status).toBe(429);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+    expect(res.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
     await expect(res.json()).resolves.toMatchObject({
       error: { message: "Too many requests" },
     });
