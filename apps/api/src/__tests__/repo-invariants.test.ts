@@ -59,12 +59,25 @@ describe("repo invariants", () => {
       resolve(process.cwd(), "../../.github/workflows/ci.yml"),
       "utf8",
     );
-    expect(ciWorkflow).toContain("permissions:");
-    expect(ciWorkflow).toContain("contents: read");
-    expect(ciWorkflow).toContain("image: mysql:8.0");
-    expect(ciWorkflow).toContain("image: redis:7-alpine");
-    expect(ciWorkflow).toContain("pnpm db:migrate");
-    expect(ciWorkflow).toContain("VITE_API_URL:");
-    expect(ciWorkflow).not.toContain("AUTH_SECRET: ${{ secrets.AUTH_SECRET }}");
+    const workflowPermissions = ciWorkflow.slice(
+      0,
+      ciWorkflow.indexOf("jobs:"),
+    );
+    expect(workflowPermissions).toMatch(
+      /^permissions:\n {2}contents: read\n$/m,
+    );
+
+    const testJob = ciWorkflow.slice(
+      ciWorkflow.indexOf("  test:"),
+      ciWorkflow.indexOf("  build:"),
+    );
+    expect(testJob).toMatch(/^\s+permissions:\n\s+contents: read\n/m);
+    expect(testJob).toContain("image: mysql:8.0");
+    expect(testJob).toContain("image: redis:7-alpine");
+    expect(testJob).toContain("pnpm db:migrate");
+
+    const buildJob = ciWorkflow.slice(ciWorkflow.indexOf("  build:"));
+    expect(buildJob).toContain("VITE_API_URL:");
+    expect(buildJob).not.toContain("AUTH_SECRET: ${{ secrets.AUTH_SECRET }}");
   });
 });
