@@ -59,71 +59,6 @@ export async function getFormIntegration(
   };
 }
 
-export async function upsertFormIntegration(params: {
-  formId: string;
-  ownerUserId: string;
-  userId?: string | null;
-  config: GoogleSheetsIntegrationSetting;
-}): Promise<FormIntegrationRecord> {
-  const [existing] = await db
-    .select()
-    .from(formIntegration)
-    .where(eq(formIntegration.formId, params.formId))
-    .limit(1);
-
-  const ownerUserIdToUse =
-    existing && existing.ownerUserId !== params.ownerUserId
-      ? params.ownerUserId
-      : (existing?.ownerUserId ?? params.ownerUserId);
-
-  const userIdToUse =
-    existing && existing.userId !== params.userId
-      ? (params.userId ?? params.ownerUserId)
-      : (existing?.userId ?? params.userId ?? params.ownerUserId);
-
-  if (existing) {
-    // Update existing record
-    await db
-      .update(formIntegration)
-      .set({
-        ownerUserId: ownerUserIdToUse,
-        userId: userIdToUse ?? null,
-        configJson: JSON.stringify(params.config),
-      })
-      .where(eq(formIntegration.formId, params.formId));
-  } else {
-    // Insert new record
-    await db.insert(formIntegration).values({
-      id: randomUUID(),
-      formId: params.formId,
-      ownerUserId: ownerUserIdToUse,
-      userId: userIdToUse ?? null,
-      configJson: JSON.stringify(params.config),
-    });
-  }
-
-  // Fetch the upserted record
-  const [record] = await db
-    .select()
-    .from(formIntegration)
-    .where(eq(formIntegration.formId, params.formId))
-    .limit(1);
-
-  if (!record) {
-    throw new Error("Failed to upsert form integration");
-  }
-
-  return {
-    id: record.id,
-    formId: record.formId,
-    ownerUserId: record.ownerUserId,
-    userId: record.userId,
-    config: params.config,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
 export async function upsertFormIntegrationForCurrentOwner(params: {
   formId: string;
   config: GoogleSheetsIntegrationSetting;
@@ -178,7 +113,7 @@ export async function upsertFormIntegrationForCurrentOwner(params: {
       formId: record.formId,
       ownerUserId: record.ownerUserId,
       userId: record.userId,
-      config: params.config,
+      config: parseConfig(record.configJson),
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     };
