@@ -121,6 +121,7 @@ function Draggable(props: PlateElementProps) {
   return (
     <div
       role="group"
+      aria-label="Editor block"
       className={cn(
         "relative",
         isDragging && "opacity-50",
@@ -181,6 +182,7 @@ function Draggable(props: PlateElementProps) {
       <div
         ref={nodeRef}
         role="group"
+        aria-label="Editor block content"
         className="slate-blockWrapper relative flow-root"
         onContextMenu={(event) =>
           editor
