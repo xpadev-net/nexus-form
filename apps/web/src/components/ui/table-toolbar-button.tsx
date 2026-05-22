@@ -230,8 +230,11 @@ function TablePicker() {
     });
   };
 
-  const insertTable = () => {
-    tf.insert.table(tablePicker.size, { select: true });
+  const insertTableAt = (rowIndex: number, colIndex: number) => {
+    tf.insert.table(
+      { colCount: colIndex + 1, rowCount: rowIndex + 1 },
+      { select: true },
+    );
     editor.tf.focus();
   };
 
@@ -254,7 +257,7 @@ function TablePicker() {
               onMouseMove={() => {
                 onCellMove(rowIndex, columIndex);
               }}
-              onClick={insertTable}
+              onClick={() => insertTableAt(rowIndex, columIndex)}
             />
           )),
         )}
