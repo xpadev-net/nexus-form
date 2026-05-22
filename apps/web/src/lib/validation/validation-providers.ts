@@ -8,7 +8,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { apiUrl } from "@/lib/api";
 import {
-  ALL_TEMPLATE_OPTIONS,
+  VALIDATION_PATTERN_TEMPLATES,
   type ValidationPatternTemplate,
 } from "@/lib/constants/validation-patterns";
 
@@ -67,7 +67,10 @@ export function getProviderPatternTemplates(
 export function getValidationPatternTemplates(
   providers: ValidationProviderItem[],
 ): ValidationPatternTemplate[] {
-  return [...ALL_TEMPLATE_OPTIONS, ...getProviderPatternTemplates(providers)];
+  return [
+    ...VALIDATION_PATTERN_TEMPLATES,
+    ...getProviderPatternTemplates(providers),
+  ];
 }
 
 export function getValidationPatternTemplate(
