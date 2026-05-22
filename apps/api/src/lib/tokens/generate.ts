@@ -148,7 +148,8 @@ export async function getUserApiTokens(
       },
     ];
   });
-  const total = countRow[0]?.count ?? 0;
+  const rawTotal = countRow[0]?.count ?? 0;
+  const total = rawTotal - malformedTokens.length;
 
   return {
     tokens: mappedTokens,

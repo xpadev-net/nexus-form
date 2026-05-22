@@ -63,6 +63,33 @@ describe("getUserApiTokens", () => {
     }));
   });
 
+  it("excludes malformed tokens from pagination total", async () => {
+    dbMocks.limit.mockImplementation(() => ({
+      offset: dbMocks.offset.mockResolvedValue([
+        {
+          id: "token-bad",
+          name: "Bad",
+          scopes: "not-an-array",
+          formIds: null,
+          expiresAt: null,
+          lastUsedAt: null,
+          createdAt: new Date("2026-01-01T00:00:00.000Z"),
+          isActive: true,
+        },
+      ]),
+    }));
+    dbMocks.countSelect.mockResolvedValue([{ count: 3 }]);
+
+    const result = await getUserApiTokens("user-1", 1, 10);
+
+    expect(result.tokens).toHaveLength(0);
+    expect(result.malformed_tokens).toEqual([
+      { id: "token-bad", error: "MALFORMED_STORED_JSON" },
+    ]);
+    expect(result.total).toBe(2);
+    expect(result.pagination.totalPages).toBe(1);
+  });
+
   it("queries only one page from the database for large token lists", async () => {
     const result = await getUserApiTokens("user-1", 2, 1);
 
