@@ -11,12 +11,12 @@ import {
 import { providerRegistry } from "@nexus-form/integrations";
 import type { ValidationStatusValue } from "@nexus-form/shared";
 import {
+  buildValidationRetryJobId,
   genericValidationJobDataSchema,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
-  VALIDATION_RETRY_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -323,7 +323,7 @@ export async function enqueueValidationRetries(
       preparedJobs.push({
         result,
         jobData,
-        jobId: `${VALIDATION_RETRY_JOB_PREFIX}${result.id}:${randomUUID()}`,
+        jobId: buildValidationRetryJobId(result.id, randomUUID()),
       });
     } catch (error) {
       logError("Failed to prepare validation retry job", "forms-responses", {

@@ -492,7 +492,7 @@ describe("markValidationProcessing", () => {
   });
 
   it("requires retry jobs to match the persisted job id before PROCESSING", async () => {
-    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1-job-a`;
 
     await markValidationProcessing({
       responseId: "response-1",
@@ -565,7 +565,7 @@ describe("markValidationProcessing", () => {
   });
 
   it("throws before publishing when a retry job starts before its job id is persisted", async () => {
-    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1:job-a`;
+    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1-job-a`;
     updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "PENDING", errorCode: null, jobId: null },

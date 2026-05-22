@@ -175,8 +175,8 @@ describe("R6-M9: validation retry bulk updates", () => {
       enqueuedCount: 2,
       skippedCount: 0,
       jobIds: [
-        expect.stringMatching(/^validation-retry:result-1:/),
-        expect.stringMatching(/^validation-retry:result-2:/),
+        expect.stringMatching(/^validation-retry-result-1-/),
+        expect.stringMatching(/^validation-retry-result-2-/),
       ],
     });
     expect(mocks.queueAdd).toHaveBeenCalledTimes(2);
@@ -197,7 +197,7 @@ describe("R6-M9: validation retry bulk updates", () => {
         snapshotVersion: 3,
       }),
       expect.objectContaining({
-        jobId: expect.stringMatching(/^validation-retry:result-1:/),
+        jobId: expect.stringMatching(/^validation-retry-result-1-/),
       }),
     );
     expect(mocks.queueAdd).toHaveBeenNthCalledWith(
@@ -205,7 +205,7 @@ describe("R6-M9: validation retry bulk updates", () => {
       "validate-discord",
       expect.objectContaining({ responseId: "response-result-2" }),
       expect.objectContaining({
-        jobId: expect.stringMatching(/^validation-retry:result-2:/),
+        jobId: expect.stringMatching(/^validation-retry-result-2-/),
       }),
     );
     expect(mocks.set).toHaveBeenCalledWith(
@@ -213,7 +213,7 @@ describe("R6-M9: validation retry bulk updates", () => {
         status: "PENDING",
         errorCode: null,
         errorMessage: null,
-        jobId: expect.stringMatching(/^validation-retry:result-1:/),
+        jobId: expect.stringMatching(/^validation-retry-result-1-/),
       }),
     );
     expect(mocks.set).toHaveBeenCalledWith(
@@ -221,7 +221,7 @@ describe("R6-M9: validation retry bulk updates", () => {
         status: "PENDING",
         errorCode: null,
         errorMessage: null,
-        jobId: expect.stringMatching(/^validation-retry:result-2:/),
+        jobId: expect.stringMatching(/^validation-retry-result-2-/),
       }),
     );
     const setCalls = mocks.set.mock.calls as unknown as Array<

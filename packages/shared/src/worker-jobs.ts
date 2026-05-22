@@ -1,6 +1,21 @@
 import { z } from "zod";
 
-export const VALIDATION_RETRY_JOB_PREFIX = "validation-retry:";
+/** BullMQ custom job IDs must not contain `:`. */
+export const VALIDATION_RETRY_JOB_PREFIX = "validation-retry-";
+
+/** Maps validation result ids (e.g. `validation-result:<hash>`) to a BullMQ-safe segment. */
+export function sanitizeValidationResultIdForRetryJob(
+  validationResultId: string,
+): string {
+  return validationResultId.replaceAll(":", "-");
+}
+
+export function buildValidationRetryJobId(
+  validationResultId: string,
+  nonce: string,
+): string {
+  return `${VALIDATION_RETRY_JOB_PREFIX}${sanitizeValidationResultIdForRetryJob(validationResultId)}-${nonce}`;
+}
 
 export const genericValidationJobDataSchema = z.object({
   responseId: z.string().min(1),
