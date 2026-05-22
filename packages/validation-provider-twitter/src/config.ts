@@ -96,13 +96,7 @@ export function getTwitterConfig(): TwitterConfig {
   if (!validation.isValid) {
     throw new Error(`Invalid Twitter config: ${validation.errors.join(", ")}`);
   }
-  return {
-    bearerToken,
-    apiVersion:
-      process.env.TWITTER_API_VERSION || TWITTER_CONFIG_DEFAULTS.API_VERSION,
-    baseUrl,
-    timeout,
-  };
+  return config;
 }
 
 export function validateTwitterConfig(config: TwitterConfig): {

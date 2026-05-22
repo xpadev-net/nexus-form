@@ -9,7 +9,12 @@ import { assertTwitterEnvironmentConfig } from "./config";
 import { TwitterErrorCode } from "./error-codes";
 import { parseTwitterError } from "./utils";
 
-const TwitterInputSchema = z.string().regex(/^[a-zA-Z0-9_]{1,15}$/);
+const TwitterInputSchema = z
+  .string()
+  .regex(/^[a-zA-Z0-9_]{1,15}$/)
+  .refine((username) => username !== "_", {
+    message: "Twitter username cannot be a single underscore",
+  });
 const TWITTER_HEALTH_CHECK_URL =
   "https://api.twitter.com/2/users/by/username/TwitterDev";
 
