@@ -347,7 +347,7 @@ export function useFormPublishMenuModel({
 
     const extraFields =
       checked && !passwordProtection.hasPassword
-        ? { password: passwordInput }
+        ? { password: passwordInput, password_hint: passwordHintInput }
         : {};
 
     updatePasswordProtection.mutate(

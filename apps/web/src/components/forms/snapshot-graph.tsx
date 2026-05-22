@@ -161,6 +161,7 @@ interface SnapshotGraphProps {
   isMutating?: boolean;
   onActivate?: (version: number) => void;
   onRestore?: (version: number) => void;
+  /** Publishes a historical snapshot when the form has no active public state. */
   onPublishFromHistory?: (version: number) => void;
   isNotPublished?: boolean;
   selectedId?: string | null;

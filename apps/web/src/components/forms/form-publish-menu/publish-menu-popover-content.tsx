@@ -31,6 +31,13 @@ interface PublishMenuPopoverContentProps {
   onRestoreSnapshot: (version: number) => void;
 }
 
+/**
+ * Aggregates publish-menu sections into the popover body.
+ *
+ * This is the boundary between the top-level menu and focused section
+ * components. State props are pre-derived by the model; callback props perform
+ * publish, password, snapshot history, and reset actions in the parent model.
+ */
 export const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
   publishSectionState,
   unpublishedSection,

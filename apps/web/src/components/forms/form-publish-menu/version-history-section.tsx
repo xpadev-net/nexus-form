@@ -15,6 +15,13 @@ interface VersionHistorySectionProps {
   onSaveSnapshot: () => void;
 }
 
+/**
+ * Renders snapshot history actions for the publish menu.
+ *
+ * `onActivate` promotes an existing snapshot as the active public version,
+ * while `onPublishFromHistory` publishes an already selected historical
+ * snapshot when the form is currently unpublished.
+ */
 export const VersionHistorySection: FC<VersionHistorySectionProps> = ({
   state,
   onSelect,
