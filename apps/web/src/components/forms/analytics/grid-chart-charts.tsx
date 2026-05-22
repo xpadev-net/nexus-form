@@ -28,27 +28,7 @@ const createChartConfig = (columns: GridAnalytics["columns"]): ChartConfig => {
   return config;
 };
 
-const transformDataForChoiceGrid = (
-  rowAnalytics: GridRowChoiceCount[],
-  columns: GridAnalytics["columns"],
-) => {
-  return rowAnalytics.map((row) => {
-    const dataPoint: Record<string, number | string> = {
-      row_label: row.row_label,
-    };
-
-    columns.forEach((column) => {
-      const columnCount = row.column_counts.find(
-        (cc) => cc.column_id === column.id,
-      );
-      dataPoint[column.id] = columnCount?.count || 0;
-    });
-
-    return dataPoint;
-  });
-};
-
-const transformDataForCheckboxGrid = (
+const transformGridData = (
   rowAnalytics: GridRowChoiceCount[],
   columns: GridAnalytics["columns"],
 ) => {
@@ -82,9 +62,7 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
   const chartConfig = createChartConfig(data.columns);
   const isChoiceGrid = data.grid_type === "choice_grid";
 
-  const chartData = isChoiceGrid
-    ? transformDataForChoiceGrid(data.row_analytics, data.columns)
-    : transformDataForCheckboxGrid(data.row_analytics, data.columns);
+  const chartData = transformGridData(data.row_analytics, data.columns);
 
   return (
     <div className="space-y-4">

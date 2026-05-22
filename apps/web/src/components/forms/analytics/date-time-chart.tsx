@@ -2,16 +2,23 @@ import { type FC, lazy, Suspense } from "react";
 import { ChartLoadingFallback } from "@/components/forms/analytics/chart-loading-fallback";
 import type { DateAnalytics, TimeAnalytics } from "@/types/api/analytics";
 
-const dateTimeChartChartsImport = import("./date-time-chart-charts");
+let dateTimeChartChartsImport: Promise<
+  typeof import("./date-time-chart-charts")
+> | null = null;
+
+function loadDateTimeChartCharts() {
+  dateTimeChartChartsImport ??= import("./date-time-chart-charts");
+  return dateTimeChartChartsImport;
+}
 
 const LazyDateDistributionChartCharts = lazy(() =>
-  dateTimeChartChartsImport.then((m) => ({
+  loadDateTimeChartCharts().then((m) => ({
     default: m.DateDistributionChartCharts,
   })),
 );
 
 const LazyTimeDistributionChartCharts = lazy(() =>
-  dateTimeChartChartsImport.then((m) => ({
+  loadDateTimeChartCharts().then((m) => ({
     default: m.TimeDistributionChartCharts,
   })),
 );
