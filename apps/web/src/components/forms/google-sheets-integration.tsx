@@ -16,8 +16,6 @@ import { logError } from "@/lib/logger";
 import type {
   FormIntegrationResponse,
   GoogleSheetsIntegrationSetting,
-  SyncJobStatusResponse,
-  SyncStartResponse,
 } from "@/types/integrations/google-sheets";
 import {
   GoogleSheetsDisconnectedCard,
@@ -30,12 +28,8 @@ import {
   SyncActionButtons,
   SyncStatusPanel,
 } from "./google-sheets-integration/sync-panel";
-import type {
-  Sheet,
-  Spreadsheet,
-  UiSyncState,
-  UiSyncStatus,
-} from "./google-sheets-integration/types";
+import type { Sheet, Spreadsheet } from "./google-sheets-integration/types";
+import { useGoogleSheetsSync } from "./google-sheets-integration/use-google-sheets-sync";
 
 interface GoogleSheetsIntegrationProps {
   formId: string;
@@ -62,67 +56,8 @@ const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
   );
 };
 
-function mapBullMqStateToUiStatus(
-  state: SyncJobStatusResponse["job"]["state"],
-): UiSyncStatus {
-  switch (state) {
-    case "completed":
-      return "completed";
-    case "failed":
-    case "unknown":
-      return "failed";
-    case "active":
-      return "processing";
-    default:
-      return "queued";
-  }
-}
-
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
-}
-
-function clampPercentage(v: number): number {
-  return Math.max(0, Math.min(100, v));
-}
-
-function extractProgress(raw: unknown): UiSyncState["progress"] | undefined {
-  if (raw === null || raw === undefined) return undefined;
-  if (typeof raw === "number") return { percentage: clampPercentage(raw) };
-  if (!isRecord(raw)) return undefined;
-  const result = {
-    processed: typeof raw.processed === "number" ? raw.processed : undefined,
-    total: typeof raw.total === "number" ? raw.total : undefined,
-    percentage:
-      typeof raw.percentage === "number"
-        ? clampPercentage(raw.percentage)
-        : undefined,
-  };
-  if (
-    result.processed === undefined &&
-    result.total === undefined &&
-    result.percentage === undefined
-  ) {
-    return undefined;
-  }
-  return result;
-}
-
-function isJobResult(
-  v: unknown,
-): v is { updatedRows?: number; updatedRange?: string } {
-  if (!isRecord(v)) return false;
-  const validRows =
-    v.updatedRows === undefined || typeof v.updatedRows === "number";
-  const validRange =
-    v.updatedRange === undefined || typeof v.updatedRange === "string";
-  return validRows && validRange;
-}
-
-interface SyncMonitorState {
-  syncStatus: UiSyncState | null;
-  isSyncing: boolean;
-  activeJobId: string | null;
 }
 
 interface GoogleSheetsUiState {
@@ -136,13 +71,6 @@ interface GoogleSheetsUiState {
   newSheetTitle: string;
   isAddingSheet: boolean;
 }
-
-type SyncMonitorAction =
-  | { type: "start"; status: UiSyncState }
-  | { type: "update"; status: UiSyncState }
-  | { type: "finish"; status: UiSyncState }
-  | { type: "dismiss-status" }
-  | { type: "clear" };
 
 type GoogleSheetsUiAction =
   | { type: "set-search-query"; value: string }
@@ -233,42 +161,6 @@ const googleSheetsUiReducer = (
   }
 };
 
-const syncMonitorReducer = (
-  state: SyncMonitorState,
-  action: SyncMonitorAction,
-): SyncMonitorState => {
-  switch (action.type) {
-    case "start":
-      return {
-        syncStatus: action.status,
-        isSyncing: true,
-        activeJobId: action.status.jobId,
-      };
-    case "update":
-      return {
-        ...state,
-        syncStatus: action.status,
-      };
-    case "finish":
-      return {
-        syncStatus: action.status,
-        isSyncing: false,
-        activeJobId: null,
-      };
-    case "dismiss-status":
-      return {
-        ...state,
-        syncStatus: null,
-      };
-    case "clear":
-      return {
-        syncStatus: null,
-        isSyncing: false,
-        activeJobId: null,
-      };
-  }
-};
-
 function useGoogleSheetsIntegrationModel(formId: string) {
   const queryClient = useQueryClient();
 
@@ -290,90 +182,18 @@ function useGoogleSheetsIntegrationModel(formId: string) {
   const searchQueryRef = useRef(searchQuery);
 
   // 同期状態
-  const [syncMonitor, dispatchSyncMonitor] = useReducer(syncMonitorReducer, {
-    syncStatus: null,
-    isSyncing: false,
-    activeJobId: null,
-  });
-  const { activeJobId, isSyncing, syncStatus } = syncMonitor;
+  const { dismissSyncStatus, isSyncing, startSync, syncStatus } =
+    useGoogleSheetsSync({
+      formId,
+      configQueryKey: ["google-sheets-config", formId],
+    });
 
   const authWindowRef = useRef<Window | null>(null);
   const popupIntervalRef = useRef<number | null>(null);
-  const syncTimeoutRef = useRef<number | null>(null);
   const hasInitializedConfigRef = useRef(false);
   useEffect(() => {
     searchQueryRef.current = searchQuery;
   }, [searchQuery]);
-
-  useEffect(() => {
-    return () => {
-      if (syncTimeoutRef.current != null) {
-        window.clearTimeout(syncTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const { data: syncJobData, error: syncJobError } = useQuery({
-    queryKey: ["syncJobStatus", formId, activeJobId],
-    queryFn: () =>
-      fetchJson<SyncJobStatusResponse>(
-        apiUrl(
-          `/api/forms/${formId}/integrations/google-sheets/sync/${activeJobId}`,
-        ),
-        apiRequestInit(),
-      ),
-    enabled: !!activeJobId && isSyncing,
-    refetchInterval: (query) => {
-      const state = query.state.data
-        ? mapBullMqStateToUiStatus(query.state.data.job.state)
-        : "queued";
-      return state === "completed" || state === "failed" ? false : 1000;
-    },
-    refetchIntervalInBackground: false,
-  });
-
-  useEffect(() => {
-    if (!syncJobData || !activeJobId) return;
-    const uiStatus = mapBullMqStateToUiStatus(syncJobData.job.state);
-    const jobProgress = extractProgress(syncJobData.job.progress);
-    const jobResult = isJobResult(syncJobData.job.result)
-      ? syncJobData.job.result
-      : undefined;
-    const nextStatus = {
-      jobId: activeJobId,
-      status: uiStatus,
-      progress: jobProgress,
-      result: jobResult,
-      error: uiStatus === "failed" ? syncJobData.job.failedReason : undefined,
-    };
-    if (uiStatus === "completed") {
-      if (syncTimeoutRef.current != null) {
-        window.clearTimeout(syncTimeoutRef.current);
-        syncTimeoutRef.current = null;
-      }
-      toast.success("同期が完了しました");
-      dispatchSyncMonitor({ type: "finish", status: nextStatus });
-    } else if (uiStatus === "failed") {
-      if (syncTimeoutRef.current != null) {
-        window.clearTimeout(syncTimeoutRef.current);
-        syncTimeoutRef.current = null;
-      }
-      toast.error("同期に失敗しました");
-      dispatchSyncMonitor({ type: "finish", status: nextStatus });
-    } else {
-      dispatchSyncMonitor({ type: "update", status: nextStatus });
-    }
-  }, [syncJobData, activeJobId]);
-
-  useEffect(() => {
-    if (!syncJobError) return;
-    if (syncTimeoutRef.current != null) {
-      window.clearTimeout(syncTimeoutRef.current);
-      syncTimeoutRef.current = null;
-    }
-    toast.error("同期状態の確認に失敗しました");
-    dispatchSyncMonitor({ type: "clear" });
-  }, [syncJobError]);
 
   const {
     data: connectionData,
@@ -743,63 +563,14 @@ function useGoogleSheetsIntegrationModel(formId: string) {
       return;
     }
 
-    dispatchSyncMonitor({
-      type: "start",
-      status: {
-        jobId: "",
-        status: "queued",
-      },
-    });
-    try {
-      const data = await fetchJson<SyncStartResponse>(
-        apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
-        apiRequestInit({
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        }),
-      );
-      dispatchSyncMonitor({
-        type: "start",
-        status: {
-          jobId: data.jobId,
-          status: data.status,
-        },
-      });
-      if (syncTimeoutRef.current != null) {
-        window.clearTimeout(syncTimeoutRef.current);
-      }
-      syncTimeoutRef.current = window.setTimeout(() => {
-        syncTimeoutRef.current = null;
-        toast.error("同期状態の監視がタイムアウトしました");
-        dispatchSyncMonitor({ type: "clear" });
-      }, 60_000);
-
-      toast.success("同期を開始しました");
-
-      try {
-        await queryClient.invalidateQueries({
-          queryKey: ["google-sheets-config", formId],
-        });
-      } catch (error) {
-        logError("Failed to refresh config after sync start:", "ui", {
-          error: error,
-        });
-        toast.error("設定の再取得に失敗しました。手動で再読み込みしてください");
-      }
-    } catch (error) {
-      logError("Failed to start sync:", "ui", { error: error });
-      toast.error("同期の開始に失敗しました");
-      dispatchSyncMonitor({ type: "clear" });
-    }
+    await startSync();
   }, [
-    formId,
     hasUnsavedChanges,
     isSyncing,
-    queryClient,
     savedConfig,
     selectedSpreadsheetId,
     selectedSheetName,
+    startSync,
   ]);
 
   // フィルタリングされたスプレッドシート
@@ -828,8 +599,8 @@ function useGoogleSheetsIntegrationModel(formId: string) {
   }, [handleAddSheet]);
 
   const handleClearSyncStatus = useCallback(() => {
-    dispatchSyncMonitor({ type: "dismiss-status" });
-  }, []);
+    dismissSyncStatus();
+  }, [dismissSyncStatus]);
 
   const handleSaveConfigClick = useCallback(() => {
     void handleSaveConfig();
