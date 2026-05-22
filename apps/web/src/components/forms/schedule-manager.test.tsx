@@ -152,10 +152,10 @@ describe("ScheduleManager", () => {
       "スケジュールが設定されていません。",
     );
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      'button[data-testid="schedule-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
 
     act(() => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -179,10 +179,10 @@ describe("ScheduleManager", () => {
       "スナップショットを読み込めませんでした。",
     );
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      'button[data-testid="schedule-snapshots-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
 
     act(() => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));

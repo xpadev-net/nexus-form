@@ -228,6 +228,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                   type="button"
                   variant="outline"
                   size="sm"
+                  data-testid="form-responses-query-retry"
                   onClick={() => void responsesQuery.refetch()}
                 >
                   再読み込み

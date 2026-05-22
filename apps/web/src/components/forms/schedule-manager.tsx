@@ -432,6 +432,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
             type="button"
             variant="outline"
             size="sm"
+            data-testid="schedule-snapshots-query-retry"
             onClick={() => void snapshotsQuery.refetch()}
           >
             再読み込み
@@ -448,6 +449,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
             type="button"
             variant="outline"
             size="sm"
+            data-testid="schedule-query-retry"
             onClick={() => void schedulesQuery.refetch()}
           >
             再読み込み

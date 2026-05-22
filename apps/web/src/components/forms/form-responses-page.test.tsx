@@ -271,10 +271,10 @@ describe("FormResponsesContent accessibility", () => {
     expect(container.textContent).toContain("回答一覧を読み込めませんでした。");
     expect(container.textContent).not.toContain("回答はまだありません。");
 
-    const retryButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "再読み込み",
+    const retryButton = container.querySelector(
+      'button[data-testid="form-responses-query-retry"]',
     );
-    expect(retryButton).toBeDefined();
+    expect(retryButton).not.toBeNull();
 
     act(() => {
       retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
