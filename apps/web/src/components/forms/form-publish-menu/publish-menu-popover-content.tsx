@@ -27,7 +27,7 @@ interface PublishMenuPopoverContentProps {
   onPasswordSave: () => void;
   onSelectSnapshot: (id: string | null) => void;
   onActivateSnapshot: (version: number) => void;
-  onPublishSnapshot: (version: number) => void;
+  onPublishFromHistory: (version: number) => void;
   onRestoreSnapshot: (version: number) => void;
 }
 
@@ -46,7 +46,7 @@ export const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
   onPasswordSave,
   onSelectSnapshot,
   onActivateSnapshot,
-  onPublishSnapshot,
+  onPublishFromHistory,
   onRestoreSnapshot,
 }) => {
   return (
@@ -77,7 +77,7 @@ export const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
         state={historyState}
         onSelect={onSelectSnapshot}
         onActivate={onActivateSnapshot}
-        onPublish={onPublishSnapshot}
+        onPublishFromHistory={onPublishFromHistory}
         onRestore={onRestoreSnapshot}
         onSaveSnapshot={onSaveOnly}
       />

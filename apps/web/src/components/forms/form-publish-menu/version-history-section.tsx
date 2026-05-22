@@ -10,7 +10,7 @@ interface VersionHistorySectionProps {
   state: VersionHistorySectionState;
   onSelect: (id: string | null) => void;
   onActivate: (version: number) => void;
-  onPublish: (version: number) => void;
+  onPublishFromHistory: (version: number) => void;
   onRestore: (version: number) => void;
   onSaveSnapshot: () => void;
 }
@@ -19,7 +19,7 @@ export const VersionHistorySection: FC<VersionHistorySectionProps> = ({
   state,
   onSelect,
   onActivate,
-  onPublish,
+  onPublishFromHistory,
   onRestore,
   onSaveSnapshot,
 }) => {
@@ -58,7 +58,7 @@ export const VersionHistorySection: FC<VersionHistorySectionProps> = ({
               isMutating={state.isMutating}
               isNotPublished={state.isNotPublished}
               onActivate={onActivate}
-              onPublish={onPublish}
+              onPublishFromHistory={onPublishFromHistory}
               onRestore={onRestore}
             />
           </ScrollArea>

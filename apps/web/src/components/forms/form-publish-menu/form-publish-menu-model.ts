@@ -174,13 +174,16 @@ export function useFormPublishMenuModel({
       activeSnapshotVersion,
     });
 
-  const unpublishedChangesState: UnpublishedChangesSectionState = {
-    publishState: isPublished ? "published" : "unpublished",
-    actionState: isProcessing ? "processing" : "idle",
-    totalChanges,
-    hasChangesFromActive,
-    activeSnapshotVersion,
-  };
+  const unpublishedSection: UnpublishedChangesSectionState | null =
+    hasUnpublishedChanges
+      ? {
+          publishState: isPublished ? "published" : "unpublished",
+          actionState: isProcessing ? "processing" : "idle",
+          totalChanges,
+          hasChangesFromActive,
+          activeSnapshotVersion,
+        }
+      : null;
 
   const passwordState: PasswordProtectionSectionState = {
     isEnabled: passwordProtection.enabled,
@@ -297,7 +300,7 @@ export function useFormPublishMenuModel({
     [activateSnapshotMutation, onStatusChange],
   );
 
-  const handlePublishSnapshotFromHistory = useCallback(
+  const publishFromHistory = useCallback(
     async (version: number) => {
       try {
         await activateSnapshotMutation.mutateAsync(version);
@@ -429,11 +432,11 @@ export function useFormPublishMenuModel({
     dispatch({ type: "select-snapshot", snapshotId });
   }, []);
 
-  const handlePublishSnapshot = useCallback(
+  const handlePublishFromHistory = useCallback(
     (version: number) => {
-      void handlePublishSnapshotFromHistory(version);
+      void publishFromHistory(version);
     },
-    [handlePublishSnapshotFromHistory],
+    [publishFromHistory],
   );
 
   const handleDialogConfirmClick = useCallback(
@@ -470,7 +473,7 @@ export function useFormPublishMenuModel({
     handlePasswordSave,
     handlePasswordToggle,
     handlePublishChanges,
-    handlePublishSnapshot,
+    handlePublishFromHistory,
     handlePublishAction,
     handleResetClick,
     handleResetDialogOpenChange,
@@ -497,7 +500,7 @@ export function useFormPublishMenuModel({
     showResetDialog,
     snapshots,
     totalChanges,
-    unpublishedSection: hasUnpublishedChanges ? unpublishedChangesState : null,
+    unpublishedSection,
     snapshotSaveConfirmLabel: getSnapshotSaveConfirmLabel(dialogMode),
   } as const;
 }

@@ -161,7 +161,7 @@ interface SnapshotGraphProps {
   isMutating?: boolean;
   onActivate?: (version: number) => void;
   onRestore?: (version: number) => void;
-  onPublish?: (version: number) => void;
+  onPublishFromHistory?: (version: number) => void;
   isNotPublished?: boolean;
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
@@ -174,7 +174,7 @@ export const SnapshotGraph: FC<SnapshotGraphProps> = ({
   isMutating = false,
   onActivate,
   onRestore,
-  onPublish,
+  onPublishFromHistory,
   isNotPublished = false,
   selectedId,
   onSelect,
@@ -290,45 +290,46 @@ export const SnapshotGraph: FC<SnapshotGraphProps> = ({
                 </div>
               </button>
 
-              {isSelected && (onActivate ?? onRestore ?? onPublish) && (
-                <div className="flex gap-1 px-1.5 pb-1 flex-wrap">
-                  {!snap.isActive && onActivate && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-xs px-2"
-                      disabled={isMutating}
-                      onClick={() => onActivate(snap.version)}
-                    >
-                      <Globe className="h-3 w-3 mr-1" />
-                      公開版にする
-                    </Button>
-                  )}
-                  {isNotPublished && onPublish && (
-                    <Button
-                      size="sm"
-                      className="h-6 text-xs px-2"
-                      disabled={isMutating}
-                      onClick={() => onPublish(snap.version)}
-                    >
-                      <Upload className="h-3 w-3 mr-1" />
-                      公開する
-                    </Button>
-                  )}
-                  {onRestore && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 text-xs px-2"
-                      disabled={isMutating}
-                      onClick={() => onRestore(snap.version)}
-                    >
-                      <RotateCcw className="h-3 w-3 mr-1" />
-                      編集を復元
-                    </Button>
-                  )}
-                </div>
-              )}
+              {isSelected &&
+                (onActivate ?? onRestore ?? onPublishFromHistory) && (
+                  <div className="flex gap-1 px-1.5 pb-1 flex-wrap">
+                    {!snap.isActive && onActivate && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        disabled={isMutating}
+                        onClick={() => onActivate(snap.version)}
+                      >
+                        <Globe className="h-3 w-3 mr-1" />
+                        公開版にする
+                      </Button>
+                    )}
+                    {isNotPublished && onPublishFromHistory && (
+                      <Button
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        disabled={isMutating}
+                        onClick={() => onPublishFromHistory(snap.version)}
+                      >
+                        <Upload className="h-3 w-3 mr-1" />
+                        公開する
+                      </Button>
+                    )}
+                    {onRestore && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        disabled={isMutating}
+                        onClick={() => onRestore(snap.version)}
+                      >
+                        <RotateCcw className="h-3 w-3 mr-1" />
+                        編集を復元
+                      </Button>
+                    )}
+                  </div>
+                )}
             </div>
           );
         })}
