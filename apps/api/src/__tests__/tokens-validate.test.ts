@@ -124,8 +124,9 @@ describe("POST /api/tokens/validate", () => {
   });
 
   it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
+    clearRateLimitStoreForTests();
     validateApiTokenForUser.mockResolvedValue(null);
-    const burstClientIp = `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
+    const burstClientIp = "198.51.100.1";
 
     const responses: Response[] = [];
     for (let i = 0; i < 11; i++) {

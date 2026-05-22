@@ -17,6 +17,11 @@ interface RateLimitEntry {
 // インメモリフォールバック用のレート制限ストア
 const rateLimitStore = new Map<string, RateLimitEntry>();
 
+/** Clears the in-memory fallback store (vitest only). */
+export function clearRateLimitStoreForTests(): void {
+  rateLimitStore.clear();
+}
+
 export function getClientIp(c: Context): string {
   // `c.env.incoming` is provided by @hono/node-server (Node IncomingMessage).
   // Other adapters (Bun, Deno, Workers) omit it; remoteAddress stays undefined and
