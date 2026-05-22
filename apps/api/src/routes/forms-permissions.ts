@@ -83,14 +83,6 @@ const shareLinksQuerySchema = paginationQuerySchema.extend({
   isActive: z.coerce.boolean().optional(),
 });
 
-const formPermissionStructuredErrorResponseSchema = z.object({
-  error: z.object({
-    message: z.string(),
-    code: z.string(),
-    details: z.record(z.string(), z.unknown()).optional(),
-  }),
-});
-
 function isSyntheticShareLinkPrincipal(auth: DualAuthContext): boolean {
   return (
     auth.auth_type === "api_token" &&
@@ -396,13 +388,13 @@ export const formsPermissionsRouter = createHonoApp()
           const statusCode = error.statusCode;
           if (statusCode === 403 || statusCode === 404) {
             return c.json(
-              formPermissionStructuredErrorResponseSchema.parse({
+              {
                 error: {
                   message: error.message,
                   code: error.code,
                   details: error.details,
                 },
-              }),
+              },
               statusCode,
             );
           }
