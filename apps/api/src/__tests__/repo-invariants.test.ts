@@ -46,9 +46,10 @@ describe("repo invariants", () => {
     const runnerSection = dockerfile.slice(
       dockerfile.indexOf("FROM base AS runner"),
     );
-    expect(runnerSection).toContain("chown -R node:node /app");
+    const workspaceChown = /chown -R node:node \/app(\s|$)/m;
+    expect(runnerSection).toMatch(workspaceChown);
     expect(runnerSection).toContain("USER node");
-    expect(runnerSection.indexOf("chown -R node:node /app")).toBeLessThan(
+    expect(runnerSection.search(workspaceChown)).toBeLessThan(
       runnerSection.indexOf("USER node"),
     );
   });
