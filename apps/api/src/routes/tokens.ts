@@ -12,6 +12,7 @@ import { ERROR_CODES } from "../lib/constants/error-codes";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import {
   createApiToken,
   deleteApiToken,
@@ -53,6 +54,12 @@ const patchTokenSchema = z
 
 const validateTokenSchema = z.object({
   token: z.string().min(1),
+});
+
+const validateTokenRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  keyGenerator: (c) => `rate_limit:tokens_validate:${getClientIp(c)}`,
 });
 
 /** 停止中ユーザーが所有する API トークン検証時のエラーレスポンス。 */
@@ -342,32 +349,37 @@ export const tokensRouter = createHonoApp()
       }),
     );
   })
-  .post("/validate", zValidator("json", validateTokenSchema), async (c) => {
-    const user = requireSessionUser(c);
-    if (!user.ok) return user.response;
+  .post(
+    "/validate",
+    validateTokenRateLimit,
+    zValidator("json", validateTokenSchema),
+    async (c) => {
+      const user = requireSessionUser(c);
+      if (!user.ok) return user.response;
 
-    const { token } = c.req.valid("json");
-    let authContext: Awaited<ReturnType<typeof validateApiTokenForUser>>;
-    try {
-      authContext = await validateApiTokenForUser(token, user.userId, {
-        updateLastUsedAt: false,
-      });
-    } catch (error) {
-      if (error instanceof SuspendedTokenOwnerError) {
-        return c.json(suspendedTokenOwnerErrorResponse(), 403);
+      const { token } = c.req.valid("json");
+      let authContext: Awaited<ReturnType<typeof validateApiTokenForUser>>;
+      try {
+        authContext = await validateApiTokenForUser(token, user.userId, {
+          updateLastUsedAt: false,
+        });
+      } catch (error) {
+        if (error instanceof SuspendedTokenOwnerError) {
+          return c.json(suspendedTokenOwnerErrorResponse(), 403);
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    if (!authContext) {
-      return c.json(ValidateTokenResponse.parse({ valid: false }), 401);
-    }
+      if (!authContext) {
+        return c.json(ValidateTokenResponse.parse({ valid: false }), 401);
+      }
 
-    return c.json(
-      ValidateTokenResponse.parse({
-        valid: true,
-        user_id: authContext.user_id,
-        scopes: authContext.scopes,
-      }),
-    );
-  });
+      return c.json(
+        ValidateTokenResponse.parse({
+          valid: true,
+          user_id: authContext.user_id,
+          scopes: authContext.scopes,
+        }),
+      );
+    },
+  );

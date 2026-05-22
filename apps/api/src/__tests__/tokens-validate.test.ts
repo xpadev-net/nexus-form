@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
 
@@ -54,8 +54,17 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
 
+const originalTrustedProxyCount = process.env.TRUSTED_PROXY_COUNT;
+
 const { tokensRouter } = await import("../routes/tokens");
 const { db } = await import("@nexus-form/database");
+
+function validateRequestHeaders(clientIp: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-forwarded-for": clientIp,
+  };
+}
 
 function mockSelectRowsOnce(rows: Array<Record<string, unknown>>): void {
   vi.mocked(db.select).mockReturnValueOnce({
@@ -70,10 +79,19 @@ function mockSelectRowsOnce(rows: Array<Record<string, unknown>>): void {
 describe("POST /api/tokens/validate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.TRUSTED_PROXY_COUNT = "1";
     getSession.mockResolvedValue({
       user: { id: "request-user", role: "user" },
       session: { id: "session-id" },
     });
+  });
+
+  afterEach(() => {
+    if (originalTrustedProxyCount === undefined) {
+      delete process.env.TRUSTED_PROXY_COUNT;
+    } else {
+      process.env.TRUSTED_PROXY_COUNT = originalTrustedProxyCount;
+    }
   });
 
   it("returns token details only for tokens owned by the session user", async () => {
@@ -86,7 +104,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.1"),
       body: JSON.stringify({ token: "ct_owned" }),
     });
 
@@ -105,12 +123,43 @@ describe("POST /api/tokens/validate", () => {
     );
   });
 
+  it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    clearRateLimitStoreForTests();
+    validateApiTokenForUser.mockResolvedValue(null);
+    const burstClientIp = "198.51.100.1";
+
+    const responses: Response[] = [];
+    for (let i = 0; i < 11; i++) {
+      responses.push(
+        await tokensRouter.request("/validate", {
+          method: "POST",
+          headers: validateRequestHeaders(burstClientIp),
+          body: JSON.stringify({ token: `ct_burst_${i}` }),
+        }),
+      );
+    }
+
+    for (const allowed of responses.slice(0, 10)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const res = responses[10];
+    if (!res) throw new Error("Expected a response");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+    expect(res.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
+
   it("does not leak details when the token is not owned by the session user", async () => {
     validateApiTokenForUser.mockResolvedValue(null);
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.2"),
       body: JSON.stringify({ token: "ct_other" }),
     });
 
@@ -130,7 +179,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.3"),
       body: JSON.stringify({ token: "ct_without_session" }),
     });
 
@@ -145,7 +194,7 @@ describe("POST /api/tokens/validate", () => {
 
     const res = await tokensRouter.request("/validate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: validateRequestHeaders("203.0.113.4"),
       body: JSON.stringify({ token: "ct_suspended" }),
     });
 
