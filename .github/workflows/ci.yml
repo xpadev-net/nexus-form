@@ -145,7 +145,7 @@ jobs:
         run: pnpm install
 
       - name: Apply database migrations
-        run: pnpm db:migrate
+        run: pnpm --filter @nexus-form/database exec drizzle-kit migrate
 
       - name: Run tests
         run: pnpm test

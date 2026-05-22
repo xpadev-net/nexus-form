@@ -26,8 +26,7 @@
     },
     "db:migrate": {
       "dependsOn": ["^build"],
-      "cache": false,
-      "env": ["DATABASE_URL"]
+      "cache": false
     },
     "clean": {
       "cache": false
