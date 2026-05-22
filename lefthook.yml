@@ -10,7 +10,7 @@ pre-commit:
         filtered=""
         for f in {staged_files}; do
           case "$f" in
-            */components/ui/*) ;;
+            */src/components/ui/*) ;;
             *) filtered="$filtered $f" ;;
           esac
         done

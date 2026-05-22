@@ -99,6 +99,7 @@ export const FormResponseSettings: FC<FormResponseSettingsProps> = ({
 
       <Button
         type="button"
+        className="bg-blue-600 text-primary-foreground hover:bg-blue-700"
         onClick={() => saveMutation.mutate()}
         disabled={saveMutation.isPending}
       >
