@@ -5,7 +5,6 @@ import { FormDuplicateModal } from "@/components/forms/form-duplicate-modal";
 import { EditorHeaderSection } from "@/components/forms/form-editor-page/editor-header-section";
 import { FormSettingsTab } from "@/components/forms/form-editor-page/form-settings-tab";
 import { useFormEditorPageModel } from "@/components/forms/form-editor-page/use-form-editor-page-model";
-import { isEditorTab } from "@/components/forms/form-editor-tabs";
 import { FormResponsesContent } from "@/components/forms/form-responses-page";
 import { FormSharingSection } from "@/components/forms/form-sharing-section";
 import { FormValidationRulesPage } from "@/components/forms/form-validation-rules-page";
@@ -16,7 +15,7 @@ export function FormEditorPage() {
   const { id } = useParams({ from: "/_authenticated/forms/$id/edit" });
   const model = useFormEditorPageModel(id);
 
-  if (model.formQuery.isLoading || model.contentQuery.isLoading) {
+  if (model.isFormLoading || model.isContentLoading) {
     return (
       // biome-ignore lint/a11y/useSemanticElements: Loading status is not calculation output.
       <div
@@ -29,7 +28,7 @@ export function FormEditorPage() {
     );
   }
 
-  if (model.formQuery.isError || model.contentQuery.isError) {
+  if (model.isFormError || model.isContentError) {
     return (
       <section className="rounded-lg border bg-card p-6 text-destructive">
         フォームの読み込みに失敗しました。再読み込みしてください。
@@ -40,10 +39,7 @@ export function FormEditorPage() {
   return (
     <Tabs
       value={model.activeTab}
-      onValueChange={(value) => {
-        if (!isEditorTab(value)) return;
-        model.handleTabChange(value);
-      }}
+      onValueChange={model.handleTabChange}
       className="gap-4"
     >
       <EditorHeaderSection
@@ -52,16 +48,12 @@ export function FormEditorPage() {
         formStatus={model.formStatus}
         hasFormData={Boolean(model.formData)}
         isSaving={model.isSaving}
-        isTitleSaving={model.updateTitleMutation.isPending}
+        isTitleSaving={model.isTitlePending}
         publicId={model.formData?.publicId}
-        titleSaveFailureCount={model.updateTitleMutation.failureCount}
-        onTitleBlur={
-          model.formData
-            ? (title) => model.updateTitleMutation.mutate(title)
-            : undefined
-        }
+        titleSaveFailureCount={model.titleSaveFailureCount}
+        onTitleBlur={model.formData ? model.updateTitle : undefined}
         onPublishStatusChange={model.handlePublishStatusChange}
-        onResetSuccess={() => void model.contentQuery.refetch()}
+        onResetSuccess={model.refetchContent}
       />
 
       <TabsContent value="editor" className="space-y-4">
@@ -86,11 +78,9 @@ export function FormEditorPage() {
       <FormSettingsTab
         formId={id}
         isArchived={model.formStatus === "ARCHIVED"}
-        archiveLoading={
-          model.archiveMutation.isPending || model.unarchiveMutation.isPending
-        }
-        onArchive={() => model.archiveMutation.mutate()}
-        onUnarchive={() => model.unarchiveMutation.mutate()}
+        archiveLoading={model.isArchivePending}
+        onArchive={model.archiveForm}
+        onUnarchive={model.unarchiveForm}
         onDuplicate={() => model.setShowDuplicateModal(true)}
         onDelete={() => model.setShowDeleteModal(true)}
       />
@@ -124,14 +114,14 @@ export function FormEditorPage() {
       <FormDeletionModal
         open={model.showDeleteModal}
         title={model.formData?.title}
-        isDeleting={model.deleteMutation.isPending}
-        onConfirm={() => model.deleteMutation.mutate()}
+        isDeleting={model.isDeletePending}
+        onConfirm={model.deleteForm}
         onClose={() => model.setShowDeleteModal(false)}
       />
       <FormDuplicateModal
         open={model.showDuplicateModal}
-        isDuplicating={model.duplicateMutation.isPending}
-        onConfirm={() => model.duplicateMutation.mutate()}
+        isDuplicating={model.isDuplicatePending}
+        onConfirm={model.duplicateForm}
         onClose={() => model.setShowDuplicateModal(false)}
       />
     </Tabs>

@@ -197,25 +197,36 @@ export function useFormEditorPageModel(formId: string) {
     void queryClient.invalidateQueries({ queryKey: ["forms"] });
   };
 
+  const refetchContent = () => {
+    void contentQuery.refetch();
+  };
+
   return {
     activeTab,
-    archiveMutation,
+    archiveForm: () => archiveMutation.mutate(),
     conflictResolutions,
     conflictState,
-    contentQuery,
-    deleteMutation,
+    deleteForm: () => deleteMutation.mutate(),
     dismissConflict,
     draftContent,
-    duplicateMutation,
+    duplicateForm: () => duplicateMutation.mutate(),
     formData,
-    formQuery,
     formStatus,
     handleContentChange,
     handlePublishStatusChange,
     handleTabChange,
+    isArchivePending: archiveMutation.isPending || unarchiveMutation.isPending,
+    isContentError: contentQuery.isError,
+    isContentLoading: contentQuery.isLoading,
+    isDeletePending: deleteMutation.isPending,
+    isDuplicatePending: duplicateMutation.isPending,
+    isFormError: formQuery.isError,
+    isFormLoading: formQuery.isLoading,
     isMerging,
     isSaving,
+    isTitlePending: updateTitleMutation.isPending,
     plateContent: contentQuery.data?.plateContent ?? "[]",
+    refetchContent,
     resolveConflicts,
     responsesEverActive,
     setConflictResolutions,
@@ -223,7 +234,8 @@ export function useFormEditorPageModel(formId: string) {
     setShowDuplicateModal,
     showDeleteModal,
     showDuplicateModal,
-    unarchiveMutation,
-    updateTitleMutation,
+    titleSaveFailureCount: updateTitleMutation.failureCount,
+    unarchiveForm: () => unarchiveMutation.mutate(),
+    updateTitle: (title: string) => updateTitleMutation.mutate(title),
   };
 }
