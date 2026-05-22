@@ -137,12 +137,14 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
       formId: "form-1",
       getActiveTab: () => "editor",
     });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
 
     useEffect(() => {
       if (didNotifyReadyRef.current) return;
       didNotifyReadyRef.current = true;
-      onReady(hook);
-    }, [hook]);
+      onReady(hookRef.current);
+    }, []);
 
     return <>{children}</>;
   }
