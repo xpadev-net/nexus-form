@@ -78,15 +78,40 @@ const MAX_USER_AGENT_LENGTH = 512;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
+function publicFormRateLimitKey(
+  c: Parameters<typeof getClientIp>[0],
+  scope: "public_form_get" | "shared_link_get",
+  resourceId: string,
+): string {
+  const ip = getClientIp(c);
+  if (ip === "unknown") {
+    // Per-resource bucket prevents one form from exhausting another's limit.
+    // Trade-off: one unknown-IP source may consume 60 req/min per publicId/token
+    // (vs 60 total for a known IP). Acceptable blast-radius reduction for R12-M3.
+    return `rate_limit:${scope}:unknown:${resourceId}`;
+  }
+  return `rate_limit:${scope}:${ip}`;
+}
+
 const publicFormGetRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   maxRequests: 60,
-  keyGenerator: (c) => `rate_limit:public_form_get:${getClientIp(c)}`,
+  keyGenerator: (c) =>
+    publicFormRateLimitKey(
+      c,
+      "public_form_get",
+      c.req.param("publicId") ?? "missing",
+    ),
 });
 const sharedLinkGetRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   maxRequests: 60,
-  keyGenerator: (c) => `rate_limit:shared_link_get:${getClientIp(c)}`,
+  keyGenerator: (c) =>
+    publicFormRateLimitKey(
+      c,
+      "shared_link_get",
+      c.req.param("token") ?? "missing",
+    ),
 });
 const publicFormSelect = {
   id: form.id,

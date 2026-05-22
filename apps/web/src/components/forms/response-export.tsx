@@ -29,7 +29,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
 
       toast.success("エクスポートが完了しました");
     } catch (error) {

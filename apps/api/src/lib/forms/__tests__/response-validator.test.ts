@@ -1603,3 +1603,21 @@ describe("unknown question type double-error prevention", () => {
     ).toBe(true);
   });
 });
+
+describe("R12-M2 duplicate question_id rejection", () => {
+  it("rejects duplicate question_id entries in one submission", () => {
+    const form = makeForm("q1", "short_text");
+    const result = validateResponseData(
+      [
+        makeResponse("q1", "short_text", { value: "first" }),
+        makeResponse("q1", "short_text", { value: "second" }),
+      ],
+      form,
+    );
+
+    expect(result.isValid).toBe(false);
+    expect(
+      result.errors.some((e) => e.includes("Duplicate question ID q1")),
+    ).toBe(true);
+  });
+});

@@ -355,6 +355,10 @@ export function useFormContentAutosave({
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
         lastSavedVersionRef.current = data.plateContentVersion;
+        queryClient.setQueryData(["formContent", formId], {
+          plateContent: variables.plateContent,
+          plateContentVersion: data.plateContentVersion,
+        });
       }
       void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
       setIsSaving(false);

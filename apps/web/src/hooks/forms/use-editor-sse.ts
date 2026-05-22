@@ -56,6 +56,7 @@ export function useEditorSSE(
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
+    let consecutiveErrors = 0;
 
     const closeEventSource = (): void => {
       eventSource?.close();
@@ -84,7 +85,6 @@ export function useEditorSSE(
 
       const source = new EventSource(url, { withCredentials: true });
       eventSource = source;
-      let consecutiveErrors = 0;
 
       source.addEventListener("open", () => {
         consecutiveErrors = 0;
@@ -172,12 +172,17 @@ export function useEditorSSE(
         return;
       }
       reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
-      void queryClient.invalidateQueries({
-        queryKey: ["formContent", formId],
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["formDiff", formId],
-      });
+      const pendingVal = pendingValueRefRef.current;
+      if (pendingVal?.current != null && onMergeNeededRef.current != null) {
+        onMergeNeededRef.current();
+      } else {
+        void queryClient.invalidateQueries({
+          queryKey: ["formContent", formId],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: ["formDiff", formId],
+        });
+      }
       connect();
     };
 

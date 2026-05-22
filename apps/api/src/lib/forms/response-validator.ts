@@ -56,6 +56,8 @@ export function validateResponseData(
     return { isValid: false, errors };
   }
 
+  const seenQuestionIds = new Set<string>();
+
   // 各回答の基本バリデーション
   for (let i = 0; i < responses.length; i++) {
     const response = responses[i] as ResponseDataItem | undefined;
@@ -70,6 +72,14 @@ export function validateResponseData(
       errors.push(`Response ${i + 1}: Question ID is required`);
       continue;
     }
+
+    if (seenQuestionIds.has(response.question_id)) {
+      errors.push(
+        `Response ${i + 1}: Duplicate question ID ${response.question_id}`,
+      );
+      continue;
+    }
+    seenQuestionIds.add(response.question_id);
 
     const question = questions.find((q) => q.id === response.question_id);
     const isRequired = question?.validation?.required ?? false;

@@ -89,7 +89,7 @@ export async function getSnapshotByVersion(
 
 export async function publishSnapshot(
   formId: string,
-  userId: string,
+  userId: string | null,
   opts?: { changeLog?: string },
 ): Promise<{ version: number; publishedAt: Date }> {
   const result = await db.transaction(async (tx) => {

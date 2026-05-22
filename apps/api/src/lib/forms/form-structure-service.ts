@@ -33,7 +33,7 @@ interface FormStructureHistory {
 export async function saveFormStructure(
   formId: string,
   structure: FormStructureType,
-  userId: string,
+  userId: string | null,
   changeLog?: string,
 ) {
   const parsed = FormStructure.safeParse(structure);
@@ -215,7 +215,7 @@ export async function getFormStructureHistory(
 export async function restoreFormStructure(
   formId: string,
   version: number,
-  userId: string,
+  userId: string | null,
   changeLog?: string,
 ) {
   // 指定されたバージョンの存在確認と現在のバージョン取得を並列実行

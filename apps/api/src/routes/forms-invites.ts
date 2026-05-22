@@ -92,6 +92,9 @@ export const formsInvitesRouter = createHonoApp()
       }
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(inviteError("Unauthorized"), 401);
+      if (auth.auth_type !== "session") {
+        return c.json(inviteError("Session authentication required"), 403);
+      }
       const permission = await acceptInvitation(token.data, auth.user_id);
       return c.json(InviteAcceptResponseSchema.parse({ permission }));
     },

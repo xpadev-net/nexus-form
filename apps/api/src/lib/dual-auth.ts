@@ -47,6 +47,8 @@ export interface DualAuthContext {
   share_link_id?: string;
 }
 
+export { resolveAuditUserId } from "./resolve-audit-user-id";
+
 const ERROR_MESSAGES = {
   MISSING_AUTH: "Authentication required",
   INVALID_TOKEN: "Invalid or expired token",
