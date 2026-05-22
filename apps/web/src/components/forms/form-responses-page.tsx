@@ -208,13 +208,15 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             {responsesQuery.isLoading && (
               <p className="text-sm text-muted-foreground">読み込み中...</p>
             )}
-            {responsesQuery.isFetching && !responsesQuery.isLoading && (
-              <p className="text-xs text-muted-foreground">
-                {isStalePageData
-                  ? "新しいページを読み込み中です。"
-                  : "更新中..."}
-              </p>
-            )}
+            {responsesQuery.isFetching &&
+              !responsesQuery.isLoading &&
+              !responsesQuery.isError && (
+                <p className="text-xs text-muted-foreground">
+                  {isStalePageData
+                    ? "新しいページを読み込み中です。"
+                    : "更新中..."}
+                </p>
+              )}
 
             {/* エラー */}
             {responsesQuery.isError && (
