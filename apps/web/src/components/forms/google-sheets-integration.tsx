@@ -182,10 +182,14 @@ function useGoogleSheetsIntegrationModel(formId: string) {
   const searchQueryRef = useRef(searchQuery);
 
   // 同期状態
+  const configQueryKey = useMemo(
+    () => ["google-sheets-config", formId] as const,
+    [formId],
+  );
   const { dismissSyncStatus, isSyncing, startSync, syncStatus } =
     useGoogleSheetsSync({
       formId,
-      configQueryKey: ["google-sheets-config", formId],
+      configQueryKey,
     });
 
   const authWindowRef = useRef<Window | null>(null);
