@@ -117,9 +117,12 @@ function Draggable(props: PlateElementProps) {
   }, [previewRef]);
 
   const [dragButtonTop, setDragButtonTop] = useState(0);
+  const blockTypeLabel = String(element.type);
 
   return (
     <div
+      role="group"
+      aria-label={`Editor block: ${blockTypeLabel}`}
       className={cn(
         "relative",
         isDragging && "opacity-50",
@@ -179,6 +182,8 @@ function Draggable(props: PlateElementProps) {
 
       <div
         ref={nodeRef}
+        role="group"
+        aria-label={`Editor block content: ${blockTypeLabel}`}
         className="slate-blockWrapper relative flow-root"
         onContextMenu={(event) =>
           editor

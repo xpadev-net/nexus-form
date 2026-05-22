@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { client, RpcError, rpc } from "@/lib/api";
 import { FormNotFoundPage } from "./form-not-found-page";
 
@@ -75,14 +76,14 @@ export function InviteAcceptancePage() {
       <p className="text-xs text-muted-foreground">
         有効期限: {data?.invitation.expiresAt ?? "-"}
       </p>
-      <button
+      <Button
         type="button"
+        variant="outline"
         onClick={() => void handleAccept()}
         disabled={isAccepting}
-        className="rounded-md border px-4 py-2 text-sm hover:bg-accent disabled:opacity-60"
       >
         {isAccepting ? "承諾中..." : "招待を承諾"}
-      </button>
+      </Button>
       {error || loadErrorMessage ? (
         <p className="text-sm text-destructive">{error ?? loadErrorMessage}</p>
       ) : null}

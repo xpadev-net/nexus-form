@@ -140,6 +140,8 @@ function SuggestionLineBreakContent({
         </>
       ) : (
         <div
+          role="group"
+          aria-label={isRemove ? "削除の提案" : "挿入の提案"}
           className={cn(
             suggestionVariants({
               insertActive: isInsert && (isActive || isHover),

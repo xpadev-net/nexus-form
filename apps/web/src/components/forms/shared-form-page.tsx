@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
+import { Button } from "@/components/ui/button";
 import { client, RpcError, rpc } from "@/lib/api";
 import { FormNotFoundPage } from "./form-not-found-page";
 
@@ -53,13 +54,11 @@ export function SharedFormPage() {
         {data.form.description ?? "説明はありません"}
       </p>
       <p className="text-sm">共有ロール: {data.role}</p>
-      <Link
-        to="/forms/$id/edit"
-        params={{ id: data.form.id }}
-        className="inline-block rounded-md border px-4 py-2 text-sm hover:bg-accent"
-      >
-        フォーム編集ページへ
-      </Link>
+      <Button variant="outline" asChild>
+        <Link to="/forms/$id/edit" params={{ id: data.form.id }}>
+          フォーム編集ページへ
+        </Link>
+      </Button>
     </section>
   );
 }

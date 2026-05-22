@@ -230,30 +230,37 @@ function TablePicker() {
     });
   };
 
+  const insertTableAt = (rowIndex: number, colIndex: number) => {
+    tf.insert.table(
+      { colCount: colIndex + 1, rowCount: rowIndex + 1 },
+      { select: true },
+    );
+    editor.tf.focus();
+  };
+
   return (
-    <button
-      className="flex! m-0 flex-col p-0"
-      onClick={() => {
-        tf.insert.table(tablePicker.size, { select: true });
-        editor.tf.focus();
-      }}
-      type="button"
-    >
+    <div className="flex flex-col" role="group" aria-label="Table size picker">
       <div className="grid size-[130px] grid-cols-8 gap-0.5 p-1">
         {tablePicker.grid.map((rows, rowIndex) =>
           rows.map((value, columIndex) => (
-            <div
+            <button
               key={`(${rowIndex},${
                 // biome-ignore lint/suspicious/noArrayIndexKey: table grid cells
                 columIndex
               })`}
+              type="button"
               className={cn(
-                "col-span-1 size-3 border border-solid bg-secondary",
+                "col-span-1 size-3 border border-solid bg-secondary p-0",
                 !!value && "border-current",
               )}
+              aria-label={`${rowIndex + 1}行 ${columIndex + 1}列`}
               onMouseMove={() => {
                 onCellMove(rowIndex, columIndex);
               }}
+              onFocus={() => {
+                onCellMove(rowIndex, columIndex);
+              }}
+              onClick={() => insertTableAt(rowIndex, columIndex)}
             />
           )),
         )}
@@ -262,6 +269,6 @@ function TablePicker() {
       <div className="text-center text-current text-xs">
         {tablePicker.size.rowCount} x {tablePicker.size.colCount}
       </div>
-    </button>
+    </div>
   );
 }
