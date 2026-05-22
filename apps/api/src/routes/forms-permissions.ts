@@ -11,6 +11,7 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { type DualAuthContext, withDualFormAuth } from "../lib/dual-auth";
+import { FormPermissionError } from "../lib/errors/form-errors";
 import {
   cancelInvitation,
   createInvitation,
@@ -380,7 +381,17 @@ export const formsPermissionsRouter = createHonoApp()
       const invitationId = c.req.param("invitationId");
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-      await cancelInvitation(invitationId, auth.user_id, formId);
+      try {
+        await cancelInvitation(invitationId, auth.user_id, formId);
+      } catch (error) {
+        if (error instanceof FormPermissionError) {
+          return c.json(
+            errorResponse(error.message),
+            error.statusCode as 403 | 404,
+          );
+        }
+        throw error;
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
