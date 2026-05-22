@@ -2,6 +2,22 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+function sliceBetween(
+  source: string,
+  startMarker: string,
+  endMarker: string,
+): string {
+  const start = source.indexOf(startMarker);
+  if (start < 0) {
+    throw new Error(`Missing start marker: ${startMarker}`);
+  }
+  const end = source.indexOf(endMarker, start);
+  if (end < 0) {
+    throw new Error(`Missing end marker: ${endMarker}`);
+  }
+  return source.slice(start, end);
+}
+
 describe("repo invariants", () => {
   it("keeps a root .dockerignore that excludes local env files", () => {
     const dockerignorePath = resolve(process.cwd(), "../../.dockerignore");
@@ -74,10 +90,12 @@ describe("repo invariants", () => {
     expect(testJob).toMatch(/^\s+permissions:\n\s+contents: read\n/m);
     expect(testJob).toContain("image: mysql:8.0");
     expect(testJob).toContain("image: redis:7-alpine");
-    const migrateStep = testJob.slice(
-      testJob.indexOf("- name: Apply database migrations"),
-      testJob.indexOf("- name: Run tests"),
+    const migrateStep = sliceBetween(
+      testJob,
+      "- name: Apply database migrations",
+      "- name: Run tests",
     );
+    expect(migrateStep.length).toBeGreaterThan(0);
     expect(migrateStep).toContain("SET GLOBAL foreign_key_checks=0");
     expect(migrateStep).toContain("trap ");
     expect(migrateStep).toContain(
