@@ -43,6 +43,24 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
     expect(result?.success).toBe(false);
   });
 
+  it("rejects a single underscore username", () => {
+    const result =
+      twitterProvider.rules.user_exists?.inputSchema.safeParse("_");
+
+    expect(result?.success).toBe(false);
+  });
+
+  it("does not call the Twitter client for a single underscore username", async () => {
+    const result = await twitterProvider.rules.user_exists?.validate("_", {});
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.INVALID_INPUT,
+      retryable: false,
+    });
+    expect(getUserByUsernameMock).not.toHaveBeenCalled();
+  });
+
   it("rejects usernames with characters outside the advertised pattern", () => {
     const result =
       twitterProvider.rules.user_exists?.inputSchema.safeParse("user/name");
@@ -61,6 +79,20 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("twitterProvider.rules.user_exists.validate", () => {
+  it("classifies invalid usernames as input validation errors", async () => {
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "user/name",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.INVALID_INPUT,
+      retryable: false,
+    });
+    expect(getUserByUsernameMock).not.toHaveBeenCalled();
+  });
+
   it("uses Twitter retry-after headers for rate limits", async () => {
     getUserByUsernameMock.mockRejectedValueOnce({
       response: {
