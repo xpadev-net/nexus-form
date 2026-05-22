@@ -179,6 +179,12 @@ describe("ScheduleManager", () => {
       "スナップショットを読み込めませんでした。",
     );
 
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "追加",
+    );
+    expect(addButton).not.toBeNull();
+    expect(addButton?.disabled).toBe(true);
+
     const retryButton = container.querySelector(
       'button[data-testid="schedule-snapshots-query-retry"]',
     );
