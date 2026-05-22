@@ -23,5 +23,8 @@ export default defineConfig({
     environment: "node",
     globals: true,
     exclude: ["**/node_modules/**", "**/dist/**"],
+    pool: "forks",
+    maxWorkers: 1,
+    fileParallelism: false,
   },
 });

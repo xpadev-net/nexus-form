@@ -45,9 +45,11 @@ interface TestMutationVariables {
 
 interface TestMutationOptions {
   onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
+  onError?: (error: unknown, variables: TestMutationVariables) => void;
 }
 
 let latestMutationOptions: TestMutationOptions | undefined;
+const attemptMergeMock = vi.fn();
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: TestMutationOptions) => {
@@ -68,7 +70,7 @@ vi.mock("@/hooks/forms/use-editor-sse", () => ({
 
 vi.mock("@/hooks/forms/use-plate-merge", () => ({
   usePlateMerge: () => ({
-    attemptMerge: vi.fn(),
+    attemptMerge: attemptMergeMock,
     conflictState: null,
     dismissConflict: vi.fn(),
     isMerging: false,
@@ -176,6 +178,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     refetchMock.mockClear();
     rpcMock.mockReset();
     toastWarningMock.mockClear();
+    attemptMergeMock.mockClear();
     latestMutationOptions = undefined;
   });
 
