@@ -1,5 +1,6 @@
 import { GitBranch } from "lucide-react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { SnapshotGraph } from "./snapshot-graph";
 
@@ -43,6 +44,20 @@ export function StructureHistoryViewer({
 
       {snapshotsQuery.isLoading ? (
         <p className="text-sm text-muted-foreground">読み込み中...</p>
+      ) : snapshotsQuery.isError ? (
+        <div className="space-y-2">
+          <p className="text-sm text-destructive">
+            履歴を読み込めませんでした。
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void snapshotsQuery.refetch()}
+          >
+            再試行
+          </Button>
+        </div>
       ) : (
         <SnapshotGraph
           snapshots={snapshots}
