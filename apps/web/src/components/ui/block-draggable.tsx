@@ -117,11 +117,12 @@ function Draggable(props: PlateElementProps) {
   }, [previewRef]);
 
   const [dragButtonTop, setDragButtonTop] = useState(0);
+  const blockTypeLabel = String(element.type);
 
   return (
     <div
       role="group"
-      aria-label="Editor block"
+      aria-label={`Editor block: ${blockTypeLabel}`}
       className={cn(
         "relative",
         isDragging && "opacity-50",
