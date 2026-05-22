@@ -12,35 +12,42 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@nexus-form/database", () => ({
   db: {
-    transaction: vi.fn(async (callback) =>
-      callback({
-        select: vi
-          .fn()
-          .mockReturnValueOnce({
+    transaction: vi.fn(async (callback) => {
+      let selectCallIndex = 0;
+      const select = vi.fn(() => {
+        selectCallIndex += 1;
+        if (selectCallIndex === 1) {
+          return {
             from: vi.fn(() => ({
               where: vi.fn(() => ({
                 for: vi.fn(() => ({ limit: mocks.formLimit })),
               })),
             })),
-          })
-          .mockReturnValueOnce({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.integrationLimit })),
+          };
+        }
+
+        return {
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              limit:
+                selectCallIndex === 2
+                  ? mocks.integrationLimit
+                  : mocks.insertedLimit,
             })),
-          })
-          .mockReturnValueOnce({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.insertedLimit })),
-            })),
-          }),
+          })),
+        };
+      });
+
+      return callback({
+        select,
         insert: vi.fn(() => ({
           values: mocks.insertValues,
         })),
         update: vi.fn(() => ({
           set: mocks.updateSet,
         })),
-      }),
-    ),
+      });
+    }),
   },
 }));
 

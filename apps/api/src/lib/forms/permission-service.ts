@@ -438,6 +438,7 @@ export async function createShareLink(
       .select({ id: form.id })
       .from(form)
       .where(eq(form.id, formId))
+      .for("update")
       .limit(1);
 
     if (!foundForm) {
@@ -623,6 +624,7 @@ export async function transferOwnership(
       .select({ id: form.id })
       .from(form)
       .where(eq(form.id, formId))
+      .for("update")
       .limit(1);
 
     if (!foundForm) {

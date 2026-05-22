@@ -18,7 +18,9 @@ vi.mock("@nexus-form/database", () => ({
           .fn()
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.formLimit })),
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: mocks.formLimit })),
+              })),
             })),
           })
           .mockReturnValueOnce({
