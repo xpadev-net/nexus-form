@@ -37,4 +37,19 @@ describe("repo invariants", () => {
     expect(webService).toContain("targetPort: 8080");
     expect(webService).not.toContain("targetPort: 3000");
   });
+
+  it("chowns the API runtime workspace to node before dropping privileges", () => {
+    const dockerfile = readFileSync(
+      resolve(process.cwd(), "../../Dockerfile"),
+      "utf8",
+    );
+    const runnerSection = dockerfile.slice(
+      dockerfile.indexOf("FROM base AS runner"),
+    );
+    expect(runnerSection).toContain("chown -R node:node /app");
+    expect(runnerSection).toContain("USER node");
+    expect(runnerSection.indexOf("chown -R node:node /app")).toBeLessThan(
+      runnerSection.indexOf("USER node"),
+    );
+  });
 });
