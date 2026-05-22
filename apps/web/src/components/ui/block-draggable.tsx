@@ -451,7 +451,7 @@ const createDragPreviewElements = (
     ids.push(node.id as string);
     const wrapper = document.createElement("div");
     wrapper.append(newDomNode);
-    wrapper.style.display = "flow-root";
+    Object.assign(wrapper.style, { display: "flow-root" });
 
     const lastDomNode = blocks[index - 1];
 
@@ -470,7 +470,7 @@ const createDragPreviewElements = (
 
       // Check if the two elements are adjacent (touching each other)
       if (distance > 15) {
-        wrapper.style.marginTop = `${distance}px`;
+        Object.assign(wrapper.style, { marginTop: `${distance}px` });
       }
     }
 
