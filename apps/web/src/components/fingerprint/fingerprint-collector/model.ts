@@ -21,12 +21,14 @@ export interface FingerprintStats {
 }
 
 export interface CollectionState {
+  isConsented: boolean;
   hasCollected: boolean;
   progress: number;
   stage: string;
 }
 
 export type CollectionAction =
+  | { type: "set-consented"; consented: boolean }
   | { type: "start" }
   | { type: "progress" }
   | { type: "complete" }
@@ -34,6 +36,7 @@ export type CollectionAction =
   | { type: "clear" };
 
 export const initialCollectionState: CollectionState = {
+  isConsented: false,
   hasCollected: false,
   progress: 0,
   stage: "",
@@ -44,8 +47,15 @@ export const collectionReducer = (
   action: CollectionAction,
 ): CollectionState => {
   switch (action.type) {
+    case "set-consented":
+      return { ...state, isConsented: action.consented };
     case "start":
-      return { hasCollected: false, progress: 0, stage: "初期化中..." };
+      return {
+        ...state,
+        hasCollected: false,
+        progress: 0,
+        stage: "初期化中...",
+      };
     case "progress": {
       if (state.progress >= 90) return state;
       const nextProgress = state.progress + 10;
@@ -59,11 +69,11 @@ export const collectionReducer = (
       };
     }
     case "complete":
-      return { hasCollected: true, progress: 100, stage: "完了" };
+      return { ...state, hasCollected: true, progress: 100, stage: "完了" };
     case "error":
       return { ...state, stage: "エラー" };
     case "clear":
-      return { hasCollected: false, progress: 0, stage: "" };
+      return { ...state, hasCollected: false, progress: 0, stage: "" };
   }
 };
 
