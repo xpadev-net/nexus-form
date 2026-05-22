@@ -96,7 +96,7 @@ export const FormList = () => {
             <li key={item.id}>
               <Button
                 variant="outline"
-                className="flex h-auto w-full items-center justify-between gap-2 p-3 text-left font-normal"
+                className="flex h-auto w-full items-center justify-between gap-2 whitespace-normal p-3 text-left font-normal"
                 asChild
               >
                 <Link to="/forms/$id/edit" params={{ id: item.id }}>
