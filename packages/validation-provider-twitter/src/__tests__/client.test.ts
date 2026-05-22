@@ -59,6 +59,17 @@ describe("getTwitterClient", () => {
     );
   });
 
+  it("does not create a default client for allow-list mismatched base URLs", () => {
+    vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
+    vi.stubEnv("TWITTER_BASE_URL", "https://metadata.google.internal");
+
+    expect(() => getTwitterClient()).toThrow(
+      "Twitter base URL host must be one of: api.twitter.com",
+    );
+
+    expect(axios.create).not.toHaveBeenCalled();
+  });
+
   it("treats null user lookup data as a missing user", async () => {
     vi.stubEnv("TWITTER_BEARER_TOKEN", "token");
     requestMock.mockResolvedValueOnce({

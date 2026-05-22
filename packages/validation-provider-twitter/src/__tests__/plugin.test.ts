@@ -61,6 +61,20 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("twitterProvider.rules.user_exists.validate", () => {
+  it("classifies invalid usernames as input validation errors", async () => {
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "user/name",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.INVALID_INPUT,
+      retryable: false,
+    });
+    expect(getUserByUsernameMock).not.toHaveBeenCalled();
+  });
+
   it("uses Twitter retry-after headers for rate limits", async () => {
     getUserByUsernameMock.mockRejectedValueOnce({
       response: {

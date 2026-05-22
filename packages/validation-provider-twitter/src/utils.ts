@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { TwitterErrorCode, type TwitterValidationError } from "./error-codes";
 
 const RETRYABLE_NETWORK_ERROR_CODES = new Set([
@@ -22,6 +23,14 @@ export function isValidTwitterUsername(username: string): boolean {
 }
 
 export function parseTwitterError(error: unknown): TwitterValidationError {
+  if (error instanceof z.ZodError) {
+    return {
+      code: TwitterErrorCode.INVALID_INPUT,
+      message: "Invalid Twitter username format",
+      retryable: false,
+    };
+  }
+
   if (
     error &&
     typeof error === "object" &&

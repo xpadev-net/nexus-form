@@ -7,11 +7,7 @@ import {
   validateTwitterConfig,
 } from "./config";
 import { TwitterErrorCode } from "./error-codes";
-import {
-  isValidTwitterUsername,
-  normalizeTwitterUsername,
-  parseTwitterError,
-} from "./utils";
+import { normalizeTwitterUsername, parseTwitterError } from "./utils";
 
 export const TwitterUserInfoSchema = z.object({
   id: z.string().min(1),
@@ -97,9 +93,13 @@ export class TwitterApiClient {
     }
     this.config = {
       apiVersion: config.apiVersion || TWITTER_CONFIG_DEFAULTS.API_VERSION,
-      baseUrl: config.baseUrl || TWITTER_CONFIG_DEFAULTS.BASE_URL,
+      baseUrl: (config.baseUrl || TWITTER_CONFIG_DEFAULTS.BASE_URL).replace(
+        /\/+$/,
+        "",
+      ),
       timeout: config.timeout || TWITTER_CONFIG_DEFAULTS.TIMEOUT,
       bearerToken: config.bearerToken,
+      allowedBaseUrlHosts: config.allowedBaseUrlHosts,
     };
     this.debug = debug;
     this.axiosInstance = axios.create({
@@ -120,9 +120,6 @@ export class TwitterApiClient {
   async getUserByUsername(username: string): Promise<TwitterUserInfo | null> {
     try {
       const normalizedUsername = normalizeTwitterUsername(username);
-      if (!isValidTwitterUsername(normalizedUsername)) {
-        throw new Error(`Invalid Twitter username format: ${username}`);
-      }
       const response = parseTwitterApiResponse(
         await this.request({
           method: "GET",

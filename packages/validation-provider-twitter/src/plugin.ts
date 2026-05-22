@@ -5,12 +5,15 @@ import type {
 } from "@nexus-form/integrations";
 import { z } from "zod";
 import { getTwitterClient, TwitterUserInfoSchema } from "./client";
+import { assertTwitterEnvironmentConfig } from "./config";
 import { TwitterErrorCode } from "./error-codes";
 import { parseTwitterError } from "./utils";
 
 const TwitterInputSchema = z.string().regex(/^[a-zA-Z0-9_]{1,15}$/);
 const TWITTER_HEALTH_CHECK_URL =
   "https://api.twitter.com/2/users/by/username/TwitterDev";
+
+assertTwitterEnvironmentConfig();
 
 const TwitterConfigSchema = z.object({}).strict();
 
@@ -60,8 +63,9 @@ const userExistsRule: ValidationProviderRule = {
 
   async validate(input, _config): Promise<ValidationProviderResult> {
     try {
+      const username = TwitterInputSchema.parse(input);
       const client = getTwitterClient();
-      const userInfo = await client.getUserByUsername(input);
+      const userInfo = await client.getUserByUsername(username);
 
       if (!userInfo) {
         return {
