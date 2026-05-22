@@ -1,0 +1,67 @@
+import { AlertCircle, RotateCcw, Save, Upload } from "lucide-react";
+import type { FC } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import type { UnpublishedChangesSectionState } from "./types";
+
+interface UnpublishedChangesSectionProps {
+  state: UnpublishedChangesSectionState;
+  onPublishChanges: () => void;
+  onSaveOnly: () => void;
+  onReset: () => void;
+}
+
+export const UnpublishedChangesSection: FC<UnpublishedChangesSectionProps> = ({
+  state,
+  onPublishChanges,
+  onSaveOnly,
+  onReset,
+}) => {
+  const isBusy = state.actionState === "processing";
+  const isPublished = state.publishState === "published";
+
+  return (
+    <>
+      <Separator />
+      <div className="p-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <AlertCircle className="h-4 w-4 text-amber-500" />
+          未公開の変更
+          {state.totalChanges > 0 && (
+            <Badge variant="secondary" className="text-xs">
+              {state.totalChanges}件
+            </Badge>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" disabled={isBusy} onClick={onPublishChanges}>
+            <Upload className="mr-1 h-3.5 w-3.5" />
+            {isPublished ? "変更を公開" : "保存して公開"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isBusy}
+            onClick={onSaveOnly}
+          >
+            <Save className="mr-1 h-3.5 w-3.5" />
+            スナップショット保存
+          </Button>
+        </div>
+        {state.activeSnapshotVersion != null && state.hasChangesFromActive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={isBusy}
+            onClick={onReset}
+            className="text-muted-foreground"
+          >
+            <RotateCcw className="mr-1 h-3.5 w-3.5" />
+            公開版に戻す
+          </Button>
+        )}
+      </div>
+    </>
+  );
+};
