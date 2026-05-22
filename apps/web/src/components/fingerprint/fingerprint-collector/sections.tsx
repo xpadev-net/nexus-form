@@ -9,6 +9,31 @@ import type {
   FingerprintStats,
 } from "./model";
 
+export function ConsentStatus({ isConsented }: { isConsented: boolean }) {
+  return (
+    <div
+      className={`p-3 rounded-md ${
+        isConsented
+          ? "bg-green-50 border border-green-200"
+          : "bg-yellow-50 border border-yellow-200"
+      }`}
+    >
+      <div className="flex items-center space-x-2">
+        <div
+          className={`w-2 h-2 rounded-full ${
+            isConsented ? "bg-green-500" : "bg-yellow-500"
+          }`}
+        />
+        <span className="text-sm font-medium">
+          {isConsented
+            ? "プライバシー同意済み - フィンガープリント収集が可能です"
+            : "プライバシー同意が必要です - 上記タブで同意してください"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export function CollectionResultSection({
   hasCollected,
   fingerprint,

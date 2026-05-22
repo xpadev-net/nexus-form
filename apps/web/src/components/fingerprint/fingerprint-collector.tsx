@@ -2,7 +2,7 @@
  * フィンガープリント収集コンポーネント
  */
 
-import { useReducer, useState } from "react";
+import { type ReactNode, useReducer, useState } from "react";
 import {
   Card,
   CardContent,
@@ -24,6 +24,7 @@ import {
 import {
   CollectButtons,
   CollectionResultSection,
+  ConsentStatus,
   ExistingFingerprintsSection,
   FingerprintErrors,
   FingerprintProgress,
@@ -36,31 +37,6 @@ interface FingerprintCollectorProps {
   showDetails?: boolean;
   className?: string;
   showPrivacyNotice?: boolean;
-}
-
-function ConsentStatus({ isConsented }: { isConsented: boolean }) {
-  return (
-    <div
-      className={`p-3 rounded-md ${
-        isConsented
-          ? "bg-green-50 border border-green-200"
-          : "bg-yellow-50 border border-yellow-200"
-      }`}
-    >
-      <div className="flex items-center space-x-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            isConsented ? "bg-green-500" : "bg-yellow-500"
-          }`}
-        />
-        <span className="text-sm font-medium">
-          {isConsented
-            ? "プライバシー同意済み - フィンガープリント収集が可能です"
-            : "プライバシー同意が必要です - 上記タブで同意してください"}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 export function FingerprintCollector({
@@ -155,7 +131,13 @@ export function FingerprintCollector({
   const isSaving = saveMutation.isPending;
   const activeError = error ?? saveError ?? fingerprintManageError;
 
-  const renderCollectorContent = (showConsentStatus: boolean) => (
+  const renderCollectorContent = ({
+    showConsentStatus,
+    leadingContent,
+  }: {
+    showConsentStatus: boolean;
+    leadingContent?: ReactNode;
+  }) => (
     <Card>
       <CardHeader>
         <CardTitle>フィンガープリント収集</CardTitle>
@@ -165,6 +147,7 @@ export function FingerprintCollector({
       </CardHeader>
       <CardContent className="space-y-4">
         {showConsentStatus && <ConsentStatus isConsented={isConsented} />}
+        {leadingContent}
         <FingerprintErrors activeError={activeError} />
         <FingerprintProgress
           isLoading={isLoading}
@@ -215,25 +198,30 @@ export function FingerprintCollector({
           </TabsContent>
 
           <TabsContent value="collector">
-            {renderCollectorContent(true)}
+            {renderCollectorContent({ showConsentStatus: true })}
           </TabsContent>
         </Tabs>
       ) : (
-        <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="checkbox"
-              id="consent"
-              checked={isConsented}
-              onChange={(e) => setIsConsented(e.target.checked)}
-              className="rounded border-border"
-            />
-            <label htmlFor="consent" className="text-sm text-muted-foreground">
-              フィンガープリント収集に同意します（プライバシーポリシーに従って処理されます）
-            </label>
-          </div>
-          {renderCollectorContent(false)}
-        </div>
+        renderCollectorContent({
+          showConsentStatus: false,
+          leadingContent: (
+            <div className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                id="consent"
+                checked={isConsented}
+                onChange={(e) => setIsConsented(e.target.checked)}
+                className="rounded border-border"
+              />
+              <label
+                htmlFor="consent"
+                className="text-sm text-muted-foreground"
+              >
+                フィンガープリント収集に同意します（プライバシーポリシーに従って処理されます）
+              </label>
+            </div>
+          ),
+        })
       )}
     </div>
   );

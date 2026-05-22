@@ -22,7 +22,12 @@ import type {
   DataRetentionConfig,
   DataRetentionStats,
 } from "@/lib/fingerprint/data-retention";
-import { type ActionFeedback, formatRetentionDate } from "./model";
+import { formatJapanDateTime } from "@/lib/formatters";
+import type { ActionFeedback } from "./model";
+
+function formatRetentionDate(date: Date | null) {
+  return date ? formatJapanDateTime(date) : "未設定";
+}
 
 export function RetentionStatsCard({ stats }: { stats: DataRetentionStats }) {
   return (

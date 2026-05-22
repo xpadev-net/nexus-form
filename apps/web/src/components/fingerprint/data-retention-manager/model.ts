@@ -4,7 +4,6 @@ import type {
   DataRetentionConfig,
   DataRetentionStats,
 } from "@/lib/fingerprint/data-retention";
-import { formatJapanDateTime } from "@/lib/formatters";
 
 export const retentionQueryKey = ["fingerprint", "retention"] as const;
 
@@ -123,10 +122,6 @@ export function dataRetentionManagerReducer(
         actionFeedback: { type: "error", message: action.message },
       };
   }
-}
-
-export function formatRetentionDate(date: Date | null) {
-  return date ? formatJapanDateTime(date) : "未設定";
 }
 
 export interface RetentionQueryData {
