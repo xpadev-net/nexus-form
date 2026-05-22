@@ -167,7 +167,6 @@ export interface GoogleSheetsIntegrationModel {
   sheetsErrorMessage: string | null;
   spreadsheetsErrorMessage: string | null;
   syncStatus: UiSyncState | null;
-  isUnauthorized: boolean;
 }
 
 export function useGoogleSheetsIntegrationModel(formId: string) {
@@ -188,7 +187,6 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     newSheetTitle,
     isAddingSheet,
   } = uiState;
-  const searchQueryRef = useRef(searchQuery);
 
   const configQueryKey = useMemo(
     () => ["google-sheets-config", formId] as const,
@@ -203,10 +201,6 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
   const authWindowRef = useRef<Window | null>(null);
   const popupIntervalRef = useRef<number | null>(null);
   const hasInitializedConfigRef = useRef(false);
-
-  useEffect(() => {
-    searchQueryRef.current = searchQuery;
-  }, [searchQuery]);
 
   const {
     data: connectionData,
@@ -241,11 +235,10 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     refetchOnWindowFocus: false,
   });
 
-  const isUnauthorized =
-    connectionError instanceof HttpError && connectionError.status === 401;
-  const isConnected = Boolean(connectionData && !isUnauthorized);
+  const isConnected = Boolean(connectionData);
   const connectionLoadError =
-    connectionError && !isUnauthorized
+    connectionError &&
+    !(connectionError instanceof HttpError && connectionError.status === 401)
       ? connectionError instanceof Error
         ? connectionError.message
         : null
@@ -636,7 +629,6 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     isSheetDialogOpen,
     isSpreadsheetDialogOpen,
     isSyncing,
-    isUnauthorized,
     newSheetTitle,
     newSpreadsheetTitle,
     savedConfig,
