@@ -125,13 +125,14 @@ describe("POST /api/tokens/validate", () => {
 
   it("returns 429 when validate requests exceed the per-IP rate limit", async () => {
     validateApiTokenForUser.mockResolvedValue(null);
+    const burstClientIp = `198.51.100.${Math.floor(Math.random() * 250) + 1}`;
 
     const responses: Response[] = [];
     for (let i = 0; i < 11; i++) {
       responses.push(
         await tokensRouter.request("/validate", {
           method: "POST",
-          headers: validateRequestHeaders("203.0.113.88"),
+          headers: validateRequestHeaders(burstClientIp),
           body: JSON.stringify({ token: `ct_burst_${i}` }),
         }),
       );
