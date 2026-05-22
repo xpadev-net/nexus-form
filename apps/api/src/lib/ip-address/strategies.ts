@@ -71,7 +71,7 @@ function extractTelemetryIP(
 }
 
 /**
- * 一般戦略: x-forwarded-for → unknown
+ * 一般戦略: x-forwarded-for → socket → unknown
  * 用途: レート制限、CAPTCHA、回答送信
  */
 function extractGeneralIP(
