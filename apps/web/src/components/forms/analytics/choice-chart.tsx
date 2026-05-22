@@ -7,7 +7,10 @@ let choiceChartChartsImport: Promise<
 > | null = null;
 
 function loadChoiceChartCharts() {
-  choiceChartChartsImport ??= import("./choice-chart-charts");
+  choiceChartChartsImport ??= import("./choice-chart-charts").catch((error) => {
+    choiceChartChartsImport = null;
+    throw error;
+  });
   return choiceChartChartsImport;
 }
 

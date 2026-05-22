@@ -7,7 +7,12 @@ let dateTimeChartChartsImport: Promise<
 > | null = null;
 
 function loadDateTimeChartCharts() {
-  dateTimeChartChartsImport ??= import("./date-time-chart-charts");
+  dateTimeChartChartsImport ??= import("./date-time-chart-charts").catch(
+    (error) => {
+      dateTimeChartChartsImport = null;
+      throw error;
+    },
+  );
   return dateTimeChartChartsImport;
 }
 
