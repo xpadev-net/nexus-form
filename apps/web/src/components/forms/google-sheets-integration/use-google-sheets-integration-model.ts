@@ -235,7 +235,9 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     refetchOnWindowFocus: false,
   });
 
-  const isConnected = Boolean(connectionData);
+  const isUnauthorized =
+    connectionError instanceof HttpError && connectionError.status === 401;
+  const isConnected = Boolean(connectionData) && !isUnauthorized;
   const connectionLoadError =
     connectionError &&
     !(connectionError instanceof HttpError && connectionError.status === 401)
