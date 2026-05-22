@@ -385,10 +385,10 @@ export const formsPermissionsRouter = createHonoApp()
         await cancelInvitation(invitationId, auth.user_id, formId);
       } catch (error) {
         if (error instanceof FormPermissionError) {
-          return c.json(
-            errorResponse(error.message),
-            error.statusCode as 403 | 404,
-          );
+          const statusCode = error.statusCode;
+          if (statusCode === 403 || statusCode === 404) {
+            return c.json(errorResponse(error.message), statusCode);
+          }
         }
         throw error;
       }

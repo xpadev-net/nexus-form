@@ -958,6 +958,11 @@ export async function cancelInvitation(
       throw new Error("Insufficient permissions to cancel this invitation");
     }
 
+    // 既に承諾済みの招待は削除不可
+    if (invitation.status === "ACCEPTED") {
+      throw new Error("Cannot cancel an accepted invitation");
+    }
+
     if (isInviter && !isOwner) {
       const [currentPermission] = await tx
         .select({ role: formPermission.role })
@@ -971,18 +976,17 @@ export async function cancelInvitation(
         .for("update")
         .limit(1);
 
-      if (!currentPermission) {
+      if (
+        !currentPermission ||
+        (currentPermission.role !== "OWNER" &&
+          currentPermission.role !== "EDITOR")
+      ) {
         throw new InsufficientFormPermissionError(
           invitation.formId,
           "EDITOR",
           null,
         );
       }
-    }
-
-    // 既に承諾済みの招待は削除不可
-    if (invitation.status === "ACCEPTED") {
-      throw new Error("Cannot cancel an accepted invitation");
     }
 
     // 招待を削除

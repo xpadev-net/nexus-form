@@ -105,6 +105,15 @@ describe("cancelInvitation current permission checks", () => {
     expect(mocks.deleteWhere).not.toHaveBeenCalled();
   });
 
+  it("rejects the original inviter after their form permission is downgraded to viewer", async () => {
+    mocks.permissionLimit.mockResolvedValueOnce([{ role: "VIEWER" }]);
+
+    await expect(
+      cancelInvitation("invitation-1", "editor-1", "form-1"),
+    ).rejects.toBeInstanceOf(InsufficientFormPermissionError);
+    expect(mocks.deleteWhere).not.toHaveBeenCalled();
+  });
+
   it("allows the current form owner without an inviter permission row", async () => {
     mocks.invitationLimit.mockResolvedValueOnce([
       pendingInvitation({ formCreatorId: "owner-1", invitedBy: "editor-1" }),

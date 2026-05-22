@@ -796,6 +796,10 @@ export function withDualFormAuth(
       await checkFormPermissionLevel(result.context, formId, requiredRole);
     } catch (error) {
       if (error instanceof FormPermissionError) {
+        const statusCode = error.statusCode;
+        if (statusCode !== 403 && statusCode !== 404) {
+          throw error;
+        }
         return c.json(
           {
             error: {
@@ -804,7 +808,7 @@ export function withDualFormAuth(
               details: error.details,
             },
           },
-          error.statusCode as 403 | 404,
+          statusCode,
         );
       }
       throw error;
