@@ -82,15 +82,3 @@ export const getPatternTemplatePlaceholder = (
  * カスタムテンプレートのID
  */
 export const CUSTOM_TEMPLATE_ID = "custom";
-
-/**
- * デフォルトのテンプレート選択肢（カスタムを除く）
- */
-export const DEFAULT_TEMPLATE_OPTIONS = VALIDATION_PATTERN_TEMPLATES.filter(
-  (template) => template.id !== CUSTOM_TEMPLATE_ID,
-);
-
-/**
- * テンプレート選択肢（カスタムを含む）
- */
-export const ALL_TEMPLATE_OPTIONS = VALIDATION_PATTERN_TEMPLATES;
