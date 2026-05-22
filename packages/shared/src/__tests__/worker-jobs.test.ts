@@ -22,6 +22,13 @@ describe("validation retry job ids", () => {
       "validation-retry-validation-result-d7210b09421b8eb30c7a872f2e5b666a-nonce-1",
     );
     expect(jobId).not.toContain(":");
+
+    const jobIdWithColonNonce = buildValidationRetryJobId(
+      resultId,
+      "job:nonce",
+    );
+    expect(jobIdWithColonNonce).not.toContain(":");
+    expect(jobIdWithColonNonce.endsWith("-job-nonce")).toBe(true);
   });
 });
 
