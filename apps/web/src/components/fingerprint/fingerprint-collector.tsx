@@ -2,7 +2,7 @@
  * フィンガープリント収集コンポーネント
  */
 
-import { type ReactNode, useReducer, useState } from "react";
+import { type ReactNode, useReducer } from "react";
 import {
   Card,
   CardContent,
@@ -46,7 +46,6 @@ export function FingerprintCollector({
   className,
   showPrivacyNotice = true,
 }: FingerprintCollectorProps) {
-  const [isConsented, setIsConsented] = useState(false);
   const [collectionState, dispatchCollection] = useReducer(
     collectionReducer,
     initialCollectionState,
@@ -73,7 +72,7 @@ export function FingerprintCollector({
   const fingerprintManageError = manageQuery.error;
 
   const handleCollect = async () => {
-    if (!isConsented) {
+    if (!collectionState.isConsented) {
       alert("フィンガープリント収集に同意してください");
       return;
     }
@@ -146,7 +145,9 @@ export function FingerprintCollector({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {showConsentStatus && <ConsentStatus isConsented={isConsented} />}
+        {showConsentStatus && (
+          <ConsentStatus isConsented={collectionState.isConsented} />
+        )}
         {leadingContent}
         <FingerprintErrors activeError={activeError} />
         <FingerprintProgress
@@ -155,7 +156,7 @@ export function FingerprintCollector({
           collectionProgress={collectionState.progress}
         />
         <CollectButtons
-          isConsented={isConsented}
+          isConsented={collectionState.isConsented}
           isLoading={isLoading}
           hasCollected={collectionState.hasCollected}
           onCollect={handleCollect}
@@ -192,7 +193,9 @@ export function FingerprintCollector({
 
           <TabsContent value="privacy">
             <PrivacyNotice
-              onConsentChange={setIsConsented}
+              onConsentChange={(consented) =>
+                dispatchCollection({ type: "set-consented", consented })
+              }
               showDetails={true}
             />
           </TabsContent>
@@ -209,8 +212,13 @@ export function FingerprintCollector({
               <input
                 type="checkbox"
                 id="consent"
-                checked={isConsented}
-                onChange={(e) => setIsConsented(e.target.checked)}
+                checked={collectionState.isConsented}
+                onChange={(e) =>
+                  dispatchCollection({
+                    type: "set-consented",
+                    consented: e.target.checked,
+                  })
+                }
                 className="rounded border-border"
               />
               <label
