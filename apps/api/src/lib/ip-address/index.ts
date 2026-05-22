@@ -1,5 +1,9 @@
 import { extractIPByStrategy } from "./strategies";
-import type { IPExtractionOptions, IPExtractionResult } from "./types";
+import type {
+  IPAddressRequestLike,
+  IPExtractionOptions,
+  IPExtractionResult,
+} from "./types";
 
 /**
  * クライアントIPアドレスを抽出
@@ -8,7 +12,7 @@ import type { IPExtractionOptions, IPExtractionResult } from "./types";
  * @returns IPアドレスと取得元の情報
  */
 export function extractClientIP(
-  request: Request | { headers: Headers },
+  request: Request | IPAddressRequestLike,
   options: IPExtractionOptions,
 ): IPExtractionResult {
   return extractIPByStrategy(

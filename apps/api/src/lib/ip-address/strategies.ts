@@ -1,5 +1,5 @@
 import { isIP } from "node:net";
-import type { IPExtractionResult } from "./types";
+import type { IPAddressRequestLike, IPExtractionResult } from "./types";
 
 function parseTrustedProxyCount(
   value: string | undefined = process.env.TRUSTED_PROXY_COUNT,
@@ -12,9 +12,21 @@ function parseTrustedProxyCount(
 }
 
 function normalizeIp(value: string | null | undefined): string | null {
-  const ip = value?.trim();
-  if (!ip || isIP(ip) === 0) return null;
+  let ip = value?.trim();
+  if (!ip) return null;
+  // Strip IPv4-mapped IPv6 prefix (e.g. ::ffff:192.0.2.1 → 192.0.2.1) so dual-stack
+  // listeners and XFF-derived addresses produce the same rate-limit key.
+  if (/^::ffff:/i.test(ip)) ip = ip.slice(7);
+  if (isIP(ip) === 0) return null;
   return ip;
+}
+
+function getSocketRemoteIp(
+  request: Request | IPAddressRequestLike,
+): string | null {
+  if (!("remoteAddress" in request)) return null;
+  const remoteAddress = request.remoteAddress;
+  return typeof remoteAddress === "string" ? normalizeIp(remoteAddress) : null;
 }
 
 function getTrustedForwardedIp(
@@ -40,7 +52,7 @@ function getTrustedForwardedIp(
  * 用途: テレメトリトークン発行
  */
 function extractTelemetryIP(
-  request: Request | { headers: Headers },
+  request: Request | IPAddressRequestLike,
 ): IPExtractionResult {
   const forwarded = request.headers.get("x-nginx-forwarded-for");
 
@@ -59,11 +71,11 @@ function extractTelemetryIP(
 }
 
 /**
- * 一般戦略: x-forwarded-for → unknown
+ * 一般戦略: x-forwarded-for → socket → unknown
  * 用途: レート制限、CAPTCHA、回答送信
  */
 function extractGeneralIP(
-  request: Request | { headers: Headers },
+  request: Request | IPAddressRequestLike,
   trustedProxyCount: number = parseTrustedProxyCount(),
 ): IPExtractionResult {
   const forwardedIp = getTrustedForwardedIp(
@@ -77,6 +89,14 @@ function extractGeneralIP(
     };
   }
 
+  const socketIp = getSocketRemoteIp(request);
+  if (socketIp) {
+    return {
+      ip: socketIp,
+      source: "socket",
+    };
+  }
+
   return {
     ip: "unknown",
     source: "unknown",
@@ -87,7 +107,7 @@ function extractGeneralIP(
  * 戦略に基づいてIPアドレスを抽出
  */
 export function extractIPByStrategy(
-  request: Request | { headers: Headers },
+  request: Request | IPAddressRequestLike,
   strategy: "telemetry" | "general",
   trustedProxyCount?: number,
 ): IPExtractionResult {
