@@ -128,6 +128,28 @@ export {
   ValidationSSEEventSchema,
 } from "./sse-events";
 export type {
+  DynamicServiceEntry,
+  SystemSettingKey,
+  SystemSettingReadParseResult,
+  SystemSettingValue,
+  SystemSettingWriteValidationResult,
+} from "./system-settings";
+export {
+  dynamicServiceEntrySchema,
+  isKnownSystemSettingKey,
+  parseStoredSystemSettingRow,
+  parseSystemSettingValue,
+  SYSTEM_SETTING_DYNAMIC_SERVICES_MAX,
+  SYSTEM_SETTING_KEY,
+  servicesConfigSettingValueSchema,
+  servicesDynamicSettingReadValueSchema,
+  servicesDynamicSettingValueSchema,
+  servicesDynamicSettingWriteValueSchema,
+  systemSettingKeySchema,
+  validateDynamicServicesMutationWrite,
+  validateSystemSettingWrite,
+} from "./system-settings";
+export type {
   AppearanceBrandDefaults,
   FormAppearance,
   FormLayout,

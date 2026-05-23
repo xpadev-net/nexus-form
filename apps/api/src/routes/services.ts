@@ -3,7 +3,16 @@ import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { systemSetting } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
+import {
+  type DynamicServiceEntry,
+  parseStoredSystemSettingRow,
+  parseSystemSettingValue,
+  SYSTEM_SETTING_KEY,
+  validateDynamicServicesMutationWrite,
+  validateSystemSettingWrite,
+} from "@nexus-form/shared";
 import { eq, like } from "drizzle-orm";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { getRedisClient } from "../lib/cache/redis-client";
 import { deleteRedisKeysByPattern } from "../lib/cache/redis-key-cleanup";
@@ -43,37 +52,21 @@ const cacheClearSchema = z.object({
   force: z.boolean().optional(),
 });
 
-const DynamicServiceEntrySchema = z.object({
-  service: z.string(),
-  enabled: z.boolean(),
-  config: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  updatedAt: z.string(),
-});
+const DYNAMIC_KEY = SYSTEM_SETTING_KEY.SERVICES_DYNAMIC;
+const CONFIG_KEY = SYSTEM_SETTING_KEY.SERVICES_CONFIG;
 
-type DynamicServiceEntry = z.infer<typeof DynamicServiceEntrySchema>;
-
-const DYNAMIC_KEY = "services.dynamic";
-const CONFIG_KEY = "services.config";
-
-async function getSetting<T>(
-  key: string,
-  schema: z.ZodType<T>,
-  fallback: T,
-): Promise<T> {
+async function readSystemSettingRow(key: string): Promise<unknown | undefined> {
   const [row] = await db
     .select({ value: systemSetting.value })
     .from(systemSetting)
     .where(eq(systemSetting.key, key))
     .limit(1);
-  if (row?.value == null) return fallback;
-  const result = schema.safeParse(row.value);
-  return result.success ? result.data : fallback;
+  return row?.value ?? undefined;
 }
 
-async function upsertSetting(
-  key: string,
-  value: Record<string, unknown> | DynamicServiceEntry[],
+async function persistSystemSetting(
+  key: typeof DYNAMIC_KEY | typeof CONFIG_KEY,
+  value: DynamicServiceEntry[] | Record<string, unknown>,
   description: string,
 ): Promise<void> {
   const [existing] = await db
@@ -99,13 +92,30 @@ async function upsertSetting(
 }
 
 async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
-  return await getSetting(DYNAMIC_KEY, z.array(DynamicServiceEntrySchema), []);
+  const value = await readSystemSettingRow(DYNAMIC_KEY);
+  return parseSystemSettingValue(DYNAMIC_KEY, value, []);
 }
 
 async function setDynamicServices(
   services: DynamicServiceEntry[],
+  existingCount?: number,
 ): Promise<void> {
-  await upsertSetting(DYNAMIC_KEY, services, "Dynamic external services");
+  let validated = validateSystemSettingWrite(DYNAMIC_KEY, services);
+
+  if (!validated.success) {
+    const priorCount = existingCount ?? (await getDynamicServices()).length;
+    validated = validateDynamicServicesMutationWrite(services, priorCount);
+  }
+
+  if (!validated.success) {
+    throw new HTTPException(validated.status, { message: validated.error });
+  }
+
+  await persistSystemSetting(
+    DYNAMIC_KEY,
+    validated.value,
+    "Dynamic external services",
+  );
 }
 
 export const servicesRouter = createHonoApp()
@@ -139,6 +149,7 @@ export const servicesRouter = createHonoApp()
       }
       const payload = c.req.valid("json");
       const services = await getDynamicServices();
+      const existingCount = services.length;
       const index = services.findIndex(
         (entry) => entry.service === parsed.data,
       );
@@ -165,7 +176,7 @@ export const servicesRouter = createHonoApp()
         });
       }
 
-      await setDynamicServices(services);
+      await setDynamicServices(services, existingCount);
       return c.json(
         ServiceMessageResponseSchema.parse({
           success: true,
@@ -185,6 +196,7 @@ export const servicesRouter = createHonoApp()
 
       const payload = c.req.valid("json");
       const services = await getDynamicServices();
+      const existingCount = services.length;
       const index = services.findIndex(
         (entry) => entry.service === parsed.data,
       );
@@ -201,7 +213,7 @@ export const servicesRouter = createHonoApp()
         metadata: payload?.metadata ?? current.metadata,
         updatedAt: new Date().toISOString(),
       };
-      await setDynamicServices(services);
+      await setDynamicServices(services, existingCount);
 
       return c.json(
         ServiceMessageResponseSchema.parse({
@@ -327,20 +339,33 @@ export const servicesRouter = createHonoApp()
     );
   })
   .get("/config", async (c) => {
-    const [config, dynamicSettings] = await Promise.all([
-      getSetting(CONFIG_KEY, z.record(z.string(), z.unknown()), {}),
+    const [configValue, dynamicSettings] = await Promise.all([
+      readSystemSettingRow(CONFIG_KEY),
       db
         .select({ key: systemSetting.key, value: systemSetting.value })
         .from(systemSetting)
         .where(like(systemSetting.key, "services.%")),
     ]);
+    const config = parseSystemSettingValue(CONFIG_KEY, configValue, {});
+
+    const dynamic = dynamicSettings.flatMap((row) => {
+      if (row.key === CONFIG_KEY) {
+        return [];
+      }
+      const parsed = parseStoredSystemSettingRow(row.key, row.value);
+      if (!parsed.success) {
+        console.warn(`Skipping invalid system setting row: ${row.key}`);
+        return [];
+      }
+      return [{ key: parsed.key, value: parsed.value }];
+    });
 
     return c.json(
       ServiceConfigResponseSchema.parse({
         success: true,
         data: {
           config,
-          dynamic: dynamicSettings,
+          dynamic,
         },
       }),
     );
