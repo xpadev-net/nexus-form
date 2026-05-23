@@ -128,6 +128,23 @@ export {
   ValidationSSEEventSchema,
 } from "./sse-events";
 export type {
+  DynamicServiceEntry,
+  SystemSettingKey,
+  SystemSettingValue,
+  SystemSettingWriteValidationResult,
+} from "./system-settings";
+export {
+  dynamicServiceEntrySchema,
+  isKnownSystemSettingKey,
+  parseSystemSettingValue,
+  SYSTEM_SETTING_DYNAMIC_SERVICES_MAX,
+  SYSTEM_SETTING_KEY,
+  servicesConfigSettingValueSchema,
+  servicesDynamicSettingValueSchema,
+  systemSettingKeySchema,
+  validateSystemSettingWrite,
+} from "./system-settings";
+export type {
   AppearanceBrandDefaults,
   FormAppearance,
   FormLayout,

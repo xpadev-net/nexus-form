@@ -3,7 +3,14 @@ import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { systemSetting } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
+import {
+  type DynamicServiceEntry,
+  parseSystemSettingValue,
+  SYSTEM_SETTING_KEY,
+  validateSystemSettingWrite,
+} from "@nexus-form/shared";
 import { eq, like } from "drizzle-orm";
+import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { getRedisClient } from "../lib/cache/redis-client";
 import { deleteRedisKeysByPattern } from "../lib/cache/redis-key-cleanup";
@@ -43,39 +50,28 @@ const cacheClearSchema = z.object({
   force: z.boolean().optional(),
 });
 
-const DynamicServiceEntrySchema = z.object({
-  service: z.string(),
-  enabled: z.boolean(),
-  config: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  updatedAt: z.string(),
-});
+const DYNAMIC_KEY = SYSTEM_SETTING_KEY.SERVICES_DYNAMIC;
+const CONFIG_KEY = SYSTEM_SETTING_KEY.SERVICES_CONFIG;
 
-type DynamicServiceEntry = z.infer<typeof DynamicServiceEntrySchema>;
-
-const DYNAMIC_KEY = "services.dynamic";
-const CONFIG_KEY = "services.config";
-
-async function getSetting<T>(
-  key: string,
-  schema: z.ZodType<T>,
-  fallback: T,
-): Promise<T> {
+async function readSystemSettingRow(key: string): Promise<unknown | undefined> {
   const [row] = await db
     .select({ value: systemSetting.value })
     .from(systemSetting)
     .where(eq(systemSetting.key, key))
     .limit(1);
-  if (row?.value == null) return fallback;
-  const result = schema.safeParse(row.value);
-  return result.success ? result.data : fallback;
+  return row?.value ?? undefined;
 }
 
 async function upsertSetting(
   key: string,
-  value: Record<string, unknown> | DynamicServiceEntry[],
+  value: unknown,
   description: string,
 ): Promise<void> {
+  const validated = validateSystemSettingWrite(key, value);
+  if (!validated.success) {
+    throw new HTTPException(validated.status, { message: validated.error });
+  }
+
   const [existing] = await db
     .select({ id: systemSetting.id })
     .from(systemSetting)
@@ -85,21 +81,22 @@ async function upsertSetting(
   if (existing) {
     await db
       .update(systemSetting)
-      .set({ value, description })
+      .set({ value: validated.value, description })
       .where(eq(systemSetting.key, key));
     return;
   }
 
   await db.insert(systemSetting).values({
     id: randomUUID(),
-    key,
-    value,
+    key: validated.key,
+    value: validated.value,
     description,
   });
 }
 
 async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
-  return await getSetting(DYNAMIC_KEY, z.array(DynamicServiceEntrySchema), []);
+  const value = await readSystemSettingRow(DYNAMIC_KEY);
+  return parseSystemSettingValue(DYNAMIC_KEY, value, []);
 }
 
 async function setDynamicServices(
@@ -328,19 +325,31 @@ export const servicesRouter = createHonoApp()
   })
   .get("/config", async (c) => {
     const [config, dynamicSettings] = await Promise.all([
-      getSetting(CONFIG_KEY, z.record(z.string(), z.unknown()), {}),
+      parseSystemSettingValue(
+        CONFIG_KEY,
+        await readSystemSettingRow(CONFIG_KEY),
+        {},
+      ),
       db
         .select({ key: systemSetting.key, value: systemSetting.value })
         .from(systemSetting)
         .where(like(systemSetting.key, "services.%")),
     ]);
 
+    const dynamic = dynamicSettings.flatMap((row) => {
+      const validated = validateSystemSettingWrite(row.key, row.value);
+      if (!validated.success) {
+        return [];
+      }
+      return [{ key: validated.key, value: validated.value }];
+    });
+
     return c.json(
       ServiceConfigResponseSchema.parse({
         success: true,
         data: {
           config,
-          dynamic: dynamicSettings,
+          dynamic,
         },
       }),
     );
