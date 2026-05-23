@@ -118,7 +118,7 @@ describe("useGoogleOAuth", () => {
 
     expect(openSpy).toHaveBeenCalledWith(
       "http://api.test/api/integrations/google/authorize?app_origin=http%3A%2F%2Flocalhost%3A3000",
-      "GoogleAuth",
+      expect.stringMatching(/^GoogleAuth_\d+$/),
       expect.stringContaining("width=600"),
     );
 
