@@ -683,9 +683,7 @@ export const externalServiceValidationResult = mysqlTable(
     responseId: varchar("responseId", { length: 128 })
       .notNull()
       .references(() => formResponse.id, { onDelete: "cascade" }),
-    ruleId: varchar("ruleId", { length: 128 })
-      .notNull()
-      .references(() => formValidationRule.id, { onDelete: "cascade" }),
+    ruleId: varchar("ruleId", { length: 128 }).notNull(),
     referencedBlockId: varchar("referencedBlockId", { length: 128 }).notNull(),
     snapshotVersion: int("snapshotVersion"),
     service: varchar("service", { length: 64 }),
