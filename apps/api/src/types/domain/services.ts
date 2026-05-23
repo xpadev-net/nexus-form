@@ -1,13 +1,8 @@
+import { dynamicServiceEntrySchema } from "@nexus-form/shared";
 import { z } from "zod";
 
 /** 動的に登録された外部サービスのエントリ。 */
-export const DynamicServiceEntrySchema = z.object({
-  service: z.string(),
-  enabled: z.boolean(),
-  config: z.record(z.string(), z.unknown()).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  updatedAt: z.string(),
-});
+export const DynamicServiceEntrySchema = dynamicServiceEntrySchema;
 
 /** `{ success: true, message }` 形式のレスポンス。 */
 export const ServiceMessageResponseSchema = z.object({
