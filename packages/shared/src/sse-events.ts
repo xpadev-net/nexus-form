@@ -42,6 +42,32 @@ export const EditorSSEEventSchema = z.discriminatedUnion("type", [
 
 export type EditorSSEEvent = z.infer<typeof EditorSSEEventSchema>;
 
+// --- SSE 接続制御（権限剥奪時の切断） ---
+
+export const SseAccessRevokedEventSchema = z.object({
+  type: z.literal("sse_access_revoked"),
+  formId: z.string(),
+  userId: z.string(),
+  timestamp: z.string(),
+});
+
+export type SseAccessRevokedEvent = z.infer<typeof SseAccessRevokedEventSchema>;
+
+/**
+ * Parses a Redis Pub/Sub payload as an SSE access-revoke control event.
+ */
+export function parseSseAccessRevokedEvent(
+  message: string,
+): SseAccessRevokedEvent | null {
+  try {
+    const parsed: unknown = JSON.parse(message);
+    const result = SseAccessRevokedEventSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Redis チャネル名ヘルパー ---
 
 export const VALIDATION_CHANNEL_PREFIX = "form:validation:";

@@ -118,12 +118,18 @@ export {
   parseFiniteResponseNumber,
   textMatchesPattern,
 } from "./response-validation-rules";
-export type { EditorSSEEvent, ValidationSSEEvent } from "./sse-events";
+export type {
+  EditorSSEEvent,
+  SseAccessRevokedEvent,
+  ValidationSSEEvent,
+} from "./sse-events";
 export {
   EDITOR_CHANNEL_PREFIX,
   EditorSSEEventSchema,
   getEditorChannel,
   getValidationChannel,
+  parseSseAccessRevokedEvent,
+  SseAccessRevokedEventSchema,
   VALIDATION_CHANNEL_PREFIX,
   ValidationSSEEventSchema,
 } from "./sse-events";

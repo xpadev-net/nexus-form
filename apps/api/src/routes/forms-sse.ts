@@ -6,7 +6,11 @@
  * - GET /:id/editor/events — ブロック・セッション変更 (form:editor:{formId})
  */
 
-import { getEditorChannel, getValidationChannel } from "@nexus-form/shared";
+import {
+  getEditorChannel,
+  getValidationChannel,
+  parseSseAccessRevokedEvent,
+} from "@nexus-form/shared";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import Redis from "ioredis";
@@ -150,6 +154,7 @@ interface SseClientEntry {
   sendChain: Promise<void>;
   pendingMessages: number;
   closed: boolean;
+  userId?: string;
 }
 
 interface ChannelSubscription {
@@ -164,7 +169,7 @@ interface SseChannelRegistry {
   attach: (
     channel: string,
     client: SseMessageClient,
-    options?: { preflighted?: boolean },
+    options?: { preflighted?: boolean; userId?: string },
   ) => Promise<() => Promise<void>>;
   closeAll: () => Promise<void>;
 }
@@ -255,8 +260,18 @@ export function createSseChannelRegistry(
         }
       }
 
+      const revokeEvent = parseSseAccessRevokedEvent(message);
+
       for (const [clientId, entry] of subscription.clients.entries()) {
         if (entry.closed) continue;
+
+        if (revokeEvent) {
+          if (entry.userId === revokeEvent.userId) {
+            closeClientEntry(clientId, entry);
+          }
+          continue;
+        }
+
         if (entry.pendingMessages >= MAX_SSE_PENDING_MESSAGES_PER_CLIENT) {
           closeClientEntry(clientId, entry);
           continue;
@@ -305,7 +320,7 @@ export function createSseChannelRegistry(
     async attach(
       channel: string,
       client: SseMessageClient,
-      options: { preflighted?: boolean } = {},
+      options: { preflighted?: boolean; userId?: string } = {},
     ): Promise<() => Promise<void>> {
       if (!acceptingClients) {
         client.close();
@@ -320,6 +335,7 @@ export function createSseChannelRegistry(
         sendChain: Promise.resolve(),
         pendingMessages: 0,
         closed: false,
+        userId: options.userId,
       };
       subscription.clients.set(clientId, entry);
 
@@ -425,7 +441,7 @@ async function createSSEStream(
               }),
             close: closeStream,
           },
-          { preflighted: true },
+          { preflighted: true, userId: auth.user_id },
         );
         if (closeRequested) return;
 

@@ -60,6 +60,12 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn(),
 }));
 
+const publishSseAccessRevoked = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../../redis-publisher", () => ({
+  publishSseAccessRevoked,
+}));
+
 import { removePermission } from "../permission-service";
 
 describe("removePermission share-link revocation", () => {
@@ -84,5 +90,11 @@ describe("removePermission share-link revocation", () => {
       "editor-1",
     );
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.isActive", true);
+  });
+
+  it("publishes an SSE access revoke event after permission removal", async () => {
+    await removePermission("form-1", "editor-1");
+
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
   });
 });
