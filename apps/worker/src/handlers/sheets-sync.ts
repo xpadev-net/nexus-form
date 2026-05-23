@@ -31,6 +31,7 @@ import {
   withRedisLock,
 } from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
+import { workerShutdownSignal } from "../lib/shutdown-signal";
 
 export type SheetsSyncJob = SheetsSyncJobData;
 
@@ -360,6 +361,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     {
       ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
       waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
+      signal: workerShutdownSignal,
     },
   );
 };

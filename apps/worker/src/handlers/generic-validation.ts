@@ -16,6 +16,7 @@ import {
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
 import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
+import { workerShutdownSignal } from "../lib/shutdown-signal";
 import {
   ConcurrentDeleteError,
   getValidationContext,
@@ -287,6 +288,7 @@ export const handleGenericValidation = async (
               "DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS",
               DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS,
             ),
+            signal: workerShutdownSignal,
           },
         );
       } catch (error) {
