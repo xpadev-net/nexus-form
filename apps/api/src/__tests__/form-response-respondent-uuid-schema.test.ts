@@ -6,9 +6,7 @@ describe("formResponse.respondentUuid constraints", () => {
   it("does not enforce a global unique constraint on respondentUuid", () => {
     const config = getTableConfig(formResponse);
 
-    const globalRespondentUuidUnique = Object.values(
-      config.uniqueConstraints,
-    ).find(
+    const globalRespondentUuidUnique = config.uniqueConstraints.find(
       (constraint) =>
         constraint.columns.length === 1 &&
         constraint.columns[0]?.name === "respondentUuid",
