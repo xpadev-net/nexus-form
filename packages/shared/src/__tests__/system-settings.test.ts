@@ -1,10 +1,57 @@
 import { describe, expect, it } from "vitest";
 import {
+  isKnownSystemSettingKey,
+  parseStoredSystemSettingRow,
   parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
   validateDynamicServicesMutationWrite,
   validateSystemSettingWrite,
 } from "../system-settings";
+
+describe("isKnownSystemSettingKey", () => {
+  it("returns true for a known system setting key", () => {
+    expect(isKnownSystemSettingKey(SYSTEM_SETTING_KEY.SERVICES_DYNAMIC)).toBe(
+      true,
+    );
+  });
+
+  it("returns false for an unknown system setting key", () => {
+    expect(isKnownSystemSettingKey("services.unknown")).toBe(false);
+  });
+});
+
+describe("parseStoredSystemSettingRow", () => {
+  it("parses a valid stored services.dynamic row", () => {
+    const updatedAt = new Date().toISOString();
+    const stored = [
+      {
+        service: "discord",
+        enabled: true,
+        updatedAt,
+      },
+    ];
+
+    const result = parseStoredSystemSettingRow(
+      SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+      stored,
+    );
+
+    expect(result).toEqual({
+      success: true,
+      key: SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+      value: stored,
+    });
+  });
+
+  it("returns failure for malformed stored values", () => {
+    const result = parseStoredSystemSettingRow(
+      SYSTEM_SETTING_KEY.SERVICES_CONFIG,
+      "not-an-object",
+    );
+
+    expect(result).toEqual({ success: false });
+  });
+});
 
 describe("validateSystemSettingWrite", () => {
   it("rejects unknown keys with HTTP 400 semantics", () => {

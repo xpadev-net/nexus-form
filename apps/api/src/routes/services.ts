@@ -98,12 +98,13 @@ async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
 
 async function setDynamicServices(
   services: DynamicServiceEntry[],
+  existingCount?: number,
 ): Promise<void> {
   let validated = validateSystemSettingWrite(DYNAMIC_KEY, services);
 
   if (!validated.success) {
-    const existingCount = (await getDynamicServices()).length;
-    validated = validateDynamicServicesMutationWrite(services, existingCount);
+    const priorCount = existingCount ?? (await getDynamicServices()).length;
+    validated = validateDynamicServicesMutationWrite(services, priorCount);
   }
 
   if (!validated.success) {
@@ -148,6 +149,7 @@ export const servicesRouter = createHonoApp()
       }
       const payload = c.req.valid("json");
       const services = await getDynamicServices();
+      const existingCount = services.length;
       const index = services.findIndex(
         (entry) => entry.service === parsed.data,
       );
@@ -174,7 +176,7 @@ export const servicesRouter = createHonoApp()
         });
       }
 
-      await setDynamicServices(services);
+      await setDynamicServices(services, existingCount);
       return c.json(
         ServiceMessageResponseSchema.parse({
           success: true,
@@ -194,6 +196,7 @@ export const servicesRouter = createHonoApp()
 
       const payload = c.req.valid("json");
       const services = await getDynamicServices();
+      const existingCount = services.length;
       const index = services.findIndex(
         (entry) => entry.service === parsed.data,
       );
@@ -210,7 +213,7 @@ export const servicesRouter = createHonoApp()
         metadata: payload?.metadata ?? current.metadata,
         updatedAt: new Date().toISOString(),
       };
-      await setDynamicServices(services);
+      await setDynamicServices(services, existingCount);
 
       return c.json(
         ServiceMessageResponseSchema.parse({
