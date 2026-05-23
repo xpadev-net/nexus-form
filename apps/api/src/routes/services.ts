@@ -324,19 +324,19 @@ export const servicesRouter = createHonoApp()
     );
   })
   .get("/config", async (c) => {
-    const [config, dynamicSettings] = await Promise.all([
-      parseSystemSettingValue(
-        CONFIG_KEY,
-        await readSystemSettingRow(CONFIG_KEY),
-        {},
-      ),
+    const [configValue, dynamicSettings] = await Promise.all([
+      readSystemSettingRow(CONFIG_KEY),
       db
         .select({ key: systemSetting.key, value: systemSetting.value })
         .from(systemSetting)
         .where(like(systemSetting.key, "services.%")),
     ]);
+    const config = parseSystemSettingValue(CONFIG_KEY, configValue, {});
 
     const dynamic = dynamicSettings.flatMap((row) => {
+      if (row.key === CONFIG_KEY) {
+        return [];
+      }
       const validated = validateSystemSettingWrite(row.key, row.value);
       if (!validated.success) {
         return [];
