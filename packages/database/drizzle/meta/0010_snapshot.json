@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "635e42f1-ee43-4f49-950e-e93b0ef458c8",
-  "prevId": "e4c8a12f-7b6d-4f9e-a3c2-1d8e5f709abc",
+  "id": "082b590c-8fe5-4cc1-9bfd-fedabcb19e93",
+  "prevId": "635e42f1-ee43-4f49-950e-e93b0ef458c8",
   "tables": {
     "ApiToken": {
       "name": "ApiToken",
