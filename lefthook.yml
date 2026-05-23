@@ -26,7 +26,7 @@ pre-commit:
       glob: "{src,apps,packages}/**/*.{ts,tsx}"
       run: pnpm type-check
     db-schema-staged-check:
-      glob: "packages/database/src/**/*.ts"
+      glob: "packages/database/src/{schema,auth-schema}.ts"
       run: pnpm db:schema:check-staged
 
 pre-push:
