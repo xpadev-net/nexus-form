@@ -588,10 +588,6 @@ export const formsPublicRouter = createHonoApp()
       if (!responseDataJson) {
         return c.json(errorResponse("Response payload is too large"), 400);
       }
-      const validationOutbox = activeSnapshot
-        ? await buildExternalValidationOutbox(responseId, activeSnapshot)
-        : null;
-
       // 8. Session management (resolve before transaction; cookie set only on success)
       const userAgent = c.req.header("user-agent") ?? undefined;
       if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
@@ -604,7 +600,21 @@ export const formsPublicRouter = createHonoApp()
         { ip, ua: userAgent },
       );
 
-      const insertResult = await db.transaction(async (tx) => {
+      type PublicSubmitInsertResult =
+        | {
+            limitReached: true;
+            message: string;
+          }
+        | {
+            limitReached: false;
+            validationOutbox: ValidationOutbox | null;
+          };
+
+      const insertResult: PublicSubmitInsertResult = await db.transaction(
+        async (tx) => {
+        const validationOutbox = activeSnapshot
+          ? await buildExternalValidationOutbox(tx, responseId, activeSnapshot)
+          : null;
         if (responseLimit?.enabled && responseLimit.max_responses) {
           // Acquire exclusive lock on the form row to serialize concurrent
           // submissions and prevent TOCTOU on the response limit check.
@@ -656,7 +666,7 @@ export const formsPublicRouter = createHonoApp()
           await insertExternalValidationOutbox(tx, validationOutbox);
         }
 
-        return { limitReached: false as const };
+        return { limitReached: false as const, validationOutbox };
       });
 
       if (insertResult.limitReached) {
@@ -673,8 +683,15 @@ export const formsPublicRouter = createHonoApp()
       setSessionCookie(c, newJwt);
 
       // 11. Queue external validation jobs (non-blocking)
-      if (validationOutbox && validationOutbox.pendingJobs.length > 0) {
-        enqueueExternalValidationJobs(responseId, validationOutbox).catch(
+      if (
+        !insertResult.limitReached &&
+        insertResult.validationOutbox &&
+        insertResult.validationOutbox.pendingJobs.length > 0
+      ) {
+        enqueueExternalValidationJobs(
+          responseId,
+          insertResult.validationOutbox,
+        ).catch(
           (error) => {
             logError("Failed to queue external validations", "api", {
               error,
@@ -853,6 +870,7 @@ type ValidationOutbox = {
 };
 
 async function buildExternalValidationOutbox(
+  tx: TransactionClient,
   responseId: string,
   activeSnapshot: FormSnapshot,
 ): Promise<ValidationOutbox> {
@@ -879,6 +897,7 @@ async function buildExternalValidationOutbox(
   );
 
   const existingRuleIds = await getExistingValidationRuleIds(
+    tx,
     Array.from(new Set(pairs.map((pair) => pair.ruleId))),
   );
   const missingRuleRows: ValidationPair[] = [];
@@ -976,6 +995,20 @@ async function buildExternalValidationOutbox(
     });
   }
 
+  for (const pair of missingRuleRows) {
+    inserts.push({
+      id: getPairValidationResultId(pair),
+      responseId,
+      ruleId: pair.ruleId,
+      referencedBlockId: pair.referencedBlockId,
+      snapshotVersion: activeSnapshot.version,
+      service: pair.providerName,
+      status: "FAILED",
+      errorCode: "RULE_DELETED",
+      errorMessage: `Referenced validation rule no longer exists: ${pair.ruleId}`,
+    });
+  }
+
   if (missingRuleRows.length > 0) {
     logWarn(
       "Skipped validation rows for deleted validation rules",
@@ -1017,10 +1050,11 @@ async function insertExternalValidationOutbox(
 }
 
 async function getExistingValidationRuleIds(
+  tx: TransactionClient,
   ruleIds: string[],
 ): Promise<Set<string>> {
   if (ruleIds.length === 0) return new Set();
-  const rows = await db
+  const rows = await tx
     .select({ id: formValidationRule.id })
     .from(formValidationRule)
     .where(inArray(formValidationRule.id, ruleIds));

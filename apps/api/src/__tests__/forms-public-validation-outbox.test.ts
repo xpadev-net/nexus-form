@@ -264,7 +264,7 @@ function useTransactionWithInsertCapture() {
   }));
   mocks.db.transaction.mockImplementation(async (fn) => {
     mocks.sequence.push("tx:start");
-    const result = await fn({ insert: txInsert });
+    const result = await fn({ insert: txInsert, select: mocks.db.select });
     mocks.sequence.push("tx:commit");
     return result;
   });
@@ -396,12 +396,19 @@ describe("R11-C2-a public validation outbox", () => {
     const response = await submitPublicForm();
 
     expect(response.status).toBe(201);
-    expect(getInsertedValidationRows()).toEqual([
-      expect.objectContaining({
-        ruleId: "rule-valid",
-        status: "PENDING",
-      }),
-    ]);
+    expect(getInsertedValidationRows()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ruleId: "rule-valid",
+          status: "PENDING",
+        }),
+        expect.objectContaining({
+          ruleId: "rule-deleted",
+          status: "FAILED",
+          errorCode: "RULE_DELETED",
+        }),
+      ]),
+    );
     expect(mocks.addValidationJob).toHaveBeenCalledWith(
       "validate-discord",
       expect.objectContaining({
