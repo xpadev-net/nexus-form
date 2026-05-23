@@ -23,7 +23,12 @@
     "db:generate": {
       "dependsOn": ["^build"],
       "cache": true,
-      "inputs": ["src/schema.ts", "src/auth-schema.ts", "drizzle.config.ts"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "src/schema.ts",
+        "src/auth-schema.ts",
+        "drizzle.config.ts"
+      ],
       "outputs": ["drizzle/**"]
     },
     "db:migrate": {

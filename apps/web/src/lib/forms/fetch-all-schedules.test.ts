@@ -45,4 +45,22 @@ describe("fetchAllSchedules", () => {
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
     expect(rpcMock).toHaveBeenCalledTimes(1);
   });
+
+  it("aggregates schedules across all pages", async () => {
+    rpcMock.mockImplementation(async () => {
+      const page = rpcMock.mock.calls.length;
+      return {
+        schedules: [{ id: `schedule-${page}` }],
+        pagination: { totalPages: 2, page, pageSize: 100, total: 2 },
+      };
+    });
+
+    const result = await fetchAllSchedules("form-1");
+
+    expect(result.schedules).toEqual([
+      { id: "schedule-1" },
+      { id: "schedule-2" },
+    ]);
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
 });
