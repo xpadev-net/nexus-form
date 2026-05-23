@@ -9,6 +9,17 @@ const repoRoot = resolve(
   "../../../..",
 );
 
+const parseTscShowConfig = (output: string) => {
+  const jsonStart = output.indexOf("{");
+  if (jsonStart === -1) {
+    throw new Error("tsc --showConfig did not emit JSON");
+  }
+
+  return JSON.parse(output.slice(jsonStart)) as {
+    compilerOptions: { paths: Record<string, string[]> };
+  };
+};
+
 describe("root tsconfig path aliases", () => {
   it("maps @nexus-form/shared to the shared package source entry", () => {
     const raw = readFileSync(resolve(repoRoot, "tsconfig.json"), "utf8")
@@ -33,9 +44,7 @@ describe("root tsconfig path aliases", () => {
       },
     );
 
-    const resolved = JSON.parse(output) as {
-      compilerOptions: { paths: Record<string, string[]> };
-    };
+    const resolved = parseTscShowConfig(output);
 
     expect(resolved.compilerOptions.paths["@nexus-form/shared"]).toEqual([
       "./packages/shared/src/index.ts",
