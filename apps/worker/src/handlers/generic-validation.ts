@@ -74,7 +74,15 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 }
 
 function isRedisLockAcquireTimeout(error: unknown): boolean {
-  return error instanceof RedisLockAcquireTimeoutError;
+  if (error instanceof RedisLockAcquireTimeoutError) return true;
+  // AbortError from workerShutdownSignal — treat as transient lock failure
+  if (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function getRetryAfterAttemptsLimit(): number {
