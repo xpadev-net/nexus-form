@@ -1,21 +1,21 @@
-import {
-  createFileRoute,
-  Outlet,
-  useRouterState,
-} from "@tanstack/react-router";
-import { AuthenticatedRouteErrorPage } from "@/components/common/authenticated-route-error-page";
+import { useRouterState } from "@tanstack/react-router";
+import { RouteErrorPanel } from "@/components/common/route-error-panel";
 import { Footer } from "@/components/layout/footer";
 import { Navigation } from "@/components/layout/navigation";
 import { NavigationDrawer } from "@/components/layout/navigation-drawer";
-import { requireAuth } from "@/lib/require-auth";
+import { usePageTitle } from "@/hooks/use-page-title";
 
-export const Route = createFileRoute("/_authenticated")({
-  beforeLoad: requireAuth,
-  component: AuthenticatedLayout,
-  errorComponent: AuthenticatedRouteErrorPage,
-});
+type AuthenticatedRouteErrorPageProps = {
+  error: unknown;
+  reset: () => void;
+};
 
-function AuthenticatedLayout() {
+export function AuthenticatedRouteErrorPage({
+  error,
+  reset,
+}: AuthenticatedRouteErrorPageProps) {
+  usePageTitle("エラーが発生しました");
+
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -28,7 +28,7 @@ function AuthenticatedLayout() {
           <NavigationDrawer />
         </header>
         <main className="px-6 pb-6">
-          <Outlet />
+          <RouteErrorPanel error={error} reset={reset} />
         </main>
       </div>
     );
@@ -40,7 +40,7 @@ function AuthenticatedLayout() {
         <Navigation />
       </header>
       <main className="p-6">
-        <Outlet />
+        <RouteErrorPanel error={error} reset={reset} />
       </main>
       <Footer />
     </div>
