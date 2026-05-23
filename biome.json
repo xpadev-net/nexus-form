@@ -15,7 +15,7 @@
       "!dist",
       "!build",
       "!apps/web/src/routeTree.gen.ts",
-      "!apps/web/src/components/ui/*",
+      "!apps/web/src/components/ui/**",
       "!playwright-report"
     ]
   },
