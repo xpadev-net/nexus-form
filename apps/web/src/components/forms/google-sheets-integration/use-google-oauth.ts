@@ -39,6 +39,12 @@ export function useGoogleOAuth({
 
   const handleConnect = useCallback(async () => {
     try {
+      // 古いポップアップを先に閉じる（window.open の target name 再利用対策）
+      if (authWindowRef.current && !authWindowRef.current.closed) {
+        authWindowRef.current.close();
+        authWindowRef.current = null;
+      }
+
       const width = 600;
       const height = 700;
       const left = window.screen.width / 2 - width / 2;
@@ -46,9 +52,11 @@ export function useGoogleOAuth({
       const authorizeUrl = new URL(apiUrl(authorizePath));
       authorizeUrl.searchParams.set("app_origin", window.location.origin);
 
+      // ユニークな target name でポップアップを開く（ブラウザの同一名再利用を防止）
+      const targetName = `GoogleAuth_${Date.now()}`;
       const authWindow = window.open(
         authorizeUrl.toString(),
-        "GoogleAuth",
+        targetName,
         `width=${width},height=${height},left=${left},top=${top}`,
       );
 
