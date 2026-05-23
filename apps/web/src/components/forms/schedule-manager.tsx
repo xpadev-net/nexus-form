@@ -261,37 +261,10 @@ interface ScheduleManagerProps {
   formId: string;
 }
 
-const SCHEDULE_PAGE_SIZE = 100;
-
-async function fetchSchedulePage(formId: string, page: number) {
-  return rpc(
-    client.api.forms[":id"].schedule.$get({
-      param: { id: formId },
-      query: { page: String(page), pageSize: String(SCHEDULE_PAGE_SIZE) },
-    }),
-  );
-}
-
-type ScheduleEntry = Awaited<
-  ReturnType<typeof fetchSchedulePage>
->["schedules"][number];
-
-async function fetchAllSchedules(formId: string): Promise<{
-  schedules: ScheduleEntry[];
-}> {
-  const schedules: ScheduleEntry[] = [];
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const res = await fetchSchedulePage(formId, page);
-    schedules.push(...res.schedules);
-    totalPages = res.pagination.totalPages;
-    page++;
-  } while (page <= totalPages);
-
-  return { schedules };
-}
+import {
+  fetchAllSchedules,
+  type ScheduleEntry,
+} from "@/lib/forms/fetch-all-schedules";
 
 export function ScheduleManager({ formId }: ScheduleManagerProps) {
   const queryClient = useQueryClient();
@@ -301,7 +274,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
 
   const schedulesQuery = useQuery({
     queryKey: ["formSchedules", formId],
-    queryFn: () => fetchAllSchedules(formId),
+    queryFn: ({ signal }) => fetchAllSchedules(formId, signal),
     enabled: !!formId,
   });
 
