@@ -361,6 +361,15 @@ describe("handleSheetsSync — idempotency states", () => {
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     );
+    expect(mockReadRange).toHaveBeenCalledTimes(2);
+    expect(mockReadRange).toHaveBeenNthCalledWith(1, TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:1",
+    });
+    expect(mockReadRange).toHaveBeenNthCalledWith(2, TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!A:A",
+    });
   });
 
   it("skips append when the idempotency key expired but the response row already exists", async () => {
@@ -403,6 +412,15 @@ describe("handleSheetsSync — idempotency states", () => {
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     );
+    expect(mockReadRange).toHaveBeenCalledTimes(2);
+    expect(mockReadRange).toHaveBeenNthCalledWith(1, TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:1",
+    });
+    expect(mockReadRange).toHaveBeenNthCalledWith(2, TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!A:A",
+    });
     expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
       getInvocationCallOrder(mockReadRange, 0),
     );
