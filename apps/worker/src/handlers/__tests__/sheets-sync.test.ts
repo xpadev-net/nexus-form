@@ -330,15 +330,21 @@ describe("handleSheetsSync — idempotency states", () => {
   it('promotes "pending" to "done" when the response row already exists', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");
-    mockReadRange.mockResolvedValueOnce({
-      ok: true,
-      data: {
-        values: [
-          ["Response ID", "block-1"],
-          ["response-1", "hello"],
-        ],
-      },
-    } as never);
+    // First readRange call: header row (range !1:1)
+    // Second readRange call: responseId column (range !A:A) — column A = "Response ID"
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "block-1"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"], ["other-response"]],
+        },
+      } as never);
 
     const result = await handleSheetsSync(makeJob());
 
@@ -360,15 +366,21 @@ describe("handleSheetsSync — idempotency states", () => {
   it("skips append when the idempotency key expired but the response row already exists", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
-    mockReadRange.mockResolvedValueOnce({
-      ok: true,
-      data: {
-        values: [
-          ["Response ID", "block-1"],
-          ["response-1", "hello"],
-        ],
-      },
-    } as never);
+    // First readRange call: header row (range !1:1)
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "block-1"]],
+        },
+      } as never)
+      // Second readRange call: responseId column (range !A:A)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"], ["other-response"]],
+        },
+      } as never);
 
     const result = await handleSheetsSync(makeJob());
 

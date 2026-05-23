@@ -366,6 +366,20 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   );
 };
 
+/**
+ * カラムインデックス（0-based）を Google Sheets のカラム文字（A, B, ..., Z, AA, ...）に変換する。
+ * e.g. 0→"A", 1→"B", 25→"Z", 26→"AA"
+ */
+function columnIndexToLetter(index: number): string {
+  let letter = "";
+  let i = index;
+  do {
+    letter = String.fromCharCode(65 + (i % 26)) + letter;
+    i = Math.floor(i / 26) - 1;
+  } while (i >= 0);
+  return letter;
+}
+
 async function readSheetForIdempotency(
   token: OAuthToken,
   params: {
@@ -374,28 +388,37 @@ async function readSheetForIdempotency(
     responseId: string;
   },
 ): Promise<{ exists: boolean; headers: string[] }> {
-  const sheetData = await readRange(token, {
+  const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
-    rangeA1: params.sheetName,
+    rangeA1: `${params.sheetName}!1:1`,
   });
-  if (!sheetData.ok) {
+  if (!headerData.ok) {
     throw new Error(
-      `Failed to read sheet for idempotency check: ${sheetData.error.message}`,
+      `Failed to read sheet for idempotency check: ${headerData.error.message}`,
     );
   }
-  if (sheetData.data.values.length === 0) {
+  if (headerData.data.values.length === 0) {
     return { exists: false, headers: [] };
   }
 
-  const headers = sheetData.data.values[0] ?? [];
+  const headers = headerData.data.values[0] ?? [];
   const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIndex === -1) {
     return { exists: false, headers };
   }
 
-  const exists = sheetData.data.values
+  const columnLetter = columnIndexToLetter(responseIdIndex);
+  const entireColumn = await readRange(token, {
+    spreadsheetId: params.spreadsheetId,
+    rangeA1: `${params.sheetName}!${columnLetter}:${columnLetter}`,
+  });
+  if (!entireColumn.ok) {
+    return { exists: false, headers };
+  }
+
+  const exists = entireColumn.data.values
     .slice(1)
-    .some((row) => row[responseIdIndex] === params.responseId);
+    .some((row) => row[0] === params.responseId);
   return { exists, headers };
 }
 
