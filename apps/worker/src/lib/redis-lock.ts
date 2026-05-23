@@ -63,6 +63,8 @@ export interface RedisLockOptions {
   waitTimeoutMs?: number;
   /** 取得失敗時の再試行間隔 (ms)。 */
   retryDelayMs?: number;
+  /** When aborted, lock acquisition retries stop immediately. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -83,6 +85,40 @@ export class RedisLockAcquireTimeoutError extends Error {
     super(`Failed to acquire redis lock "${key}" within ${waitTimeoutMs}ms`);
     this.name = "RedisLockAcquireTimeoutError";
   }
+}
+
+/** Thrown when lock acquisition is interrupted by an AbortSignal. */
+export class RedisLockAbortedError extends Error {
+  constructor(public readonly key: string) {
+    super(`Redis lock acquisition for "${key}" was aborted`);
+    this.name = "RedisLockAbortedError";
+  }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined, key: string): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new RedisLockAbortedError(key);
+}
+
+function sleep(ms: number, signal?: AbortSignal, key?: string): Promise<void> {
+  throwIfAborted(signal, key ?? "unknown");
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new RedisLockAbortedError(key ?? "unknown"),
+      );
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 /** 冪等性キーの現在値を取得する。存在しなければ null を返す。 */
@@ -116,6 +152,7 @@ export async function withRedisLock<T>(
   const ttlMs = options.ttlMs ?? 30_000;
   const waitTimeoutMs = options.waitTimeoutMs ?? 35_000;
   const retryDelayMs = options.retryDelayMs ?? 200;
+  const signal = options.signal;
 
   const redis = getLockClient();
   const lockToken = randomUUID();
@@ -123,6 +160,7 @@ export async function withRedisLock<T>(
 
   let acquired = false;
   while (!acquired) {
+    throwIfAborted(signal, key);
     const result = await redis.set(key, lockToken, "PX", ttlMs, "NX");
     if (result === "OK") {
       acquired = true;
@@ -131,7 +169,7 @@ export async function withRedisLock<T>(
     if (Date.now() + retryDelayMs >= deadline) {
       throw new RedisLockAcquireTimeoutError(key, waitTimeoutMs);
     }
-    await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    await sleep(retryDelayMs, signal, key);
   }
 
   try {
