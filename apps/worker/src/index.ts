@@ -23,6 +23,7 @@ import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
 import { closePublisher } from "./lib/redis-publisher";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
+import { abortWorkerShutdown } from "./lib/shutdown-signal";
 import { createWorker } from "./lib/worker-factory";
 import {
   GOOGLE_SHEETS_SYNC_QUEUE,
@@ -133,7 +134,7 @@ async function main() {
   );
 
   const metricsInterval = startQueueMetricsCollection();
-  const { shutdown } = createGracefulShutdown({
+  const { shutdown: baseShutdown } = createGracefulShutdown({
     workers,
     metricsInterval,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
@@ -146,6 +147,12 @@ async function main() {
     exit: process.exit.bind(process),
     logger: console,
   });
+  const shutdown: typeof baseShutdown = async (request) => {
+    abortWorkerShutdown(
+      new DOMException(`Worker shutdown (${request.trigger})`, "AbortError"),
+    );
+    await baseShutdown(request);
+  };
 
   registerShutdownHandlers({
     process,

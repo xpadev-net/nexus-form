@@ -11,6 +11,7 @@ import { z } from "zod";
 import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import { decryptFromBase64, encryptToBase64 } from "./field-encryption";
 import { withRedisLock } from "./redis-lock";
+import { workerShutdownSignal } from "./shutdown-signal";
 
 /** トークンリフレッシュ用 fetch のタイムアウト (ms)。 */
 const REFRESH_TIMEOUT_MS = parsePositiveIntEnv(
@@ -195,6 +196,7 @@ export async function refreshTokenIfNeeded(
       // クラッシュした保持側のロック失効を待てるようにする。
       ttlMs: REFRESH_TIMEOUT_MS + 20_000,
       waitTimeoutMs: REFRESH_TIMEOUT_MS + 25_000,
+      signal: workerShutdownSignal,
     },
   );
 }
