@@ -18,6 +18,7 @@ import {
   ZDiscordGuildRole,
   ZDiscordRateLimitResponse,
   ZDiscordUser,
+  ZDiscordUserId,
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
@@ -142,6 +143,24 @@ export async function getGuild(
   return data.data;
 }
 
+const DISCORD_GUILD_MEMBER_PAGE_SIZE = 1000;
+/** Cap list-member fallback scans to 10k members to avoid unbounded API usage. */
+const DISCORD_LIST_MEMBERS_MAX_PAGES = 10;
+
+/**
+ * Prefix-search guild members via Discord's Search Guild Members endpoint.
+ *
+ * @param token - Bot token used for `Authorization: Bot …`.
+ * @param guildId - Target guild snowflake.
+ * @param query - Prefix matched against usernames and nicknames (`query` is URL-encoded).
+ * @param searchLimit - Max results per request (1–1000, default 25).
+ * @returns Members whose username/nickname starts with `query` (up to `searchLimit`).
+ * @throws {DiscordHttpError} When Discord returns a non-2xx HTTP status.
+ * @throws {Error} When the response body cannot be parsed.
+ *
+ * Note: this endpoint accepts only `query` and `limit` (no `after` cursor). Use
+ * {@link findGuildMemberByUsername} when an exact username match is required.
+ */
 export async function searchGuildMembers(
   token: DiscordToken,
   guildId: DiscordGuildId,
@@ -149,8 +168,12 @@ export async function searchGuildMembers(
   searchLimit = 25,
 ): Promise<DiscordGuildMember[]> {
   const validLimit = Math.max(1, Math.min(1000, searchLimit));
+  const params = new URLSearchParams({
+    limit: String(validLimit),
+    query,
+  });
   const response = await discordRequest(
-    `https://discord.com/api/v10/guilds/${guildId}/members/search?limit=${validLimit}&query=${encodeURIComponent(query)}`,
+    `https://discord.com/api/v10/guilds/${guildId}/members/search?${params.toString()}`,
     token,
   );
   if (!response.ok) {
@@ -164,6 +187,61 @@ export async function searchGuildMembers(
     throw new Error(`Failed to parse guild members: ${data.error}`);
   }
   return data.data;
+}
+
+/**
+ * Finds a guild member whose username exactly matches `username`.
+ *
+ * Uses Search Guild Members at `limit=1000` first. When 1000 prefix matches are
+ * returned but none equals `username`, falls back to List Guild Members with
+ * `after` pagination (the only Discord endpoint that supports member cursors).
+ */
+export async function findGuildMemberByUsername(
+  token: DiscordToken,
+  guildId: DiscordGuildId,
+  username: string,
+): Promise<DiscordGuildMember | undefined> {
+  const searchResults = await searchGuildMembers(
+    token,
+    guildId,
+    username,
+    DISCORD_GUILD_MEMBER_PAGE_SIZE,
+  );
+  const searchMatch = searchResults.find(
+    (member) => member.user.username === username,
+  );
+  if (searchMatch) {
+    return searchMatch;
+  }
+  if (searchResults.length < DISCORD_GUILD_MEMBER_PAGE_SIZE) {
+    return undefined;
+  }
+
+  let after: DiscordUserId | undefined;
+  for (let page = 0; page < DISCORD_LIST_MEMBERS_MAX_PAGES; page += 1) {
+    const members = await listGuildMembers(token, guildId, {
+      limit: DISCORD_GUILD_MEMBER_PAGE_SIZE,
+      after,
+    });
+    const listMatch = members.find(
+      (member) => member.user.username === username,
+    );
+    if (listMatch) {
+      return listMatch;
+    }
+    if (members.length < DISCORD_GUILD_MEMBER_PAGE_SIZE) {
+      return undefined;
+    }
+
+    const lastMember = members.at(-1);
+    if (!lastMember) {
+      return undefined;
+    }
+
+    after = ZDiscordUserId.parse(lastMember.user.id);
+  }
+
+  return undefined;
 }
 
 export async function getGuildMember(
@@ -233,11 +311,15 @@ export async function getUser(
 export async function listGuildMembers(
   token: DiscordToken,
   guildId: DiscordGuildId,
-  options?: { limit?: number },
+  options?: { limit?: number; after?: DiscordUserId },
 ): Promise<DiscordGuildMember[]> {
   const memberLimit = Math.max(1, Math.min(1000, options?.limit ?? 1000));
+  const params = new URLSearchParams({ limit: String(memberLimit) });
+  if (options?.after !== undefined) {
+    params.set("after", options.after);
+  }
   const response = await discordRequest(
-    `https://discord.com/api/v10/guilds/${guildId}/members?limit=${memberLimit}`,
+    `https://discord.com/api/v10/guilds/${guildId}/members?${params.toString()}`,
     token,
   );
   if (!response.ok) {
