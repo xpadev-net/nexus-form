@@ -3,6 +3,7 @@ import {
   Outlet,
   useRouterState,
 } from "@tanstack/react-router";
+import { AuthenticatedRouteErrorPage } from "@/components/common/authenticated-route-error-page";
 import { Footer } from "@/components/layout/footer";
 import { Navigation } from "@/components/layout/navigation";
 import { NavigationDrawer } from "@/components/layout/navigation-drawer";
@@ -11,6 +12,7 @@ import { requireAuth } from "@/lib/require-auth";
 export const Route = createFileRoute("/_authenticated")({
   beforeLoad: requireAuth,
   component: AuthenticatedLayout,
+  errorComponent: AuthenticatedRouteErrorPage,
 });
 
 function AuthenticatedLayout() {

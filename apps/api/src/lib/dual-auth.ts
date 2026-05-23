@@ -96,6 +96,13 @@ function suspendedAccountResponse(c: Context): Response {
   );
 }
 
+/**
+ * Derives required API token scopes for form routes.
+ *
+ * GET/HEAD/OPTIONS never require scopes here; route handlers for those methods
+ * must stay side-effect free. Non-idempotent methods without explicit scopes
+ * default to `write`.
+ */
 function deriveFormAuthScopes(
   method: string,
   explicitScopes: TokenScope[],
