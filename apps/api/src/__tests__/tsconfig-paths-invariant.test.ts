@@ -1,9 +1,24 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const repoRoot = resolve(process.cwd(), "../..");
+const repoRoot = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../../..",
+);
+
+const parseTscShowConfig = (output: string) => {
+  const jsonStart = output.indexOf("{");
+  if (jsonStart === -1) {
+    throw new Error("tsc --showConfig did not emit JSON");
+  }
+
+  return JSON.parse(output.slice(jsonStart)) as {
+    compilerOptions: { paths: Record<string, string[]> };
+  };
+};
 
 describe("root tsconfig path aliases", () => {
   it("maps @nexus-form/shared to the shared package source entry", () => {
@@ -29,9 +44,7 @@ describe("root tsconfig path aliases", () => {
       },
     );
 
-    const resolved = JSON.parse(output) as {
-      compilerOptions: { paths: Record<string, string[]> };
-    };
+    const resolved = parseTscShowConfig(output);
 
     expect(resolved.compilerOptions.paths["@nexus-form/shared"]).toEqual([
       "./packages/shared/src/index.ts",
