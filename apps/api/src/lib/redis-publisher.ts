@@ -6,8 +6,8 @@
 
 import type { RedisPublisherClient } from "@nexus-form/integrations";
 import { createRedisPublisher } from "@nexus-form/integrations";
-import type { EditorSSEEvent } from "@nexus-form/shared";
-import { getEditorChannel } from "@nexus-form/shared";
+import type { EditorSSEEvent, SseAccessRevokedEvent } from "@nexus-form/shared";
+import { getEditorChannel, getValidationChannel } from "@nexus-form/shared";
 import Redis from "ioredis";
 import { logError, logInfo } from "./logger";
 import { getRedisConnection } from "./redis";
@@ -66,6 +66,41 @@ const editorEventPublisher = createRedisPublisher<EditorSSEEvent>({
  */
 export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
   await editorEventPublisher.publish(event);
+}
+
+/**
+ * Notifies active SSE subscribers that a user's form access was revoked.
+ *
+ * Publishes to both editor and validation channels so open streams disconnect.
+ */
+export async function publishSseAccessRevoked(
+  formId: string,
+  userId: string,
+): Promise<void> {
+  const event: SseAccessRevokedEvent = {
+    type: "sse_access_revoked",
+    formId,
+    userId,
+    timestamp: new Date().toISOString(),
+  };
+  const payload = JSON.stringify(event);
+  const client = createPublisherClient();
+  if (!client) return;
+
+  const channels = [getEditorChannel(formId), getValidationChannel(formId)];
+  try {
+    await Promise.all(
+      channels.map((channel) => client.publish(channel, payload)),
+    );
+  } catch (error) {
+    logError("Failed to publish SSE access revoke event", "service", {
+      error: error instanceof Error ? error.message : String(error),
+      formId,
+      userId,
+    });
+  } finally {
+    await client.quit().catch(() => undefined);
+  }
 }
 
 export async function closePublisher(): Promise<void> {

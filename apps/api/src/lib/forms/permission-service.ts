@@ -608,6 +608,9 @@ export async function removePermission(
         ),
       );
   });
+
+  const { publishSseAccessRevoked } = await import("../redis-publisher");
+  await publishSseAccessRevoked(formId, userId);
 }
 
 /**

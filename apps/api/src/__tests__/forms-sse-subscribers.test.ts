@@ -428,6 +428,40 @@ describe("SSE channel subscriber registry", () => {
     expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
     expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
+
+  it("closes only the SSE client whose userId matches an access-revoke event", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const targetClient = createClient();
+    const otherClient = createClient();
+
+    await registry.attach("form:validation:form-1", targetClient, {
+      userId: "user-1",
+    });
+    await registry.attach("form:validation:form-1", otherClient, {
+      userId: "user-2",
+    });
+
+    subscribers[0]?.emitMessage(
+      "form:validation:form-1",
+      JSON.stringify({
+        type: "sse_access_revoked",
+        formId: "form-1",
+        userId: "user-1",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(targetClient.close).toHaveBeenCalledTimes(1);
+    });
+    expect(otherClient.close).not.toHaveBeenCalled();
+    expect(targetClient.sendMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe("SSE connection limiter", () => {
