@@ -260,10 +260,11 @@ export function createSseChannelRegistry(
         }
       }
 
+      const revokeEvent = parseSseAccessRevokedEvent(message);
+
       for (const [clientId, entry] of subscription.clients.entries()) {
         if (entry.closed) continue;
 
-        const revokeEvent = parseSseAccessRevokedEvent(message);
         if (revokeEvent) {
           if (entry.userId === revokeEvent.userId) {
             closeClientEntry(clientId, entry);
