@@ -10,7 +10,7 @@ vi.mock("ioredis", () => ({
   default: vi.fn(() => redisMock),
 }));
 
-vi.mock("./redis", () => ({
+vi.mock("../redis", () => ({
   getPublisherConnectionOptions: () => ({}),
 }));
 
