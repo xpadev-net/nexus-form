@@ -1,1 +1,1 @@
-ALTER TABLE `ExternalServiceValidationResult` DROP FOREIGN KEY `ExternalServiceValidationResult_ruleId_FormValidationRule_id_fk`;--> statement-breakpoint
+ALTER TABLE `ExternalServiceValidationResult` DROP FOREIGN KEY `ExternalServiceValidationResult_ruleId_FormValidationRule_id_fk`;
