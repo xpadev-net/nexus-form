@@ -146,6 +146,7 @@ export {
   servicesDynamicSettingValueSchema,
   servicesDynamicSettingWriteValueSchema,
   systemSettingKeySchema,
+  validateDynamicServicesMutationWrite,
   validateSystemSettingWrite,
 } from "./system-settings";
 export type {

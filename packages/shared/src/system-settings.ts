@@ -123,6 +123,42 @@ export function validateSystemSettingWrite(
 }
 
 /**
+ * Validates dynamic-service mutations, allowing legacy rows above the write cap
+ * when the update does not increase the stored entry count.
+ */
+export function validateDynamicServicesMutationWrite(
+  value: unknown,
+  existingCount: number,
+): SystemSettingWriteValidationResult {
+  const writeResult = validateSystemSettingWrite(
+    SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+    value,
+  );
+  if (writeResult.success) {
+    return writeResult;
+  }
+
+  const readResult = parseStoredSystemSettingRow(
+    SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+    value,
+  );
+  if (
+    readResult.success &&
+    readResult.key === SYSTEM_SETTING_KEY.SERVICES_DYNAMIC &&
+    Array.isArray(readResult.value) &&
+    readResult.value.length <= existingCount
+  ) {
+    return {
+      success: true,
+      key: SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+      value: readResult.value,
+    };
+  }
+
+  return writeResult;
+}
+
+/**
  * Parses a stored system-setting row using read-time schemas (no write caps).
  */
 export function parseStoredSystemSettingRow(

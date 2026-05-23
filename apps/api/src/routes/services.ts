@@ -8,7 +8,7 @@ import {
   parseStoredSystemSettingRow,
   parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
-  validateSystemSettingWrite,
+  validateDynamicServicesMutationWrite,
 } from "@nexus-form/shared";
 import { eq, like } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
@@ -63,16 +63,11 @@ async function readSystemSettingRow(key: string): Promise<unknown | undefined> {
   return row?.value ?? undefined;
 }
 
-async function upsertSetting(
-  key: string,
-  value: unknown,
+async function persistSystemSetting(
+  key: typeof DYNAMIC_KEY | typeof CONFIG_KEY,
+  value: DynamicServiceEntry[] | Record<string, unknown>,
   description: string,
 ): Promise<void> {
-  const validated = validateSystemSettingWrite(key, value);
-  if (!validated.success) {
-    throw new HTTPException(validated.status, { message: validated.error });
-  }
-
   const [existing] = await db
     .select({ id: systemSetting.id })
     .from(systemSetting)
@@ -82,15 +77,15 @@ async function upsertSetting(
   if (existing) {
     await db
       .update(systemSetting)
-      .set({ value: validated.value, description })
+      .set({ value, description })
       .where(eq(systemSetting.key, key));
     return;
   }
 
   await db.insert(systemSetting).values({
     id: randomUUID(),
-    key: validated.key,
-    value: validated.value,
+    key,
+    value,
     description,
   });
 }
@@ -103,7 +98,20 @@ async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
 async function setDynamicServices(
   services: DynamicServiceEntry[],
 ): Promise<void> {
-  await upsertSetting(DYNAMIC_KEY, services, "Dynamic external services");
+  const existingCount = (await getDynamicServices()).length;
+  const validated = validateDynamicServicesMutationWrite(
+    services,
+    existingCount,
+  );
+  if (!validated.success) {
+    throw new HTTPException(validated.status, { message: validated.error });
+  }
+
+  await persistSystemSetting(
+    DYNAMIC_KEY,
+    validated.value,
+    "Dynamic external services",
+  );
 }
 
 export const servicesRouter = createHonoApp()

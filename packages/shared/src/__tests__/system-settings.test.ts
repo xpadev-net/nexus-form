@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
+  validateDynamicServicesMutationWrite,
   validateSystemSettingWrite,
 } from "../system-settings";
 
@@ -69,5 +70,31 @@ describe("validateSystemSettingWrite", () => {
       status: 400,
       error: "Invalid system setting value",
     });
+  });
+});
+
+describe("validateDynamicServicesMutationWrite", () => {
+  it("allows legacy updates that do not grow an over-cap list", () => {
+    const entries = Array.from({ length: 65 }, (_, index) => ({
+      service: `service-${index}`,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const result = validateDynamicServicesMutationWrite(entries, 65);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects growing an over-cap legacy list", () => {
+    const entries = Array.from({ length: 66 }, (_, index) => ({
+      service: `service-${index}`,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const result = validateDynamicServicesMutationWrite(entries, 65);
+
+    expect(result.success).toBe(false);
   });
 });
