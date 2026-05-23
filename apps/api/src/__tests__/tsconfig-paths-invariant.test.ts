@@ -28,7 +28,12 @@ describe("root tsconfig path aliases", () => {
       },
     );
 
-    expect(output).toContain("@nexus-form/shared");
-    expect(output).toContain("packages/shared/src/index.ts");
+    const resolved = JSON.parse(output) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+
+    expect(resolved.compilerOptions.paths["@nexus-form/shared"]).toEqual([
+      "./packages/shared/src/index.ts",
+    ]);
   });
 });
