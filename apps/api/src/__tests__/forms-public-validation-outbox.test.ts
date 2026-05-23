@@ -137,22 +137,24 @@ function useSelectResults(resultSets: unknown[][]): void {
   let callIndex = 0;
   const next = () => Promise.resolve(resultSets[callIndex++] ?? []);
   const createTerminal = () => {
-    const terminal: {
-      limit: ReturnType<typeof vi.fn>;
-      orderBy: ReturnType<typeof vi.fn>;
-      then: (resolve: (value: unknown) => void, reject?: (reason?: unknown) => void) => Promise<unknown>;
-    } = {
+    return {
       limit: vi.fn(next),
       orderBy: vi.fn(() => ({ limit: vi.fn(next) })),
-      then: (resolve, reject) => Promise.resolve(next()).then(resolve, reject),
     };
-    return terminal;
   };
 
   mocks.db.select.mockImplementation(() => ({
     from: vi.fn(() => ({
       leftJoin: vi.fn(() => ({ where: vi.fn(() => createTerminal()) })),
-      where: vi.fn(() => createTerminal()),
+      where: vi.fn((whereValue: unknown) => {
+        if (typeof whereValue === "object" && whereValue !== null) {
+          const maybeInArray = whereValue as { type?: string };
+          if (maybeInArray.type === "inArray") {
+            return Promise.resolve(next());
+          }
+        }
+        return createTerminal();
+      }),
     })),
   }));
 }
