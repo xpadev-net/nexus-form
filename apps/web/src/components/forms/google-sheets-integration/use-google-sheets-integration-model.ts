@@ -1,32 +1,17 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { toast } from "sonner";
-import { apiUrl, baseUrl } from "@/lib/api";
+import { apiUrl } from "@/lib/api";
 import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
-import { isRecord } from "@/lib/type-guards";
 import type {
   FormIntegrationResponse,
   GoogleSheetsIntegrationSetting,
 } from "@/types/integrations/google-sheets";
 import { apiRequestInit } from "./api-request-init";
 import type { Sheet, Spreadsheet, UiSyncState } from "./types";
+import { useGoogleOAuth } from "./use-google-oauth";
 import { useGoogleSheetsSync } from "./use-google-sheets-sync";
-
-interface GoogleOAuthMessage {
-  source: "google-oauth";
-  status: "success" | "error";
-  message?: string;
-  state?: string | null;
-}
-
-const isGoogleOAuthMessage = (value: unknown): value is GoogleOAuthMessage => {
-  if (!isRecord(value)) return false;
-  return (
-    value.source === "google-oauth" &&
-    (value.status === "success" || value.status === "error")
-  );
-};
 
 interface GoogleSheetsUiState {
   searchQuery: string;
@@ -198,9 +183,8 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
       configQueryKey,
     });
 
-  const authWindowRef = useRef<Window | null>(null);
-  const popupIntervalRef = useRef<number | null>(null);
   const hasInitializedConfigRef = useRef(false);
+  const { handleConnect } = useGoogleOAuth({ queryClient });
 
   const {
     data: connectionData,
@@ -288,103 +272,6 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     dispatchUi({ type: "initialize-config", config: savedConfig });
     hasInitializedConfigRef.current = true;
   }, [savedConfig]);
-
-  const handleConnect = useCallback(async () => {
-    try {
-      const width = 600;
-      const height = 700;
-      const left = window.screen.width / 2 - width / 2;
-      const top = window.screen.height / 2 - height / 2;
-      const authorizeUrl = new URL(
-        apiUrl("/api/integrations/google/authorize"),
-      );
-      authorizeUrl.searchParams.set("app_origin", window.location.origin);
-
-      const authWindow = window.open(
-        authorizeUrl.toString(),
-        "GoogleAuth",
-        `width=${width},height=${height},left=${left},top=${top}`,
-      );
-
-      if (!authWindow) {
-        toast.error(
-          "ポップアップを開けませんでした。ブラウザ設定を確認してください。",
-        );
-        return;
-      }
-
-      authWindowRef.current = authWindow;
-
-      if (popupIntervalRef.current) {
-        window.clearInterval(popupIntervalRef.current);
-        popupIntervalRef.current = null;
-      }
-
-      popupIntervalRef.current = window.setInterval(() => {
-        if (!authWindowRef.current || authWindowRef.current.closed) {
-          if (popupIntervalRef.current) {
-            window.clearInterval(popupIntervalRef.current);
-            popupIntervalRef.current = null;
-          }
-          void queryClient.invalidateQueries({
-            queryKey: ["google-connection"],
-          });
-          void queryClient.invalidateQueries({ queryKey: ["spreadsheets"] });
-        }
-      }, 1000);
-    } catch (error) {
-      logError("Failed to start OAuth:", "ui", { error: error });
-      toast.error("認証の開始に失敗しました");
-    }
-  }, [queryClient]);
-
-  useEffect(() => {
-    const allowedMessageOrigins = new Set([
-      window.location.origin,
-      new URL(baseUrl).origin,
-    ]);
-
-    const handleMessage = (event: MessageEvent<unknown>) => {
-      if (!allowedMessageOrigins.has(event.origin)) return;
-      if (event.source !== authWindowRef.current) return;
-      if (!isGoogleOAuthMessage(event.data)) return;
-
-      if (popupIntervalRef.current) {
-        window.clearInterval(popupIntervalRef.current);
-        popupIntervalRef.current = null;
-      }
-
-      if (authWindowRef.current && !authWindowRef.current.closed) {
-        authWindowRef.current.close();
-      }
-      authWindowRef.current = null;
-
-      if (event.data.status === "success") {
-        toast.success("Googleアカウントに接続しました");
-        void queryClient.invalidateQueries({ queryKey: ["google-connection"] });
-        void queryClient.invalidateQueries({ queryKey: ["spreadsheets"] });
-        return;
-      }
-
-      toast.error(
-        event.data.message ?? "Google連携に失敗しました。再度お試しください。",
-      );
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-      if (popupIntervalRef.current) {
-        window.clearInterval(popupIntervalRef.current);
-        popupIntervalRef.current = null;
-      }
-      if (authWindowRef.current && !authWindowRef.current.closed) {
-        authWindowRef.current.close();
-      }
-      authWindowRef.current = null;
-    };
-  }, [queryClient]);
 
   const handleSearchQueryChange = useCallback((value: string) => {
     dispatchUi({ type: "set-search-query", value });
