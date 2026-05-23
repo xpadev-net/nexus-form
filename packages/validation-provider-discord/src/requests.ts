@@ -144,8 +144,19 @@ export async function getGuild(
 }
 
 const DISCORD_GUILD_MEMBER_PAGE_SIZE = 1000;
-/** Cap list-member fallback scans to 10k members to avoid unbounded API usage. */
-const DISCORD_LIST_MEMBERS_MAX_PAGES = 10;
+/**
+ * Cap list-member fallback scans to 3 pages (3k members) to bound API usage.
+ *
+ * The search endpoint returns at most 1000 prefix-matched results. When that
+ * page is full and no exact match is found, the code falls back to the list
+ * endpoint (cursor-paginated). Each additional page is one more Discord API
+ * call that consumes the shared bot token's rate limit and holds the serialized
+ * Discord validation lock. 3 pages limits worst-case to 4 API calls per job
+ * (1 search + 3 list) instead of 11. False negatives are possible on very large
+ * guilds but acceptable: if 3000+ members share the same username prefix, the
+ * prefix is too common for reliable Discord validation.
+ */
+const DISCORD_LIST_MEMBERS_MAX_PAGES = 3;
 
 /**
  * Prefix-search guild members via Discord's Search Guild Members endpoint.
