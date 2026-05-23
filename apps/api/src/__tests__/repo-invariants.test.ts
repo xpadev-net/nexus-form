@@ -70,6 +70,20 @@ describe("repo invariants", () => {
     );
   });
 
+  it("defines docker-compose healthchecks for mysql and redis", () => {
+    const compose = readFileSync(
+      resolve(process.cwd(), "../../docker-compose.yml"),
+      "utf8",
+    );
+    const mysqlService = sliceBetween(compose, "  mysql:", "  redis:");
+    const redisService = sliceBetween(compose, "  redis:", "  minio:");
+    expect(mysqlService).toContain("healthcheck:");
+    expect(mysqlService).toContain("mysqladmin ping");
+    expect(redisService).toContain("healthcheck:");
+    expect(redisService).toContain("redis-cli");
+    expect(compose).toContain("condition: service_healthy");
+  });
+
   it("runs CI tests against MySQL and Redis with minimal job permissions", () => {
     const ciWorkflow = readFileSync(
       resolve(process.cwd(), "../../.github/workflows/ci.yml"),
