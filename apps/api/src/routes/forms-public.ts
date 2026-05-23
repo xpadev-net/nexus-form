@@ -9,6 +9,7 @@ import {
   formResponse,
   formSchedule,
   formStructure,
+  formValidationRule,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
@@ -21,7 +22,7 @@ import {
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
@@ -588,7 +589,7 @@ export const formsPublicRouter = createHonoApp()
         return c.json(errorResponse("Response payload is too large"), 400);
       }
       const validationOutbox = activeSnapshot
-        ? buildExternalValidationOutbox(responseId, activeSnapshot)
+        ? await buildExternalValidationOutbox(responseId, activeSnapshot)
         : null;
 
       // 8. Session management (resolve before transaction; cookie set only on success)
@@ -851,10 +852,10 @@ type ValidationOutbox = {
   snapshotVersion: number;
 };
 
-function buildExternalValidationOutbox(
+async function buildExternalValidationOutbox(
   responseId: string,
   activeSnapshot: FormSnapshot,
-): ValidationOutbox {
+): Promise<ValidationOutbox> {
   const snapshotEntries = parseValidationRuleSnapshot(
     activeSnapshot.validationRulesJson,
   );
@@ -877,6 +878,11 @@ function buildExternalValidationOutbox(
     })),
   );
 
+  const existingRuleIds = await getExistingValidationRuleIds(
+    Array.from(new Set(pairs.map((pair) => pair.ruleId))),
+  );
+  const missingRuleRows: ValidationPair[] = [];
+
   const missingRows: ValidationPair[] = [];
   const invalidProviderRows: ValidationPair[] = [];
   const unregisteredProviderRows: ValidationPair[] = [];
@@ -884,6 +890,10 @@ function buildExternalValidationOutbox(
   const validRows: ValidationPair[] = [];
 
   for (const pair of pairs) {
+    if (!existingRuleIds.has(pair.ruleId)) {
+      missingRuleRows.push(pair);
+      continue;
+    }
     if (!blockIds.has(pair.referencedBlockId)) {
       missingRows.push(pair);
       continue;
@@ -966,6 +976,17 @@ function buildExternalValidationOutbox(
     });
   }
 
+  if (missingRuleRows.length > 0) {
+    logWarn(
+      "Skipped validation rows for deleted validation rules",
+      "forms-public",
+      {
+        responseId,
+        ruleIds: [...new Set(missingRuleRows.map((pair) => pair.ruleId))],
+      },
+    );
+  }
+
   const pendingRows = validRows.map((pair) => ({
     id: getPairValidationResultId(pair),
     responseId,
@@ -993,6 +1014,17 @@ async function insertExternalValidationOutbox(
 ): Promise<void> {
   if (outbox.inserts.length === 0) return;
   await tx.insert(externalServiceValidationResult).values(outbox.inserts);
+}
+
+async function getExistingValidationRuleIds(
+  ruleIds: string[],
+): Promise<Set<string>> {
+  if (ruleIds.length === 0) return new Set();
+  const rows = await db
+    .select({ id: formValidationRule.id })
+    .from(formValidationRule)
+    .where(inArray(formValidationRule.id, ruleIds));
+  return new Set(rows.map((row) => row.id));
 }
 
 async function enqueueExternalValidationJobs(

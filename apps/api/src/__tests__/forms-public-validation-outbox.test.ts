@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => {
       jobId: "externalServiceValidationResult.jobId",
     },
     fingerprintDetail: { table: "fingerprintDetail" },
+    formValidationRule: {
+      id: "formValidationRule.id",
+    },
     form: {
       id: "form.id",
       publicId: "form.publicId",
@@ -121,6 +124,11 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(() => ({ type: "count" })),
   desc: vi.fn((value: unknown) => ({ type: "desc", value })),
   eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
+  inArray: vi.fn((left: unknown, right: unknown) => ({
+    type: "inArray",
+    left,
+    right,
+  })),
   isNull: vi.fn((value: unknown) => ({ type: "isNull", value })),
   lte: vi.fn((left: unknown, right: unknown) => ({ type: "lte", left, right })),
 }));
@@ -128,17 +136,24 @@ vi.mock("drizzle-orm", () => ({
 function useSelectResults(resultSets: unknown[][]): void {
   let callIndex = 0;
   const next = () => Promise.resolve(resultSets[callIndex++] ?? []);
+  const createTerminal = () => {
+    const terminal: {
+      limit: ReturnType<typeof vi.fn>;
+      orderBy: ReturnType<typeof vi.fn>;
+      then: (resolve: (value: unknown) => void, reject?: (reason?: unknown) => void) => Promise<unknown>;
+    } = {
+      limit: vi.fn(next),
+      orderBy: vi.fn(() => ({ limit: vi.fn(next) })),
+      then: (resolve, reject) => Promise.resolve(next()).then(resolve, reject),
+    };
+    return terminal;
+  };
+
   mocks.db.select.mockImplementation(() => ({
-    from: vi.fn(() => {
-      const terminal = {
-        limit: vi.fn(next),
-        orderBy: vi.fn(() => ({ limit: vi.fn(next) })),
-      };
-      return {
-        leftJoin: vi.fn(() => ({ where: vi.fn(() => terminal) })),
-        where: vi.fn(() => terminal),
-      };
-    }),
+    from: vi.fn(() => ({
+      leftJoin: vi.fn(() => ({ where: vi.fn(() => createTerminal()) })),
+      where: vi.fn(() => createTerminal()),
+    })),
   }));
 }
 
@@ -181,7 +196,31 @@ function activeSnapshot(
 
 function useSuccessfulSubmitSelects(
   snapshot: ReturnType<typeof activeSnapshot>,
+  options?: {
+    existingRuleIds?: string[];
+    responseRows?: unknown[];
+  },
 ) {
+  let ruleIdsFromSnapshot: string[] = [];
+  try {
+    const parsed = JSON.parse(snapshot.validationRulesJson);
+    if (Array.isArray(parsed)) {
+      ruleIdsFromSnapshot = parsed
+        .map((entry) =>
+          typeof entry === "object" &&
+          entry !== null &&
+          "id" in entry &&
+          typeof entry.id === "string"
+            ? entry.id
+            : null,
+        )
+        .filter((id): id is string => id !== null);
+    }
+  } catch {
+    ruleIdsFromSnapshot = [];
+  }
+  const existingRuleIds = options?.existingRuleIds ?? ruleIdsFromSnapshot;
+
   useSelectResults([
     [
       {
@@ -201,8 +240,8 @@ function useSuccessfulSubmitSelects(
         }),
       },
     ],
-    [],
-    [],
+    existingRuleIds.map((id) => ({ id })),
+    options?.responseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
@@ -324,6 +363,50 @@ describe("R11-C2-a public validation outbox", () => {
         snapshotVersion: 7,
       }),
     );
+  });
+
+  it("skips validation rows for deleted rules so form submission still succeeds", async () => {
+    const snapshot = activeSnapshot([
+      {
+        id: "rule-valid",
+        name: "Discord membership",
+        providerName: "discord",
+        ruleType: "guild_member",
+        referencedBlockIds: ["block-1"],
+        configJson: { guildId: "guild-1" },
+        orderIndex: 0,
+      },
+      {
+        id: "rule-deleted",
+        name: "Deleted rule",
+        providerName: "discord",
+        ruleType: "guild_member",
+        referencedBlockIds: ["block-1"],
+        configJson: { guildId: "guild-1" },
+        orderIndex: 1,
+      },
+    ]);
+    useSuccessfulSubmitSelects(snapshot, {
+      existingRuleIds: ["rule-valid"],
+    });
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(getInsertedValidationRows()).toEqual([
+      expect.objectContaining({
+        ruleId: "rule-valid",
+        status: "PENDING",
+      }),
+    ]);
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({
+        ruleId: "rule-valid",
+      }),
+    );
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
   });
 
   it("persists the enqueue jobId only while the validation row has no jobId", async () => {
