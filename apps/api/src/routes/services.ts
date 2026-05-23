@@ -9,6 +9,7 @@ import {
   parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
   validateDynamicServicesMutationWrite,
+  validateSystemSettingWrite,
 } from "@nexus-form/shared";
 import { eq, like } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
@@ -98,11 +99,13 @@ async function getDynamicServices(): Promise<DynamicServiceEntry[]> {
 async function setDynamicServices(
   services: DynamicServiceEntry[],
 ): Promise<void> {
-  const existingCount = (await getDynamicServices()).length;
-  const validated = validateDynamicServicesMutationWrite(
-    services,
-    existingCount,
-  );
+  let validated = validateSystemSettingWrite(DYNAMIC_KEY, services);
+
+  if (!validated.success) {
+    const existingCount = (await getDynamicServices()).length;
+    validated = validateDynamicServicesMutationWrite(services, existingCount);
+  }
+
   if (!validated.success) {
     throw new HTTPException(validated.status, { message: validated.error });
   }
