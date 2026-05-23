@@ -118,10 +118,10 @@ describe("repo invariants", () => {
 
     const buildJob = ciWorkflow.slice(ciWorkflow.indexOf("  build:"));
     const removedBuildSecrets = [
-      "AUTH_SECRET: ${{ secrets.AUTH_SECRET }}",
-      "DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}",
-      "DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET }}",
-      "SIGNUP_INVITATION_CODE: ${{ secrets.SIGNUP_INVITATION_CODE }}",
+      "AUTH_SECRET: $" + "{{ secrets.AUTH_SECRET }}",
+      "DISCORD_CLIENT_ID: $" + "{{ secrets.DISCORD_CLIENT_ID }}",
+      "DISCORD_CLIENT_SECRET: $" + "{{ secrets.DISCORD_CLIENT_SECRET }}",
+      "SIGNUP_INVITATION_CODE: $" + "{{ secrets.SIGNUP_INVITATION_CODE }}",
     ] as const;
     expect(buildJob).toContain("VITE_API_URL:");
     for (const secretLine of removedBuildSecrets) {

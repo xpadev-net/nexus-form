@@ -612,62 +612,67 @@ export const formsPublicRouter = createHonoApp()
 
       const insertResult: PublicSubmitInsertResult = await db.transaction(
         async (tx) => {
-        const validationOutbox = activeSnapshot
-          ? await buildExternalValidationOutbox(tx, responseId, activeSnapshot)
-          : null;
-        if (responseLimit?.enabled && responseLimit.max_responses) {
-          // Acquire exclusive lock on the form row to serialize concurrent
-          // submissions and prevent TOCTOU on the response limit check.
-          await tx
-            .select({ id: form.id })
-            .from(form)
-            .where(eq(form.id, target.id))
-            .for("update");
+          const validationOutbox = activeSnapshot
+            ? await buildExternalValidationOutbox(
+                tx,
+                responseId,
+                activeSnapshot,
+              )
+            : null;
+          if (responseLimit?.enabled && responseLimit.max_responses) {
+            // Acquire exclusive lock on the form row to serialize concurrent
+            // submissions and prevent TOCTOU on the response limit check.
+            await tx
+              .select({ id: form.id })
+              .from(form)
+              .where(eq(form.id, target.id))
+              .for("update");
 
-          const [existingCount] = await tx
-            .select({ count: count() })
-            .from(formResponse)
-            .where(eq(formResponse.formId, target.id));
+            const [existingCount] = await tx
+              .select({ count: count() })
+              .from(formResponse)
+              .where(eq(formResponse.formId, target.id));
 
-          if ((existingCount?.count ?? 0) >= responseLimit.max_responses) {
-            return {
-              limitReached: true as const,
-              message:
-                responseLimit.message ??
-                "This form has reached its response limit",
-            };
+            if ((existingCount?.count ?? 0) >= responseLimit.max_responses) {
+              return {
+                limitReached: true as const,
+                message:
+                  responseLimit.message ??
+                  "This form has reached its response limit",
+              };
+            }
           }
-        }
 
-        await tx.insert(formResponse).values({
-          id: responseId,
-          formId: target.id,
-          responseDataJson,
-          respondentUuid,
-          sessionId,
-          userAgent: userAgent ?? null,
-          countryCode: null,
-        });
+          await tx.insert(formResponse).values({
+            id: responseId,
+            formId: target.id,
+            responseDataJson,
+            respondentUuid,
+            sessionId,
+            userAgent: userAgent ?? null,
+            countryCode: null,
+          });
 
-        if (fingerprints.length > 0) {
-          await tx.insert(fingerprintDetail).values(
-            fingerprints.map((fp) => ({
-              id: randomUUID(),
-              responseId,
-              fingerprintType: fp.type,
-              componentName: fp.name,
-              componentValue: "",
-              componentValueHash: fp.value_hash,
-            })),
-          );
-        }
+          if (fingerprints.length > 0) {
+            await tx.insert(fingerprintDetail).values(
+              fingerprints.map((fp) => ({
+                id: randomUUID(),
+                responseId,
+                fingerprintType: fp.type,
+                componentName: fp.name,
+                componentValue: "",
+                componentValueHash: fp.value_hash,
+              })),
+            );
+          }
 
-        if (validationOutbox) {
-          await insertExternalValidationOutbox(tx, validationOutbox);
-        }
+          if (validationOutbox) {
+            await insertExternalValidationOutbox(tx, validationOutbox);
+          }
 
-        return { limitReached: false as const, validationOutbox };
-      });
+          return { limitReached: false as const, validationOutbox };
+        },
+      );
 
       if (insertResult.limitReached) {
         return c.json(
@@ -691,16 +696,14 @@ export const formsPublicRouter = createHonoApp()
         enqueueExternalValidationJobs(
           responseId,
           insertResult.validationOutbox,
-        ).catch(
-          (error) => {
-            logError("Failed to queue external validations", "api", {
-              error,
-              responseId,
-              formId: target.id,
-            });
-            captureError(error);
-          },
-        );
+        ).catch((error) => {
+          logError("Failed to queue external validations", "api", {
+            error,
+            responseId,
+            formId: target.id,
+          });
+          captureError(error);
+        });
       }
 
       // 12. Queue Google Sheets sync (non-blocking)
