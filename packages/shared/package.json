@@ -8,31 +8,38 @@
   "exports": {
     ".": {
       "types": "./src/index.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./validation": {
       "types": "./src/validation/shared.ts",
-      "import": "./dist/validation/shared.js"
+      "import": "./dist/validation/shared.js",
+      "default": "./dist/validation/shared.js"
     },
     "./plate-content": {
       "types": "./src/plate-content-utils.ts",
-      "import": "./dist/plate-content-utils.js"
+      "import": "./dist/plate-content-utils.js",
+      "default": "./dist/plate-content-utils.js"
     },
     "./forms/form-block": {
       "types": "./src/forms/form-block.ts",
-      "import": "./dist/forms/form-block.js"
+      "import": "./dist/forms/form-block.js",
+      "default": "./dist/forms/form-block.js"
     },
     "./crypto/field-encryption": {
       "types": "./src/crypto/field-encryption.ts",
-      "import": "./dist/crypto/field-encryption.js"
+      "import": "./dist/crypto/field-encryption.js",
+      "default": "./dist/crypto/field-encryption.js"
     },
     "./branding": {
       "types": "./src/branding.ts",
-      "import": "./dist/branding.js"
+      "import": "./dist/branding.js",
+      "default": "./dist/branding.js"
     },
     "./constants/status": {
       "types": "./src/constants/status.ts",
-      "import": "./dist/constants/status.js"
+      "import": "./dist/constants/status.js",
+      "default": "./dist/constants/status.js"
     }
   },
   "scripts": {
