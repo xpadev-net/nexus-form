@@ -22,7 +22,9 @@
     },
     "db:generate": {
       "dependsOn": ["^build"],
-      "cache": false
+      "cache": true,
+      "inputs": ["src/schema.ts", "src/auth-schema.ts", "drizzle.config.ts"],
+      "outputs": ["drizzle/**"]
     },
     "db:migrate": {
       "dependsOn": ["^build"],
