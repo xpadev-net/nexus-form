@@ -1014,7 +1014,7 @@ async function buildExternalValidationOutbox(
 
   if (missingRuleRows.length > 0) {
     logWarn(
-      "Skipped validation rows for deleted validation rules",
+      "Inserted FAILED rows for deleted validation rules",
       "forms-public",
       {
         responseId,
