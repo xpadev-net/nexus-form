@@ -12,6 +12,16 @@ services:
       - "127.0.0.1:3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mysqladmin ping -h 127.0.0.1 -u root -p"$$MYSQL_ROOT_PASSWORD" || exit 1',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -27,6 +37,16 @@ services:
       - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   minio:
     image: minio/minio:latest
@@ -55,7 +75,11 @@ services:
   #   build:
   #     context: .
   #     dockerfile: Dockerfile
-  #   depends_on: [mysql, redis]
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
   #   environment:
   #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
@@ -71,7 +95,11 @@ services:
   #   build:
   #     context: .
   #     dockerfile: Dockerfile.worker
-  #   depends_on: [mysql, redis]
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
   #   environment:
   #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
   #     REDIS_HOST: redis
