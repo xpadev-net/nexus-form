@@ -71,6 +71,13 @@
       "when": 1779300000000,
       "tag": "0009_drop_form_response_respondent_uuid_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1779757200000,
+      "tag": "0010_drop_validation_result_rule_id_fk",
+      "breakpoints": true
     }
   ]
 }
