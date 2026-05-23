@@ -1,8 +1,8 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "e4c8a12f-7b6d-4f9e-a3c2-1d8e5f709abc",
-  "prevId": "0b9f2061-24ac-453e-9200-83f9405ab593",
+  "id": "635e42f1-ee43-4f49-950e-e93b0ef458c8",
+  "prevId": "e4c8a12f-7b6d-4f9e-a3c2-1d8e5f709abc",
   "tables": {
     "ApiToken": {
       "name": "ApiToken",
@@ -1416,12 +1416,7 @@
           "columns": ["id"]
         }
       },
-      "uniqueConstraints": {
-        "FormResponse_respondentUuid_unique": {
-          "name": "FormResponse_respondentUuid_unique",
-          "columns": ["respondentUuid"]
-        }
-      },
+      "uniqueConstraints": {},
       "checkConstraint": {}
     },
     "FormSchedule": {

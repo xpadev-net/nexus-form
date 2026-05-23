@@ -12,7 +12,33 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
-    "noImplicitOverride": true
+    "noImplicitOverride": true,
+    "paths": {
+      "@nexus-form/database": ["./packages/database/src/index.ts"],
+      "@nexus-form/database/*": ["./packages/database/src/*"],
+      "@nexus-form/shared": ["./packages/shared/src/index.ts"],
+      "@nexus-form/shared/*": ["./packages/shared/src/*"],
+      "@nexus-form/integrations": ["./packages/integrations/src/index.ts"],
+      "@nexus-form/integrations/*": ["./packages/integrations/src/*"],
+      "@nexus-form/validation-provider-discord": [
+        "./packages/validation-provider-discord/src/index.ts"
+      ],
+      "@nexus-form/validation-provider-discord/*": [
+        "./packages/validation-provider-discord/src/*"
+      ],
+      "@nexus-form/validation-provider-github": [
+        "./packages/validation-provider-github/src/index.ts"
+      ],
+      "@nexus-form/validation-provider-github/*": [
+        "./packages/validation-provider-github/src/*"
+      ],
+      "@nexus-form/validation-provider-twitter": [
+        "./packages/validation-provider-twitter/src/index.ts"
+      ],
+      "@nexus-form/validation-provider-twitter/*": [
+        "./packages/validation-provider-twitter/src/*"
+      ]
+    }
   },
   "exclude": ["node_modules"]
 }

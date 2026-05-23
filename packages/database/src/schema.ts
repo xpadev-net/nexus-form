@@ -386,9 +386,7 @@ export const formResponse = mysqlTable(
     responseDataJson: text("responseDataJson").notNull(),
     submittedAt: timestamp("submittedAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt").$onUpdate(() => new Date()),
-    respondentUuid: varchar("respondentUuid", { length: 255 })
-      .notNull()
-      .unique(),
+    respondentUuid: varchar("respondentUuid", { length: 255 }).notNull(),
     userAgent: varchar("userAgent", { length: 512 }),
     sessionId: varchar("sessionId", { length: 128 }).references(
       () => formSession.id,
