@@ -12,8 +12,14 @@ export const apiTokenScopesSchema = z.array(apiTokenScopeSchema).min(1);
 /** Non-empty API token scope list. */
 export type ApiTokenScopes = z.infer<typeof apiTokenScopesSchema>;
 
+/** Maximum number of form IDs that may be attached to a single API token. */
+export const API_TOKEN_FORM_IDS_MAX = 64;
+
 /** One or more non-empty form IDs used to restrict a token. */
-export const apiTokenFormIdsSchema = z.array(z.string().min(1)).min(1);
+export const apiTokenFormIdsSchema = z
+  .array(z.string().min(1))
+  .min(1)
+  .max(API_TOKEN_FORM_IDS_MAX);
 
 /** Non-empty form ID restriction list. */
 export type ApiTokenFormIds = z.infer<typeof apiTokenFormIdsSchema>;
