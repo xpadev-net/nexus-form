@@ -8,9 +8,9 @@ import { DiscordErrorCode } from "./error-codes";
 import {
   discordApiFetch,
   getGuildRoles as fetchGuildRoles,
+  findGuildMemberByUsername,
   getBelongGuilds,
   getGuild,
-  searchGuildMembers,
 } from "./requests";
 import {
   type DiscordGuildMember,
@@ -311,14 +311,11 @@ const guildMemberRule: ValidationProviderRule = {
       const parsedGuildId = ZDiscordGuildId.parse(guildId);
 
       const guild = await getGuild(token, parsedGuildId);
-      const members = await searchGuildMembers(
+      const member = await findGuildMemberByUsername(
         token,
         parsedGuildId,
         username,
-        25,
       );
-
-      const member = members.find((m) => m.user.username === username);
 
       if (!member) {
         return {

@@ -11,6 +11,7 @@ export { default, discordProvider } from "./plugin";
 export {
   addGuildMemberRole,
   deleteGuildMemberRole,
+  findGuildMemberByUsername,
   getBelongGuilds,
   getGuild,
   getGuildMember,

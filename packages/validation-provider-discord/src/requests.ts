@@ -18,6 +18,7 @@ import {
   ZDiscordGuildRole,
   ZDiscordRateLimitResponse,
   ZDiscordUser,
+  ZDiscordUserId,
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
@@ -142,15 +143,27 @@ export async function getGuild(
   return data.data;
 }
 
+const DISCORD_MEMBER_SEARCH_PAGE_SIZE = 100;
+/** Discord search returns at most 1000 members per query; cap pages to match. */
+const DISCORD_MEMBER_SEARCH_MAX_PAGES = 10;
+
 export async function searchGuildMembers(
   token: DiscordToken,
   guildId: DiscordGuildId,
   query: string,
   searchLimit = 25,
+  after?: DiscordUserId,
 ): Promise<DiscordGuildMember[]> {
   const validLimit = Math.max(1, Math.min(1000, searchLimit));
+  const params = new URLSearchParams({
+    limit: String(validLimit),
+    query,
+  });
+  if (after !== undefined) {
+    params.set("after", after);
+  }
   const response = await discordRequest(
-    `https://discord.com/api/v10/guilds/${guildId}/members/search?limit=${validLimit}&query=${encodeURIComponent(query)}`,
+    `https://discord.com/api/v10/guilds/${guildId}/members/search?${params.toString()}`,
     token,
   );
   if (!response.ok) {
@@ -164,6 +177,48 @@ export async function searchGuildMembers(
     throw new Error(`Failed to parse guild members: ${data.error}`);
   }
   return data.data;
+}
+
+/**
+ * Finds a guild member whose username exactly matches `username`.
+ *
+ * Discord member search is prefix-based and paginated; a single page can omit
+ * the target when many members share the same prefix.
+ */
+export async function findGuildMemberByUsername(
+  token: DiscordToken,
+  guildId: DiscordGuildId,
+  username: string,
+): Promise<DiscordGuildMember | undefined> {
+  let after: DiscordUserId | undefined;
+
+  for (let page = 0; page < DISCORD_MEMBER_SEARCH_MAX_PAGES; page += 1) {
+    const members = await searchGuildMembers(
+      token,
+      guildId,
+      username,
+      DISCORD_MEMBER_SEARCH_PAGE_SIZE,
+      after,
+    );
+
+    const match = members.find((member) => member.user.username === username);
+    if (match) {
+      return match;
+    }
+
+    if (members.length < DISCORD_MEMBER_SEARCH_PAGE_SIZE) {
+      return undefined;
+    }
+
+    const lastMember = members.at(-1);
+    if (!lastMember) {
+      return undefined;
+    }
+
+    after = ZDiscordUserId.parse(lastMember.user.id);
+  }
+
+  return undefined;
 }
 
 export async function getGuildMember(
