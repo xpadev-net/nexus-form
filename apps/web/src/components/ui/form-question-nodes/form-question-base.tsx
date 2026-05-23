@@ -13,7 +13,7 @@ function collectText(node: TElement | TText): string {
     const children = node.children as (TElement | TText)[];
     return children.map(collectText).join("");
   }
-  return node.text;
+  return String(node.text ?? "");
 }
 
 function isElementEmpty(element: TElement): boolean {
