@@ -413,7 +413,9 @@ async function readSheetForIdempotency(
     rangeA1: `${params.sheetName}!${columnLetter}:${columnLetter}`,
   });
   if (!entireColumn.ok) {
-    return { exists: false, headers };
+    throw new Error(
+      `Failed to read sheet column for idempotency check: ${entireColumn.error.message}`,
+    );
   }
 
   const exists = entireColumn.data.values

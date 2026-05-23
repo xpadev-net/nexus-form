@@ -427,6 +427,31 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
+  it("fails closed when the idempotency column read fails after header succeeds", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    // First call (header !1:1): succeeds, responseId at column 0
+    mockReadRange.mockResolvedValueOnce({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    // Second call (column !A:A): fails
+    mockReadRange.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "internal", message: "Column unavailable" },
+    } as never);
+
+    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+      "Failed to read sheet column for idempotency check",
+    );
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
+  });
+
   it("writes the row and promotes key to done when idempotency key is null", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
