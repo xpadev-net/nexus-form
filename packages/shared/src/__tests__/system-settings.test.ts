@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
   validateSystemSettingWrite,
 } from "../system-settings";
@@ -18,18 +19,43 @@ describe("validateSystemSettingWrite", () => {
   });
 
   it("accepts services.dynamic entries", () => {
+    const updatedAt = new Date().toISOString();
     const result = validateSystemSettingWrite(
       SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
       [
         {
           service: "discord",
           enabled: true,
-          updatedAt: new Date().toISOString(),
+          updatedAt,
         },
       ],
     );
 
-    expect(result.success).toBe(true);
+    expect(result).toMatchObject({
+      success: true,
+      key: SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+      value: [{ service: "discord", enabled: true, updatedAt }],
+    });
+  });
+
+  it("parses legacy dynamic rows beyond the write cap", () => {
+    const entries = Array.from({ length: 65 }, (_, index) => ({
+      service: `service-${index}`,
+      enabled: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const parsed = parseSystemSettingValue(
+      SYSTEM_SETTING_KEY.SERVICES_DYNAMIC,
+      entries,
+      [],
+    );
+
+    expect(parsed).toHaveLength(65);
+    expect(
+      validateSystemSettingWrite(SYSTEM_SETTING_KEY.SERVICES_DYNAMIC, entries)
+        .success,
+    ).toBe(false);
   });
 
   it("rejects malformed services.config values", () => {

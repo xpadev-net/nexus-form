@@ -5,6 +5,7 @@ import { systemSetting } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
   type DynamicServiceEntry,
+  parseStoredSystemSettingRow,
   parseSystemSettingValue,
   SYSTEM_SETTING_KEY,
   validateSystemSettingWrite,
@@ -337,11 +338,12 @@ export const servicesRouter = createHonoApp()
       if (row.key === CONFIG_KEY) {
         return [];
       }
-      const validated = validateSystemSettingWrite(row.key, row.value);
-      if (!validated.success) {
+      const parsed = parseStoredSystemSettingRow(row.key, row.value);
+      if (!parsed.success) {
+        console.warn(`Skipping invalid system setting row: ${row.key}`);
         return [];
       }
-      return [{ key: validated.key, value: validated.value }];
+      return [{ key: parsed.key, value: parsed.value }];
     });
 
     return c.json(
