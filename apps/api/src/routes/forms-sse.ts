@@ -401,8 +401,28 @@ async function createSSEStream(
   });
   if ("status" in permit) return c.text(permit.message, permit.status);
 
+  // プリフライト中の client abort 検出のため、ensureSubscribed より前に
+  // リクエストの AbortSignal にリスナーを登録する。
+  // これがないと、ensureSubscribed の I/O 待機中に client が切断した場合、
+  // stream.onAbort が未登録のまま abort を見逃し permit/subscriber がリークする。
+  const reqSignal: AbortSignal | undefined = c.req.raw.signal;
+  let preflightAborted = false;
+  const onReqAbort = (): void => {
+    preflightAborted = true;
+  };
+  if (reqSignal?.aborted) {
+    preflightAborted = true;
+  } else {
+    reqSignal?.addEventListener("abort", onReqAbort, { once: true });
+  }
+
   try {
     await options.channelRegistry.ensureSubscribed(channel);
+
+    if (preflightAborted) {
+      permit.release();
+      return c.text("Connection lost before subscription ready", 503);
+    }
 
     return streamSSE(c, async (stream) => {
       let detachClient: (() => Promise<void>) | null = null;
