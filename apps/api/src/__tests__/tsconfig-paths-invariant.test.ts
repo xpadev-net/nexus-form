@@ -7,9 +7,10 @@ const repoRoot = resolve(process.cwd(), "../..");
 
 describe("root tsconfig path aliases", () => {
   it("maps @nexus-form/shared to the shared package source entry", () => {
-    const config = JSON.parse(
-      readFileSync(resolve(repoRoot, "tsconfig.json"), "utf8"),
-    ) as {
+    const raw = readFileSync(resolve(repoRoot, "tsconfig.json"), "utf8")
+      .replace(/\/\/[^\n]*/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const config = JSON.parse(raw) as {
       compilerOptions: { paths: Record<string, string[]> };
     };
 
