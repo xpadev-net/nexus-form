@@ -59,6 +59,10 @@ export function useGoogleOAuth({
         return;
       }
 
+      if (authWindowRef.current && !authWindowRef.current.closed) {
+        authWindowRef.current.close();
+      }
+
       authWindowRef.current = authWindow;
 
       if (popupIntervalRef.current) {

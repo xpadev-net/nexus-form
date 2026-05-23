@@ -197,4 +197,81 @@ describe("useGoogleOAuth", () => {
       root.unmount();
     });
   });
+
+  it("shows the default error toast when OAuth postMessage reports failure", async () => {
+    let handleConnect: (() => Promise<void>) | undefined;
+
+    const { root } = renderWithClient(
+      <HookHarness
+        onReady={(value) => {
+          handleConnect = value.handleConnect;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await handleConnect?.();
+    });
+
+    await act(async () => {
+      const event = new MessageEvent("message", {
+        origin: window.location.origin,
+        data: {
+          source: "google-oauth",
+          status: "error",
+        },
+      });
+      Object.defineProperty(event, "source", {
+        configurable: true,
+        value: authWindow,
+      });
+      window.dispatchEvent(event);
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Google連携に失敗しました。再度お試しください。",
+    );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("shows a custom error message from OAuth postMessage", async () => {
+    let handleConnect: (() => Promise<void>) | undefined;
+
+    const { root } = renderWithClient(
+      <HookHarness
+        onReady={(value) => {
+          handleConnect = value.handleConnect;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      await handleConnect?.();
+    });
+
+    await act(async () => {
+      const event = new MessageEvent("message", {
+        origin: window.location.origin,
+        data: {
+          source: "google-oauth",
+          status: "error",
+          message: "アクセスが拒否されました",
+        },
+      });
+      Object.defineProperty(event, "source", {
+        configurable: true,
+        value: authWindow,
+      });
+      window.dispatchEvent(event);
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith("アクセスが拒否されました");
+
+    act(() => {
+      root.unmount();
+    });
+  });
 });
