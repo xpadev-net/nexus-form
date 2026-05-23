@@ -16,27 +16,75 @@ afterEach(() => {
 });
 
 describe("findGuildMemberByUsername", () => {
-  it("paginates member search when the target is beyond the first page", async () => {
+  it("returns an exact match from the max-size search response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        if (url.includes("/members/search")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: vi
+              .fn()
+              .mockResolvedValue([
+                makeMember("111111111111111111", "otheruser"),
+                makeMember("222222222222222222", "targetuser"),
+              ]),
+          });
+        }
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+        });
+      }),
+    );
+
+    const member = await findGuildMemberByUsername(
+      token,
+      guildId,
+      "targetuser",
+    );
+
+    expect(member?.user.username).toBe("targetuser");
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to list members pagination when search is saturated", async () => {
     const targetId = "999999999999999999";
-    const pageSize = 100;
-    const firstPage = Array.from({ length: pageSize }, (_, index) =>
+    const saturatedSearch = Array.from({ length: 1000 }, (_, index) =>
       makeMember(
         String(100000000000000000n + BigInt(index)),
         `targetuser_${index}`,
       ),
     );
-    const lastFirstPageId = firstPage.at(-1)?.user.id ?? "";
+    const listPage = Array.from({ length: 1000 }, (_, index) =>
+      makeMember(
+        String(200000000000000000n + BigInt(index)),
+        `listed_${index}`,
+      ),
+    );
+    const lastListId = listPage.at(-1)?.user.id ?? "";
 
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes("/members/search")) {
-        const isSecondPage = url.includes(`after=${lastFirstPageId}`);
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue(saturatedSearch),
+        });
+      }
+      if (url.includes("/members?")) {
+        const isSecondListPage = url.includes(`after=${lastListId}`);
         return Promise.resolve({
           ok: true,
           status: 200,
           json: vi
             .fn()
             .mockResolvedValue(
-              isSecondPage ? [makeMember(targetId, "targetuser")] : firstPage,
+              isSecondListPage
+                ? [makeMember(targetId, "targetuser")]
+                : listPage,
             ),
         });
       }
@@ -59,12 +107,16 @@ describe("findGuildMemberByUsername", () => {
     const searchCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
       String(calledUrl).includes("/members/search"),
     );
-    expect(searchCalls).toHaveLength(2);
-    expect(String(searchCalls[0]?.[0])).toContain("limit=100");
-    expect(String(searchCalls[1]?.[0])).toContain(`after=${lastFirstPageId}`);
+    const listCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
+      String(calledUrl).includes("/members?"),
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(String(searchCalls[0]?.[0])).toContain("limit=1000");
+    expect(listCalls).toHaveLength(2);
+    expect(String(listCalls[1]?.[0])).toContain(`after=${lastListId}`);
   });
 
-  it("returns undefined when no page contains an exact username match", async () => {
+  it("returns undefined when search and list scans find no exact match", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
