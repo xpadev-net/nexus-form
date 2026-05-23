@@ -367,7 +367,7 @@ describe("R11-C2-a public validation outbox", () => {
     );
   });
 
-  it("skips validation rows for deleted rules so form submission still succeeds", async () => {
+  it("inserts FAILED/RULE_DELETED rows for deleted rules and still succeeds", async () => {
     const snapshot = activeSnapshot([
       {
         id: "rule-valid",
