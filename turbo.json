@@ -23,6 +23,7 @@
     "db:generate": {
       "dependsOn": ["^build"],
       "cache": true,
+      "env": ["DATABASE_URL"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "src/schema.ts",
@@ -33,7 +34,8 @@
     },
     "db:migrate": {
       "dependsOn": ["^build"],
-      "cache": false
+      "cache": false,
+      "env": ["DATABASE_URL"]
     },
     "clean": {
       "cache": false
