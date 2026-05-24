@@ -138,41 +138,36 @@ export async function getUserApiTokens(
     parseableApiTokenJsonCondition,
   );
 
-  const [countRow] = await db
-    .select({ total: count() })
-    .from(apiToken)
-    .where(whereCondition);
-  const total = Number(countRow?.total ?? 0);
+  const { total, pageTokens } = await db.transaction(async (tx) => {
+    const [countRow] = await tx
+      .select({ total: count() })
+      .from(apiToken)
+      .where(whereCondition);
+    const total = Number(countRow?.total ?? 0);
 
-  const pageTokens = await db
-    .select({
-      id: apiToken.id,
-      name: apiToken.name,
-      scopes: apiToken.scopes,
-      formIds: apiToken.formIds,
-      expiresAt: apiToken.expiresAt,
-      lastUsedAt: apiToken.lastUsedAt,
-      createdAt: apiToken.createdAt,
-      isActive: apiToken.isActive,
-    })
-    .from(apiToken)
-    .where(whereCondition)
-    .orderBy(desc(apiToken.createdAt))
-    .limit(pageSize)
-    .offset(offset);
+    const pageTokens = await tx
+      .select({
+        id: apiToken.id,
+        name: apiToken.name,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+        expiresAt: apiToken.expiresAt,
+        lastUsedAt: apiToken.lastUsedAt,
+        createdAt: apiToken.createdAt,
+        isActive: apiToken.isActive,
+      })
+      .from(apiToken)
+      .where(whereCondition)
+      .orderBy(desc(apiToken.createdAt), desc(apiToken.id))
+      .limit(pageSize)
+      .offset(offset);
 
-  const malformedTokens: Array<{
-    id: string;
-    error: "MALFORMED_STORED_JSON";
-  }> = [];
+    return { total, pageTokens };
+  });
 
   const mappedTokens = pageTokens.flatMap((token) => {
     const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
     if (!parsedJson) {
-      malformedTokens.push({
-        id: token.id,
-        error: "MALFORMED_STORED_JSON",
-      });
       return [];
     }
 
@@ -192,7 +187,6 @@ export async function getUserApiTokens(
 
   return {
     tokens: mappedTokens,
-    malformed_tokens: malformedTokens.length > 0 ? malformedTokens : undefined,
     total,
     pagination: {
       page,
