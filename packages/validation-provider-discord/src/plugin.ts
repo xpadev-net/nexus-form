@@ -290,6 +290,10 @@ const guildMemberRule: ValidationProviderRule = {
         { value: "single_search", label: "単一検索のみ（推奨）" },
         { value: "legacy_scan", label: "従来の追加スキャンを許可" },
       ],
+      showWhen: {
+        field: "guildId",
+        exists: true,
+      },
     },
   ],
   inputSchema: DiscordInputSchema,
