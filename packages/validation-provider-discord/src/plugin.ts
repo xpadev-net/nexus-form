@@ -57,6 +57,7 @@ const DiscordConfigSchema = z.object({
   guildId: ZDiscordGuildId.optional(),
   roleIds: z.array(ZDiscordGuildRoleId).optional(),
   roleCondition: z.enum(["AND", "OR"]).optional(),
+  usernameLookupMode: z.enum(["single_search", "legacy_scan"]).optional(),
 });
 
 const DiscordMetadataSchema = z.object({
@@ -278,6 +279,22 @@ const guildMemberRule: ValidationProviderRule = {
         minItems: 2,
       },
     },
+    {
+      name: "usernameLookupMode",
+      label: "ユーザー名検索方式",
+      kind: "radio",
+      defaultValue: "single_search",
+      description:
+        "既定ではDiscord API呼び出しを1回の検索に制限します。legacy scanは大型ギルドで追加の一覧取得を行うため、必要な場合のみ有効化してください。",
+      options: [
+        { value: "single_search", label: "単一検索のみ（推奨）" },
+        { value: "legacy_scan", label: "従来の追加スキャンを許可" },
+      ],
+      showWhen: {
+        field: "guildId",
+        exists: true,
+      },
+    },
   ],
   inputSchema: DiscordInputSchema,
   configSchema: DiscordConfigSchema,
@@ -294,7 +311,12 @@ const guildMemberRule: ValidationProviderRule = {
     }
 
     const parsedConfig = DiscordConfigSchema.parse(config);
-    const { guildId, roleIds = [], roleCondition = "AND" } = parsedConfig;
+    const {
+      guildId,
+      roleIds = [],
+      roleCondition = "AND",
+      usernameLookupMode = "single_search",
+    } = parsedConfig;
 
     if (!guildId) {
       return {
@@ -315,6 +337,7 @@ const guildMemberRule: ValidationProviderRule = {
         token,
         parsedGuildId,
         username,
+        { allowListFallback: usernameLookupMode === "legacy_scan" },
       );
 
       if (!member) {

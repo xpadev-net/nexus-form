@@ -145,16 +145,13 @@ export async function getGuild(
 
 const DISCORD_GUILD_MEMBER_PAGE_SIZE = 1000;
 /**
- * Cap list-member fallback scans to 3 pages (3k members) to bound API usage.
+ * Cap explicit opt-in list-member fallback scans to 3 pages (3k members).
  *
  * The search endpoint returns at most 1000 prefix-matched results. When that
- * page is full and no exact match is found, the code falls back to the list
- * endpoint (cursor-paginated). Each additional page is one more Discord API
- * call that consumes the shared bot token's rate limit and holds the serialized
- * Discord validation lock. 3 pages limits worst-case to 4 API calls per job
- * (1 search + 3 list) instead of 11. False negatives are possible on very large
- * guilds but acceptable: if 3000+ members share the same username prefix, the
- * prefix is too common for reliable Discord validation.
+ * page is full and no exact match is found, list-member fallback can consume
+ * multiple large Discord API requests with respondent-controlled input. Keep
+ * the default path to a single search request; allow this bounded scan only for
+ * forms that explicitly opt in to the legacy behavior.
  */
 const DISCORD_LIST_MEMBERS_MAX_PAGES = 3;
 
@@ -203,14 +200,16 @@ export async function searchGuildMembers(
 /**
  * Finds a guild member whose username exactly matches `username`.
  *
- * Uses Search Guild Members at `limit=1000` first. When 1000 prefix matches are
- * returned but none equals `username`, falls back to List Guild Members with
- * `after` pagination (the only Discord endpoint that supports member cursors).
+ * Uses Search Guild Members at `limit=1000`. By default, this function returns
+ * `undefined` when that single search page is saturated without an exact match.
+ * Set `allowListFallback` only for forms that explicitly opt in to the legacy
+ * bounded List Guild Members scan.
  */
 export async function findGuildMemberByUsername(
   token: DiscordToken,
   guildId: DiscordGuildId,
   username: string,
+  options: { allowListFallback?: boolean } = {},
 ): Promise<DiscordGuildMember | undefined> {
   const searchResults = await searchGuildMembers(
     token,
@@ -225,6 +224,9 @@ export async function findGuildMemberByUsername(
     return searchMatch;
   }
   if (searchResults.length < DISCORD_GUILD_MEMBER_PAGE_SIZE) {
+    return undefined;
+  }
+  if (options.allowListFallback !== true) {
     return undefined;
   }
 
