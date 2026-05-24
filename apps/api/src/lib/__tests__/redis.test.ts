@@ -42,13 +42,14 @@ describe("getRedisConnection", () => {
     expect(getRedisConnectionInfo().config.hasPassword).toBe(true);
   });
 
-  it("prefers the password embedded in REDIS_URL", () => {
+  it("decodes credentials embedded in REDIS_URL", () => {
     resetRedisEnv();
-    process.env.REDIS_URL = "redis://:url-secret@redis-service:6379";
+    process.env.REDIS_URL = "redis://user%40name:p%40ss@redis-service:6379";
     process.env.REDIS_PASSWORD = "env-secret";
 
     const { connection } = getRedisConnection();
 
-    expect(connection.password).toBe("url-secret");
+    expect(connection.username).toBe("user@name");
+    expect(connection.password).toBe("p@ss");
   });
 });

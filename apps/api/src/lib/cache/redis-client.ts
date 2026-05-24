@@ -122,8 +122,9 @@ export function getRedisClient(): Redis | null {
 
         redisClient = new Redis(redisUrl, {
           ...redisOptions,
-          password: url.password || process.env.REDIS_PASSWORD || undefined,
-          username: url.username || undefined,
+          ...(url.password
+            ? {}
+            : { password: process.env.REDIS_PASSWORD || undefined }),
           ...(isTls ? { tls: {} } : {}),
         });
 
