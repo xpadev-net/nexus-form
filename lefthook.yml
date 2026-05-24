@@ -8,15 +8,8 @@ pre-commit:
       exclude: "{src,apps/**/src}/components/ui/**"
       run: |
         bash -c '
-          filtered=()
-          for f in "$@"; do
-            case "$f" in
-              *src/components/ui/*) ;;
-              *) filtered+=("$f") ;;
-            esac
-          done
-          if [ ${#filtered[@]} -gt 0 ]; then
-            pnpm biome check "${filtered[@]}" --write --unsafe
+          if [ "$#" -gt 0 ]; then
+            pnpm biome check "$@" --write --unsafe
           fi
         ' -- {staged_files}
       stage_fixed: true
