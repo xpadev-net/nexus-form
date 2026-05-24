@@ -612,6 +612,19 @@ export const formsPublicRouter = createHonoApp()
 
       const insertResult: PublicSubmitInsertResult = await db.transaction(
         async (tx) => {
+          if (responseLimit?.enabled && responseLimit.max_responses) {
+            // Acquire exclusive lock on the form row to serialize concurrent
+            // submissions and prevent TOCTOU on the response limit check.
+            // This must be the first transactional read: a preceding
+            // non-locking SELECT would establish a stale REPEATABLE READ view
+            // before this transaction waits for the form row lock.
+            await tx
+              .select({ id: form.id })
+              .from(form)
+              .where(eq(form.id, target.id))
+              .for("update");
+          }
+
           const validationOutbox = activeSnapshot
             ? await buildExternalValidationOutbox(
                 tx,
@@ -619,15 +632,8 @@ export const formsPublicRouter = createHonoApp()
                 activeSnapshot,
               )
             : null;
-          if (responseLimit?.enabled && responseLimit.max_responses) {
-            // Acquire exclusive lock on the form row to serialize concurrent
-            // submissions and prevent TOCTOU on the response limit check.
-            await tx
-              .select({ id: form.id })
-              .from(form)
-              .where(eq(form.id, target.id))
-              .for("update");
 
+          if (responseLimit?.enabled && responseLimit.max_responses) {
             const [existingCount] = await tx
               .select({ count: count() })
               .from(formResponse)
