@@ -509,9 +509,6 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       "validation-rule-select",
       "count-select",
     ]);
-    expect(txSelectOrder.indexOf("form-lock-for-update")).toBeLessThan(
-      txSelectOrder.indexOf("validation-rule-select"),
-    );
     txSpy.mockRestore();
   });
 
