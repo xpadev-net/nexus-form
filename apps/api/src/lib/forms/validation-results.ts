@@ -11,6 +11,12 @@ import { getSnapshotByVersion } from "./snapshot-repository";
 import { parseValidationRuleSnapshot } from "./validation-rule-repository";
 
 type BlockTitleMap = Map<string, string>;
+type SnapshotRuleMetadata = {
+  name: string;
+  providerName: string;
+  ruleType: string;
+  orderIndex: number;
+};
 
 function buildBlockTitleMap(
   plateContent: string | null | undefined,
@@ -86,17 +92,15 @@ export async function getExternalValidationResults(responseId: string) {
         .filter((version): version is number => version !== null),
     ),
   ];
-  const snapshotRuleMap = new Map<
-    string,
-    {
-      name: string;
-      providerName: string;
-      ruleType: string;
-    }
-  >();
+  const snapshotRuleMap = new Map<string, SnapshotRuleMetadata>();
   const snapshotBlockTitleMaps = new Map<number, BlockTitleMap>();
-  for (const version of snapshotVersions) {
-    const snapshot = await getSnapshotByVersion(response.formId, version);
+  const snapshots = await Promise.all(
+    snapshotVersions.map(async (version) => ({
+      version,
+      snapshot: await getSnapshotByVersion(response.formId, version),
+    })),
+  );
+  for (const { version, snapshot } of snapshots) {
     if (!snapshot) continue;
     snapshotBlockTitleMaps.set(
       version,
@@ -109,6 +113,7 @@ export async function getExternalValidationResults(responseId: string) {
         name: entry.name,
         providerName: entry.providerName,
         ruleType: entry.ruleType,
+        orderIndex: entry.orderIndex,
       });
     }
   }
@@ -120,8 +125,32 @@ export async function getExternalValidationResults(responseId: string) {
     .limit(1);
 
   const currentBlockTitleMap = buildBlockTitleMap(formRecord?.plateContent);
+  const sortedValidationResults = [...validationResults].sort((a, b) => {
+    const aSnapshotRule =
+      a.result.snapshotVersion === null
+        ? undefined
+        : snapshotRuleMap.get(`${a.result.snapshotVersion}:${a.result.ruleId}`);
+    const bSnapshotRule =
+      b.result.snapshotVersion === null
+        ? undefined
+        : snapshotRuleMap.get(`${b.result.snapshotVersion}:${b.result.ruleId}`);
+    const aOrderIndex =
+      aSnapshotRule?.orderIndex ??
+      a.rule?.orderIndex ??
+      Number.MAX_SAFE_INTEGER;
+    const bOrderIndex =
+      bSnapshotRule?.orderIndex ??
+      b.rule?.orderIndex ??
+      Number.MAX_SAFE_INTEGER;
 
-  return validationResults.map(({ result, rule }) => {
+    if (aOrderIndex !== bOrderIndex) {
+      return aOrderIndex - bOrderIndex;
+    }
+
+    return b.result.createdAt.getTime() - a.result.createdAt.getTime();
+  });
+
+  return sortedValidationResults.map(({ result, rule }) => {
     const snapshotRule =
       result.snapshotVersion === null
         ? undefined
