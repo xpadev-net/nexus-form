@@ -40,14 +40,15 @@ describe("worker Redis connection options", () => {
     expect(getPublisherConnectionOptions().password).toBe("secret");
   });
 
-  it("prefers the password embedded in REDIS_URL", async () => {
+  it("decodes credentials embedded in REDIS_URL", async () => {
     resetRedisEnv();
-    process.env.REDIS_URL = "redis://:url-secret@redis-service:6379";
+    process.env.REDIS_URL = "redis://user%40name:p%40ss@redis-service:6379";
     process.env.REDIS_PASSWORD = "env-secret";
     vi.resetModules();
 
     const { redisConnection } = await import("../redis");
 
-    expect(redisConnection.password).toBe("url-secret");
+    expect(redisConnection.username).toBe("user@name");
+    expect(redisConnection.password).toBe("p@ss");
   });
 });
