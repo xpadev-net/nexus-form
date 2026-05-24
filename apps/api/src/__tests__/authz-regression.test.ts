@@ -38,7 +38,7 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
-  form: {},
+  form: { id: "form.id" },
   formPermission: {},
   formShareLink: {},
   formResponse: {},
@@ -504,7 +504,7 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
 
     expect(txSpy).toHaveBeenCalledOnce();
     expect(txSelectOrder).toEqual([
-      "other-select",
+      "form-lock-select",
       "form-lock-for-update",
       "validation-rule-select",
       "count-select",
