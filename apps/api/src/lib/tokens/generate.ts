@@ -2,13 +2,48 @@ import { randomBytes } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
 import {
+  API_TOKEN_FORM_IDS_MAX,
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
+
+const parseableApiTokenJsonCondition = sql`
+  JSON_TYPE(${apiToken.scopes}) = 'ARRAY'
+    AND JSON_LENGTH(${apiToken.scopes}) > 0
+    AND NOT EXISTS (
+      SELECT 1
+      FROM JSON_TABLE(
+        ${apiToken.scopes},
+        '$[*]' COLUMNS(scope_value JSON PATH '$')
+      ) AS api_token_scope_values
+      WHERE JSON_TYPE(api_token_scope_values.scope_value) IS NULL
+        OR JSON_TYPE(api_token_scope_values.scope_value) != 'STRING'
+        OR JSON_UNQUOTE(api_token_scope_values.scope_value) NOT IN ('read', 'write', 'admin')
+    )
+    AND (
+      ${apiToken.formIds} IS NULL
+      OR JSON_TYPE(${apiToken.formIds}) = 'NULL'
+      OR (
+        JSON_TYPE(${apiToken.formIds}) = 'ARRAY'
+        AND JSON_LENGTH(${apiToken.formIds}) > 0
+        AND JSON_LENGTH(${apiToken.formIds}) <= ${API_TOKEN_FORM_IDS_MAX}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM JSON_TABLE(
+            ${apiToken.formIds},
+            '$[*]' COLUMNS(form_id_value JSON PATH '$')
+          ) AS api_token_form_id_values
+          WHERE JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL
+            OR JSON_TYPE(api_token_form_id_values.form_id_value) != 'STRING'
+            OR JSON_UNQUOTE(api_token_form_id_values.form_id_value) = ''
+        )
+      )
+    )
+`;
 
 /**
  * セキュアなAPIトークンを生成する
@@ -84,7 +119,7 @@ export async function createApiToken(
 
 /**
  * ユーザーのAPIトークン一覧を取得する。
- * 軽量 index 行（id/scopes/formIds）で valid 件数と順序を確定し、現在ページ分のフル行のみ取得する。
+ * DB 側の COUNT/LIMIT/OFFSET でページ境界を確定し、現在ページ分の行のみ JSON を parse する。
  * @param userId ユーザーID
  * @param page ページ番号（1から開始）
  * @param pageSize ページサイズ
@@ -100,62 +135,41 @@ export async function getUserApiTokens(
   const whereCondition = and(
     eq(apiToken.userId, userId),
     eq(apiToken.isActive, true),
+    parseableApiTokenJsonCondition,
   );
 
-  const tokenIndexRows = await db
-    .select({
-      id: apiToken.id,
-      scopes: apiToken.scopes,
-      formIds: apiToken.formIds,
-    })
-    .from(apiToken)
-    .where(whereCondition)
-    .orderBy(desc(apiToken.createdAt));
+  const { total, pageTokens } = await db.transaction(async (tx) => {
+    const [countRow] = await tx
+      .select({ total: count() })
+      .from(apiToken)
+      .where(whereCondition);
+    const total = Number(countRow?.total ?? 0);
 
-  const malformedTokens: Array<{
-    id: string;
-    error: "MALFORMED_STORED_JSON";
-  }> = [];
-  const validTokenIds: string[] = [];
+    const pageTokens = await tx
+      .select({
+        id: apiToken.id,
+        name: apiToken.name,
+        scopes: apiToken.scopes,
+        formIds: apiToken.formIds,
+        expiresAt: apiToken.expiresAt,
+        lastUsedAt: apiToken.lastUsedAt,
+        createdAt: apiToken.createdAt,
+        isActive: apiToken.isActive,
+      })
+      .from(apiToken)
+      .where(whereCondition)
+      .orderBy(desc(apiToken.createdAt), desc(apiToken.id))
+      .limit(pageSize)
+      .offset(offset);
 
-  for (const token of tokenIndexRows) {
-    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
-    if (!parsedJson) {
-      malformedTokens.push({
-        id: token.id,
-        error: "MALFORMED_STORED_JSON",
-      });
-      continue;
-    }
-    validTokenIds.push(token.id);
-  }
+    return { total, pageTokens };
+  });
 
-  const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
-  const pageTokens =
-    pageTokenIds.length > 0
-      ? await db
-          .select({
-            id: apiToken.id,
-            name: apiToken.name,
-            scopes: apiToken.scopes,
-            formIds: apiToken.formIds,
-            expiresAt: apiToken.expiresAt,
-            lastUsedAt: apiToken.lastUsedAt,
-            createdAt: apiToken.createdAt,
-            isActive: apiToken.isActive,
-          })
-          .from(apiToken)
-          .where(and(whereCondition, inArray(apiToken.id, pageTokenIds)))
-      : [];
-  const pageTokenById = new Map(
-    pageTokens.map((token) => [token.id, token] as const),
-  );
-
-  const mappedTokens = pageTokenIds.flatMap((tokenId) => {
-    const token = pageTokenById.get(tokenId);
-    if (!token) return [];
+  const mappedTokens = pageTokens.flatMap((token) => {
     const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
-    if (!parsedJson) return [];
+    if (!parsedJson) {
+      return [];
+    }
 
     return [
       {
@@ -170,11 +184,9 @@ export async function getUserApiTokens(
       },
     ];
   });
-  const total = validTokenIds.length;
 
   return {
     tokens: mappedTokens,
-    malformed_tokens: malformedTokens.length > 0 ? malformedTokens : undefined,
     total,
     pagination: {
       page,

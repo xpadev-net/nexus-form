@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     and: vi.fn((...conditions) => ({ op: "and", conditions })),
     inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
     lt: vi.fn((left, right) => ({ op: "lt", left, right })),
+    sql: vi.fn((strings, ...values) => ({ strings, values })),
   };
 });
 
@@ -86,6 +87,7 @@ vi.mock("drizzle-orm", () => ({
   and: mocks.and,
   inArray: mocks.inArray,
   lt: mocks.lt,
+  sql: mocks.sql,
 }));
 
 function adminSession() {

@@ -1,8 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
-  indexSelect: vi.fn(),
-  pageSelect: vi.fn(),
+  countWhere: vi.fn(),
+  countWhereArgs: [] as unknown[][],
+  pageLimit: vi.fn(),
+  pageOffset: vi.fn(),
+  pageOrderBy: vi.fn(),
+  pageWhere: vi.fn(),
+  pageWhereArgs: [] as unknown[][],
+}));
+
+const drizzleMocks = vi.hoisted(() => ({
+  capturedConditions: [] as Array<{
+    strings: TemplateStringsArray;
+    values: unknown[];
+  }>,
+  capturedSql: [] as string[],
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const condition = {
+      strings,
+      values,
+    };
+    drizzleMocks.capturedConditions.push(condition);
+    drizzleMocks.capturedSql.push(strings.join(""));
+    return condition;
+  }),
 }));
 
 const tokenRow = (id: string) => ({
@@ -18,37 +40,56 @@ const tokenRow = (id: string) => ({
 
 vi.mock("@nexus-form/database", () => ({
   db: {
-    select: vi.fn(
-      (fields: { count?: unknown; id?: unknown; name?: unknown }) => {
-        if ("id" in (fields ?? {}) && !("name" in (fields ?? {}))) {
-          return {
-            from: vi.fn().mockReturnThis(),
-            where: vi.fn().mockReturnThis(),
-            orderBy: dbMocks.indexSelect,
-          };
-        }
-        return {
-          from: vi.fn().mockReturnThis(),
-          where: dbMocks.pageSelect,
-        };
-      },
+    transaction: vi.fn(
+      async (callback: (tx: { select: typeof selectMock }) => unknown) =>
+        callback({ select: selectMock }),
     ),
+    select: vi.fn(selectMock),
   },
 }));
 
+function selectMock(fields: { total?: unknown; id?: unknown; name?: unknown }) {
+  if ("total" in (fields ?? {})) {
+    return {
+      from: vi.fn().mockReturnThis(),
+      where: dbMocks.countWhere,
+    };
+  }
+  const pageBuilder = {
+    from: vi.fn().mockReturnThis(),
+    where: dbMocks.pageWhere,
+    orderBy: dbMocks.pageOrderBy,
+    limit: dbMocks.pageLimit,
+    offset: dbMocks.pageOffset,
+  };
+  dbMocks.pageWhere.mockImplementation((...args: unknown[]) => {
+    dbMocks.pageWhereArgs.push(args);
+    return pageBuilder;
+  });
+  dbMocks.pageOrderBy.mockReturnValue(pageBuilder);
+  return pageBuilder;
+}
+
 vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {
+    id: "apiToken.id",
+    name: "apiToken.name",
     userId: "apiToken.userId",
     isActive: "apiToken.isActive",
+    scopes: "apiToken.scopes",
+    formIds: "apiToken.formIds",
+    expiresAt: "apiToken.expiresAt",
+    lastUsedAt: "apiToken.lastUsedAt",
     createdAt: "apiToken.createdAt",
   },
 }));
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
+  count: vi.fn(() => "count(*)"),
   desc: vi.fn((value: unknown) => value),
   eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
-  inArray: vi.fn((left: unknown, right: unknown) => ({ left, right })),
+  sql: drizzleMocks.sql,
 }));
 
 const { getUserApiTokens } = await import("../generate");
@@ -56,43 +97,39 @@ const { getUserApiTokens } = await import("../generate");
 describe("getUserApiTokens", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    dbMocks.indexSelect.mockResolvedValue(
-      Array.from({ length: 5000 }, (_, index) => ({
-        id: `token-${index}`,
-        scopes: ["read"],
-        formIds: null,
-      })),
-    );
-    dbMocks.pageSelect.mockResolvedValue([]);
+    dbMocks.countWhereArgs.length = 0;
+    dbMocks.pageWhereArgs.length = 0;
+    dbMocks.countWhere.mockImplementation((...args: unknown[]) => {
+      dbMocks.countWhereArgs.push(args);
+      return Promise.resolve([{ total: 5000 }]);
+    });
+    dbMocks.pageLimit.mockReturnValue({
+      offset: dbMocks.pageOffset,
+    });
+    dbMocks.pageOffset.mockResolvedValue([]);
   });
 
-  it("uses a stable valid-token total when malformed rows are on another page", async () => {
-    dbMocks.indexSelect.mockResolvedValue([
-      { id: "token-a", scopes: ["read"], formIds: null },
-      { id: "token-bad", scopes: "not-an-array", formIds: null },
-      { id: "token-b", scopes: ["write"], formIds: null },
+  it("drops malformed stored JSON rows that bypass the SQL filter", async () => {
+    dbMocks.countWhere.mockResolvedValue([{ total: 2 }]);
+    dbMocks.pageOffset.mockResolvedValue([
+      tokenRow("token-a"),
+      { ...tokenRow("token-bad"), scopes: "not-an-array" },
     ]);
-    dbMocks.pageSelect.mockResolvedValue([tokenRow("token-a")]);
 
     const result = await getUserApiTokens("user-1", 1, 10);
 
     expect(result.tokens).toHaveLength(1);
     expect(result.tokens[0]?.id).toBe("token-a");
-    expect(result.malformed_tokens).toEqual([
-      { id: "token-bad", error: "MALFORMED_STORED_JSON" },
-    ]);
+    expect("malformed_tokens" in result).toBe(false);
     expect(result.total).toBe(2);
     expect(result.pagination.hasNext).toBe(false);
-    expect(dbMocks.pageSelect).toHaveBeenCalledOnce();
+    expect(dbMocks.countWhere).toHaveBeenCalledOnce();
+    expect(dbMocks.pageOffset).toHaveBeenCalledOnce();
   });
 
-  it("pages over valid tokens when malformed rows sit between them", async () => {
-    dbMocks.indexSelect.mockResolvedValue([
-      { id: "token-a", scopes: ["read"], formIds: null },
-      { id: "token-bad", scopes: "not-an-array", formIds: null },
-      { id: "token-b", scopes: ["write"], formIds: null },
-    ]);
-    dbMocks.pageSelect
+  it("uses database pagination for each requested page", async () => {
+    dbMocks.countWhere.mockResolvedValue([{ total: 2 }]);
+    dbMocks.pageOffset
       .mockResolvedValueOnce([tokenRow("token-a")])
       .mockResolvedValueOnce([tokenRow("token-b")]);
 
@@ -106,15 +143,24 @@ describe("getUserApiTokens", () => {
     expect(page2.tokens[0]?.id).toBe("token-b");
     expect(page2.pagination.hasNext).toBe(false);
     expect(page2.total).toBe(2);
+    expect(dbMocks.pageLimit).toHaveBeenNthCalledWith(1, 1);
+    expect(dbMocks.pageOffset).toHaveBeenNthCalledWith(1, 0);
+    expect(dbMocks.pageLimit).toHaveBeenNthCalledWith(2, 1);
+    expect(dbMocks.pageOffset).toHaveBeenNthCalledWith(2, 1);
+    expect(dbMocks.pageOrderBy).toHaveBeenCalledWith(
+      "apiToken.createdAt",
+      "apiToken.id",
+    );
   });
 
   it("loads only one page of full token rows for large lists", async () => {
-    dbMocks.pageSelect.mockResolvedValue([tokenRow("token-1")]);
+    dbMocks.pageOffset.mockResolvedValue([tokenRow("token-1")]);
 
     const result = await getUserApiTokens("user-1", 2, 1);
 
-    expect(dbMocks.indexSelect).toHaveBeenCalledOnce();
-    expect(dbMocks.pageSelect).toHaveBeenCalledOnce();
+    expect(dbMocks.countWhere).toHaveBeenCalledOnce();
+    expect(dbMocks.pageLimit).toHaveBeenCalledWith(1);
+    expect(dbMocks.pageOffset).toHaveBeenCalledWith(1);
     expect(result.tokens).toHaveLength(1);
     expect(result.tokens[0]?.id).toBe("token-1");
     expect(result.total).toBe(5000);
@@ -122,5 +168,27 @@ describe("getUserApiTokens", () => {
     expect(result.pagination.pageSize).toBe(1);
     expect(result.pagination.totalPages).toBe(5000);
     expect(result.pagination.hasNext).toBe(true);
+  });
+
+  it("applies the parseable JSON SQL filter to count and page queries", async () => {
+    await getUserApiTokens("user-1", 1, 10);
+
+    const countWhereCondition = dbMocks.countWhereArgs[0]?.[0] as unknown[];
+    const pageWhereCondition = dbMocks.pageWhereArgs[0]?.[0] as unknown[];
+    const parseableCondition = drizzleMocks.capturedConditions[0];
+
+    expect(countWhereCondition).toContain(parseableCondition);
+    expect(pageWhereCondition).toContain(parseableCondition);
+  });
+
+  it("excludes JSON null array elements from the SQL pagination population", () => {
+    const [conditionSql] = drizzleMocks.capturedSql;
+
+    expect(conditionSql).toContain(
+      "JSON_TYPE(api_token_scope_values.scope_value) IS NULL",
+    );
+    expect(conditionSql).toContain(
+      "JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL",
+    );
   });
 });
