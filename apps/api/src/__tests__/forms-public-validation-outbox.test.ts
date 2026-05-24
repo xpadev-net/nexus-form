@@ -7,9 +7,6 @@ const mocks = vi.hoisted(() => {
       jobId: "externalServiceValidationResult.jobId",
     },
     fingerprintDetail: { table: "fingerprintDetail" },
-    formValidationRule: {
-      id: "formValidationRule.id",
-    },
     form: {
       id: "form.id",
       publicId: "form.publicId",
@@ -199,30 +196,9 @@ function activeSnapshot(
 function useSuccessfulSubmitSelects(
   snapshot: ReturnType<typeof activeSnapshot>,
   options?: {
-    existingRuleIds?: string[];
     responseRows?: unknown[];
   },
 ) {
-  let ruleIdsFromSnapshot: string[] = [];
-  try {
-    const parsed = JSON.parse(snapshot.validationRulesJson);
-    if (Array.isArray(parsed)) {
-      ruleIdsFromSnapshot = parsed
-        .map((entry) =>
-          typeof entry === "object" &&
-          entry !== null &&
-          "id" in entry &&
-          typeof entry.id === "string"
-            ? entry.id
-            : null,
-        )
-        .filter((id): id is string => id !== null);
-    }
-  } catch {
-    ruleIdsFromSnapshot = [];
-  }
-  const existingRuleIds = options?.existingRuleIds ?? ruleIdsFromSnapshot;
-
   useSelectResults([
     [
       {
@@ -242,7 +218,6 @@ function useSuccessfulSubmitSelects(
         }),
       },
     ],
-    existingRuleIds.map((id) => ({ id })),
     options?.responseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
@@ -367,7 +342,7 @@ describe("R11-C2-a public validation outbox", () => {
     );
   });
 
-  it("inserts FAILED/RULE_DELETED rows for deleted rules and still succeeds", async () => {
+  it("uses published snapshot rules even when draft rules no longer exist", async () => {
     const snapshot = activeSnapshot([
       {
         id: "rule-valid",
@@ -388,9 +363,7 @@ describe("R11-C2-a public validation outbox", () => {
         orderIndex: 1,
       },
     ]);
-    useSuccessfulSubmitSelects(snapshot, {
-      existingRuleIds: ["rule-valid"],
-    });
+    useSuccessfulSubmitSelects(snapshot);
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -404,8 +377,7 @@ describe("R11-C2-a public validation outbox", () => {
         }),
         expect.objectContaining({
           ruleId: "rule-deleted",
-          status: "FAILED",
-          errorCode: "RULE_DELETED",
+          status: "PENDING",
         }),
       ]),
     );
@@ -415,7 +387,13 @@ describe("R11-C2-a public validation outbox", () => {
         ruleId: "rule-valid",
       }),
     );
-    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({
+        ruleId: "rule-deleted",
+      }),
+    );
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(2);
   });
 
   it("persists the enqueue jobId only while the validation row has no jobId", async () => {

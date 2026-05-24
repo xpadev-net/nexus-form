@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import {
-  externalServiceValidationResult,
   formSnapshot,
   formValidationRule,
   formValidationRuleBlock,
@@ -326,10 +325,6 @@ export async function updateValidationRule(input: {
     configJson: nextConfigJson,
   });
 
-  const providerOrRuleChanged =
-    nextProviderName !== existing.rule.providerName ||
-    nextRuleType !== existing.rule.ruleType;
-
   await db.transaction(async (tx) => {
     await tx
       .update(formValidationRule)
@@ -355,13 +350,6 @@ export async function updateValidationRule(input: {
         })),
       );
     }
-
-    if (providerOrRuleChanged) {
-      // provider / ruleType を変えた場合、過去の結果行とは検査対象が変わるため削除する
-      await tx
-        .delete(externalServiceValidationResult)
-        .where(eq(externalServiceValidationResult.ruleId, input.ruleId));
-    }
   });
 
   const refreshed = await loadRuleWithBlocks(input.ruleId);
@@ -380,9 +368,6 @@ export async function deleteValidationRule(input: {
     return false;
   }
   await db.transaction(async (tx) => {
-    await tx
-      .delete(externalServiceValidationResult)
-      .where(eq(externalServiceValidationResult.ruleId, input.ruleId));
     await tx
       .delete(formValidationRuleBlock)
       .where(eq(formValidationRuleBlock.ruleId, input.ruleId));
@@ -488,9 +473,6 @@ export async function replaceValidationRulesFromSnapshot(input: {
       .where(eq(formValidationRule.formId, input.formId));
     if (existing.length > 0) {
       const existingIds = existing.map((r) => r.id);
-      await tx
-        .delete(externalServiceValidationResult)
-        .where(inArray(externalServiceValidationResult.ruleId, existingIds));
       await tx
         .delete(formValidationRuleBlock)
         .where(inArray(formValidationRuleBlock.ruleId, existingIds));
