@@ -53,6 +53,147 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result?.success).toBe(false);
   });
 
+  it("rejects invalid username lookup modes", () => {
+    const result = discordProvider.rules.guild_member?.configSchema.safeParse({
+      guildId: "123456789012345678",
+      usernameLookupMode: "scan_everything",
+    });
+
+    expect(result?.success).toBe(false);
+  });
+
+  it("does not call list members for saturated username searches by default", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const saturatedSearch = Array.from({ length: 1000 }, (_, index) => ({
+      user: {
+        id: String(100000000000000000n + BigInt(index)),
+        username: `targetuser_${index}`,
+      },
+      roles: [],
+    }));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/guilds/123456789012345678?with_counts=true")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            id: "123456789012345678",
+            name: "Test Guild",
+            icon: null,
+          }),
+        });
+      }
+      if (url.includes("/members/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue(saturatedSearch),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: vi.fn().mockResolvedValue({ message: "not found" }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      { guildId: "123456789012345678" },
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_USER_NOT_MEMBER,
+    });
+    expect(
+      fetchMock.mock.calls.filter(([calledUrl]) =>
+        String(calledUrl).includes("/members?"),
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("calls list members for saturated username searches when legacy scan is enabled", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const targetId = "999999999999999999";
+    const saturatedSearch = Array.from({ length: 1000 }, (_, index) => ({
+      user: {
+        id: String(100000000000000000n + BigInt(index)),
+        username: `targetuser_${index}`,
+      },
+      roles: [],
+    }));
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/guilds/123456789012345678?with_counts=true")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            id: "123456789012345678",
+            name: "Test Guild",
+            icon: null,
+          }),
+        });
+      }
+      if (url.includes("/members/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue(saturatedSearch),
+        });
+      }
+      if (url.includes("/members?")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              user: { id: targetId, username: "targetuser" },
+              roles: [],
+            },
+          ]),
+        });
+      }
+      if (url.includes("/roles")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([]),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: vi.fn().mockResolvedValue({ message: "not found" }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      {
+        guildId: "123456789012345678",
+        usernameLookupMode: "legacy_scan",
+      },
+    );
+
+    expect(result).toMatchObject({
+      isValid: true,
+      metadata: {
+        userId: targetId,
+        username: "targetuser",
+      },
+    });
+    expect(
+      fetchMock.mock.calls.filter(([calledUrl]) =>
+        String(calledUrl).includes("/members?"),
+      ),
+    ).toHaveLength(1);
+  });
+
   it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(

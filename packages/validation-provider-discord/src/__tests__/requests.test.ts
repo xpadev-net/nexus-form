@@ -50,7 +50,59 @@ describe("findGuildMemberByUsername", () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to list members pagination when search is saturated", async () => {
+  it("does not fall back to list members pagination by default when search is saturated", async () => {
+    const saturatedSearch = Array.from({ length: 1000 }, (_, index) =>
+      makeMember(
+        String(100000000000000000n + BigInt(index)),
+        `targetuser_${index}`,
+      ),
+    );
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/members/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue(saturatedSearch),
+        });
+      }
+      if (url.includes("/members?")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi
+            .fn()
+            .mockResolvedValue([
+              makeMember("999999999999999999", "targetuser"),
+            ]),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const member = await findGuildMemberByUsername(
+      token,
+      guildId,
+      "targetuser",
+    );
+
+    expect(member).toBeUndefined();
+    const searchCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
+      String(calledUrl).includes("/members/search"),
+    );
+    const listCalls = fetchMock.mock.calls.filter(([calledUrl]) =>
+      String(calledUrl).includes("/members?"),
+    );
+    expect(searchCalls).toHaveLength(1);
+    expect(String(searchCalls[0]?.[0])).toContain("limit=1000");
+    expect(listCalls).toHaveLength(0);
+  });
+
+  it("falls back to list members pagination when explicitly enabled and search is saturated", async () => {
     const targetId = "999999999999999999";
     const saturatedSearch = Array.from({ length: 1000 }, (_, index) =>
       makeMember(
@@ -100,6 +152,7 @@ describe("findGuildMemberByUsername", () => {
       token,
       guildId,
       "targetuser",
+      { allowListFallback: true },
     );
 
     expect(member?.user.username).toBe("targetuser");
