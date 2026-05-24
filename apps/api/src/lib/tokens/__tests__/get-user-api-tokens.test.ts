@@ -6,6 +6,18 @@ const dbMocks = vi.hoisted(() => ({
   pageOffset: vi.fn(),
 }));
 
+const drizzleMocks = vi.hoisted(() => ({
+  capturedSql: [] as string[],
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
+    const condition = {
+      strings,
+      values,
+    };
+    drizzleMocks.capturedSql.push(strings.join(""));
+    return condition;
+  }),
+}));
+
 const tokenRow = (id: string) => ({
   id,
   name: `Name ${id}`,
@@ -58,6 +70,7 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(() => "count(*)"),
   desc: vi.fn((value: unknown) => value),
   eq: vi.fn((left: unknown, right: unknown) => ({ left, right })),
+  sql: drizzleMocks.sql,
 }));
 
 const { getUserApiTokens } = await import("../generate");
@@ -129,5 +142,16 @@ describe("getUserApiTokens", () => {
     expect(result.pagination.pageSize).toBe(1);
     expect(result.pagination.totalPages).toBe(5000);
     expect(result.pagination.hasNext).toBe(true);
+  });
+
+  it("excludes JSON null array elements from the SQL pagination population", () => {
+    const [conditionSql] = drizzleMocks.capturedSql;
+
+    expect(conditionSql).toContain(
+      "JSON_TYPE(api_token_scope_values.scope_value) IS NULL",
+    );
+    expect(conditionSql).toContain(
+      "JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL",
+    );
   });
 });

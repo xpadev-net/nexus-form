@@ -5,10 +5,46 @@ import {
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
+
+const API_TOKEN_FORM_IDS_MAX = 64;
+
+const parseableApiTokenJsonCondition = sql`
+  JSON_TYPE(${apiToken.scopes}) = 'ARRAY'
+    AND JSON_LENGTH(${apiToken.scopes}) > 0
+    AND NOT EXISTS (
+      SELECT 1
+      FROM JSON_TABLE(
+        ${apiToken.scopes},
+        '$[*]' COLUMNS(scope_value JSON PATH '$')
+      ) AS api_token_scope_values
+      WHERE JSON_TYPE(api_token_scope_values.scope_value) IS NULL
+        OR JSON_TYPE(api_token_scope_values.scope_value) != 'STRING'
+        OR JSON_UNQUOTE(api_token_scope_values.scope_value) NOT IN ('read', 'write', 'admin')
+    )
+    AND (
+      ${apiToken.formIds} IS NULL
+      OR JSON_TYPE(${apiToken.formIds}) = 'NULL'
+      OR (
+        JSON_TYPE(${apiToken.formIds}) = 'ARRAY'
+        AND JSON_LENGTH(${apiToken.formIds}) > 0
+        AND JSON_LENGTH(${apiToken.formIds}) <= ${API_TOKEN_FORM_IDS_MAX}
+        AND NOT EXISTS (
+          SELECT 1
+          FROM JSON_TABLE(
+            ${apiToken.formIds},
+            '$[*]' COLUMNS(form_id_value JSON PATH '$')
+          ) AS api_token_form_id_values
+          WHERE JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL
+            OR JSON_TYPE(api_token_form_id_values.form_id_value) != 'STRING'
+            OR JSON_UNQUOTE(api_token_form_id_values.form_id_value) = ''
+        )
+      )
+    )
+`;
 
 /**
  * セキュアなAPIトークンを生成する
@@ -100,6 +136,7 @@ export async function getUserApiTokens(
   const whereCondition = and(
     eq(apiToken.userId, userId),
     eq(apiToken.isActive, true),
+    parseableApiTokenJsonCondition,
   );
 
   const [countRow] = await db
