@@ -5,7 +5,7 @@ import {
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
@@ -84,7 +84,7 @@ export async function createApiToken(
 
 /**
  * ユーザーのAPIトークン一覧を取得する。
- * 軽量 index 行（id/scopes/formIds）で valid 件数と順序を確定し、現在ページ分のフル行のみ取得する。
+ * DB 側の COUNT/LIMIT/OFFSET でページ境界を確定し、現在ページ分の行のみ JSON を parse する。
  * @param userId ユーザーID
  * @param page ページ番号（1から開始）
  * @param pageSize ページサイズ
@@ -102,60 +102,43 @@ export async function getUserApiTokens(
     eq(apiToken.isActive, true),
   );
 
-  const tokenIndexRows = await db
+  const [countRow] = await db
+    .select({ total: count() })
+    .from(apiToken)
+    .where(whereCondition);
+  const total = Number(countRow?.total ?? 0);
+
+  const pageTokens = await db
     .select({
       id: apiToken.id,
+      name: apiToken.name,
       scopes: apiToken.scopes,
       formIds: apiToken.formIds,
+      expiresAt: apiToken.expiresAt,
+      lastUsedAt: apiToken.lastUsedAt,
+      createdAt: apiToken.createdAt,
+      isActive: apiToken.isActive,
     })
     .from(apiToken)
     .where(whereCondition)
-    .orderBy(desc(apiToken.createdAt));
+    .orderBy(desc(apiToken.createdAt))
+    .limit(pageSize)
+    .offset(offset);
 
   const malformedTokens: Array<{
     id: string;
     error: "MALFORMED_STORED_JSON";
   }> = [];
-  const validTokenIds: string[] = [];
 
-  for (const token of tokenIndexRows) {
-    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens");
+  const mappedTokens = pageTokens.flatMap((token) => {
+    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
     if (!parsedJson) {
       malformedTokens.push({
         id: token.id,
         error: "MALFORMED_STORED_JSON",
       });
-      continue;
+      return [];
     }
-    validTokenIds.push(token.id);
-  }
-
-  const pageTokenIds = validTokenIds.slice(offset, offset + pageSize);
-  const pageTokens =
-    pageTokenIds.length > 0
-      ? await db
-          .select({
-            id: apiToken.id,
-            name: apiToken.name,
-            scopes: apiToken.scopes,
-            formIds: apiToken.formIds,
-            expiresAt: apiToken.expiresAt,
-            lastUsedAt: apiToken.lastUsedAt,
-            createdAt: apiToken.createdAt,
-            isActive: apiToken.isActive,
-          })
-          .from(apiToken)
-          .where(and(whereCondition, inArray(apiToken.id, pageTokenIds)))
-      : [];
-  const pageTokenById = new Map(
-    pageTokens.map((token) => [token.id, token] as const),
-  );
-
-  const mappedTokens = pageTokenIds.flatMap((tokenId) => {
-    const token = pageTokenById.get(tokenId);
-    if (!token) return [];
-    const parsedJson = parseStoredApiTokenJson(token, "getUserApiTokens.page");
-    if (!parsedJson) return [];
 
     return [
       {
@@ -170,7 +153,6 @@ export async function getUserApiTokens(
       },
     ];
   });
-  const total = validTokenIds.length;
 
   return {
     tokens: mappedTokens,
