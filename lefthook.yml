@@ -7,16 +7,18 @@ pre-commit:
       glob: "{src,apps,packages}/**/*.{js,jsx,ts,tsx,json,css,md}"
       exclude: "{src,apps/**/src}/components/ui/**"
       run: |
-        filtered=()
-        for f in "${staged_files[@]}"; do
-          case "$f" in
-            *src/components/ui/*) ;;
-            *) filtered+=("$f") ;;
-          esac
-        done
-        if [ ${#filtered[@]} -gt 0 ]; then
-          pnpm biome check "${filtered[@]}" --write --unsafe
-        fi
+        bash -c '
+          filtered=()
+          for f in "$@"; do
+            case "$f" in
+              *src/components/ui/*) ;;
+              *) filtered+=("$f") ;;
+            esac
+          done
+          if [ ${#filtered[@]} -gt 0 ]; then
+            pnpm biome check "${filtered[@]}" --write --unsafe
+          fi
+        ' -- {staged_files}
       stage_fixed: true
     forbid-colors:
       glob: "{src,apps,packages}/**/*.{ts,tsx,js,jsx,css,md,mdx}"
