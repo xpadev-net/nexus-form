@@ -33,12 +33,12 @@ vi.mock("@nexus-form/database", () => ({
   session: {},
   account: {},
   verificationToken: {},
-  form: {},
+  form: { id: "form.id" },
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
-  form: {},
+  form: { id: "form.id" },
   formPermission: {},
   formShareLink: {},
   formResponse: {},
@@ -53,6 +53,7 @@ vi.mock("@nexus-form/database/schema", () => ({
   },
   formIntegration: {},
   externalServiceValidationResult: {},
+  formValidationRule: { id: "formValidationRule.id" },
 }));
 
 vi.mock("../lib/security/hcaptcha", () => ({
@@ -387,8 +388,41 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     vi.resetModules();
   });
 
-  it("db.transaction is called during submit when the form has a response limit", async () => {
+  it("locks the form row before transactional validation-rule reads when a response limit is enabled", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce({
+      id: "snapshot-1",
+      formId: FORM_ID,
+      version: 1,
+      isActive: true,
+      plateContent: JSON.stringify([
+        {
+          type: "form_text",
+          blockId: "block-1",
+          children: [{ text: "Discord username" }],
+        },
+      ]),
+      validationRulesJson: JSON.stringify([
+        {
+          id: "rule-1",
+          name: "Discord membership",
+          providerName: "discord",
+          ruleType: "membership",
+          referencedBlockIds: ["block-1"],
+          configJson: {},
+          orderIndex: 0,
+        },
+      ]),
+      publishedBy: "user-1",
+      publishedAt: new Date(),
+      changeLog: null,
+      title: "Published form",
+      description: null,
+      parentVersion: null,
+    });
 
     // form found (PUBLISHED), then formStructure containing the response limit
     mockDbSelectChain(db, [
@@ -408,15 +442,39 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     // txSelectSpy witnesses every SELECT that runs inside the transaction.
     // If a future change moves the count check outside the transaction,
     // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
-    const txSelectSpy = vi.fn().mockReturnValue({
-      from: vi.fn().mockReturnValue({
-        where: vi.fn().mockReturnValue(
-          // Awaitable as-is (count check) and supports .for("update") (lock query).
-          Object.assign(Promise.resolve([{ count: 0 }]), {
-            for: vi.fn().mockResolvedValue([]),
-          }),
-        ),
-      }),
+    const txSelectOrder: string[] = [];
+    const txSelectSpy = vi.fn((selection: unknown) => {
+      return {
+        from: vi.fn((table: unknown) => {
+          const label =
+            selection && typeof selection === "object" && "count" in selection
+              ? "count-select"
+              : table &&
+                  typeof table === "object" &&
+                  "id" in table &&
+                  table.id === "form.id"
+                ? "form-lock-select"
+                : table &&
+                    typeof table === "object" &&
+                    "id" in table &&
+                    table.id === "formValidationRule.id"
+                  ? "validation-rule-select"
+                  : "other-select";
+          txSelectOrder.push(label);
+          return {
+            where: vi.fn().mockReturnValue(
+              // Awaitable as-is (count / validation-rule reads) and supports
+              // .for("update") for the form lock query.
+              Object.assign(Promise.resolve([{ count: 0 }, { id: "rule-1" }]), {
+                for: vi.fn().mockImplementation(() => {
+                  txSelectOrder.push("form-lock-for-update");
+                  return Promise.resolve([]);
+                }),
+              }),
+            ),
+          };
+        }),
+      };
     });
     const txMock = {
       select: txSelectSpy,
@@ -445,10 +503,12 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     });
 
     expect(txSpy).toHaveBeenCalledOnce();
-    // Verify both the FOR UPDATE lock SELECT and the count SELECT ran inside the
-    // transaction. toHaveBeenCalledTimes(2) catches the TOCTOU regression where
-    // only the count check is moved outside — toHaveBeenCalled() would still pass.
-    expect(txSelectSpy).toHaveBeenCalledTimes(2);
+    expect(txSelectOrder).toEqual([
+      "form-lock-select",
+      "form-lock-for-update",
+      "validation-rule-select",
+      "count-select",
+    ]);
     txSpy.mockRestore();
   });
 
