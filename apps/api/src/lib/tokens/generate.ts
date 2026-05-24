@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { apiToken } from "@nexus-form/database/schema";
 import {
+  API_TOKEN_FORM_IDS_MAX,
   parseApiTokenScopes,
   parseStoredApiTokenFormIds,
 } from "@nexus-form/shared";
@@ -9,8 +10,6 @@ import { and, count, desc, eq, sql } from "drizzle-orm";
 import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
-
-const API_TOKEN_FORM_IDS_MAX = 64;
 
 const parseableApiTokenJsonCondition = sql`
   JSON_TYPE(${apiToken.scopes}) = 'ARRAY'
