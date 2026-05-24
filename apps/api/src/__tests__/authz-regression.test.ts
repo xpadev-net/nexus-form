@@ -388,7 +388,7 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     vi.resetModules();
   });
 
-  it("locks the form row before transactional validation-rule reads when a response limit is enabled", async () => {
+  it("locks the form row before the response count check when a response limit is enabled", async () => {
     const { db } = await import("@nexus-form/database");
     const { getLatestSnapshot } = await import(
       "../lib/forms/snapshot-repository"
@@ -506,7 +506,6 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     expect(txSelectOrder).toEqual([
       "form-lock-select",
       "form-lock-for-update",
-      "validation-rule-select",
       "count-select",
     ]);
     txSpy.mockRestore();

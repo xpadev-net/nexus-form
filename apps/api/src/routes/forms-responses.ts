@@ -188,17 +188,21 @@ export async function enqueueValidationRetries(
   if (validResults.length === 0)
     return { jobIds: [], enqueuedCount: 0, skippedCount: results.length };
 
-  // ルールが draft から削除されている場合、active スナップショットをフォールバックとして使用する。
-  const needsFallback = validResults.filter(
-    (r) => r.liveRuleType === null || r.liveConfigJson === null,
+  // snapshotVersion を持つ結果は公開時 snapshot を正とする。
+  // draft 側の同一 ruleId が更新済みでも、既公開 response の retry 内容は変えない。
+  const needsSnapshot = validResults.filter(
+    (r) =>
+      r.snapshotVersion !== null ||
+      r.liveRuleType === null ||
+      r.liveConfigJson === null,
   );
   const snapshotRuleMap = new Map<
     string,
     { ruleType: string; configJson: Record<string, unknown> }
   >();
-  if (needsFallback.length > 0) {
+  if (needsSnapshot.length > 0) {
     const snapshotKeys = new Map(
-      needsFallback.map((r) => [
+      needsSnapshot.map((r) => [
         `${r.formId}:${r.snapshotVersion ?? "latest"}`,
         { formId: r.formId, snapshotVersion: r.snapshotVersion },
       ]),
@@ -251,11 +255,17 @@ export async function enqueueValidationRetries(
     const snapshotEntry = snapshotRuleMap.get(
       snapshotRuleMapKey(result.formId, result.snapshotVersion, result.ruleId),
     );
-    const ruleType = result.liveRuleType ?? snapshotEntry?.ruleType ?? null;
+    const liveConfigJson = isRecord(result.liveConfigJson)
+      ? result.liveConfigJson
+      : null;
+    const ruleType =
+      result.snapshotVersion !== null
+        ? (snapshotEntry?.ruleType ?? null)
+        : (result.liveRuleType ?? snapshotEntry?.ruleType ?? null);
     const configJson =
-      (isRecord(result.liveConfigJson) ? result.liveConfigJson : null) ??
-      snapshotEntry?.configJson ??
-      null;
+      result.snapshotVersion !== null
+        ? (snapshotEntry?.configJson ?? null)
+        : (liveConfigJson ?? snapshotEntry?.configJson ?? null);
 
     if (!ruleType || !configJson) {
       logWarn(

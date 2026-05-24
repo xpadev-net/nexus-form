@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => {
   const inArray = vi.fn();
   const isNull = vi.fn();
   const notInArray = vi.fn();
+  const getSnapshotByVersion = vi.fn();
+  const parseValidationRuleSnapshot = vi.fn();
   const sqlMock = vi.fn(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({
       kind: "sql",
@@ -26,7 +28,18 @@ const mocks = vi.hoisted(() => {
     separator,
   }));
 
-  return { inArray, isNull, notInArray, queueAdd, set, sqlMock, update, where };
+  return {
+    getSnapshotByVersion,
+    inArray,
+    isNull,
+    notInArray,
+    parseValidationRuleSnapshot,
+    queueAdd,
+    set,
+    sqlMock,
+    update,
+    where,
+  };
 });
 
 vi.mock("@nexus-form/database", () => ({
@@ -78,11 +91,11 @@ vi.mock("../lib/dual-auth", () => ({
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
   getLatestSnapshotByVersion: vi.fn(),
-  getSnapshotByVersion: vi.fn(),
+  getSnapshotByVersion: mocks.getSnapshotByVersion,
 }));
 
 vi.mock("../lib/forms/validation-rule-repository", () => ({
-  parseValidationRuleSnapshot: vi.fn(() => []),
+  parseValidationRuleSnapshot: mocks.parseValidationRuleSnapshot,
 }));
 
 vi.mock("../lib/forms/plate-question-builder", () => ({
@@ -158,6 +171,40 @@ describe("R6-M9: validation retry bulk updates", () => {
         id: options?.jobId,
       }),
     );
+    mocks.getSnapshotByVersion.mockResolvedValue({
+      id: "snapshot-1",
+      formId: "form-1",
+      version: 3,
+      isActive: true,
+      publishedBy: "owner-1",
+      publishedAt: new Date("2026-05-24T00:00:00.000Z"),
+      changeLog: null,
+      title: "Published form",
+      description: null,
+      parentVersion: null,
+      plateContent: "[]",
+      validationRulesJson: "snapshot-rules",
+    });
+    mocks.parseValidationRuleSnapshot.mockReturnValue([
+      {
+        id: "rule-result-1",
+        name: "Published result 1",
+        providerName: "discord",
+        ruleType: "member",
+        referencedBlockIds: ["block-result-1"],
+        configJson: { guildId: "guild-1" },
+        orderIndex: 0,
+      },
+      {
+        id: "rule-result-2",
+        name: "Published result 2",
+        providerName: "discord",
+        ruleType: "member",
+        referencedBlockIds: ["block-result-2"],
+        configJson: { guildId: "guild-1" },
+        orderIndex: 1,
+      },
+    ]);
   });
 
   it("claims retry rows before enqueueing validation jobs", async () => {
@@ -252,5 +299,61 @@ describe("R6-M9: validation retry bulk updates", () => {
     });
     expect(mocks.update).toHaveBeenCalledTimes(1);
     expect(mocks.queueAdd).not.toHaveBeenCalled();
+  });
+
+  it("uses published snapshot rule config instead of live rule config for snapshot retries", async () => {
+    const { getSnapshotByVersion } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const { parseValidationRuleSnapshot } = await import(
+      "../lib/forms/validation-rule-repository"
+    );
+    vi.mocked(getSnapshotByVersion).mockResolvedValue({
+      id: "snapshot-1",
+      formId: "form-1",
+      version: 3,
+      isActive: true,
+      publishedBy: "owner-1",
+      publishedAt: new Date("2026-05-24T00:00:00.000Z"),
+      changeLog: null,
+      title: "Published form",
+      description: null,
+      parentVersion: null,
+      plateContent: "[]",
+      validationRulesJson: "snapshot-rules",
+    });
+    vi.mocked(parseValidationRuleSnapshot).mockReturnValue([
+      {
+        id: "rule-result-1",
+        name: "Published Discord membership",
+        providerName: "discord",
+        ruleType: "guild_member",
+        referencedBlockIds: ["block-result-1"],
+        configJson: { guildId: "published-guild" },
+        orderIndex: 0,
+      },
+    ]);
+    const { enqueueValidationRetries } = await import(
+      "../routes/forms-responses"
+    );
+
+    await enqueueValidationRetries([
+      {
+        ...retryTarget("result-1"),
+        liveRuleType: "changed_live_rule",
+        liveConfigJson: { guildId: "draft-guild" },
+      },
+    ]);
+
+    expect(mocks.queueAdd).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({
+        ruleId: "rule-result-1",
+        snapshotRuleType: "guild_member",
+        snapshotConfigJson: { guildId: "published-guild" },
+        snapshotVersion: 3,
+      }),
+      expect.any(Object),
+    );
   });
 });
