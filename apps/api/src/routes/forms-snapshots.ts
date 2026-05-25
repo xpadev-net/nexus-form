@@ -98,6 +98,14 @@ export type PublishSnapshotResponse = z.infer<
   typeof PublishSnapshotResponseSchema
 >;
 
+const PublishSnapshotValidationErrorResponseSchema = z.object({
+  error: z.string(),
+  details: z.record(z.string(), z.unknown()).optional(),
+});
+export type PublishSnapshotValidationErrorResponse = z.infer<
+  typeof PublishSnapshotValidationErrorResponseSchema
+>;
+
 const UnpublishedChangesInfoResponseSchema = z.object({
   hasChanges: z.boolean(),
   hasValidationRuleChanges: z.boolean(),
@@ -319,7 +327,13 @@ export const formsSnapshotsRouter = createHonoApp()
           return c.json(errorResponse(error.message), 400);
         }
         if (error instanceof FormValidationError) {
-          return c.json(errorResponse(error.message), 400);
+          return c.json(
+            PublishSnapshotValidationErrorResponseSchema.parse({
+              error: error.message,
+              details: error.details,
+            }),
+            400,
+          );
         }
         throw error;
       }

@@ -1,7 +1,7 @@
 import { db } from "@nexus-form/database";
 import { form, formSnapshot } from "@nexus-form/database/schema";
 import {
-  extractTextFromChildren,
+  extractTitleFromChildren,
   fromPlateQuestionType,
   isPlateQuestionType,
 } from "@nexus-form/shared";
@@ -45,7 +45,7 @@ function assertSnapshotQuestionTitles(plateContent: string): void {
       if (isPlateQuestionType(node.type)) {
         const type = fromPlateQuestionType(node.type);
         const title = Array.isArray(node.children)
-          ? extractTextFromChildren(node.children).trim()
+          ? extractTitleFromChildren(node.children)
           : "";
 
         if (type !== "section_separator" && title.length === 0) {

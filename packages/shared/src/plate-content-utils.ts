@@ -54,7 +54,7 @@ export function extractTextFromChildren(
 
 /**
  * Extract a title from a Plate node's children, prioritizing heading blocks.
- * If no non-empty heading exists, return an empty string.
+ * If no non-empty heading exists, fall back to all visible child text.
  */
 export function extractTitleFromChildren(children: unknown[]): string {
   let bestHeading: {
@@ -83,7 +83,7 @@ export function extractTitleFromChildren(children: unknown[]): string {
     if (headingText) return headingText;
   }
 
-  return "";
+  return extractTextFromChildren(children).trim();
 }
 
 /**
