@@ -206,6 +206,7 @@ export const formsSnapshotsRouter = createHonoApp()
           .select({
             plateContent: formSnapshot.plateContent,
             validationRulesJson: formSnapshot.validationRulesJson,
+            structureJson: formSnapshot.structureJson,
             version: formSnapshot.version,
           })
           .from(formSnapshot)
@@ -220,6 +221,7 @@ export const formsSnapshotsRouter = createHonoApp()
           .select({
             plateContent: formSnapshot.plateContent,
             validationRulesJson: formSnapshot.validationRulesJson,
+            structureJson: formSnapshot.structureJson,
             version: formSnapshot.version,
           })
           .from(formSnapshot)
@@ -244,7 +246,8 @@ export const formsSnapshotsRouter = createHonoApp()
           toVersion,
           changed:
             from.plateContent !== to.plateContent ||
-            from.validationRulesJson !== to.validationRulesJson,
+            from.validationRulesJson !== to.validationRulesJson ||
+            from.structureJson !== to.structureJson,
           fromPlateContent: from.plateContent,
           toPlateContent: to.plateContent,
         }),

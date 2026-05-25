@@ -555,6 +555,7 @@ export const formsDetailRouter = createHonoApp()
           parentVersion: null,
           plateContent: sourceSnapshot.plateContent,
           validationRulesJson: JSON.stringify(remappedRules),
+          structureJson: sourceSnapshot.structureJson,
         });
 
         // 通常の snapshot 作成（snapshot-repository.ts）と同様、フォームの

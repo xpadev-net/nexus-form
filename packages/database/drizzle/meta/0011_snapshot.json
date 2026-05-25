@@ -1,0 +1,3089 @@
+{
+  "version": "5",
+  "dialect": "mysql",
+  "id": "43ca4a49-00fe-488b-a9f5-2c191e1a8915",
+  "prevId": "082b590c-8fe5-4cc1-9bfd-fedabcb19e93",
+  "tables": {
+    "ApiToken": {
+      "name": "ApiToken",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tokenHash": {
+          "name": "tokenHash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "lookupHash": {
+          "name": "lookupHash",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "scopes": {
+          "name": "scopes",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formIds": {
+          "name": "formIds",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "api_token_type": {
+          "name": "api_token_type",
+          "type": "enum('USER','FORM','SHARE_LINK')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'USER'"
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "lastUsedAt": {
+          "name": "lastUsedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "revokedAt": {
+          "name": "revokedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "shareLinkId": {
+          "name": "shareLinkId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "ApiToken_userId_idx": {
+          "name": "ApiToken_userId_idx",
+          "columns": ["userId"],
+          "isUnique": false
+        },
+        "ApiToken_isActive_idx": {
+          "name": "ApiToken_isActive_idx",
+          "columns": ["isActive"],
+          "isUnique": false
+        },
+        "ApiToken_type_idx": {
+          "name": "ApiToken_type_idx",
+          "columns": ["api_token_type"],
+          "isUnique": false
+        },
+        "ApiToken_lookupHash_idx": {
+          "name": "ApiToken_lookupHash_idx",
+          "columns": ["lookupHash"],
+          "isUnique": false
+        },
+        "ApiToken_shareLinkId_idx": {
+          "name": "ApiToken_shareLinkId_idx",
+          "columns": ["shareLinkId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ApiToken_userId_User_id_fk": {
+          "name": "ApiToken_userId_User_id_fk",
+          "tableFrom": "ApiToken",
+          "tableTo": "User",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "ApiToken_shareLinkId_FormShareLink_id_fk": {
+          "name": "ApiToken_shareLinkId_FormShareLink_id_fk",
+          "tableFrom": "ApiToken",
+          "tableTo": "FormShareLink",
+          "columnsFrom": ["shareLinkId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ApiToken_id": {
+          "name": "ApiToken_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "ApiToken_tokenHash_unique": {
+          "name": "ApiToken_tokenHash_unique",
+          "columns": ["tokenHash"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "DataSubjectRequest": {
+      "name": "DataSubjectRequest",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data_subject_request_type": {
+          "name": "data_subject_request_type",
+          "type": "enum('EXPORT','DELETE')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data_subject_request_status": {
+          "name": "data_subject_request_status",
+          "type": "enum('PENDING','PROCESSING','COMPLETED','REJECTED')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PENDING'"
+        },
+        "requestedAt": {
+          "name": "requestedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "completedAt": {
+          "name": "completedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "DataSubjectRequest_email_idx": {
+          "name": "DataSubjectRequest_email_idx",
+          "columns": ["email"],
+          "isUnique": false
+        },
+        "DataSubjectRequest_status_idx": {
+          "name": "DataSubjectRequest_status_idx",
+          "columns": ["data_subject_request_status"],
+          "isUnique": false
+        },
+        "DataSubjectRequest_requestedAt_idx": {
+          "name": "DataSubjectRequest_requestedAt_idx",
+          "columns": ["requestedAt"],
+          "isUnique": false
+        },
+        "DataSubjectRequest_email_status_idx": {
+          "name": "DataSubjectRequest_email_status_idx",
+          "columns": ["email", "data_subject_request_status"],
+          "isUnique": false
+        },
+        "DataSubjectRequest_status_requestedAt_idx": {
+          "name": "DataSubjectRequest_status_requestedAt_idx",
+          "columns": ["data_subject_request_status", "requestedAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "DataSubjectRequest_id": {
+          "name": "DataSubjectRequest_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "DiscordGuild": {
+      "name": "DiscordGuild",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "guildId": {
+          "name": "guildId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "iconUrl": {
+          "name": "iconUrl",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "discordUserId": {
+          "name": "discordUserId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "DiscordGuild_discordUserId_guildId_key": {
+          "name": "DiscordGuild_discordUserId_guildId_key",
+          "columns": ["discordUserId", "guildId"],
+          "isUnique": true
+        },
+        "DiscordGuild_discordUserId_idx": {
+          "name": "DiscordGuild_discordUserId_idx",
+          "columns": ["discordUserId"],
+          "isUnique": false
+        },
+        "DiscordGuild_guildId_idx": {
+          "name": "DiscordGuild_guildId_idx",
+          "columns": ["guildId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "DiscordGuild_discordUserId_DiscordUser_discordUserId_fk": {
+          "name": "DiscordGuild_discordUserId_DiscordUser_discordUserId_fk",
+          "tableFrom": "DiscordGuild",
+          "tableTo": "DiscordUser",
+          "columnsFrom": ["discordUserId"],
+          "columnsTo": ["discordUserId"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "DiscordGuild_id": {
+          "name": "DiscordGuild_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "DiscordUser": {
+      "name": "DiscordUser",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "discordUserId": {
+          "name": "discordUserId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "avatarUrl": {
+          "name": "avatarUrl",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "DiscordUser_id": {
+          "name": "DiscordUser_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "DiscordUser_email_unique": {
+          "name": "DiscordUser_email_unique",
+          "columns": ["email"]
+        },
+        "DiscordUser_discordUserId_unique": {
+          "name": "DiscordUser_discordUserId_unique",
+          "columns": ["discordUserId"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "ExternalServiceValidationResult": {
+      "name": "ExternalServiceValidationResult",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "responseId": {
+          "name": "responseId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ruleId": {
+          "name": "ruleId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "referencedBlockId": {
+          "name": "referencedBlockId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "snapshotVersion": {
+          "name": "snapshotVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "service": {
+          "name": "service",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "validation_status": {
+          "name": "validation_status",
+          "type": "enum('PENDING','PROCESSING','COMPLETED','FAILED','MISSING')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PENDING'"
+        },
+        "success": {
+          "name": "success",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "attemptCount": {
+          "name": "attemptCount",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "lastAttemptAt": {
+          "name": "lastAttemptAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "nextRetryAt": {
+          "name": "nextRetryAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "errorCode": {
+          "name": "errorCode",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "errorMessage": {
+          "name": "errorMessage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "jobId": {
+          "name": "jobId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "ESVR_responseId_idx": {
+          "name": "ESVR_responseId_idx",
+          "columns": ["responseId"],
+          "isUnique": false
+        },
+        "ESVR_ruleId_idx": {
+          "name": "ESVR_ruleId_idx",
+          "columns": ["ruleId"],
+          "isUnique": false
+        },
+        "ESVR_status_idx": {
+          "name": "ESVR_status_idx",
+          "columns": ["validation_status"],
+          "isUnique": false
+        },
+        "ESVR_nextRetryAt_idx": {
+          "name": "ESVR_nextRetryAt_idx",
+          "columns": ["nextRetryAt"],
+          "isUnique": false
+        },
+        "ESVR_responseId_ruleId_referencedBlockId_unique": {
+          "name": "ESVR_responseId_ruleId_referencedBlockId_unique",
+          "columns": ["responseId", "ruleId", "referencedBlockId"],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "ExternalServiceValidationResult_responseId_FormResponse_id_fk": {
+          "name": "ExternalServiceValidationResult_responseId_FormResponse_id_fk",
+          "tableFrom": "ExternalServiceValidationResult",
+          "tableTo": "FormResponse",
+          "columnsFrom": ["responseId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ExternalServiceValidationResult_id": {
+          "name": "ExternalServiceValidationResult_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FingerprintDetail": {
+      "name": "FingerprintDetail",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "responseId": {
+          "name": "responseId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fingerprintType": {
+          "name": "fingerprintType",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "componentName": {
+          "name": "componentName",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "componentValue": {
+          "name": "componentValue",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "componentValueHash": {
+          "name": "componentValueHash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "float",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "collectedAt": {
+          "name": "collectedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FingerprintDetail_responseId_fingerprintType_componentName_key": {
+          "name": "FingerprintDetail_responseId_fingerprintType_componentName_key",
+          "columns": ["responseId", "fingerprintType", "componentName"],
+          "isUnique": true
+        },
+        "FingerprintDetail_responseId_idx": {
+          "name": "FingerprintDetail_responseId_idx",
+          "columns": ["responseId"],
+          "isUnique": false
+        },
+        "FingerprintDetail_fingerprintType_idx": {
+          "name": "FingerprintDetail_fingerprintType_idx",
+          "columns": ["fingerprintType"],
+          "isUnique": false
+        },
+        "FingerprintDetail_componentName_idx": {
+          "name": "FingerprintDetail_componentName_idx",
+          "columns": ["componentName"],
+          "isUnique": false
+        },
+        "FingerprintDetail_responseId_fingerprintType_idx": {
+          "name": "FingerprintDetail_responseId_fingerprintType_idx",
+          "columns": ["responseId", "fingerprintType"],
+          "isUnique": false
+        },
+        "FingerprintDetail_componentName_confidence_idx": {
+          "name": "FingerprintDetail_componentName_confidence_idx",
+          "columns": ["componentName", "confidence"],
+          "isUnique": false
+        },
+        "FingerprintDetail_expiresAt_idx": {
+          "name": "FingerprintDetail_expiresAt_idx",
+          "columns": ["expiresAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FingerprintDetail_responseId_FormResponse_id_fk": {
+          "name": "FingerprintDetail_responseId_FormResponse_id_fk",
+          "tableFrom": "FingerprintDetail",
+          "tableTo": "FormResponse",
+          "columnsFrom": ["responseId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FingerprintDetail_id": {
+          "name": "FingerprintDetail_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "Form": {
+      "name": "Form",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "publicId": {
+          "name": "publicId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "creatorId": {
+          "name": "creatorId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_status": {
+          "name": "form_status",
+          "type": "enum('DRAFT','PUBLISHED','UNPUBLISHED','ARCHIVED')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'DRAFT'"
+        },
+        "publishedAt": {
+          "name": "publishedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unpublishedAt": {
+          "name": "unpublishedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "allowEditResponses": {
+          "name": "allowEditResponses",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "plateContent": {
+          "name": "plateContent",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "plateContentVersion": {
+          "name": "plateContentVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "baseSnapshotVersion": {
+          "name": "baseSnapshotVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "Form_creatorId_idx": {
+          "name": "Form_creatorId_idx",
+          "columns": ["creatorId"],
+          "isUnique": false
+        },
+        "Form_status_idx": {
+          "name": "Form_status_idx",
+          "columns": ["form_status"],
+          "isUnique": false
+        },
+        "Form_title_idx": {
+          "name": "Form_title_idx",
+          "columns": ["title"],
+          "isUnique": false
+        },
+        "Form_creatorId_status_idx": {
+          "name": "Form_creatorId_status_idx",
+          "columns": ["creatorId", "form_status"],
+          "isUnique": false
+        },
+        "Form_updatedAt_idx": {
+          "name": "Form_updatedAt_idx",
+          "columns": ["updatedAt"],
+          "isUnique": false
+        },
+        "Form_publicId_idx": {
+          "name": "Form_publicId_idx",
+          "columns": ["publicId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "Form_creatorId_User_id_fk": {
+          "name": "Form_creatorId_User_id_fk",
+          "tableFrom": "Form",
+          "tableTo": "User",
+          "columnsFrom": ["creatorId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "Form_id": {
+          "name": "Form_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "Form_publicId_unique": {
+          "name": "Form_publicId_unique",
+          "columns": ["publicId"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "FormIntegration": {
+      "name": "FormIntegration",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_id": {
+          "name": "form_id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "config_json": {
+          "name": "config_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FormIntegration_formId_key": {
+          "name": "FormIntegration_formId_key",
+          "columns": ["form_id"],
+          "isUnique": true
+        },
+        "FormIntegration_formId_idx": {
+          "name": "FormIntegration_formId_idx",
+          "columns": ["form_id"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormIntegration_form_id_Form_id_fk": {
+          "name": "FormIntegration_form_id_Form_id_fk",
+          "tableFrom": "FormIntegration",
+          "tableTo": "Form",
+          "columnsFrom": ["form_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormIntegration_owner_user_id_User_id_fk": {
+          "name": "FormIntegration_owner_user_id_User_id_fk",
+          "tableFrom": "FormIntegration",
+          "tableTo": "User",
+          "columnsFrom": ["owner_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormIntegration_user_id_User_id_fk": {
+          "name": "FormIntegration_user_id_User_id_fk",
+          "tableFrom": "FormIntegration",
+          "tableTo": "User",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormIntegration_id": {
+          "name": "FormIntegration_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormInvitation": {
+      "name": "FormInvitation",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_permission_role": {
+          "name": "form_permission_role",
+          "type": "enum('OWNER','EDITOR','VIEWER')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "invite_status": {
+          "name": "invite_status",
+          "type": "enum('PENDING','ACCEPTED','EXPIRED','CANCELLED')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PENDING'"
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "invitedBy": {
+          "name": "invitedBy",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormInvitation_formId_email_key": {
+          "name": "FormInvitation_formId_email_key",
+          "columns": ["formId", "email"],
+          "isUnique": true
+        },
+        "FormInvitation_formId_idx": {
+          "name": "FormInvitation_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FormInvitation_email_idx": {
+          "name": "FormInvitation_email_idx",
+          "columns": ["email"],
+          "isUnique": false
+        },
+        "FormInvitation_status_idx": {
+          "name": "FormInvitation_status_idx",
+          "columns": ["invite_status"],
+          "isUnique": false
+        },
+        "FormInvitation_expiresAt_idx": {
+          "name": "FormInvitation_expiresAt_idx",
+          "columns": ["expiresAt"],
+          "isUnique": false
+        },
+        "FormInvitation_invitedBy_idx": {
+          "name": "FormInvitation_invitedBy_idx",
+          "columns": ["invitedBy"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormInvitation_formId_Form_id_fk": {
+          "name": "FormInvitation_formId_Form_id_fk",
+          "tableFrom": "FormInvitation",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormInvitation_invitedBy_User_id_fk": {
+          "name": "FormInvitation_invitedBy_User_id_fk",
+          "tableFrom": "FormInvitation",
+          "tableTo": "User",
+          "columnsFrom": ["invitedBy"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormInvitation_id": {
+          "name": "FormInvitation_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "FormInvitation_token_unique": {
+          "name": "FormInvitation_token_unique",
+          "columns": ["token"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "FormPermission": {
+      "name": "FormPermission",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_permission_role": {
+          "name": "form_permission_role",
+          "type": "enum('OWNER','EDITOR','VIEWER')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FormPermission_formId_userId_key": {
+          "name": "FormPermission_formId_userId_key",
+          "columns": ["formId", "userId"],
+          "isUnique": true
+        },
+        "FormPermission_userId_idx": {
+          "name": "FormPermission_userId_idx",
+          "columns": ["userId"],
+          "isUnique": false
+        },
+        "FormPermission_formId_idx": {
+          "name": "FormPermission_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormPermission_formId_Form_id_fk": {
+          "name": "FormPermission_formId_Form_id_fk",
+          "tableFrom": "FormPermission",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormPermission_userId_User_id_fk": {
+          "name": "FormPermission_userId_User_id_fk",
+          "tableFrom": "FormPermission",
+          "tableTo": "User",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormPermission_id": {
+          "name": "FormPermission_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormResponse": {
+      "name": "FormResponse",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "responseDataJson": {
+          "name": "responseDataJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "submittedAt": {
+          "name": "submittedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "respondentUuid": {
+          "name": "respondentUuid",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userAgent": {
+          "name": "userAgent",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sessionId": {
+          "name": "sessionId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "countryCode": {
+          "name": "countryCode",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormResponse_formId_idx": {
+          "name": "FormResponse_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FormResponse_submittedAt_idx": {
+          "name": "FormResponse_submittedAt_idx",
+          "columns": ["submittedAt"],
+          "isUnique": false
+        },
+        "FormResponse_updatedAt_idx": {
+          "name": "FormResponse_updatedAt_idx",
+          "columns": ["updatedAt"],
+          "isUnique": false
+        },
+        "FormResponse_formId_submittedAt_id_idx": {
+          "name": "FormResponse_formId_submittedAt_id_idx",
+          "columns": ["formId", "submittedAt", "id"],
+          "isUnique": false
+        },
+        "FormResponse_formId_updatedAt_idx": {
+          "name": "FormResponse_formId_updatedAt_idx",
+          "columns": ["formId", "updatedAt"],
+          "isUnique": false
+        },
+        "FormResponse_formId_id_idx": {
+          "name": "FormResponse_formId_id_idx",
+          "columns": ["formId", "id"],
+          "isUnique": false
+        },
+        "FormResponse_formId_respondentUuid_idx": {
+          "name": "FormResponse_formId_respondentUuid_idx",
+          "columns": ["formId", "respondentUuid"],
+          "isUnique": false
+        },
+        "FormResponse_formId_countryCode_idx": {
+          "name": "FormResponse_formId_countryCode_idx",
+          "columns": ["formId", "countryCode"],
+          "isUnique": false
+        },
+        "FormResponse_sessionId_idx": {
+          "name": "FormResponse_sessionId_idx",
+          "columns": ["sessionId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormResponse_formId_Form_id_fk": {
+          "name": "FormResponse_formId_Form_id_fk",
+          "tableFrom": "FormResponse",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormResponse_sessionId_FormSession_id_fk": {
+          "name": "FormResponse_sessionId_FormSession_id_fk",
+          "tableFrom": "FormResponse",
+          "tableTo": "FormSession",
+          "columnsFrom": ["sessionId"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormResponse_id": {
+          "name": "FormResponse_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormSchedule": {
+      "name": "FormSchedule",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "triggerAt": {
+          "name": "triggerAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_schedule_action": {
+          "name": "form_schedule_action",
+          "type": "enum('PUBLISH','UNPUBLISH','SWITCH_SNAPSHOT')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "snapshotVersion": {
+          "name": "snapshotVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "processedAt": {
+          "name": "processedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FormSchedule_formId_idx": {
+          "name": "FormSchedule_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FormSchedule_triggerAt_idx": {
+          "name": "FormSchedule_triggerAt_idx",
+          "columns": ["triggerAt"],
+          "isUnique": false
+        },
+        "FormSchedule_action_idx": {
+          "name": "FormSchedule_action_idx",
+          "columns": ["form_schedule_action"],
+          "isUnique": false
+        },
+        "FormSchedule_processedAt_idx": {
+          "name": "FormSchedule_processedAt_idx",
+          "columns": ["processedAt"],
+          "isUnique": false
+        },
+        "FormSchedule_formId_processedAt_idx": {
+          "name": "FormSchedule_formId_processedAt_idx",
+          "columns": ["formId", "processedAt"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormSchedule_formId_Form_id_fk": {
+          "name": "FormSchedule_formId_Form_id_fk",
+          "tableFrom": "FormSchedule",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormSchedule_id": {
+          "name": "FormSchedule_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormSession": {
+      "name": "FormSession",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "lastSeenAt": {
+          "name": "lastSeenAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "ipHash": {
+          "name": "ipHash",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "userAgent": {
+          "name": "userAgent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "notes": {
+          "name": "notes",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormSession_createdAt_idx": {
+          "name": "FormSession_createdAt_idx",
+          "columns": ["createdAt"],
+          "isUnique": false
+        },
+        "FormSession_lastSeenAt_idx": {
+          "name": "FormSession_lastSeenAt_idx",
+          "columns": ["lastSeenAt"],
+          "isUnique": false
+        },
+        "FormSession_ipHash_idx": {
+          "name": "FormSession_ipHash_idx",
+          "columns": ["ipHash"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "FormSession_id": {
+          "name": "FormSession_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormShareLink": {
+      "name": "FormShareLink",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "form_share_role": {
+          "name": "form_share_role",
+          "type": "enum('EDITOR','VIEWER')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormShareLink_formId_idx": {
+          "name": "FormShareLink_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FormShareLink_isActive_idx": {
+          "name": "FormShareLink_isActive_idx",
+          "columns": ["isActive"],
+          "isUnique": false
+        },
+        "FormShareLink_expiresAt_idx": {
+          "name": "FormShareLink_expiresAt_idx",
+          "columns": ["expiresAt"],
+          "isUnique": false
+        },
+        "FormShareLink_createdBy_idx": {
+          "name": "FormShareLink_createdBy_idx",
+          "columns": ["createdBy"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormShareLink_formId_Form_id_fk": {
+          "name": "FormShareLink_formId_Form_id_fk",
+          "tableFrom": "FormShareLink",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormShareLink_createdBy_User_id_fk": {
+          "name": "FormShareLink_createdBy_User_id_fk",
+          "tableFrom": "FormShareLink",
+          "tableTo": "User",
+          "columnsFrom": ["createdBy"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormShareLink_id": {
+          "name": "FormShareLink_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "FormShareLink_token_unique": {
+          "name": "FormShareLink_token_unique",
+          "columns": ["token"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "FormSnapshot": {
+      "name": "FormSnapshot",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "publishedBy": {
+          "name": "publishedBy",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "publishedAt": {
+          "name": "publishedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "changeLog": {
+          "name": "changeLog",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parentVersion": {
+          "name": "parentVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "plateContent": {
+          "name": "plateContent",
+          "type": "longtext",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "validationRulesJson": {
+          "name": "validationRulesJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "structureJson": {
+          "name": "structureJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormSnapshot_formId_version_key": {
+          "name": "FormSnapshot_formId_version_key",
+          "columns": ["formId", "version"],
+          "isUnique": true
+        },
+        "FormSnapshot_formId_idx": {
+          "name": "FormSnapshot_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FormSnapshot_formId_isActive_idx": {
+          "name": "FormSnapshot_formId_isActive_idx",
+          "columns": ["formId", "isActive"],
+          "isUnique": false
+        },
+        "FormSnapshot_publishedAt_idx": {
+          "name": "FormSnapshot_publishedAt_idx",
+          "columns": ["publishedAt"],
+          "isUnique": false
+        },
+        "FormSnapshot_publishedBy_idx": {
+          "name": "FormSnapshot_publishedBy_idx",
+          "columns": ["publishedBy"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormSnapshot_formId_Form_id_fk": {
+          "name": "FormSnapshot_formId_Form_id_fk",
+          "tableFrom": "FormSnapshot",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormSnapshot_publishedBy_User_id_fk": {
+          "name": "FormSnapshot_publishedBy_User_id_fk",
+          "tableFrom": "FormSnapshot",
+          "tableTo": "User",
+          "columnsFrom": ["publishedBy"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormSnapshot_id": {
+          "name": "FormSnapshot_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormStructure": {
+      "name": "FormStructure",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "structureJson": {
+          "name": "structureJson",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "version": {
+          "name": "version",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdBy": {
+          "name": "createdBy",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "isActive": {
+          "name": "isActive",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "changeLog": {
+          "name": "changeLog",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "parentVersion": {
+          "name": "parentVersion",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "FormStructure_formId_version_idx": {
+          "name": "FormStructure_formId_version_idx",
+          "columns": ["formId", "version"],
+          "isUnique": false
+        },
+        "FormStructure_isActive_idx": {
+          "name": "FormStructure_isActive_idx",
+          "columns": ["isActive"],
+          "isUnique": false
+        },
+        "FormStructure_formId_isActive_version_idx": {
+          "name": "FormStructure_formId_isActive_version_idx",
+          "columns": ["formId", "isActive", "version"],
+          "isUnique": false
+        },
+        "FormStructure_formId_isActive_idx": {
+          "name": "FormStructure_formId_isActive_idx",
+          "columns": ["formId", "isActive"],
+          "isUnique": false
+        },
+        "FormStructure_createdBy_idx": {
+          "name": "FormStructure_createdBy_idx",
+          "columns": ["createdBy"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormStructure_formId_Form_id_fk": {
+          "name": "FormStructure_formId_Form_id_fk",
+          "tableFrom": "FormStructure",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "FormStructure_createdBy_User_id_fk": {
+          "name": "FormStructure_createdBy_User_id_fk",
+          "tableFrom": "FormStructure",
+          "tableTo": "User",
+          "columnsFrom": ["createdBy"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormStructure_id": {
+          "name": "FormStructure_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormValidationRule": {
+      "name": "FormValidationRule",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "formId": {
+          "name": "formId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(200)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerName": {
+          "name": "providerName",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ruleType": {
+          "name": "ruleType",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "configJson": {
+          "name": "configJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orderIndex": {
+          "name": "orderIndex",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FVR_formId_idx": {
+          "name": "FVR_formId_idx",
+          "columns": ["formId"],
+          "isUnique": false
+        },
+        "FVR_formId_orderIndex_idx": {
+          "name": "FVR_formId_orderIndex_idx",
+          "columns": ["formId", "orderIndex"],
+          "isUnique": false
+        },
+        "FVR_providerName_idx": {
+          "name": "FVR_providerName_idx",
+          "columns": ["providerName"],
+          "isUnique": false
+        },
+        "FVR_providerName_ruleType_idx": {
+          "name": "FVR_providerName_ruleType_idx",
+          "columns": ["providerName", "ruleType"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormValidationRule_formId_Form_id_fk": {
+          "name": "FormValidationRule_formId_Form_id_fk",
+          "tableFrom": "FormValidationRule",
+          "tableTo": "Form",
+          "columnsFrom": ["formId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormValidationRule_id": {
+          "name": "FormValidationRule_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "FormValidationRuleBlock": {
+      "name": "FormValidationRuleBlock",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ruleId": {
+          "name": "ruleId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "referencedBlockId": {
+          "name": "referencedBlockId",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "orderIndex": {
+          "name": "orderIndex",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "FVRB_ruleId_referencedBlockId_unique": {
+          "name": "FVRB_ruleId_referencedBlockId_unique",
+          "columns": ["ruleId", "referencedBlockId"],
+          "isUnique": true
+        },
+        "FVRB_ruleId_idx": {
+          "name": "FVRB_ruleId_idx",
+          "columns": ["ruleId"],
+          "isUnique": false
+        },
+        "FVRB_referencedBlockId_idx": {
+          "name": "FVRB_referencedBlockId_idx",
+          "columns": ["referencedBlockId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "FormValidationRuleBlock_ruleId_FormValidationRule_id_fk": {
+          "name": "FormValidationRuleBlock_ruleId_FormValidationRule_id_fk",
+          "tableFrom": "FormValidationRuleBlock",
+          "tableTo": "FormValidationRule",
+          "columnsFrom": ["ruleId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "FormValidationRuleBlock_id": {
+          "name": "FormValidationRuleBlock_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "GoogleOAuthToken": {
+      "name": "GoogleOAuthToken",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'google'"
+        },
+        "accessTokenEnc": {
+          "name": "accessTokenEnc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "refreshTokenEnc": {
+          "name": "refreshTokenEnc",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expiryDate": {
+          "name": "expiryDate",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scopes": {
+          "name": "scopes",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "GoogleOAuthToken_userId_idx": {
+          "name": "GoogleOAuthToken_userId_idx",
+          "columns": ["userId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "GoogleOAuthToken_userId_User_id_fk": {
+          "name": "GoogleOAuthToken_userId_User_id_fk",
+          "tableFrom": "GoogleOAuthToken",
+          "tableTo": "User",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "GoogleOAuthToken_id": {
+          "name": "GoogleOAuthToken_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "GoogleOAuthToken_userId_unique": {
+          "name": "GoogleOAuthToken_userId_unique",
+          "columns": ["userId"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "SystemSetting": {
+      "name": "SystemSetting",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "description": {
+          "name": "description",
+          "type": "varchar(1024)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "SystemSetting_id": {
+          "name": "SystemSetting_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "SystemSetting_key_unique": {
+          "name": "SystemSetting_key_unique",
+          "columns": ["key"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "TelemetryToken": {
+      "name": "TelemetryToken",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "telemetry_version": {
+          "name": "telemetry_version",
+          "type": "enum('V4','V6')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "usedAt": {
+          "name": "usedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "TelemetryToken_ip_idx": {
+          "name": "TelemetryToken_ip_idx",
+          "columns": ["ip"],
+          "isUnique": false
+        },
+        "TelemetryToken_version_idx": {
+          "name": "TelemetryToken_version_idx",
+          "columns": ["telemetry_version"],
+          "isUnique": false
+        },
+        "TelemetryToken_usedAt_idx": {
+          "name": "TelemetryToken_usedAt_idx",
+          "columns": ["usedAt"],
+          "isUnique": false
+        },
+        "TelemetryToken_expiresAt_idx": {
+          "name": "TelemetryToken_expiresAt_idx",
+          "columns": ["expiresAt"],
+          "isUnique": false
+        },
+        "TelemetryToken_ip_version_idx": {
+          "name": "TelemetryToken_ip_version_idx",
+          "columns": ["ip", "telemetry_version"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "TelemetryToken_id": {
+          "name": "TelemetryToken_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "TelemetryToken_token_unique": {
+          "name": "TelemetryToken_token_unique",
+          "columns": ["token"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "UserInvite": {
+      "name": "UserInvite",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(128)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "invite_status": {
+          "name": "invite_status",
+          "type": "enum('PENDING','ACCEPTED','EXPIRED','CANCELLED')",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'PENDING'"
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "invitedBy": {
+          "name": "invitedBy",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "acceptedAt": {
+          "name": "acceptedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "UserInvite_status_idx": {
+          "name": "UserInvite_status_idx",
+          "columns": ["invite_status"],
+          "isUnique": false
+        },
+        "UserInvite_expiresAt_idx": {
+          "name": "UserInvite_expiresAt_idx",
+          "columns": ["expiresAt"],
+          "isUnique": false
+        },
+        "UserInvite_invitedBy_idx": {
+          "name": "UserInvite_invitedBy_idx",
+          "columns": ["invitedBy"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "UserInvite_invitedBy_User_id_fk": {
+          "name": "UserInvite_invitedBy_User_id_fk",
+          "tableFrom": "UserInvite",
+          "tableTo": "User",
+          "columnsFrom": ["invitedBy"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "UserInvite_id": {
+          "name": "UserInvite_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "UserInvite_email_unique": {
+          "name": "UserInvite_email_unique",
+          "columns": ["email"]
+        },
+        "UserInvite_token_unique": {
+          "name": "UserInvite_token_unique",
+          "columns": ["token"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "ValidationDiscordGuild": {
+      "name": "ValidationDiscordGuild",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "iconUrl": {
+          "name": "iconUrl",
+          "type": "varchar(512)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ownerId": {
+          "name": "ownerId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "ValidationDiscordGuild_ownerId_idx": {
+          "name": "ValidationDiscordGuild_ownerId_idx",
+          "columns": ["ownerId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "ValidationDiscordGuild_id": {
+          "name": "ValidationDiscordGuild_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "ValidationDiscordRole": {
+      "name": "ValidationDiscordRole",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "guildId": {
+          "name": "guildId",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "color": {
+          "name": "color",
+          "type": "int",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "ValidationDiscordRole_guildId_idx": {
+          "name": "ValidationDiscordRole_guildId_idx",
+          "columns": ["guildId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ValidationDiscordRole_guildId_ValidationDiscordGuild_id_fk": {
+          "name": "ValidationDiscordRole_guildId_ValidationDiscordGuild_id_fk",
+          "tableFrom": "ValidationDiscordRole",
+          "tableTo": "ValidationDiscordGuild",
+          "columnsFrom": ["guildId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ValidationDiscordRole_id": {
+          "name": "ValidationDiscordRole_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "Account": {
+      "name": "Account",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "providerId": {
+          "name": "providerId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accountId": {
+          "name": "accountId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "accessToken": {
+          "name": "accessToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refreshToken": {
+          "name": "refreshToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "accessTokenExpiresAt": {
+          "name": "accessTokenExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "refreshTokenExpiresAt": {
+          "name": "refreshTokenExpiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "idToken": {
+          "name": "idToken",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {
+        "Account_providerId_accountId_key": {
+          "name": "Account_providerId_accountId_key",
+          "columns": ["providerId", "accountId"],
+          "isUnique": true
+        },
+        "Account_userId_idx": {
+          "name": "Account_userId_idx",
+          "columns": ["userId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "Account_userId_User_id_fk": {
+          "name": "Account_userId_User_id_fk",
+          "tableFrom": "Account",
+          "tableTo": "User",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "Account_id": {
+          "name": "Account_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    },
+    "Session": {
+      "name": "Session",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "userId": {
+          "name": "userId",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "ipAddress": {
+          "name": "ipAddress",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "userAgent": {
+          "name": "userAgent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "Session_userId_idx": {
+          "name": "Session_userId_idx",
+          "columns": ["userId"],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "Session_userId_User_id_fk": {
+          "name": "Session_userId_User_id_fk",
+          "tableFrom": "Session",
+          "tableTo": "User",
+          "columnsFrom": ["userId"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "Session_id": {
+          "name": "Session_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "Session_token_unique": {
+          "name": "Session_token_unique",
+          "columns": ["token"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "User": {
+      "name": "User",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "email": {
+          "name": "email",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "emailVerified": {
+          "name": "emailVerified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "isSuspended": {
+          "name": "isSuspended",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "User_id": {
+          "name": "User_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {
+        "User_email_unique": {
+          "name": "User_email_unique",
+          "columns": ["email"]
+        }
+      },
+      "checkConstraint": {}
+    },
+    "VerificationToken": {
+      "name": "VerificationToken",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "varchar(191)",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expiresAt": {
+          "name": "expiresAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "createdAt": {
+          "name": "createdAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        },
+        "updatedAt": {
+          "name": "updatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(now())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "VerificationToken_id": {
+          "name": "VerificationToken_id",
+          "columns": ["id"]
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraint": {}
+    }
+  },
+  "views": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "tables": {},
+    "indexes": {}
+  }
+}

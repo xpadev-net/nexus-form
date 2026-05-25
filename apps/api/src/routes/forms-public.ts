@@ -8,7 +8,6 @@ import {
   formIntegration,
   formResponse,
   formSchedule,
-  formStructure,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
@@ -21,7 +20,7 @@ import {
   responsePayloadItemSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
-import { and, count, desc, eq, isNull, lte } from "drizzle-orm";
+import { and, count, eq, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
@@ -189,7 +188,7 @@ function parsePublishedStructure(
 ): ParsedStructure | null {
   if (!structureJson) {
     logInvalidPublishedConfiguration(
-      "Published form is missing an active formStructure",
+      "Published form snapshot is missing structureJson",
       metadata,
     );
     return null;
@@ -199,7 +198,7 @@ function parsePublishedStructure(
     return parseStoredStructure(structureJson);
   } catch (error) {
     logInvalidPublishedConfiguration(
-      "Published form has invalid active formStructure JSON",
+      "Published form snapshot has invalid structureJson",
       metadata,
       error,
     );
@@ -336,29 +335,16 @@ export const formsPublicRouter = createHonoApp()
     if (currentStatus !== "PUBLISHED")
       return c.json(errorResponse("Form not found"), 404);
 
-    const [[structure], activeSnapshot] = await Promise.all([
-      db
-        .select({
-          structureJson: formStructure.structureJson,
-          version: formStructure.version,
-        })
-        .from(formStructure)
-        .where(
-          and(
-            eq(formStructure.formId, target.id),
-            eq(formStructure.isActive, true),
-          ),
-        )
-        .orderBy(desc(formStructure.version))
-        .limit(1),
-      getLatestSnapshot(target.id),
-    ]);
+    const activeSnapshot = await getLatestSnapshot(target.id);
 
-    const parsedStructure = parsePublishedStructure(structure?.structureJson, {
-      formId: target.id,
-      publicId,
-      operation: "GET /public/:publicId",
-    });
+    const parsedStructure = parsePublishedStructure(
+      activeSnapshot?.structureJson,
+      {
+        formId: target.id,
+        publicId,
+        operation: "GET /public/:publicId",
+      },
+    );
     if (!parsedStructure) {
       return c.json(errorResponse("Form configuration is invalid"), 500);
     }
@@ -397,8 +383,7 @@ export const formsPublicRouter = createHonoApp()
       }
     }
 
-    const publishedContent =
-      activeSnapshot?.plateContent ?? target.plateContent;
+    const publishedContent = activeSnapshot?.plateContent;
     const questions = buildPublishedQuestions(publishedContent, {
       formId: target.id,
       publicId,
@@ -449,7 +434,6 @@ export const formsPublicRouter = createHonoApp()
         .select({
           id: form.id,
           status: form.status,
-          plateContent: form.plateContent,
           dueScheduleId: formSchedule.id,
         })
         .from(form)
@@ -480,8 +464,7 @@ export const formsPublicRouter = createHonoApp()
 
       // 3. Answer validation against active snapshot's plateContent-derived questions.
       // Run before quota checks to reject malformed payloads cheaply.
-      const publishedContent =
-        activeSnapshot?.plateContent ?? target.plateContent;
+      const publishedContent = activeSnapshot?.plateContent;
       const questions = buildPublishedQuestions(publishedContent, {
         formId: target.id,
         publicId,
@@ -518,21 +501,8 @@ export const formsPublicRouter = createHonoApp()
         );
       }
 
-      // 5. Load form structure for password/response limit checks
-      const [structure] = await db
-        .select({ structureJson: formStructure.structureJson })
-        .from(formStructure)
-        .where(
-          and(
-            eq(formStructure.formId, target.id),
-            eq(formStructure.isActive, true),
-          ),
-        )
-        .orderBy(desc(formStructure.version))
-        .limit(1);
-
       const parsedStructure = parsePublishedStructure(
-        structure?.structureJson,
+        activeSnapshot?.structureJson,
         {
           formId: target.id,
           publicId,
@@ -754,19 +724,8 @@ export const formsPublicRouter = createHonoApp()
         .limit(1);
       if (!target) return c.json(errorResponse("Form not found"), 404);
 
-      const [structure] = await db
-        .select({ structureJson: formStructure.structureJson })
-        .from(formStructure)
-        .where(
-          and(
-            eq(formStructure.formId, target.id),
-            eq(formStructure.isActive, true),
-          ),
-        )
-        .orderBy(desc(formStructure.version))
-        .limit(1);
-
-      const parsed = parsePublishedStructure(structure?.structureJson, {
+      const activeSnapshot = await getLatestSnapshot(target.id);
+      const parsed = parsePublishedStructure(activeSnapshot?.structureJson, {
         formId: target.id,
         publicId,
         operation: "POST /public/:publicId/verify-password",
