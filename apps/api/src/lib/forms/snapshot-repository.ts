@@ -486,9 +486,7 @@ function diffNodes(
  * スナップショットをアクティブに切り替え、form の plateContent とバリデーションルールを
  * スナップショットの内容で上書きする。
  *
- * 原子性注意: TX1(isActive + form 更新) と TX2(バリデーションルール置換) は別トランザクション。
- * 二つの間は plateContent のみ新しく、ルールは旧状態になる極短い窓が存在する。
- * restore 系は編集内容の巻き戻しなので、フォーム更新とルール置換を同一 TX にしている。
+ * isActive、form、formStructure、バリデーションルールは同一 TX で切り替える。
  */
 export async function activateSnapshot(
   formId: string,
@@ -527,11 +525,12 @@ export async function activateSnapshot(
       target.structureJson,
       `Activate snapshot v${target.version}`,
     );
-  });
 
-  await replaceValidationRulesFromSnapshot({
-    formId,
-    rules: parseValidationRuleSnapshot(target.validationRulesJson),
+    await replaceValidationRulesFromSnapshot({
+      formId,
+      rules: parseValidationRuleSnapshot(target.validationRulesJson),
+      tx,
+    });
   });
 
   const updated = await getSnapshotByVersion(formId, version);

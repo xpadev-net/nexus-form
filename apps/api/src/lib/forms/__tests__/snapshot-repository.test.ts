@@ -446,6 +446,7 @@ describe("activateSnapshot", () => {
     expect(mockReplaceRules).toHaveBeenCalledWith({
       formId: "form-1",
       rules: [],
+      tx,
     });
   });
 });

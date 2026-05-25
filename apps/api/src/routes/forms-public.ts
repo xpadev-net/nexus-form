@@ -434,7 +434,6 @@ export const formsPublicRouter = createHonoApp()
         .select({
           id: form.id,
           status: form.status,
-          plateContent: form.plateContent,
           dueScheduleId: formSchedule.id,
         })
         .from(form)
