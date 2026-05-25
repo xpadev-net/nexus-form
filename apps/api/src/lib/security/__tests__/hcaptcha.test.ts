@@ -50,6 +50,19 @@ describe("verifyHCaptchaToken", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("bypasses hCaptcha verification in development with the form security bypass flag", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "true");
+    vi.stubEnv("HCAPTCHA_SECRET_KEY", "");
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("bypasses hCaptcha verification in development with the server-side flag", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -81,6 +94,21 @@ describe("verifyHCaptchaToken", () => {
   it("does not bypass hCaptcha verification in staging", async () => {
     vi.stubEnv("NODE_ENV", "staging");
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not bypass hCaptcha verification in production with the form security bypass flag", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "true");
     mockSiteVerifyResponse({
       success: true,
       hostname: "forms.example.com",

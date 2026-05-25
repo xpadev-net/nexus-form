@@ -12,6 +12,7 @@ describe("getRuntimeConfigValue", () => {
     vi.stubGlobal("window", {
       __NEXUS_FORM_CONFIG__: {
         apiUrl: "https://api.runtime.example",
+        formSecurityDevBypass: "true",
       },
     });
 
@@ -22,6 +23,9 @@ describe("getRuntimeConfigValue", () => {
         "http://localhost:3001",
       ),
     ).toBe("https://api.runtime.example");
+    expect(getRuntimeConfigValue("formSecurityDevBypass", "false")).toBe(
+      "true",
+    );
   });
 
   it("falls back to build-time values and defaults when runtime values are empty", () => {

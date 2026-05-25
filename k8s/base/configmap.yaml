@@ -31,6 +31,7 @@ data:
   # Web runtime configuration (injected into /env-config.js by Docker entrypoint)
   # Must be reachable from the end user's browser, not a cluster-internal Service DNS name.
   VITE_API_URL: "https://api.example.com"
+  VITE_FORM_SECURITY_DEV_BYPASS: "false"
   VITE_HCAPTCHA_SITE_KEY: ""
 
   # Public API origin used by server-side Google OAuth callback pages

@@ -7,6 +7,7 @@ import { getCorsOrigins } from "../lib/cors-origins";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { createRateLimit } from "../lib/rate-limit";
+import { isFormSecurityBypassEnabled } from "../lib/security/form-security-bypass";
 import { hashIPAddress } from "../lib/telemetry/tokens";
 
 function issueToken(): string {
@@ -49,6 +50,14 @@ export type TelemetryTokenResponse = z.infer<
   typeof TelemetryTokenResponseSchema
 >;
 
+function developmentTelemetryToken(version: "v4" | "v6") {
+  return TelemetryTokenResponseSchema.parse({
+    success: true,
+    token: `form-security-dev-bypass-${version}`,
+    version,
+  });
+}
+
 export const telemetryRouter = createHonoApp()
   .use(
     "*",
@@ -61,6 +70,10 @@ export const telemetryRouter = createHonoApp()
   .post("/v4", telemetryRateLimit, async (c) => {
     const { ip } = extractClientIP(c.req.raw, { strategy: "telemetry" });
     if (ip === "unknown") {
+      if (isFormSecurityBypassEnabled()) {
+        return c.json(developmentTelemetryToken("v4"));
+      }
+
       return c.json(
         {
           success: false,
@@ -83,6 +96,10 @@ export const telemetryRouter = createHonoApp()
   .post("/v6", telemetryRateLimit, async (c) => {
     const { ip } = extractClientIP(c.req.raw, { strategy: "telemetry" });
     if (ip === "unknown") {
+      if (isFormSecurityBypassEnabled()) {
+        return c.json(developmentTelemetryToken("v6"));
+      }
+
       return c.json(
         {
           success: false,

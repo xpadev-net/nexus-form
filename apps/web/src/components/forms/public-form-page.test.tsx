@@ -279,4 +279,31 @@ describe("PublicFormPage password protection", () => {
       root.unmount();
     });
   });
+
+  it("skips hCaptcha UI and marks captcha ready with the form security development bypass", async () => {
+    vi.stubEnv("VITE_FORM_SECURITY_DEV_BYPASS", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: "[]",
+      structure: { settings: { require_fingerprint: true } },
+    };
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    const formBody = container.querySelector(
+      "[data-testid='public-form-body']",
+    );
+    expect(formBody?.getAttribute("data-captcha-ready")).toBe("true");
+    expect(
+      container.querySelector("[data-testid='hcaptcha-widget']"),
+    ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });
