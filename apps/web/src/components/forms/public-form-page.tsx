@@ -13,6 +13,7 @@ import {
 import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
+import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -22,6 +23,17 @@ const fetchPublicForm = (publicId: string) =>
   rpc(client.api.forms.public[":publicId"].$get({ param: { publicId } }));
 
 const responsesSchema = z.array(responsePayloadItemSchema);
+const disabledCaptchaToken = "hcaptcha-disabled-in-development";
+
+function isHCaptchaDisabledForDevelopment(): boolean {
+  return (
+    import.meta.env.DEV &&
+    getRuntimeConfigValue(
+      "hcaptchaDisabled",
+      import.meta.env.VITE_DISABLE_HCAPTCHA,
+    ) === "true"
+  );
+}
 
 interface PublicFormPageState {
   isSubmitting: boolean;
@@ -113,6 +125,7 @@ function PublicFormPageInner() {
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
+  const hcaptchaDisabled = isHCaptchaDisabledForDevelopment();
 
   const handleCaptchaVerify = useCallback((token: string) => {
     dispatch({ type: "captcha-verified", token });
@@ -162,7 +175,10 @@ function PublicFormPageInner() {
         }
 
         // hCaptchaトークンの確認
-        if (!state.captchaToken) {
+        const captchaToken = hcaptchaDisabled
+          ? disabledCaptchaToken
+          : state.captchaToken;
+        if (!captchaToken) {
           throw new Error(
             "セキュリティ確認が完了していません。hCaptchaを完了してください。",
           );
@@ -200,7 +216,7 @@ function PublicFormPageInner() {
             param: { publicId },
             json: {
               responses: parsedInput.data,
-              captchaToken: state.captchaToken,
+              captchaToken,
               telemetry: { v4Token: telemetryResult.token },
               fingerprints,
             },
@@ -229,6 +245,7 @@ function PublicFormPageInner() {
       formData?.plateContent,
       answers,
       state.captchaToken,
+      hcaptchaDisabled,
       fingerprint,
       requireFingerprint,
       collectFingerprint,
@@ -286,14 +303,16 @@ function PublicFormPageInner() {
       mode="public"
       onSubmitRequest={(data) => void handleSubmitRequest(data)}
       preSubmitSlot={
-        <HCaptchaWidget
-          ref={captchaRef}
-          onVerify={handleCaptchaVerify}
-          onExpire={handleCaptchaExpire}
-        />
+        hcaptchaDisabled ? null : (
+          <HCaptchaWidget
+            ref={captchaRef}
+            onVerify={handleCaptchaVerify}
+            onExpire={handleCaptchaExpire}
+          />
+        )
       }
       isSubmitting={state.isSubmitting}
-      captchaReady={!!state.captchaToken}
+      captchaReady={hcaptchaDisabled || !!state.captchaToken}
       error={state.error}
       success={state.success}
       onErrorChange={(message) => dispatch({ type: "set-error", message })}

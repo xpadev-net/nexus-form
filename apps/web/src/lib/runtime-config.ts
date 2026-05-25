@@ -1,5 +1,6 @@
 type RuntimeConfig = {
   apiUrl?: string;
+  hcaptchaDisabled?: string;
   hcaptchaSiteKey?: string;
 };
 

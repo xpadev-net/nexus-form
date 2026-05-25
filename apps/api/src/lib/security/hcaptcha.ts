@@ -62,6 +62,13 @@ export class HCaptchaVerificationError extends Error {
   }
 }
 
+function isDevelopmentHCaptchaBypassEnabled(): boolean {
+  return (
+    process.env.NODE_ENV === "development" &&
+    process.env.VITE_DISABLE_HCAPTCHA === "true"
+  );
+}
+
 /**
  * hCaptchaシークレットキーを取得
  */
@@ -227,6 +234,10 @@ export async function verifyHCaptchaToken(
   token: string,
   options: HCaptchaVerifyOptions = {},
 ): Promise<HCaptchaVerifyResult> {
+  if (isDevelopmentHCaptchaBypassEnabled()) {
+    return { success: true };
+  }
+
   const {
     timeout = 5000,
     maxRetries = 3,
