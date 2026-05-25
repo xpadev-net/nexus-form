@@ -100,7 +100,9 @@ export type PublishSnapshotResponse = z.infer<
 
 const PublishSnapshotValidationErrorResponseSchema = z.object({
   error: z.string(),
-  details: z.record(z.string(), z.unknown()).optional(),
+  details: z.object({
+    blockIds: z.array(z.string()),
+  }),
 });
 export type PublishSnapshotValidationErrorResponse = z.infer<
   typeof PublishSnapshotValidationErrorResponseSchema
@@ -330,10 +332,14 @@ export const formsSnapshotsRouter = createHonoApp()
           return c.json(errorResponse(error.message), 400);
         }
         if (error instanceof FormValidationError) {
+          const details =
+            PublishSnapshotValidationErrorResponseSchema.shape.details.safeParse(
+              error.details,
+            );
           return c.json(
             PublishSnapshotValidationErrorResponseSchema.parse({
               error: error.message,
-              details: error.details,
+              details: details.success ? details.data : { blockIds: [] },
             }),
             400,
           );

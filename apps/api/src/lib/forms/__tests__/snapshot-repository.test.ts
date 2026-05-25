@@ -233,6 +233,24 @@ describe("publishSnapshot", () => {
     expect(mockSerializeRules).not.toHaveBeenCalled();
   });
 
+  it("section_separator は質問タイトルが空でもスナップショット保存できる", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_section_separator",
+          blockId: "section-1",
+          children: [{ type: "p", children: [{ text: "   " }] }],
+        },
+      ]),
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 1,
+      publishedAt: new Date("2025-01-01"),
+    });
+    expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+  });
+
   it("編集中の Plate content 構造バリデーションでは空の質問タイトルを許容する", async () => {
     const { validatePlateContent } = await import("@nexus-form/shared");
 
