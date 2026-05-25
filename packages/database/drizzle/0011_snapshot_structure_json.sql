@@ -1,4 +1,5 @@
 ALTER TABLE `FormSnapshot` ADD `structureJson` text;--> statement-breakpoint
+-- structureJson also has a Drizzle client default; this migration backfills existing rows.
 UPDATE `FormSnapshot`
 LEFT JOIN (
   SELECT
