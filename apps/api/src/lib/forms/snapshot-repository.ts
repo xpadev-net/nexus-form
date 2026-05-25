@@ -1,5 +1,5 @@
 import { db } from "@nexus-form/database";
-import { form, formSnapshot } from "@nexus-form/database/schema";
+import { form, formSnapshot, formStructure } from "@nexus-form/database/schema";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type {
   FormDiffResult,
@@ -9,6 +9,9 @@ import type {
 } from "../../types/domain/form-snapshot";
 import { NoChangesError, SnapshotNotFoundError } from "../errors/form-errors";
 import { logError } from "../logger";
+import { DEFAULT_FORM_STRUCTURE_JSON } from "./default-form-structure";
+import { parseStoredStructure } from "./parse-stored-structure";
+import type { TransactionClient } from "./types";
 import {
   parseValidationRuleSnapshot,
   replaceValidationRulesFromSnapshot,
@@ -37,6 +40,7 @@ function rowToSnapshot(row: typeof formSnapshot.$inferSelect): FormSnapshot {
     version: row.version,
     plateContent: row.plateContent,
     validationRulesJson: row.validationRulesJson,
+    structureJson: row.structureJson,
     isActive: row.isActive,
     publishedBy: row.publishedBy,
     publishedAt: row.publishedAt,
@@ -45,6 +49,59 @@ function rowToSnapshot(row: typeof formSnapshot.$inferSelect): FormSnapshot {
     description: row.description ?? undefined,
     parentVersion: row.parentVersion ?? undefined,
   };
+}
+
+async function getCurrentStructureJson(
+  tx: TransactionClient,
+  formId: string,
+): Promise<string> {
+  const [currentStructure] = await tx
+    .select({ structureJson: formStructure.structureJson })
+    .from(formStructure)
+    .where(
+      and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    )
+    .orderBy(desc(formStructure.version))
+    .limit(1);
+
+  const structureJson =
+    currentStructure?.structureJson ?? DEFAULT_FORM_STRUCTURE_JSON;
+  parseStoredStructure(structureJson);
+  return structureJson;
+}
+
+async function restoreStructureFromSnapshot(
+  tx: TransactionClient,
+  formId: string,
+  structureJson: string,
+  changeLog: string,
+): Promise<void> {
+  parseStoredStructure(structureJson);
+  const [latestStructure] = await tx
+    .select({ version: formStructure.version })
+    .from(formStructure)
+    .where(eq(formStructure.formId, formId))
+    .orderBy(desc(formStructure.version))
+    .limit(1);
+  const currentVersion = latestStructure?.version ?? 0;
+  const nextVersion = currentVersion + 1;
+
+  await tx
+    .update(formStructure)
+    .set({ isActive: false })
+    .where(
+      and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    );
+  await tx.insert(formStructure).values({
+    id: crypto.randomUUID(),
+    formId,
+    structureJson,
+    version: nextVersion,
+    createdBy: null,
+    isActive: true,
+    changeLog,
+    parentVersion: currentVersion > 0 ? currentVersion : null,
+  });
 }
 
 // ── Read functions ──────────────────────────────────────────────────
@@ -105,6 +162,7 @@ export async function publishSnapshot(
         version: formSnapshot.version,
         plateContent: formSnapshot.plateContent,
         validationRulesJson: formSnapshot.validationRulesJson,
+        structureJson: formSnapshot.structureJson,
         isActive: formSnapshot.isActive,
       })
       .from(formSnapshot)
@@ -134,6 +192,7 @@ export async function publishSnapshot(
     const currentPlateContent = formData.plateContent ?? "[]";
     const currentValidationRulesJson =
       await serializeFormValidationRules(formId);
+    const currentStructureJson = await getCurrentStructureJson(tx, formId);
 
     // Use the stored base snapshot for comparison; fall back to latest by version.
     const baseVersion = formData.baseSnapshotVersion;
@@ -147,7 +206,9 @@ export async function publishSnapshot(
       const plateUnchanged = currentPlateContent === baseSnapshot.plateContent;
       const rulesUnchanged =
         currentValidationRulesJson === baseSnapshot.validationRulesJson;
-      if (plateUnchanged && rulesUnchanged) {
+      const structureUnchanged =
+        currentStructureJson === baseSnapshot.structureJson;
+      if (plateUnchanged && rulesUnchanged && structureUnchanged) {
         throw new NoChangesError();
       }
     }
@@ -170,6 +231,7 @@ export async function publishSnapshot(
       parentVersion: baseVersion ?? latestByVersion?.version ?? null,
       plateContent: currentPlateContent,
       validationRulesJson: currentValidationRulesJson,
+      structureJson: currentStructureJson,
     });
 
     // Track the new snapshot as the base for the next save.
@@ -211,6 +273,12 @@ export async function restoreFromSnapshot(
       rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
       tx,
     });
+    await restoreStructureFromSnapshot(
+      tx,
+      formId,
+      snapshot.structureJson,
+      `Restore structure from snapshot v${snapshot.version}`,
+    );
   });
 
   return {
@@ -240,6 +308,12 @@ export async function restoreFromSnapshotVersion(
       rules: parseValidationRuleSnapshot(snapshot.validationRulesJson),
       tx,
     });
+    await restoreStructureFromSnapshot(
+      tx,
+      formId,
+      snapshot.structureJson,
+      `Restore structure from snapshot v${snapshot.version}`,
+    );
   });
 
   return {
@@ -277,11 +351,22 @@ export async function checkUnpublishedChanges(
 
   const currentPlate = formData?.plateContent ?? "[]";
   const currentRules = await serializeFormValidationRules(formId);
+  const [currentStructure] = await db
+    .select({ structureJson: formStructure.structureJson })
+    .from(formStructure)
+    .where(
+      and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    )
+    .orderBy(desc(formStructure.version))
+    .limit(1);
+  const currentStructureJson =
+    currentStructure?.structureJson ?? DEFAULT_FORM_STRUCTURE_JSON;
 
   return {
     hasChanges:
       currentPlate !== baseSnapshot.plateContent ||
-      currentRules !== baseSnapshot.validationRulesJson,
+      currentRules !== baseSnapshot.validationRulesJson ||
+      currentStructureJson !== baseSnapshot.structureJson,
     hasValidationRuleChanges: currentRules !== baseSnapshot.validationRulesJson,
     lastPublishedAt: baseSnapshot.publishedAt,
   };
@@ -303,8 +388,18 @@ export async function calculateFormDiff(
     getLatestSnapshot(formId),
     serializeFormValidationRules(formId),
   ]);
+  const [currentStructure] = await db
+    .select({ structureJson: formStructure.structureJson })
+    .from(formStructure)
+    .where(
+      and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    )
+    .orderBy(desc(formStructure.version))
+    .limit(1);
 
   const currentPlate = formData?.plateContent ?? "[]";
+  const currentStructureJson =
+    currentStructure?.structureJson ?? DEFAULT_FORM_STRUCTURE_JSON;
   const snapshotPlate = baseSnapshot?.plateContent ?? "[]";
   const activePlate = activeSnapshot?.plateContent ?? null;
 
@@ -315,9 +410,15 @@ export async function calculateFormDiff(
   const totalChanges = nodes.length;
   const hasValidationRuleChanges =
     currentRules !== (baseSnapshot?.validationRulesJson ?? "[]");
+  const hasStructureChanges =
+    currentStructureJson !==
+    (baseSnapshot?.structureJson ?? DEFAULT_FORM_STRUCTURE_JSON);
 
   const hasUnpublishedChanges =
-    totalChanges > 0 || hasValidationRuleChanges || !baseSnapshot;
+    totalChanges > 0 ||
+    hasValidationRuleChanges ||
+    hasStructureChanges ||
+    !baseSnapshot;
 
   let hasChangesFromActive = hasUnpublishedChanges;
   if (activeSnapshot && activeSnapshot.id !== baseSnapshot?.id && activePlate) {
@@ -325,7 +426,10 @@ export async function calculateFormDiff(
     const activeDiff = diffNodes(activeNodes, currentNodes);
     const activeRulesChanged =
       currentRules !== (activeSnapshot.validationRulesJson ?? "[]");
-    hasChangesFromActive = activeDiff.length > 0 || activeRulesChanged;
+    const activeStructureChanged =
+      currentStructureJson !== activeSnapshot.structureJson;
+    hasChangesFromActive =
+      activeDiff.length > 0 || activeRulesChanged || activeStructureChanged;
   }
 
   return {
@@ -382,9 +486,7 @@ function diffNodes(
  * スナップショットをアクティブに切り替え、form の plateContent とバリデーションルールを
  * スナップショットの内容で上書きする。
  *
- * 原子性注意: TX1(isActive + form 更新) と TX2(バリデーションルール置換) は別トランザクション。
- * 二つの間は plateContent のみ新しく、ルールは旧状態になる極短い窓が存在する。
- * restore 系は編集内容の巻き戻しなので、フォーム更新とルール置換を同一 TX にしている。
+ * isActive、form、formStructure、バリデーションルールは同一 TX で切り替える。
  */
 export async function activateSnapshot(
   formId: string,
@@ -417,11 +519,18 @@ export async function activateSnapshot(
         baseSnapshotVersion: version,
       })
       .where(eq(form.id, formId));
-  });
+    await restoreStructureFromSnapshot(
+      tx,
+      formId,
+      target.structureJson,
+      `Activate snapshot v${target.version}`,
+    );
 
-  await replaceValidationRulesFromSnapshot({
-    formId,
-    rules: parseValidationRuleSnapshot(target.validationRulesJson),
+    await replaceValidationRulesFromSnapshot({
+      formId,
+      rules: parseValidationRuleSnapshot(target.validationRulesJson),
+      tx,
+    });
   });
 
   const updated = await getSnapshotByVersion(formId, version);

@@ -16,6 +16,7 @@ export const FormSnapshotListItemSchema = z.object({
 export const FormSnapshotSchema = FormSnapshotListItemSchema.extend({
   plateContent: z.string(),
   validationRulesJson: z.string(),
+  structureJson: z.string(),
 });
 
 export type FormSnapshot = z.infer<typeof FormSnapshotSchema>;

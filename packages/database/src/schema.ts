@@ -512,6 +512,11 @@ export const formSnapshot = mysqlTable(
     validationRulesJson: text("validationRulesJson")
       .notNull()
       .$defaultFn(() => "[]"),
+    structureJson: text("structureJson")
+      .notNull()
+      .$defaultFn(
+        () => '{"version":1,"settings":{"allow_edit_responses":false}}',
+      ),
   },
   (table) => [
     uniqueIndex("FormSnapshot_formId_version_key").on(

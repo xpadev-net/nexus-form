@@ -190,6 +190,13 @@ function activeSnapshot(
     parentVersion: null,
     plateContent,
     validationRulesJson: JSON.stringify(validationRules),
+    structureJson: JSON.stringify({
+      version: 1,
+      settings: {
+        allow_edit_responses: false,
+        require_fingerprint: false,
+      },
+    }),
   };
 }
 
@@ -206,16 +213,6 @@ function useSuccessfulSubmitSelects(
         status: "PUBLISHED",
         plateContent: snapshot.plateContent,
         dueScheduleId: null,
-      },
-    ],
-    [
-      {
-        structureJson: JSON.stringify({
-          settings: {
-            allow_edit_responses: false,
-            require_fingerprint: false,
-          },
-        }),
       },
     ],
     options?.responseRows ?? [],
