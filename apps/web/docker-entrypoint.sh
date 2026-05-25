@@ -18,7 +18,6 @@ json_encode() {
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
-  hcaptchaDisabled: $(json_encode "${VITE_DISABLE_HCAPTCHA:-}"),
   hcaptchaSiteKey: $(json_encode "${VITE_HCAPTCHA_SITE_KEY:-}"),
 };
 window.__BRAND_CONFIG__ = {

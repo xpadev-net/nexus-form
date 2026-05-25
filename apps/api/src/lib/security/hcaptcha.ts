@@ -65,7 +65,8 @@ export class HCaptchaVerificationError extends Error {
 function isDevelopmentHCaptchaBypassEnabled(): boolean {
   return (
     process.env.NODE_ENV === "development" &&
-    process.env.VITE_DISABLE_HCAPTCHA === "true"
+    (process.env.DISABLE_HCAPTCHA === "true" ||
+      process.env.VITE_DISABLE_HCAPTCHA === "true")
   );
 }
 

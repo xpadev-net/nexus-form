@@ -13,7 +13,6 @@ import {
 import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
-import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -27,11 +26,7 @@ const disabledCaptchaToken = "hcaptcha-disabled-in-development";
 
 function isHCaptchaDisabledForDevelopment(): boolean {
   return (
-    import.meta.env.DEV &&
-    getRuntimeConfigValue(
-      "hcaptchaDisabled",
-      import.meta.env.VITE_DISABLE_HCAPTCHA,
-    ) === "true"
+    import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true"
   );
 }
 

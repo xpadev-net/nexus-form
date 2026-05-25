@@ -50,6 +50,19 @@ describe("verifyHCaptchaToken", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("bypasses hCaptcha verification in development with the server-side flag", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DISABLE_HCAPTCHA", "true");
+    vi.stubEnv("HCAPTCHA_SECRET_KEY", "");
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not bypass hCaptcha verification when NODE_ENV is unset", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     vi.stubEnv("NODE_ENV", "");
