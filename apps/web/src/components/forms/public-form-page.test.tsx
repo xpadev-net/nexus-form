@@ -92,8 +92,22 @@ vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
 }));
 
 vi.mock("@/components/forms/form-body", () => ({
-  FormBody: ({ title }: { title: string }) => (
-    <main data-testid="public-form-body">{title}</main>
+  FormBody: ({
+    captchaReady,
+    preSubmitSlot,
+    title,
+  }: {
+    captchaReady?: boolean;
+    preSubmitSlot?: ReactNode;
+    title: string;
+  }) => (
+    <main
+      data-captcha-ready={captchaReady ? "true" : "false"}
+      data-testid="public-form-body"
+    >
+      {title}
+      {preSubmitSlot}
+    </main>
   ),
 }));
 
@@ -102,7 +116,7 @@ vi.mock("@/components/forms/form-not-found-page", () => ({
 }));
 
 vi.mock("@/components/forms/hcaptcha-widget", () => ({
-  HCaptchaWidget: () => null,
+  HCaptchaWidget: () => <div data-testid="hcaptcha-widget" />,
 }));
 
 vi.mock("@/components/forms/password-protection-gate", () => ({
@@ -145,6 +159,7 @@ vi.mock("@/lib/forms/find-unanswered-required", () => ({
 
 describe("PublicFormPage password protection", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     publicFormData = lockedFormData;
     refetchResult = { data: unlockedFormData, error: null };
     verificationFailureMock.mockClear();
@@ -231,6 +246,33 @@ describe("PublicFormPage password protection", () => {
     ).not.toBeNull();
     expect(
       container.querySelector("[data-testid='public-form-body']"),
+    ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("skips hCaptcha UI and marks captcha ready when disabled for development", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: "[]",
+      structure: { settings: { require_fingerprint: false } },
+    };
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    const formBody = container.querySelector(
+      "[data-testid='public-form-body']",
+    );
+    expect(formBody?.getAttribute("data-captcha-ready")).toBe("true");
+    expect(
+      container.querySelector("[data-testid='hcaptcha-widget']"),
     ).toBeNull();
 
     await act(async () => {

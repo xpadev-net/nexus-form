@@ -37,6 +37,77 @@ describe("verifyHCaptchaToken", () => {
     });
   });
 
+  it("bypasses hCaptcha verification in development when explicitly disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    vi.stubEnv("HCAPTCHA_SECRET_KEY", "");
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("bypasses hCaptcha verification in development with the server-side flag", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("DISABLE_HCAPTCHA", "true");
+    vi.stubEnv("HCAPTCHA_SECRET_KEY", "");
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not bypass hCaptcha verification when NODE_ENV is unset", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    vi.stubEnv("NODE_ENV", "");
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not bypass hCaptcha verification in staging", async () => {
+    vi.stubEnv("NODE_ENV", "staging");
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not bypass hCaptcha verification in production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    mockSiteVerifyResponse({
+      success: true,
+      hostname: "forms.example.com",
+      challenge_ts: new Date(now.getTime() - 30_000).toISOString(),
+    });
+
+    await expect(verifyHCaptchaToken("token")).resolves.toMatchObject({
+      success: true,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a token issued for a different hostname", async () => {
     mockSiteVerifyResponse({
       success: true,
