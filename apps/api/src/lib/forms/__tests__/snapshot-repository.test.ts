@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@nexus-form/database", () => ({
   db: {
+    transaction: vi.fn(),
     query: {
       form: { findFirst: vi.fn() },
       formSnapshot: { findFirst: vi.fn() },
@@ -18,12 +19,15 @@ vi.mock("../validation-rule-repository", () => ({
 }));
 
 import { db } from "@nexus-form/database";
+import { FormValidationError } from "../../errors/form-errors";
 import {
   calculateFormDiff,
   checkUnpublishedChanges,
+  publishSnapshot,
 } from "../snapshot-repository";
 import { serializeFormValidationRules } from "../validation-rule-repository";
 
+const mockTransaction = vi.mocked(db.transaction);
 const mockFormFind = vi.mocked(db.query.form.findFirst);
 const mockSnapshotFind = vi.mocked(db.query.formSnapshot.findFirst);
 const mockSerializeRules = vi.mocked(serializeFormValidationRules);
@@ -82,9 +86,131 @@ function makePlateNodes(
   return JSON.stringify(nodes);
 }
 
+type SelectBuilder = {
+  from: ReturnType<typeof vi.fn>;
+  where: ReturnType<typeof vi.fn>;
+  orderBy: ReturnType<typeof vi.fn>;
+  for: ReturnType<typeof vi.fn>;
+};
+
+function makeSelectBuilder<T>(result: T): SelectBuilder {
+  const builder: SelectBuilder = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    for: vi.fn(),
+  };
+  builder.from.mockReturnValue(builder);
+  builder.where.mockReturnValue(builder);
+  builder.orderBy.mockReturnValue(builder);
+  builder.for.mockResolvedValue(result);
+  return builder;
+}
+
+function makeMutationBuilder(): {
+  values: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  where: ReturnType<typeof vi.fn>;
+} {
+  const builder = {
+    values: vi.fn(),
+    set: vi.fn(),
+    where: vi.fn(),
+  };
+  builder.values.mockResolvedValue(undefined);
+  builder.set.mockReturnValue(builder);
+  builder.where.mockResolvedValue(undefined);
+  return builder;
+}
+
+function makeSnapshotPublishTransaction(plateContent: string): void {
+  const insertBuilder = makeMutationBuilder();
+  const updateBuilder = makeMutationBuilder();
+  const tx = {
+    select: vi
+      .fn()
+      .mockReturnValueOnce(makeSelectBuilder([{ id: "form-1" }]))
+      .mockReturnValueOnce(makeSelectBuilder([])),
+    query: {
+      form: {
+        findFirst: vi.fn().mockResolvedValue({
+          title: "Test Form",
+          description: null,
+          plateContent,
+          baseSnapshotVersion: null,
+        }),
+      },
+      formSnapshot: { findFirst: vi.fn().mockResolvedValue(makeSnapshot()) },
+    },
+    insert: vi.fn().mockReturnValue(insertBuilder),
+    update: vi.fn().mockReturnValue(updateBuilder),
+  };
+
+  mockTransaction.mockImplementationOnce(
+    async (callback: Parameters<typeof db.transaction>[0]): Promise<unknown> =>
+      callback(
+        tx as unknown as Parameters<Parameters<typeof db.transaction>[0]>[0],
+      ),
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockSerializeRules.mockResolvedValue("[]");
+});
+
+describe("publishSnapshot", () => {
+  it("質問タイトルが p ノードの非空テキストでもスナップショット保存できる", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [{ type: "p", children: [{ text: "氏名" }] }],
+        },
+      ]),
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 1,
+      publishedAt: new Date("2025-01-01"),
+    });
+    expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+  });
+
+  it("質問タイトルが空の質問を含む場合はスナップショット保存を拒否する", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [{ type: "p", children: [{ text: "   " }] }],
+        },
+      ]),
+    );
+
+    const result = publishSnapshot("form-1", "user-1");
+
+    await expect(result).rejects.toThrow(FormValidationError);
+    await expect(result).rejects.toThrow(
+      "質問タイトルは1文字以上入力してください",
+    );
+    expect(mockSerializeRules).not.toHaveBeenCalled();
+  });
+
+  it("編集中の Plate content 構造バリデーションでは空の質問タイトルを許容する", async () => {
+    const { validatePlateContent } = await import("@nexus-form/shared");
+
+    const content = [
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [{ type: "h2", children: [{ text: "" }] }],
+      },
+    ];
+
+    expect(validatePlateContent(content)).toBe(true);
+  });
 });
 
 describe("checkUnpublishedChanges", () => {

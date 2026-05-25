@@ -9,6 +9,7 @@ import {
 } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
+  FormValidationError,
   NoChangesError,
   SnapshotNotFoundError,
 } from "../lib/errors/form-errors";
@@ -315,6 +316,9 @@ export const formsSnapshotsRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof NoChangesError) {
+          return c.json(errorResponse(error.message), 400);
+        }
+        if (error instanceof FormValidationError) {
           return c.json(errorResponse(error.message), 400);
         }
         throw error;
