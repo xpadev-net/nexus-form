@@ -225,6 +225,10 @@ describe("validation outbox sweeper", () => {
           orderIndex: 0,
         },
       ]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: { allow_edit_responses: false },
+      }),
     });
 
     const { sweepValidationOutbox } = await import(
@@ -321,6 +325,10 @@ describe("validation outbox sweeper", () => {
     useUpdateResults([{ affectedRows: 1 }]);
     mocks.getSnapshotByVersion.mockResolvedValue({
       validationRulesJson: "[]",
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: { allow_edit_responses: false },
+      }),
     });
 
     const { sweepValidationOutbox } = await import(

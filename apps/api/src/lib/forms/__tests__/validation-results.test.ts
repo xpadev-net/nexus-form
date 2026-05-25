@@ -118,6 +118,10 @@ describe("getExternalValidationResults", () => {
         },
       ]),
       validationRulesJson: "snapshot-rules",
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: { allow_edit_responses: false },
+      }),
     });
     mocks.parseValidationRuleSnapshot.mockReturnValue([
       {

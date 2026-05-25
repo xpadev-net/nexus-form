@@ -6,6 +6,8 @@ vi.mock("@nexus-form/database", () => ({
       form: { findFirst: vi.fn() },
       formSnapshot: { findFirst: vi.fn() },
     },
+    select: vi.fn(),
+    transaction: vi.fn(),
   },
   form: {},
   formSnapshot: {},
@@ -19,14 +21,25 @@ vi.mock("../validation-rule-repository", () => ({
 
 import { db } from "@nexus-form/database";
 import {
+  activateSnapshot,
   calculateFormDiff,
   checkUnpublishedChanges,
 } from "../snapshot-repository";
-import { serializeFormValidationRules } from "../validation-rule-repository";
+import {
+  replaceValidationRulesFromSnapshot,
+  serializeFormValidationRules,
+} from "../validation-rule-repository";
 
 const mockFormFind = vi.mocked(db.query.form.findFirst);
 const mockSnapshotFind = vi.mocked(db.query.formSnapshot.findFirst);
 const mockSerializeRules = vi.mocked(serializeFormValidationRules);
+const mockReplaceRules = vi.mocked(replaceValidationRulesFromSnapshot);
+const mockDbSelect = vi.mocked(db.select);
+const mockTransaction = vi.mocked(db.transaction);
+const DEFAULT_STRUCTURE_JSON = JSON.stringify({
+  version: 1,
+  settings: { allow_edit_responses: false },
+});
 
 type FormFindResult = Awaited<ReturnType<typeof mockFormFind>>;
 type SnapshotFindResult = Awaited<ReturnType<typeof mockSnapshotFind>>;
@@ -50,6 +63,7 @@ function makeSnapshot(
     version: number;
     plateContent: string;
     validationRulesJson: string;
+    structureJson: string;
     isActive: boolean;
     publishedBy: string;
     publishedAt: Date;
@@ -65,6 +79,7 @@ function makeSnapshot(
     version: 1,
     plateContent: "[]",
     validationRulesJson: "[]",
+    structureJson: DEFAULT_STRUCTURE_JSON,
     isActive: true,
     publishedBy: "user-1",
     publishedAt: new Date("2025-01-01"),
@@ -82,9 +97,24 @@ function makePlateNodes(
   return JSON.stringify(nodes);
 }
 
+function mockCurrentStructureJson(structureJson: string): void {
+  mockDbSelect.mockReturnValue({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        orderBy: vi.fn(() => ({
+          limit: vi.fn().mockResolvedValue([{ structureJson }]),
+        })),
+      })),
+    })),
+  } as unknown as ReturnType<typeof db.select>);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockSerializeRules.mockResolvedValue("[]");
+  mockReplaceRules.mockResolvedValue(undefined);
+  mockTransaction.mockImplementation(async (fn) => fn({} as never));
+  mockCurrentStructureJson(DEFAULT_STRUCTURE_JSON);
 });
 
 describe("checkUnpublishedChanges", () => {
@@ -173,6 +203,26 @@ describe("checkUnpublishedChanges", () => {
 
     expect(result.hasChanges).toBe(true);
     expect(result.hasValidationRuleChanges).toBe(true);
+  });
+
+  it("formStructure のみが変更されている場合は hasChanges:true を返す", async () => {
+    const plateContent = '[{"id":"node-1","type":"short_text"}]';
+    const snapshot = makeSnapshot({ plateContent });
+    mockFormFind.mockResolvedValue(
+      formData({ plateContent, updatedAt: new Date(), baseSnapshotVersion: 1 }),
+    );
+    mockSnapshotFind.mockResolvedValue(snap(snapshot));
+    mockCurrentStructureJson(
+      JSON.stringify({
+        version: 2,
+        settings: { allow_edit_responses: false, require_fingerprint: true },
+      }),
+    );
+
+    const result = await checkUnpublishedChanges("form-1");
+
+    expect(result.hasChanges).toBe(true);
+    expect(result.hasValidationRuleChanges).toBe(false);
   });
 });
 
@@ -311,5 +361,91 @@ describe("calculateFormDiff", () => {
     const result = await calculateFormDiff("form-1");
 
     expect(result.nodes).toHaveLength(0);
+  });
+
+  it("formStructure が変更されている場合に hasUnpublishedChanges:true を返す", async () => {
+    const plateContent = makePlateNodes([{ id: "a", type: "short_text" }]);
+    const snapshot = makeSnapshot({ plateContent, validationRulesJson: "[]" });
+    mockFormFind.mockResolvedValue(
+      formData({ plateContent, baseSnapshotVersion: 1 }),
+    );
+    mockSnapshotFind
+      .mockResolvedValueOnce(snap(snapshot))
+      .mockResolvedValueOnce(snap(snapshot));
+    mockCurrentStructureJson(
+      JSON.stringify({
+        version: 2,
+        settings: { allow_edit_responses: true },
+      }),
+    );
+
+    const result = await calculateFormDiff("form-1");
+
+    expect(result.hasUnpublishedChanges).toBe(true);
+    expect(result.hasChangesFromActive).toBe(true);
+    expect(result.totalChanges).toBe(0);
+  });
+});
+
+describe("activateSnapshot", () => {
+  it("古い snapshot を activate すると snapshot の structureJson を active formStructure として復元する", async () => {
+    const snapshotStructureJson = JSON.stringify({
+      version: 3,
+      settings: {
+        allow_edit_responses: true,
+        require_fingerprint: true,
+      },
+    });
+    const snapshot = makeSnapshot({
+      id: "snapshot-old",
+      version: 3,
+      structureJson: snapshotStructureJson,
+    });
+    mockSnapshotFind
+      .mockResolvedValueOnce(snap(snapshot))
+      .mockResolvedValueOnce(snap(snapshot));
+
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            for: vi.fn().mockResolvedValue([{ id: "form-1" }]),
+            orderBy: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([{ version: 8 }]),
+            })),
+          })),
+        })),
+      })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn().mockResolvedValue(undefined),
+        })),
+      })),
+      insert: vi.fn(() => ({
+        values: vi.fn().mockResolvedValue(undefined),
+      })),
+    };
+    mockTransaction.mockImplementationOnce(async (fn) => fn(tx as never));
+
+    const updated = await activateSnapshot("form-1", 3);
+
+    expect(updated.version).toBe(3);
+    expect(tx.insert).toHaveBeenCalled();
+    const insertCall = tx.insert.mock.results[0]?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertCall.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: "form-1",
+        structureJson: snapshotStructureJson,
+        version: 9,
+        isActive: true,
+        changeLog: "Activate snapshot v3",
+      }),
+    );
+    expect(mockReplaceRules).toHaveBeenCalledWith({
+      formId: "form-1",
+      rules: [],
+    });
   });
 });
