@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@nexus-form/database", () => ({
   db: {
+    transaction: vi.fn(),
     query: {
       form: { findFirst: vi.fn() },
       formSnapshot: { findFirst: vi.fn() },
     },
     select: vi.fn(),
-    transaction: vi.fn(),
   },
   form: {},
   formSnapshot: {},
+  formStructure: {},
 }));
 
 vi.mock("../validation-rule-repository", () => ({
@@ -20,22 +21,24 @@ vi.mock("../validation-rule-repository", () => ({
 }));
 
 import { db } from "@nexus-form/database";
+import { FormValidationError } from "../../errors/form-errors";
 import {
   activateSnapshot,
   calculateFormDiff,
   checkUnpublishedChanges,
+  publishSnapshot,
 } from "../snapshot-repository";
 import {
   replaceValidationRulesFromSnapshot,
   serializeFormValidationRules,
 } from "../validation-rule-repository";
 
+const mockTransaction = vi.mocked(db.transaction);
 const mockFormFind = vi.mocked(db.query.form.findFirst);
 const mockSnapshotFind = vi.mocked(db.query.formSnapshot.findFirst);
 const mockSerializeRules = vi.mocked(serializeFormValidationRules);
 const mockReplaceRules = vi.mocked(replaceValidationRulesFromSnapshot);
 const mockDbSelect = vi.mocked(db.select);
-const mockTransaction = vi.mocked(db.transaction);
 const DEFAULT_STRUCTURE_JSON = JSON.stringify({
   version: 1,
   settings: { allow_edit_responses: false },
@@ -97,6 +100,80 @@ function makePlateNodes(
   return JSON.stringify(nodes);
 }
 
+type SelectBuilder = {
+  from: ReturnType<typeof vi.fn>;
+  where: ReturnType<typeof vi.fn>;
+  orderBy: ReturnType<typeof vi.fn>;
+  limit: ReturnType<typeof vi.fn>;
+  for: ReturnType<typeof vi.fn>;
+};
+
+function makeSelectBuilder<T>(result: T): SelectBuilder {
+  const builder: SelectBuilder = {
+    from: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: vi.fn(),
+    for: vi.fn(),
+  };
+  builder.from.mockReturnValue(builder);
+  builder.where.mockReturnValue(builder);
+  builder.orderBy.mockReturnValue(builder);
+  builder.limit.mockResolvedValue(result);
+  builder.for.mockResolvedValue(result);
+  return builder;
+}
+
+function makeMutationBuilder(): {
+  values: ReturnType<typeof vi.fn>;
+  set: ReturnType<typeof vi.fn>;
+  where: ReturnType<typeof vi.fn>;
+} {
+  const builder = {
+    values: vi.fn(),
+    set: vi.fn(),
+    where: vi.fn(),
+  };
+  builder.values.mockResolvedValue(undefined);
+  builder.set.mockReturnValue(builder);
+  builder.where.mockResolvedValue(undefined);
+  return builder;
+}
+
+function makeSnapshotPublishTransaction(plateContent: string): void {
+  const insertBuilder = makeMutationBuilder();
+  const updateBuilder = makeMutationBuilder();
+  const tx = {
+    select: vi
+      .fn()
+      .mockReturnValueOnce(makeSelectBuilder([{ id: "form-1" }]))
+      .mockReturnValueOnce(makeSelectBuilder([]))
+      .mockReturnValueOnce(
+        makeSelectBuilder([{ structureJson: DEFAULT_STRUCTURE_JSON }]),
+      ),
+    query: {
+      form: {
+        findFirst: vi.fn().mockResolvedValue({
+          title: "Test Form",
+          description: null,
+          plateContent,
+          baseSnapshotVersion: null,
+        }),
+      },
+      formSnapshot: { findFirst: vi.fn().mockResolvedValue(makeSnapshot()) },
+    },
+    insert: vi.fn().mockReturnValue(insertBuilder),
+    update: vi.fn().mockReturnValue(updateBuilder),
+  };
+
+  mockTransaction.mockImplementationOnce(
+    async (callback: Parameters<typeof db.transaction>[0]): Promise<unknown> =>
+      callback(
+        tx as unknown as Parameters<Parameters<typeof db.transaction>[0]>[0],
+      ),
+  );
+}
+
 function mockCurrentStructureJson(structureJson: string): void {
   mockDbSelect.mockReturnValue({
     from: vi.fn(() => ({
@@ -115,6 +192,78 @@ beforeEach(() => {
   mockReplaceRules.mockResolvedValue(undefined);
   mockTransaction.mockImplementation(async (fn) => fn({} as never));
   mockCurrentStructureJson(DEFAULT_STRUCTURE_JSON);
+});
+
+describe("publishSnapshot", () => {
+  it("質問タイトルが p ノードの非空テキストでもスナップショット保存できる", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [{ type: "p", children: [{ text: "氏名" }] }],
+        },
+      ]),
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 1,
+      publishedAt: new Date("2025-01-01"),
+    });
+    expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+  });
+
+  it("質問タイトルが空の質問を含む場合はスナップショット保存を拒否する", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [{ type: "p", children: [{ text: "   " }] }],
+        },
+      ]),
+    );
+
+    const result = publishSnapshot("form-1", "user-1");
+
+    await expect(result).rejects.toThrow(FormValidationError);
+    await expect(result).rejects.toThrow(
+      "質問タイトルは1文字以上入力してください",
+    );
+    expect(mockSerializeRules).not.toHaveBeenCalled();
+  });
+
+  it("section_separator は質問タイトルが空でもスナップショット保存できる", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        {
+          type: "form_section_separator",
+          blockId: "section-1",
+          children: [{ type: "p", children: [{ text: "   " }] }],
+        },
+      ]),
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 1,
+      publishedAt: new Date("2025-01-01"),
+    });
+    expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+  });
+
+  it("編集中の Plate content 構造バリデーションでは空の質問タイトルを許容する", async () => {
+    const { validatePlateContent } = await import("@nexus-form/shared");
+
+    const content = [
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [{ type: "h2", children: [{ text: "" }] }],
+      },
+    ];
+
+    expect(validatePlateContent(content)).toBe(true);
+  });
 });
 
 describe("checkUnpublishedChanges", () => {

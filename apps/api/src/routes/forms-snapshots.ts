@@ -9,6 +9,7 @@ import {
 } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
+  FormValidationError,
   NoChangesError,
   SnapshotNotFoundError,
 } from "../lib/errors/form-errors";
@@ -95,6 +96,16 @@ const PublishSnapshotResponseSchema = z.object({
 });
 export type PublishSnapshotResponse = z.infer<
   typeof PublishSnapshotResponseSchema
+>;
+
+const PublishSnapshotValidationErrorResponseSchema = z.object({
+  error: z.string(),
+  details: z.object({
+    blockIds: z.array(z.string()),
+  }),
+});
+export type PublishSnapshotValidationErrorResponse = z.infer<
+  typeof PublishSnapshotValidationErrorResponseSchema
 >;
 
 const UnpublishedChangesInfoResponseSchema = z.object({
@@ -319,6 +330,19 @@ export const formsSnapshotsRouter = createHonoApp()
       } catch (error) {
         if (error instanceof NoChangesError) {
           return c.json(errorResponse(error.message), 400);
+        }
+        if (error instanceof FormValidationError) {
+          const details =
+            PublishSnapshotValidationErrorResponseSchema.shape.details.safeParse(
+              error.details,
+            );
+          return c.json(
+            PublishSnapshotValidationErrorResponseSchema.parse({
+              error: error.message,
+              details: details.success ? details.data : { blockIds: [] },
+            }),
+            400,
+          );
         }
         throw error;
       }

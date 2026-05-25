@@ -1,5 +1,10 @@
 import { db } from "@nexus-form/database";
 import { form, formSnapshot, formStructure } from "@nexus-form/database/schema";
+import {
+  extractTitleFromChildren,
+  fromPlateQuestionType,
+  isPlateQuestionType,
+} from "@nexus-form/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type {
   FormDiffResult,
@@ -7,7 +12,11 @@ import type {
   NodeDiff,
   UnpublishedChangesInfo,
 } from "../../types/domain/form-snapshot";
-import { NoChangesError, SnapshotNotFoundError } from "../errors/form-errors";
+import {
+  FormValidationError,
+  NoChangesError,
+  SnapshotNotFoundError,
+} from "../errors/form-errors";
 import { logError } from "../logger";
 import { DEFAULT_FORM_STRUCTURE_JSON } from "./default-form-structure";
 import { parseStoredStructure } from "./parse-stored-structure";
@@ -28,6 +37,43 @@ function parsePlateNodes(content: string): PlateNode[] {
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
+  }
+}
+
+function assertSnapshotQuestionTitles(plateContent: string): void {
+  const missingTitleBlockIds: string[] = [];
+
+  function walk(nodes: PlateNode[]): void {
+    for (const node of nodes) {
+      if (isPlateQuestionType(node.type)) {
+        const type = fromPlateQuestionType(node.type);
+        const title = Array.isArray(node.children)
+          ? extractTitleFromChildren(node.children)
+          : "";
+
+        if (type !== "section_separator" && title.length === 0) {
+          missingTitleBlockIds.push(
+            typeof node.blockId === "string" ? node.blockId : "",
+          );
+        }
+      }
+
+      if (Array.isArray(node.children)) {
+        walk(
+          node.children.filter((child): child is PlateNode => {
+            return child != null && typeof child === "object";
+          }),
+        );
+      }
+    }
+  }
+
+  walk(parsePlateNodes(plateContent));
+
+  if (missingTitleBlockIds.length > 0) {
+    throw new FormValidationError("質問タイトルは1文字以上入力してください", {
+      blockIds: missingTitleBlockIds,
+    });
   }
 }
 
@@ -190,6 +236,8 @@ export async function publishSnapshot(
     }
 
     const currentPlateContent = formData.plateContent ?? "[]";
+    assertSnapshotQuestionTitles(currentPlateContent);
+
     const currentValidationRulesJson =
       await serializeFormValidationRules(formId);
     const currentStructureJson = await getCurrentStructureJson(tx, formId);
