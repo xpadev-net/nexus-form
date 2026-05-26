@@ -2,6 +2,58 @@ import type { AnswerEntry } from "@/contexts/form-response-context";
 
 export type PrefillData = Record<string, AnswerEntry>;
 
+export function isEntryEmpty(entry: AnswerEntry): boolean {
+  return (
+    entry.value === undefined &&
+    entry.values === undefined &&
+    entry.responses === undefined &&
+    entry.other_value === undefined &&
+    entry.other_values === undefined
+  );
+}
+
+function isValidScalar(v: unknown): boolean {
+  return v === null || ["string", "number", "boolean"].includes(typeof v);
+}
+
+function isValidAnswerEntry(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) return false;
+  const entry = value as Record<string, unknown>;
+  if (
+    "value" in entry &&
+    entry.value !== undefined &&
+    !isValidScalar(entry.value)
+  )
+    return false;
+  if (
+    "values" in entry &&
+    entry.values !== undefined &&
+    !Array.isArray(entry.values)
+  )
+    return false;
+  if ("responses" in entry && entry.responses !== undefined) {
+    if (
+      typeof entry.responses !== "object" ||
+      entry.responses === null ||
+      Array.isArray(entry.responses)
+    )
+      return false;
+  }
+  if (
+    "other_value" in entry &&
+    entry.other_value !== undefined &&
+    typeof entry.other_value !== "string"
+  )
+    return false;
+  if (
+    "other_values" in entry &&
+    entry.other_values !== undefined &&
+    !Array.isArray(entry.other_values)
+  )
+    return false;
+  return true;
+}
+
 function base64UrlEncode(uint8: Uint8Array): string {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -56,7 +108,7 @@ export function decodePrefillData(encoded: string): PrefillData | null {
     const parsed = JSON.parse(json);
     if (typeof parsed !== "object" || parsed === null) return null;
     for (const value of Object.values(parsed)) {
-      if (typeof value !== "object" || value === null) return null;
+      if (!isValidAnswerEntry(value)) return null;
     }
     return parsed as PrefillData;
   } catch {
