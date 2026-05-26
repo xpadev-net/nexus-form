@@ -25,6 +25,7 @@ interface SnapshotSaveDialogProps {
   totalChanges: number;
   confirmLabel: string;
   onConfirm: (changeLog: string) => void;
+  error: string | null;
 }
 
 export function SnapshotSaveDialog({
@@ -37,6 +38,7 @@ export function SnapshotSaveDialog({
   totalChanges,
   confirmLabel,
   onConfirm,
+  error,
 }: SnapshotSaveDialogProps) {
   const [changeLog, setChangeLog] = useState("");
   const [activeTab, setActiveTab] = useState("publish");
@@ -117,24 +119,31 @@ export function SnapshotSaveDialog({
           </TabsContent>
         </Tabs>
 
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => handleOpenChange(false)}
-            disabled={isProcessing}
-          >
-            キャンセル
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={isProcessing || !hasUnpublishedChanges}
-            title={
-              !hasUnpublishedChanges ? "保存する変更がありません" : undefined
-            }
-          >
-            <Save className="h-4 w-4 mr-2" />
-            {isProcessing ? "処理中..." : confirmLabel}
-          </Button>
+        <DialogFooter className="flex-col items-stretch gap-3">
+          {error && (
+            <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+              {error}
+            </div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => handleOpenChange(false)}
+              disabled={isProcessing}
+            >
+              キャンセル
+            </Button>
+            <Button
+              onClick={handleConfirm}
+              disabled={isProcessing || !hasUnpublishedChanges}
+              title={
+                !hasUnpublishedChanges ? "保存する変更がありません" : undefined
+              }
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {isProcessing ? "処理中..." : confirmLabel}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

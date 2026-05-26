@@ -45,11 +45,17 @@ type SuccessOf<T> = Exclude<T, { error: unknown }>;
 
 export class RpcError extends Error {
   readonly status: number;
+  readonly details: Record<string, unknown> | null;
 
-  constructor(message: string, status: number) {
+  constructor(
+    message: string,
+    status: number,
+    details: Record<string, unknown> | null = null,
+  ) {
     super(message);
     this.name = "RpcError";
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -66,6 +72,7 @@ export async function rpc<T extends Response>(
     throw new RpcError(
       errorJson?.error ?? errorJson?.message ?? `HTTP ${response.status}`,
       response.status,
+      json as Record<string, unknown> | null,
     );
   }
   return response.json() as Promise<SuccessOf<JsonOf<T>>>;
