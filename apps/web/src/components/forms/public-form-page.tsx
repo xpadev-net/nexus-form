@@ -3,8 +3,8 @@ import {
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
-import { useCallback, useReducer, useRef } from "react";
+import { useParams, useSearch } from "@tanstack/react-router";
+import { useCallback, useMemo, useReducer, useRef } from "react";
 import { z } from "zod";
 import {
   FormResponseProvider,
@@ -16,6 +16,7 @@ import {
 } from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
+import { decodePrefillData } from "@/lib/forms/prefill";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
@@ -96,8 +97,18 @@ function publicFormPageReducer(
 }
 
 export function PublicFormPage() {
+  const { p: prefillParam } = useSearch({
+    from: "/forms/public/$publicId",
+  });
+  const initialAnswers = useMemo(() => {
+    if (!prefillParam) return undefined;
+    const decoded = decodePrefillData(prefillParam);
+    if (!decoded) return undefined;
+    return new Map(Object.entries(decoded));
+  }, [prefillParam]);
+
   return (
-    <FormResponseProvider>
+    <FormResponseProvider initialAnswers={initialAnswers}>
       <PublicFormPageInner />
     </FormResponseProvider>
   );

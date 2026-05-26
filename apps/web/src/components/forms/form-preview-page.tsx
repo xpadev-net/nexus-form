@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { ArrowLeft, ExternalLink, Eye } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,15 +17,24 @@ import { useSnapshots } from "@/hooks/forms/use-snapshots";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
 import { formatJapanDate } from "@/lib/formatters";
+import { decodePrefillData } from "@/lib/forms/prefill";
 import { FormBody } from "./form-body";
 
 export function FormPreviewPage() {
   const { id } = useParams({ from: "/forms/preview/$id" });
+  const { p: prefillParam } = useSearch({ from: "/forms/preview/$id" });
   const [selectedVersion, setSelectedVersion] = useState<"latest" | number>(
     "latest",
   );
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  const prefilledAnswers = useMemo(() => {
+    if (!prefillParam) return undefined;
+    const decoded = decodePrefillData(prefillParam);
+    if (!decoded) return undefined;
+    return new Map(Object.entries(decoded));
+  }, [prefillParam]);
 
   const formQuery = useQuery({
     queryKey: ["formDetail", id],
@@ -177,7 +186,10 @@ export function FormPreviewPage() {
           </p>
         </section>
       ) : (
-        <FormResponseProvider key={String(selectedVersion)}>
+        <FormResponseProvider
+          key={String(selectedVersion)}
+          initialAnswers={prefilledAnswers}
+        >
           <FormBody
             title={form?.title ?? "フォームプレビュー"}
             description={form?.description ?? undefined}

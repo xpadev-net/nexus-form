@@ -26,6 +26,7 @@ vi.mock("@tanstack/react-router", () => ({
     </a>
   ),
   useParams: () => ({ id: "form-1" }),
+  useSearch: () => ({}),
 }));
 
 vi.mock("@tanstack/react-query", () => ({

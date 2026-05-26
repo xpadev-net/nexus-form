@@ -68,6 +68,7 @@ function renderPublicForm(container: HTMLElement): Root {
 
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ publicId: "public-1" }),
+  useSearch: () => ({}),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
