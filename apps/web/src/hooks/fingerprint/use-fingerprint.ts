@@ -1,7 +1,11 @@
+import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { getFingerprintData } from "thumbmarkjs";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
+
+export type FingerprintType = "browser" | "fingerprintjs" | "thumbmarkjs";
 
 const fingerprintComponentSchema = z.object({
   componentName: z.string(),
@@ -21,6 +25,12 @@ const hashString = async (value: string): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", encoded);
   const bytes = Array.from(new Uint8Array(digest));
   return bytes.map((byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+
+const serializedHash = async (value: unknown): Promise<string> => {
+  if (value === undefined || value === null) return hashString("");
+  if (typeof value === "string") return hashString(value);
+  return hashString(JSON.stringify(value));
 };
 
 const collectDefaultFingerprint = async () => {
@@ -66,11 +76,92 @@ const collectDefaultFingerprint = async () => {
   });
 };
 
+const collectFingerprintJS = async () => {
+  const fp = await FingerprintJS.load();
+  const result = await fp.get();
+
+  const rawComponents = result.components as Record<
+    string,
+    { value?: unknown; error?: unknown; duration: number }
+  >;
+
+  const componentEntries = await Promise.all(
+    Object.entries(rawComponents).map(async ([name, comp]) => {
+      const rawValue =
+        comp && "error" in comp && comp.error !== undefined
+          ? `error:${String(comp.error)}`
+          : comp?.value;
+      const strValue =
+        rawValue !== undefined && rawValue !== null
+          ? String(rawValue)
+          : "undefined";
+      const valueHash = await serializedHash(rawValue);
+      return {
+        componentName: name,
+        componentValue: strValue,
+        componentValueHash: valueHash,
+      };
+    }),
+  );
+
+  const visitorIdHash = await hashString(result.visitorId);
+
+  return collectedFingerprintSchema.parse({
+    fingerprintType: "fingerprintjs",
+    components: [
+      ...componentEntries,
+      {
+        componentName: "visitorId",
+        componentValue: result.visitorId,
+        componentValueHash: visitorIdHash,
+      },
+    ],
+  });
+};
+
+const collectThumbmarkJS = async () => {
+  const data = await getFingerprintData();
+
+  const componentEntries = await Promise.all(
+    Object.entries(data).map(async ([name, value]) => {
+      const valueHash = await serializedHash(value);
+      return {
+        componentName: name,
+        componentValue: String(value ?? "undefined"),
+        componentValueHash: valueHash,
+      };
+    }),
+  );
+
+  return collectedFingerprintSchema.parse({
+    fingerprintType: "thumbmarkjs",
+    components: componentEntries,
+  });
+};
+
+const collectAll = async () => {
+  const results = await Promise.allSettled([
+    collectDefaultFingerprint(),
+    collectFingerprintJS(),
+    collectThumbmarkJS(),
+  ]);
+
+  const collected: z.infer<typeof collectedFingerprintSchema>[] = [];
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      collected.push(result.value);
+    } else {
+      console.error("[fingerprint] collector failed:", result.reason);
+    }
+  }
+  return collected;
+};
+
 export const useFingerprint = (options?: { autoCollect?: boolean }) => {
   const collectedRef = useRef(false);
 
   const collectMutation = useMutation({
-    mutationFn: collectDefaultFingerprint,
+    mutationFn: collectAll,
   });
   const mutateAsyncRef = useRef(collectMutation.mutateAsync);
   mutateAsyncRef.current = collectMutation.mutateAsync;
@@ -102,8 +193,7 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
   }, [options?.autoCollect]);
 
   return {
-    fingerprint: collectMutation.data ?? null,
-    components: collectMutation.data?.components ?? [],
+    fingerprints: collectMutation.data ?? [],
     isLoading: collectMutation.isPending,
     error: collectMutation.error,
     collect: collectMutation.mutateAsync,

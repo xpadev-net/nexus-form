@@ -10,7 +10,10 @@ import {
   FormResponseProvider,
   useFormResponse,
 } from "@/contexts/form-response-context";
-import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
+import {
+  type FingerprintType,
+  useFingerprint,
+} from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
@@ -99,7 +102,7 @@ function PublicFormPageInner() {
   const { answers, clearAnswers } = useFormResponse();
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
-  const { fingerprint, collect: collectFingerprint } = useFingerprint({
+  const { fingerprints, collect: collectFingerprints } = useFingerprint({
     autoCollect: false,
   });
 
@@ -180,20 +183,22 @@ function PublicFormPageInner() {
         }
 
         // フィンガープリントの収集（設定で要求されている場合のみ）
-        let fpData = fingerprint;
-        if (requireFingerprint && !fpData) {
-          fpData = await collectFingerprint();
+        let collectedFp = fingerprints;
+        if (requireFingerprint && collectedFp.length === 0) {
+          collectedFp = await collectFingerprints();
         }
 
-        const fingerprints = requireFingerprint
-          ? (fpData?.components ?? []).map((comp) => ({
-              type: "browser" as const,
-              name: comp.componentName,
-              value_hash: comp.componentValueHash,
-            }))
+        const fingerprintsPayload = requireFingerprint
+          ? collectedFp.flatMap((fp) =>
+              fp.components.map((comp) => ({
+                type: fp.fingerprintType as FingerprintType,
+                name: comp.componentName,
+                value_hash: comp.componentValueHash,
+              })),
+            )
           : [];
 
-        if (requireFingerprint && fingerprints.length === 0) {
+        if (requireFingerprint && fingerprintsPayload.length === 0) {
           throw new Error(
             "フィンガープリントの収集に失敗しました。ページを再読み込みしてください。",
           );
@@ -213,7 +218,7 @@ function PublicFormPageInner() {
               responses: parsedInput.data,
               captchaToken,
               telemetry: { v4Token: telemetryResult.token },
-              fingerprints,
+              fingerprints: fingerprintsPayload,
             },
           }),
         );
@@ -241,9 +246,9 @@ function PublicFormPageInner() {
       answers,
       state.captchaToken,
       hcaptchaDisabled,
-      fingerprint,
+      fingerprints,
       requireFingerprint,
-      collectFingerprint,
+      collectFingerprints,
       publicId,
       clearAnswers,
     ],
