@@ -1,4 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  isFormSecurityBypassEnabled,
+  isHCaptchaBypassEnabled,
+} from "../form-security-bypass";
 import { verifyHCaptchaToken } from "../hcaptcha";
 
 const now = new Date("2026-05-19T00:00:00.000Z");
@@ -74,6 +78,15 @@ describe("verifyHCaptchaToken", () => {
       success: true,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps legacy hCaptcha flags scoped out of the full form security bypass", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "false");
+    vi.stubEnv("DISABLE_HCAPTCHA", "true");
+
+    expect(isHCaptchaBypassEnabled()).toBe(true);
+    expect(isFormSecurityBypassEnabled()).toBe(false);
   });
 
   it("does not bypass hCaptcha verification when NODE_ENV is unset", async () => {
