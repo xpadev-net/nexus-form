@@ -242,16 +242,12 @@ describe("k8s web runtime configuration", () => {
     expect(readDeploymentConfigMapKeyRefs("web-deployment.yaml")).toEqual([
       "VITE_API_URL",
       "VITE_HCAPTCHA_SITE_KEY",
-      "VITE_FORM_SECURITY_DEV_BYPASS",
     ]);
   });
 
   it("defines Vite runtime keys and keeps the invitation code in Secret", () => {
     expect(configMapManifest).toMatch(/^\s{2}VITE_API_URL:\s*/m);
     expect(configMapManifest).toMatch(/^\s{2}VITE_HCAPTCHA_SITE_KEY:\s*/m);
-    expect(configMapManifest).toMatch(
-      /^\s{2}VITE_FORM_SECURITY_DEV_BYPASS:\s*/m,
-    );
     expect(configMapManifest).not.toMatch(
       /^\s{2}NEXT_PUBLIC_HCAPTCHA_SITE_KEY:\s*/m,
     );

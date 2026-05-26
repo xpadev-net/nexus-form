@@ -1,13 +1,15 @@
-const developmentBypassFlags = [
-  "FORM_SECURITY_DEV_BYPASS",
-  "VITE_FORM_SECURITY_DEV_BYPASS",
-  "DISABLE_HCAPTCHA",
-  "VITE_DISABLE_HCAPTCHA",
-] as const;
-
 export function isFormSecurityBypassEnabled(): boolean {
   return (
     process.env.NODE_ENV === "development" &&
-    developmentBypassFlags.some((name) => process.env[name] === "true")
+    process.env.FORM_SECURITY_DEV_BYPASS === "true"
+  );
+}
+
+export function isHCaptchaBypassEnabled(): boolean {
+  return (
+    isFormSecurityBypassEnabled() ||
+    (process.env.NODE_ENV === "development" &&
+      (process.env.DISABLE_HCAPTCHA === "true" ||
+        process.env.VITE_DISABLE_HCAPTCHA === "true"))
   );
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isFormSecurityBypassEnabled } from "./form-security-bypass";
+import { isHCaptchaBypassEnabled } from "./form-security-bypass";
 
 /**
  * hCaptcha APIレスポンススキーマ
@@ -228,7 +228,7 @@ export async function verifyHCaptchaToken(
   token: string,
   options: HCaptchaVerifyOptions = {},
 ): Promise<HCaptchaVerifyResult> {
-  if (isFormSecurityBypassEnabled()) {
+  if (isHCaptchaBypassEnabled()) {
     return { success: true };
   }
 

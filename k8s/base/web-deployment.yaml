@@ -42,11 +42,6 @@ spec:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_HCAPTCHA_SITE_KEY
-        - name: VITE_FORM_SECURITY_DEV_BYPASS
-          valueFrom:
-            configMapKeyRef:
-              name: nexus-form-config
-              key: VITE_FORM_SECURITY_DEV_BYPASS
         resources:
           requests:
             cpu: "50m"

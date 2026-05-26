@@ -68,12 +68,12 @@ export const telemetryRouter = createHonoApp()
     }),
   )
   .post("/v4", telemetryRateLimit, async (c) => {
+    if (isFormSecurityBypassEnabled()) {
+      return c.json(developmentTelemetryToken("v4"));
+    }
+
     const { ip } = extractClientIP(c.req.raw, { strategy: "telemetry" });
     if (ip === "unknown") {
-      if (isFormSecurityBypassEnabled()) {
-        return c.json(developmentTelemetryToken("v4"));
-      }
-
       return c.json(
         {
           success: false,
@@ -94,12 +94,12 @@ export const telemetryRouter = createHonoApp()
     );
   })
   .post("/v6", telemetryRateLimit, async (c) => {
+    if (isFormSecurityBypassEnabled()) {
+      return c.json(developmentTelemetryToken("v6"));
+    }
+
     const { ip } = extractClientIP(c.req.raw, { strategy: "telemetry" });
     if (ip === "unknown") {
-      if (isFormSecurityBypassEnabled()) {
-        return c.json(developmentTelemetryToken("v6"));
-      }
-
       return c.json(
         {
           success: false,

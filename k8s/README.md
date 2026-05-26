@@ -93,7 +93,6 @@ docker push your-registry/nexus-form-worker:latest
 **主なVITE_*環境変数**:
 - `VITE_HCAPTCHA_SITE_KEY`: hCaptchaのサイトキー（公開キー）。hCaptchaウィジェットを使用する場合は必須です。
 - `VITE_API_URL`: ブラウザから到達可能な公開API URL（例: `https://api.example.com`、同一オリジンでリバースプロキシする場合は `https://example.com`）
-- `VITE_FORM_SECURITY_DEV_BYPASS`: 開発環境でのみフォーム送信の hCaptcha、テレメトリIP/トークン、フィンガープリント必須チェックをまとめて無効化します。本番では `false` のままにしてください。
 
 **注意**: `VITE_HCAPTCHA_SITE_KEY`が設定されていない場合、hCaptchaウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
 `VITE_API_URL`には `http://api:3001` のような Kubernetes ClusterIP Service の内部DNS名を設定しないでください。Web コンテナ内ではなく、エンドユーザーのブラウザで使用されます。
@@ -262,6 +261,7 @@ VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
 #### VITE_FORM_SECURITY_DEV_BYPASS（開発環境のみ）
 
 開発環境でフォーム送信を疎通確認するためのフラグです。`true` にすると hCaptcha、テレメトリIP/トークン、フィンガープリント必須チェックをまとめてバイパスします。
+本番向けの `k8s/base` には含めず、開発用の Web runtime config と API 環境変数にだけ設定してください。
 
 ```
 VITE_FORM_SECURITY_DEV_BYPASS=false
