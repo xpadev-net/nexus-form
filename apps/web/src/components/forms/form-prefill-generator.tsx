@@ -17,7 +17,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AnswerEntry } from "@/contexts/form-response-context";
-import { encodePrefillData, type PrefillData } from "@/lib/forms/prefill";
+import {
+  encodePrefillData,
+  isEntryEmpty,
+  type PrefillData,
+} from "@/lib/forms/prefill";
 
 interface FormPrefillGeneratorProps {
   plateContent: string;
@@ -75,7 +79,14 @@ export function FormPrefillGenerator({
   }, [plateContent]);
 
   const setValue = useCallback((blockId: string, entry: AnswerEntry) => {
-    setPrefillValues((prev) => ({ ...prev, [blockId]: entry }));
+    setPrefillValues((prev) => {
+      if (isEntryEmpty(entry)) {
+        const next = { ...prev };
+        delete next[blockId];
+        return next;
+      }
+      return { ...prev, [blockId]: entry };
+    });
   }, []);
 
   const clearAll = useCallback(() => {
@@ -202,7 +213,7 @@ function QuestionPrefillField({
   );
 
   const setNumber = useCallback(
-    (v: string) => onChange({ value: v || undefined }),
+    (v: string) => onChange({ value: v ? Number(v) : undefined }),
     [onChange],
   );
 
