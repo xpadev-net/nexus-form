@@ -275,5 +275,6 @@ describe("k8s web runtime configuration", () => {
     expect(entrypoint).toContain("window.__NEXUS_FORM_CONFIG__");
     expect(entrypoint).toContain("VITE_API_URL");
     expect(entrypoint).toContain("VITE_HCAPTCHA_SITE_KEY");
+    expect(entrypoint).toContain("VITE_FORM_SECURITY_DEV_BYPASS");
   });
 });

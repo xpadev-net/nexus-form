@@ -47,6 +47,7 @@ import {
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
+import { isFormSecurityBypassEnabled } from "../lib/security/form-security-bypass";
 import { verifyHCaptcha } from "../lib/security/hcaptcha";
 import { verifyPassword } from "../lib/security/password";
 import { captureError } from "../lib/sentry";
@@ -419,6 +420,7 @@ export const formsPublicRouter = createHonoApp()
       const publicId = c.req.param("publicId");
       const payload = c.req.valid("json");
       const { ip } = extractClientIP(c.req.raw, { strategy: "general" });
+      const formSecurityBypassEnabled = isFormSecurityBypassEnabled();
 
       // 1. Verify hCaptcha before any form-specific work.
       const captchaValid = await verifyHCaptcha(payload.captchaToken, {
@@ -492,13 +494,15 @@ export const formsPublicRouter = createHonoApp()
         payload.telemetry.v6Token,
       ].filter((t): t is string => !!t);
 
-      try {
-        await consumeTokensOrThrow(telemetryTokens);
-      } catch {
-        return c.json(
-          errorResponse("Invalid or expired telemetry tokens"),
-          403,
-        );
+      if (!formSecurityBypassEnabled) {
+        try {
+          await consumeTokensOrThrow(telemetryTokens);
+        } catch {
+          return c.json(
+            errorResponse("Invalid or expired telemetry tokens"),
+            403,
+          );
+        }
       }
 
       const parsedStructure = parsePublishedStructure(
@@ -544,7 +548,8 @@ export const formsPublicRouter = createHonoApp()
       // 7. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure.settings?.response_limit;
       const requireFingerprint =
-        parsedStructure.settings?.require_fingerprint ?? true;
+        !formSecurityBypassEnabled &&
+        (parsedStructure.settings?.require_fingerprint ?? true);
       if (requireFingerprint && payload.fingerprints.length === 0) {
         return c.json(errorResponse("Fingerprint data is required"), 400);
       }

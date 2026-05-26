@@ -24,6 +24,11 @@ type PublicFormData = {
 let publicFormData: PublicFormData;
 let refetchResult: { data?: PublicFormData; error: Error | null };
 const verificationFailureMock = vi.fn();
+const apiMocks = vi.hoisted(() => ({
+  rpc: vi.fn(),
+  submitPost: vi.fn(),
+  telemetryPost: vi.fn(),
+}));
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
     publicFormData = refetchResult.data;
@@ -94,10 +99,15 @@ vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
 vi.mock("@/components/forms/form-body", () => ({
   FormBody: ({
     captchaReady,
+    onSubmitRequest,
     preSubmitSlot,
     title,
   }: {
     captchaReady?: boolean;
+    onSubmitRequest?: (data: {
+      responses: [];
+      visitedQuestionIds: [];
+    }) => void | Promise<void>;
     preSubmitSlot?: ReactNode;
     title: string;
   }) => (
@@ -107,6 +117,14 @@ vi.mock("@/components/forms/form-body", () => ({
     >
       {title}
       {preSubmitSlot}
+      <button
+        type="button"
+        onClick={() =>
+          void onSubmitRequest?.({ responses: [], visitedQuestionIds: [] })
+        }
+      >
+        submit
+      </button>
     </main>
   ),
 }));
@@ -146,11 +164,25 @@ vi.mock("@/components/forms/password-protection-gate", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  client: {},
+  client: {
+    api: {
+      forms: {
+        public: {
+          ":publicId": {
+            $get: vi.fn(),
+            submit: { $post: apiMocks.submitPost },
+          },
+        },
+      },
+      telemetry: {
+        v4: { $post: apiMocks.telemetryPost },
+      },
+    },
+  },
   RpcError: class RpcError extends Error {
     status = 500;
   },
-  rpc: vi.fn(),
+  rpc: apiMocks.rpc,
 }));
 
 vi.mock("@/lib/forms/find-unanswered-required", () => ({
@@ -164,6 +196,9 @@ describe("PublicFormPage password protection", () => {
     refetchResult = { data: unlockedFormData, error: null };
     verificationFailureMock.mockClear();
     refetchFormMock.mockClear();
+    apiMocks.rpc.mockReset();
+    apiMocks.submitPost.mockReset();
+    apiMocks.telemetryPost.mockReset();
   });
 
   it("shows the password gate while protected body fields are locked, then renders the form after verification", async () => {
@@ -190,7 +225,7 @@ describe("PublicFormPage password protection", () => {
     expect(container.querySelector("[data-testid='password-gate']")).toBeNull();
     expect(
       container.querySelector("[data-testid='public-form-body']")?.textContent,
-    ).toBe("Protected form");
+    ).toContain("Protected form");
 
     await act(async () => {
       root.unmount();
@@ -263,6 +298,76 @@ describe("PublicFormPage password protection", () => {
       },
       plateContent: "[]",
       structure: { settings: { require_fingerprint: false } },
+    };
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    const formBody = container.querySelector(
+      "[data-testid='public-form-body']",
+    );
+    expect(formBody?.getAttribute("data-captcha-ready")).toBe("true");
+    expect(
+      container.querySelector("[data-testid='hcaptcha-widget']"),
+    ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the legacy hCaptcha flag scoped to captcha-only bypass during submit", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: "[]",
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : { response: { id: "response-1" } },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.telemetryPost).toHaveBeenCalledTimes(1);
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: {
+        responses: [],
+        captchaToken: "form-security-dev-bypass",
+        telemetry: { v4Token: "telemetry-token" },
+        fingerprints: [],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("skips hCaptcha UI and marks captcha ready with the form security development bypass", async () => {
+    vi.stubEnv("VITE_FORM_SECURITY_DEV_BYPASS", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: "[]",
+      structure: { settings: { require_fingerprint: true } },
     };
     const container = document.createElement("div");
     const root = renderPublicForm(container);

@@ -13,6 +13,7 @@ import {
 import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
+import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -22,11 +23,20 @@ const fetchPublicForm = (publicId: string) =>
   rpc(client.api.forms.public[":publicId"].$get({ param: { publicId } }));
 
 const responsesSchema = z.array(responsePayloadItemSchema);
-const disabledCaptchaToken = "hcaptcha-disabled-in-development";
+const formSecurityBypassToken = "form-security-dev-bypass";
 
-function isHCaptchaDisabledForDevelopment(): boolean {
+function isFormSecurityBypassEnabledForDevelopment(): boolean {
+  const formSecurityBypassFlag = getRuntimeConfigValue(
+    "formSecurityDevBypass",
+    import.meta.env.VITE_FORM_SECURITY_DEV_BYPASS,
+  );
+  return import.meta.env.DEV && formSecurityBypassFlag === "true";
+}
+
+function isHCaptchaBypassEnabledForDevelopment(): boolean {
   return (
-    import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true"
+    isFormSecurityBypassEnabledForDevelopment() ||
+    (import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true")
   );
 }
 
@@ -120,7 +130,8 @@ function PublicFormPageInner() {
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
-  const hcaptchaDisabled = isHCaptchaDisabledForDevelopment();
+  const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
+  const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
 
   const handleCaptchaVerify = useCallback((token: string) => {
     dispatch({ type: "captcha-verified", token });
@@ -170,8 +181,8 @@ function PublicFormPageInner() {
         }
 
         // hCaptchaトークンの確認
-        const captchaToken = hcaptchaDisabled
-          ? disabledCaptchaToken
+        const captchaToken = hCaptchaBypassEnabled
+          ? formSecurityBypassToken
           : state.captchaToken;
         if (!captchaToken) {
           throw new Error(
@@ -181,29 +192,33 @@ function PublicFormPageInner() {
 
         // フィンガープリントの収集（設定で要求されている場合のみ）
         let fpData = fingerprint;
-        if (requireFingerprint && !fpData) {
+        if (requireFingerprint && !formSecurityBypassEnabled && !fpData) {
           fpData = await collectFingerprint();
         }
 
-        const fingerprints = requireFingerprint
-          ? (fpData?.components ?? []).map((comp) => ({
-              type: "browser" as const,
-              name: comp.componentName,
-              value_hash: comp.componentValueHash,
-            }))
-          : [];
+        const fingerprints =
+          requireFingerprint && !formSecurityBypassEnabled
+            ? (fpData?.components ?? []).map((comp) => ({
+                type: "browser" as const,
+                name: comp.componentName,
+                value_hash: comp.componentValueHash,
+              }))
+            : [];
 
-        if (requireFingerprint && fingerprints.length === 0) {
+        if (
+          requireFingerprint &&
+          !formSecurityBypassEnabled &&
+          fingerprints.length === 0
+        ) {
           throw new Error(
             "フィンガープリントの収集に失敗しました。ページを再読み込みしてください。",
           );
         }
 
         // テレメトリトークンの取得
-        const telemetryResult = await rpc(client.api.telemetry.v4.$post());
-        if (!telemetryResult.success) {
-          throw new Error("テレメトリトークンの取得に失敗しました");
-        }
+        const telemetryToken = formSecurityBypassEnabled
+          ? formSecurityBypassToken
+          : (await rpc(client.api.telemetry.v4.$post())).token;
 
         // 回答の送信
         const submitResult = await rpc(
@@ -212,7 +227,7 @@ function PublicFormPageInner() {
             json: {
               responses: parsedInput.data,
               captchaToken,
-              telemetry: { v4Token: telemetryResult.token },
+              telemetry: { v4Token: telemetryToken },
               fingerprints,
             },
           }),
@@ -240,7 +255,8 @@ function PublicFormPageInner() {
       formData?.plateContent,
       answers,
       state.captchaToken,
-      hcaptchaDisabled,
+      formSecurityBypassEnabled,
+      hCaptchaBypassEnabled,
       fingerprint,
       requireFingerprint,
       collectFingerprint,
@@ -298,7 +314,7 @@ function PublicFormPageInner() {
       mode="public"
       onSubmitRequest={(data) => void handleSubmitRequest(data)}
       preSubmitSlot={
-        hcaptchaDisabled ? null : (
+        hCaptchaBypassEnabled ? null : (
           <HCaptchaWidget
             ref={captchaRef}
             onVerify={handleCaptchaVerify}
@@ -307,7 +323,7 @@ function PublicFormPageInner() {
         )
       }
       isSubmitting={state.isSubmitting}
-      captchaReady={hcaptchaDisabled || !!state.captchaToken}
+      captchaReady={hCaptchaBypassEnabled || !!state.captchaToken}
       error={state.error}
       success={state.success}
       onErrorChange={(message) => dispatch({ type: "set-error", message })}
