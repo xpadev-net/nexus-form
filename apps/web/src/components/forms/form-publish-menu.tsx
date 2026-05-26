@@ -60,6 +60,7 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
         totalChanges={model.totalChanges}
         confirmLabel={model.snapshotSaveConfirmLabel}
         onConfirm={model.handleDialogConfirmClick}
+        error={model.snapshotSaveError}
       />
 
       <ResetSnapshotDialog

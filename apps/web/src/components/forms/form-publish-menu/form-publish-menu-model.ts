@@ -30,6 +30,7 @@ interface PublishMenuState {
   passwordInput: string;
   passwordHintInput: string;
   passwordDirty: boolean;
+  snapshotSaveError: string | null;
 }
 
 type PublishMenuAction =
@@ -40,7 +41,8 @@ type PublishMenuAction =
   | { type: "set-password-input"; value: string }
   | { type: "set-password-hint"; value: string }
   | { type: "sync-password-hint"; value: string }
-  | { type: "complete-password-edit"; hintInput: string };
+  | { type: "complete-password-edit"; hintInput: string }
+  | { type: "set-snapshot-save-error"; error: string | null };
 
 const initialPublishMenuState: PublishMenuState = {
   dialogMode: null,
@@ -49,6 +51,7 @@ const initialPublishMenuState: PublishMenuState = {
   passwordInput: "",
   passwordHintInput: "",
   passwordDirty: false,
+  snapshotSaveError: null,
 };
 
 const publishMenuReducer = (
@@ -57,9 +60,9 @@ const publishMenuReducer = (
 ): PublishMenuState => {
   switch (action.type) {
     case "open-save-dialog":
-      return { ...state, dialogMode: action.mode };
+      return { ...state, dialogMode: action.mode, snapshotSaveError: null };
     case "close-save-dialog":
-      return { ...state, dialogMode: null };
+      return { ...state, dialogMode: null, snapshotSaveError: null };
     case "set-reset-dialog":
       return { ...state, showResetDialog: action.open };
     case "select-snapshot":
@@ -88,6 +91,8 @@ const publishMenuReducer = (
         passwordHintInput: action.hintInput,
         passwordDirty: false,
       };
+    case "set-snapshot-save-error":
+      return { ...state, snapshotSaveError: action.error };
     default:
       return state;
   }
@@ -123,6 +128,7 @@ export function useFormPublishMenuModel({
     passwordInput,
     passwordHintInput,
     passwordDirty,
+    snapshotSaveError,
   } = state;
 
   const {
@@ -239,9 +245,10 @@ export function useFormPublishMenuModel({
         dispatch({ type: "close-save-dialog" });
         onStatusChange?.();
       } catch (error) {
-        toast.error(
-          `処理に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        toast.error(`処理に失敗しました: ${message}`);
+        dispatch({ type: "set-snapshot-save-error", error: message });
       }
     },
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
@@ -496,6 +503,7 @@ export function useFormPublishMenuModel({
     triggerState,
     historyState,
     showResetDialog,
+    snapshotSaveError,
     totalChanges,
     unpublishedSection,
     snapshotSaveConfirmLabel: getSnapshotSaveConfirmLabel(dialogMode),
