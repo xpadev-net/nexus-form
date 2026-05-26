@@ -1,6 +1,6 @@
 import { Plate, usePlateEditor } from "platejs/react";
 import { useEffect, useRef } from "react";
-import { ViewerKit } from "@/components/editor/editor-kit";
+import { ViewerKit } from "@/components/editor/viewer-kit";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 
 type Props = {
