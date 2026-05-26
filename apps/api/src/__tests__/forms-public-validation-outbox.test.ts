@@ -599,6 +599,7 @@ describe("R11-C2-a public validation outbox", () => {
 
   it("does not treat the legacy hCaptcha flag as the full form security bypass", async () => {
     vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "false");
     vi.stubEnv("DISABLE_HCAPTCHA", "true");
     const snapshot = activeSnapshot([]);
     useSelectResults([
