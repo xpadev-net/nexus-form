@@ -69,10 +69,14 @@ export async function rpc<T extends Response>(
       | { error?: string; message?: string }
       | null
       | undefined;
+    const details =
+      json !== null && typeof json === "object" && !Array.isArray(json)
+        ? (json as Record<string, unknown>)
+        : null;
     throw new RpcError(
       errorJson?.error ?? errorJson?.message ?? `HTTP ${response.status}`,
       response.status,
-      json as Record<string, unknown> | null,
+      details,
     );
   }
   return response.json() as Promise<SuccessOf<JsonOf<T>>>;

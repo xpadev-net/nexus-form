@@ -121,7 +121,11 @@ export function SnapshotSaveDialog({
 
         <DialogFooter className="flex-col items-stretch gap-3">
           {error && (
-            <div className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2"
+            >
               {error}
             </div>
           )}

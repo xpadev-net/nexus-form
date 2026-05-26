@@ -42,8 +42,7 @@ type PublishMenuAction =
   | { type: "set-password-hint"; value: string }
   | { type: "sync-password-hint"; value: string }
   | { type: "complete-password-edit"; hintInput: string }
-  | { type: "set-snapshot-save-error"; error: string | null }
-  | { type: "clear-snapshot-save-error" };
+  | { type: "set-snapshot-save-error"; error: string | null };
 
 const initialPublishMenuState: PublishMenuState = {
   dialogMode: null,
@@ -94,8 +93,6 @@ const publishMenuReducer = (
       };
     case "set-snapshot-save-error":
       return { ...state, snapshotSaveError: action.error };
-    case "clear-snapshot-save-error":
-      return { ...state, snapshotSaveError: null };
     default:
       return state;
   }
