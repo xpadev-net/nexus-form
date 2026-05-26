@@ -190,6 +190,13 @@ function activeSnapshot(
     parentVersion: null,
     plateContent,
     validationRulesJson: JSON.stringify(validationRules),
+    structureJson: JSON.stringify({
+      version: 1,
+      settings: {
+        allow_edit_responses: false,
+        require_fingerprint: false,
+      },
+    }),
   };
 }
 
@@ -206,16 +213,6 @@ function useSuccessfulSubmitSelects(
         status: "PUBLISHED",
         plateContent: snapshot.plateContent,
         dueScheduleId: null,
-      },
-    ],
-    [
-      {
-        structureJson: JSON.stringify({
-          settings: {
-            allow_edit_responses: false,
-            require_fingerprint: false,
-          },
-        }),
       },
     ],
     options?.responseRows ?? [],
@@ -270,6 +267,7 @@ describe("R11-C2-a public validation outbox", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
     mocks.sequence.length = 0;
     mocks.updateSetValues.length = 0;
     mocks.updateWhereValues.length = 0;
@@ -560,5 +558,39 @@ describe("R11-C2-a public validation outbox", () => {
       "tx:validation",
       "tx:commit",
     ]);
+  });
+
+  it("skips telemetry consumption and required fingerprints in development bypass", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "true");
+    const snapshot = activeSnapshot([]);
+    useSelectResults([
+      [
+        {
+          id: "form-1",
+          status: "PUBLISHED",
+          plateContent: snapshot.plateContent,
+          dueScheduleId: null,
+        },
+      ],
+      [
+        {
+          structureJson: JSON.stringify({
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
+          }),
+        },
+      ],
+      [],
+    ]);
+    mocks.getLatestSnapshot.mockResolvedValue(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
   });
 });

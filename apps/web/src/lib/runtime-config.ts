@@ -1,5 +1,6 @@
 type RuntimeConfig = {
   apiUrl?: string;
+  formSecurityDevBypass?: string;
   hcaptchaSiteKey?: string;
 };
 

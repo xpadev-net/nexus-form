@@ -137,6 +137,29 @@ const FORM_ID = "form-authz-regression";
 const OWNER_ID = "owner-user-id";
 const VIEWER_ID = "viewer-user-id";
 const EDITOR_ID = "editor-user-id";
+const DEFAULT_STRUCTURE_JSON = JSON.stringify({
+  version: 1,
+  settings: { allow_edit_responses: false },
+});
+
+function makeSnapshot(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "snapshot-1",
+    formId: FORM_ID,
+    version: 1,
+    isActive: true,
+    plateContent: "[]",
+    validationRulesJson: "[]",
+    structureJson: DEFAULT_STRUCTURE_JSON,
+    publishedBy: "user-1",
+    publishedAt: new Date(),
+    changeLog: null,
+    title: "Published form",
+    description: null,
+    parentVersion: null,
+    ...overrides,
+  };
+}
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
@@ -393,50 +416,39 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     const { getLatestSnapshot } = await import(
       "../lib/forms/snapshot-repository"
     );
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce({
-      id: "snapshot-1",
-      formId: FORM_ID,
-      version: 1,
-      isActive: true,
-      plateContent: JSON.stringify([
-        {
-          type: "form_text",
-          blockId: "block-1",
-          children: [{ text: "Discord username" }],
-        },
-      ]),
-      validationRulesJson: JSON.stringify([
-        {
-          id: "rule-1",
-          name: "Discord membership",
-          providerName: "discord",
-          ruleType: "membership",
-          referencedBlockIds: ["block-1"],
-          configJson: {},
-          orderIndex: 0,
-        },
-      ]),
-      publishedBy: "user-1",
-      publishedAt: new Date(),
-      changeLog: null,
-      title: "Published form",
-      description: null,
-      parentVersion: null,
-    });
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            type: "form_text",
+            blockId: "block-1",
+            children: [{ text: "Discord username" }],
+          },
+        ]),
+        validationRulesJson: JSON.stringify([
+          {
+            id: "rule-1",
+            name: "Discord membership",
+            providerName: "discord",
+            ruleType: "membership",
+            referencedBlockIds: ["block-1"],
+            configJson: {},
+            orderIndex: 0,
+          },
+        ]),
+        structureJson: JSON.stringify({
+          version: 1,
+          settings: {
+            allow_edit_responses: false,
+            response_limit: { enabled: true, max_responses: 100 },
+          },
+        }),
+      }),
+    );
 
-    // form found (PUBLISHED), then formStructure containing the response limit
+    // form found (PUBLISHED); response limit is carried by the active snapshot.
     mockDbSelectChain(db, [
       [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-      [
-        {
-          structureJson: JSON.stringify({
-            settings: {
-              allow_edit_responses: false,
-              response_limit: { enabled: true, max_responses: 100 },
-            },
-          }),
-        },
-      ],
     ]);
 
     // txSelectSpy witnesses every SELECT that runs inside the transaction.
@@ -600,6 +612,10 @@ describe("R6-M8: public form requests skip schedule processing without due work"
     const { processFormSchedule } = await import(
       "../lib/forms/schedule-processor"
     );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(makeSnapshot());
     mockDbSelectChain(db, [
       [
         {
@@ -610,14 +626,6 @@ describe("R6-M8: public form requests skip schedule processing without due work"
           status: "PUBLISHED",
           plateContent: "[]",
           dueScheduleId: null,
-        },
-      ],
-      [
-        {
-          structureJson: JSON.stringify({
-            settings: { allow_edit_responses: false },
-          }),
-          version: 1,
         },
       ],
     ]);
@@ -674,22 +682,26 @@ describe("R3-M21: password protected public submit fails closed", () => {
 
   it("rejects submission when password protection is enabled without a password hash", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              has_password: true,
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
     mockDbSelectChain(db, [
       [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-      [
-        {
-          structureJson: JSON.stringify({
-            access_control: {
-              password_protection: {
-                enabled: true,
-                has_password: true,
-                password_hint: "hint",
-              },
-            },
-            settings: { allow_edit_responses: false },
-          }),
-        },
-      ],
     ]);
     const transactionSpy = vi.spyOn(
       db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
@@ -722,23 +734,25 @@ describe("R3-M21: password protected public submit fails closed", () => {
 
   it("rejects password verification when protection is enabled without a password hash", async () => {
     const { db } = await import("@nexus-form/database");
-    mockDbSelectChain(db, [
-      [{ id: FORM_ID }],
-      [
-        {
-          structureJson: JSON.stringify({
-            access_control: {
-              password_protection: {
-                enabled: true,
-                has_password: true,
-                password_hint: "hint",
-              },
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              has_password: true,
+              password_hint: "hint",
             },
-            settings: { allow_edit_responses: false },
-          }),
-        },
-      ],
-    ]);
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -766,8 +780,14 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
     vi.clearAllMocks();
   });
 
-  it("rejects public GET when the active formStructure is invalid", async () => {
+  it("rejects public GET when the active snapshot structure is invalid", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({ structureJson: "not json" }),
+    );
     mockDbSelectChain(db, [
       [
         {
@@ -779,7 +799,6 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           plateContent: "[]",
         },
       ],
-      [{ structureJson: "not json", version: 1 }],
     ]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
@@ -792,8 +811,16 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
     });
   });
 
-  it("rejects public GET when the active formStructure fails schema validation", async () => {
+  it("rejects public GET when the active snapshot structure fails schema validation", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({ version: 0, settings: {} }),
+      }),
+    );
     mockDbSelectChain(db, [
       [
         {
@@ -805,7 +832,6 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           plateContent: "[]",
         },
       ],
-      [{ structureJson: JSON.stringify({ version: 0, settings: {} }) }],
     ]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
@@ -818,9 +844,9 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
     });
   });
 
-  it("rejects password verification when the active formStructure is missing", async () => {
+  it("rejects password verification when the active snapshot is missing", async () => {
     const { db } = await import("@nexus-form/database");
-    mockDbSelectChain(db, [[{ id: FORM_ID }], []]);
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -841,6 +867,12 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
 
   it("rejects public submit when published plateContent is invalid", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({ plateContent: "not json" }),
+    );
     mockDbSelectChain(db, [
       [{ id: FORM_ID, status: "PUBLISHED", plateContent: "not json" }],
     ]);
@@ -881,6 +913,21 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
 
   it("rejects public submit when plateContent contains invalid validation metadata", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            type: "form_radio",
+            blockId: "q1",
+            children: [{ text: "Question" }],
+            validation: { options: "not an array" },
+          },
+        ]),
+      }),
+    );
     mockDbSelectChain(db, [
       [
         {
@@ -932,11 +979,16 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
     transactionSpy.mockRestore();
   });
 
-  it("rejects public submit when the active formStructure is invalid", async () => {
+  it("rejects public submit when the active snapshot structure is invalid", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({ structureJson: "not json" }),
+    );
     mockDbSelectChain(db, [
       [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-      [{ structureJson: "not json" }],
     ]);
     const transactionSpy = vi.spyOn(
       db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
@@ -967,12 +1019,17 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
     transactionSpy.mockRestore();
   });
 
-  it("rejects password verification when the active formStructure fails schema validation", async () => {
+  it("rejects password verification when the active snapshot structure fails schema validation", async () => {
     const { db } = await import("@nexus-form/database");
-    mockDbSelectChain(db, [
-      [{ id: FORM_ID }],
-      [{ structureJson: JSON.stringify({ version: 0, settings: {} }) }],
-    ]);
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({ version: 0, settings: {} }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1002,6 +1059,28 @@ describe("R4-H1: password protected public GET gates form body", () => {
 
   it("returns only metadata when password protection is enabled and not verified", async () => {
     const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: {
+            allow_edit_responses: false,
+            require_fingerprint: true,
+          },
+        }),
+      }),
+    );
     mockDbSelectChain(db, [
       [
         {
@@ -1011,24 +1090,6 @@ describe("R4-H1: password protected public GET gates form body", () => {
           description: "Protected description",
           status: "PUBLISHED",
           plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
-        },
-      ],
-      [
-        {
-          structureJson: JSON.stringify({
-            access_control: {
-              password_protection: {
-                enabled: true,
-                password: "hashed-password",
-                password_hint: "hint",
-              },
-            },
-            settings: {
-              allow_edit_responses: false,
-              require_fingerprint: true,
-            },
-          }),
-          version: 1,
         },
       ],
     ]);
@@ -1054,11 +1115,33 @@ describe("R4-H1: password protected public GET gates form body", () => {
     const { extractJwtFromRequest, verifySessionJwt } = await import(
       "../lib/sessions/jwt"
     );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
     vi.mocked(extractJwtFromRequest).mockReturnValueOnce("verified-jwt");
     vi.mocked(verifySessionJwt).mockReturnValueOnce({
       sessionId: "session-id",
       verifiedForms: [FORM_ID],
     });
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: {
+            allow_edit_responses: false,
+            require_fingerprint: true,
+          },
+        }),
+      }),
+    );
     mockDbSelectChain(db, [
       [
         {
@@ -1068,24 +1151,6 @@ describe("R4-H1: password protected public GET gates form body", () => {
           description: null,
           status: "PUBLISHED",
           plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
-        },
-      ],
-      [
-        {
-          structureJson: JSON.stringify({
-            access_control: {
-              password_protection: {
-                enabled: true,
-                password: "hashed-password",
-                password_hint: "hint",
-              },
-            },
-            settings: {
-              allow_edit_responses: false,
-              require_fingerprint: true,
-            },
-          }),
-          version: 1,
         },
       ],
     ]);

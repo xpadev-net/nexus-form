@@ -184,6 +184,10 @@ describe("R6-M9: validation retry bulk updates", () => {
       parentVersion: null,
       plateContent: "[]",
       validationRulesJson: "snapshot-rules",
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: { allow_edit_responses: false },
+      }),
     });
     mocks.parseValidationRuleSnapshot.mockReturnValue([
       {
@@ -321,6 +325,10 @@ describe("R6-M9: validation retry bulk updates", () => {
       parentVersion: null,
       plateContent: "[]",
       validationRulesJson: "snapshot-rules",
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: { allow_edit_responses: false },
+      }),
     });
     vi.mocked(parseValidationRuleSnapshot).mockReturnValue([
       {

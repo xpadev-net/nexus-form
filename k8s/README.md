@@ -258,6 +258,15 @@ VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
 
 **関連**: hCaptchaを使用する場合は、Secretに`HCAPTCHA_SECRET_KEY`も設定する必要があります。`HCAPTCHA_SECRET_KEY`が未設定の場合、hCaptcha検証時に500エラーが発生します。
 
+#### VITE_FORM_SECURITY_DEV_BYPASS（開発環境のみ）
+
+開発環境でフォーム送信を疎通確認するためのフラグです。`true` にすると hCaptcha、テレメトリIP/トークン、フィンガープリント必須チェックをまとめてバイパスします。
+本番向けの `k8s/base` には含めず、開発用の Web runtime config と API 環境変数にだけ設定してください。
+
+```
+VITE_FORM_SECURITY_DEV_BYPASS=false
+```
+
 #### VITE_BASE_URL（オプション）
 
 アプリケーションのベースURLを設定します。公開フォームのURL生成などに使用されます。

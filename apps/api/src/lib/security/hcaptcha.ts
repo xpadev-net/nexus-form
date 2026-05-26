@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isHCaptchaBypassEnabled } from "./form-security-bypass";
 
 /**
  * hCaptcha APIレスポンススキーマ
@@ -60,14 +61,6 @@ export class HCaptchaVerificationError extends Error {
     super(message);
     this.name = "HCaptchaVerificationError";
   }
-}
-
-function isDevelopmentHCaptchaBypassEnabled(): boolean {
-  return (
-    process.env.NODE_ENV === "development" &&
-    (process.env.DISABLE_HCAPTCHA === "true" ||
-      process.env.VITE_DISABLE_HCAPTCHA === "true")
-  );
 }
 
 /**
@@ -235,7 +228,7 @@ export async function verifyHCaptchaToken(
   token: string,
   options: HCaptchaVerifyOptions = {},
 ): Promise<HCaptchaVerifyResult> {
-  if (isDevelopmentHCaptchaBypassEnabled()) {
+  if (isHCaptchaBypassEnabled()) {
     return { success: true };
   }
 
