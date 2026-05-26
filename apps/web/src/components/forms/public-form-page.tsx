@@ -30,10 +30,13 @@ function isFormSecurityBypassEnabledForDevelopment(): boolean {
     "formSecurityDevBypass",
     import.meta.env.VITE_FORM_SECURITY_DEV_BYPASS,
   );
+  return import.meta.env.DEV && formSecurityBypassFlag === "true";
+}
+
+function isHCaptchaBypassEnabledForDevelopment(): boolean {
   return (
-    import.meta.env.DEV &&
-    (formSecurityBypassFlag === "true" ||
-      import.meta.env.VITE_DISABLE_HCAPTCHA === "true")
+    isFormSecurityBypassEnabledForDevelopment() ||
+    (import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true")
   );
 }
 
@@ -128,6 +131,7 @@ function PublicFormPageInner() {
   const requireFingerprint =
     formData?.structure?.settings?.require_fingerprint !== false;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
+  const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
 
   const handleCaptchaVerify = useCallback((token: string) => {
     dispatch({ type: "captcha-verified", token });
@@ -177,7 +181,7 @@ function PublicFormPageInner() {
         }
 
         // hCaptchaトークンの確認
-        const captchaToken = formSecurityBypassEnabled
+        const captchaToken = hCaptchaBypassEnabled
           ? formSecurityBypassToken
           : state.captchaToken;
         if (!captchaToken) {
@@ -252,6 +256,7 @@ function PublicFormPageInner() {
       answers,
       state.captchaToken,
       formSecurityBypassEnabled,
+      hCaptchaBypassEnabled,
       fingerprint,
       requireFingerprint,
       collectFingerprint,
@@ -309,7 +314,7 @@ function PublicFormPageInner() {
       mode="public"
       onSubmitRequest={(data) => void handleSubmitRequest(data)}
       preSubmitSlot={
-        formSecurityBypassEnabled ? null : (
+        hCaptchaBypassEnabled ? null : (
           <HCaptchaWidget
             ref={captchaRef}
             onVerify={handleCaptchaVerify}
@@ -318,7 +323,7 @@ function PublicFormPageInner() {
         )
       }
       isSubmitting={state.isSubmitting}
-      captchaReady={formSecurityBypassEnabled || !!state.captchaToken}
+      captchaReady={hCaptchaBypassEnabled || !!state.captchaToken}
       error={state.error}
       success={state.success}
       onErrorChange={(message) => dispatch({ type: "set-error", message })}
