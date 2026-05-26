@@ -10,7 +10,10 @@ import {
   FormResponseProvider,
   useFormResponse,
 } from "@/contexts/form-response-context";
-import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
+import {
+  type FingerprintType,
+  useFingerprint,
+} from "@/hooks/fingerprint/use-fingerprint";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
@@ -109,7 +112,7 @@ function PublicFormPageInner() {
   const { answers, clearAnswers } = useFormResponse();
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
-  const { fingerprint, collect: collectFingerprint } = useFingerprint({
+  const { fingerprints, collect: collectFingerprints } = useFingerprint({
     autoCollect: false,
   });
 
@@ -191,24 +194,30 @@ function PublicFormPageInner() {
         }
 
         // フィンガープリントの収集（設定で要求されている場合のみ）
-        let fpData = fingerprint;
-        if (requireFingerprint && !formSecurityBypassEnabled && !fpData) {
-          fpData = await collectFingerprint();
+        let collectedFp = fingerprints;
+        if (
+          requireFingerprint &&
+          !formSecurityBypassEnabled &&
+          collectedFp.length === 0
+        ) {
+          collectedFp = await collectFingerprints();
         }
 
-        const fingerprints =
+        const fingerprintsPayload =
           requireFingerprint && !formSecurityBypassEnabled
-            ? (fpData?.components ?? []).map((comp) => ({
-                type: "browser" as const,
-                name: comp.componentName,
-                value_hash: comp.componentValueHash,
-              }))
+            ? collectedFp.flatMap((fp) =>
+                fp.components.map((comp) => ({
+                  type: fp.fingerprintType as FingerprintType,
+                  name: comp.componentName,
+                  value_hash: comp.componentValueHash,
+                })),
+              )
             : [];
 
         if (
           requireFingerprint &&
           !formSecurityBypassEnabled &&
-          fingerprints.length === 0
+          fingerprintsPayload.length === 0
         ) {
           throw new Error(
             "フィンガープリントの収集に失敗しました。ページを再読み込みしてください。",
@@ -228,7 +237,7 @@ function PublicFormPageInner() {
               responses: parsedInput.data,
               captchaToken,
               telemetry: { v4Token: telemetryToken },
-              fingerprints,
+              fingerprints: fingerprintsPayload,
             },
           }),
         );
@@ -257,9 +266,9 @@ function PublicFormPageInner() {
       state.captchaToken,
       formSecurityBypassEnabled,
       hCaptchaBypassEnabled,
-      fingerprint,
+      fingerprints,
       requireFingerprint,
-      collectFingerprint,
+      collectFingerprints,
       publicId,
       clearAnswers,
     ],

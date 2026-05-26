@@ -91,8 +91,8 @@ vi.mock("@/contexts/form-response-context", () => ({
 
 vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
   useFingerprint: () => ({
-    collect: vi.fn(),
-    fingerprint: null,
+    collect: vi.fn().mockResolvedValue([]),
+    fingerprints: [],
   }),
 }));
 
