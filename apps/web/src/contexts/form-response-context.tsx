@@ -2,7 +2,7 @@ import type { FC, ReactNode } from "react";
 import { createContext, use, useCallback, useMemo, useReducer } from "react";
 
 /** A single response value per question block. */
-interface AnswerEntry {
+export interface AnswerEntry {
   value?: unknown;
   values?: unknown[];
   responses?: Record<string, unknown>;
@@ -27,6 +27,7 @@ const FormResponseContext = createContext<FormResponseContextValue | null>(
 
 interface FormResponseProviderProps {
   children: ReactNode;
+  initialAnswers?: ReadonlyMap<string, AnswerEntry>;
 }
 
 type AnswersAction =
@@ -46,13 +47,20 @@ const answersReducer = (
   return next;
 };
 
+function createInitialAnswersMap(
+  initialAnswers?: ReadonlyMap<string, AnswerEntry>,
+): Map<string, AnswerEntry> {
+  return initialAnswers ? new Map(initialAnswers) : new Map();
+}
+
 export const FormResponseProvider: FC<FormResponseProviderProps> = ({
   children,
+  initialAnswers,
 }) => {
   const [answersMap, dispatchAnswers] = useReducer(
     answersReducer,
-    undefined,
-    () => new Map<string, AnswerEntry>(),
+    initialAnswers,
+    createInitialAnswersMap,
   );
 
   const getAnswer = useCallback(

@@ -96,7 +96,11 @@ export function FormEditorPage() {
 
       <TabsContent value="sharing">
         <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <FormSharingSection formId={id} />
+          <FormSharingSection
+            formId={id}
+            plateContent={model.plateContent}
+            publicId={model.formData?.publicId}
+          />
         </section>
       </TabsContent>
 
