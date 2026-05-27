@@ -236,6 +236,16 @@ function apiTokenForPrincipal(
   });
 }
 
+function apiTokenForFormScoped(scopes: TokenScope[], formIds: string[]) {
+  tokenMocks.validateApiToken.mockResolvedValueOnce({
+    user_id: USER_A_ID,
+    token_id: `token-${formIds.join(",")}-${scopes.join("-")}-scoped`,
+    scopes,
+    form_ids: formIds,
+    is_admin: scopes.includes("admin"),
+  });
+}
+
 let app: Awaited<typeof import("../index")>["default"];
 
 beforeAll(async () => {
@@ -839,6 +849,18 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(200);
   });
 
+  it("rejects form-scoped read tokens for list", async () => {
+    apiTokenForFormScoped(["read"], ["form-a-id"]);
+    const res = await app.request("/api/s3/list", {
+      headers: { authorization: "Bearer ct_read_form_scoped" },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot list S3 objects",
+    });
+  });
+
   it("allows read tokens for proxy downloads", async () => {
     apiTokenFor(["read"]);
 
@@ -850,6 +872,34 @@ describe("R5-H1: S3 API token scopes", () => {
     );
 
     expect(res.status).toBe(302);
+  });
+
+  it("rejects form-scoped read tokens for proxy downloads", async () => {
+    apiTokenForFormScoped(["read"], ["form-a-id"]);
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file.jpg`,
+      {
+        headers: { authorization: "Bearer ct_read_form_scoped" },
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot access S3 proxy",
+    });
+  });
+
+  it("rejects form-scoped read tokens for download presigned URLs", async () => {
+    apiTokenForFormScoped(["read"], ["form-a-id"]);
+    const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
+    const res = await app.request(`/api/s3/presigned-url?key=${key}`, {
+      headers: { authorization: "Bearer ct_read_form_scoped" },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot access S3 download",
+    });
   });
 });
 
