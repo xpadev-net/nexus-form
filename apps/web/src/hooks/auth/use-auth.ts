@@ -19,21 +19,23 @@ function buildCallbackURL(callbackURL?: string): string {
   return `${normalizedBase}${path}`;
 }
 
+async function signInWithDiscord(callbackURL: string = DEFAULT_AUTH_REDIRECT) {
+  await authClient.signIn.social({
+    provider: "discord",
+    callbackURL: buildCallbackURL(callbackURL),
+  });
+}
+
+async function signOut() {
+  await authClient.signOut();
+}
+
+export const useSignIn = () => ({
+  signInWithDiscord,
+});
+
 export const useAuth = () => {
   const session = authClient.useSession();
-
-  const signInWithDiscord = async (
-    callbackURL: string = DEFAULT_AUTH_REDIRECT,
-  ) => {
-    await authClient.signIn.social({
-      provider: "discord",
-      callbackURL: buildCallbackURL(callbackURL),
-    });
-  };
-
-  const signOut = async () => {
-    await authClient.signOut();
-  };
 
   return {
     session,

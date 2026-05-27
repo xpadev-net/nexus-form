@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/hooks/auth/use-auth";
+import { useSignIn } from "@/hooks/auth/use-auth";
 import { client } from "@/lib/api";
 
 const invitationRequestSchema = z.object({
@@ -26,7 +26,7 @@ export function InvitationCodeForm({
   const [invitationCode, setInvitationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState("");
-  const { signInWithDiscord } = useAuth();
+  const { signInWithDiscord } = useSignIn();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
