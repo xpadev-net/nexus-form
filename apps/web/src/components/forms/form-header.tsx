@@ -70,6 +70,7 @@ export function FormHeader({
   const enterTitleEditing = useCallback(() => {
     isFocusedRef.current = true;
     setIsFocused(true);
+    setTooltipOpen(false);
     // 前回 Escape でキャンセルした状態が残っていた場合に備えてリセット
     cancelRef.current = false;
   }, []);
