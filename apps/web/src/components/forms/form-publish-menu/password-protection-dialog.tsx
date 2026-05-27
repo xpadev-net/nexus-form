@@ -55,7 +55,15 @@ export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!isProcessing) {
+              onConfirm();
+            }
+          }}
+        >
           <div className="space-y-1">
             <Label htmlFor="password-protection-password">パスワード</Label>
             <Input
@@ -84,31 +92,32 @@ export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
               onChange={(e) => onHintChange(e.target.value)}
             />
           </div>
-        </div>
 
-        {error ? (
-          <div
-            role="alert"
-            aria-live="assertive"
-            className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2"
-          >
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2"
+            >
+              {error}
+            </div>
+          ) : null}
 
-        <DialogFooter className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isProcessing}
-          >
-            キャンセル
-          </Button>
-          <Button onClick={onConfirm} disabled={isProcessing}>
-            <KeyRound className="h-4 w-4 mr-2" />
-            {isProcessing ? "保存中..." : confirmLabel}
-          </Button>
-        </DialogFooter>
+          <DialogFooter className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={isProcessing}
+            >
+              キャンセル
+            </Button>
+            <Button type="submit" disabled={isProcessing}>
+              <KeyRound className="h-4 w-4 mr-2" />
+              {isProcessing ? "保存中..." : confirmLabel}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
