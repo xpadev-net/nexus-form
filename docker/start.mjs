@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import process from "node:process";
@@ -26,7 +26,7 @@ const shouldExclude = (path) => {
       return normalized.includes("/cache/");
     }
 
-    return normalized.includes(pattern.replace("*", ""));
+    return normalized.includes(pattern.replaceAll("*", ""));
   });
 };
 
@@ -105,22 +105,46 @@ const replaceEnvironment = async () => {
 };
 
 const runNode = (args) => {
-  const result = spawnSync(process.execPath, args, {
-    stdio: "inherit",
-    env: process.env,
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, args, {
+      stdio: "inherit",
+      env: process.env,
+    });
+
+    const handleSignal = (signal) => {
+      child.kill(signal);
+    };
+
+    process.once("SIGINT", handleSignal);
+    process.once("SIGTERM", handleSignal);
+
+    child.on("error", (error) => {
+      process.off("SIGINT", handleSignal);
+      process.off("SIGTERM", handleSignal);
+      reject(error);
+    });
+
+    child.on("exit", (code, signal) => {
+      process.off("SIGINT", handleSignal);
+      process.off("SIGTERM", handleSignal);
+
+      if (signal) {
+        resolve(128 + (signal === "SIGTERM" ? 15 : 2));
+        return;
+      }
+
+      resolve(code ?? 1);
+    });
   });
-
-  if (result.error) {
-    throw result.error;
-  }
-
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
 };
 
 (async () => {
   await replaceEnvironment();
-  runNode(["/migration/run-migrations.mjs"]);
-  runNode(["./apps/api/dist/index.mjs"]);
+  const migrationStatus = await runNode(["/migration/run-migrations.mjs"]);
+  if (migrationStatus !== 0) {
+    process.exit(migrationStatus);
+  }
+
+  const apiStatus = await runNode(["./apps/api/dist/index.mjs"]);
+  process.exit(apiStatus);
 })();

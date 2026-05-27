@@ -89,5 +89,7 @@ COPY --from=prod /app/packages/shared/dist ./packages/shared/dist
 COPY --from=prod /app/packages/validation-provider-discord/dist ./packages/validation-provider-discord/dist
 COPY --from=prod /app/packages/validation-provider-github/dist ./packages/validation-provider-github/dist
 COPY --from=prod /app/packages/validation-provider-twitter/dist ./packages/validation-provider-twitter/dist
+COPY --from=prod --chown=65532:65532 /app/plugins/validation /app/plugins/validation
 
+USER 65532:65532
 ENTRYPOINT ["node", "/app/apps/worker/dist/index.mjs"]
