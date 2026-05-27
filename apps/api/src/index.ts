@@ -1,11 +1,11 @@
 import "./load-env";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { closeDatabase, db } from "@nexus-form/database";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
   providerRegistry,
-  resolveBuiltinPluginSpecifier,
   startupPlugins,
 } from "@nexus-form/integrations";
 import { sql } from "drizzle-orm";
@@ -179,7 +179,14 @@ async function startServer() {
   assertGoogleOAuthEncryptionKeyConfigured();
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
-    resolveBuiltinPluginSpecifier,
+    (specifier) => {
+      const resolvedPath = fileURLToPath(import.meta.resolve(specifier));
+      // Defensive normalisation: if this process runs under tsx (e.g. local dev),
+      // import.meta.resolve may return .ts source paths instead of .mjs artifacts.
+      return resolvedPath
+        .replace(/(.*)\/src\//, "$1/dist/")
+        .replace(/\.m?ts$/, ".mjs");
+    },
   );
   const pluginDriftStore = getRedisClient();
   if (!pluginDriftStore) {
