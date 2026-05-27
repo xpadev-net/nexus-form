@@ -50,6 +50,7 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
 );
 
 async function main() {
+  console.log(`[worker] Commit: ${process.env.GIT_HASH || "unknown"}`);
   await initSentry();
   assertGoogleOAuthEncryptionKeyConfigured();
   validateWorkerQueuesEnv(process.env.WORKER_QUEUES);

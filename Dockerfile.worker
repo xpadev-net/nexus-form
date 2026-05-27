@@ -58,6 +58,9 @@ RUN if [ -d ci-prebuilt/packages ]; then \
 
 RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
 
+ARG GIT_HASH
+ENV GIT_HASH=${GIT_HASH}
+
 USER node
 
 # Default command is not set - each Deployment should specify its own command.

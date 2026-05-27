@@ -33,4 +33,6 @@ window.__BRAND_CONFIG__ = {
 };
 EOF
 
+echo "[web] Commit: ${GIT_HASH:-unknown}"
+
 exec "$@"

@@ -104,6 +104,9 @@ RUN chmod +x ./env-replacer.sh && \
     mkdir -p /app/plugins/validation && \
     chown -R node:node /app
 
+ARG GIT_HASH
+ENV GIT_HASH=${GIT_HASH}
+
 USER node
 
 ENTRYPOINT [ "/app/env-replacer.sh" ]

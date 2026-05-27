@@ -175,6 +175,7 @@ export default app;
 export type AppType = typeof app;
 
 async function startServer() {
+  console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
