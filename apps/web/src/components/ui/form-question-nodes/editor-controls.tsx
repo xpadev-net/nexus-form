@@ -143,6 +143,7 @@ export function ChoiceOptionsEditor() {
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
+            aria-label="選択肢を削除"
             onClick={() => removeOption(option.id)}
           >
             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -209,6 +210,7 @@ function GridList({
             variant="ghost"
             size="icon"
             className="h-8 w-8 shrink-0"
+            aria-label="項目を削除"
             onClick={() => remove(item.id)}
           >
             <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -1172,6 +1174,7 @@ function NavigationRuleItem({
           variant="ghost"
           size="sm"
           className="h-6 w-6 p-0"
+          aria-label="ルールを削除"
           onClick={onDelete}
         >
           <Trash2 className="h-3 w-3 text-destructive" />

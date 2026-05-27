@@ -156,6 +156,7 @@ function Draggable(props: PlateElementProps) {
                 variant="ghost"
                 className="-left-0 absolute h-6 w-full p-0"
                 style={{ top: `${dragButtonTop + 3}px` }}
+                aria-label="ブロックを移動"
                 data-plate-prevent-deselect
               >
                 <DragHandle
