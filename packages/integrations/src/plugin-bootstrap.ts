@@ -12,6 +12,22 @@ export const BUILTIN_VALIDATION_PLUGIN_SPECIFIERS = [
 ] as const;
 
 /**
+ * Recursively resolves an exports-map value to its final string path,
+ * following the `import` condition first, then `default`, and handling
+ * nested condition objects at any depth.
+ */
+function resolveExportValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null) return undefined;
+  const obj = value as Record<string, unknown>;
+  return (
+    resolveExportValue(obj.import) ??
+    resolveExportValue(obj.default) ??
+    resolveExportValue(obj.require)
+  );
+}
+
+/**
  * Resolves a built-in plugin specifier to an absolute file path that is
  * consistent across all runtimes (plain Node.js and tsx).
  *
@@ -65,11 +81,7 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
     subpathExport != null
       ? (subpathExport as Record<string, unknown>)[subpath]
       : undefined;
-  const exportTarget: string | undefined =
-    typeof subpathValue === "string"
-      ? subpathValue
-      : ((subpathValue as { import?: string } | undefined)?.import ??
-        (subpathValue as { default?: string } | undefined)?.default);
+  const exportTarget: string | undefined = resolveExportValue(subpathValue);
   if (!exportTarget) {
     throw new Error(
       `[resolveBuiltinPluginSpecifier] No export found for ${subpath} in ${pkgName}`,
