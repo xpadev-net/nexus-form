@@ -473,7 +473,7 @@ async function createSSEStream(
               data: "",
             })
             .catch(() => {
-              // クライアントが切断済みの場合はエラーを無視
+              closeStream();
             });
         }, KEEPALIVE_INTERVAL_MS);
 
