@@ -1,8 +1,8 @@
 import { type FormEvent, useState } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/auth/use-auth";
 import { client } from "@/lib/api";
-import { authClient } from "@/lib/auth-client";
 
 const invitationRequestSchema = z.object({
   code: z.string().min(1),
@@ -26,6 +26,7 @@ export function InvitationCodeForm({
   const [invitationCode, setInvitationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [error, setError] = useState("");
+  const { signInWithDiscord } = useAuth();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -52,10 +53,7 @@ export function InvitationCodeForm({
         return;
       }
 
-      await authClient.signIn.social({
-        provider: "discord",
-        callbackURL: "/",
-      });
+      await signInWithDiscord();
     } catch (submissionError) {
       console.error("Invitation code verification failed", submissionError);
       setError(

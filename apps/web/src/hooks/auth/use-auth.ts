@@ -3,6 +3,21 @@ import {
   DEFAULT_AUTH_REDIRECT,
   sanitizeAuthRedirect,
 } from "@/lib/auth-redirect";
+import { getRuntimeConfigValue } from "@/lib/runtime-config";
+
+const FRONTEND_BASE_URL = getRuntimeConfigValue(
+  "baseUrl",
+  import.meta.env.VITE_BASE_URL,
+  typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin
+    : "http://localhost:3000",
+);
+
+function buildCallbackURL(callbackURL?: string): string {
+  const path = sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT;
+  const normalizedBase = FRONTEND_BASE_URL.replace(/\/+$/, "");
+  return `${normalizedBase}${path}`;
+}
 
 export const useAuth = () => {
   const session = authClient.useSession();
@@ -12,7 +27,7 @@ export const useAuth = () => {
   ) => {
     await authClient.signIn.social({
       provider: "discord",
-      callbackURL: sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT,
+      callbackURL: buildCallbackURL(callbackURL),
     });
   };
 
