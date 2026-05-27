@@ -63,7 +63,7 @@ FROM deps AS runtime-deps
 
 RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @nexus-form/api
 
-FROM gcr.io/distroless/nodejs24-debian12 AS runner
+FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
 
 # Copy workspace structure for pnpm to resolve workspace: links

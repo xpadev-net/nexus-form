@@ -45,7 +45,8 @@ COPY --chown=node:node ./packages/validation-provider-twitter/ ./packages/valida
 RUN pnpm --filter @nexus-form/shared build && \
     pnpm --filter @nexus-form/database build && \
     pnpm --filter @nexus-form/integrations build && \
-    pnpm --filter "@nexus-form/validation-provider-*" build
+    pnpm --filter "@nexus-form/validation-provider-*" build && \
+    pnpm --filter @nexus-form/worker build
 
 # Override validation-provider dist with CI pre-built artifacts so that
 # plugin content hashes are identical across API and Worker images.
@@ -65,7 +66,7 @@ RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
 ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
 
-FROM gcr.io/distroless/nodejs24-debian12 AS runner
+FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NODE_PATH=/app/node_modules
