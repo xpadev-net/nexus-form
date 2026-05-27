@@ -41,8 +41,8 @@ function resolveExportValue(value: unknown): string | undefined {
 export function resolveBuiltinPluginSpecifier(specifier: string): string {
   const parts = specifier.split("/");
   const pkgName = specifier.startsWith("@")
-    ? `${parts[0]}/${parts[1]!}`
-    : parts[0]!;
+    ? `${parts[0] as string}/${parts[1] as string}`
+    : (parts[0] as string);
   const rawSubpath = specifier.startsWith("@")
     ? parts.slice(2).join("/")
     : parts.slice(1).join("/");
