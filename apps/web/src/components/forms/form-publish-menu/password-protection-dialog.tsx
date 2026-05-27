@@ -26,6 +26,22 @@ interface PasswordProtectionDialogProps {
   onConfirm: () => void;
 }
 
+/**
+ * Password protection setting dialog for a published form.
+ *
+ * @param props.open - Whether the dialog is visible.
+ * @param props.mode - Dialog mode: `enable` to configure a new password when enabling protection, `change` to update an existing password.
+ * @param props.isProcessing - Whether save/validation is currently in progress.
+ * @param props.password - Current password input value.
+ * @param props.passwordHint - Current hint input value.
+ * @param props.hasCurrentPassword - Indicates whether an existing password was already stored for the form.
+ * @param props.error - Error message to show in the dialog, or `null` when no error.
+ * @param props.onOpenChange - Callback fired when the dialog open/close state changes.
+ * @param props.onPasswordChange - Callback to update the password input state.
+ * @param props.onHintChange - Callback to update the password hint input state.
+ * @param props.onConfirm - Callback to confirm and persist the changes.
+ * @returns {JSX.Element} Rendered password-protection dialog.
+ */
 export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
   open,
   mode,

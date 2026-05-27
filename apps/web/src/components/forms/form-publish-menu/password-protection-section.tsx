@@ -26,13 +26,14 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
   const passwordToggleId = `${baseId}-password-toggle`;
 
   const dialogMode: "enable" | "change" = state.isEnabled ? "change" : "enable";
-  const buttonLabel = state.hasPassword
-    ? "パスワードを編集"
-    : "パスワードを設定";
+  const buttonLabel =
+    dialogMode === "enable" ? "パスワードを設定" : "パスワードを編集";
   const statusLabel = state.isEnabled ? "有効" : "無効";
   const description = state.isEnabled
     ? "保存されたパスワードを使用して保護中です"
-    : "有効化のため、パスワードを入力してください";
+    : state.hasPassword
+      ? "パスワード保護は現在無効です"
+      : "有効化のため、パスワードを入力してください";
 
   return (
     <>
