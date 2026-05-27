@@ -14,6 +14,7 @@ import {
   type FingerprintType,
   useFingerprint,
 } from "@/hooks/fingerprint/use-fingerprint";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { decodePrefillData } from "@/lib/forms/prefill";
@@ -140,6 +141,8 @@ function PublicFormPageInner() {
       return failureCount < 3;
     },
   });
+
+  usePageTitle(formData?.form?.title ?? "公開フォーム");
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
   const requireFingerprint =
