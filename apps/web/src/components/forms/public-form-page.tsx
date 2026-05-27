@@ -29,6 +29,17 @@ const fetchPublicForm = (publicId: string) =>
 
 const responsesSchema = z.array(responsePayloadItemSchema);
 const formSecurityBypassToken = "form-security-dev-bypass";
+const MAX_FINGERPRINTS_FOR_SUBMIT = 200;
+
+type CollectedFingerprintComponent = {
+  componentName: string;
+  componentValueHash: string;
+};
+
+type CollectedFingerprintData = {
+  fingerprintType: FingerprintType | string;
+  components: CollectedFingerprintComponent[];
+};
 
 function isFormSecurityBypassEnabledForDevelopment(): boolean {
   const formSecurityBypassFlag = getRuntimeConfigValue(
@@ -43,6 +54,44 @@ function isHCaptchaBypassEnabledForDevelopment(): boolean {
     isFormSecurityBypassEnabledForDevelopment() ||
     (import.meta.env.DEV && import.meta.env.VITE_DISABLE_HCAPTCHA === "true")
   );
+}
+
+const fingerprintTypePriority = (type: string, name: string): number => {
+  if (type === "fingerprintjs" && name === "visitorId") return 300;
+  if (type === "browser") return 250;
+  if (type === "fingerprintjs") return 200;
+  if (type === "thumbmarkjs") return 100;
+  return 0;
+};
+
+function buildFingerprintPayloadForSubmit(
+  collectedFingerprints: CollectedFingerprintData[],
+): { type: FingerprintType; name: string; value_hash: string }[] {
+  const flat = collectedFingerprints.flatMap(
+    ({ fingerprintType, components }) =>
+      components.map((comp, index) => ({
+        type: fingerprintType,
+        name: comp.componentName,
+        value_hash: comp.componentValueHash,
+        priority:
+          fingerprintTypePriority(fingerprintType, comp.componentName) +
+          1_000 -
+          index,
+        sourceOrder: index,
+      })),
+  );
+
+  return flat
+    .sort((a, b) => {
+      if (a.priority !== b.priority) return b.priority - a.priority;
+      return a.sourceOrder - b.sourceOrder;
+    })
+    .slice(0, MAX_FINGERPRINTS_FOR_SUBMIT)
+    .map(({ type, name, value_hash }) => ({
+      type: type as FingerprintType,
+      name,
+      value_hash,
+    }));
 }
 
 interface PublicFormPageState {
@@ -222,13 +271,7 @@ function PublicFormPageInner() {
 
         const fingerprintsPayload =
           requireFingerprint && !formSecurityBypassEnabled
-            ? collectedFp.flatMap((fp) =>
-                fp.components.map((comp) => ({
-                  type: fp.fingerprintType as FingerprintType,
-                  name: comp.componentName,
-                  value_hash: comp.componentValueHash,
-                })),
-              )
+            ? buildFingerprintPayloadForSubmit(collectedFp)
             : [];
 
         if (

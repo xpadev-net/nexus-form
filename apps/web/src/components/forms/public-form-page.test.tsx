@@ -23,6 +23,13 @@ type PublicFormData = {
 
 let publicFormData: PublicFormData;
 let refetchResult: { data?: PublicFormData; error: Error | null };
+const useFingerprintMockState = vi.hoisted(() => ({
+  collect: vi.fn(),
+  fingerprints: [] as {
+    fingerprintType: string;
+    components: { componentName: string; componentValueHash: string }[];
+  }[],
+}));
 const verificationFailureMock = vi.fn();
 const apiMocks = vi.hoisted(() => ({
   rpc: vi.fn(),
@@ -92,8 +99,8 @@ vi.mock("@/contexts/form-response-context", () => ({
 
 vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
   useFingerprint: () => ({
-    collect: vi.fn().mockResolvedValue([]),
-    fingerprints: [],
+    collect: useFingerprintMockState.collect,
+    fingerprints: useFingerprintMockState.fingerprints,
   }),
 }));
 
@@ -195,6 +202,8 @@ describe("PublicFormPage password protection", () => {
     vi.unstubAllEnvs();
     publicFormData = lockedFormData;
     refetchResult = { data: unlockedFormData, error: null };
+    useFingerprintMockState.collect = vi.fn().mockResolvedValue([]);
+    useFingerprintMockState.fingerprints = [];
     verificationFailureMock.mockClear();
     refetchFormMock.mockClear();
     apiMocks.rpc.mockReset();
@@ -283,6 +292,71 @@ describe("PublicFormPage password protection", () => {
     expect(
       container.querySelector("[data-testid='public-form-body']"),
     ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("caps submitted fingerprints to the API maximum", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: true } },
+    };
+    useFingerprintMockState.fingerprints = [
+      {
+        fingerprintType: "fingerprintjs",
+        components: Array.from({ length: 205 }, (_, index) => ({
+          componentName: `component-${index}`,
+          componentValueHash: `hash-${index.toString().padStart(3, "0")}`,
+        })),
+      },
+    ];
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : { response: { id: "response-1" } },
+    );
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        responses: [],
+        captchaToken: "form-security-dev-bypass",
+        telemetry: { v4Token: "telemetry-token" },
+        fingerprints: expect.arrayContaining(Array.from({ length: 200 })),
+      }),
+    });
+
+    const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
+    expect(
+      (submitArgs?.json.fingerprints as { name: string; value_hash: string }[])
+        .length,
+    ).toBe(200);
 
     await act(async () => {
       root.unmount();
