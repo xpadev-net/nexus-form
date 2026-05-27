@@ -43,6 +43,19 @@ RUN pnpm --filter @nexus-form/shared build && \
     pnpm --filter @nexus-form/integrations build && \
     pnpm --filter "@nexus-form/validation-provider-*" build
 
+# Override validation-provider dist with CI pre-built artifacts so that
+# plugin content hashes are identical across API and Worker images.
+# Wildcard loop handles any provider matching validation-provider-* naming.
+COPY ci-prebuilt/ ./ci-prebuilt/
+RUN if [ -d ci-prebuilt/packages ]; then \
+      for pkg in ci-prebuilt/packages/*; do \
+        [ -f "$pkg/plugin.mjs" ] || continue; \
+        name=$(basename "$pkg"); \
+        cp "$pkg/plugin.mjs" "packages/$name/dist/plugin.mjs"; \
+      done && \
+      rm -rf ci-prebuilt; \
+    fi
+
 RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
 
 USER node

@@ -15,6 +15,7 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: nexus-form
+  NODE_VERSION: "24"
 
 
 concurrency:
@@ -22,8 +23,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  build-common:
+    name: Build validation-provider packages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build dependency packages
+        run: |
+          pnpm --filter @nexus-form/shared build && \
+          pnpm --filter @nexus-form/database build && \
+          pnpm --filter @nexus-form/integrations build && \
+          pnpm --filter "@nexus-form/validation-provider-*" build
+
+      - name: Stage pre-built dists
+        run: |
+          mkdir -p ci-prebuilt/packages
+          for pkg in packages/validation-provider-*; do
+            [ -d "$pkg/dist" ] || continue
+            name=$(basename "$pkg")
+            cp -r "$pkg/dist" "ci-prebuilt/packages/$name/"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: validators-dist
+          path: ci-prebuilt/
+          retention-days: 1
+
   build-api:
     name: Build and Push API Image
+    needs: [build-common]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -32,6 +78,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download pre-built validators
+        uses: actions/download-artifact@v4
+        with:
+          name: validators-dist
+          path: ci-prebuilt/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -106,6 +158,7 @@ jobs:
 
   build-worker:
     name: Build and Push Worker Image
+    needs: [build-common]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -114,6 +167,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Download pre-built validators
+        uses: actions/download-artifact@v4
+        with:
+          name: validators-dist
+          path: ci-prebuilt/
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

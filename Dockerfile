@@ -41,6 +41,19 @@ RUN pnpm --filter @nexus-form/shared build && \
     pnpm --filter @nexus-form/api build && \
     pnpm --filter @nexus-form/web build
 
+# Override validation-provider dist with CI pre-built artifacts so that
+# plugin content hashes are identical across API and Worker images.
+# Wildcard loop handles any provider matching validation-provider-* naming.
+COPY ci-prebuilt/ ./ci-prebuilt/
+RUN if [ -d ci-prebuilt/packages ]; then \
+      for pkg in ci-prebuilt/packages/*; do \
+        [ -f "$pkg/plugin.mjs" ] || continue; \
+        name=$(basename "$pkg"); \
+        cp "$pkg/plugin.mjs" "packages/$name/dist/plugin.mjs"; \
+      done && \
+      rm -rf ci-prebuilt; \
+    fi
+
 # Create a flat node_modules for the Drizzle migration script
 RUN pnpm --filter @nexus-form/database deploy --prod /tmp/db-deploy
 
