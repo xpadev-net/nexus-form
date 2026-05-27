@@ -32,6 +32,11 @@ vi.mock("@nexus-form/database", () => ({
             from: vi.fn(() => ({
               where: vi.fn(() => ({ limit: mocks.newOwnerLimit })),
             })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({ limit: mocks.newOwnerLimit })),
+            })),
           }),
         insert: vi.fn(() => ({
           values: mocks.insertValues,

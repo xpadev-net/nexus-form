@@ -164,6 +164,15 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const payload = c.req.valid("json");
 
+      const [existingUser] = await db
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.id, payload.userId))
+        .limit(1);
+      if (!existingUser) {
+        return c.json(errorResponse("User not found"), 404);
+      }
+
       const [existing] = await db
         .select({ id: formPermission.id })
         .from(formPermission)
@@ -273,7 +282,17 @@ export const formsPermissionsRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       const payload = c.req.valid("json");
-      await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
+      try {
+        await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message === "New owner user not found"
+        ) {
+          return c.json(errorResponse("New owner user not found"), 404);
+        }
+        throw error;
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
