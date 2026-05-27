@@ -63,3 +63,6 @@ test-results
 
 # local task notes
 /z/
+
+# CI pre-built validation provider stubs (populated by CI artifact)
+ci-prebuilt/
