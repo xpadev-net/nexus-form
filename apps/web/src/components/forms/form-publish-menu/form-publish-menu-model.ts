@@ -440,6 +440,14 @@ export function useFormPublishMenuModel({
       return;
     }
 
+    if (!hasNewPassword && !hintUpdated && action !== "enable") {
+      dispatch({
+        type: "close-password-dialog",
+        hintInput: passwordProtection.password_hint ?? "",
+      });
+      return;
+    }
+
     updatePasswordProtection.mutate(payload, {
       onSuccess: () => {
         toast.success(
