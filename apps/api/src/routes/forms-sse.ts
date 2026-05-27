@@ -25,7 +25,11 @@ function parseIntEnv(name: string, defaultValue: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw === "") return defaultValue;
   const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    String(parsed) !== raw.trim()
+  ) {
     logWarn(
       `SSE config: ${name}="${raw}" is not a positive integer; falling back to ${defaultValue}`,
     );
