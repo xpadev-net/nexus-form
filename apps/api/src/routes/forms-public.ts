@@ -71,7 +71,7 @@ import {
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
-const MAX_FINGERPRINTS = 20;
+const MAX_FINGERPRINTS = 200;
 const MAX_FINGERPRINT_VALUE_LENGTH = 255;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
