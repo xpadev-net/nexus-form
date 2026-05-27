@@ -31,7 +31,7 @@ vi.mock("@nexus-form/database", () => ({
           })
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.newOwnerLimit })),
+              where: vi.fn(() => ({ limit: mocks.userExistsLimit })),
             })),
           })
           .mockReturnValueOnce({
@@ -39,7 +39,6 @@ vi.mock("@nexus-form/database", () => ({
               where: vi.fn(() => ({ limit: mocks.newOwnerLimit })),
             })),
           }),
-        // after reorder: call 3 = user check, call 4 = new owner permission
         insert: vi.fn(() => ({
           values: mocks.insertValues,
         })),
@@ -83,6 +82,7 @@ describe("transferOwnership integration ownership", () => {
     mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
     mocks.currentOwnerLimit.mockResolvedValue([{ role: "OWNER" }]);
     mocks.newOwnerLimit.mockResolvedValue([{ role: "EDITOR" }]);
+    mocks.userExistsLimit.mockResolvedValue([{ id: "new-owner-user-id" }]);
     mocks.insertValues.mockReturnValue({
       onDuplicateKeyUpdate: vi.fn().mockResolvedValue(undefined),
     });
@@ -103,7 +103,7 @@ describe("transferOwnership integration ownership", () => {
 
   it("throws when the target user does not exist", async () => {
     // Make the 3rd select (user existence check) return empty
-    mocks.newOwnerLimit.mockResolvedValueOnce([]);
+    mocks.userExistsLimit.mockResolvedValueOnce([]);
 
     await expect(
       transferOwnership("form-1", "nonexistent-user", "old-owner-user-id"),
