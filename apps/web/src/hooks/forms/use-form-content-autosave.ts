@@ -464,15 +464,17 @@ export function useFormContentAutosave({
   }, []);
 
   // Unmount: clear timer and best-effort save via keepalive fetch.
-  // Check both pendingValueRef (debounce not yet fired) and inFlightValueRef
-  // (mutation already started but not yet confirmed) to avoid losing saves
-  // when the component unmounts immediately after the timer fires.
+  // Only save pendingValueRef (debounce not yet fired).
+  // Do NOT include inFlightValueRef: the regular autosave PUT is already in
+  // flight for that value, and a duplicate keepalive PUT with the same
+  // expectedVersion would produce a 409 that incorrectly creates a pending
+  // save entry for already-saved content.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
-      const valueToSave = pendingValueRef.current ?? inFlightValueRef.current;
+      const valueToSave = pendingValueRef.current;
       if (valueToSave != null) {
         const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({
