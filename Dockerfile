@@ -59,9 +59,9 @@ RUN pnpm --filter @nexus-form/database deploy --prod /tmp/db-deploy
 RUN mkdir -p /app/plugins/validation
 
 # ── Hono API server ──
-FROM deps AS runtime-deps
+FROM builder AS runtime-deps
 
-RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
+RUN pnpm --filter @nexus-form/api deploy --ignore-scripts --prod /tmp/api-deploy
 
 FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
