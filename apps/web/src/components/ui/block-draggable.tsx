@@ -251,7 +251,8 @@ const DragHandle = memo(function DragHandle({
         <div
           className="flex size-full items-center justify-center"
           role="button"
-          tabIndex={0}
+          aria-label="Drag to move"
+          tabIndex={-1}
           onClick={(e) => {
             e.preventDefault();
             editor.getApi(BlockSelectionPlugin).blockSelection.focus();
