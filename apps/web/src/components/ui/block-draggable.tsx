@@ -231,7 +231,7 @@ function Gutter({
   );
 }
 
-const DragHandle = memo(function DragHandle({
+  const DragHandle = memo(function DragHandle({
   isDragging,
   previewRef,
   resetPreview,
@@ -248,11 +248,19 @@ const DragHandle = memo(function DragHandle({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
+        <div
           className="flex size-full items-center justify-center"
+          role="button"
+          tabIndex={0}
           onClick={(e) => {
             e.preventDefault();
             editor.getApi(BlockSelectionPlugin).blockSelection.focus();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              editor.getApi(BlockSelectionPlugin).blockSelection.focus();
+            }
           }}
           onMouseDown={(e) => {
             resetPreview();
@@ -335,10 +343,9 @@ const DragHandle = memo(function DragHandle({
             resetPreview();
           }}
           data-plate-prevent-deselect
-          type="button"
         >
           <GripVertical className="text-muted-foreground" />
-        </button>
+        </div>
       </TooltipTrigger>
       <TooltipContent>Drag to move</TooltipContent>
     </Tooltip>
