@@ -275,15 +275,9 @@ export const formsDetailRouter = createHonoApp()
         400,
       );
     }
+    const parsedSnapshot = JSON.parse(snapshot.plateContent);
     const publishedQuestions = extractQuestionsFromPlateContent(
-      (() => {
-        try {
-          const parsed = JSON.parse(snapshot.plateContent);
-          return Array.isArray(parsed) ? parsed : [];
-        } catch {
-          return [];
-        }
-      })(),
+      Array.isArray(parsedSnapshot) ? parsedSnapshot : [],
     );
     if (publishedQuestions.length === 0) {
       return c.json(
