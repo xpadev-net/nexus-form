@@ -6,13 +6,24 @@ import {
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 
 function buildCallbackURL(callbackURL?: string): string {
-  const frontendBaseUrl = getRuntimeConfigValue(
-    "baseUrl",
-    import.meta.env.VITE_BASE_URL,
+  const fallbackBaseUrl =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
-      : "http://localhost:3000",
+      : "http://localhost:3000";
+
+  let frontendBaseUrl = getRuntimeConfigValue(
+    "baseUrl",
+    import.meta.env.VITE_BASE_URL,
+    fallbackBaseUrl,
   );
+
+  try {
+    const parsedBaseUrl = new URL(frontendBaseUrl);
+    const normalizedBasePath = parsedBaseUrl.pathname.replace(/\/+$/, "");
+    frontendBaseUrl = `${parsedBaseUrl.origin}${normalizedBasePath}`;
+  } catch {
+    frontendBaseUrl = fallbackBaseUrl;
+  }
 
   const path = sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT;
   const normalizedBase = frontendBaseUrl.replace(/\/+$/, "");
