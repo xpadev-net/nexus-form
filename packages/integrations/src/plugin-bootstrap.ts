@@ -28,7 +28,7 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
     ? `${parts[0]}/${parts[1]!}`
     : parts[0]!;
   const subpath =
-    "/" +
+    "./" +
     (specifier.startsWith("@")
       ? parts.slice(2).join("/")
       : parts.slice(1).join("/"));
@@ -50,11 +50,15 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
 
   const pkg = JSON.parse(
     readFileSync(join(pkgRoot, "package.json"), "utf-8"),
-  ) as {
-    exports?: Record<string, { import?: string; default?: string }>;
-  };
+  ) as Record<string, unknown>;
+  const subpathExport = (pkg.exports as Record<string, unknown> | undefined)?.[
+    subpath
+  ];
   const exportTarget: string | undefined =
-    pkg.exports?.[subpath]?.import ?? pkg.exports?.[subpath]?.default;
+    typeof subpathExport === "string"
+      ? subpathExport
+      : ((subpathExport as { import?: string } | undefined)?.import ??
+        (subpathExport as { default?: string } | undefined)?.default);
   if (!exportTarget) {
     throw new Error(
       `[resolveBuiltinPluginSpecifier] No export found for ${subpath} in ${pkgName}`,
