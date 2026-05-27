@@ -1,5 +1,8 @@
 import { zValidator } from "@hono/zod-validator";
+import { db } from "@nexus-form/database";
+import { formResponse } from "@nexus-form/database/schema";
 import { sheetsSyncJobDataSchema } from "@nexus-form/shared";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
@@ -47,16 +50,30 @@ export type FormIntegrationResponse = z.infer<
 >;
 
 /**
- * Manual Google Sheets sync unsupported response returned with 501.
- * @remarks `error` is a stable literal and `message` explains automatic sync behavior.
+ * Google Sheets manual sync request payload.
+ *
+ * `force` enables a full replay of existing responses for manual synchronization.
+ * If omitted, defaults to `true`.
  */
-export const GoogleSheetsSyncUnsupportedResponseSchema = z.object({
-  error: z.literal("Manual Google Sheets sync is not supported"),
-  message: z.string(),
+export const GoogleSheetsSyncStartRequestSchema = z.object({
+  force: z.boolean().default(true),
 });
-/** Inferred TypeScript type for `GoogleSheetsSyncUnsupportedResponseSchema`. */
-export type GoogleSheetsSyncUnsupportedResponse = z.infer<
-  typeof GoogleSheetsSyncUnsupportedResponseSchema
+/** Inferred TypeScript type for `GoogleSheetsSyncStartRequestSchema`. */
+export type GoogleSheetsSyncStartRequest = z.infer<
+  typeof GoogleSheetsSyncStartRequestSchema
+>;
+
+/**
+ * Google Sheets sync enqueue response returned from POST endpoints.
+ * @remarks The first queued job id is returned for status polling.
+ */
+export const GoogleSheetsSyncStartResponseSchema = z.object({
+  jobId: z.string().min(1),
+  status: z.literal("queued"),
+});
+/** Inferred TypeScript type for `GoogleSheetsSyncStartResponseSchema`. */
+export type GoogleSheetsSyncStartResponse = z.infer<
+  typeof GoogleSheetsSyncStartResponseSchema
 >;
 
 /**
@@ -102,22 +119,54 @@ export const formsIntegrationsRouter = createHonoApp()
       return c.json(FormIntegrationResponseSchema.parse({ integration }));
     },
   )
-  .post("/:id/integrations/google-sheets/sync", async (c) => {
-    const formId = c.req.param("id");
-    const integration = await getFormIntegration(formId);
-    if (!integration) {
-      return c.json(formIntegrationError("Integration not configured"), 404);
-    }
+  .post(
+    "/:id/integrations/google-sheets/sync",
+    zValidator("json", GoogleSheetsSyncStartRequestSchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { force } = c.req.valid("json");
+      const integration = await getFormIntegration(formId);
+      if (!integration) {
+        return c.json(formIntegrationError("Integration not configured"), 404);
+      }
 
-    return c.json(
-      GoogleSheetsSyncUnsupportedResponseSchema.parse({
-        error: "Manual Google Sheets sync is not supported",
-        message:
-          "Google Sheets sync jobs are queued automatically for each submitted response.",
-      }),
-      501,
-    );
-  })
+      const responses = await db
+        .select({ responseId: formResponse.id })
+        .from(formResponse)
+        .where(eq(formResponse.formId, formId))
+        .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
+
+      if (responses.length === 0) {
+        return c.json(formIntegrationError("No responses to sync"), 404);
+      }
+
+      const responseIds = force ? responses : responses.slice(-1);
+
+      const queuedJobs = await getSheetsSyncQueue().addBulk(
+        responseIds.map((response) => ({
+          name: "manual-sync",
+          data: sheetsSyncJobDataSchema.parse({
+            formId,
+            integrationId: integration.id,
+            responseId: response.responseId,
+          }),
+        })),
+      );
+
+      const firstJob = queuedJobs[0];
+      if (!firstJob) {
+        return c.json(formIntegrationError("No sync jobs were queued"), 500);
+      }
+
+      return c.json(
+        GoogleSheetsSyncStartResponseSchema.parse({
+          jobId: firstJob.id,
+          status: "queued",
+        }),
+        200,
+      );
+    },
+  )
   .get("/:id/integrations/google-sheets/sync/:jobId", async (c) => {
     const formId = c.req.param("id");
     const jobId = c.req.param("jobId");
