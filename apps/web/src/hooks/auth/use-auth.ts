@@ -5,13 +5,26 @@ import {
 } from "@/lib/auth-redirect";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 
-const FRONTEND_BASE_URL = getRuntimeConfigValue(
-  "baseUrl",
-  import.meta.env.VITE_BASE_URL,
+const fallbackBaseUrl =
   typeof window !== "undefined" && window.location?.origin
     ? window.location.origin
-    : "http://localhost:3000",
-);
+    : "http://localhost:3000";
+
+const FRONTEND_BASE_URL = (() => {
+  const rawFrontendBaseUrl = getRuntimeConfigValue(
+    "baseUrl",
+    import.meta.env.VITE_BASE_URL,
+    fallbackBaseUrl,
+  );
+
+  try {
+    const parsedBaseUrl = new URL(rawFrontendBaseUrl);
+    const normalizedBasePath = parsedBaseUrl.pathname.replace(/\/+$/, "");
+    return `${parsedBaseUrl.origin}${normalizedBasePath}`;
+  } catch {
+    return fallbackBaseUrl;
+  }
+})();
 
 function buildCallbackURL(callbackURL?: string): string {
   const path = sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT;
