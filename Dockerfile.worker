@@ -21,10 +21,6 @@ COPY --chown=node:node ./packages/validation-provider-twitter/package.json ./pac
 RUN pnpm install --frozen-lockfile --prod=false
 
 # ── Production ──
-FROM deps AS runtime-deps
-
-RUN pnpm install --frozen-lockfile --prod --filter @nexus-form/worker
-
 FROM deps AS prod
 ENV NODE_ENV=production
 
@@ -66,6 +62,10 @@ RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
 ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
 
+FROM prod AS runtime-deps
+
+RUN pnpm --filter @nexus-form/worker deploy --prod /tmp/worker-deploy
+
 FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
 ENV NODE_ENV=production
@@ -73,7 +73,7 @@ ENV NODE_PATH=/app/node_modules
 ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
 
-COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=runtime-deps /tmp/worker-deploy/node_modules ./node_modules
 COPY --from=deps /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
 COPY --from=deps /app/apps/worker/package.json ./apps/worker/
 COPY --from=deps /app/packages/database/package.json ./packages/database/
