@@ -56,7 +56,7 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
             onCheckedChange={onToggle}
           />
         </div>
-        {state.isEnabled && (
+        {(state.isEnabled || !state.hasPassword) && (
           <div className="space-y-2 pl-6">
             <div className="space-y-1">
               <Label htmlFor={passwordInputId} className="text-xs">
