@@ -11,13 +11,16 @@ import type { CreateTokenRequest, TokenScope } from "../../types/api/auth";
 import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
 
+const SCOPES_JSON_SCHEMA = `{"type":"array","minItems":1,"items":{"type":"string","enum":["read","write","admin"]}}`;
+const FORM_IDS_JSON_SCHEMA = `{"type":"array","minItems":1,"maxItems":${API_TOKEN_FORM_IDS_MAX},"items":{"type":"string","minLength":1}}`;
+
 const parseableApiTokenJsonCondition = sql`
-  JSON_SCHEMA_VALID('{"type":"array","minItems":1,"items":{"type":"string","enum":["read","write","admin"]}}', ${apiToken.scopes})
+  JSON_SCHEMA_VALID(${SCOPES_JSON_SCHEMA}, ${apiToken.scopes})
     AND (
       ${apiToken.formIds} IS NULL
       OR JSON_TYPE(${apiToken.formIds}) = 'NULL'
       OR (
-        JSON_SCHEMA_VALID('{"type":"array","minItems":1,"maxItems":${API_TOKEN_FORM_IDS_MAX},"items":{"type":"string","minLength":1}}', ${apiToken.formIds})
+        JSON_SCHEMA_VALID(${FORM_IDS_JSON_SCHEMA}, ${apiToken.formIds})
       )
     )
 `;
