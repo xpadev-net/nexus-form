@@ -93,4 +93,4 @@ COPY --from=prod /app/packages/validation-provider-twitter/dist ./packages/valid
 COPY --from=prod --chown=65532:65532 /app/plugins/validation /app/plugins/validation
 
 USER 65532:65532
-ENTRYPOINT ["node", "/app/apps/worker/dist/index.mjs"]
+ENTRYPOINT ["/nodejs/bin/node", "/app/apps/worker/dist/index.mjs"]
