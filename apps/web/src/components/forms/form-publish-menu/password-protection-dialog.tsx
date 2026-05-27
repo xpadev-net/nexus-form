@@ -107,6 +107,7 @@ export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
               placeholder="ヒントを入力（任意）"
               value={passwordHint}
               onChange={(e) => onHintChange(e.target.value)}
+              disabled={isProcessing}
             />
           </div>
 
