@@ -231,7 +231,7 @@ function Gutter({
   );
 }
 
-  const DragHandle = memo(function DragHandle({
+const DragHandle = memo(function DragHandle({
   isDragging,
   previewRef,
   resetPreview,
