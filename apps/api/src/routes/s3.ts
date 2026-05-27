@@ -656,14 +656,14 @@ export const s3Router = createHonoApp()
         return c.json(forbiddenResponse(), 403);
       }
 
-      const { key, bucket } = c.req.valid("json");
-
       if (isFormScopedToken(auth)) {
         return c.json(
           errorResponse("Form-scoped tokens cannot delete S3 objects"),
           403,
         );
       }
+
+      const { key, bucket } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, key)) {
         return c.json(errorResponse("Access denied to key"), 403);
