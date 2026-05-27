@@ -178,8 +178,15 @@ async function startServer() {
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
 
-  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
-    fileURLToPath(import.meta.resolve(specifier)),
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
+    (specifier) => {
+      const resolvedPath = fileURLToPath(import.meta.resolve(specifier));
+      // Defensive normalisation: if this process runs under tsx (e.g. local dev),
+      // import.meta.resolve may return .ts source paths instead of .mjs artifacts.
+      return resolvedPath
+        .replace(/(.*)\/src\//, "$1/dist/")
+        .replace(/\.m?ts$/, ".mjs");
+    },
   );
   const pluginDriftStore = getRedisClient();
   if (!pluginDriftStore) {
