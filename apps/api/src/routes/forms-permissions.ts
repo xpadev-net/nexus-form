@@ -172,7 +172,9 @@ export const formsPermissionsRouter = createHonoApp()
             .where(eq(user.id, payload.userId))
             .limit(1);
           if (!existingUser) {
-            throw Object.assign(new Error("User not found"), { status: 404 });
+            throw Object.assign(new Error("User not found"), {
+              code: "USER_NOT_FOUND",
+            });
           }
 
           const [existing] = await tx
@@ -187,7 +189,7 @@ export const formsPermissionsRouter = createHonoApp()
             .limit(1);
           if (existing) {
             throw Object.assign(new Error("Permission already exists"), {
-              status: 409,
+              code: "PERMISSION_ALREADY_EXISTS",
             });
           }
 
@@ -199,11 +201,11 @@ export const formsPermissionsRouter = createHonoApp()
           });
         });
       } catch (error) {
-        const err = error as Error & Record<string, unknown>;
-        if (err.status === 404) {
+        const err = error as Error & { code?: string };
+        if (err.code === "USER_NOT_FOUND") {
           return c.json(errorResponse(err.message), 404) as Response;
         }
-        if (err.status === 409) {
+        if (err.code === "PERMISSION_ALREADY_EXISTS") {
           return c.json(errorResponse(err.message), 409) as Response;
         }
         throw error;
