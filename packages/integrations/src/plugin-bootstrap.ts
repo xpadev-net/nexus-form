@@ -44,7 +44,7 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
         string,
         unknown
       >;
-      if (parsed.name) {
+      if (parsed.name === pkgName) {
         pkg = parsed;
         break;
       }
@@ -59,9 +59,10 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
   }
   const subpathExport = (pkg as Record<string, unknown>).exports as
     | Record<string, unknown>
+    | null
     | undefined;
   const subpathValue =
-    subpathExport !== undefined
+    subpathExport != null
       ? (subpathExport as Record<string, unknown>)[subpath]
       : undefined;
   const exportTarget: string | undefined =
