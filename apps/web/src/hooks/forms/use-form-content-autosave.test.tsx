@@ -162,14 +162,6 @@ async function flushPromises() {
   });
 }
 
-function _createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 describe("useFormContentAutosave unmount keepalive fallback", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
