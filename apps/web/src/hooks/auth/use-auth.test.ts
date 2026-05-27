@@ -26,7 +26,7 @@ describe("useAuth", () => {
 
     expect(signInSocialMock).toHaveBeenCalledWith({
       provider: "discord",
-      callbackURL: "/forms/form-1/edit?tab=responses",
+      callbackURL: "http://localhost:3000/forms/form-1/edit?tab=responses",
     });
   });
 
@@ -37,7 +37,7 @@ describe("useAuth", () => {
 
     expect(signInSocialMock).toHaveBeenCalledWith({
       provider: "discord",
-      callbackURL: "/",
+      callbackURL: "http://localhost:3000/",
     });
   });
 });
