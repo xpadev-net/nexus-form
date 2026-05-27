@@ -466,6 +466,13 @@ export const s3Router = createHonoApp()
         return c.json(forbiddenResponse(), 403);
       }
 
+      if (isFormScopedToken(auth)) {
+        return c.json(
+          errorResponse("Form-scoped tokens cannot confirm S3 uploads"),
+          403,
+        );
+      }
+
       const { key, bucket, size, contentType, etag } = c.req.valid("json");
 
       if (!isKeyOwnedBy(auth.user_id, key)) {
@@ -512,6 +519,13 @@ export const s3Router = createHonoApp()
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasS3WriteAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
+      }
+
+      if (isFormScopedToken(auth)) {
+        return c.json(
+          errorResponse("Form-scoped tokens cannot process S3 images"),
+          403,
+        );
       }
 
       const { tmpKey, processingConfig, finalKey } = c.req.valid("json");
@@ -582,6 +596,13 @@ export const s3Router = createHonoApp()
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       if (!hasS3WriteAccess(auth)) {
         return c.json(forbiddenResponse(), 403);
+      }
+
+      if (isFormScopedToken(auth)) {
+        return c.json(
+          errorResponse("Form-scoped tokens cannot move S3 objects"),
+          403,
+        );
       }
 
       const { tmpKey, finalKey } = c.req.valid("json");
@@ -762,14 +783,14 @@ export const s3Router = createHonoApp()
         return c.json(errorResponse("Invalid key format"), 400);
       }
 
-      const s3Key = `${bucketAlias}/${key}`;
-
       if (isFormScopedToken(auth)) {
         return c.json(
           errorResponse("Form-scoped tokens cannot access S3 proxy"),
           403,
         );
       }
+
+      const s3Key = `${bucketAlias}/${key}`;
 
       if (!isKeyOwnedBy(auth.user_id, s3Key)) {
         return c.json(errorResponse("Access denied to key"), 403);
