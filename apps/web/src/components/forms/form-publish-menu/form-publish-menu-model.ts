@@ -446,10 +446,6 @@ export function useFormPublishMenuModel({
             : "パスワードを更新しました",
         );
         dispatch({
-          type: "complete-password-edit",
-          hintInput: passwordHintInput,
-        });
-        dispatch({
           type: "close-password-dialog",
           hintInput: passwordHintInput,
         });
