@@ -12,15 +12,12 @@ import { computeLookupHash, hashToken } from "./hash";
 import { parseStoredApiTokenJson } from "./stored-json";
 
 const parseableApiTokenJsonCondition = sql`
-  JSON_TYPE(${apiToken.scopes}) = 'ARRAY'
-    AND JSON_LENGTH(${apiToken.scopes}) > 0
+  JSON_SCHEMA_VALID('{"type":"array","minItems":1,"items":{"type":"string","enum":["read","write","admin"]}}', ${apiToken.scopes})
     AND (
       ${apiToken.formIds} IS NULL
       OR JSON_TYPE(${apiToken.formIds}) = 'NULL'
       OR (
-        JSON_TYPE(${apiToken.formIds}) = 'ARRAY'
-        AND JSON_LENGTH(${apiToken.formIds}) > 0
-        AND JSON_LENGTH(${apiToken.formIds}) <= ${API_TOKEN_FORM_IDS_MAX}
+        JSON_SCHEMA_VALID('{"type":"array","minItems":1,"maxItems":${API_TOKEN_FORM_IDS_MAX},"items":{"type":"string","minLength":1}}', ${apiToken.formIds})
       )
     )
 `;

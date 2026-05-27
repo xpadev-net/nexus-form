@@ -182,10 +182,14 @@ describe("getUserApiTokens", () => {
   });
 
   it("applies JSON array shape checks in SQL pagination filter", () => {
-    const [conditionSql] = drizzleMocks.capturedSql;
+    const conditionSql = drizzleMocks.capturedSql[0] ?? "";
 
-    expect(conditionSql).toContain("JSON_TYPE() = 'ARRAY'");
-    expect(conditionSql).toContain("JSON_LENGTH() > 0");
-    expect(conditionSql).toContain("JSON_TYPE() = 'ARRAY'");
+    expect(conditionSql).toContain("JSON_SCHEMA_VALID(");
+    expect(conditionSql).toContain('"enum":["read","write","admin"]');
+    expect(conditionSql).toContain('"maxItems"');
+    expect(conditionSql).toContain('"minLength":1');
+    expect(
+      conditionSql.match(/JSON_SCHEMA_VALID\(/g)?.length ?? 0,
+    ).toBeGreaterThanOrEqual(2);
   });
 });
