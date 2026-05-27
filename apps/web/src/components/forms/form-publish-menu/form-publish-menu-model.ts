@@ -377,30 +377,31 @@ export function useFormPublishMenuModel({
   );
 
   const handlePasswordToggle = (checked: boolean) => {
-    if (!checked) {
-      updatePasswordProtection.mutate(
-        { enabled: false },
-        {
-          onSuccess: () => {
-            toast.success("パスワード保護を無効にしました");
-            dispatch({
-              type: "complete-password-edit",
-              hintInput: passwordProtection.password_hint ?? "",
-            });
-          },
-          onError: (error) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "パスワード保護の変更に失敗しました",
-            );
-          },
-        },
-      );
+    // Enabling is handled by the "設定して有効化" button.
+    // The switch is only used for immediate disable here.
+    if (checked) {
       return;
     }
 
-    dispatch({ type: "open-password-dialog", mode: "enable" });
+    updatePasswordProtection.mutate(
+      { enabled: false },
+      {
+        onSuccess: () => {
+          toast.success("パスワード保護を無効にしました");
+          dispatch({
+            type: "complete-password-edit",
+            hintInput: passwordProtection.password_hint ?? "",
+          });
+        },
+        onError: (error) => {
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "パスワード保護の変更に失敗しました",
+          );
+        },
+      },
+    );
   };
 
   const handlePasswordDialogOpen = (mode: PasswordDialogMode) => {
