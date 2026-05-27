@@ -418,10 +418,12 @@ export function useFormPublishMenuModel({
     const action = passwordDialogMode ?? "change";
     const enabled = action === "enable" ? true : passwordProtection.enabled;
     const hasNewPassword = passwordInput.length > 0;
+    const currentHint = passwordProtection.password_hint ?? "";
+    const hintUpdated = passwordHintInput !== currentHint;
     const payload = {
       enabled,
       password: hasNewPassword ? passwordInput : undefined,
-      password_hint: passwordHintInput,
+      ...(hintUpdated ? { password_hint: passwordHintInput } : {}),
     };
 
     if (enabled && !passwordProtection.hasPassword && !hasNewPassword) {

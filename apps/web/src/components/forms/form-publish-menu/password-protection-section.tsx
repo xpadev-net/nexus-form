@@ -27,7 +27,7 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
 
   const dialogMode: "enable" | "change" = state.isEnabled ? "change" : "enable";
   const buttonLabel =
-    dialogMode === "enable" ? "パスワードを設定" : "パスワードを編集";
+    dialogMode === "enable" ? "設定して有効化" : "パスワードを編集";
   const statusLabel = state.isEnabled ? "有効" : "無効";
   const description = state.isEnabled
     ? "保存されたパスワードを使用して保護中です"
