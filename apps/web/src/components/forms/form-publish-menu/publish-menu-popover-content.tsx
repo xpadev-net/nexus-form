@@ -22,9 +22,7 @@ interface PublishMenuPopoverContentProps {
   onSaveOnly: () => void;
   onReset: () => void;
   onPasswordToggle: (checked: boolean) => void;
-  onPasswordChange: (value: string) => void;
-  onHintChange: (value: string) => void;
-  onPasswordSave: () => void;
+  onOpenPasswordDialog: (mode: "enable" | "change") => void;
   onSelectSnapshot: (id: string | null) => void;
   onActivateSnapshot: (version: number) => void;
   onPublishFromHistory: (version: number) => void;
@@ -48,9 +46,7 @@ export const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
   onSaveOnly,
   onReset,
   onPasswordToggle,
-  onPasswordChange,
-  onHintChange,
-  onPasswordSave,
+  onOpenPasswordDialog,
   onSelectSnapshot,
   onActivateSnapshot,
   onPublishFromHistory,
@@ -75,9 +71,7 @@ export const PublishMenuPopoverContent: FC<PublishMenuPopoverContentProps> = ({
       <PasswordProtectionSection
         state={passwordState}
         onToggle={onPasswordToggle}
-        onPasswordChange={onPasswordChange}
-        onHintChange={onHintChange}
-        onSave={onPasswordSave}
+        onOpenDialog={onOpenPasswordDialog}
       />
 
       <VersionHistorySection

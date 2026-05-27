@@ -71,9 +71,6 @@ export interface PasswordProtectionSectionState {
   hasPassword: boolean;
   updateState: PublishProcessState;
   publishActionState: PublishProcessState;
-  input: string;
-  hintInput: string;
-  isDirty: boolean;
 }
 
 export interface SnapshotItem {

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverTrigger } from "@/components/ui/popover";
 import type { FormPublishMenuProps } from "./form-publish-menu/form-publish-menu-model";
 import { useFormPublishMenuModel } from "./form-publish-menu/form-publish-menu-model";
+import { PasswordProtectionDialog } from "./form-publish-menu/password-protection-dialog";
 import { PublishMenuPopoverContent } from "./form-publish-menu/publish-menu-popover-content";
 import { ResetSnapshotDialog } from "./form-publish-menu/reset-snapshot-dialog";
 import {
@@ -40,9 +41,7 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
           onSaveOnly={model.handleSaveOnly}
           onReset={model.handleOpenResetDialog}
           onPasswordToggle={model.handlePasswordToggle}
-          onPasswordChange={model.handlePasswordChange}
-          onHintChange={model.handleHintChange}
-          onPasswordSave={model.handlePasswordSave}
+          onOpenPasswordDialog={model.handlePasswordDialogOpen}
           onSelectSnapshot={model.handleSelectSnapshot}
           onActivateSnapshot={model.handleActivateSnapshot}
           onPublishFromHistory={model.handlePublishFromHistory}
@@ -71,6 +70,20 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
         isProcessing={model.isProcessing}
         onOpenChange={model.handleResetDialogOpenChange}
         onReset={model.handleResetClick}
+      />
+
+      <PasswordProtectionDialog
+        open={model.showPasswordDialog}
+        mode={model.passwordDialogMode ?? "change"}
+        isProcessing={model.isPasswordUpdating}
+        password={model.passwordInput}
+        passwordHint={model.passwordHintInput}
+        error={model.passwordDialogError}
+        hasCurrentPassword={model.passwordState.hasPassword}
+        onOpenChange={model.handlePasswordDialogOpenChange}
+        onPasswordChange={model.handlePasswordInputChange}
+        onHintChange={model.handlePasswordHintChange}
+        onConfirm={model.handlePasswordDialogConfirm}
       />
     </>
   );
