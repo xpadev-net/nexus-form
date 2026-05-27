@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Built-in validation provider plugin specifiers loaded during startup.
@@ -12,35 +12,76 @@ export const BUILTIN_VALIDATION_PLUGIN_SPECIFIERS = [
 ] as const;
 
 /**
+ * Recursively resolves an exports-map value to its final string path,
+ * following the `import` condition first, then `default`, and handling
+ * nested condition objects at any depth.
+ */
+function resolveExportValue(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null) return undefined;
+  const obj = value as Record<string, unknown>;
+  return (
+    resolveExportValue(obj.import) ??
+    resolveExportValue(obj.default) ??
+    resolveExportValue(obj.require)
+  );
+}
+
+/**
  * Resolves a built-in plugin specifier to an absolute file path that is
  * consistent across all runtimes (plain Node.js and tsx).
  *
  * tsx's ESM loader hook may map `import.meta.resolve()` results from .mjs
  * to .ts or even to source files under `src/`, producing a path that differs
- * from what plain Node.js returns.  This function bypasses the ESM loader by
- * using CJS module resolution (`createRequire`) to find the package root,
- * then resolves the target file via the package's `exports` map directly.
+ * from what plain Node.js returns.  This function resolves the package
+ * entry point (the `.` export, which IS defined in the exports map), then
+ * walks up the directory tree to find `package.json` and reads the exports
+ * map to resolve the target file from there.
  */
 export function resolveBuiltinPluginSpecifier(specifier: string): string {
   const parts = specifier.split("/");
   const pkgName = specifier.startsWith("@")
-    ? `${parts[0]}/${parts[1]}`
-    : parts[0];
-  const subpath =
-    "/" +
-    (specifier.startsWith("@")
-      ? parts.slice(2).join("/")
-      : parts.slice(1).join("/"));
+    ? `${parts[0] as string}/${parts[1] as string}`
+    : (parts[0] as string);
+  const rawSubpath = specifier.startsWith("@")
+    ? parts.slice(2).join("/")
+    : parts.slice(1).join("/");
+  const subpath = rawSubpath ? `./${rawSubpath}` : ".";
 
-  const require = createRequire(import.meta.url);
-  const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
-  const pkgRoot = dirname(pkgJsonPath);
+  const entryUrl = import.meta.resolve(pkgName);
+  const entryPath = fileURLToPath(entryUrl);
 
-  const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
-    exports?: Record<string, { import?: string; default?: string }>;
-  };
-  const exportTarget =
-    pkg.exports?.[subpath]?.import ?? pkg.exports?.[subpath]?.default;
+  let pkgRoot = dirname(entryPath);
+  let pkg: Record<string, unknown> | undefined;
+  for (;;) {
+    const candidate = join(pkgRoot, "package.json");
+    if (existsSync(candidate)) {
+      const parsed = JSON.parse(readFileSync(candidate, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      if (parsed.name === pkgName) {
+        pkg = parsed;
+        break;
+      }
+    }
+    const parent = dirname(pkgRoot);
+    if (parent === pkgRoot) {
+      throw new Error(
+        `[resolveBuiltinPluginSpecifier] Cannot find package.json with name for ${pkgName} (resolved: ${entryPath})`,
+      );
+    }
+    pkgRoot = parent;
+  }
+  const subpathExport = (pkg as Record<string, unknown>).exports as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const subpathValue =
+    subpathExport != null
+      ? (subpathExport as Record<string, unknown>)[subpath]
+      : undefined;
+  const exportTarget: string | undefined = resolveExportValue(subpathValue);
   if (!exportTarget) {
     throw new Error(
       `[resolveBuiltinPluginSpecifier] No export found for ${subpath} in ${pkgName}`,
