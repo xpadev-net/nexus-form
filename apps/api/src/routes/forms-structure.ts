@@ -376,7 +376,7 @@ export const formsStructureRouter = createHonoApp()
 
         const newPassword = payload.password_protection.enabled
           ? (hashedPassword ?? currentPp?.password)
-          : undefined;
+          : currentPp?.password;
 
         if (payload.password_protection.enabled && !newPassword) {
           return {
