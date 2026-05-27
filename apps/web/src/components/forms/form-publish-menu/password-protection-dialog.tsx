@@ -92,6 +92,7 @@ export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
               }
               value={password}
               onChange={(e) => onPasswordChange(e.target.value)}
+              disabled={isProcessing}
             />
             <p className="text-xs text-muted-foreground">
               パスワードを入力する場合は8文字以上で入力してください
