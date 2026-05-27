@@ -1,4 +1,4 @@
-FROM node:24-debian AS base
+FROM node:24-bookworm AS base
 ARG NODE_ENV=production
 ENV NODE_ENV=${NODE_ENV}
 WORKDIR /app
