@@ -367,6 +367,13 @@ export const s3Router = createHonoApp()
           return c.json(forbiddenResponse(), 403);
         }
 
+        if (isFormScopedToken(auth)) {
+          return c.json(
+            errorResponse("Form-scoped tokens cannot upload S3 objects"),
+            403,
+          );
+        }
+
         const { fileName, fileSize, mimeType } = c.req.valid("json");
 
         const fileNameValidation = validateFileName(fileName);
