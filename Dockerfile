@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:24-bookworm AS base
 ARG NODE_ENV=production
 ENV NODE_ENV=${NODE_ENV}
 WORKDIR /app
@@ -61,7 +61,7 @@ RUN mkdir -p /app/plugins/validation
 # ── Hono API server ──
 FROM builder AS runtime-deps
 
-RUN pnpm --filter @nexus-form/api deploy --ignore-scripts --prod /tmp/api-deploy
+RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
 
 FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
