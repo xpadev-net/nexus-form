@@ -36,10 +36,12 @@ import { workerShutdownSignal } from "../lib/shutdown-signal";
 export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
-const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 3;
+// Maximum Sheets API calls inside the critical section:
+// 2 reads (idempotency check + sheet check) + 1 conditional header update + 1 append
+const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 const SHEETS_SYNC_LOCK_BUFFER_MS = 30_000;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 3 sequential calls plus a lock buffer. */
+/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 4 sequential calls (2 reads + 1 conditional header update + 1 append) plus a lock buffer. */
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
   SHEETS_SYNC_LOCK_BUFFER_MS;
@@ -355,7 +357,8 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         updatedRows: appendResult.data.updatedRows,
       };
     },
-    // Critical section contains up to 3 sequential Sheets API calls.
+    // Critical section contains up to 4 sequential Sheets API calls
+    // (2 reads + 1 conditional header update + 1 append).
     // Size the lock from the configured Sheets API timeout plus a buffer so
     // slow successful calls cannot expire the lock mid-write.
     {
