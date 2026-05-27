@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   formLimit: vi.fn(),
   currentOwnerLimit: vi.fn(),
   newOwnerLimit: vi.fn(),
+  userExistsLimit: vi.fn(),
   insertValues: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
@@ -26,6 +27,11 @@ vi.mock("@nexus-form/database", () => ({
           .mockReturnValueOnce({
             from: vi.fn(() => ({
               where: vi.fn(() => ({ limit: mocks.currentOwnerLimit })),
+            })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({ limit: mocks.userExistsLimit })),
             })),
           })
           .mockReturnValueOnce({
@@ -76,6 +82,7 @@ describe("transferOwnership integration ownership", () => {
     mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
     mocks.currentOwnerLimit.mockResolvedValue([{ role: "OWNER" }]);
     mocks.newOwnerLimit.mockResolvedValue([{ role: "EDITOR" }]);
+    mocks.userExistsLimit.mockResolvedValue([{ id: "new-owner-user-id" }]);
     mocks.insertValues.mockReturnValue({
       onDuplicateKeyUpdate: vi.fn().mockResolvedValue(undefined),
     });
@@ -92,5 +99,14 @@ describe("transferOwnership integration ownership", () => {
       userId: "new-owner-user-id",
     });
     expect(mocks.eq).toHaveBeenCalledWith("formIntegration.formId", "form-1");
+  });
+
+  it("throws when the target user does not exist", async () => {
+    // Make the 3rd select (user existence check) return empty
+    mocks.userExistsLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      transferOwnership("form-1", "nonexistent-user", "old-owner-user-id"),
+    ).rejects.toThrow("New owner user not found");
   });
 });

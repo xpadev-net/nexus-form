@@ -655,6 +655,18 @@ export async function transferOwnership(
       throw new Error("Current user is not the owner");
     }
 
+    // 新しい所有者のユーザー存在確認
+    const [newOwnerUser] = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.id, newOwnerId))
+      .limit(1);
+    if (!newOwnerUser) {
+      const err = new Error("New owner user not found");
+      (err as { code?: string }).code = "NEW_OWNER_NOT_FOUND";
+      throw err;
+    }
+
     // 新しい所有者の権限を確認
     const [newOwnerPermission] = await tx
       .select()

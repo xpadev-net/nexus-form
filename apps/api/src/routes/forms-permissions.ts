@@ -164,26 +164,52 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const payload = c.req.valid("json");
 
-      const [existing] = await db
-        .select({ id: formPermission.id })
-        .from(formPermission)
-        .where(
-          and(
-            eq(formPermission.formId, formId),
-            eq(formPermission.userId, payload.userId),
-          ),
-        )
-        .limit(1);
-      if (existing) {
-        return c.json(errorResponse("Permission already exists"), 409);
-      }
+      try {
+        await db.transaction(async (tx) => {
+          const [existingUser] = await tx
+            .select({ id: user.id })
+            .from(user)
+            .where(eq(user.id, payload.userId))
+            .limit(1);
+          if (!existingUser) {
+            throw Object.assign(new Error("User not found"), {
+              code: "USER_NOT_FOUND",
+            });
+          }
 
-      await db.insert(formPermission).values({
-        id: randomUUID(),
-        formId,
-        userId: payload.userId,
-        role: payload.role,
-      });
+          const [existing] = await tx
+            .select({ id: formPermission.id })
+            .from(formPermission)
+            .where(
+              and(
+                eq(formPermission.formId, formId),
+                eq(formPermission.userId, payload.userId),
+              ),
+            )
+            .limit(1);
+          if (existing) {
+            throw Object.assign(new Error("Permission already exists"), {
+              code: "PERMISSION_ALREADY_EXISTS",
+            });
+          }
+
+          await tx.insert(formPermission).values({
+            id: randomUUID(),
+            formId,
+            userId: payload.userId,
+            role: payload.role,
+          });
+        });
+      } catch (error) {
+        const err = error as Error & { code?: string };
+        if (err.code === "USER_NOT_FOUND") {
+          return c.json(errorResponse(err.message), 404) as Response;
+        }
+        if (err.code === "PERMISSION_ALREADY_EXISTS") {
+          return c.json(errorResponse(err.message), 409) as Response;
+        }
+        throw error;
+      }
 
       const created = await getFormPermissions({
         form_id: formId,
@@ -273,7 +299,17 @@ export const formsPermissionsRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       const payload = c.req.valid("json");
-      await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
+      try {
+        await transferOwnership(formId, payload.newOwnerUserId, auth.user_id);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error as { code?: string }).code === "NEW_OWNER_NOT_FOUND"
+        ) {
+          return c.json(errorResponse("New owner user not found"), 404);
+        }
+        throw error;
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
