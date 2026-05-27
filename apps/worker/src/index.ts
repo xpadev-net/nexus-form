@@ -1,9 +1,9 @@
 import "./load-env";
+import { fileURLToPath } from "node:url";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
   providerRegistry,
-  resolveBuiltinPluginSpecifier,
   startupPlugins,
 } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
@@ -55,9 +55,12 @@ async function main() {
   assertGoogleOAuthEncryptionKeyConfigured();
   validateWorkerQueuesEnv(process.env.WORKER_QUEUES);
 
-  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
-    resolveBuiltinPluginSpecifier,
-  );
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((spec) => {
+    const resolvedPath = fileURLToPath(import.meta.resolve(spec));
+    // tsx resolves .mjs exports to .ts source files (e.g. /src/plugin.ts).
+    // Normalise to the .mjs build artifact so hashing matches the API.
+    return resolvedPath.replace(/\/src\//, "/dist/").replace(/\.m?ts$/, ".mjs");
+  });
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
   let pluginDriftGuardHandle: Awaited<ReturnType<typeof startupPlugins>>;
   try {

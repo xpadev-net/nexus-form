@@ -1,11 +1,11 @@
 import "./load-env";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { closeDatabase, db } from "@nexus-form/database";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
   providerRegistry,
-  resolveBuiltinPluginSpecifier,
   startupPlugins,
 } from "@nexus-form/integrations";
 import { sql } from "drizzle-orm";
@@ -178,8 +178,8 @@ async function startServer() {
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
 
-  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
-    resolveBuiltinPluginSpecifier,
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
+    fileURLToPath(import.meta.resolve(specifier)),
   );
   const pluginDriftStore = getRedisClient();
   if (!pluginDriftStore) {
