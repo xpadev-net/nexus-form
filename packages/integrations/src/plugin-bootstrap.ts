@@ -38,11 +38,16 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
 
   let pkgRoot = dirname(entryPath);
   for (;;) {
-    if (existsSync(join(pkgRoot, "package.json"))) break;
+    const candidate = join(pkgRoot, "package.json");
+    if (
+      existsSync(candidate) &&
+      JSON.parse(readFileSync(candidate, "utf-8")).name
+    )
+      break;
     const parent = dirname(pkgRoot);
     if (parent === pkgRoot) {
       throw new Error(
-        `[resolveBuiltinPluginSpecifier] Cannot find package.json for ${pkgName} (resolved: ${entryPath})`,
+        `[resolveBuiltinPluginSpecifier] Cannot find package.json with name for ${pkgName} (resolved: ${entryPath})`,
       );
     }
     pkgRoot = parent;
