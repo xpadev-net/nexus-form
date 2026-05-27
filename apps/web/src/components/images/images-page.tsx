@@ -142,6 +142,13 @@ export function ImagesPage() {
         throw new Error("アップロード完了通知に失敗しました");
       }
 
+      const moveResponse = await client.api.s3.move.$post({
+        json: { tmpKey: presignedJson.data.key },
+      });
+      if (!moveResponse.ok) {
+        throw new Error("画像の移動に失敗しました");
+      }
+
       await loadImages();
       dispatch({ type: "upload-complete" });
     } catch (uploadError) {
