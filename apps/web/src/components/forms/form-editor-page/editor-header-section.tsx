@@ -37,7 +37,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
   onResetSuccess,
 }) => {
   return (
-    <section className="rounded-lg border bg-card p-6 shadow-sm">
+    <section>
       <FormHeader
         title={formTitle}
         onTitleBlur={onTitleBlur}

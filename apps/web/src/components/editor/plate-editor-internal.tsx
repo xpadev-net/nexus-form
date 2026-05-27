@@ -58,7 +58,7 @@ export function PlateEditorInternal({
         onChangeValue(serialized);
       }}
     >
-      <EditorContainer className="min-h-[500px] px-4 py-4">
+      <EditorContainer className="min-h-[500px]">
         <Editor variant="fullWidth" />
       </EditorContainer>
     </Plate>
