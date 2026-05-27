@@ -1,6 +1,4 @@
 import { zValidator } from "@hono/zod-validator";
-import { db } from "@nexus-form/database";
-import { formResponse } from "@nexus-form/database/schema";
 import { sheetsSyncJobDataSchema } from "@nexus-form/shared";
 import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -129,6 +127,8 @@ export const formsIntegrationsRouter = createHonoApp()
       if (!integration) {
         return c.json(formIntegrationError("Integration not configured"), 404);
       }
+
+      const { db, formResponse } = await import("@nexus-form/database");
 
       const responses = await db
         .select({ responseId: formResponse.id })
