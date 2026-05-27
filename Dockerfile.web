@@ -31,6 +31,8 @@ RUN pnpm --filter @nexus-form/shared build && \
 
 # ── Serve with nginx (non-root) ──
 FROM nginxinc/nginx-unprivileged:alpine AS runner
+ARG GIT_HASH
+ENV GIT_HASH=${GIT_HASH}
 USER root
 RUN apk add --no-cache jq
 

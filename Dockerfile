@@ -59,6 +59,8 @@ RUN pnpm --filter @nexus-form/database deploy --prod /tmp/db-deploy
 
 # ── Hono API server ──
 FROM base AS runner
+ARG GIT_HASH
+ENV GIT_HASH=${GIT_HASH}
 
 # Copy workspace structure for pnpm to resolve workspace: links
 COPY --from=deps /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
