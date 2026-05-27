@@ -16,9 +16,27 @@ import { streamSSE } from "hono/streaming";
 import Redis from "ioredis";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp, type Env } from "../lib/hono";
+import { logWarn } from "../lib/logger";
 import { getRedisConnection } from "../lib/redis";
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
+
+function parseIntEnv(name: string, defaultValue: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return defaultValue;
+  const parsed = Number.parseInt(raw, 10);
+  if (
+    !Number.isFinite(parsed) ||
+    parsed <= 0 ||
+    String(parsed) !== raw.trim()
+  ) {
+    logWarn(
+      `SSE config: ${name}="${raw}" is not a positive integer; falling back to ${defaultValue}`,
+    );
+    return defaultValue;
+  }
+  return parsed;
+}
 
 /**
  * SSE 同時接続数のプロセスローカル上限。
@@ -27,21 +45,18 @@ const KEEPALIVE_INTERVAL_MS = 30_000;
  * マルチレプリカ環境のクラスタ全体上限はロードバランサーや外部 rate limit で管理し、
  * ここでは 1 ユーザー・1 フォームがプロセス内の全枠を占有しないようにする。
  */
-const MAX_SSE_CONNECTIONS = Number.parseInt(
-  process.env.SSE_MAX_CONNECTIONS || "200",
-  10,
+const MAX_SSE_CONNECTIONS = parseIntEnv("SSE_MAX_CONNECTIONS", 200);
+const MAX_SSE_CONNECTIONS_PER_USER = parseIntEnv(
+  "SSE_MAX_CONNECTIONS_PER_USER",
+  20,
 );
-const MAX_SSE_CONNECTIONS_PER_USER = Number.parseInt(
-  process.env.SSE_MAX_CONNECTIONS_PER_USER || "20",
-  10,
+const MAX_SSE_CONNECTIONS_PER_FORM = parseIntEnv(
+  "SSE_MAX_CONNECTIONS_PER_FORM",
+  50,
 );
-const MAX_SSE_CONNECTIONS_PER_FORM = Number.parseInt(
-  process.env.SSE_MAX_CONNECTIONS_PER_FORM || "50",
-  10,
-);
-const MAX_SSE_PENDING_MESSAGES_PER_CLIENT = Number.parseInt(
-  process.env.SSE_MAX_PENDING_MESSAGES_PER_CLIENT || "100",
-  10,
+const MAX_SSE_PENDING_MESSAGES_PER_CLIENT = parseIntEnv(
+  "SSE_MAX_PENDING_MESSAGES_PER_CLIENT",
+  100,
 );
 
 interface SseConnectionScope {
