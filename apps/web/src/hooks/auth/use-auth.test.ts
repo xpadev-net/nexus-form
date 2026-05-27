@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { authClient } from "@/lib/auth-client";
 
-const FRONTEND_BASE_URL_FOR_TEST = "https://frontend.test.example.com";
+const { FRONTEND_BASE_URL_FOR_TEST } = vi.hoisted(() => ({
+  FRONTEND_BASE_URL_FOR_TEST: "https://frontend.test.example.com",
+}));
 
 vi.mock("@/lib/runtime-config", () => ({
   getRuntimeConfigValue: vi.fn(() => FRONTEND_BASE_URL_FOR_TEST),
