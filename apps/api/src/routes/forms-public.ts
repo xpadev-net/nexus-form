@@ -475,6 +475,9 @@ export const formsPublicRouter = createHonoApp()
       if (!questions) {
         return c.json(errorResponse("Form configuration is invalid"), 500);
       }
+      if (questions.length === 0) {
+        return c.json(errorResponse("このフォームには質問がありません"), 400);
+      }
       const answerValidation = validateResponseData(payload.responses, {
         version: 1,
         settings: {},
