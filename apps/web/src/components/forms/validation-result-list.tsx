@@ -112,6 +112,10 @@ export function ValidationResultList({
   const handleCancel = (validationResultId: string) => {
     cancelValidationMutation.mutate(validationResultId, {
       onSuccess: () => toast.success("検証をキャンセルしました"),
+      onError: (error) =>
+        toast.error(
+          error instanceof Error ? error.message : "キャンセルに失敗しました",
+        ),
     });
   };
 
