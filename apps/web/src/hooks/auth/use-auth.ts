@@ -30,7 +30,7 @@ async function signOut() {
   await authClient.signOut();
 }
 
-export const useSignIn = () => ({
+export const getSignInActions = () => ({
   signInWithDiscord,
 });
 
