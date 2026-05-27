@@ -162,14 +162,6 @@ async function flushPromises() {
   });
 }
 
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((promiseResolve) => {
-    resolve = promiseResolve;
-  });
-  return { promise, resolve };
-}
-
 describe("useFormContentAutosave unmount keepalive fallback", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
@@ -413,11 +405,10 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
-  it("does not keep a pending save when an in-flight mutation already saved the keepalive body", async () => {
+  it("does not fire keepalive fetch when the value is already in-flight (regular autosave covers it)", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
-    const keepaliveResult = createDeferred<{ ok: boolean; status: number }>();
-    const fetchMock = vi.fn().mockReturnValue(keepaliveResult.promise);
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
@@ -443,18 +434,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         },
       );
     });
-    await act(async () => {
-      keepaliveResult.resolve({ ok: false, status: 409 });
-      await keepaliveResult.promise;
-    });
 
-    expect(fetchMock).toHaveBeenCalledWith(
+    // Keepalive should NOT fire - the value was already picked up by the
+    // regular autosave mutation (inFlight), and a duplicate PUT would produce
+    // a spurious 409 that creates a false pending save entry.
+    expect(fetchMock).not.toHaveBeenCalledWith(
       "http://localhost:3001/api/forms/form-1/content",
       expect.objectContaining({
-        body: JSON.stringify({
-          plateContent: draftContent,
-          expectedVersion: 7,
-        }),
         keepalive: true,
         method: "PUT",
       }),
@@ -462,11 +448,10 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("clears a keepalive pending save after the matching in-flight mutation succeeds", async () => {
+  it("does not store pending save for in-flight value that was already saved by regular autosave", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
-    const keepaliveResult = createDeferred<{ ok: boolean; status: number }>();
-    const fetchMock = vi.fn().mockReturnValue(keepaliveResult.promise);
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
@@ -482,17 +467,16 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       root.unmount();
     });
-    await act(async () => {
-      keepaliveResult.resolve({ ok: false, status: 409 });
-      await keepaliveResult.promise;
-    });
 
-    expect(
-      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-    });
+    // The value was already in-flight (regular autosave mutation started),
+    // so no keepalive fetch should fire - the regular autosave covers it.
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+      }),
+    );
 
     act(() => {
       latestMutationOptions?.onSuccess?.(
