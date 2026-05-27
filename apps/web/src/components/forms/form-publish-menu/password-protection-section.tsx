@@ -54,7 +54,7 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
             id={passwordToggleId}
             size="sm"
             checked={state.isEnabled}
-            disabled={isBusy || isPublishBusy}
+            disabled={isBusy || isPublishBusy || !state.isEnabled}
             onCheckedChange={onToggle}
           />
         </div>
