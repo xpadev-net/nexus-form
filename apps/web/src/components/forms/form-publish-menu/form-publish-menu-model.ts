@@ -440,7 +440,7 @@ export function useFormPublishMenuModel({
       return;
     }
 
-    if (!hasNewPassword && !hintUpdated && action !== "enable") {
+    if (!hasNewPassword && !hintUpdated) {
       dispatch({
         type: "close-password-dialog",
         hintInput: passwordProtection.password_hint ?? "",
