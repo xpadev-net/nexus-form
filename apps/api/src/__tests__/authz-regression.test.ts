@@ -725,7 +725,13 @@ describe("R3-M21: password protected public submit fails closed", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          responses: [{ question_id: "q1", question_type: "short_text", question_title: "Name" }],
+          responses: [
+            {
+              question_id: "q1",
+              question_type: "short_text",
+              question_title: "Name",
+            },
+          ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
           fingerprints: [],
@@ -1022,7 +1028,13 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          responses: [{ question_id: "q1", question_type: "short_text", question_title: "Name" }],
+          responses: [
+            {
+              question_id: "q1",
+              question_type: "short_text",
+              question_title: "Name",
+            },
+          ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
           fingerprints: [],
