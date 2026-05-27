@@ -92,9 +92,5 @@ COPY --from=prod /app/packages/validation-provider-github/dist ./packages/valida
 COPY --from=prod /app/packages/validation-provider-twitter/dist ./packages/validation-provider-twitter/dist
 COPY --from=prod --chown=65532:65532 /app/plugins/validation /app/plugins/validation
 
-<<<<<<< HEAD
 USER 65532:65532
 ENTRYPOINT ["/nodejs/bin/node", "/app/apps/worker/dist/index.mjs"]
-=======
-ENTRYPOINT ["/nodejs/bin/node", "/app/apps/worker/dist/index.mjs"]
->>>>>>> 01aad22 (fix: use distroless node binary path in entrypoints)
