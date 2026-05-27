@@ -27,23 +27,28 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
   const pkgName = specifier.startsWith("@")
     ? `${parts[0]}/${parts[1]!}`
     : parts[0]!;
-  const subpath =
-    "./" +
-    (specifier.startsWith("@")
-      ? parts.slice(2).join("/")
-      : parts.slice(1).join("/"));
+  const rawSubpath = specifier.startsWith("@")
+    ? parts.slice(2).join("/")
+    : parts.slice(1).join("/");
+  const subpath = rawSubpath ? `./${rawSubpath}` : ".";
 
   const entryUrl = import.meta.resolve(pkgName);
   const entryPath = fileURLToPath(entryUrl);
 
   let pkgRoot = dirname(entryPath);
+  let pkg: Record<string, unknown> | undefined;
   for (;;) {
     const candidate = join(pkgRoot, "package.json");
-    if (
-      existsSync(candidate) &&
-      JSON.parse(readFileSync(candidate, "utf-8")).name
-    )
-      break;
+    if (existsSync(candidate)) {
+      const parsed = JSON.parse(readFileSync(candidate, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      if (parsed.name) {
+        pkg = parsed;
+        break;
+      }
+    }
     const parent = dirname(pkgRoot);
     if (parent === pkgRoot) {
       throw new Error(
@@ -52,18 +57,18 @@ export function resolveBuiltinPluginSpecifier(specifier: string): string {
     }
     pkgRoot = parent;
   }
-
-  const pkg = JSON.parse(
-    readFileSync(join(pkgRoot, "package.json"), "utf-8"),
-  ) as Record<string, unknown>;
-  const subpathExport = (pkg.exports as Record<string, unknown> | undefined)?.[
-    subpath
-  ];
+  const subpathExport = (pkg as Record<string, unknown>).exports as
+    | Record<string, unknown>
+    | undefined;
+  const subpathValue =
+    subpathExport !== undefined
+      ? (subpathExport as Record<string, unknown>)[subpath]
+      : undefined;
   const exportTarget: string | undefined =
-    typeof subpathExport === "string"
-      ? subpathExport
-      : ((subpathExport as { import?: string } | undefined)?.import ??
-        (subpathExport as { default?: string } | undefined)?.default);
+    typeof subpathValue === "string"
+      ? subpathValue
+      : ((subpathValue as { import?: string } | undefined)?.import ??
+        (subpathValue as { default?: string } | undefined)?.default);
   if (!exportTarget) {
     throw new Error(
       `[resolveBuiltinPluginSpecifier] No export found for ${subpath} in ${pkgName}`,
