@@ -15,6 +15,7 @@ import {
 } from "./types";
 
 type DialogMode = "saveAndPublish" | "saveAndActivate" | "saveOnly" | null;
+type PasswordDialogMode = "enable" | "change";
 
 export interface FormPublishMenuProps {
   formId: string;
@@ -26,17 +27,23 @@ export interface FormPublishMenuProps {
 interface PublishMenuState {
   dialogMode: DialogMode;
   showResetDialog: boolean;
+  showPasswordDialog: boolean;
+  passwordDialogMode: PasswordDialogMode | null;
   selectedSnapshotId: string | null;
   passwordInput: string;
   passwordHintInput: string;
   passwordDirty: boolean;
   snapshotSaveError: string | null;
+  passwordDialogError: string | null;
 }
 
 type PublishMenuAction =
   | { type: "open-save-dialog"; mode: Exclude<DialogMode, null> }
   | { type: "close-save-dialog" }
   | { type: "set-reset-dialog"; open: boolean }
+  | { type: "open-password-dialog"; mode: PasswordDialogMode }
+  | { type: "close-password-dialog"; hintInput: string }
+  | { type: "set-password-dialog-error"; error: string | null }
   | { type: "select-snapshot"; snapshotId: string | null }
   | { type: "set-password-input"; value: string }
   | { type: "set-password-hint"; value: string }
@@ -47,11 +54,14 @@ type PublishMenuAction =
 const initialPublishMenuState: PublishMenuState = {
   dialogMode: null,
   showResetDialog: false,
+  showPasswordDialog: false,
+  passwordDialogMode: null,
   selectedSnapshotId: null,
   passwordInput: "",
   passwordHintInput: "",
   passwordDirty: false,
   snapshotSaveError: null,
+  passwordDialogError: null,
 };
 
 const publishMenuReducer = (
@@ -65,6 +75,25 @@ const publishMenuReducer = (
       return { ...state, dialogMode: null, snapshotSaveError: null };
     case "set-reset-dialog":
       return { ...state, showResetDialog: action.open };
+    case "open-password-dialog":
+      return {
+        ...state,
+        showPasswordDialog: true,
+        passwordDialogMode: action.mode,
+        passwordDialogError: null,
+      };
+    case "close-password-dialog":
+      return {
+        ...state,
+        showPasswordDialog: false,
+        passwordDialogError: null,
+        passwordDialogMode: null,
+        passwordInput: "",
+        passwordHintInput: action.hintInput,
+        passwordDirty: false,
+      };
+    case "set-password-dialog-error":
+      return { ...state, passwordDialogError: action.error };
     case "select-snapshot":
       return { ...state, selectedSnapshotId: action.snapshotId };
     case "set-password-input":
@@ -72,12 +101,14 @@ const publishMenuReducer = (
         ...state,
         passwordInput: action.value,
         passwordDirty: true,
+        passwordDialogError: null,
       };
     case "set-password-hint":
       return {
         ...state,
         passwordHintInput: action.value,
         passwordDirty: true,
+        passwordDialogError: null,
       };
     case "sync-password-hint":
       if (state.passwordDirty) {
@@ -124,11 +155,13 @@ export function useFormPublishMenuModel({
   const {
     dialogMode,
     showResetDialog,
+    showPasswordDialog,
+    passwordDialogMode,
     selectedSnapshotId,
     passwordInput,
     passwordHintInput,
-    passwordDirty,
     snapshotSaveError,
+    passwordDialogError,
   } = state;
 
   const {
@@ -196,9 +229,6 @@ export function useFormPublishMenuModel({
     hasPassword: passwordProtection.hasPassword,
     updateState: isPasswordUpdating ? "processing" : "idle",
     publishActionState: isProcessing ? "processing" : "idle",
-    input: passwordInput,
-    hintInput: passwordHintInput,
-    isDirty: passwordDirty,
   };
 
   const historyState: VersionHistorySectionState = {
@@ -347,31 +377,21 @@ export function useFormPublishMenuModel({
   );
 
   const handlePasswordToggle = (checked: boolean) => {
-    if (checked && !passwordProtection.hasPassword && !passwordInput) {
-      toast.error("パスワードを設定してから有効にしてください");
+    // Enabling is handled by the "設定して有効化" button.
+    // The switch is only used for immediate disable here.
+    if (checked) {
       return;
     }
 
-    const extraFields =
-      checked && !passwordProtection.hasPassword
-        ? { password: passwordInput, password_hint: passwordHintInput }
-        : {};
-
     updatePasswordProtection.mutate(
-      { enabled: checked, ...extraFields },
+      { enabled: false },
       {
         onSuccess: () => {
-          toast.success(
-            checked
-              ? "パスワード保護を有効にしました"
-              : "パスワード保護を無効にしました",
-          );
-          if (checked && !passwordProtection.hasPassword) {
-            dispatch({
-              type: "complete-password-edit",
-              hintInput: passwordHintInput,
-            });
-          }
+          toast.success("パスワード保護を無効にしました");
+          dispatch({
+            type: "complete-password-edit",
+            hintInput: passwordProtection.password_hint ?? "",
+          });
         },
         onError: (error) => {
           toast.error(
@@ -384,32 +404,82 @@ export function useFormPublishMenuModel({
     );
   };
 
-  const handlePasswordSave = () => {
-    if (!passwordInput && !passwordDirty) return;
+  const handlePasswordDialogOpen = (mode: PasswordDialogMode) => {
+    dispatch({ type: "open-password-dialog", mode });
+  };
 
-    updatePasswordProtection.mutate(
-      {
-        enabled: passwordProtection.enabled,
-        password: passwordInput || undefined,
-        password_hint: passwordHintInput,
+  const handlePasswordDialogClose = () => {
+    dispatch({
+      type: "close-password-dialog",
+      hintInput: passwordProtection.password_hint ?? "",
+    });
+  };
+
+  const handlePasswordDialogConfirm = () => {
+    const action = passwordDialogMode ?? "change";
+    const enabled = action === "enable" ? true : passwordProtection.enabled;
+    const hasNewPassword = passwordInput.length > 0;
+    const currentHint = passwordProtection.password_hint ?? "";
+    const hintUpdated = passwordHintInput !== currentHint;
+    const payload = {
+      enabled,
+      password: hasNewPassword ? passwordInput : undefined,
+      ...(hintUpdated ? { password_hint: passwordHintInput } : {}),
+    };
+
+    if (enabled && !passwordProtection.hasPassword && !hasNewPassword) {
+      const message = "パスワードを設定してから有効にしてください";
+      dispatch({ type: "set-password-dialog-error", error: message });
+      toast.error(message);
+      return;
+    }
+
+    if (hasNewPassword && passwordInput.length < 8) {
+      const message = "パスワードは8文字以上で入力してください";
+      dispatch({ type: "set-password-dialog-error", error: message });
+      toast.error(message);
+      return;
+    }
+
+    if (!hasNewPassword && !hintUpdated && action !== "enable") {
+      dispatch({
+        type: "close-password-dialog",
+        hintInput: passwordProtection.password_hint ?? "",
+      });
+      return;
+    }
+
+    updatePasswordProtection.mutate(payload, {
+      onSuccess: () => {
+        toast.success(
+          action === "enable"
+            ? "パスワード保護を有効にしました"
+            : "パスワードを更新しました",
+        );
+        dispatch({
+          type: "close-password-dialog",
+          hintInput: passwordHintInput,
+        });
       },
-      {
-        onSuccess: () => {
-          toast.success("パスワードを更新しました");
-          dispatch({
-            type: "complete-password-edit",
-            hintInput: passwordHintInput,
-          });
-        },
-        onError: (error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "パスワードの更新に失敗しました",
-          );
-        },
+      onError: (error) => {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "パスワードの更新に失敗しました";
+        dispatch({
+          type: "set-password-dialog-error",
+          error: message,
+        });
+        toast.error(message);
       },
-    );
+    });
+  };
+
+  const handlePasswordDialogOpenChange = (open: boolean) => {
+    if (!open) {
+      handlePasswordDialogClose();
+      return;
+    }
   };
 
   const handlePublishChanges = useCallback(() => {
@@ -427,11 +497,11 @@ export function useFormPublishMenuModel({
     dispatch({ type: "set-reset-dialog", open: true });
   }, []);
 
-  const handlePasswordChange = useCallback((value: string) => {
+  const handlePasswordInputChange = useCallback((value: string) => {
     dispatch({ type: "set-password-input", value });
   }, []);
 
-  const handleHintChange = useCallback((value: string) => {
+  const handlePasswordHintChange = useCallback((value: string) => {
     dispatch({ type: "set-password-hint", value });
   }, []);
 
@@ -480,10 +550,13 @@ export function useFormPublishMenuModel({
     formId,
     handleActivateSnapshot,
     handleDialogConfirmClick,
-    handleHintChange,
+    handlePasswordHintChange,
     handleOpenResetDialog,
-    handlePasswordChange,
-    handlePasswordSave,
+    handlePasswordInputChange,
+    handlePasswordDialogOpen,
+    handlePasswordDialogConfirm,
+    handlePasswordDialogOpenChange,
+    handlePasswordDialogClose,
     handlePasswordToggle,
     handlePublishChanges,
     handlePublishFromHistory,
@@ -495,11 +568,17 @@ export function useFormPublishMenuModel({
     handleSaveOnly,
     handleSelectSnapshot,
     hasUnpublishedChanges,
+    isPasswordUpdating,
     isArchived,
     isProcessing,
     lastPublishedVersion,
-    publishSectionState,
+    passwordHintInput,
+    passwordInput,
     passwordState,
+    publishSectionState,
+    passwordDialogError,
+    showPasswordDialog,
+    passwordDialogMode,
     triggerState,
     historyState,
     showResetDialog,
