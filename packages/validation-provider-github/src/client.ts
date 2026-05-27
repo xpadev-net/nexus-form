@@ -1,5 +1,6 @@
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
+import { z } from "zod";
 import { getGitHubApiTimeoutMs } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 import {
@@ -10,6 +11,20 @@ import {
   isGitHubUserNotFoundError,
   parseGitHubError,
 } from "./utils";
+
+const GitHubApiUserSchema = z.object({
+  login: z.string().min(1),
+  id: z.number().int().positive(),
+  name: z.string().nullable(),
+  avatar_url: z.string().url().nullable(),
+  html_url: z.string().url(),
+  bio: z.string().nullable(),
+  public_repos: z.number().int().nonnegative(),
+  followers: z.number().int().nonnegative(),
+  following: z.number().int().nonnegative(),
+  created_at: z.string().min(1),
+  updated_at: z.string().min(1),
+});
 
 export interface GitHubUserInfo {
   username: string;
@@ -86,18 +101,28 @@ export class GitHubApiClient {
     try {
       const { data } = await this.octokit.users.getByUsername({ username });
 
+      const parsed = GitHubApiUserSchema.safeParse(data);
+      if (!parsed.success) {
+        throw new GitHubProviderError(
+          "Invalid GitHub API response schema",
+          GitHubErrorCode.GITHUB_API_ERROR,
+          undefined,
+          undefined,
+        );
+      }
+
       return {
-        username: data.login,
-        userId: data.id,
-        displayName: data.name ?? null,
-        avatarUrl: data.avatar_url ?? null,
-        profileUrl: data.html_url,
-        bio: data.bio ?? null,
-        publicRepos: data.public_repos ?? 0,
-        followers: data.followers ?? 0,
-        following: data.following ?? 0,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
+        username: parsed.data.login,
+        userId: parsed.data.id,
+        displayName: parsed.data.name,
+        avatarUrl: parsed.data.avatar_url,
+        profileUrl: parsed.data.html_url,
+        bio: parsed.data.bio,
+        publicRepos: parsed.data.public_repos,
+        followers: parsed.data.followers,
+        following: parsed.data.following,
+        createdAt: parsed.data.created_at,
+        updatedAt: parsed.data.updated_at,
       };
     } catch (error) {
       if (isGitHubUserNotFoundError(error)) return null;

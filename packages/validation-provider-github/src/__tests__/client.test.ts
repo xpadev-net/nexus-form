@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createGitHubTimeoutFetch,
   GitHubApiClient,
   getGitHubClient,
 } from "../client";
+import { GitHubProviderError } from "../utils";
 
 const { createAppAuthMock, octokitConstructorMock } = vi.hoisted(() => ({
   createAppAuthMock: vi.fn(),
@@ -22,10 +23,86 @@ vi.mock("@octokit/rest", () => ({
   Octokit: octokitConstructorMock,
 }));
 
+let client: GitHubApiClient;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  client = new GitHubApiClient();
+});
+
 afterEach(() => {
   delete process.env.GITHUB_API_TIMEOUT_MS;
   octokitConstructorMock.mockClear();
   createAppAuthMock.mockClear();
+});
+
+describe("GitHubApiClient.getUserByUsername", () => {
+  const validResponse = {
+    login: "octocat",
+    id: 1,
+    name: "Octocat",
+    avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+    html_url: "https://github.com/octocat",
+    bio: "A cat",
+    public_repos: 8,
+    followers: 5000,
+    following: 9,
+    created_at: "2011-01-25T18:44:36Z",
+    updated_at: "2023-01-01T00:00:00Z",
+  };
+
+  it("returns GitHubUserInfo on valid response", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    mockGetByUsername.mockResolvedValue({ data: validResponse });
+
+    const result = await client.getUserByUsername("octocat");
+
+    expect(result).not.toBeNull();
+    expect(result?.username).toBe("octocat");
+    expect(result?.userId).toBe(1);
+    expect(result?.profileUrl).toBe("https://github.com/octocat");
+  });
+
+  it("throws GitHubProviderError(GITHUB_API_ERROR) on malformed response (missing login)", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    const { login: _, ...incomplete } = validResponse;
+    mockGetByUsername.mockResolvedValue({ data: incomplete });
+
+    await expect(client.getUserByUsername("octocat")).rejects.toThrow(
+      GitHubProviderError,
+    );
+  });
+
+  it("throws GitHubProviderError(GITHUB_API_ERROR) on malformed response (non-numeric id)", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    mockGetByUsername.mockResolvedValue({
+      data: { ...validResponse, id: "not-a-number" },
+    });
+
+    await expect(client.getUserByUsername("octocat")).rejects.toThrow(
+      GitHubProviderError,
+    );
+  });
+
+  it("returns null on user not found (404)", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    const notFoundError = Object.assign(new Error("Not Found"), {
+      status: 404,
+    });
+    mockGetByUsername.mockRejectedValue(notFoundError);
+
+    const result = await client.getUserByUsername("nonexistent");
+
+    expect(result).toBeNull();
+  });
 });
 
 describe("GitHubApiClient timeout configuration", () => {
