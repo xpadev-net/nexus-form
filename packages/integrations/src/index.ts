@@ -2,6 +2,7 @@ export {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   DEFAULT_VALIDATION_PLUGINS_DIR,
   getValidationPluginsDir,
+  resolveBuiltinPluginSpecifier,
 } from "./plugin-bootstrap";
 export {
   type ValidationProvider,

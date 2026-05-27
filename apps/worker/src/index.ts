@@ -1,9 +1,9 @@
 import "./load-env";
-import { fileURLToPath } from "node:url";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
   providerRegistry,
+  resolveBuiltinPluginSpecifier,
   startupPlugins,
 } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
@@ -55,8 +55,8 @@ async function main() {
   assertGoogleOAuthEncryptionKeyConfigured();
   validateWorkerQueuesEnv(process.env.WORKER_QUEUES);
 
-  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((specifier) =>
-    fileURLToPath(import.meta.resolve(specifier)),
+  const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
+    resolveBuiltinPluginSpecifier,
   );
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
   let pluginDriftGuardHandle: Awaited<ReturnType<typeof startupPlugins>>;
