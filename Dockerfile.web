@@ -32,7 +32,6 @@ RUN pnpm --filter @nexus-form/shared build && \
 # ── Serve with nginx (non-root) ──
 FROM nginxinc/nginx-unprivileged:alpine AS runner
 USER root
-RUN apk add --no-cache jq
 
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
 COPY ./apps/web/docker-entrypoint.sh /docker-entrypoint.sh
