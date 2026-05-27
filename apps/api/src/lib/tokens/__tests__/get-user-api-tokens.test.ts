@@ -181,14 +181,11 @@ describe("getUserApiTokens", () => {
     expect(pageWhereCondition).toContain(parseableCondition);
   });
 
-  it("excludes JSON null array elements from the SQL pagination population", () => {
+  it("applies JSON array shape checks in SQL pagination filter", () => {
     const [conditionSql] = drizzleMocks.capturedSql;
 
-    expect(conditionSql).toContain(
-      "JSON_TYPE(api_token_scope_values.scope_value) IS NULL",
-    );
-    expect(conditionSql).toContain(
-      "JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL",
-    );
+    expect(conditionSql).toContain("JSON_TYPE() = 'ARRAY'");
+    expect(conditionSql).toContain("JSON_LENGTH() > 0");
+    expect(conditionSql).toContain("JSON_TYPE() = 'ARRAY'");
   });
 });
