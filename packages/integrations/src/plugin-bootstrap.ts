@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Built-in validation provider plugin specifiers loaded during startup.
@@ -17,29 +17,43 @@ export const BUILTIN_VALIDATION_PLUGIN_SPECIFIERS = [
  *
  * tsx's ESM loader hook may map `import.meta.resolve()` results from .mjs
  * to .ts or even to source files under `src/`, producing a path that differs
- * from what plain Node.js returns.  This function bypasses the ESM loader by
- * using CJS module resolution (`createRequire`) to find the package root,
- * then resolves the target file via the package's `exports` map directly.
+ * from what plain Node.js returns.  This function resolves the package
+ * entry point (the `.` export, which IS defined in the exports map), then
+ * walks up the directory tree to find `package.json` and reads the exports
+ * map to resolve the target file from there.
  */
 export function resolveBuiltinPluginSpecifier(specifier: string): string {
   const parts = specifier.split("/");
   const pkgName = specifier.startsWith("@")
-    ? `${parts[0]}/${parts[1]}`
-    : parts[0];
+    ? `${parts[0]}/${parts[1]!}`
+    : parts[0]!;
   const subpath =
     "/" +
     (specifier.startsWith("@")
       ? parts.slice(2).join("/")
       : parts.slice(1).join("/"));
 
-  const require = createRequire(import.meta.url);
-  const pkgJsonPath = require.resolve(`${pkgName}/package.json`);
-  const pkgRoot = dirname(pkgJsonPath);
+  const entryUrl = import.meta.resolve(pkgName);
+  const entryPath = fileURLToPath(entryUrl);
 
-  const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf-8")) as {
+  let pkgRoot = dirname(entryPath);
+  for (;;) {
+    if (existsSync(join(pkgRoot, "package.json"))) break;
+    const parent = dirname(pkgRoot);
+    if (parent === pkgRoot) {
+      throw new Error(
+        `[resolveBuiltinPluginSpecifier] Cannot find package.json for ${pkgName} (resolved: ${entryPath})`,
+      );
+    }
+    pkgRoot = parent;
+  }
+
+  const pkg = JSON.parse(
+    readFileSync(join(pkgRoot, "package.json"), "utf-8"),
+  ) as {
     exports?: Record<string, { import?: string; default?: string }>;
   };
-  const exportTarget =
+  const exportTarget: string | undefined =
     pkg.exports?.[subpath]?.import ?? pkg.exports?.[subpath]?.default;
   if (!exportTarget) {
     throw new Error(
