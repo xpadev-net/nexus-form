@@ -240,7 +240,7 @@ export async function publishSnapshot(
     assertSnapshotQuestionTitles(currentPlateContent);
 
     const questionCount = extractQuestionsFromPlateContent(
-      parsePlateNodes(currentPlateContent) as unknown[],
+      parsePlateNodes(currentPlateContent),
     ).length;
     if (questionCount === 0) {
       throw new FormValidationError(
