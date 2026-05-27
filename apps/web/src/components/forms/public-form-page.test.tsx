@@ -348,7 +348,7 @@ describe("PublicFormPage password protection", () => {
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v4Token: "telemetry-token" },
-        fingerprints: expect.arrayContaining(Array.from({ length: 200 })),
+        fingerprints: expect.any(Array),
       }),
     });
 
@@ -357,6 +357,11 @@ describe("PublicFormPage password protection", () => {
       (submitArgs?.json.fingerprints as { name: string; value_hash: string }[])
         .length,
     ).toBe(200);
+    expect(
+      (
+        submitArgs?.json.fingerprints as { name: string; value_hash: string }[]
+      ).every((fingerprint) => Boolean(fingerprint.value_hash)),
+    ).toBe(true);
 
     await act(async () => {
       root.unmount();
