@@ -4,6 +4,7 @@ import {
   GitHubApiClient,
   getGitHubClient,
 } from "../client";
+import { GitHubErrorCode } from "../error-codes";
 import { GitHubProviderError } from "../utils";
 
 const { createAppAuthMock, octokitConstructorMock } = vi.hoisted(() => ({
@@ -32,8 +33,6 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.GITHUB_API_TIMEOUT_MS;
-  octokitConstructorMock.mockClear();
-  createAppAuthMock.mockClear();
 });
 
 describe("GitHubApiClient.getUserByUsername", () => {
@@ -72,8 +71,12 @@ describe("GitHubApiClient.getUserByUsername", () => {
     const { login: _, ...incomplete } = validResponse;
     mockGetByUsername.mockResolvedValue({ data: incomplete });
 
-    await expect(client.getUserByUsername("octocat")).rejects.toThrow(
-      GitHubProviderError,
+    const err = await client
+      .getUserByUsername("octocat")
+      .catch((e) => e as GitHubProviderError);
+    expect(err).toBeInstanceOf(GitHubProviderError);
+    expect((err as GitHubProviderError).code).toBe(
+      GitHubErrorCode.GITHUB_API_ERROR,
     );
   });
 
@@ -85,8 +88,12 @@ describe("GitHubApiClient.getUserByUsername", () => {
       data: { ...validResponse, id: "not-a-number" },
     });
 
-    await expect(client.getUserByUsername("octocat")).rejects.toThrow(
-      GitHubProviderError,
+    const err = await client
+      .getUserByUsername("octocat")
+      .catch((e) => e as GitHubProviderError);
+    expect(err).toBeInstanceOf(GitHubProviderError);
+    expect((err as GitHubProviderError).code).toBe(
+      GitHubErrorCode.GITHUB_API_ERROR,
     );
   });
 

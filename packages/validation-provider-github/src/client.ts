@@ -126,6 +126,7 @@ export class GitHubApiClient {
       };
     } catch (error) {
       if (isGitHubUserNotFoundError(error)) return null;
+      if (error instanceof GitHubProviderError) throw error;
 
       const errorCode = getGitHubErrorCode(error);
       const errorMessage = parseGitHubError(error);
