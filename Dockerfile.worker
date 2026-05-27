@@ -22,8 +22,6 @@ RUN pnpm install --frozen-lockfile --prod=false
 
 # ── Production ──
 FROM deps AS prod
-ARG GIT_HASH
-ENV GIT_HASH=${GIT_HASH}
 ENV NODE_ENV=production
 
 # Copy source code
@@ -59,6 +57,9 @@ RUN if [ -d ci-prebuilt/packages ]; then \
     fi
 
 RUN mkdir -p /app/plugins/validation && chown -R node:node /app/plugins
+
+ARG GIT_HASH
+ENV GIT_HASH=${GIT_HASH}
 
 USER node
 
