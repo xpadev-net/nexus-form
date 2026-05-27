@@ -102,4 +102,4 @@ ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
 USER 65532:65532
 
-ENTRYPOINT ["node", "/app/start.mjs"]
+ENTRYPOINT ["/nodejs/bin/node", "/app/start.mjs"]
