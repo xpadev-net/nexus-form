@@ -21,11 +21,9 @@ spec:
       containers:
       - name: discord-validation-worker
         # Use worker-specific image built from Dockerfile.worker.
-        # src/index.ts selects this queue via WORKER_QUEUES.
+        # dist/index.mjs selects this queue via WORKER_QUEUES.
         image: nexus-form-worker:latest
         imagePullPolicy: Always
-        command: ["pnpm"]
-        args: ["--filter", "@nexus-form/worker", "exec", "tsx", "src/index.ts"]
         env:
         - name: WORKER_QUEUES
           value: "discord-validation"
