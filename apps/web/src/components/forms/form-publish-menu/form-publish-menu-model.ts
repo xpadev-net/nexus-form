@@ -385,7 +385,7 @@ export function useFormPublishMenuModel({
             toast.success("パスワード保護を無効にしました");
             dispatch({
               type: "complete-password-edit",
-              hintInput: passwordHintInput,
+              hintInput: passwordProtection.password_hint ?? "",
             });
           },
           onError: (error) => {

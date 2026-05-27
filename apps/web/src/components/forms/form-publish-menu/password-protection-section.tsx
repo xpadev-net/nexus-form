@@ -30,10 +30,8 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
     ? "パスワードを編集"
     : "パスワードを設定";
   const statusLabel = state.isEnabled ? "有効" : "無効";
-  const description = state.hasPassword
-    ? state.isEnabled
-      ? "保存されたパスワードを使用して保護中です"
-      : "スイッチをONにして有効化してください"
+  const description = state.isEnabled
+    ? "保存されたパスワードを使用して保護中です"
     : "有効化のため、パスワードを入力してください";
 
   return (
