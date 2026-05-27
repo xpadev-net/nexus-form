@@ -1,4 +1,4 @@
-FROM node:24-alpine AS base
+FROM node:24-debian AS base
 WORKDIR /app
 RUN corepack enable pnpm
 
@@ -23,7 +23,7 @@ RUN pnpm install --frozen-lockfile --prod=false
 # ── Production ──
 FROM deps AS runtime-deps
 
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @nexus-form/worker
+RUN pnpm install --frozen-lockfile --prod --filter @nexus-form/worker
 
 FROM deps AS prod
 ENV NODE_ENV=production
