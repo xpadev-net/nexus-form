@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   formLimit: vi.fn(),
   currentOwnerLimit: vi.fn(),
   newOwnerLimit: vi.fn(),
+  userExistsLimit: vi.fn(),
   insertValues: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@nexus-form/database", () => ({
               where: vi.fn(() => ({ limit: mocks.newOwnerLimit })),
             })),
           }),
+        // after reorder: call 3 = user check, call 4 = new owner permission
         insert: vi.fn(() => ({
           values: mocks.insertValues,
         })),
@@ -97,5 +99,14 @@ describe("transferOwnership integration ownership", () => {
       userId: "new-owner-user-id",
     });
     expect(mocks.eq).toHaveBeenCalledWith("formIntegration.formId", "form-1");
+  });
+
+  it("throws when the target user does not exist", async () => {
+    // Make the 3rd select (user existence check) return empty
+    mocks.newOwnerLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      transferOwnership("form-1", "nonexistent-user", "old-owner-user-id"),
+    ).rejects.toThrow("New owner user not found");
   });
 });

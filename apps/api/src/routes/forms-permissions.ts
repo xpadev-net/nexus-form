@@ -287,7 +287,7 @@ export const formsPermissionsRouter = createHonoApp()
       } catch (error) {
         if (
           error instanceof Error &&
-          error.message === "New owner user not found"
+          (error as { code?: string }).code === "NEW_OWNER_NOT_FOUND"
         ) {
           return c.json(errorResponse("New owner user not found"), 404);
         }
