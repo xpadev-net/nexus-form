@@ -70,7 +70,7 @@ export const PasswordProtectionDialog: FC<PasswordProtectionDialogProps> = ({
               onChange={(e) => onPasswordChange(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              8文字以上を推奨しています
+              パスワードを入力する場合は8文字以上で入力してください
             </p>
           </div>
 
