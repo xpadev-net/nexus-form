@@ -16,6 +16,7 @@ import {
   formValidationRule,
   formValidationRuleBlock,
 } from "@nexus-form/database/schema";
+import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -271,6 +272,22 @@ export const formsDetailRouter = createHonoApp()
         errorResponse(
           "公開版のスナップショットが設定されていないため公開できません",
         ),
+        400,
+      );
+    }
+    const publishedQuestions = extractQuestionsFromPlateContent(
+      (() => {
+        try {
+          const parsed = JSON.parse(snapshot.plateContent);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      })(),
+    );
+    if (publishedQuestions.length === 0) {
+      return c.json(
+        errorResponse("質問がありません。質問を追加してから公開してください"),
         400,
       );
     }

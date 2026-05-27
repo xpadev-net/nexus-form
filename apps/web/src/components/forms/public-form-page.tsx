@@ -174,6 +174,9 @@ function PublicFormPageInner() {
           );
         }
         const allQuestions = extractQuestionsFromPlateContent(parsedContent);
+        if (allQuestions.length === 0) {
+          throw new Error("このフォームには質問がありません。");
+        }
         const visitedIds = new Set(data.visitedQuestionIds);
         const submittableQuestions = allQuestions.filter(
           (q) => visitedIds.has(q.blockId) && q.type !== "section_separator",

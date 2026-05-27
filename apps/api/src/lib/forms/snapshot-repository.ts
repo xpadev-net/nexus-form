@@ -1,6 +1,7 @@
 import { db } from "@nexus-form/database";
 import { form, formSnapshot, formStructure } from "@nexus-form/database/schema";
 import {
+  extractQuestionsFromPlateContent,
   extractTitleFromChildren,
   fromPlateQuestionType,
   isPlateQuestionType,
@@ -237,6 +238,15 @@ export async function publishSnapshot(
 
     const currentPlateContent = formData.plateContent ?? "[]";
     assertSnapshotQuestionTitles(currentPlateContent);
+
+    const questionCount = extractQuestionsFromPlateContent(
+      parsePlateNodes(currentPlateContent) as unknown[],
+    ).length;
+    if (questionCount === 0) {
+      throw new FormValidationError(
+        "質問がありません。質問を追加してから保存してください",
+      );
+    }
 
     const currentValidationRulesJson =
       await serializeFormValidationRules(formId);

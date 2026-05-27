@@ -197,8 +197,8 @@ export function FormBody({
           </p>
         )}
 
-        {/* hCaptcha 等・ナビゲーション: コンテンツがある場合のみ表示 */}
-        {parsedContent.length > 0 && (
+        {/* 質問がある場合のみ送信・ナビゲーションを表示 */}
+        {allQuestions.length > 0 && (
           <>
             {showSubmitArea && preSubmitSlot}
 
@@ -229,6 +229,13 @@ export function FormBody({
               </Button>
             )}
           </>
+        )}
+
+        {/* コンテンツはあるが質問がない場合のメッセージ */}
+        {parsedContent.length > 0 && allQuestions.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            フォームに質問がありません。
+          </p>
         )}
       </form>
 
