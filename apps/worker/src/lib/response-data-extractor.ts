@@ -208,7 +208,11 @@ export function safeParseResponseData(
     return normalized;
   }
 
-  if (rawData === null || typeof rawData !== "object") {
+  if (
+    rawData === null ||
+    typeof rawData !== "object" ||
+    Array.isArray(rawData)
+  ) {
     console.warn(
       `[response-data] Skipping response ${responseId}: payload is not an object`,
     );
