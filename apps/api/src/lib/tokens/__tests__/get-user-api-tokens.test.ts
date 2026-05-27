@@ -1,3 +1,4 @@
+import { API_TOKEN_FORM_IDS_MAX } from "@nexus-form/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMocks = vi.hoisted(() => ({
@@ -181,14 +182,18 @@ describe("getUserApiTokens", () => {
     expect(pageWhereCondition).toContain(parseableCondition);
   });
 
-  it("excludes JSON null array elements from the SQL pagination population", () => {
-    const [conditionSql] = drizzleMocks.capturedSql;
+  it("passes JSON schema strings as SQL parameters", () => {
+    const conditionSql = drizzleMocks.capturedSql[0] ?? "";
+    const conditionValues = drizzleMocks.capturedConditions[0]?.values ?? [];
+    const schemaValues = conditionValues.filter(
+      (value): value is string =>
+        typeof value === "string" && value.includes('"type":"array"'),
+    );
 
-    expect(conditionSql).toContain(
-      "JSON_TYPE(api_token_scope_values.scope_value) IS NULL",
-    );
-    expect(conditionSql).toContain(
-      "JSON_TYPE(api_token_form_id_values.form_id_value) IS NULL",
-    );
+    expect(conditionSql).toContain("JSON_SCHEMA_VALID(");
+    expect(schemaValues).toHaveLength(2);
+    expect(schemaValues[0]).toContain('"enum":["read","write","admin"]');
+    expect(schemaValues[1]).toContain(`"maxItems":${API_TOKEN_FORM_IDS_MAX}`);
+    expect(schemaValues[1]).toContain('"minLength":1');
   });
 });
