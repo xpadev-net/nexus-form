@@ -61,7 +61,7 @@ RUN mkdir -p /app/plugins/validation
 # ── Hono API server ──
 FROM deps AS runtime-deps
 
-RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @nexus-form/api
+RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
 
 FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
 WORKDIR /app
@@ -77,7 +77,7 @@ COPY --from=deps /app/packages/validation-provider-github/package.json ./package
 COPY --from=deps /app/packages/validation-provider-twitter/package.json ./packages/validation-provider-twitter/
 
 # Copy node_modules trees
-COPY --from=runtime-deps /app/node_modules ./node_modules
+COPY --from=runtime-deps /tmp/api-deploy/node_modules ./node_modules
 
 # Copy built artifacts
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
