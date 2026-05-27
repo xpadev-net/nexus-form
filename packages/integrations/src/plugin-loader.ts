@@ -139,7 +139,7 @@ export async function loadPluginFromFile(
   // TypeScript source files. The API (plain Node.js) resolves the same
   // specifier to .mjs via the package exports map. Normalise to .mjs so both
   // runtimes hash and load the identical file for consistent drift detection.
-  const pluginFile = path.replace(/\.ts$/, ".mjs");
+  const pluginFile = path.replace(/\.m?ts$/, ".mjs");
 
   const verifiedSource = await readPluginSource(pluginFile);
   if (!verifiedSource) {
