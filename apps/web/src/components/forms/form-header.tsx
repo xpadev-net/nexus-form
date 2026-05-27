@@ -33,6 +33,7 @@ export function FormHeader({
 }: FormHeaderProps) {
   const [localTitle, setLocalTitle] = useState(title);
   const [isFocused, setIsFocused] = useState(false);
+  const [tooltipOpen, setTooltipOpen] = useState(false);
   const isFocusedRef = useRef(false);
   // ref で最新値を保持することで useCallback/useEffect の deps から除外し、不要な再生成を防ぐ
   const titleRef = useRef(title);
@@ -122,7 +123,9 @@ export function FormHeader({
     <div className="mb-4 flex items-center justify-between gap-2">
       <div className="min-w-0 flex-1">
         {onTitleBlur ? (
-          <Tooltip open={isFocused || isTitleSaving ? false : undefined}>
+          <Tooltip
+            open={isFocused || isTitleSaving ? false : tooltipOpen}
+            onOpenChange={setTooltipOpen}>
             <TooltipTrigger asChild>
               <div className="relative">
                 {/* sr-only heading でスクリーンリーダーのヘッディングナビゲーションを保持 */}
