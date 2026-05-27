@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuth } from "@/hooks/auth/use-auth";
 import { authClient } from "@/lib/auth-client";
 
+const FRONTEND_BASE_URL_FOR_TEST = "https://frontend.test.example.com";
+
+vi.mock("@/lib/runtime-config", () => ({
+  getRuntimeConfigValue: vi.fn(() => FRONTEND_BASE_URL_FOR_TEST),
+}));
+
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     useSession: vi.fn(() => ({ data: null, isPending: false })),
@@ -26,7 +32,7 @@ describe("useAuth", () => {
 
     expect(signInSocialMock).toHaveBeenCalledWith({
       provider: "discord",
-      callbackURL: "http://localhost:3000/forms/form-1/edit?tab=responses",
+      callbackURL: `${FRONTEND_BASE_URL_FOR_TEST}/forms/form-1/edit?tab=responses`,
     });
   });
 
@@ -37,7 +43,7 @@ describe("useAuth", () => {
 
     expect(signInSocialMock).toHaveBeenCalledWith({
       provider: "discord",
-      callbackURL: "http://localhost:3000/",
+      callbackURL: `${FRONTEND_BASE_URL_FOR_TEST}/`,
     });
   });
 });
