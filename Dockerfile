@@ -56,9 +56,15 @@ RUN if [ -d ci-prebuilt/packages ]; then \
 
 # Create a flat node_modules for the Drizzle migration script
 RUN pnpm --filter @nexus-form/database deploy --prod /tmp/db-deploy
+RUN mkdir -p /app/plugins/validation
 
 # ── Hono API server ──
-FROM base AS runner
+FROM deps AS runtime-deps
+
+RUN pnpm install --frozen-lockfile --prod --ignore-scripts --filter @nexus-form/api
+
+FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
+WORKDIR /app
 
 # Copy workspace structure for pnpm to resolve workspace: links
 COPY --from=deps /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
@@ -71,44 +77,29 @@ COPY --from=deps /app/packages/validation-provider-github/package.json ./package
 COPY --from=deps /app/packages/validation-provider-twitter/package.json ./packages/validation-provider-twitter/
 
 # Copy node_modules trees
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/database/node_modules ./packages/database/node_modules
-COPY --from=deps /app/packages/integrations/node_modules ./packages/integrations/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=runtime-deps /app/node_modules ./node_modules
 
 # Copy built artifacts
-COPY --from=builder --chown=node:node /app/apps/api/dist ./apps/api/dist
-COPY --from=builder --chown=node:node /app/packages/database/dist ./packages/database/dist
-COPY --from=builder --chown=node:node /app/packages/integrations/dist ./packages/integrations/dist
-COPY --from=builder --chown=node:node /app/packages/shared/dist ./packages/shared/dist
-COPY --from=builder --chown=node:node /app/packages/validation-provider-discord/dist ./packages/validation-provider-discord/dist
-COPY --from=builder --chown=node:node /app/packages/validation-provider-github/dist ./packages/validation-provider-github/dist
-COPY --from=builder --chown=node:node /app/packages/validation-provider-twitter/dist ./packages/validation-provider-twitter/dist
-
-# Copy Vite SPA dist so the API can optionally serve static files
-COPY --from=builder --chown=node:node /app/apps/web/dist ./apps/web/dist
+COPY --from=builder /app/apps/api/dist ./apps/api/dist
+COPY --from=builder /app/packages/database/dist ./packages/database/dist
+COPY --from=builder /app/packages/integrations/dist ./packages/integrations/dist
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/validation-provider-discord/dist ./packages/validation-provider-discord/dist
+COPY --from=builder /app/packages/validation-provider-github/dist ./packages/validation-provider-github/dist
+COPY --from=builder /app/packages/validation-provider-twitter/dist ./packages/validation-provider-twitter/dist
 
 # Copy Drizzle migration script and dependencies to /migration/
-COPY --from=builder --chown=node:node /tmp/db-deploy/node_modules /migration/node_modules
-COPY --from=builder --chown=node:node /app/packages/database/drizzle /migration/drizzle
-COPY --chown=node:node ./scripts/run-migrations.mjs /migration/run-migrations.mjs
+COPY --from=builder /tmp/db-deploy/node_modules /migration/node_modules
+COPY --from=builder /app/packages/database/drizzle /migration/drizzle
+COPY ./scripts/run-migrations.mjs /migration/run-migrations.mjs
+COPY --from=builder --chown=65532:65532 /app/plugins/validation /app/plugins/validation
+COPY --from=builder --chown=65532:65532 /app/apps/web/dist ./apps/web/dist
 
-COPY ./docker/.env.placeholder ./.env
-COPY ./docker/env-replacer.sh ./
-COPY ./start.sh ./
-
-RUN chmod +x ./env-replacer.sh && \
-    chmod +x ./start.sh && \
-    mv .env .env.replacer && \
-    mkdir -p /app/plugins/validation && \
-    chown -R node:node /app
+COPY ./docker/start.mjs /app/start.mjs
+ENV NODE_PATH=/app/node_modules
 
 ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
+USER 65532:65532
 
-USER node
-
-ENTRYPOINT [ "/app/env-replacer.sh" ]
-
-CMD ["./start.sh"]
+ENTRYPOINT ["node", "/app/start.mjs"]
