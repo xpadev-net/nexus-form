@@ -135,15 +135,15 @@ function LinkFloatingEdit({
       className="z-50 flex items-center gap-1 rounded-md border bg-popover p-1 shadow-md"
       {...floatingProps}
     >
-      <Button variant="ghost" size="icon-sm" asChild>
+      <Button variant="ghost" size="icon-sm" asChild aria-label="リンクを開く">
         <a href={safeUrl} target="_blank" rel="noopener noreferrer">
           <ExternalLinkIcon className="size-4" />
         </a>
       </Button>
-      <Button variant="ghost" size="icon-sm" {...editButtonProps}>
+      <Button variant="ghost" size="icon-sm" aria-label="リンクを編集" {...editButtonProps}>
         <LinkIcon className="size-4" />
       </Button>
-      <Button variant="ghost" size="icon-sm" {...unlinkButtonProps}>
+      <Button variant="ghost" size="icon-sm" aria-label="リンクを解除" {...unlinkButtonProps}>
         <UnlinkIcon className="size-4" />
       </Button>
     </div>

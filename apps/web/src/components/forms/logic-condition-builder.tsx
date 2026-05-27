@@ -182,6 +182,7 @@ export const LogicConditionBuilder: FC<LogicConditionBuilderProps> = ({
             type="button"
             variant="ghost"
             size="sm"
+            aria-label="条件を削除"
             onClick={() => handleDeleteCondition(index)}
             disabled={disabled || conditions.length <= 1}
             className="h-8 w-8 p-0"
