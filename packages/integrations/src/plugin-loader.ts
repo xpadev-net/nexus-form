@@ -134,14 +134,7 @@ export async function loadPluginFromSpecifier(
 export async function loadPluginFromFile(
   path: string,
 ): Promise<HashedPluginLoadOutcome> {
-  // When tsx resolves import.meta.resolve(<package>/plugin), it may return a
-  // .ts path (e.g. dist/plugin.ts) because tsx's ESM loader hook prefers
-  // TypeScript source files. The API (plain Node.js) resolves the same
-  // specifier to .mjs via the package exports map. Normalise to .mjs so both
-  // runtimes hash and load the identical file for consistent drift detection.
-  const pluginFile = path.replace(/\.m?ts$/, ".mjs");
-
-  const verifiedSource = await readPluginSource(pluginFile);
+  const verifiedSource = await readPluginSource(path);
   if (!verifiedSource) {
     return {
       kind: "failed",
@@ -150,9 +143,9 @@ export async function loadPluginFromFile(
   }
 
   const outcome = await loadPluginModule(
-    versionedFileSpecifier(pluginFile, verifiedSource.hash),
+    versionedFileSpecifier(path, verifiedSource.hash),
   );
-  const loadedSource = await readPluginSource(pluginFile);
+  const loadedSource = await readPluginSource(path);
   if (!loadedSource) {
     return {
       kind: "failed",
