@@ -420,7 +420,8 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       makeSnapshot({
         plateContent: JSON.stringify([
           {
-            type: "form_text",
+            id: "1",
+            type: "form_short_text",
             blockId: "block-1",
             children: [{ text: "Discord username" }],
           },
@@ -687,6 +688,14 @@ describe("R3-M21: password protected public submit fails closed", () => {
     );
     vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
       makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            id: "1",
+            type: "form_short_text",
+            blockId: "q1",
+            children: [{ text: "Name" }],
+          },
+        ]),
         structureJson: JSON.stringify({
           version: 1,
           access_control: {
@@ -716,7 +725,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          responses: [],
+          responses: [{ question_id: "q1", question_type: "short_text", question_title: "Name" }],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
           fingerprints: [],
@@ -985,7 +994,17 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
       "../lib/forms/snapshot-repository"
     );
     vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({ structureJson: "not json" }),
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            id: "1",
+            type: "form_short_text",
+            blockId: "q1",
+            children: [{ text: "Name" }],
+          },
+        ]),
+        structureJson: "not json",
+      }),
     );
     mockDbSelectChain(db, [
       [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
@@ -1003,7 +1022,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          responses: [],
+          responses: [{ question_id: "q1", question_type: "short_text", question_title: "Name" }],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
           fingerprints: [],

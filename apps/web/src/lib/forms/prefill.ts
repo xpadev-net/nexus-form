@@ -59,9 +59,9 @@ function base64UrlEncode(uint8: Uint8Array): string {
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   let result = "";
   for (let i = 0; i < uint8.length; i += 3) {
-    const b1 = uint8[i]!;
-    const b2 = i + 1 < uint8.length ? uint8[i + 1]! : 0;
-    const b3 = i + 2 < uint8.length ? uint8[i + 2]! : 0;
+    const b1 = uint8[i] ?? 0;
+    const b2 = i + 1 < uint8.length ? (uint8[i + 1] ?? 0) : 0;
+    const b3 = i + 2 < uint8.length ? (uint8[i + 2] ?? 0) : 0;
     result += chars[b1 >> 2];
     result += chars[((b1 & 3) << 4) | (b2 >> 4)];
     result += chars[((b2 & 15) << 2) | (b3 >> 6)];
@@ -77,15 +77,18 @@ function base64UrlDecode(str: string): Uint8Array {
   const chars =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
   const map: Record<string, number> = {};
-  for (let i = 0; i < chars.length; i++) map[chars[i]!] = i;
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (ch != null) map[ch] = i;
+  }
 
   const len = str.length;
   const bytes: number[] = [];
   for (let i = 0; i < len; i += 4) {
-    const c1 = map[str[i]!] ?? 0;
-    const c2 = map[str[i + 1]!] ?? 0;
-    const c3 = map[str[i + 2]!] ?? 0;
-    const c4 = map[str[i + 3]!] ?? 0;
+    const c1 = map[str[i] ?? ""] ?? 0;
+    const c2 = map[str[i + 1] ?? ""] ?? 0;
+    const c3 = map[str[i + 2] ?? ""] ?? 0;
+    const c4 = map[str[i + 3] ?? ""] ?? 0;
     bytes.push((c1 << 2) | (c2 >> 4));
     if (i + 2 < len) bytes.push(((c2 & 15) << 4) | (c3 >> 2));
     if (i + 3 < len) bytes.push(((c3 & 3) << 6) | c4);

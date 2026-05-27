@@ -126,7 +126,8 @@ export function FormHeader({
         {onTitleBlur ? (
           <Tooltip
             open={isFocused || isTitleSaving ? false : tooltipOpen}
-            onOpenChange={setTooltipOpen}>
+            onOpenChange={setTooltipOpen}
+          >
             <TooltipTrigger asChild>
               <div className="relative">
                 {/* sr-only heading でスクリーンリーダーのヘッディングナビゲーションを保持 */}
