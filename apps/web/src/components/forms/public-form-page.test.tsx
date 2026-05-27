@@ -324,7 +324,14 @@ describe("PublicFormPage password protection", () => {
         isPasswordProtected: false,
         title: "Public form",
       },
-      plateContent: "[]",
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
       structure: { settings: { require_fingerprint: false } },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
