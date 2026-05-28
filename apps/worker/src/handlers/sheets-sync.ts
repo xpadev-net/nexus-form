@@ -37,23 +37,24 @@ export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
 // Maximum Sheets API calls inside the critical section:
-// 2 reads (idempotency check) + 1 conditional header update + 1 append,
-// plus one timeout of headroom for slow/late boundary steps.
-const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
+// 2 reads (idempotency check) + 1 conditional header update + 1 append
+const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
-const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 5 slots:
- * 2 reads + 1 conditional header update + 1 append + 1 timeout headroom, plus the lock buffer.
+const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 60_000;
+/** Exported public API: Redis lock TTL in ms; sized for critical section API calls
+ * plus timeout headroom.
  */
+const SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS =
+  SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION;
 export const SHEETS_SYNC_LOCK_TTL_MS =
-  SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
-  SHEETS_SYNC_LOCK_BUFFER_MS;
+  SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + SHEETS_SYNC_LOCK_BUFFER_MS;
 /** Exported public API: Redis lock wait timeout in ms; must exceed SHEETS_SYNC_LOCK_TTL_MS so contenders can observe completion. */
 export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
-/** Exported public API: pending idempotency TTL in seconds; must outlive the lock TTL plus an extra retry margin. */
+/** Exported public API: pending idempotency TTL in seconds; must outlive the critical section plus an extra retry margin. */
 export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
-  (SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) / 1000,
+  (SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) /
+    1000,
 );
 export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -362,8 +363,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
     },
     // Critical section contains up to 4 sequential Sheets API calls
-    // (2 reads + 1 conditional header update + 1 append) plus 1 timeout slot
-    // of headroom for slow/late boundary steps.
+    // (2 reads + 1 conditional header update + 1 append) plus timeout headroom.
     // Size the lock from the configured Sheets API timeout plus a buffer so
     // slow successful calls cannot expire the lock mid-write.
     {
