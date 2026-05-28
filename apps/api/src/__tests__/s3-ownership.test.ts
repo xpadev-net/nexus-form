@@ -861,6 +861,31 @@ describe("R5-H1: S3 API token scopes", () => {
     });
   });
 
+  it("rejects read tokens with empty form_ids for list", async () => {
+    apiTokenForFormScoped(["read"], []);
+    const res = await app.request("/api/s3/list", {
+      headers: { authorization: "Bearer ct_read_form_scoped_empty" },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot list S3 objects",
+    });
+  });
+
+  it("rejects read tokens with empty form_ids for download URL", async () => {
+    apiTokenForFormScoped(["read"], []);
+    const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
+    const res = await app.request(`/api/s3/presigned-url?key=${key}`, {
+      headers: { authorization: "Bearer ct_read_form_scoped_empty" },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot access S3 download",
+    });
+  });
+
   it("allows read tokens for proxy downloads", async () => {
     apiTokenFor(["read"]);
 
@@ -889,6 +914,21 @@ describe("R5-H1: S3 API token scopes", () => {
     });
   });
 
+  it("rejects read tokens with empty form_ids for proxy downloads", async () => {
+    apiTokenForFormScoped(["read"], []);
+    const res = await app.request(
+      `/api/s3/proxy/prod/users/${USER_A_ID}/file.jpg`,
+      {
+        headers: { authorization: "Bearer ct_read_form_scoped_empty" },
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot access S3 proxy",
+    });
+  });
+
   it("rejects form-scoped read tokens for download presigned URLs", async () => {
     apiTokenForFormScoped(["read"], ["form-a-id"]);
     const key = encodeURIComponent(`prod/users/${USER_A_ID}/file.jpg`);
@@ -899,6 +939,87 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({
       error: "Form-scoped tokens cannot access S3 download",
+    });
+  });
+
+  it("rejects write tokens with empty form_ids for uploads", async () => {
+    apiTokenForFormScoped(["write"], []);
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write_form_scoped_empty",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot upload S3 objects",
+    });
+  });
+
+  it("rejects write tokens with empty form_ids for upload completion", async () => {
+    apiTokenForFormScoped(["write"], []);
+
+    const res = await app.request("/api/s3/upload-complete", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write_form_scoped_empty",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        key: `tmp/users/${USER_A_ID}/file.jpg`,
+        bucket: "tmp",
+        size: 123,
+        contentType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot confirm S3 uploads",
+    });
+  });
+
+  it("rejects write tokens with empty form_ids for image processing", async () => {
+    apiTokenForFormScoped(["write"], []);
+
+    const res = await app.request("/api/s3/process-image", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write_form_scoped_empty",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot process S3 images",
+    });
+  });
+
+  it("rejects write tokens with empty form_ids for moves", async () => {
+    apiTokenForFormScoped(["write"], []);
+
+    const res = await app.request("/api/s3/move", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write_form_scoped_empty",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot move S3 objects",
     });
   });
 });
