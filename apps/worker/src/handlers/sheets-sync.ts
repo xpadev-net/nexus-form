@@ -92,7 +92,6 @@ async function throwSheetsSyncFailure(
   }
   throw new Error(message);
 }
-
 function authRequiredMessage(context: string): string {
   return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}`;
 }
