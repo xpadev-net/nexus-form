@@ -202,17 +202,15 @@ export const handleSheetsSync = async (
       lockToken,
       authRequiredMessage("OAuth token not found"),
     );
-    throw new Error("OAuth token not found");
   }
 
-  const token = await refreshTokenIfNeeded(initialToken);
+  const token = await refreshTokenIfNeeded(initialToken!);
   if (!token) {
     await failSheetsSyncWithoutRetry(
       job,
       lockToken,
       authRequiredMessage("OAuth token refresh failed"),
     );
-    throw new Error("OAuth token refresh failed");
   }
   await job.updateProgress(20);
 
@@ -401,7 +399,6 @@ export const handleSheetsSync = async (
             "update headers",
             headerUpdateResult,
           );
-          throw new Error("Failed to update headers");
         }
       }
       await job.updateProgress(80);
