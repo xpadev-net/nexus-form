@@ -155,6 +155,11 @@ const collectAll = async () => {
       console.error("[fingerprint] collector failed:", result.reason);
     }
   }
+
+  if (collected.length === 0) {
+    throw new Error("ブラウザ情報の収集に失敗しました");
+  }
+
   return collected;
 };
 
@@ -163,12 +168,8 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
 
   const collectMutation = useMutation({
     mutationFn: collectAll,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "ブラウザ情報の収集に失敗しました",
-      );
+    onError: () => {
+      toast.error("ブラウザ情報の収集に失敗しました");
     },
   });
   const mutateAsyncRef = useRef(collectMutation.mutateAsync);
@@ -191,12 +192,8 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
           },
         }),
       ),
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "フィンガープリント保存に失敗しました",
-      );
+    onError: () => {
+      toast.error("フィンガープリント保存に失敗しました");
     },
   });
 
@@ -241,12 +238,8 @@ export const useFingerprintManage = (
           json: { responseId, formId, before: beforeIso },
         }),
       ),
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "フィンガープリント削除に失敗しました",
-      );
+    onError: () => {
+      toast.error("フィンガープリント削除に失敗しました");
     },
   });
 

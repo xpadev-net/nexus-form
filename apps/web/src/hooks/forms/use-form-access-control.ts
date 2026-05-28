@@ -67,12 +67,8 @@ export const useFormAccessControl = (formId: string) => {
         }),
       ]);
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "パスワード保護の更新に失敗しました",
-      );
+    onError: () => {
+      toast.error("パスワード保護の更新に失敗しました");
     },
   });
 

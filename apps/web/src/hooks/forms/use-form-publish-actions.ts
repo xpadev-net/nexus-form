@@ -44,10 +44,8 @@ export const useFormPublishActions = (formId: string) => {
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
       ]);
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "公開版の更新に失敗しました",
-      );
+    onError: () => {
+      toast.error("公開版の更新に失敗しました");
     },
   });
 
@@ -60,10 +58,8 @@ export const useFormPublishActions = (formId: string) => {
         queryKey: ["formDetail", formId],
       });
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "フォームの公開に失敗しました",
-      );
+    onError: () => {
+      toast.error("フォームの公開に失敗しました");
     },
   });
 
@@ -76,12 +72,8 @@ export const useFormPublishActions = (formId: string) => {
         queryKey: ["formDetail", formId],
       });
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "フォームの非公開に失敗しました",
-      );
+    onError: () => {
+      toast.error("フォームの非公開に失敗しました");
     },
   });
 

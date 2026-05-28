@@ -114,10 +114,8 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "招待の作成に失敗しました",
-      );
+    onError: () => {
+      toast.error("招待の作成に失敗しました");
     },
   });
 
@@ -131,10 +129,8 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "招待の削除に失敗しました",
-      );
+    onError: () => {
+      toast.error("招待の削除に失敗しました");
     },
   });
 
@@ -155,10 +151,8 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "権限の更新に失敗しました",
-      );
+    onError: () => {
+      toast.error("権限の更新に失敗しました");
     },
   });
 
@@ -172,10 +166,8 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "権限の削除に失敗しました",
-      );
+    onError: () => {
+      toast.error("権限の削除に失敗しました");
     },
   });
 
@@ -191,10 +183,8 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "オーナー移譲に失敗しました",
-      );
+    onError: () => {
+      toast.error("オーナー移譲に失敗しました");
     },
   });
 

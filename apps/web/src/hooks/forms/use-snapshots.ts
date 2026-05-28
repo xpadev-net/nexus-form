@@ -86,12 +86,8 @@ export const useSnapshots = (formId: string | null | undefined) => {
         }),
       );
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "スナップショット差分の取得に失敗しました",
-      );
+    onError: () => {
+      toast.error("スナップショット差分の取得に失敗しました");
     },
   });
 
@@ -117,12 +113,8 @@ export const useSnapshots = (formId: string | null | undefined) => {
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
       ]);
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "スナップショットの公開反映に失敗しました",
-      );
+    onError: () => {
+      toast.error("スナップショットの公開反映に失敗しました");
     },
   });
 
@@ -158,12 +150,8 @@ export const useSnapshots = (formId: string | null | undefined) => {
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
       ]);
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "編集データの復元に失敗しました",
-      );
+    onError: () => {
+      toast.error("編集データの復元に失敗しました");
     },
   });
 

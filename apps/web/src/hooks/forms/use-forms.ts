@@ -29,10 +29,8 @@ export const useForms = () => {
         await navigate({ to: "/forms/$id/edit", params: { id: data.form.id } });
       }
     },
-    onError: (error) => {
-      toast.error(
-        error instanceof Error ? error.message : "フォームの作成に失敗しました",
-      );
+    onError: () => {
+      toast.error("フォームの作成に失敗しました");
     },
   });
 

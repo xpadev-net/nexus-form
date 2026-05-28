@@ -76,12 +76,8 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "共有リンクの作成に失敗しました",
-      );
+    onError: () => {
+      toast.error("共有リンクの作成に失敗しました");
     },
   });
 
@@ -102,12 +98,8 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "共有リンクの更新に失敗しました",
-      );
+    onError: () => {
+      toast.error("共有リンクの更新に失敗しました");
     },
   });
 
@@ -121,12 +113,8 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "共有リンクの削除に失敗しました",
-      );
+    onError: () => {
+      toast.error("共有リンクの削除に失敗しました");
     },
   });
 
@@ -148,12 +136,8 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
-    onError: (error) => {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "共有リンク状態の変更に失敗しました",
-      );
+    onError: () => {
+      toast.error("共有リンク状態の変更に失敗しました");
     },
   });
 
