@@ -13,8 +13,8 @@
     "db:schema:check-staged": "bash scripts/check-drizzle-staged.sh",
     "db:migrate": "turbo db:migrate",
     "clean": "turbo clean",
-    "ci:forbid-colors": "node scripts/forbid-colors.js",
-    "ci:forbid-colors:all": "node scripts/forbid-colors.js --all"
+    "ci:forbid-colors": "node scripts/forbid-colors.mjs",
+    "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",

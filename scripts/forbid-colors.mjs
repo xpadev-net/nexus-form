@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * Forbid hardcoded colors on staged files only.
- * Usage: node scripts/forbid-colors.js <file1> <file2> ...
+ * Usage: node scripts/forbid-colors.mjs <file1> <file2> ...
  */
-const fs = require("node:fs");
-const path = require("node:path");
+import fs from "node:fs";
+import path from "node:path";
+import { execSync } from "node:child_process";
 
 const args = process.argv.slice(2).filter(Boolean);
 const scanAll = args.includes("--all");
@@ -63,7 +64,7 @@ function isTestFile(filePath) {
   const normalized = filePath.split(path.sep).join(path.sep);
 
   // Check by file name pattern (e.g., *.test.ts, *.spec.tsx)
-  const byName = /\.(test|spec)\.[a-z0-9]+$/i.test(lower);
+  const byName = /(test|spec)\.[a-z0-9]+$/i.test(lower);
   if (byName) return true;
 
   // Check by directory name
@@ -121,7 +122,6 @@ let targets = [];
 if (scanAll) {
   // Collect all tracked and untracked files under src/**, apps/**/src/**, packages/**/src/**
   try {
-    const { execSync } = require("node:child_process");
     // Get tracked files
     const trackedOut = execSync(
       'git ls-files -- "src/**" "apps/**/src/**" "packages/**/src/**"',
