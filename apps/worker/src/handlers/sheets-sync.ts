@@ -73,9 +73,10 @@ async function failSheetsSyncWithoutRetry(
   job: Job<SheetsSyncJob>,
   lockToken: string | undefined,
   reason: string,
-): Promise<never> {
+): Promise<void> {
   if (lockToken) {
     await job.moveToFailed(new Error(reason), lockToken);
+    return;
   }
   throw new Error(reason);
 }
@@ -85,10 +86,11 @@ async function throwSheetsSyncFailure(
   lockToken: string | undefined,
   context: string,
   result: { error: GoogleApiError },
-): Promise<never> {
+): Promise<void> {
   const message = getSheetsSyncFailureMessage(context, result);
   if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
     await failSheetsSyncWithoutRetry(job, lockToken, message);
+    return;
   }
   throw new Error(message);
 }
@@ -202,6 +204,7 @@ export const handleSheetsSync = async (
       lockToken,
       authRequiredMessage("OAuth token not found"),
     );
+    return;
   }
 
   const token = await refreshTokenIfNeeded(initialToken!);
@@ -211,6 +214,7 @@ export const handleSheetsSync = async (
       lockToken,
       authRequiredMessage("OAuth token refresh failed"),
     );
+    return;
   }
   await job.updateProgress(20);
 
@@ -399,6 +403,7 @@ export const handleSheetsSync = async (
             "update headers",
             headerUpdateResult,
           );
+          return;
         }
       }
       await job.updateProgress(80);
@@ -417,9 +422,7 @@ export const handleSheetsSync = async (
           "append rows",
           appendResult,
         );
-        // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
-        // but tsc can't narrow union types after await.
-        throw new Error("Failed to append rows");
+        return;
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
@@ -496,9 +499,7 @@ async function readSheetForIdempotency(
       "read sheet for idempotency check",
       headerData,
     );
-    // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
-    // but tsc can't narrow union types after await.
-    throw new Error("Failed to read sheet for idempotency check");
+    return { exists: false, headers: [] };
   }
   if (headerData.data.values.length === 0) {
     return { exists: false, headers: [] };
@@ -522,9 +523,7 @@ async function readSheetForIdempotency(
       "read sheet column for idempotency check",
       entireColumn,
     );
-    // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
-    // but tsc can't narrow union types after await.
-    throw new Error("Failed to read sheet column for idempotency check");
+    return { exists: false, headers };
   }
 
   const exists = entireColumn.data.values
