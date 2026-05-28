@@ -76,10 +76,7 @@ function parseSyncError(failedReason: string | undefined): {
   if (failedReason.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX)) {
     return {
       errorCode: "AUTH_REQUIRED",
-      error: failedReason
-        .slice(AUTH_REQUIRED_SYNC_ERROR_PREFIX.length)
-        .replace(/^\s*:\s*/, "")
-        .trim(),
+      error: failedReason.slice(AUTH_REQUIRED_SYNC_ERROR_PREFIX.length).trim(),
     };
   }
 

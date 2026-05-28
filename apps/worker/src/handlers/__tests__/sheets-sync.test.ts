@@ -134,6 +134,7 @@ function makeJob(
     id: "job-1",
     data,
     updateProgress: vi.fn().mockResolvedValue(undefined),
+    moveToFailed: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
 }
 
@@ -673,8 +674,31 @@ describe("handleSheetsSync — write path", () => {
       error: { code: "unauthorized", message: "invalid credentials" },
     } as never);
 
-    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+    const job = makeJob();
+    await expect(handleSheetsSync(job, "lock-token")).rejects.toThrow(
       "AUTH_REQUIRED: append rows: invalid credentials",
+    );
+    expect(job.moveToFailed).toHaveBeenCalledWith(
+      expect.any(Error),
+      "lock-token",
+    );
+  });
+
+  it("marks forbidden response from appendRows as AUTH_REQUIRED", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockAppendRows.mockResolvedValue({
+      ok: false,
+      error: { code: "forbidden", message: "forbidden access" },
+    } as never);
+
+    const job = makeJob();
+    await expect(handleSheetsSync(job, "lock-token")).rejects.toThrow(
+      "AUTH_REQUIRED: append rows: forbidden access",
+    );
+    expect(job.moveToFailed).toHaveBeenCalledWith(
+      expect.any(Error),
+      "lock-token",
     );
   });
 });
