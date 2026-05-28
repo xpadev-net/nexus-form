@@ -207,7 +207,7 @@ export const handleSheetsSync = async (
     return;
   }
 
-  const token = await refreshTokenIfNeeded(initialToken!);
+  const token = await refreshTokenIfNeeded(initialToken);
   if (!token) {
     await failSheetsSyncWithoutRetry(
       job,
@@ -321,6 +321,7 @@ export const handleSheetsSync = async (
             lockToken,
           },
         );
+        if (!sheetCheck.ok) return;
         if (sheetCheck.exists) {
           return markDuplicateWritten();
         }
@@ -369,6 +370,7 @@ export const handleSheetsSync = async (
           lockToken,
         },
       );
+      if (!sheetCheck.ok) return;
       if (sheetCheck.exists) {
         return markDuplicateWritten();
       }
@@ -487,7 +489,7 @@ async function readSheetForIdempotency(
     job: Job<SheetsSyncJob>;
     lockToken?: string;
   },
-): Promise<{ exists: boolean; headers: string[] }> {
+): Promise<{ ok: true; exists: boolean; headers: string[] } | { ok: false }> {
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: `${params.sheetName}!1:1`,
@@ -499,16 +501,16 @@ async function readSheetForIdempotency(
       "read sheet for idempotency check",
       headerData,
     );
-    return { exists: false, headers: [] };
+    return { ok: false };
   }
   if (headerData.data.values.length === 0) {
-    return { exists: false, headers: [] };
+    return { ok: true, exists: false, headers: [] };
   }
 
   const headers = headerData.data.values[0] ?? [];
   const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIndex === -1) {
-    return { exists: false, headers };
+    return { ok: true, exists: false, headers };
   }
 
   const columnLetter = columnIndexToLetter(responseIdIndex);
@@ -523,13 +525,13 @@ async function readSheetForIdempotency(
       "read sheet column for idempotency check",
       entireColumn,
     );
-    return { exists: false, headers };
+    return { ok: false };
   }
 
   const exists = entireColumn.data.values
     .slice(1)
     .some((row) => row[0] === params.responseId);
-  return { exists, headers };
+  return { ok: true, exists, headers };
 }
 
 /**
