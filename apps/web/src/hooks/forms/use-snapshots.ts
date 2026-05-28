@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 
@@ -85,6 +86,13 @@ export const useSnapshots = (formId: string | null | undefined) => {
         }),
       );
     },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "スナップショット差分の取得に失敗しました",
+      );
+    },
   });
 
   const activateSnapshotMutation = useMutation({
@@ -108,6 +116,13 @@ export const useSnapshots = (formId: string | null | undefined) => {
         queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
       ]);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "スナップショットの公開反映に失敗しました",
+      );
     },
   });
 
@@ -142,6 +157,13 @@ export const useSnapshots = (formId: string | null | undefined) => {
         queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
         queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
       ]);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "編集データの復元に失敗しました",
+      );
     },
   });
 

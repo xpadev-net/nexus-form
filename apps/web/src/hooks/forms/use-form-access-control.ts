@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import {
   formAccessControlStructureQueryKey,
@@ -65,6 +66,13 @@ export const useFormAccessControl = (formId: string) => {
           queryKey: formLogicStructureQueryKey(formId),
         }),
       ]);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "パスワード保護の更新に失敗しました",
+      );
     },
   });
 

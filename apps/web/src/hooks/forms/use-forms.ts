@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { toast } from "sonner";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
 
@@ -27,6 +28,11 @@ export const useForms = () => {
       if (data.form) {
         await navigate({ to: "/forms/$id/edit", params: { id: data.form.id } });
       }
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "フォームの作成に失敗しました",
+      );
     },
   });
 

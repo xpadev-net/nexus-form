@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
 
@@ -75,6 +76,13 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "共有リンクの作成に失敗しました",
+      );
+    },
   });
 
   const updateShareLinkMutation = useMutation({
@@ -94,6 +102,13 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "共有リンクの更新に失敗しました",
+      );
+    },
   });
 
   const deleteShareLinkMutation = useMutation({
@@ -106,6 +121,13 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "共有リンクの削除に失敗しました",
+      );
+    },
   });
 
   const toggleShareLinkStatusMutation = useMutation({
@@ -126,6 +148,13 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
+    onError: (error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "共有リンク状態の変更に失敗しました",
+      );
+    },
   });
 
   const buildShareLinkUrl = (token: string) =>
