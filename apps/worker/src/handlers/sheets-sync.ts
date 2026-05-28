@@ -417,6 +417,8 @@ export const handleSheetsSync = async (
           "append rows",
           appendResult,
         );
+        // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
+        // but tsc can't narrow union types after await.
         throw new Error("Failed to append rows");
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
@@ -494,6 +496,8 @@ async function readSheetForIdempotency(
       "read sheet for idempotency check",
       headerData,
     );
+    // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
+    // but tsc can't narrow union types after await.
     throw new Error("Failed to read sheet for idempotency check");
   }
   if (headerData.data.values.length === 0) {
@@ -518,6 +522,8 @@ async function readSheetForIdempotency(
       "read sheet column for idempotency check",
       entireColumn,
     );
+    // Keep for TS narrowing — throwSheetsSyncFailure returns Promise<never>
+    // but tsc can't narrow union types after await.
     throw new Error("Failed to read sheet column for idempotency check");
   }
 
