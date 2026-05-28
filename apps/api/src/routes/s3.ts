@@ -265,8 +265,7 @@ function isFormScopedToken(auth: DualAuthContext): boolean {
   return (
     auth.auth_type === "api_token" &&
     auth.form_ids !== undefined &&
-    auth.form_ids !== null &&
-    auth.form_ids.length > 0
+    auth.form_ids !== null
   );
 }
 

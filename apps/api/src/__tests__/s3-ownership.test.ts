@@ -861,6 +861,18 @@ describe("R5-H1: S3 API token scopes", () => {
     });
   });
 
+  it("rejects read tokens with empty form_ids for list", async () => {
+    apiTokenForFormScoped(["read"], []);
+    const res = await app.request("/api/s3/list", {
+      headers: { authorization: "Bearer ct_read_form_scoped_empty" },
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot list S3 objects",
+    });
+  });
+
   it("allows read tokens for proxy downloads", async () => {
     apiTokenFor(["read"]);
 
@@ -899,6 +911,28 @@ describe("R5-H1: S3 API token scopes", () => {
     expect(res.status).toBe(403);
     await expect(res.json()).resolves.toMatchObject({
       error: "Form-scoped tokens cannot access S3 download",
+    });
+  });
+
+  it("rejects write tokens with empty form_ids for uploads", async () => {
+    apiTokenForFormScoped(["write"], []);
+
+    const res = await app.request("/api/s3/presigned-upload", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer ct_write_form_scoped_empty",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileName: "file.jpg",
+        fileSize: 123,
+        mimeType: "image/jpeg",
+      }),
+    });
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Form-scoped tokens cannot upload S3 objects",
     });
   });
 });
