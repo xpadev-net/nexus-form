@@ -10,6 +10,7 @@ import {
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
 import { getSheetsSyncQueue } from "../lib/queues";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
 
 const FormIntegrationRecordSchema = z.object({
@@ -33,6 +34,19 @@ export type FormIntegrationErrorResponse = z.infer<
 
 const formIntegrationError = (error: string): FormIntegrationErrorResponse => ({
   error,
+});
+
+const formIntegrationMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 20,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-integrations:${subject}:${c.req.path}`;
+  },
 });
 
 /**
@@ -104,6 +118,7 @@ export const formsIntegrationsRouter = createHonoApp()
   .post(
     "/:id/integrations/google-sheets",
     zValidator("json", GoogleSheetsIntegrationSettingSchema),
+    formIntegrationMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const config = c.req.valid("json");
@@ -120,6 +135,7 @@ export const formsIntegrationsRouter = createHonoApp()
   .post(
     "/:id/integrations/google-sheets/sync",
     zValidator("json", GoogleSheetsSyncStartRequestSchema),
+    formIntegrationMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const { force } = c.req.valid("json");

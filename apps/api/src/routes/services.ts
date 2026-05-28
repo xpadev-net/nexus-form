@@ -19,6 +19,7 @@ import { deleteRedisKeysByPattern } from "../lib/cache/redis-key-cleanup";
 import { withDualAuth } from "../lib/dual-auth";
 import { getCacheStats } from "../lib/forms/response-counter";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { serviceMonitor } from "../lib/services/monitoring";
 import {
   CacheClearResponseSchema,
@@ -54,6 +55,19 @@ const cacheClearSchema = z.object({
 
 const DYNAMIC_KEY = SYSTEM_SETTING_KEY.SERVICES_DYNAMIC;
 const CONFIG_KEY = SYSTEM_SETTING_KEY.SERVICES_CONFIG;
+
+const servicesMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:services:${subject}:${c.req.path}`;
+  },
+});
 
 async function readSystemSettingRow(key: string): Promise<unknown | undefined> {
   const [row] = await db
@@ -141,6 +155,7 @@ export const servicesRouter = createHonoApp()
   })
   .post(
     "/dynamic/:service/enable",
+    servicesMutationRateLimit,
     zValidator("json", updateServiceSchema.optional()),
     async (c) => {
       const parsed = serviceSchema.safeParse(c.req.param("service"));
@@ -187,6 +202,7 @@ export const servicesRouter = createHonoApp()
   )
   .post(
     "/dynamic/:service/disable",
+    servicesMutationRateLimit,
     zValidator("json", updateServiceSchema.optional()),
     async (c) => {
       const parsed = serviceSchema.safeParse(c.req.param("service"));
@@ -225,6 +241,7 @@ export const servicesRouter = createHonoApp()
   )
   .post(
     "/dynamic/:service/test",
+    servicesMutationRateLimit,
     zValidator("json", updateServiceSchema.optional()),
     async (c) => {
       const parsed = serviceSchema.safeParse(c.req.param("service"));
@@ -286,41 +303,52 @@ export const servicesRouter = createHonoApp()
       }),
     );
   })
-  .post("/cache/clear", zValidator("json", cacheClearSchema), async (c) => {
-    const payload = c.req.valid("json");
-    const redis = getRedisClient();
-    if (!redis) {
-      return c.json({ success: false, error: "Redis is not configured" }, 503);
-    }
+  .post(
+    "/cache/clear",
+    servicesMutationRateLimit,
+    zValidator("json", cacheClearSchema),
+    async (c) => {
+      const payload = c.req.valid("json");
+      const redis = getRedisClient();
+      if (!redis) {
+        return c.json(
+          { success: false, error: "Redis is not configured" },
+          503,
+        );
+      }
 
-    if (payload.service) {
-      const deleted = await deleteRedisKeysByPattern(
-        redis,
-        `service:cache:${payload.service}:*`,
-      );
+      if (payload.service) {
+        const deleted = await deleteRedisKeysByPattern(
+          redis,
+          `service:cache:${payload.service}:*`,
+        );
+        return c.json(
+          CacheClearResponseSchema.parse({
+            success: true,
+            data: { cleared: true, service: payload.service, deleted },
+          }),
+        );
+      }
+
+      if (!payload.force) {
+        return c.json(
+          {
+            success: false,
+            error: "force=true is required to clear all cache",
+          },
+          400,
+        );
+      }
+
+      const deleted = await deleteRedisKeysByPattern(redis, "service:cache:*");
       return c.json(
         CacheClearResponseSchema.parse({
           success: true,
-          data: { cleared: true, service: payload.service, deleted },
+          data: { cleared: true, allServices: true, deleted },
         }),
       );
-    }
-
-    if (!payload.force) {
-      return c.json(
-        { success: false, error: "force=true is required to clear all cache" },
-        400,
-      );
-    }
-
-    const deleted = await deleteRedisKeysByPattern(redis, "service:cache:*");
-    return c.json(
-      CacheClearResponseSchema.parse({
-        success: true,
-        data: { cleared: true, allServices: true, deleted },
-      }),
-    );
-  })
+    },
+  )
   .get("/statistics", async (c) => {
     const services = await getDynamicServices();
     const cache = await getCacheStats();
@@ -376,7 +404,7 @@ export const servicesRouter = createHonoApp()
       MonitoringHealthResponseSchema.parse({ success: true, data: health }),
     );
   })
-  .post("/monitoring/check", async (c) => {
+  .post("/monitoring/check", servicesMutationRateLimit, async (c) => {
     const results = await serviceMonitor.checkAllHealth();
     return c.json(
       MonitoringCheckResponseSchema.parse({ success: true, data: results }),
@@ -388,16 +416,20 @@ export const servicesRouter = createHonoApp()
       MonitoringAlertsResponseSchema.parse({ success: true, data: alerts }),
     );
   })
-  .post("/monitoring/alerts/:alertId/resolve", async (c) => {
-    const alertId = c.req.param("alertId");
-    const resolved = serviceMonitor.resolveAlert(alertId);
-    if (!resolved) {
-      return c.json({ success: false, error: "Alert not found" }, 404);
-    }
-    return c.json(
-      ServiceMessageResponseSchema.parse({
-        success: true,
-        message: "Alert resolved",
-      }),
-    );
-  });
+  .post(
+    "/monitoring/alerts/:alertId/resolve",
+    servicesMutationRateLimit,
+    async (c) => {
+      const alertId = c.req.param("alertId");
+      const resolved = serviceMonitor.resolveAlert(alertId);
+      if (!resolved) {
+        return c.json({ success: false, error: "Alert not found" }, 404);
+      }
+      return c.json(
+        ServiceMessageResponseSchema.parse({
+          success: true,
+          message: "Alert resolved",
+        }),
+      );
+    },
+  );

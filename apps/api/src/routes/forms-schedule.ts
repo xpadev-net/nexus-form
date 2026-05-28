@@ -10,6 +10,7 @@ import {
 } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
 import { routePaginationSchema } from "./form-route-schemas";
 
@@ -90,6 +91,19 @@ const formScheduleError = (error: string): FormScheduleErrorResponse => {
   return parsed.success ? parsed.data : { error: "Request failed" };
 };
 
+const formsScheduleMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-schedule:${subject}:${c.req.path}`;
+  },
+});
+
 const OkResponseSchema = z.object({ ok: z.literal(true) });
 
 export const formsScheduleRouter = createHonoApp()
@@ -126,6 +140,7 @@ export const formsScheduleRouter = createHonoApp()
   .post(
     "/:id/schedule",
     withDualFormAuth("EDITOR"),
+    formsScheduleMutationRateLimit,
     zValidator("json", scheduleCreateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -163,6 +178,7 @@ export const formsScheduleRouter = createHonoApp()
   .put(
     "/:id/schedule/:scheduleId",
     withDualFormAuth("EDITOR"),
+    formsScheduleMutationRateLimit,
     zValidator("json", scheduleUpdateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -234,6 +250,7 @@ export const formsScheduleRouter = createHonoApp()
   .delete(
     "/:id/schedule/:scheduleId",
     withDualFormAuth("EDITOR"),
+    formsScheduleMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const scheduleId = c.req.param("scheduleId");

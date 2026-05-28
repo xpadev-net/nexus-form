@@ -25,6 +25,7 @@ import {
 } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
 import { errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
@@ -75,6 +76,19 @@ const SnapshotContentResponseSchema = z.object({
   plateContent: z.string(),
   version: z.number().int().min(1),
   publishedAt: isoDate,
+});
+
+const formsSnapshotsMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-snapshots:${subject}:${c.req.path}`;
+  },
 });
 export type SnapshotContentResponse = z.infer<
   typeof SnapshotContentResponseSchema
@@ -286,6 +300,7 @@ export const formsSnapshotsRouter = createHonoApp()
   .post(
     "/:id/snapshots/:version/activate",
     withDualFormAuth("EDITOR"),
+    formsSnapshotsMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const version = Number(c.req.param("version"));
@@ -311,6 +326,7 @@ export const formsSnapshotsRouter = createHonoApp()
   .post(
     "/:id/snapshots",
     withDualFormAuth("EDITOR"),
+    formsSnapshotsMutationRateLimit,
     zValidator("json", z.object({ changeLog: z.string().optional() })),
     async (c) => {
       const formId = c.req.param("id");
@@ -352,6 +368,7 @@ export const formsSnapshotsRouter = createHonoApp()
   .post(
     "/:id/snapshots/:version/restore-edit",
     withDualFormAuth("EDITOR"),
+    formsSnapshotsMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const version = Number(c.req.param("version"));
@@ -379,24 +396,29 @@ export const formsSnapshotsRouter = createHonoApp()
     },
   )
 
-  .post("/:id/snapshots/reset", withDualFormAuth("EDITOR"), async (c) => {
-    const formId = c.req.param("id");
-    const auth = c.get("dualAuthContext");
-    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-    try {
-      const restored = await restoreFromSnapshot(formId);
-      const response = RestoreEditResponseSchema.parse({
-        ok: true,
-        plateContent: restored.plateContent,
-      });
-      return c.json(response);
-    } catch (error) {
-      if (error instanceof SnapshotNotFoundError) {
-        return c.json(errorResponse(error.message), 404);
+  .post(
+    "/:id/snapshots/reset",
+    withDualFormAuth("EDITOR"),
+    formsSnapshotsMutationRateLimit,
+    async (c) => {
+      const formId = c.req.param("id");
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+      try {
+        const restored = await restoreFromSnapshot(formId);
+        const response = RestoreEditResponseSchema.parse({
+          ok: true,
+          plateContent: restored.plateContent,
+        });
+        return c.json(response);
+      } catch (error) {
+        if (error instanceof SnapshotNotFoundError) {
+          return c.json(errorResponse(error.message), 404);
+        }
+        throw error;
       }
-      throw error;
-    }
-  })
+    },
+  )
 
   .get("/:id/diff", async (c) => {
     const formId = c.req.param("id");
