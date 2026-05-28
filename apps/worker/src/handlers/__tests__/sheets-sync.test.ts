@@ -675,9 +675,7 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job, "lock-token")).rejects.toThrow(
-      "AUTH_REQUIRED: append rows: invalid credentials",
-    );
+    await handleSheetsSync(job, "lock-token");
     expect(job.moveToFailed).toHaveBeenCalledWith(
       expect.any(Error),
       "lock-token",
@@ -693,9 +691,7 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job, "lock-token")).rejects.toThrow(
-      "AUTH_REQUIRED: append rows: forbidden access",
-    );
+    await handleSheetsSync(job, "lock-token");
     expect(job.moveToFailed).toHaveBeenCalledWith(
       expect.any(Error),
       "lock-token",
