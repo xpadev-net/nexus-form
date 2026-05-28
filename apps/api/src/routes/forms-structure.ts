@@ -11,6 +11,7 @@ import {
 } from "../lib/forms/form-structure-service";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
 import { hashPassword } from "../lib/security/password";
 import {
@@ -82,6 +83,19 @@ const formStructureError = (error: string): FormStructureErrorResponse => {
   const parsed = FormStructureErrorResponseSchema.safeParse({ error });
   return parsed.success ? parsed.data : { error: "Request failed" };
 };
+
+const formStructureMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-structure:${subject}:${c.req.path}`;
+  },
+});
 
 const FormStructureVersionSchema = z.object({
   id: z.string(),
@@ -186,6 +200,7 @@ export const formsStructureRouter = createHonoApp()
   .put(
     "/:id/structure",
     withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
     zValidator("json", structureUpdateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -287,6 +302,7 @@ export const formsStructureRouter = createHonoApp()
   .post(
     "/:id/structure/restore",
     withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
     zValidator("json", restoreSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -309,6 +325,7 @@ export const formsStructureRouter = createHonoApp()
   .patch(
     "/:id/structure/logic",
     withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
     zValidator("json", logicUpdateSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -347,6 +364,7 @@ export const formsStructureRouter = createHonoApp()
   .patch(
     "/:id/structure/access-control",
     withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
     zValidator("json", accessControlUpdateSchema),
     async (c) => {
       const formId = c.req.param("id");

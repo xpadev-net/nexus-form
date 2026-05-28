@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 
 /**
  * CSRF token response containing the token string and a human-readable note for clients.
@@ -12,7 +13,13 @@ export const CsrfResponseSchema = z.object({
 /** Inferred TypeScript type for `CsrfResponseSchema`. */
 export type CsrfResponse = z.infer<typeof CsrfResponseSchema>;
 
-export const csrfRouter = createHonoApp().get("/", (c) => {
+const csrfRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 60,
+  keyGenerator: (c) => `rate_limit:csrf:ip:${getClientIp(c)}`,
+});
+
+export const csrfRouter = createHonoApp().get("/", csrfRateLimit, (c) => {
   return c.json(
     CsrfResponseSchema.parse({
       token: "better-auth-managed",

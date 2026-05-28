@@ -17,6 +17,7 @@ import {
   ValidationRuleNotFoundError,
 } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { OkResponseSchema } from "../types/domain/form-row";
 import { isoDate } from "../types/domain/iso-date";
 import {
@@ -68,6 +69,19 @@ const formValidationRuleError = (
   return result.success ? result.data : { error };
 };
 
+const formValidationRulesMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-validation-rules:${subject}:${c.req.path}`;
+  },
+});
+
 function configErrorResponse(
   error: unknown,
 ): FormValidationRuleErrorResponse | null {
@@ -101,6 +115,7 @@ export const formsValidationRulesRouter = createHonoApp()
   .post(
     "/:id/validation-rules",
     withDualFormAuth("EDITOR"),
+    formValidationRulesMutationRateLimit,
     zValidator("json", CreateFormValidationRuleSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -121,6 +136,7 @@ export const formsValidationRulesRouter = createHonoApp()
   .put(
     "/:id/validation-rules/reorder",
     withDualFormAuth("EDITOR"),
+    formValidationRulesMutationRateLimit,
     zValidator("json", ReorderFormValidationRulesSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -141,6 +157,7 @@ export const formsValidationRulesRouter = createHonoApp()
   .put(
     "/:id/validation-rules/:ruleId",
     withDualFormAuth("EDITOR"),
+    formValidationRulesMutationRateLimit,
     zValidator("json", UpdateFormValidationRuleSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -162,6 +179,7 @@ export const formsValidationRulesRouter = createHonoApp()
   .delete(
     "/:id/validation-rules/:ruleId",
     withDualFormAuth("EDITOR"),
+    formValidationRulesMutationRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const ruleId = c.req.param("ruleId");

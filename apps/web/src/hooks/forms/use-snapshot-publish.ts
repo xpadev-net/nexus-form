@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 
@@ -44,6 +45,13 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
         }),
       );
     },
+    onError: (error: unknown) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "スナップショット保存に失敗しました",
+      );
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
@@ -63,6 +71,13 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
         client.api.forms[":id"].snapshots.reset.$post({
           param: { id: formId },
         }),
+      );
+    },
+    onError: (error: unknown) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "公開版スナップショットのリセットに失敗しました",
       );
     },
     onSuccess: async (data) => {

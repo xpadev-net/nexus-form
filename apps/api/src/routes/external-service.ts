@@ -11,6 +11,7 @@ import {
 } from "../lib/errors/form-errors";
 import { createHonoApp } from "../lib/hono";
 import { logError } from "../lib/logger";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { errorResponse } from "../types/domain/common";
 
 const providerNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/);
@@ -39,6 +40,19 @@ const formPermissionErrorStatusSchema = z
   .union([z.literal(403), z.literal(404)])
   .catch(403);
 const externalServiceFailureDetails = "External service error";
+
+const externalServiceRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:external-service:${subject}:${c.req.path}`;
+  },
+});
 
 async function getLinkedAccount(userId: string, providerId: string) {
   const [linkedAccount] = await db
@@ -147,7 +161,7 @@ function externalServiceErrorLogMetadata(
 
 export const externalServiceRouter = createHonoApp()
   .use("/*", withDualAuth())
-  .get("/:provider/:api", async (c) => {
+  .get("/:provider/:api", externalServiceRateLimit, async (c) => {
     const auth = c.get("dualAuthContext");
     if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 

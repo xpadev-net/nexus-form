@@ -12,6 +12,7 @@ import {
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
 import { createHonoApp } from "../lib/hono";
+import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { errorResponse } from "../types/domain/common";
 import {
   AnonymizedFingerprintsResponseSchema,
@@ -65,6 +66,19 @@ const retentionConfigSchema = z.object({
   cleanupSchedule: z.string().optional(),
 });
 
+const fingerprintMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:fingerprint:${subject}:${c.req.path}`;
+  },
+});
+
 async function getResponseFormId(responseId: string): Promise<string | null> {
   const [resp] = await db
     .select({ formId: formResponse.formId })
@@ -85,6 +99,7 @@ export const fingerprintRouter = createHonoApp()
   .post(
     "/save",
     withDualAuth(),
+    fingerprintMutationRateLimit,
     zValidator("json", saveFingerprintSchema),
     async (c) => {
       const payload = c.req.valid("json");
@@ -260,6 +275,7 @@ export const fingerprintRouter = createHonoApp()
   .delete(
     "/manage",
     withDualAuth(["admin"]),
+    fingerprintMutationRateLimit,
     zValidator("json", deleteManageSchema),
     async (c) => {
       const { responseId, formId, before } = c.req.valid("json");
@@ -315,6 +331,7 @@ export const fingerprintRouter = createHonoApp()
   .post(
     "/retention",
     withDualAuth(["admin"]),
+    fingerprintMutationRateLimit,
     zValidator("json", retentionConfigSchema),
     async (c) => {
       const manager = getDataRetentionManager();
@@ -336,8 +353,13 @@ export const fingerprintRouter = createHonoApp()
       );
     },
   )
-  .put("/retention", withDualAuth(["admin"]), async (c) => {
-    const manager = getDataRetentionManager();
-    const result = await manager.cleanupExpiredData();
-    return c.json(RetentionCleanupResponseSchema.parse({ result }));
-  });
+  .put(
+    "/retention",
+    withDualAuth(["admin"]),
+    fingerprintMutationRateLimit,
+    async (c) => {
+      const manager = getDataRetentionManager();
+      const result = await manager.cleanupExpiredData();
+      return c.json(RetentionCleanupResponseSchema.parse({ result }));
+    },
+  );

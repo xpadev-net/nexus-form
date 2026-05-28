@@ -277,8 +277,9 @@ export function useFormPublishMenuModel({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        toast.error(`処理に失敗しました: ${message}`);
-        dispatch({ type: "set-snapshot-save-error", error: message });
+        if (dialogMode === "saveOnly") {
+          dispatch({ type: "set-snapshot-save-error", error: message });
+        }
       }
     },
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
@@ -295,10 +296,8 @@ export function useFormPublishMenuModel({
           toast.success("フォームを非公開にしました");
         }
         onStatusChange?.();
-      } catch (error) {
-        toast.error(
-          `操作に失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
-        );
+      } catch (_error) {
+        return;
       }
     },
     [onStatusChange, publishForm, unpublishForm],
@@ -310,10 +309,8 @@ export function useFormPublishMenuModel({
       toast.success("公開版スナップショットにリセットしました");
       dispatch({ type: "set-reset-dialog", open: false });
       onResetSuccess?.();
-    } catch (error) {
-      toast.error(
-        `リセットに失敗しました: ${error instanceof Error ? error.message : "Unknown error"}`,
-      );
+    } catch (_error) {
+      return;
     }
   }, [onResetSuccess, resetToActiveSnapshot]);
 
@@ -324,13 +321,6 @@ export function useFormPublishMenuModel({
           toast.success(`バージョン ${version} を公開版にしました`);
           dispatch({ type: "select-snapshot", snapshotId: null });
           onStatusChange?.();
-        },
-        onError: (error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "公開版の切り替えに失敗しました",
-          );
         },
       });
     },
@@ -346,9 +336,10 @@ export function useFormPublishMenuModel({
         dispatch({ type: "select-snapshot", snapshotId: null });
         onStatusChange?.();
       } catch (error) {
-        toast.error(
-          error instanceof Error ? error.message : "公開に失敗しました",
-        );
+        dispatch({
+          type: "set-snapshot-save-error",
+          error: error instanceof Error ? error.message : "公開に失敗しました",
+        });
       }
     },
     [activateSnapshotMutation, publishForm, onStatusChange],
@@ -363,13 +354,6 @@ export function useFormPublishMenuModel({
           );
           dispatch({ type: "select-snapshot", snapshotId: null });
           onResetSuccess?.();
-        },
-        onError: (error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "編集データの復元に失敗しました",
-          );
         },
       });
     },

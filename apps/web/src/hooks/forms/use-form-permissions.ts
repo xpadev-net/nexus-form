@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback } from "react";
+import { toast } from "sonner";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
 
@@ -113,6 +114,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("招待の作成に失敗しました");
+    },
   });
 
   const deleteInvitationMutation = useMutation({
@@ -125,6 +129,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("招待の削除に失敗しました");
+    },
   });
 
   const updatePermissionMutation = useMutation({
@@ -144,6 +151,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("権限の更新に失敗しました");
+    },
   });
 
   const removePermissionMutation = useMutation({
@@ -156,6 +166,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("権限の削除に失敗しました");
+    },
   });
 
   const transferOwnershipMutation = useMutation({
@@ -170,6 +183,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("オーナー移譲に失敗しました");
+    },
   });
 
   return {

@@ -1,6 +1,7 @@
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+import { toast } from "sonner";
 import { getFingerprintData } from "thumbmarkjs";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
@@ -154,6 +155,11 @@ const collectAll = async () => {
       console.error("[fingerprint] collector failed:", result.reason);
     }
   }
+
+  if (collected.length === 0) {
+    throw new Error("ブラウザ情報の収集に失敗しました");
+  }
+
   return collected;
 };
 
@@ -162,6 +168,9 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
 
   const collectMutation = useMutation({
     mutationFn: collectAll,
+    onError: () => {
+      toast.error("ブラウザ情報の収集に失敗しました");
+    },
   });
   const mutateAsyncRef = useRef(collectMutation.mutateAsync);
   mutateAsyncRef.current = collectMutation.mutateAsync;
@@ -183,6 +192,9 @@ export const useFingerprint = (options?: { autoCollect?: boolean }) => {
           },
         }),
       ),
+    onError: () => {
+      toast.error("フィンガープリント保存に失敗しました");
+    },
   });
 
   useEffect(() => {
@@ -226,6 +238,9 @@ export const useFingerprintManage = (
           json: { responseId, formId, before: beforeIso },
         }),
       ),
+    onError: () => {
+      toast.error("フィンガープリント削除に失敗しました");
+    },
   });
 
   return {
