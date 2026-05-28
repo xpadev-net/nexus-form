@@ -64,7 +64,7 @@ function isTestFile(filePath) {
   const normalized = filePath.split(path.sep).join(path.sep);
 
   // Check by file name pattern (e.g., *.test.ts, *.spec.tsx)
-  const byName = /(test|spec)\.[a-z0-9]+$/i.test(lower);
+  const byName = /\.(test|spec)\.[a-z0-9]+$/i.test(lower);
   if (byName) return true;
 
   // Check by directory name

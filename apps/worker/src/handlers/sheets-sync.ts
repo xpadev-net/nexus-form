@@ -213,6 +213,7 @@ export const handleSheetsSync = async (
       lockToken,
       authRequiredMessage("OAuth token refresh failed"),
     );
+    throw new Error("OAuth token refresh failed");
   }
   await job.updateProgress(20);
 
