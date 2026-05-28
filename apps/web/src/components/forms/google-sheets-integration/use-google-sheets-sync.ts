@@ -65,6 +65,27 @@ const syncStartResponseSchema = z.object({
   status: z.literal("queued"),
 }) satisfies z.ZodType<SyncStartResponse>;
 
+const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED:";
+
+function parseSyncError(failedReason: string | undefined): {
+  error?: string;
+  errorCode?: string;
+} {
+  if (!failedReason) return {};
+
+  if (failedReason.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX)) {
+    return {
+      errorCode: "AUTH_REQUIRED",
+      error: failedReason
+        .slice(AUTH_REQUIRED_SYNC_ERROR_PREFIX.length)
+        .replace(/^\s*:\s*/, "")
+        .trim(),
+    };
+  }
+
+  return { error: failedReason };
+}
+
 /**
  * Describes how the sync monitor should react to a freshly observed job state.
  *
@@ -160,6 +181,7 @@ function areSyncStatesEqual(a: UiSyncState | null, b: UiSyncState): boolean {
     a.jobId === b.jobId &&
     a.status === b.status &&
     a.error === b.error &&
+    a.errorCode === b.errorCode &&
     areProgressStatesEqual(a.progress, b.progress) &&
     areResultStatesEqual(a.result, b.result)
   );
@@ -198,13 +220,17 @@ export function buildUiSyncState(
   const jobResult = isJobResult(jobData.job.result)
     ? jobData.job.result
     : undefined;
+  const { error, errorCode } = parseSyncError(
+    uiStatus === "failed" ? jobData.job.failedReason : undefined,
+  );
 
   return {
     jobId: activeJobId,
     status: uiStatus,
     progress: extractProgress(jobData.job.progress),
     result: jobResult,
-    error: uiStatus === "failed" ? jobData.job.failedReason : undefined,
+    error,
+    errorCode,
   };
 }
 

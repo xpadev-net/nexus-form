@@ -88,6 +88,8 @@ export type GoogleSheetsSyncStartResponse = z.infer<
   typeof GoogleSheetsSyncStartResponseSchema
 >;
 
+const GOOGLE_SHEETS_MANUAL_SYNC_ATTEMPTS = 1;
+
 /**
  * Google Sheets sync job status response returned with 200 OK.
  * @remarks The `job` object exposes BullMQ status fields including progress, result, attempts, and failure reason.
@@ -166,6 +168,9 @@ export const formsIntegrationsRouter = createHonoApp()
             integrationId: integration.id,
             responseId: response.responseId,
           }),
+          opts: {
+            attempts: GOOGLE_SHEETS_MANUAL_SYNC_ATTEMPTS,
+          },
         })),
       );
 
