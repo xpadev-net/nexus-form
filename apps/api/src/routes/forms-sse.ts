@@ -443,12 +443,23 @@ async function createSSEStream(
       let detachClient: (() => Promise<void>) | null = null;
       let cleanupPromise: Promise<void> | null = null;
       let closeRequested = false;
+      let permitReleased = false;
       let keepalive: ReturnType<typeof setInterval> | null = null;
       let resolveStream: (() => void) | null = null;
-      const cleanupClient = (): Promise<void> => {
+      const releasePermit = (): void => {
+        if (permitReleased) return;
+        permitReleased = true;
+        permit.release();
+      };
+      const finalizeStream = (): Promise<void> => {
         if (cleanupPromise) return cleanupPromise;
-        if (detachClient === null) return Promise.resolve();
-        cleanupPromise = detachClient();
+        if (detachClient === null) {
+          releasePermit();
+          return Promise.resolve();
+        }
+        cleanupPromise = detachClient().finally(() => {
+          releasePermit();
+        });
         return cleanupPromise;
       };
       const closeStream = (): void => {
@@ -456,7 +467,7 @@ async function createSSEStream(
         closeRequested = true;
         stream.abort();
         void stream.close();
-        cleanupClient().catch(() => {});
+        void finalizeStream().catch(() => {});
         resolveStream?.();
       };
 
@@ -497,8 +508,7 @@ async function createSSEStream(
       } finally {
         resolveStream = null;
         if (keepalive !== null) clearInterval(keepalive);
-        permit.release();
-        await cleanupClient();
+        await finalizeStream();
       }
     });
   } catch (error) {
