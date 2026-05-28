@@ -114,6 +114,9 @@ export const useFormPermissions = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("招待の作成に失敗しました");
+    },
   });
 
   const deleteInvitationMutation = useMutation({

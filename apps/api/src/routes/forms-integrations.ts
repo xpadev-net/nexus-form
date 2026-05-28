@@ -117,8 +117,8 @@ export const formsIntegrationsRouter = createHonoApp()
   })
   .post(
     "/:id/integrations/google-sheets",
-    zValidator("json", GoogleSheetsIntegrationSettingSchema),
     formIntegrationMutationRateLimit,
+    zValidator("json", GoogleSheetsIntegrationSettingSchema),
     async (c) => {
       const formId = c.req.param("id");
       const config = c.req.valid("json");
@@ -134,8 +134,8 @@ export const formsIntegrationsRouter = createHonoApp()
   )
   .post(
     "/:id/integrations/google-sheets/sync",
-    zValidator("json", GoogleSheetsSyncStartRequestSchema),
     formIntegrationMutationRateLimit,
+    zValidator("json", GoogleSheetsSyncStartRequestSchema),
     async (c) => {
       const formId = c.req.param("id");
       const { force } = c.req.valid("json");

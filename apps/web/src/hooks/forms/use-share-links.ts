@@ -76,6 +76,9 @@ export const useShareLinks = (
       );
     },
     onSuccess: invalidate,
+    onError: () => {
+      toast.error("共有リンクの作成に失敗しました");
+    },
   });
 
   const updateShareLinkMutation = useMutation({
