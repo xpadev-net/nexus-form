@@ -364,8 +364,8 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/transfer-ownership",
     withDualFormAuth("OWNER"),
-    zValidator("json", transferOwnerSchema),
     formMutationRateLimit,
+    zValidator("json", transferOwnerSchema),
     async (c) => {
       const id = c.req.param("id");
       const { newOwnerUserId } = c.req.valid("json");
