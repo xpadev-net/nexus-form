@@ -105,6 +105,7 @@ export function GoogleSheetsIntegration({
               syncStatus={model.syncStatus}
               isSyncing={model.isSyncing}
               onClearSyncStatus={model.handleClearSyncStatus}
+              onReauthenticate={model.handleConnect}
             />
           </>
         )}

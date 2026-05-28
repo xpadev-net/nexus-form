@@ -13,6 +13,7 @@ export type UiSyncStatus = "queued" | "processing" | "completed" | "failed";
 export interface UiSyncState {
   jobId: string;
   status: UiSyncStatus;
+  errorCode?: string;
   progress?: {
     processed?: number;
     total?: number;

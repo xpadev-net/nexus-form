@@ -37,11 +37,12 @@ vi.mock("sonner", () => ({
 function jobStatus(
   state: SyncJobStatusResponse["job"]["state"],
   progress: SyncJobStatusResponse["job"]["progress"] = null,
+  failedReason = "failed reason",
 ): SyncJobStatusResponse {
   return {
     job: {
       attemptsMade: 0,
-      failedReason: state === "failed" ? "failed reason" : undefined,
+      failedReason: state === "failed" ? failedReason : undefined,
       name: "google-sheets-sync",
       progress,
       result: state === "completed" ? { updatedRows: 3 } : null,
@@ -265,6 +266,21 @@ describe("useGoogleSheetsSync transitions", () => {
     ).toHaveLength(1);
 
     act(() => root.unmount());
+  });
+
+  it("parses AUTH_REQUIRED sync error into structured status", () => {
+    const state = buildUiSyncState(
+      jobStatus("failed", null, "AUTH_REQUIRED: OAuth token not found"),
+      "job-1",
+    );
+
+    expect(state).toEqual(
+      expect.objectContaining({
+        errorCode: "AUTH_REQUIRED",
+        error: "OAuth token not found",
+        status: "failed",
+      }),
+    );
   });
 
   it("clears syncing state when the monitor times out", async () => {

@@ -664,4 +664,17 @@ describe("handleSheetsSync — write path", () => {
       "Google Sheets API rate limit",
     );
   });
+
+  it("marks unauthorized response from appendRows as AUTH_REQUIRED", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockAppendRows.mockResolvedValue({
+      ok: false,
+      error: { code: "unauthorized", message: "invalid credentials" },
+    } as never);
+
+    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+      "AUTH_REQUIRED: append rows: invalid credentials",
+    );
+  });
 });

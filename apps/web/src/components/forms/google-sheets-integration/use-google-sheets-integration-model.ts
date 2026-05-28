@@ -117,9 +117,9 @@ const googleSheetsUiReducer = (
 export interface GoogleSheetsIntegrationModel {
   connectionLoadError: string | null;
   filteredSpreadsheets: Spreadsheet[];
+  handleConnect: () => void;
   handleAddSheetClick: () => void;
   handleClearSyncStatus: () => void;
-  handleConnect: () => void;
   handleCreateSpreadsheetClick: () => void;
   handleNewSheetTitleChange: (title: string) => void;
   handleNewSpreadsheetTitleChange: (title: string) => void;
@@ -491,9 +491,9 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
   return {
     connectionLoadError,
     filteredSpreadsheets,
+    handleConnect,
     handleAddSheetClick,
     handleClearSyncStatus,
-    handleConnect,
     handleCreateSpreadsheetClick,
     handleNewSheetTitleChange,
     handleNewSpreadsheetTitleChange,

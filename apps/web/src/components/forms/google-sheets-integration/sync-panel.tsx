@@ -8,12 +8,14 @@ interface SyncStatusPanelProps {
   syncStatus: UiSyncState;
   isSyncing: boolean;
   onClearSyncStatus: () => void;
+  onReauthenticate: () => void;
 }
 
 export function SyncStatusPanel({
   syncStatus,
   isSyncing,
   onClearSyncStatus,
+  onReauthenticate,
 }: SyncStatusPanelProps) {
   return (
     <div className="space-y-3">
@@ -55,6 +57,19 @@ export function SyncStatusPanel({
         {syncStatus.progress?.percentage !== undefined &&
           syncStatus.status !== "failed" && (
             <Progress value={syncStatus.progress.percentage} />
+          )}
+        {syncStatus.status === "failed" &&
+          syncStatus.errorCode === "AUTH_REQUIRED" && (
+            <div className="text-sm">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onReauthenticate}
+              >
+                Googleアカウントを再認証
+              </Button>
+            </div>
           )}
         {syncStatus.status === "completed" && syncStatus.result && (
           <div className="text-xs text-muted-foreground">

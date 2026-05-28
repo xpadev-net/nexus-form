@@ -16,6 +16,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
+  type GoogleApiError,
   readRange,
   SHEETS_API_TIMEOUT_MS,
   updateRange,
@@ -42,6 +43,35 @@ const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
+const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
+type SheetsSyncAuthFailure = "AUTH_REQUIRED" | "OTHER_FAILURE";
+
+function classifySheetsSyncFailure(
+  error: GoogleApiError,
+): SheetsSyncAuthFailure {
+  return error.code === "unauthorized" || error.code === "forbidden"
+    ? "AUTH_REQUIRED"
+    : "OTHER_FAILURE";
+}
+
+function getSheetsSyncFailureMessage(
+  context: string,
+  result: { error: GoogleApiError },
+): string {
+  if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
+    return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}: ${result.error.message}`;
+  }
+
+  if (result.error.code === "rateLimit") {
+    return `Google Sheets API rate limit: ${context}: ${result.error.message}`;
+  }
+
+  return `Failed to ${context}: ${result.error.message}`;
+}
+
+function authRequiredMessage(context: string): string {
+  return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}`;
+}
 /** Exported public API: Redis lock TTL in ms; sized for critical section API calls
  * plus timeout headroom.
  */
@@ -141,10 +171,13 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   let token = await getOAuthToken(userId);
   if (!token) {
-    throw new Error(`OAuth token not found for user: ${userId}`);
+    throw new Error(authRequiredMessage("OAuth token not found"));
   }
 
   token = await refreshTokenIfNeeded(token);
+  if (!token) {
+    throw new Error(authRequiredMessage("OAuth token refresh failed"));
+  }
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得
@@ -313,7 +346,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         });
         if (!headerUpdateResult.ok) {
           throw new Error(
-            `Failed to update headers: ${headerUpdateResult.error.message}`,
+            getSheetsSyncFailureMessage("update headers", headerUpdateResult),
           );
         }
       }
@@ -327,13 +360,9 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       });
 
       if (!appendResult.ok) {
-        // レート制限エラーはリトライさせる
-        if (appendResult.error.code === "rateLimit") {
-          throw new Error(
-            `Google Sheets API rate limit: ${appendResult.error.message}`,
-          );
-        }
-        throw new Error(`Failed to append rows: ${appendResult.error.message}`);
+        throw new Error(
+          getSheetsSyncFailureMessage("append rows", appendResult),
+        );
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
@@ -401,7 +430,10 @@ async function readSheetForIdempotency(
   });
   if (!headerData.ok) {
     throw new Error(
-      `Failed to read sheet for idempotency check: ${headerData.error.message}`,
+      getSheetsSyncFailureMessage(
+        "read sheet for idempotency check",
+        headerData,
+      ),
     );
   }
   if (headerData.data.values.length === 0) {
@@ -421,7 +453,10 @@ async function readSheetForIdempotency(
   });
   if (!entireColumn.ok) {
     throw new Error(
-      `Failed to read sheet column for idempotency check: ${entireColumn.error.message}`,
+      getSheetsSyncFailureMessage(
+        "read sheet column for idempotency check",
+        entireColumn,
+      ),
     );
   }
 
