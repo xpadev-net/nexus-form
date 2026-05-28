@@ -448,7 +448,9 @@ async function createSSEStream(
       const finalizeStream = (): Promise<void> => {
         if (cleanupPromise) return cleanupPromise;
         if (detachClient === null) {
-          cleanupPromise = Promise.resolve();
+          cleanupPromise = Promise.resolve().finally(() => {
+            permit.release();
+          });
           return cleanupPromise;
         }
         cleanupPromise = detachClient().finally(() => {
