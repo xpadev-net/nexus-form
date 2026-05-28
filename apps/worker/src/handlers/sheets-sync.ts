@@ -41,7 +41,7 @@ const RESPONSE_ID_HEADER = "Response ID";
 const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
-const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 60_000;
+const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
 /** Exported public API: Redis lock TTL in ms; sized for critical section API calls
  * plus timeout headroom.
  */
@@ -51,10 +51,9 @@ export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + SHEETS_SYNC_LOCK_BUFFER_MS;
 /** Exported public API: Redis lock wait timeout in ms; must exceed SHEETS_SYNC_LOCK_TTL_MS so contenders can observe completion. */
 export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
-/** Exported public API: pending idempotency TTL in seconds; must outlive the critical section plus an extra retry margin. */
+/** Exported public API: pending idempotency TTL in seconds; must exceed lock TTL by an extra retry margin. */
 export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
-  (SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) /
-    1000,
+  (SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) / 1000,
 );
 export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
 
