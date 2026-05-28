@@ -37,11 +37,15 @@ export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
 // Maximum Sheets API calls inside the critical section:
-// 2 reads (idempotency check + sheet check) + 1 conditional header update + 1 append
-const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
-const SHEETS_SYNC_LOCK_BUFFER_MS = 30_000;
+// 2 reads (idempotency check) + 1 conditional header update + 1 append,
+// plus one timeout of headroom for slow/late boundary steps.
+const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
+// Add the headroom using the same timeout unit as Sheets API calls.
+const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 4 sequential calls (2 reads + 1 conditional header update + 1 append) plus a lock buffer. */
+/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 5 slots:
+ * 2 reads + 1 conditional header update + 1 append + 1 timeout headroom, plus the lock buffer.
+ */
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
   SHEETS_SYNC_LOCK_BUFFER_MS;
@@ -358,7 +362,8 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
     },
     // Critical section contains up to 4 sequential Sheets API calls
-    // (2 reads + 1 conditional header update + 1 append).
+    // (2 reads + 1 conditional header update + 1 append) plus 1 timeout slot
+    // of headroom for slow/late boundary steps.
     // Size the lock from the configured Sheets API timeout plus a buffer so
     // slow successful calls cannot expire the lock mid-write.
     {
