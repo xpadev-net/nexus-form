@@ -465,10 +465,21 @@ async function createSSEStream(
       const closeStream = (): void => {
         if (closeRequested) return;
         closeRequested = true;
-        stream.abort();
+        if (keepalive !== null) {
+          clearInterval(keepalive);
+          keepalive = null;
+        }
+        try {
+          stream.abort();
+        } catch {
+          // noop
+        }
         void stream.close();
-        void finalizeStream().catch(() => {});
-        resolveStream?.();
+        void finalizeStream()
+          .catch(() => {})
+          .finally(() => {
+            resolveStream?.();
+          });
       };
 
       try {
@@ -498,7 +509,8 @@ async function createSSEStream(
               event: "keepalive",
               data: "",
             })
-            .catch(() => {
+            .catch((error: unknown) => {
+              logWarn(`SSE keepalive failed; closing stream: ${error}`);
               closeStream();
             });
         }, KEEPALIVE_INTERVAL_MS);
