@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import { useFormDiff } from "./use-form-diff";
 import { useSnapshotPublish } from "./use-snapshot-publish";
@@ -30,6 +31,11 @@ export const useFormPublishActions = (formId: string) => {
           param: { id: formId, version: String(version) },
         }),
       ),
+    onError: (error: Error) => {
+      toast.error(
+        error instanceof Error ? error.message : "公開版の更新に失敗しました",
+      );
+    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
@@ -49,6 +55,11 @@ export const useFormPublishActions = (formId: string) => {
   const publishFormMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].publish.$post({ param: { id: formId } })),
+    onError: (error: Error) => {
+      toast.error(
+        error instanceof Error ? error.message : "フォームの公開に失敗しました",
+      );
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["formDetail", formId],
@@ -60,6 +71,13 @@ export const useFormPublishActions = (formId: string) => {
   const unpublishFormMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].unpublish.$post({ param: { id: formId } })),
+    onError: (error: Error) => {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "フォームの非公開に失敗しました",
+      );
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["formDetail", formId],
