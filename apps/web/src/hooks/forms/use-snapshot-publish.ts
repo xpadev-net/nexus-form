@@ -45,7 +45,7 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
         }),
       );
     },
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       toast.error(
         error instanceof Error
           ? error.message
@@ -73,7 +73,7 @@ export const useSnapshotPublish = (formId: string | null | undefined) => {
         }),
       );
     },
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       toast.error(
         error instanceof Error
           ? error.message

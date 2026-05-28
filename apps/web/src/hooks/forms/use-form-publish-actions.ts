@@ -31,7 +31,7 @@ export const useFormPublishActions = (formId: string) => {
           param: { id: formId, version: String(version) },
         }),
       ),
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       toast.error(
         error instanceof Error ? error.message : "公開版の更新に失敗しました",
       );
@@ -55,7 +55,7 @@ export const useFormPublishActions = (formId: string) => {
   const publishFormMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].publish.$post({ param: { id: formId } })),
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       toast.error(
         error instanceof Error ? error.message : "フォームの公開に失敗しました",
       );
@@ -71,7 +71,7 @@ export const useFormPublishActions = (formId: string) => {
   const unpublishFormMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].unpublish.$post({ param: { id: formId } })),
-    onError: (error: Error) => {
+    onError: (error: unknown) => {
       toast.error(
         error instanceof Error
           ? error.message

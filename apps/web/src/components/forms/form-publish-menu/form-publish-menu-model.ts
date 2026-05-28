@@ -277,7 +277,9 @@ export function useFormPublishMenuModel({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        dispatch({ type: "set-snapshot-save-error", error: message });
+        if (dialogMode === "saveOnly") {
+          dispatch({ type: "set-snapshot-save-error", error: message });
+        }
       }
     },
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
@@ -295,10 +297,7 @@ export function useFormPublishMenuModel({
         }
         onStatusChange?.();
       } catch (_error) {
-        dispatch({
-          type: "set-snapshot-save-error",
-          error: "操作に失敗しました",
-        });
+        return;
       }
     },
     [onStatusChange, publishForm, unpublishForm],
@@ -311,10 +310,7 @@ export function useFormPublishMenuModel({
       dispatch({ type: "set-reset-dialog", open: false });
       onResetSuccess?.();
     } catch (_error) {
-      dispatch({
-        type: "set-snapshot-save-error",
-        error: "リセットに失敗しました",
-      });
+      return;
     }
   }, [onResetSuccess, resetToActiveSnapshot]);
 
@@ -325,13 +321,6 @@ export function useFormPublishMenuModel({
           toast.success(`バージョン ${version} を公開版にしました`);
           dispatch({ type: "select-snapshot", snapshotId: null });
           onStatusChange?.();
-        },
-        onError: (error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "公開版の切り替えに失敗しました",
-          );
         },
       });
     },
@@ -365,13 +354,6 @@ export function useFormPublishMenuModel({
           );
           dispatch({ type: "select-snapshot", snapshotId: null });
           onResetSuccess?.();
-        },
-        onError: (error) => {
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "編集データの復元に失敗しました",
-          );
         },
       });
     },
