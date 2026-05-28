@@ -532,7 +532,7 @@ describe("handleSheetsSync — write path", () => {
 
     await handleSheetsSync(makeJob());
 
-    // SHEETS_API_TIMEOUT_MS=30000 × 5 (4 calls + 1 timeout headroom) + SHEETS_SYNC_LOCK_BUFFER_MS=30000
+    // SHEETS_API_TIMEOUT_MS=30000 × 5 (4 calls + 1 timeout headroom)
     expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(180_000);
     expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
       Math.ceil(SHEETS_SYNC_LOCK_TTL_MS / 1000),

@@ -43,7 +43,9 @@ const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 5 slots (4 calls + 1 timeout headroom: 2 reads + 1 conditional header update + 1 append). */
+/** Exported public API: Redis lock TTL in ms; sized from the Sheets API timeout for 5 slots:
+ * 2 reads + 1 conditional header update + 1 append + 1 timeout headroom.
+ */
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION +
   SHEETS_SYNC_LOCK_BUFFER_MS;
