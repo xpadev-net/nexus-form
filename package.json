@@ -19,7 +19,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
     "@tailwindcss/postcss": "^4.2.2",
-    "@typescript/native-preview": "7.0.0-dev.20260331.1",
+    "@typescript/native-preview": "7.0.0-dev.20260527.2",
     "lefthook": "^2.1.4",
     "turbo": "^2.9.14",
     "typescript": "^5.9.3",
