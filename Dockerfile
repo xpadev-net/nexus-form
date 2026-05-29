@@ -1,4 +1,4 @@
-FROM node:24-bookworm AS base
+FROM node:24-bookworm@sha256:8530f76a96d88820d288761f022e318970dda93d01536919fbc16076b7983e63 AS base
 ARG NODE_ENV=production
 ENV NODE_ENV=${NODE_ENV}
 WORKDIR /app
@@ -63,7 +63,7 @@ FROM builder AS runtime-deps
 
 RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
 
-FROM gcr.io/distroless/nodejs24-debian12:latest AS runner
+FROM gcr.io/distroless/nodejs24-debian12:latest@sha256:61f4f4341db81820c24ce771b83d202eb6452076f58628cd536cc7d94a10978b AS runner
 WORKDIR /app
 
 # Copy workspace structure for pnpm to resolve workspace: links
