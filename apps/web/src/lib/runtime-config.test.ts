@@ -61,5 +61,11 @@ describe("getRuntimeConfigValue", () => {
     expect(
       getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
     ).toBe("telemetry.build.example");
+    expect(getRuntimeConfigValue("telemetryV4Host", "ipv4.build.example")).toBe(
+      "ipv4.build.example",
+    );
+    expect(getRuntimeConfigValue("telemetryV6Host", "ipv6.build.example")).toBe(
+      "ipv6.build.example",
+    );
   });
 });
