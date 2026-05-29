@@ -159,16 +159,19 @@ export const handleSheetsSync = async (
     throw new Error(`Form integration not found: ${integrationId}`);
   }
 
-  const configJson = integration.configJson?.trim();
-  if (!configJson) {
-    throw new Error("Form integration config_json is empty");
+  const rawConfigJson = integration.configJson;
+  if (rawConfigJson == null) {
+    throw new Error("Form integration configJson is empty");
   }
 
   let parsedConfig: unknown;
   try {
-    parsedConfig = JSON.parse(configJson);
+    parsedConfig =
+      typeof rawConfigJson === "string"
+        ? JSON.parse(rawConfigJson)
+        : rawConfigJson;
   } catch {
-    throw new Error("Form integration config_json is not valid JSON");
+    throw new Error("Form integration configJson is not valid");
   }
   const rawConfigResult = IntegrationConfigSchema.safeParse(parsedConfig);
   if (!rawConfigResult.success) {

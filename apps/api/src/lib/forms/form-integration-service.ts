@@ -27,10 +27,10 @@ export interface FormIntegrationRecord {
   updatedAt: Date;
 }
 
-function parseConfig(configJson: string): GoogleSheetsIntegrationSetting {
-  const parsed = GoogleSheetsIntegrationSettingSchema.safeParse(
-    JSON.parse(configJson),
-  );
+function parseConfig(configJson: unknown): GoogleSheetsIntegrationSetting {
+  const raw =
+    typeof configJson === "string" ? JSON.parse(configJson) : configJson;
+  const parsed = GoogleSheetsIntegrationSettingSchema.safeParse(raw);
   if (!parsed.success) {
     throw new Error("Stored Google Sheets integration config is invalid");
   }
@@ -85,7 +85,7 @@ export async function upsertFormIntegrationForCurrentOwner(params: {
         .set({
           ownerUserId: formRecord.creatorId,
           userId: formRecord.creatorId,
-          configJson: JSON.stringify(params.config),
+          configJson: params.config,
         })
         .where(eq(formIntegration.formId, params.formId));
     } else {
