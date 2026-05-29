@@ -65,6 +65,7 @@ RUN printf 'server {\n\
     gzip_types text/css application/javascript text/javascript image/svg+xml;\n\
     gzip_min_length 256;\n\
     gzip_vary on;\n\
+    gzip_proxied any;\n\
     location /assets/ {\n\
         add_header Cache-Control "public, max-age=31536000, immutable";\n\
         add_header X-Frame-Options "DENY" always;\n\
