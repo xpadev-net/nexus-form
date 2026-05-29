@@ -291,6 +291,32 @@ export function validatePlateContent(content: unknown): content is unknown[] {
 
     // Every top-level node must have children array
     if (!Array.isArray(el.children)) return false;
+    if (!validatePlateNodeTree(el, false)) return false;
+  }
+
+  return true;
+}
+
+function validatePlateNodeTree(
+  node: Record<string, unknown>,
+  insideQuestion: boolean,
+): boolean {
+  const isQuestion = isPlateQuestionType(node.type);
+  if (insideQuestion && isQuestion) return false;
+
+  const children = node.children;
+  if (!Array.isArray(children)) return true;
+
+  for (const child of children) {
+    if (child == null || typeof child !== "object") continue;
+    if (
+      !validatePlateNodeTree(
+        child as Record<string, unknown>,
+        insideQuestion || isQuestion,
+      )
+    ) {
+      return false;
+    }
   }
 
   return true;
