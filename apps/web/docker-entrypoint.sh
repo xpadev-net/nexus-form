@@ -20,6 +20,9 @@ window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
   formSecurityDevBypass: $(json_encode "${VITE_FORM_SECURITY_DEV_BYPASS:-}"),
   hcaptchaSiteKey: $(json_encode "${VITE_HCAPTCHA_SITE_KEY:-}"),
+  telemetryHost: $(json_encode "${VITE_TELEMETRY_HOST:-}"),
+  telemetryV4Host: $(json_encode "${VITE_TELEMETRY_V4_HOST:-}"),
+  telemetryV6Host: $(json_encode "${VITE_TELEMETRY_V6_HOST:-}"),
 };
 window.__BRAND_CONFIG__ = {
   appName: $(json_encode "${VITE_BRAND_APP_NAME:-}"),
