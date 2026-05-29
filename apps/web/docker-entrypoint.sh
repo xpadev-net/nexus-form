@@ -40,6 +40,23 @@ escape_sed_replacement() {
   printf '%s' "$1" | sed -e 's/[\\&#]/\\&/g'
 }
 
+append_connect_src_from_host_env() {
+  env_name="$1"
+  env_value="$2"
+
+  if [ -z "$env_value" ]; then
+    return 0
+  fi
+
+  normalized_origin="$(normalize_csp_origin "$env_value")" ||
+    normalized_origin="$(normalize_csp_origin "https://$env_value")" || {
+      echo "[web] Warning: normalize_csp_origin rejected $env_name='$env_value'; not added to csp_connect_src/CSP_CONNECT_SRC" >&2
+      return 0
+    }
+
+  csp_connect_src="$csp_connect_src $normalized_origin"
+}
+
 csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
 if [ -n "${VITE_API_URL:-}" ]; then
   api_origin="$(normalize_csp_origin "$VITE_API_URL")" || {
@@ -52,6 +69,9 @@ fi
 if [ -n "$api_origin" ]; then
   csp_connect_src="$csp_connect_src $api_origin"
 fi
+append_connect_src_from_host_env "VITE_TELEMETRY_HOST" "${VITE_TELEMETRY_HOST:-}"
+append_connect_src_from_host_env "VITE_TELEMETRY_V4_HOST" "${VITE_TELEMETRY_V4_HOST:-}"
+append_connect_src_from_host_env "VITE_TELEMETRY_V6_HOST" "${VITE_TELEMETRY_V6_HOST:-}"
 
 # CSP_CONNECT_SRC is a space-separated list of additional origins.
 set -f
