@@ -5,14 +5,15 @@
  * 開発環境で必要な環境変数が正しく設定されているかを確認します
  */
 
-// dotenvパッケージを使用して安全に.env.localファイルを読み込む
-const dotenv = require("dotenv");
-const fs = require("node:fs");
-const path = require("node:path");
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
 
-const envPath = path.join(__dirname, "..", ".env.local");
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const envPath = join(scriptDir, "..", ".env.local");
 
-if (fs.existsSync(envPath)) {
+if (existsSync(envPath)) {
   dotenv.config({ path: envPath });
 }
 
@@ -22,17 +23,21 @@ const requiredEnvVars = [
   "REDIS_URL",
   "DISCORD_CLIENT_ID",
   "DISCORD_CLIENT_SECRET",
+  "DISCORD_BOT_TOKEN",
   "S3_ENDPOINT",
   "S3_ACCESS_KEY_ID",
   "S3_SECRET_ACCESS_KEY",
   "S3_BUCKET_TMP",
   "S3_BUCKET_PROD",
-  "DISCORD_BOT_TOKEN",
   "CSRF_SECRET",
   "SESSION_ALIAS_SALT",
   "GITHUB_APP_ID",
   "GITHUB_PRIVATE_KEY",
   "TWITTER_BEARER_TOKEN",
+  "HCAPTCHA_SECRET_KEY",
+  "SIGNUP_INVITATION_CODE",
+  "GOOGLE_OAUTH_ENC_KEY",
+  "TRUSTED_ORIGINS",
 ];
 
 const optionalEnvVars = [
@@ -40,11 +45,12 @@ const optionalEnvVars = [
   "NODE_ENV",
   "DEBUG",
   "LOG_LEVEL",
-  "NEXT_PUBLIC_TELEMETRY_V4_HOST",
-  "NEXT_PUBLIC_TELEMETRY_V6_HOST",
   "TELEMETRY_TOKEN_TTL_SEC",
   "TELEMETRY_IP_SALT",
-  "SESSION_IP_SALT", // 未設定の場合はAUTH_SECRETから導出されたソルトを使用
+  "SESSION_IP_SALT",
+  "API_BASE_URL",
+  "GOOGLE_OAUTH_CLIENT_ID",
+  "GOOGLE_OAUTH_CLIENT_SECRET",
 ];
 
 console.log("🔍 環境変数チェックを開始します...\n");
@@ -53,17 +59,17 @@ let hasErrors = false;
 
 // 必須環境変数のチェック
 console.log("📋 必須環境変数のチェック:");
-requiredEnvVars.forEach((envVar) => {
+for (const envVar of requiredEnvVars) {
   if (process.env[envVar]) {
     console.log(`✅ ${envVar}: 設定済み`);
   } else {
     console.log(`❌ ${envVar}: 未設定`);
     hasErrors = true;
   }
-});
+}
 
 console.log("\n📋 オプション環境変数のチェック:");
-optionalEnvVars.forEach((envVar) => {
+for (const envVar of optionalEnvVars) {
   if (process.env[envVar]) {
     console.log(`✅ ${envVar}: 設定済み`);
   } else {
@@ -75,7 +81,7 @@ optionalEnvVars.forEach((envVar) => {
       console.log(`⚠️  ${envVar}: 未設定 (オプション)`);
     }
   }
-});
+}
 
 console.log("\n📋 データベース接続情報:");
 if (process.env.DATABASE_URL) {
@@ -84,7 +90,6 @@ if (process.env.DATABASE_URL) {
     const user = dbUrlObj.username || "(not set)";
     const host = dbUrlObj.hostname || "(not set)";
     const port = dbUrlObj.port || "(not set)";
-    // パス名の先頭のスラッシュを削除してデータベース名を取得
     const database = dbUrlObj.pathname
       ? dbUrlObj.pathname.replace(/^\//, "")
       : "(not set)";
