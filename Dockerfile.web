@@ -1,4 +1,4 @@
-FROM node:24-alpine@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS base
+FROM node@sha256:2bdb65ed1dab192432bc31c95f94155ca5ad7fc1392fb7eb7526ab682fa5bf14 AS base
 WORKDIR /app
 RUN corepack enable pnpm
 
@@ -48,7 +48,7 @@ RUN pnpm --filter @nexus-form/shared build && \
     pnpm --filter @nexus-form/web build
 
 # ── Serve with nginx (non-root) ──
-FROM nginxinc/nginx-unprivileged:1.27-alpine@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0 AS runner
+FROM nginxinc/nginx-unprivileged@sha256:65e3e85dbaed8ba248841d9d58a899b6197106c23cb0ff1a132b7bfe0547e4c0 AS runner
 USER root
 
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
