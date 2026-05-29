@@ -156,9 +156,9 @@ export function ResponseDetailView({
         <>
           {responseFields.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {responseFields.map((field, index) => (
+              {responseFields.map((field) => (
                 <ResponseDisplay
-                  key={`${field.label}-${index}`}
+                  key={field.label}
                   label={field.label}
                   value={field.value}
                 />
