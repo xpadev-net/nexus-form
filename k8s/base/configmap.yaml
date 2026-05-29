@@ -22,6 +22,16 @@ data:
   VITE_API_URL: "https://api.example.com"
   VITE_HCAPTCHA_SITE_KEY: ""
 
+  # Brand customization (optional, defaults to nexus-form branding)
+  VITE_BRAND_APP_NAME: ""
+  VITE_BRAND_PRIMARY_COLOR: ""
+  VITE_BRAND_SECONDARY_COLOR: ""
+  VITE_BRAND_ACCENT_COLOR: ""
+  VITE_BRAND_TERMS_URL: ""
+  VITE_BRAND_PRIVACY_URL: ""
+  VITE_BRAND_COPYRIGHT: ""
+  VITE_BRAND_HOMEPAGE_URL: ""
+
   # Public API origin used by server-side Google OAuth callback pages
   API_BASE_URL: ""
   
