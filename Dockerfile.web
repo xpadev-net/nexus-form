@@ -65,10 +65,10 @@ RUN printf 'server {\n\
     gzip_types text/css application/javascript text/javascript image/svg+xml;\n\
     gzip_min_length 256;\n\
     location /assets/ {\n\
-        expires 1y;\n\
-        add_header Cache-Control "public, immutable";\n\
+        add_header Cache-Control "public, max-age=31536000, immutable";\n\
         add_header X-Frame-Options "DENY" always;\n\
         add_header X-Content-Type-Options "nosniff" always;\n\
+        add_header X-XSS-Protection "0" always;\n\
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
     }\n\
@@ -77,6 +77,7 @@ RUN printf 'server {\n\
         add_header Cache-Control "no-cache";\n\
         add_header X-Frame-Options "DENY" always;\n\
         add_header X-Content-Type-Options "nosniff" always;\n\
+        add_header X-XSS-Protection "0" always;\n\
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
     }\n\
