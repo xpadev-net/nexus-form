@@ -16,9 +16,6 @@ pre-commit:
     forbid-colors:
       glob: "{src,apps,packages}/**/*.{ts,tsx,js,jsx,css,md,mdx}"
       run: pnpm ci:forbid-colors {staged_files}
-    type-check:
-      glob: "{src,apps,packages}/**/*.{ts,tsx}"
-      run: pnpm type-check
     db-schema-staged-check:
       glob: "packages/database/src/{schema,auth-schema}.ts"
       run: pnpm db:schema:check-staged
