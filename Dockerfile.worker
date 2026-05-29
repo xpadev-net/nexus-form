@@ -1,3 +1,4 @@
+# node:24-bookworm, pinned by digest for reproducible builds.
 FROM node@sha256:8530f76a96d88820d288761f022e318970dda93d01536919fbc16076b7983e63 AS base
 WORKDIR /app
 RUN corepack enable pnpm
@@ -66,6 +67,7 @@ FROM prod AS runtime-deps
 
 RUN pnpm --filter @nexus-form/worker deploy --prod /tmp/worker-deploy
 
+# gcr.io/distroless/nodejs24-debian12, pinned by digest for reproducible builds.
 FROM gcr.io/distroless/nodejs24-debian12@sha256:61f4f4341db81820c24ce771b83d202eb6452076f58628cd536cc7d94a10978b AS runner
 WORKDIR /app
 ENV NODE_ENV=production
