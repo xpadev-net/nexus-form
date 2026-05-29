@@ -102,6 +102,7 @@ export interface UseFormContentAutosaveReturn {
   ) => Promise<void>;
   dismissConflict: () => void;
   handleContentChange: (value: string) => void;
+  hasUnsavedLocalEdits: () => boolean;
 }
 
 export function useFormContentAutosave({
@@ -577,5 +578,6 @@ export function useFormContentAutosave({
     dismissConflict,
     handleContentChange,
     snapshotEditorToDraft: () => setDraftContent(editorValueRef.current),
+    hasUnsavedLocalEdits,
   };
 }
