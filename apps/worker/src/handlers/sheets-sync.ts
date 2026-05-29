@@ -175,7 +175,7 @@ export const handleSheetsSync = async (
   }
   const rawConfigResult = IntegrationConfigSchema.safeParse(parsedConfig);
   if (!rawConfigResult.success) {
-    throw new Error("Form integration config_json must be an object");
+    throw new Error("Form integration configJson must be an object");
   }
   const rawConfig = rawConfigResult.data;
   const googleSheetsConfig = resolveGoogleSheetsConfig(rawConfig);
