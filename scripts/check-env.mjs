@@ -195,6 +195,13 @@ const optionalEnvVarGroups = [
   },
 ];
 
+const securityBypassEnvVars = new Set([
+  "FORM_SECURITY_DEV_BYPASS",
+  "VITE_FORM_SECURITY_DEV_BYPASS",
+  "DISABLE_HCAPTCHA",
+  "VITE_DISABLE_HCAPTCHA",
+]);
+
 console.log("🔍 環境変数チェックを開始します...\n");
 
 let hasErrors = false;
@@ -218,7 +225,11 @@ for (const group of optionalEnvVarGroups) {
   console.log(`\n  ${group.label}:`);
   for (const envVar of group.vars) {
     if (process.env[envVar]) {
-      console.log(`  ✅ ${envVar}: 設定済み`);
+      if (securityBypassEnvVars.has(envVar)) {
+        console.log(`  ⚠️  ${envVar}: 設定済み (開発環境以外では無効化してください)`);
+      } else {
+        console.log(`  ✅ ${envVar}: 設定済み`);
+      }
     } else {
       if (envVar === "SESSION_IP_SALT" || envVar === "TELEMETRY_IP_SALT") {
         console.log(
@@ -243,6 +254,9 @@ if (process.env.VITE_API_URL && process.env.VITE_BASE_URL) {
     console.log(`   エラー: ${e.message}`);
     hasErrors = true;
   }
+} else {
+  console.log("❌ フロントエンド接続情報が不完全です");
+  hasErrors = true;
 }
 
 console.log("\n📋 データベース接続情報:");
