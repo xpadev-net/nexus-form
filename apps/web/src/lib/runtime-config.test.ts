@@ -13,6 +13,9 @@ describe("getRuntimeConfigValue", () => {
       __NEXUS_FORM_CONFIG__: {
         apiUrl: "https://api.runtime.example",
         formSecurityDevBypass: "true",
+        telemetryHost: "telemetry.runtime.example",
+        telemetryV4Host: "ipv4.runtime.example",
+        telemetryV6Host: "ipv6.runtime.example",
       },
     });
 
@@ -25,6 +28,15 @@ describe("getRuntimeConfigValue", () => {
     ).toBe("https://api.runtime.example");
     expect(getRuntimeConfigValue("formSecurityDevBypass", "false")).toBe(
       "true",
+    );
+    expect(
+      getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
+    ).toBe("telemetry.runtime.example");
+    expect(getRuntimeConfigValue("telemetryV4Host", "ipv4.build.example")).toBe(
+      "ipv4.runtime.example",
+    );
+    expect(getRuntimeConfigValue("telemetryV6Host", "ipv6.build.example")).toBe(
+      "ipv6.runtime.example",
     );
   });
 
@@ -45,6 +57,15 @@ describe("getRuntimeConfigValue", () => {
 
     expect(getRuntimeConfigValue("hcaptchaSiteKey", "", "fallback")).toBe(
       "fallback",
+    );
+    expect(
+      getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
+    ).toBe("telemetry.build.example");
+    expect(getRuntimeConfigValue("telemetryV4Host", "ipv4.build.example")).toBe(
+      "ipv4.build.example",
+    );
+    expect(getRuntimeConfigValue("telemetryV6Host", "ipv6.build.example")).toBe(
+      "ipv6.build.example",
     );
   });
 });

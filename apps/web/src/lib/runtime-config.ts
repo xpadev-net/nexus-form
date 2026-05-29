@@ -3,6 +3,9 @@ type RuntimeConfig = {
   baseUrl?: string;
   formSecurityDevBypass?: string;
   hcaptchaSiteKey?: string;
+  telemetryHost?: string;
+  telemetryV4Host?: string;
+  telemetryV6Host?: string;
 };
 
 function getRuntimeConfig(): RuntimeConfig {
