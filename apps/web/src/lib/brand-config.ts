@@ -9,17 +9,17 @@ declare global {
 }
 
 const RuntimeBrandConfigSchema = z.object({
-  appName: z.string().optional(),
-  primaryColor: z.string().optional(),
-  secondaryColor: z.string().optional(),
-  accentColor: z.string().optional(),
-  cookiePrefix: z.string().optional(),
-  userAgent: z.string().optional(),
-  homepageUrl: z.string().optional(),
-  monitorUserAgent: z.string().optional(),
-  termsUrl: z.string().optional(),
-  privacyUrl: z.string().optional(),
-  copyright: z.string().optional(),
+  appName: z.string().min(1).optional().catch(undefined),
+  primaryColor: z.string().min(1).optional().catch(undefined),
+  secondaryColor: z.string().min(1).optional().catch(undefined),
+  accentColor: z.string().min(1).optional().catch(undefined),
+  cookiePrefix: z.string().min(1).optional().catch(undefined),
+  userAgent: z.string().min(1).optional().catch(undefined),
+  homepageUrl: z.string().min(1).optional().catch(undefined),
+  monitorUserAgent: z.string().min(1).optional().catch(undefined),
+  termsUrl: z.string().min(1).optional().catch(undefined),
+  privacyUrl: z.string().min(1).optional().catch(undefined),
+  copyright: z.string().min(1).optional().catch(undefined),
 });
 
 function loadRuntimeConfig(): Partial<Record<keyof BrandConfig, string>> {

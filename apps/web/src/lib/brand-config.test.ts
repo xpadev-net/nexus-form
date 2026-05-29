@@ -27,20 +27,32 @@ describe("brandConfig", () => {
     expect(brandConfig.primaryColor).toBe("#123456");
   });
 
-  it("ignores malformed runtime brand config", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("ignores malformed runtime brand config fields", async () => {
     vi.stubGlobal("window", {
       __BRAND_CONFIG__: {
         appName: 123,
+        primaryColor: "#123456",
       },
     });
 
     const { brandConfig } = await loadBrandConfig();
 
     expect(brandConfig.appName).toBe("Nexus Form");
-    expect(warn).toHaveBeenCalledWith(
-      "[BrandConfig] Invalid runtime config, using build defaults",
-    );
+    expect(brandConfig.primaryColor).toBe("#123456");
+  });
+
+  it("rejects empty string brand config fields", async () => {
+    vi.stubGlobal("window", {
+      __BRAND_CONFIG__: {
+        appName: "",
+        primaryColor: "#123456",
+      },
+    });
+
+    const { brandConfig } = await loadBrandConfig();
+
+    expect(brandConfig.appName).toBe("Nexus Form");
+    expect(brandConfig.primaryColor).toBe("#123456");
   });
 
   it("falls back without warning when runtime brand config is not injected", async () => {
