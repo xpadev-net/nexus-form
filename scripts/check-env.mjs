@@ -296,13 +296,13 @@ if (process.env.REDIS_URL) {
   }
 }
 
-console.log("\n📋 Google OAuth / Sheets 連携情報:");
 if (
   process.env.API_BASE_URL &&
   process.env.GOOGLE_OAUTH_CLIENT_ID &&
   process.env.GOOGLE_OAUTH_CLIENT_SECRET &&
   process.env.GOOGLE_OAUTH_ENC_KEY
 ) {
+  console.log("\n📋 Google OAuth / Sheets 連携情報:");
   try {
     const apiBaseUrlObj = new URL(process.env.API_BASE_URL);
     console.log(`✅ Google OAuth callback origin: ${apiBaseUrlObj.origin}`);
