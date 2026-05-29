@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractQuestionsFromPlateContent,
   extractTitleFromChildren,
+  validatePlateContent,
 } from "../plate-content-utils";
 
 describe("extractTitleFromChildren", () => {
@@ -34,5 +35,71 @@ describe("extractQuestionsFromPlateContent", () => {
     ]);
 
     expect(questions[0]?.title).toBe("氏名");
+  });
+});
+
+describe("validatePlateContent", () => {
+  it("rejects a form question nested inside another form question", () => {
+    expect(
+      validatePlateContent([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [
+            { type: "p", children: [{ text: "説明文" }] },
+            {
+              type: "form_long_text",
+              blockId: "question-2",
+              children: [{ type: "p", children: [{ text: "混入質問" }] }],
+            },
+          ],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("rejects a form question nested through a non-question container inside another form question", () => {
+    expect(
+      validatePlateContent([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [
+            {
+              type: "column",
+              children: [
+                {
+                  type: "form_long_text",
+                  blockId: "question-2",
+                  children: [{ type: "p", children: [{ text: "混入質問" }] }],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("allows form questions inside non-question container nodes", () => {
+    expect(
+      validatePlateContent([
+        {
+          type: "column_group",
+          children: [
+            {
+              type: "column",
+              children: [
+                {
+                  type: "form_short_text",
+                  blockId: "question-1",
+                  children: [{ type: "p", children: [{ text: "氏名" }] }],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+    ).toBe(true);
   });
 });
