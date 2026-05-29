@@ -20,7 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.3.15",
