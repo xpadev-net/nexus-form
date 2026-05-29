@@ -61,6 +61,12 @@ const RETRYABLE_CODES = new Set([
   "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
 ]);
 
+function throwIfShuttingDown(): void {
+  if (workerShutdownSignal.aborted) {
+    throw new DOMException("Worker shutting down", "AbortError");
+  }
+}
+
 const DISCORD_PROVIDER_NAME = "discord";
 const DISCORD_VALIDATION_LOCK_KEY = "nexus-form:discord-validation-api";
 const DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS = 120_000;
@@ -133,6 +139,8 @@ export const handleGenericValidation = async (
   job: Job<GenericValidationJob>,
   token?: string,
 ) => {
+  throwIfShuttingDown();
+
   const jobData = genericValidationJobDataSchema.parse(job.data);
   const { responseId, ruleId, referencedBlockId, snapshotVersion } = jobData;
 
@@ -171,6 +179,7 @@ export const handleGenericValidation = async (
   const ruleType = jobData.snapshotRuleType;
 
   try {
+    throwIfShuttingDown();
     await markValidationProcessing({
       responseId,
       ruleId,
@@ -280,6 +289,8 @@ export const handleGenericValidation = async (
 
   let rawResult: unknown;
   try {
+    throwIfShuttingDown();
+
     const runValidation = (): ReturnType<typeof providerRule.validate> =>
       providerRule.validate(validatedInput, providerConfig);
     if (serviceType === DISCORD_PROVIDER_NAME) {
@@ -314,6 +325,9 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     const providerErrorParse = providerErrorSchema.safeParse(error);
     const providerError = providerErrorParse.success
       ? providerErrorParse.data
