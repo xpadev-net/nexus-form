@@ -8,7 +8,7 @@ import {
 } from "@/components/forms/form-editor-tabs";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { client, rpc } from "@/lib/api";
+import { client, RpcError, rpc } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { FormStatus } from "@/types/validation/shared";
 
@@ -27,6 +27,10 @@ export function useFormEditorPageModel(formId: string) {
   const formQuery = useQuery({
     queryKey: ["formDetail", formId],
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
+    retry: (failureCount, err) => {
+      if (err instanceof RpcError && err.status === 404) return false;
+      return failureCount < 3;
+    },
   });
 
   usePageTitle(formQuery.data?.form?.title ?? "フォームを編集");
@@ -35,6 +39,10 @@ export function useFormEditorPageModel(formId: string) {
     queryKey: ["formContent", formId],
     queryFn: () =>
       rpc(client.api.forms[":id"].content.$get({ param: { id: formId } })),
+    retry: (failureCount, err) => {
+      if (err instanceof RpcError && err.status === 404) return false;
+      return failureCount < 3;
+    },
   });
 
   const {
@@ -145,6 +153,10 @@ export function useFormEditorPageModel(formId: string) {
   });
 
   const formData = formQuery.data?.form;
+  const isNotFound =
+    (formQuery.error instanceof RpcError && formQuery.error.status === 404) ||
+    (contentQuery.error instanceof RpcError &&
+      contentQuery.error.status === 404);
   const formIdForStatus = formData?.id;
   const rawFormStatus = formData?.status;
   const formStatusResult = FormStatus.safeParse(rawFormStatus);
@@ -235,6 +247,7 @@ export function useFormEditorPageModel(formId: string) {
     isFormError: formQuery.isError,
     isFormLoading: formQuery.isLoading,
     isMerging,
+    isNotFound,
     isSaving,
     isTitlePending: updateTitleMutation.isPending,
     plateContent: contentQuery.data?.plateContent ?? "[]",
