@@ -133,8 +133,8 @@ function makeJob(
   return {
     id: "job-1",
     data,
+    discard: vi.fn().mockResolvedValue(undefined),
     updateProgress: vi.fn().mockResolvedValue(undefined),
-    moveToFailed: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
 }
 
@@ -281,6 +281,36 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
+  it("discards and throws when the OAuth token is missing", async () => {
+    setupDbSelect([INTEGRATION]);
+    mockGetOAuthToken.mockResolvedValue(null);
+
+    const job = makeJob();
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: OAuth token not found",
+    );
+
+    expect(job.discard).toHaveBeenCalledOnce();
+    expect(mockRefreshTokenIfNeeded).not.toHaveBeenCalled();
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+  });
+
+  it("discards and throws when OAuth token refresh fails", async () => {
+    setupDbSelect([INTEGRATION]);
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
+
+    const job = makeJob();
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: OAuth token refresh failed",
+    );
+
+    expect(job.discard).toHaveBeenCalledOnce();
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+  });
+
   it('returns {skipped, reason:"duplicate"} when idempotency key is "done"', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("done");
@@ -324,6 +354,24 @@ describe("handleSheetsSync — idempotency states", () => {
     await expect(handleSheetsSync(makeJob())).rejects.toThrow(
       "Failed to read sheet for idempotency check",
     );
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+  });
+
+  it('discards and throws when the "pending" idempotency sheet check requires auth', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockReadRange.mockResolvedValueOnce({
+      ok: false,
+      error: { code: "unauthorized", message: "invalid credentials" },
+    } as never);
+
+    const job = makeJob();
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: read sheet for idempotency check: invalid credentials",
+    );
+
+    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
@@ -661,12 +709,35 @@ describe("handleSheetsSync — write path", () => {
       error: { code: "rateLimit", message: "quota exceeded" },
     } as never);
 
-    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
+    const job = makeJob();
+    await expect(handleSheetsSync(job)).rejects.toThrow(
       "Google Sheets API rate limit",
     );
+    expect(job.discard).not.toHaveBeenCalled();
   });
 
-  it("marks unauthorized response from appendRows as AUTH_REQUIRED", async () => {
+  it("discards and throws unauthorized response from updateRange as AUTH_REQUIRED", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockUpdateRange.mockResolvedValue({
+      ok: false,
+      error: { code: "unauthorized", message: "invalid credentials" },
+    } as never);
+
+    const job = makeJob();
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: update headers: invalid credentials",
+    );
+
+    expect(job.discard).toHaveBeenCalledOnce();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+  });
+
+  it("discards and throws unauthorized response from appendRows as AUTH_REQUIRED", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
     mockAppendRows.mockResolvedValue({
@@ -675,14 +746,13 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await handleSheetsSync(job, "lock-token");
-    expect(job.moveToFailed).toHaveBeenCalledWith(
-      expect.any(Error),
-      "lock-token",
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: append rows: invalid credentials",
     );
+    expect(job.discard).toHaveBeenCalledOnce();
   });
 
-  it("marks forbidden response from appendRows as AUTH_REQUIRED", async () => {
+  it("discards and throws forbidden response from appendRows as AUTH_REQUIRED", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
     mockAppendRows.mockResolvedValue({
@@ -691,10 +761,9 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await handleSheetsSync(job, "lock-token");
-    expect(job.moveToFailed).toHaveBeenCalledWith(
-      expect.any(Error),
-      "lock-token",
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "AUTH_REQUIRED: append rows: forbidden access",
     );
+    expect(job.discard).toHaveBeenCalledOnce();
   });
 });

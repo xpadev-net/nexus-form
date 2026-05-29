@@ -71,26 +71,20 @@ function getSheetsSyncFailureMessage(
 
 async function failSheetsSyncWithoutRetry(
   job: Job<SheetsSyncJob>,
-  lockToken: string | undefined,
   reason: string,
-): Promise<void> {
-  if (lockToken) {
-    await job.moveToFailed(new Error(reason), lockToken);
-    return;
-  }
+): Promise<never> {
+  await job.discard();
   throw new Error(reason);
 }
 
 async function throwSheetsSyncFailure(
   job: Job<SheetsSyncJob>,
-  lockToken: string | undefined,
   context: string,
   result: { error: GoogleApiError },
 ): Promise<void> {
   const message = getSheetsSyncFailureMessage(context, result);
   if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
-    await failSheetsSyncWithoutRetry(job, lockToken, message);
-    return;
+    await failSheetsSyncWithoutRetry(job, message);
   }
   throw new Error(message);
 }
@@ -136,10 +130,7 @@ function resolveGoogleSheetsConfig(
   return googleSheetsConfigResult.data;
 }
 
-export const handleSheetsSync = async (
-  job: Job<SheetsSyncJob>,
-  lockToken?: string,
-) => {
+export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const { formId, integrationId, responseId, snapshotVersion } =
     sheetsSyncJobDataSchema.parse(job.data);
 
@@ -202,22 +193,18 @@ export const handleSheetsSync = async (
 
   const initialToken = await getOAuthToken(userId);
   if (!initialToken) {
-    await failSheetsSyncWithoutRetry(
+    return await failSheetsSyncWithoutRetry(
       job,
-      lockToken,
       authRequiredMessage("OAuth token not found"),
     );
-    return;
   }
 
   const token = await refreshTokenIfNeeded(initialToken);
   if (!token) {
-    await failSheetsSyncWithoutRetry(
+    return await failSheetsSyncWithoutRetry(
       job,
-      lockToken,
       authRequiredMessage("OAuth token refresh failed"),
     );
-    return;
   }
   await job.updateProgress(20);
 
@@ -321,7 +308,6 @@ export const handleSheetsSync = async (
           },
           {
             job,
-            lockToken,
           },
         );
         if (!sheetCheck.ok) return;
@@ -370,7 +356,6 @@ export const handleSheetsSync = async (
         },
         {
           job,
-          lockToken,
         },
       );
       if (!sheetCheck.ok) return;
@@ -404,7 +389,6 @@ export const handleSheetsSync = async (
         if (!headerUpdateResult.ok) {
           await throwSheetsSyncFailure(
             job,
-            lockToken,
             "update headers",
             headerUpdateResult,
           );
@@ -421,12 +405,7 @@ export const handleSheetsSync = async (
       });
 
       if (!appendResult.ok) {
-        await throwSheetsSyncFailure(
-          job,
-          lockToken,
-          "append rows",
-          appendResult,
-        );
+        await throwSheetsSyncFailure(job, "append rows", appendResult);
         return;
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
@@ -490,7 +469,6 @@ async function readSheetForIdempotency(
   },
   options: {
     job: Job<SheetsSyncJob>;
-    lockToken?: string;
   },
 ): Promise<{ ok: true; exists: boolean; headers: string[] } | { ok: false }> {
   const headerData = await readRange(token, {
@@ -500,7 +478,6 @@ async function readSheetForIdempotency(
   if (!headerData.ok) {
     await throwSheetsSyncFailure(
       options.job,
-      options.lockToken,
       "read sheet for idempotency check",
       headerData,
     );
@@ -524,7 +501,6 @@ async function readSheetForIdempotency(
   if (!entireColumn.ok) {
     await throwSheetsSyncFailure(
       options.job,
-      options.lockToken,
       "read sheet column for idempotency check",
       entireColumn,
     );

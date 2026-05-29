@@ -130,6 +130,10 @@ async function main() {
     worker.on("failed", (job, error) => {
       console.error(`[worker:${worker.name}] failed job=${job?.id}`, error);
     });
+    worker.on("error", (error) => {
+      console.error(`[worker:${worker.name}] worker error`, error);
+      captureError(error);
+    });
   }
 
   console.log(
