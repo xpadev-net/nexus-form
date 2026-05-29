@@ -11,12 +11,6 @@ test.describe("アクセシビリティ - 全体", () => {
 
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-      // TODO: 以下の既知の違反を修正後、除外ルールを削除する
-      .disableRules([
-        "button-name", // ボタンにアクセシブルな名前が必要
-        "link-name", // リンクにアクセシブルな名前が必要
-        "image-alt", // 画像に代替テキストが必要
-      ])
       .analyze();
 
     expect(accessibilityScanResults.violations).toEqual([]);
@@ -34,10 +28,7 @@ test.describe("アクセシビリティ - 全体", () => {
 
     const accessibilityScanResults = await new AxeBuilder({ page })
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-      // TODO: 以下の既知の違反を修正後、除外ルールを削除する
       .disableRules([
-        "button-name", // ボタンにアクセシブルな名前が必要
-        "link-name", // リンクにアクセシブルな名前が必要
         "heading-order", // 見出しの階層が不正
       ])
       .analyze();
