@@ -63,7 +63,7 @@ FROM builder AS runtime-deps
 
 RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
 
-FROM gcr.io/distroless/nodejs24-debian12 AS runner
+FROM gcr.io/distroless/nodejs24-debian12@sha256:61f4f4341db81820c24ce771b83d202eb6452076f58628cd536cc7d94a10978b AS runner
 WORKDIR /app
 
 # Copy workspace structure for pnpm to resolve workspace: links
