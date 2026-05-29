@@ -17,10 +17,16 @@ type QueryState = {
   isLoading: boolean;
 };
 type RetryFn = (failureCount: number, error: unknown) => boolean;
+type QueryOptions = {
+  enabled?: boolean;
+  queryKey: string[];
+  retry?: RetryFn;
+};
 
 let formQueryState: QueryState;
 let contentQueryState: QueryState;
 const retryByQueryKey = new Map<string, RetryFn>();
+const optionsByQueryKey = new Map<string, QueryOptions>();
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -53,7 +59,9 @@ vi.mock("@tanstack/react-query", () => ({
     isPending: false,
     mutate: vi.fn(),
   }),
-  useQuery: ({ queryKey, retry }: { queryKey: string[]; retry?: RetryFn }) => {
+  useQuery: (options: QueryOptions) => {
+    const { queryKey, retry } = options;
+    optionsByQueryKey.set(queryKey[0] ?? "", options);
     if (retry) {
       retryByQueryKey.set(queryKey[0] ?? "", retry);
     }
@@ -230,6 +238,7 @@ describe("FormEditorPage tab synchronization", () => {
     };
     navigateMock.mockClear();
     snapshotEditorToDraftMock.mockClear();
+    optionsByQueryKey.clear();
     retryByQueryKey.clear();
   });
 
@@ -319,6 +328,25 @@ describe("FormEditorPage tab synchronization", () => {
       "このフォームは存在しないか、編集権限がありません。",
     );
     expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
+    expect(optionsByQueryKey.get("formContent")?.enabled).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps content-only 404 failures on the generic error path", () => {
+    contentQueryState = {
+      error: new RpcError("Content not found", 404),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain(
+      "フォームの読み込みに失敗しました。",
+    );
+    expect(container.textContent).not.toContain("フォームが見つかりません");
 
     act(() => root.unmount());
   });
