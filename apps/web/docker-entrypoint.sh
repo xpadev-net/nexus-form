@@ -37,6 +37,7 @@ if [ -n "$api_origin" ]; then
   csp_connect_src="$csp_connect_src $api_origin"
 fi
 
+# CSP_CONNECT_SRC is a space-separated list of additional origins.
 for extra_origin in ${CSP_CONNECT_SRC:-}; do
   normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
     echo "[web] Ignoring invalid CSP_CONNECT_SRC origin: $extra_origin" >&2
