@@ -310,7 +310,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             job,
           },
         );
-        if (!sheetCheck.ok) return;
         if (sheetCheck.exists) {
           return markDuplicateWritten();
         }
@@ -358,7 +357,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           job,
         },
       );
-      if (!sheetCheck.ok) return;
       if (sheetCheck.exists) {
         return markDuplicateWritten();
       }
@@ -464,7 +462,7 @@ async function readSheetForIdempotency(
   options: {
     job: Job<SheetsSyncJob>;
   },
-): Promise<{ ok: true; exists: boolean; headers: string[] } | { ok: false }> {
+): Promise<{ ok: true; exists: boolean; headers: string[] }> {
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: `${params.sheetName}!1:1`,
