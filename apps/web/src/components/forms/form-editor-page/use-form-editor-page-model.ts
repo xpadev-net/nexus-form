@@ -188,6 +188,7 @@ export function useFormEditorPageModel(formId: string) {
     const handler = (e: BeforeUnloadEvent) => {
       if (hasUnsavedLocalEdits()) {
         e.preventDefault();
+        e.returnValue = "";
       }
     };
     window.addEventListener("beforeunload", handler);

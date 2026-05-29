@@ -578,7 +578,6 @@ export function useFormContentAutosave({
     dismissConflict,
     handleContentChange,
     snapshotEditorToDraft: () => setDraftContent(editorValueRef.current),
-    hasUnsavedLocalEdits: () =>
-      pendingValueRef.current != null || inFlightValueRef.current != null,
+    hasUnsavedLocalEdits,
   };
 }
