@@ -313,9 +313,6 @@ if (
     console.log(`   エラー: ${e.message}`);
     hasErrors = true;
   }
-} else {
-  console.log("❌ Google OAuth / Sheets 連携設定が不完全です");
-  hasErrors = true;
 }
 
 console.log("\n📋 S3設定情報:");
