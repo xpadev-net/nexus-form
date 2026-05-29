@@ -77,7 +77,7 @@ vi.mock("@/hooks/forms/use-form-content-autosave", () => ({
     dismissConflict: vi.fn(),
     draftContent: "[]",
     handleContentChange: vi.fn(),
-    hasUnsavedLocalEdits: () => false,
+    hasUnsavedLocalEdits: vi.fn().mockReturnValue(false),
     isMerging: false,
     isSaving: false,
     resolveConflicts: vi.fn(),
