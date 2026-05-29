@@ -369,7 +369,7 @@ describe("FormEditorPage tab synchronization", () => {
     act(() => root.unmount());
   });
 
-  it("does not retry 404 editor queries", () => {
+  it("does not retry 4xx editor queries", () => {
     const container = document.createElement("div");
     const root = renderPage(container);
 
@@ -378,6 +378,9 @@ describe("FormEditorPage tab synchronization", () => {
     ).toBe(false);
     expect(
       retryByQueryKey.get("formContent")?.(0, new RpcError("Not found", 404)),
+    ).toBe(false);
+    expect(
+      retryByQueryKey.get("formDetail")?.(0, new RpcError("Forbidden", 403)),
     ).toBe(false);
     expect(retryByQueryKey.get("formDetail")?.(2, new Error("Network"))).toBe(
       true,

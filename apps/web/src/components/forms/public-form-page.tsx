@@ -18,6 +18,7 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { decodePrefillData } from "@/lib/forms/prefill";
+import { shouldRetryQuery } from "@/lib/query-retry";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
@@ -185,10 +186,7 @@ function PublicFormPageInner() {
   } = useQuery({
     queryKey: ["publicForm", publicId],
     queryFn: () => fetchPublicForm(publicId),
-    retry: (failureCount, err) => {
-      if (err instanceof RpcError && err.status === 404) return false;
-      return failureCount < 3;
-    },
+    retry: shouldRetryQuery,
   });
 
   usePageTitle(formData?.form?.title ?? "公開フォーム");

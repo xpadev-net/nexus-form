@@ -10,6 +10,7 @@ import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave"
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, RpcError, rpc } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
+import { shouldRetryQuery } from "@/lib/query-retry";
 import { FormStatus } from "@/types/validation/shared";
 
 export function useFormEditorPageModel(formId: string) {
@@ -27,10 +28,7 @@ export function useFormEditorPageModel(formId: string) {
   const formQuery = useQuery({
     queryKey: ["formDetail", formId],
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
-    retry: (failureCount, err) => {
-      if (err instanceof RpcError && err.status === 404) return false;
-      return failureCount < 3;
-    },
+    retry: shouldRetryQuery,
   });
 
   usePageTitle(formQuery.data?.form?.title ?? "フォームを編集");
@@ -40,10 +38,7 @@ export function useFormEditorPageModel(formId: string) {
     queryKey: ["formContent", formId],
     queryFn: () =>
       rpc(client.api.forms[":id"].content.$get({ param: { id: formId } })),
-    retry: (failureCount, err) => {
-      if (err instanceof RpcError && err.status === 404) return false;
-      return failureCount < 3;
-    },
+    retry: shouldRetryQuery,
   });
 
   const {

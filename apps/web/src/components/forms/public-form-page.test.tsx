@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RpcError } from "@/lib/api";
 import { PublicFormPage } from "./public-form-page";
 
 (
@@ -23,6 +24,8 @@ type PublicFormData = {
 
 let publicFormData: PublicFormData;
 let refetchResult: { data?: PublicFormData; error: Error | null };
+type RetryFn = (failureCount: number, error: unknown) => boolean;
+let publicFormRetry: RetryFn | undefined;
 const useFingerprintMockState = vi.hoisted(() => ({
   collect: vi.fn(),
   fingerprints: [] as {
@@ -79,12 +82,15 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({
-    data: publicFormData,
-    error: null,
-    isPending: false,
-    refetch: refetchFormMock,
-  }),
+  useQuery: ({ retry }: { retry?: RetryFn }) => {
+    publicFormRetry = retry;
+    return {
+      data: publicFormData,
+      error: null,
+      isPending: false,
+      refetch: refetchFormMock,
+    };
+  },
 }));
 
 vi.mock("@/contexts/form-response-context", () => ({
@@ -188,7 +194,14 @@ vi.mock("@/lib/api", () => ({
     },
   },
   RpcError: class RpcError extends Error {
-    status = 500;
+    readonly details = null;
+    readonly status: number;
+
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "RpcError";
+      this.status = status;
+    }
   },
   rpc: apiMocks.rpc,
 }));
@@ -209,6 +222,19 @@ describe("PublicFormPage password protection", () => {
     apiMocks.rpc.mockReset();
     apiMocks.submitPost.mockReset();
     apiMocks.telemetryPost.mockReset();
+    publicFormRetry = undefined;
+  });
+
+  it("does not retry public form 4xx query failures", () => {
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    expect(publicFormRetry?.(0, new RpcError("Not found", 404))).toBe(false);
+    expect(publicFormRetry?.(0, new RpcError("Forbidden", 403))).toBe(false);
+    expect(publicFormRetry?.(2, new RpcError("Server error", 500))).toBe(true);
+    expect(publicFormRetry?.(3, new Error("Network"))).toBe(false);
+
+    act(() => root.unmount());
   });
 
   it("shows the password gate while protected body fields are locked, then renders the form after verification", async () => {
