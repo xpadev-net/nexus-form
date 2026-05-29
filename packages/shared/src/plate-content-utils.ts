@@ -300,7 +300,9 @@ export function validatePlateContent(content: unknown): content is unknown[] {
 function validatePlateNodeTree(
   node: Record<string, unknown>,
   insideQuestion: boolean,
+  depth = 0,
 ): boolean {
+  if (depth > MAX_DEPTH) return true;
   const isQuestion = isPlateQuestionType(node.type);
   if (insideQuestion && isQuestion) return false;
 
@@ -313,6 +315,7 @@ function validatePlateNodeTree(
       !validatePlateNodeTree(
         child as Record<string, unknown>,
         insideQuestion || isQuestion,
+        depth + 1,
       )
     ) {
       return false;
