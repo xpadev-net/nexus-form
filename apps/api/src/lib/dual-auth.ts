@@ -72,7 +72,7 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (!authHeader) return null;
   const trimmed = authHeader.trim();
   const [scheme, ...rest] = trimmed.split(/\s+/);
-  if (!scheme || scheme.toLowerCase() !== "bearer") return null;
+  if (scheme?.toLowerCase() !== "bearer") return null;
   const token = rest.join(" ");
   return token || null;
 }

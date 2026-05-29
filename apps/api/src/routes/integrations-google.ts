@@ -386,7 +386,7 @@ function requireSessionUser(
   c: Context,
 ): { ok: true; userId: string } | { ok: false; response: Response } {
   const auth = c.get("dualAuthContext");
-  if (!auth || auth.auth_type !== "session") {
+  if (auth?.auth_type !== "session") {
     return { ok: false, response: c.json(errorResponse("Unauthorized"), 401) };
   }
   return { ok: true, userId: auth.user_id };
