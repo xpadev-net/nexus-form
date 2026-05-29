@@ -105,7 +105,6 @@ const optionalEnvVarGroups = [
       "VITE_FORM_SECURITY_DEV_BYPASS",
       "DISABLE_HCAPTCHA",
       "VITE_DISABLE_HCAPTCHA",
-      "GOOGLE_OAUTH_REFRESH_TIMEOUT_MS",
     ],
   },
   {
@@ -158,6 +157,7 @@ const optionalEnvVarGroups = [
       "DISCORD_RETRY_ATTEMPTS",
       "DISCORD_RETRY_DELAY",
       "DISCORD_CACHE_TIMEOUT",
+      "GOOGLE_OAUTH_REFRESH_TIMEOUT_MS",
       "GITHUB_INSTALLATION_ID",
       "GITHUB_CACHE_EXPIRY",
       "GITHUB_API_TIMEOUT_MS",
