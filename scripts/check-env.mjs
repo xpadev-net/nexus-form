@@ -36,7 +36,6 @@ const requiredEnvVars = [
   "TWITTER_BEARER_TOKEN",
   "HCAPTCHA_SECRET_KEY",
   "SIGNUP_INVITATION_CODE",
-  "GOOGLE_OAUTH_ENC_KEY",
   "TRUSTED_ORIGINS",
 ];
 
@@ -51,6 +50,7 @@ const optionalEnvVars = [
   "API_BASE_URL",
   "GOOGLE_OAUTH_CLIENT_ID",
   "GOOGLE_OAUTH_CLIENT_SECRET",
+  "GOOGLE_OAUTH_ENC_KEY",
 ];
 
 console.log("🔍 環境変数チェックを開始します...\n");
