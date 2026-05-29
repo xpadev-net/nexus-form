@@ -213,11 +213,11 @@ describe("handleSheetsSync — idempotency states", () => {
     "null",
     "42",
     "[]",
-  ])("config_json が object でない場合は弾く (%s)", async (configJson) => {
+  ])("configJson が object でない場合は弾く (%s)", async (configJson) => {
     setupDbSelect([{ ...INTEGRATION, configJson }]);
 
     await expect(handleSheetsSync(makeJob())).rejects.toThrow(
-      "Form integration config_json must be an object",
+      "Form integration configJson must be an object",
     );
     expect(mockGetOAuthToken).not.toHaveBeenCalled();
   });
