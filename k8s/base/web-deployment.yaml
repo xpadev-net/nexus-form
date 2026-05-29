@@ -47,41 +47,49 @@ spec:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_APP_NAME
+              optional: true
         - name: VITE_BRAND_PRIMARY_COLOR
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_PRIMARY_COLOR
+              optional: true
         - name: VITE_BRAND_SECONDARY_COLOR
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_SECONDARY_COLOR
+              optional: true
         - name: VITE_BRAND_ACCENT_COLOR
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_ACCENT_COLOR
+              optional: true
         - name: VITE_BRAND_TERMS_URL
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_TERMS_URL
+              optional: true
         - name: VITE_BRAND_PRIVACY_URL
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_PRIVACY_URL
+              optional: true
         - name: VITE_BRAND_COPYRIGHT
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_COPYRIGHT
+              optional: true
         - name: VITE_BRAND_HOMEPAGE_URL
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_BRAND_HOMEPAGE_URL
+              optional: true
         resources:
           requests:
             cpu: "50m"
