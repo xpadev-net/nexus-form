@@ -94,7 +94,7 @@ export async function upsertFormIntegrationForCurrentOwner(params: {
         formId: params.formId,
         ownerUserId: formRecord.creatorId,
         userId: formRecord.creatorId,
-        configJson: JSON.stringify(params.config),
+        configJson: params.config,
       });
     }
 
