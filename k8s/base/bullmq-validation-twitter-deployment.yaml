@@ -41,14 +41,14 @@ spec:
             memory: "512Mi"
         livenessProbe:
           exec:
-            command: ["node", "-e", "process.exit(0)"]
+            command: ["pgrep", "-f", "tsx"]
           initialDelaySeconds: 10
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           exec:
-            command: ["node", "-e", "process.exit(0)"]
+            command: ["pgrep", "-f", "tsx"]
           initialDelaySeconds: 5
           periodSeconds: 5
           timeoutSeconds: 3
