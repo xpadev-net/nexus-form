@@ -46,6 +46,25 @@ for extra_origin in ${CSP_CONNECT_SRC:-}; do
   csp_connect_src="$csp_connect_src $normalized_origin"
 done
 
+csp_img_src="'self' data: blob:"
+
+# CSP_IMG_SRC is a space-separated list of additional image origins.
+for extra_origin in ${CSP_IMG_SRC:-}; do
+  normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
+    echo "[web] Ignoring invalid CSP_IMG_SRC origin: $extra_origin" >&2
+    continue
+  }
+  case "$normalized_origin" in
+    http://* | https://*) ;;
+    *)
+      echo "[web] Ignoring invalid CSP_IMG_SRC origin: $extra_origin" >&2
+      continue
+      ;;
+  esac
+  csp_img_src="$csp_img_src $normalized_origin"
+done
+
+sed -i "s#__CSP_IMG_SRC__#$csp_img_src#g" /etc/nginx/conf.d/default.conf
 sed -i "s#__CSP_CONNECT_SRC__#$csp_connect_src#g" /etc/nginx/conf.d/default.conf
 
 cat <<EOF > /usr/share/nginx/html/env-config.js
