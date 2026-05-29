@@ -15,6 +15,38 @@ json_encode() {
   fi
 }
 
+normalize_csp_origin() {
+  value="$1"
+  case "$value" in
+    http://* | https://* | ws://* | wss://*) ;;
+    *) return 1 ;;
+  esac
+
+  origin="$(printf '%s' "$value" | sed -E 's#^((https?|wss?)://[^/?#]+).*#\1#')"
+  if printf '%s' "$origin" | grep -Eq '^(https?|wss?)://[A-Za-z0-9._:-]+$'; then
+    printf '%s' "$origin"
+    return 0
+  fi
+
+  return 1
+}
+
+csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
+api_origin="$(normalize_csp_origin "${VITE_API_URL:-}")" || api_origin=""
+if [ -n "$api_origin" ]; then
+  csp_connect_src="$csp_connect_src $api_origin"
+fi
+
+for extra_origin in ${CSP_CONNECT_SRC:-}; do
+  normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
+    echo "[web] Ignoring invalid CSP_CONNECT_SRC origin: $extra_origin" >&2
+    continue
+  }
+  csp_connect_src="$csp_connect_src $normalized_origin"
+done
+
+sed -i "s#__CSP_CONNECT_SRC__#$csp_connect_src#g" /etc/nginx/conf.d/default.conf
+
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
