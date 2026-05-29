@@ -5,6 +5,7 @@ import { FormDuplicateModal } from "@/components/forms/form-duplicate-modal";
 import { EditorHeaderSection } from "@/components/forms/form-editor-page/editor-header-section";
 import { FormSettingsTab } from "@/components/forms/form-editor-page/form-settings-tab";
 import { useFormEditorPageModel } from "@/components/forms/form-editor-page/use-form-editor-page-model";
+import { FormNotFoundPage } from "@/components/forms/form-not-found-page";
 import { FormResponsesContent } from "@/components/forms/form-responses-page";
 import { FormSharingSection } from "@/components/forms/form-sharing-section";
 import { FormValidationRulesPage } from "@/components/forms/form-validation-rules-page";
@@ -24,6 +25,12 @@ export function FormEditorPage() {
       >
         読み込み中...
       </div>
+    );
+  }
+
+  if (model.isNotFound) {
+    return (
+      <FormNotFoundPage description="このフォームは存在しないか、編集権限がありません。" />
     );
   }
 

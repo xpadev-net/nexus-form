@@ -4,11 +4,29 @@ import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, vi } from "vitest";
+import { RpcError } from "@/lib/api";
 import { FormEditorPage } from "./form-editor-page";
 
 let searchTab: string | undefined;
 const navigateMock = vi.fn();
 const snapshotEditorToDraftMock = vi.fn();
+type QueryState = {
+  data?: unknown;
+  error?: unknown;
+  isError: boolean;
+  isLoading: boolean;
+};
+type RetryFn = (failureCount: number, error: unknown) => boolean;
+type QueryOptions = {
+  enabled?: boolean;
+  queryKey: string[];
+  retry?: RetryFn;
+};
+
+let formQueryState: QueryState;
+let contentQueryState: QueryState;
+const retryByQueryKey = new Map<string, RetryFn>();
+const optionsByQueryKey = new Map<string, QueryOptions>();
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -41,26 +59,20 @@ vi.mock("@tanstack/react-query", () => ({
     isPending: false,
     mutate: vi.fn(),
   }),
-  useQuery: ({ queryKey }: { queryKey: string[] }) => {
+  useQuery: (options: QueryOptions) => {
+    const { queryKey, retry } = options;
+    optionsByQueryKey.set(queryKey[0] ?? "", options);
+    if (retry) {
+      retryByQueryKey.set(queryKey[0] ?? "", retry);
+    }
     if (queryKey[0] === "formContent") {
       return {
-        data: { plateContent: "[]", plateContentVersion: 1 },
-        isError: false,
-        isLoading: false,
+        ...contentQueryState,
         refetch: vi.fn(),
       };
     }
     return {
-      data: {
-        form: {
-          id: "form-1",
-          publicId: "public-1",
-          status: "DRAFT",
-          title: "Test form",
-        },
-      },
-      isError: false,
-      isLoading: false,
+      ...formQueryState,
       refetch: vi.fn(),
     };
   },
@@ -188,6 +200,16 @@ vi.mock("@/hooks/use-page-title", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   client: {},
+  RpcError: class RpcError extends Error {
+    readonly details = null;
+    readonly status: number;
+
+    constructor(message: string, status: number) {
+      super(message);
+      this.name = "RpcError";
+      this.status = status;
+    }
+  },
   rpc: vi.fn(),
 }));
 vi.mock("@/lib/logger", () => ({
@@ -197,8 +219,27 @@ vi.mock("@/lib/logger", () => ({
 describe("FormEditorPage tab synchronization", () => {
   beforeEach(() => {
     searchTab = undefined;
+    formQueryState = {
+      data: {
+        form: {
+          id: "form-1",
+          publicId: "public-1",
+          status: "DRAFT",
+          title: "Test form",
+        },
+      },
+      isError: false,
+      isLoading: false,
+    };
+    contentQueryState = {
+      data: { plateContent: "[]", plateContentVersion: 1 },
+      isError: false,
+      isLoading: false,
+    };
     navigateMock.mockClear();
     snapshotEditorToDraftMock.mockClear();
+    optionsByQueryKey.clear();
+    retryByQueryKey.clear();
   });
 
   it("uses search param changes after mount as the active tab", () => {
@@ -268,6 +309,88 @@ describe("FormEditorPage tab synchronization", () => {
     rerenderPage(root);
 
     expect(snapshotEditorToDraftMock).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("renders a not-found page for a missing editable form", () => {
+    formQueryState = {
+      error: new RpcError("Not found", 404),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain("フォームが見つかりません");
+    expect(container.textContent).toContain(
+      "このフォームは存在しないか、編集権限がありません。",
+    );
+    expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
+    expect(optionsByQueryKey.get("formContent")?.enabled).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps content-only 404 failures on the generic error path", () => {
+    contentQueryState = {
+      error: new RpcError("Content not found", 404),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain(
+      "フォームの読み込みに失敗しました。",
+    );
+    expect(container.textContent).not.toContain("フォームが見つかりません");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps non-404 editor load failures on the generic error path", () => {
+    formQueryState = {
+      error: new RpcError("Forbidden", 403),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain(
+      "フォームの読み込みに失敗しました。",
+    );
+    expect(container.textContent).not.toContain("フォームが見つかりません");
+
+    act(() => root.unmount());
+  });
+
+  it("does not retry 404 editor queries", () => {
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      retryByQueryKey.get("formDetail")?.(0, new RpcError("Not found", 404)),
+    ).toBe(false);
+    expect(
+      retryByQueryKey.get("formContent")?.(0, new RpcError("Not found", 404)),
+    ).toBe(false);
+    expect(retryByQueryKey.get("formDetail")?.(2, new Error("Network"))).toBe(
+      true,
+    );
+    expect(retryByQueryKey.get("formDetail")?.(3, new Error("Network"))).toBe(
+      false,
+    );
+    expect(retryByQueryKey.get("formContent")?.(2, new Error("Network"))).toBe(
+      true,
+    );
+    expect(retryByQueryKey.get("formContent")?.(3, new Error("Network"))).toBe(
+      false,
+    );
 
     act(() => root.unmount());
   });
