@@ -16,7 +16,7 @@ export const MediaPlaceholderElement = withRef<typeof PlateElement>(
       usePlaceholderElementState();
 
     const IconComponent = PLACEHOLDER_ICONS[mediaType] ?? FileUpIcon;
-    const progressValues = Object.values(progresses);
+    const progressValues = Object.values(progresses) as number[];
     const progress =
       progressValues.length > 0
         ? progressValues.reduce((a, b) => a + b, 0) / progressValues.length

@@ -32,14 +32,14 @@
   "dependencies": {
     "@nexus-form/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "mysql2": "^3.14.4"
+    "mysql2": "^3.22.4"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.15",
-    "@types/node": "^24.10.13",
-    "@typescript/native-preview": "^7.0.0-dev.20260527.2",
-    "drizzle-kit": "^0.31.8",
-    "tsdown": "^0.22.0",
+    "@biomejs/biome": "^2.4.16",
+    "@types/node": "^24.12.4",
+    "@typescript/native-preview": "7.0.0-dev.20260527.2",
+    "drizzle-kit": "^0.31.10",
+    "tsdown": "^0.22.1",
     "typescript": "^5.9.3"
   }
 }

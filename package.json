@@ -1,7 +1,7 @@
 {
   "name": "nexus-form-monorepo",
   "private": true,
-  "packageManager": "pnpm@9.14.4",
+  "packageManager": "pnpm@11.2.2",
   "scripts": {
     "dev": "turbo dev",
     "build": "turbo build",
@@ -17,49 +17,12 @@
     "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.10",
-    "@tailwindcss/postcss": "^4.2.2",
+    "@biomejs/biome": "^2.4.16",
+    "@tailwindcss/postcss": "^4.3.0",
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
-    "lefthook": "^2.1.4",
-    "turbo": "^2.9.14",
+    "lefthook": "^2.1.8",
+    "turbo": "^2.9.16",
     "typescript": "^5.9.3",
     "unrun": "^0.3.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "@tailwindcss/oxide",
-      "esbuild",
-      "lefthook",
-      "sharp"
-    ],
-    "overrides": {
-      "minimatch@<10.2.1": ">=10.2.1",
-      "minimatch@>=10.0.0 <10.2.3": ">=10.2.3",
-      "webpack@<5.104.1": ">=5.104.1",
-      "@esbuild-kit/core-utils>esbuild": ">=0.25.0",
-      "rollup@>=4.0.0 <4.59.0": ">=4.59.0",
-      "@hono/node-server@<1.19.13": ">=1.19.13",
-      "express-rate-limit@>=8.2.0 <8.2.2": ">=8.2.2",
-      "next@<15.5.14": ">=15.5.14",
-      "effect@<3.20.0": ">=3.20.0",
-      "brace-expansion@>=4.0.0 <5.0.5": ">=5.0.5",
-      "picomatch@<2.3.2": ">=2.3.2",
-      "picomatch@>=4.0.0 <4.0.4": ">=4.0.4",
-      "path-to-regexp@>=8.0.0 <8.4.0": ">=8.4.0",
-      "lodash@<=4.17.23": ">=4.18.0",
-      "undici": ">=7.24.0",
-      "defu": ">=6.1.5",
-      "fast-uri": ">=3.1.2",
-      "fast-xml-parser": ">=5.7.0",
-      "fast-xml-builder": ">=1.1.7",
-      "hono@<4.12.18": ">=4.12.18",
-      "kysely@<0.28.17": ">=0.28.17",
-      "postcss@<8.5.10": ">=8.5.10",
-      "ip-address@<=10.1.0": ">=10.1.1",
-      "drizzle-orm@<0.45.2": ">=0.45.2",
-      "axios@<1.15.2": ">=1.15.2",
-      "vite@>=7.0.0 <=7.3.1": ">=7.3.3",
-      "uuid@>=11.0.0 <11.1.1": ">=11.1.1"
-    }
   }
 }

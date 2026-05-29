@@ -651,7 +651,7 @@ export async function transferOwnership(
       )
       .limit(1);
 
-    if (!currentOwnerPermission || currentOwnerPermission.role !== "OWNER") {
+    if (currentOwnerPermission?.role !== "OWNER") {
       throw new Error("Current user is not the owner");
     }
 

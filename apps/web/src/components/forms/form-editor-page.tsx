@@ -17,7 +17,6 @@ export function FormEditorPage() {
 
   if (model.isFormLoading || model.isContentLoading) {
     return (
-      // biome-ignore lint/a11y/useSemanticElements: Loading status is not calculation output.
       <div
         className="rounded-lg border bg-card p-6"
         role="status"

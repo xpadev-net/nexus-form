@@ -233,15 +233,14 @@ export function validateFileSize(
 
   // ファイルタイプ別のサイズ制限をチェック
   let effectiveMaxSize = maxSize;
-  if (mimeType && fileTypeSizeLimits && fileTypeSizeLimits[mimeType]) {
+  if (mimeType && fileTypeSizeLimits?.[mimeType]) {
     effectiveMaxSize = Math.min(maxSize, fileTypeSizeLimits[mimeType]);
   }
 
   if (size > effectiveMaxSize) {
     const limitType =
       mimeType &&
-      fileTypeSizeLimits &&
-      fileTypeSizeLimits[mimeType] &&
+      fileTypeSizeLimits?.[mimeType] &&
       fileTypeSizeLimits[mimeType] < maxSize
         ? `file type specific limit of ${formatBytes(fileTypeSizeLimits?.[mimeType])}`
         : `maximum allowed size of ${formatBytes(maxSize)}`;

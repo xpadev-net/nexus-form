@@ -1,8 +1,8 @@
 import FingerprintJS from "@fingerprintjs/fingerprintjs";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { getFingerprintData } from "@thumbmarkjs/thumbmarkjs";
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { getFingerprintData } from "thumbmarkjs";
 import { z } from "zod";
 import { client, rpc } from "@/lib/api";
 
