@@ -124,7 +124,7 @@ function normalizeHttpOrigin(value: string | undefined): string | null {
 }
 
 function getGoogleOAuthRedirectUri(): string | null {
-  const baseUrl = normalizeHttpOrigin(process.env.NEXT_PUBLIC_BASE_URL);
+  const baseUrl = normalizeHttpOrigin(process.env.API_BASE_URL);
   if (!baseUrl) return null;
   return new URL("/api/integrations/google/callback", baseUrl).toString();
 }

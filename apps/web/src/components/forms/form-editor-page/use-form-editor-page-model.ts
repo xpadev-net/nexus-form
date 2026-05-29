@@ -48,6 +48,7 @@ export function useFormEditorPageModel(formId: string) {
     dismissConflict,
     handleContentChange,
     snapshotEditorToDraft,
+    hasUnsavedLocalEdits,
   } = useFormContentAutosave({
     formId,
     contentData: contentQuery.data,
@@ -182,6 +183,16 @@ export function useFormEditorPageModel(formId: string) {
       status: rawFormStatus,
     });
   }, [formIdForStatus, rawFormStatus]);
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedLocalEdits()) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasUnsavedLocalEdits]);
 
   const handleTabChange = (value: string) => {
     if (!isEditorTab(value) || value === activeTab) return;
