@@ -102,7 +102,7 @@ describe("Google OAuth redirect URI", () => {
   });
 
   it("fails authorization when the fixed OAuth base URL is not HTTP(S)", async () => {
-    vi.stubEnv("NEXT_PUBLIC_BASE_URL", "ftp://api.example.com");
+    vi.stubEnv("API_BASE_URL", "ftp://api.example.com");
     const app = createApp();
 
     const response = await app.request(
@@ -121,7 +121,7 @@ describe("Google OAuth redirect URI", () => {
   });
 
   it("uses the configured OAuth base URL and server-generated PKCE for authorization redirects", async () => {
-    vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
+    vi.stubEnv("API_BASE_URL", "https://api.example.com");
     const app = createApp();
 
     const response = await app.request(
@@ -175,7 +175,7 @@ describe("Google OAuth redirect URI", () => {
   });
 
   it("uses the configured OAuth base URL when exchanging callback codes", async () => {
-    vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
+    vi.stubEnv("API_BASE_URL", "https://api.example.com");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -213,7 +213,7 @@ describe("Google OAuth redirect URI", () => {
   });
 
   it("rejects callback when OAuth user binding does not match the session user", async () => {
-    vi.stubEnv("NEXT_PUBLIC_BASE_URL", "https://api.example.com");
+    vi.stubEnv("API_BASE_URL", "https://api.example.com");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const app = createApp();
