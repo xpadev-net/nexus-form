@@ -41,7 +41,7 @@
     "@rollup/plugin-typescript": "^12.1.2",
     "@types/node": "^24.10.13",
     "@types/speakeasy": "^2.0.10",
-    "@typescript/native-preview": "^7.0.0-dev",
+    "@typescript/native-preview": "^7.0.0-dev.20260527.2",
     "glob": "^11.0.0",
     "mysql2": "^3.14.4",
     "rollup": "^4.40.0",
