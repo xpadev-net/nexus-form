@@ -38,6 +38,7 @@ if [ -n "$api_origin" ]; then
 fi
 
 # CSP_CONNECT_SRC is a space-separated list of additional origins.
+set -f
 for extra_origin in ${CSP_CONNECT_SRC:-}; do
   normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
     echo "[web] Ignoring invalid CSP_CONNECT_SRC origin: $extra_origin" >&2
@@ -45,10 +46,12 @@ for extra_origin in ${CSP_CONNECT_SRC:-}; do
   }
   csp_connect_src="$csp_connect_src $normalized_origin"
 done
+set +f
 
 csp_img_src="'self' data: blob:"
 
 # CSP_IMG_SRC is a space-separated list of additional image origins.
+set -f
 for extra_origin in ${CSP_IMG_SRC:-}; do
   normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
     echo "[web] Ignoring invalid CSP_IMG_SRC origin: $extra_origin" >&2
@@ -63,6 +66,7 @@ for extra_origin in ${CSP_IMG_SRC:-}; do
   esac
   csp_img_src="$csp_img_src $normalized_origin"
 done
+set +f
 
 sed -i "s#__CSP_IMG_SRC__#$csp_img_src#g" /etc/nginx/conf.d/default.conf
 sed -i "s#__CSP_CONNECT_SRC__#$csp_connect_src#g" /etc/nginx/conf.d/default.conf
