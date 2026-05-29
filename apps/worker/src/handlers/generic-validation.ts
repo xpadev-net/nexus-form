@@ -325,6 +325,9 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
     const providerErrorParse = providerErrorSchema.safeParse(error);
     const providerError = providerErrorParse.success
       ? providerErrorParse.data
