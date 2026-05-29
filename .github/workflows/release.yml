@@ -74,7 +74,7 @@ jobs:
           git fetch --all
           git checkout master
           git pull origin master
-          git tag -a v${{ steps.version.outputs.new_version }} ${{ steps.merge-pr.outputs.merge_sha }} -m "Release v${{ steps.version.outputs.new_version }}"
+          git tag -a v${{ steps.version.outputs.new_version }} -m "Release v${{ steps.version.outputs.new_version }}"
           git push origin v${{ steps.version.outputs.new_version }}
 
       - name: Create GitHub release
