@@ -42,6 +42,46 @@ spec:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_HCAPTCHA_SITE_KEY
+        - name: VITE_BRAND_APP_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_APP_NAME
+        - name: VITE_BRAND_PRIMARY_COLOR
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_PRIMARY_COLOR
+        - name: VITE_BRAND_SECONDARY_COLOR
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_SECONDARY_COLOR
+        - name: VITE_BRAND_ACCENT_COLOR
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_ACCENT_COLOR
+        - name: VITE_BRAND_TERMS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_TERMS_URL
+        - name: VITE_BRAND_PRIVACY_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_PRIVACY_URL
+        - name: VITE_BRAND_COPYRIGHT
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_COPYRIGHT
+        - name: VITE_BRAND_HOMEPAGE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BRAND_HOMEPAGE_URL
         resources:
           requests:
             cpu: "50m"
