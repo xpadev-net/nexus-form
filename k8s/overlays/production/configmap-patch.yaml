@@ -5,6 +5,5 @@ metadata:
 data:
   # Override with production values
   REDIS_URL: "redis://redis-service.production:6379"
-  NEXTAUTH_URL: "https://your-production-domain.com"
   NODE_ENV: "production"
 
