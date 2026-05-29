@@ -133,7 +133,7 @@ function makeJob(
   return {
     id: "job-1",
     data,
-    discard: vi.fn().mockResolvedValue(undefined),
+    discard: vi.fn(),
     updateProgress: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
 }

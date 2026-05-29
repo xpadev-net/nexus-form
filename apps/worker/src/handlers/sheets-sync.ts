@@ -69,22 +69,22 @@ function getSheetsSyncFailureMessage(
   return `Failed to ${context}: ${result.error.message}`;
 }
 
-async function failSheetsSyncWithoutRetry(
+function failSheetsSyncWithoutRetry(
   job: Job<SheetsSyncJob>,
   reason: string,
-): Promise<never> {
-  await job.discard();
+): never {
+  job.discard();
   throw new Error(reason);
 }
 
-async function throwSheetsSyncFailure(
+function throwSheetsSyncFailure(
   job: Job<SheetsSyncJob>,
   context: string,
   result: { error: GoogleApiError },
-): Promise<void> {
+): never {
   const message = getSheetsSyncFailureMessage(context, result);
   if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
-    await failSheetsSyncWithoutRetry(job, message);
+    failSheetsSyncWithoutRetry(job, message);
   }
   throw new Error(message);
 }
@@ -193,7 +193,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   const initialToken = await getOAuthToken(userId);
   if (!initialToken) {
-    return await failSheetsSyncWithoutRetry(
+    return failSheetsSyncWithoutRetry(
       job,
       authRequiredMessage("OAuth token not found"),
     );
@@ -201,7 +201,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   const token = await refreshTokenIfNeeded(initialToken);
   if (!token) {
-    return await failSheetsSyncWithoutRetry(
+    return failSheetsSyncWithoutRetry(
       job,
       authRequiredMessage("OAuth token refresh failed"),
     );
@@ -387,12 +387,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           values: [headers],
         });
         if (!headerUpdateResult.ok) {
-          await throwSheetsSyncFailure(
-            job,
-            "update headers",
-            headerUpdateResult,
-          );
-          return;
+          throwSheetsSyncFailure(job, "update headers", headerUpdateResult);
         }
       }
       await job.updateProgress(80);
@@ -405,8 +400,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       });
 
       if (!appendResult.ok) {
-        await throwSheetsSyncFailure(job, "append rows", appendResult);
-        return;
+        throwSheetsSyncFailure(job, "append rows", appendResult);
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
@@ -476,12 +470,11 @@ async function readSheetForIdempotency(
     rangeA1: `${params.sheetName}!1:1`,
   });
   if (!headerData.ok) {
-    await throwSheetsSyncFailure(
+    throwSheetsSyncFailure(
       options.job,
       "read sheet for idempotency check",
       headerData,
     );
-    return { ok: false };
   }
   if (headerData.data.values.length === 0) {
     return { ok: true, exists: false, headers: [] };
@@ -499,12 +492,11 @@ async function readSheetForIdempotency(
     rangeA1: `${params.sheetName}!${columnLetter}:${columnLetter}`,
   });
   if (!entireColumn.ok) {
-    await throwSheetsSyncFailure(
+    throwSheetsSyncFailure(
       options.job,
       "read sheet column for idempotency check",
       entireColumn,
     );
-    return { ok: false };
   }
 
   const exists = entireColumn.data.values
