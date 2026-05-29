@@ -286,7 +286,7 @@ export const formIntegration = mysqlTable(
     formId: varchar("form_id", { length: 128 })
       .notNull()
       .references(() => form.id, { onDelete: "cascade" }),
-    configJson: text("config_json").notNull(),
+    configJson: json("configJson").notNull(),
     ownerUserId: varchar("owner_user_id", { length: 191 })
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
