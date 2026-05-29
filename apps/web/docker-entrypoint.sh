@@ -49,9 +49,12 @@ append_connect_src_from_host_env() {
   fi
 
   normalized_origin="$(normalize_csp_origin "$env_value")" ||
-    normalized_origin="$(normalize_csp_origin "https://$env_value")" || {
-      echo "[web] Warning: normalize_csp_origin rejected $env_name='$env_value'; not added to csp_connect_src/CSP_CONNECT_SRC" >&2
-      return 0
+    {
+      normalized_origin="$(normalize_csp_origin "https://$env_value")" || {
+        echo "[web] Warning: normalize_csp_origin rejected $env_name='$env_value'; not added to csp_connect_src/CSP_CONNECT_SRC" >&2
+        return 0
+      }
+      echo "[web] Info: $env_name='$env_value' has no scheme; using $normalized_origin in csp_connect_src/CSP_CONNECT_SRC" >&2
     }
 
   csp_connect_src="$csp_connect_src $normalized_origin"
