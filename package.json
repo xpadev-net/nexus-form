@@ -17,11 +17,11 @@
     "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.10",
-    "@tailwindcss/postcss": "^4.2.2",
+    "@biomejs/biome": "^2.4.16",
+    "@tailwindcss/postcss": "^4.3.0",
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
-    "lefthook": "^2.1.4",
-    "turbo": "^2.9.14",
+    "lefthook": "^2.1.9",
+    "turbo": "^2.9.16",
     "typescript": "^5.9.3",
     "unrun": "^0.3.0"
   },
