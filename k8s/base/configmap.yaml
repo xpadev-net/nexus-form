@@ -34,7 +34,7 @@ data:
   VITE_HCAPTCHA_SITE_KEY: ""
 
   # Public API origin used by server-side Google OAuth callback pages
-  NEXT_PUBLIC_BASE_URL: ""
+  API_BASE_URL: ""
   
   # Optional Settings
   SENTRY_DSN: ""
