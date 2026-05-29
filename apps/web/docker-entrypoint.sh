@@ -23,12 +23,16 @@ normalize_csp_origin() {
   esac
 
   origin="$(printf '%s' "$value" | sed -E 's#^((https?|wss?)://[^/?#]+).*#\1#')"
-  if printf '%s' "$origin" | grep -Eq '^(https?|wss?)://[A-Za-z0-9._:-]+$'; then
+  if printf '%s' "$origin" | grep -Eq '^(https?|wss?)://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]+)?$'; then
     printf '%s' "$origin"
     return 0
   fi
 
   return 1
+}
+
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[\\&#]/\\&/g'
 }
 
 csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
@@ -68,8 +72,8 @@ for extra_origin in ${CSP_IMG_SRC:-}; do
 done
 set +f
 
-sed -i "s#__CSP_IMG_SRC__#$csp_img_src#g" /etc/nginx/conf.d/default.conf
-sed -i "s#__CSP_CONNECT_SRC__#$csp_connect_src#g" /etc/nginx/conf.d/default.conf
+sed -i "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" /etc/nginx/conf.d/default.conf
+sed -i "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" /etc/nginx/conf.d/default.conf
 
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__NEXUS_FORM_CONFIG__ = {
