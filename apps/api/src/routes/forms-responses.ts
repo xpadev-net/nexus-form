@@ -132,8 +132,14 @@ function snapshotRuleMapKey(
 }
 
 function validationRetryClaimableCondition(now: Date) {
+  const staleProcessingCutoff = new Date(
+    now.getTime() - VALIDATION_RETRY_CLAIM_LEASE_MS,
+  );
   return and(
-    ne(externalServiceValidationResult.status, "PROCESSING"),
+    or(
+      ne(externalServiceValidationResult.status, "PROCESSING"),
+      sql`${externalServiceValidationResult.updatedAt} <= ${staleProcessingCutoff}`,
+    ),
     or(
       ne(externalServiceValidationResult.status, "PENDING"),
       sql`${externalServiceValidationResult.nextRetryAt} <= ${now}`,
