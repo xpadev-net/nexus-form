@@ -434,7 +434,7 @@ export function useGoogleSheetsSync({
     });
 
     try {
-      const requestSyncStart = (force: boolean) =>
+      const requestSyncStart = (force: boolean): Promise<unknown> =>
         fetchJson<unknown>(
           apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
           apiRequestInit({
@@ -443,16 +443,23 @@ export function useGoogleSheetsSync({
             body: JSON.stringify({ force }),
           }),
         );
-      const rawData = await requestSyncStart(true).catch(async (error) => {
-        if (error instanceof HttpError && error.status === 413) {
-          toast.error(
-            "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
-          );
-          return requestSyncStart(false);
+      let fellBackToLatest = false;
+      let rawData: unknown;
+      try {
+        rawData = await requestSyncStart(true);
+      } catch (error) {
+        if (!(error instanceof HttpError && error.status === 413)) {
+          throw error;
         }
-        throw error;
-      });
+        fellBackToLatest = true;
+        rawData = await requestSyncStart(false);
+      }
       const data = syncStartResponseSchema.parse(rawData);
+      if (fellBackToLatest) {
+        toast.error(
+          "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+        );
+      }
       const startedStatus: UiSyncState = {
         jobId: data.jobId,
         status: data.status,

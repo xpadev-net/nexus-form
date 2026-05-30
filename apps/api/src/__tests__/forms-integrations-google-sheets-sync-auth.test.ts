@@ -279,6 +279,30 @@ describe("Google Sheets sync job status authorization", () => {
     expect(mocks.addBulk).not.toHaveBeenCalled();
   });
 
+  it("allows full manual sync at exactly the response queueing limit", async () => {
+    mocks.responseRows = Array.from({ length: 1000 }, (_, index) => ({
+      responseId: `response-${index}`,
+    }));
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk.mock.calls[0]?.[0]).toHaveLength(1000);
+  });
+
   it("returns 404 without leaking job details when the job belongs to another form", async () => {
     const foreignJob = sheetsJob(
       {

@@ -370,4 +370,36 @@ describe("useGoogleSheetsSync transitions", () => {
 
     act(() => root.unmount());
   });
+
+  it("does not announce latest-response fallback when the fallback request fails", async () => {
+    mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { force: boolean };
+        if (body.force) {
+          return Promise.reject(
+            new HttpError(413, "Full manual sync is limited"),
+          );
+        }
+        return Promise.reject(new Error("network unavailable"));
+      }
+      return new Promise(() => {});
+    });
+    const states: ReturnType<typeof useGoogleSheetsSync>[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await act(async () => {
+      await states.at(-1)?.startSync();
+    });
+    await flushPromises();
+
+    expect(mocks.toastError).not.toHaveBeenCalledWith(
+      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith("同期の開始に失敗しました");
+    expect(states.at(-1)?.activeJobId).toBeNull();
+
+    act(() => root.unmount());
+  });
 });
