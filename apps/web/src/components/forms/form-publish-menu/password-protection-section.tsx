@@ -54,8 +54,15 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
             id={passwordToggleId}
             size="sm"
             checked={state.isEnabled}
-            disabled={isBusy || isPublishBusy || !state.isEnabled}
-            onCheckedChange={onToggle}
+            disabled={isBusy || isPublishBusy}
+            onCheckedChange={(checked) => {
+              if (checked) {
+                onOpenDialog("enable");
+                return;
+              }
+
+              onToggle(false);
+            }}
           />
         </div>
 
