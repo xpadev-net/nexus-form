@@ -162,15 +162,34 @@ function Draggable(props: PlateElementProps) {
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
+
+                    const blockSelection = blockSelectionApi.getNodes({ sort: true });
+                    let selectionNodes =
+                      blockSelection.length > 0
+                        ? blockSelection
+                        : editor.api.blocks({ mode: "highest" });
+
+                    if (!selectionNodes.some(([node]) => node.id === element.id)) {
+                      const elementPath = editor.api.findPath(element);
+                      if (elementPath) {
+                        selectionNodes = [[element, elementPath]];
+                      }
+                    }
+
+                    const blocks = expandListItemsWithChildren(editor, selectionNodes).map(
+                      ([node]) => node,
+                    );
+                    blockSelectionApi.set(blocks.map((block) => block.id as string));
                     blockSelectionApi.focus();
                   }
                 }}
                 onMouseDown={(event) => {
+                  resetPreview();
+
                   if (event.button !== 0 && event.button !== 2) return;
                   if (event.shiftKey) return;
 
                   event.preventDefault();
-                  resetPreview();
 
                       const blockSelection = blockSelectionApi.getNodes({ sort: true });
                       let selectionNodes =
