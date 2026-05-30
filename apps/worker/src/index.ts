@@ -11,7 +11,10 @@ import type { Worker } from "bullmq";
 import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
-import { handleSheetsSync } from "./handlers/sheets-sync";
+import {
+  AUTH_REQUIRED_SYNC_ERROR_PREFIX,
+  handleSheetsSync,
+} from "./handlers/sheets-sync";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/field-encryption";
 import {
   createGracefulShutdown,
@@ -187,7 +190,7 @@ async function main() {
       const contextualError = attachJobContextToError(error, context);
       const isAuthRequiredError =
         contextualError instanceof UnrecoverableError &&
-        contextualError.message.startsWith("AUTH_REQUIRED");
+        contextualError.message.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX);
 
       if (!isAuthRequiredError) {
         captureError(contextualError);

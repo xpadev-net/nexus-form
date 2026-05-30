@@ -289,6 +289,7 @@ describe("handleSheetsSync — idempotency states", () => {
     const task = handleSheetsSync(job);
     await expect(task).rejects.toThrow(UnrecoverableError);
     await expect(task).rejects.toThrow("AUTH_REQUIRED: OAuth token not found");
+    expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockRefreshTokenIfNeeded).not.toHaveBeenCalled();
     expect(mockReadRange).not.toHaveBeenCalled();
@@ -306,6 +307,7 @@ describe("handleSheetsSync — idempotency states", () => {
     await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: OAuth token refresh failed",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
@@ -372,6 +374,7 @@ describe("handleSheetsSync — idempotency states", () => {
     await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: read sheet for idempotency check: invalid credentials",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
@@ -735,6 +738,7 @@ describe("handleSheetsSync — write path", () => {
     await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: update headers: invalid credentials",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockAppendRows).not.toHaveBeenCalled();
   });

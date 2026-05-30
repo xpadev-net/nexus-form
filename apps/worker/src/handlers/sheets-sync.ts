@@ -43,7 +43,7 @@ const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
+export const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
 type SheetsSyncAuthFailure = "AUTH_REQUIRED" | "OTHER_FAILURE";
 
 function classifySheetsSyncFailure(
