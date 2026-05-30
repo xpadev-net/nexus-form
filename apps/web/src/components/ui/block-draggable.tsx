@@ -132,11 +132,11 @@ function Draggable(props: PlateElementProps) {
       }
     }
 
-    const blocks = expandListItemsWithChildren(editor, selectionNodes).map(
+    const processedBlocks = expandListItemsWithChildren(editor, selectionNodes).map(
       ([node]) => node,
     );
 
-    return { blockSelection, blocks };
+    return { blockSelection, processedBlocks };
   }, [blockSelectionApi, editor, element]);
 
   return (
@@ -184,7 +184,8 @@ function Draggable(props: PlateElementProps) {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
 
-                        const { blocks, blockSelection } = resolveSelectedBlocks();
+	                        const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+	                        const blocks = processedBlocks;
 
                         if (blockSelection.length === 0) {
                           editor.tf.blur();
@@ -202,7 +203,8 @@ function Draggable(props: PlateElementProps) {
 
                       event.preventDefault();
 
-                      const { blocks, blockSelection } = resolveSelectedBlocks();
+	                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+	                      const blocks = processedBlocks;
 
                       if (blockSelection.length === 0) {
                         editor.tf.blur();
@@ -221,29 +223,13 @@ function Draggable(props: PlateElementProps) {
                     onMouseEnter={() => {
                       if (isDragging) return;
 
-                      const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                      let selectedBlocks =
-                        blockSelection.length > 0
-                          ? blockSelection
-                          : editor.api.blocks({ mode: "highest" });
+                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
 
-                      // If current block is not in selection, use it as the starting point
-                      if (!selectedBlocks.some(([node]) => node.id === element.id)) {
-                        const elementPath = editor.api.findPath(element);
-                        if (elementPath) selectedBlocks = [[element, elementPath]];
-                      }
-
-                      // Process selection to include list children
-                      const processedBlocks = expandListItemsWithChildren(
-                        editor,
-                        selectedBlocks,
-                      );
-
-                      const ids = processedBlocks.map((block) => block[0].id as string);
+                        const ids = processedBlocks.map((block) => block.id as string);
 
                       if (ids.length > 1 && ids.includes(element.id as string)) {
                         const previewTop = calculatePreviewTop(editor, {
-                          blocks: processedBlocks.map((block) => block[0]),
+                          blocks: processedBlocks,
                           element,
                         });
                         setPreviewTop(previewTop);
@@ -258,7 +244,7 @@ function Draggable(props: PlateElementProps) {
                     <DragHandle />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>ブロックを移動</TooltipContent>
+                <TooltipContent>ブロックをドラッグして並び替え</TooltipContent>
               </Tooltip>
             </div>
           </div>
