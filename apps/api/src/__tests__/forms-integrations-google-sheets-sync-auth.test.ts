@@ -199,6 +199,32 @@ describe("Google Sheets sync job status authorization", () => {
     expect(queuedJobs?.[0]?.opts?.jobId).not.toContain(":");
   });
 
+  it("returns the deterministic manual sync job id when BullMQ deduplicates an existing job", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    mocks.addBulk.mockResolvedValueOnce([null]);
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual-/),
+      status: "queued",
+    });
+  });
+
   it("defaults manual sync to the latest response instead of replaying all rows", async () => {
     mocks.responseRows = [
       { responseId: "latest-response" },
@@ -247,7 +273,8 @@ describe("Google Sheets sync job status authorization", () => {
 
     expect(response.status).toBe(413);
     expect(body).toEqual({
-      error: "Too many responses to sync at once; limit is 1000",
+      error:
+        "Full manual sync is limited to 1000 responses; retry without force to sync the latest response only",
     });
     expect(mocks.addBulk).not.toHaveBeenCalled();
   });

@@ -184,13 +184,13 @@ export const formsIntegrationsRouter = createHonoApp()
       if (responses.length > MAX_MANUAL_SHEETS_SYNC_RESPONSES) {
         return c.json(
           formIntegrationError(
-            `Too many responses to sync at once; limit is ${MAX_MANUAL_SHEETS_SYNC_RESPONSES}`,
+            `Full manual sync is limited to ${MAX_MANUAL_SHEETS_SYNC_RESPONSES} responses; retry without force to sync the latest response only`,
           ),
           413,
         );
       }
 
-      const queuedJobs = await getSheetsSyncQueue().addBulk(
+      await getSheetsSyncQueue().addBulk(
         responses.map((response) => ({
           name: "manual-sync",
           data: sheetsSyncJobDataSchema.parse({
@@ -207,14 +207,17 @@ export const formsIntegrationsRouter = createHonoApp()
         })),
       );
 
-      const firstJob = queuedJobs[0];
-      if (!firstJob) {
+      const firstResponse = responses[0];
+      if (!firstResponse) {
         return c.json(formIntegrationError("No sync jobs were queued"), 500);
       }
 
       return c.json(
         GoogleSheetsSyncStartResponseSchema.parse({
-          jobId: firstJob.id,
+          jobId: buildManualSheetsSyncJobId(
+            integration.id,
+            firstResponse.responseId,
+          ),
           status: "queued",
         }),
         200,
