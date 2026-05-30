@@ -117,6 +117,27 @@ function Draggable(props: PlateElementProps) {
 
   const [dragButtonTop, setDragButtonTop] = useState(0);
   const blockTypeLabel = String(element.type);
+  const resolveSelectedBlocks = useCallback(() => {
+    const blockSelection = blockSelectionApi.getNodes({ sort: true });
+    let selectionNodes =
+      blockSelection.length > 0
+        ? blockSelection
+        : editor.api.blocks({ mode: "highest" });
+
+    // If current block is not in selection, use it as the starting point
+    if (!selectionNodes.some(([node]) => node.id === element.id)) {
+      const elementPath = editor.api.findPath(element);
+      if (elementPath) {
+        selectionNodes = [[element, elementPath]];
+      }
+    }
+
+    const blocks = expandListItemsWithChildren(editor, selectionNodes).map(
+      ([node]) => node,
+    );
+
+    return { blockSelection, blocks };
+  }, [blockSelectionApi, editor, element]);
 
   return (
     <div
@@ -163,23 +184,12 @@ function Draggable(props: PlateElementProps) {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
 
-                        const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                        let selectionNodes =
-                          blockSelection.length > 0
-                            ? blockSelection
-                            : editor.api.blocks({ mode: "highest" });
+                        const { blocks, blockSelection } = resolveSelectedBlocks();
 
-                        if (!selectionNodes.some(([node]) => node.id === element.id)) {
-                          const elementPath = editor.api.findPath(element);
-                          if (elementPath) {
-                            selectionNodes = [[element, elementPath]];
-                          }
+                        if (blockSelection.length === 0) {
+                          editor.tf.blur();
+                          editor.tf.collapse();
                         }
-
-                        const blocks = expandListItemsWithChildren(
-                          editor,
-                          selectionNodes,
-                        ).map(([node]) => node);
                         blockSelectionApi.set(blocks.map((block) => block.id as string));
                         blockSelectionApi.focus();
                       }
@@ -192,25 +202,7 @@ function Draggable(props: PlateElementProps) {
 
                       event.preventDefault();
 
-                      const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                      let selectionNodes =
-                        blockSelection.length > 0
-                          ? blockSelection
-                          : editor.api.blocks({ mode: "highest" });
-
-                      // If current block is not in selection, use it as the starting point
-                      if (
-                        !selectionNodes.some(([node]) => node.id === element.id)
-                      ) {
-                        const elementPath = editor.api.findPath(element);
-                        if (elementPath) selectionNodes = [[element, elementPath]];
-                      }
-
-                      // Process selection nodes to include list children
-                      const blocks = expandListItemsWithChildren(
-                        editor,
-                        selectionNodes,
-                      ).map(([node]) => node);
+                      const { blocks, blockSelection } = resolveSelectedBlocks();
 
                       if (blockSelection.length === 0) {
                         editor.tf.blur();
