@@ -89,6 +89,9 @@ importers:
       discord.js:
         specifier: ^14.26.4
         version: 14.26.4
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(kysely@0.28.17)(mysql2@3.22.4(@types/node@24.12.4))
@@ -147,9 +150,6 @@ importers:
       '@typescript/native-preview':
         specifier: 7.0.0-dev.20260527.2
         version: 7.0.0-dev.20260527.2
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
       glob:
         specifier: ^11.1.0
         version: 11.1.0
