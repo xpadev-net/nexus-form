@@ -204,7 +204,6 @@ function Draggable(props: PlateElementProps) {
                       event.preventDefault();
 
 	                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
-	                      const blocks = processedBlocks;
 
                       if (blockSelection.length === 0) {
                         editor.tf.blur();
@@ -217,13 +216,13 @@ function Draggable(props: PlateElementProps) {
                       previewRef.current?.classList.add("opacity-0");
                       editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
-                      blockSelectionApi.set(blocks.map((block) => block.id as string));
+	                      blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
                       blockSelectionApi.focus();
                     }}
                     onMouseEnter={() => {
                       if (isDragging) return;
 
-                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+                      const { processedBlocks } = resolveSelectedBlocks();
 
                         const ids = processedBlocks.map((block) => block.id as string);
 
