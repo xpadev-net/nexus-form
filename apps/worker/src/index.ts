@@ -23,12 +23,7 @@ import {
 import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
 import { closePublisher } from "./lib/redis-publisher";
-import {
-  captureError,
-  captureMessage,
-  flushSentry,
-  initSentry,
-} from "./lib/sentry";
+import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { abortWorkerShutdown } from "./lib/shutdown-signal";
 import { createWorker } from "./lib/worker-factory";
 import {
@@ -150,6 +145,30 @@ async function main() {
     };
   };
 
+  const attachJobContextToError = (
+    error: unknown,
+    context: {
+      queue: string;
+      queueJobId: string;
+      attemptsMade?: number;
+      maxAttempts?: number;
+      formId?: unknown;
+      integrationId?: unknown;
+      responseId?: unknown;
+    },
+  ) => {
+    if (error instanceof Error) {
+      (error as Error & { workerContext?: typeof context }).workerContext =
+        context;
+      return error;
+    }
+    const wrapped = new Error(String(error));
+    (
+      wrapped as Error & { workerContext?: typeof context; cause?: unknown }
+    ).cause = error;
+    return wrapped;
+  };
+
   for (const worker of workers) {
     worker.on("completed", (job) => {
       console.log(`[worker:${worker.name}] completed job=${job.id}`);
@@ -161,16 +180,11 @@ async function main() {
         error,
         context,
       );
-      captureMessage(`[worker:${worker.name}] failed`, "error", {
-        ...context,
-      });
-      captureError(error);
+      const contextualError = attachJobContextToError(error, context);
+      captureError(contextualError);
     });
     worker.on("error", (error) => {
       console.error(`[worker:${worker.name}] worker error`, error);
-      captureMessage(`[worker:${worker.name}] worker error`, "error", {
-        queue: worker.name,
-      });
       captureError(error);
     });
   }

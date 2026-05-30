@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import { type Job, UnrecoverableError } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@nexus-form/database", () => ({
@@ -286,9 +286,9 @@ describe("handleSheetsSync — idempotency states", () => {
     mockGetOAuthToken.mockResolvedValue(null);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
-      "AUTH_REQUIRED: OAuth token not found",
-    );
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow("AUTH_REQUIRED: OAuth token not found");
 
     expect(mockRefreshTokenIfNeeded).not.toHaveBeenCalled();
     expect(mockReadRange).not.toHaveBeenCalled();
@@ -301,7 +301,9 @@ describe("handleSheetsSync — idempotency states", () => {
     mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: OAuth token refresh failed",
     );
 
@@ -365,7 +367,9 @@ describe("handleSheetsSync — idempotency states", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: read sheet for idempotency check: invalid credentials",
     );
 
@@ -726,7 +730,9 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: update headers: invalid credentials",
     );
 
@@ -742,7 +748,9 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: append rows: invalid credentials",
     );
     expect(job.discard).not.toHaveBeenCalled();
@@ -757,7 +765,9 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: append rows: forbidden access",
     );
     expect(job.discard).not.toHaveBeenCalled();
