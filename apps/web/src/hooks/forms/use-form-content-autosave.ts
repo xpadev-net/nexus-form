@@ -577,8 +577,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
-      const shouldTrackKeepalive =
-        pendingValue == null && inFlightRequest != null;
+      const shouldTrackKeepalive = inFlightRequest != null;
       const keepaliveGeneration = shouldTrackKeepalive
         ? inFlightRequest.restoreGeneration
         : null;
@@ -643,7 +642,7 @@ export function useFormContentAutosave({
     const handleVisibilityChange = () => {
       if (
         document.visibilityState === "hidden" &&
-        inFlightRequestRef.current != null
+        (inFlightRequestRef.current != null || pendingValueRef.current != null)
       ) {
         persistPendingOrInFlightSave();
       }
