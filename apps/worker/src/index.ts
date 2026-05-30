@@ -23,7 +23,12 @@ import {
 import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
 import { closePublisher } from "./lib/redis-publisher";
-import { captureError, flushSentry, initSentry } from "./lib/sentry";
+import {
+  captureError,
+  captureMessage,
+  flushSentry,
+  initSentry,
+} from "./lib/sentry";
 import { abortWorkerShutdown } from "./lib/shutdown-signal";
 import { createWorker } from "./lib/worker-factory";
 import {
@@ -121,15 +126,51 @@ async function main() {
     );
   }
 
+  const getJobContext = (
+    queueName: string,
+    job?: {
+      id?: string | null;
+      attemptsMade?: number;
+      opts?: { attempts?: number };
+      data?: unknown;
+    } | null,
+  ) => {
+    const record =
+      typeof job?.data === "object" && job.data !== null
+        ? (job.data as Record<string, unknown>)
+        : {};
+    return {
+      queue: queueName,
+      queueJobId: job?.id ?? "unknown",
+      attemptsMade: job?.attemptsMade,
+      maxAttempts: job?.opts?.attempts,
+      formId: record.formId,
+      integrationId: record.integrationId,
+      responseId: record.responseId,
+    };
+  };
+
   for (const worker of workers) {
     worker.on("completed", (job) => {
       console.log(`[worker:${worker.name}] completed job=${job.id}`);
     });
     worker.on("failed", (job, error) => {
-      console.error(`[worker:${worker.name}] failed job=${job?.id}`, error);
+      const context = getJobContext(worker.name, job);
+      console.error(
+        `[worker:${worker.name}] failed job=${context.queueJobId} attempt=${context.attemptsMade}/${context.maxAttempts}`,
+        error,
+        context,
+      );
+      captureMessage(`[worker:${worker.name}] failed`, "error", {
+        ...context,
+      });
+      captureError(error);
     });
     worker.on("error", (error) => {
       console.error(`[worker:${worker.name}] worker error`, error);
+      captureMessage(`[worker:${worker.name}] worker error`, "error", {
+        queue: worker.name,
+      });
       captureError(error);
     });
   }

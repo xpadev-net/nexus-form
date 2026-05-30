@@ -11,7 +11,7 @@ import {
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
-import type { Job } from "bullmq";
+import { type Job, UnrecoverableError } from "bullmq";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -74,7 +74,7 @@ function failSheetsSyncWithoutRetry(
   reason: string,
 ): never {
   job.discard();
-  throw new Error(reason);
+  throw new UnrecoverableError(reason);
 }
 
 function throwSheetsSyncFailure(
