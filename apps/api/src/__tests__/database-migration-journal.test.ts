@@ -1,5 +1,5 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 type Journal = {
@@ -9,11 +9,26 @@ type Journal = {
   }>;
 };
 
+function findRepoRoot(startDir: string): string {
+  let currentDir = startDir;
+  while (true) {
+    if (existsSync(resolve(currentDir, "pnpm-workspace.yaml"))) {
+      return currentDir;
+    }
+
+    const parentDir = dirname(currentDir);
+    if (parentDir === currentDir) {
+      throw new Error("Could not locate repository root");
+    }
+    currentDir = parentDir;
+  }
+}
+
 describe("database migration journal", () => {
   it("keeps migration timestamps strictly increasing", () => {
     const journalPath = resolve(
-      import.meta.dirname,
-      "../../../../packages/database/drizzle/meta/_journal.json",
+      findRepoRoot(process.cwd()),
+      "packages/database/drizzle/meta/_journal.json",
     );
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
 
