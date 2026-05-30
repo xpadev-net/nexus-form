@@ -163,9 +163,12 @@ async function main() {
       return error;
     }
     const wrapped = new Error(String(error));
-    (
-      wrapped as Error & { workerContext?: typeof context; cause?: unknown }
-    ).cause = error;
+    const contextualError = wrapped as Error & {
+      workerContext?: typeof context;
+      cause?: unknown;
+    };
+    contextualError.cause = error;
+    contextualError.workerContext = context;
     return wrapped;
   };
 
@@ -185,7 +188,9 @@ async function main() {
     });
     worker.on("error", (error) => {
       console.error(`[worker:${worker.name}] worker error`, error);
-      captureError(error);
+      const context = getJobContext(worker.name);
+      const contextualError = attachJobContextToError(error, context);
+      captureError(contextualError);
     });
   }
 
