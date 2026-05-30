@@ -5,6 +5,7 @@ import { closeDatabase, db } from "@nexus-form/database";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
+  normalizeBuiltinPluginPath,
   providerRegistry,
   startupPlugins,
 } from "@nexus-form/integrations";
@@ -180,12 +181,11 @@ async function startServer() {
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
     (specifier) => {
-      const resolvedPath = fileURLToPath(import.meta.resolve(specifier));
       // Defensive normalisation: if this process runs under tsx (e.g. local dev),
       // import.meta.resolve may return .ts source paths instead of .mjs artifacts.
-      return resolvedPath
-        .replace(/(.*)\/src\//, "$1/dist/")
-        .replace(/\.m?ts$/, ".mjs");
+      return normalizeBuiltinPluginPath(
+        fileURLToPath(import.meta.resolve(specifier)),
+      );
     },
   );
   const pluginDriftStore = getRedisClient();

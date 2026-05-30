@@ -28,6 +28,7 @@ export {
   type RedisPublisherOptions,
 } from "./redis-publisher";
 export {
+  normalizeBuiltinPluginPath,
   type PluginDriftGuardOptions,
   type PluginDriftStore,
   type PluginRuntimeManifest,
