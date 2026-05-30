@@ -18,6 +18,7 @@ import {
   memo,
   useCallback,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -107,6 +108,7 @@ function Draggable(props: PlateElementProps) {
   const isInTable = path.length === 4;
 
   const [previewTop, setPreviewTop] = useState(0);
+  const keyboardActivateInProgressRef = useRef(false);
 
   const resetPreview = useCallback(() => {
     if (previewRef.current) {
@@ -198,8 +200,9 @@ function Draggable(props: PlateElementProps) {
                     aria-label="ブロックを移動"
                     data-plate-prevent-deselect
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          keyboardActivateInProgressRef.current = true;
 
                         const { blockSelection, processedBlocks } = resolveSelectedBlocks();
 
@@ -211,8 +214,9 @@ function Draggable(props: PlateElementProps) {
                         blockSelectionApi.focus();
                       }
                     }}
-                    onMouseDown={(event) => {
-                      resetPreview();
+                        onMouseDown={(event) => {
+                          keyboardActivateInProgressRef.current = false;
+                          resetPreview();
 
                       if (event.button !== 0 && event.button !== 2) return;
                       if (event.shiftKey) return;
@@ -235,6 +239,11 @@ function Draggable(props: PlateElementProps) {
                       blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
                     }}
                     onClick={() => {
+                      if (keyboardActivateInProgressRef.current) {
+                        keyboardActivateInProgressRef.current = false;
+                        return;
+                      }
+
                       blockSelectionApi.focus();
                     }}
                     onMouseEnter={updatePreviewTop}
