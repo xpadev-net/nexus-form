@@ -75,7 +75,7 @@ RUN printf 'server {\n\
         add_header X-XSS-Protection "0" always;\n\
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
-        add_header Strict-Transport-Security "max-age=31536000" always;\n\
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
     }\n\
     location = /index.html {\n\
         add_header Cache-Control "no-cache, must-revalidate" always;\n\
@@ -84,7 +84,7 @@ RUN printf 'server {\n\
         add_header X-XSS-Protection "0" always;\n\
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
-        add_header Strict-Transport-Security "max-age=31536000" always;\n\
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
         add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''self'\'' https://hcaptcha.com https://*.hcaptcha.com; style-src '\''self'\''; style-src-attr '\''unsafe-inline'\''; style-src-elem '\''self'\'' '\''unsafe-inline'\''; img-src __CSP_IMG_SRC__; font-src '\''self'\'' data:; connect-src __CSP_CONNECT_SRC__; frame-src https://hcaptcha.com https://*.hcaptcha.com; worker-src '\''self'\'' blob:; object-src '\''none'\''; base-uri '\''self'\''; frame-ancestors '\''none'\''; form-action '\''self'\''" always;\n\
     }\n\
     location / {\n\
@@ -95,7 +95,7 @@ RUN printf 'server {\n\
         add_header X-XSS-Protection "0" always;\n\
         add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
         add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
-        add_header Strict-Transport-Security "max-age=31536000" always;\n\
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
         add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''self'\'' https://hcaptcha.com https://*.hcaptcha.com; style-src '\''self'\''; style-src-attr '\''unsafe-inline'\''; style-src-elem '\''self'\'' '\''unsafe-inline'\''; img-src __CSP_IMG_SRC__; font-src '\''self'\'' data:; connect-src __CSP_CONNECT_SRC__; frame-src https://hcaptcha.com https://*.hcaptcha.com; worker-src '\''self'\'' blob:; object-src '\''none'\''; base-uri '\''self'\''; frame-ancestors '\''none'\''; form-action '\''self'\''" always;\n\
     }\n\
 }\n' > /etc/nginx/conf.d/default.conf
