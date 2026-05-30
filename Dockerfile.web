@@ -114,7 +114,7 @@ add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''sel
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
     }\n\
     location / {\n\
-        try_files $uri $uri/ @spa;\n\
+        try_files /__nexus_form_spa_fallback__ @spa;\n\
     }\n\
     location @spa {\n\
         try_files /index.html =404;\n\
