@@ -150,102 +150,107 @@ function Draggable(props: PlateElementProps) {
                 (isInColumn || isInFormQuestion) && "mr-1.5",
               )}
             >
-              <Button
-                ref={handleRef}
-                variant="ghost"
-                className="-left-0 absolute h-6 w-full p-0"
-                style={{ top: `${dragButtonTop + 3}px` }}
-                aria-label="ブロックを移動"
-                data-plate-prevent-deselect
-                onClick={(event) => {
-                  event.preventDefault();
-                  blockSelectionApi.focus();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    blockSelectionApi.focus();
-                  }
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  resetPreview();
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    ref={handleRef}
+                    variant="ghost"
+                    className="-left-0 absolute h-6 w-full p-0"
+                    style={{ top: `${dragButtonTop + 3}px` }}
+                    aria-label="ブロックを移動"
+                    data-plate-prevent-deselect
+                    onClick={(event) => {
+                      event.preventDefault();
+                      blockSelectionApi.focus();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        blockSelectionApi.focus();
+                      }
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      resetPreview();
 
-                  if (event.button !== 0 && event.button !== 2) return;
-                  if (event.shiftKey) return;
+                      if (event.button !== 0 && event.button !== 2) return;
+                      if (event.shiftKey) return;
 
-                  const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                  let selectionNodes =
-                    blockSelection.length > 0
-                      ? blockSelection
-                      : editor.api.blocks({ mode: "highest" });
+                      const blockSelection = blockSelectionApi.getNodes({ sort: true });
+                      let selectionNodes =
+                        blockSelection.length > 0
+                          ? blockSelection
+                          : editor.api.blocks({ mode: "highest" });
 
-                  // If current block is not in selection, use it as the starting point
-                  if (
-                    !selectionNodes.some(([node]) => node.id === element.id)
-                  ) {
-                    const path = editor.api.findPath(element);
-                    if (path) selectionNodes = [[element, path]];
-                  }
+                      // If current block is not in selection, use it as the starting point
+                      if (
+                        !selectionNodes.some(([node]) => node.id === element.id)
+                      ) {
+                        const path = editor.api.findPath(element);
+                        if (path) selectionNodes = [[element, path]];
+                      }
 
-                  // Process selection nodes to include list children
-                  const blocks = expandListItemsWithChildren(
-                    editor,
-                    selectionNodes,
-                  ).map(([node]) => node);
+                      // Process selection nodes to include list children
+                      const blocks = expandListItemsWithChildren(
+                        editor,
+                        selectionNodes,
+                      ).map(([node]) => node);
 
-                  if (blockSelection.length === 0) {
-                    editor.tf.blur();
-                    editor.tf.collapse();
-                  }
+                      if (blockSelection.length === 0) {
+                        editor.tf.blur();
+                        editor.tf.collapse();
+                      }
 
-                  const elements = createDragPreviewElements(editor, blocks);
-                  previewRef.current?.replaceChildren(...elements);
-                  previewRef.current?.classList.remove("hidden");
-                  previewRef.current?.classList.add("opacity-0");
-                  editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
+                      const elements = createDragPreviewElements(editor, blocks);
+                      previewRef.current?.replaceChildren(...elements);
+                      previewRef.current?.classList.remove("hidden");
+                      previewRef.current?.classList.add("opacity-0");
+                      editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
-                  blockSelectionApi.set(blocks.map((block) => block.id as string));
-                }}
-                onMouseEnter={() => {
-                  if (isDragging) return;
+                      blockSelectionApi.set(blocks.map((block) => block.id as string));
+                    }}
+                    onMouseEnter={() => {
+                      if (isDragging) return;
 
-                  const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                  let selectedBlocks =
-                    blockSelection.length > 0
-                      ? blockSelection
-                      : editor.api.blocks({ mode: "highest" });
+                      const blockSelection = blockSelectionApi.getNodes({ sort: true });
+                      let selectedBlocks =
+                        blockSelection.length > 0
+                          ? blockSelection
+                          : editor.api.blocks({ mode: "highest" });
 
-                  // If current block is not in selection, use it as the starting point
-                  if (!selectedBlocks.some(([node]) => node.id === element.id)) {
-                    const path = editor.api.findPath(element);
-                    if (path) selectedBlocks = [[element, path]];
-                  }
+                      // If current block is not in selection, use it as the starting point
+                      if (!selectedBlocks.some(([node]) => node.id === element.id)) {
+                        const path = editor.api.findPath(element);
+                        if (path) selectedBlocks = [[element, path]];
+                      }
 
-                  // Process selection to include list children
-                  const processedBlocks = expandListItemsWithChildren(
-                    editor,
-                    selectedBlocks,
-                  );
+                      // Process selection to include list children
+                      const processedBlocks = expandListItemsWithChildren(
+                        editor,
+                        selectedBlocks,
+                      );
 
-                  const ids = processedBlocks.map((block) => block[0].id as string);
+                      const ids = processedBlocks.map((block) => block[0].id as string);
 
-                  if (ids.length > 1 && ids.includes(element.id as string)) {
-                    const previewTop = calculatePreviewTop(editor, {
-                      blocks: processedBlocks.map((block) => block[0]),
-                      element,
-                    });
-                    setPreviewTop(previewTop);
-                  } else {
-                    setPreviewTop(0);
-                  }
-                }}
-                onMouseUp={() => {
-                  resetPreview();
-                }}
-              >
-                <DragHandle />
-              </Button>
+                      if (ids.length > 1 && ids.includes(element.id as string)) {
+                        const previewTop = calculatePreviewTop(editor, {
+                          blocks: processedBlocks.map((block) => block[0]),
+                          element,
+                        });
+                        setPreviewTop(previewTop);
+                      } else {
+                        setPreviewTop(0);
+                      }
+                    }}
+                    onMouseUp={() => {
+                      resetPreview();
+                    }}
+                  >
+                    <DragHandle />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Drag to move</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </Gutter>
@@ -314,17 +319,9 @@ function Gutter({
 
 const DragHandle = memo(function DragHandle() {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div
-          className="flex size-full items-center justify-center"
-          data-plate-prevent-deselect
-        >
-          <GripVertical className="text-muted-foreground" />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent>Drag to move</TooltipContent>
-    </Tooltip>
+    <div className="flex size-full items-center justify-center">
+      <GripVertical className="text-muted-foreground" />
+    </div>
   );
 });
 
