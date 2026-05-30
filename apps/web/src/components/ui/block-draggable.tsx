@@ -159,37 +159,38 @@ function Draggable(props: PlateElementProps) {
                     style={{ top: `${dragButtonTop + 3}px` }}
                     aria-label="ブロックを移動"
                     data-plate-prevent-deselect
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
 
-                    const blockSelection = blockSelectionApi.getNodes({ sort: true });
-                    let selectionNodes =
-                      blockSelection.length > 0
-                        ? blockSelection
-                        : editor.api.blocks({ mode: "highest" });
+                        const blockSelection = blockSelectionApi.getNodes({ sort: true });
+                        let selectionNodes =
+                          blockSelection.length > 0
+                            ? blockSelection
+                            : editor.api.blocks({ mode: "highest" });
 
-                    if (!selectionNodes.some(([node]) => node.id === element.id)) {
-                      const elementPath = editor.api.findPath(element);
-                      if (elementPath) {
-                        selectionNodes = [[element, elementPath]];
+                        if (!selectionNodes.some(([node]) => node.id === element.id)) {
+                          const elementPath = editor.api.findPath(element);
+                          if (elementPath) {
+                            selectionNodes = [[element, elementPath]];
+                          }
+                        }
+
+                        const blocks = expandListItemsWithChildren(
+                          editor,
+                          selectionNodes,
+                        ).map(([node]) => node);
+                        blockSelectionApi.set(blocks.map((block) => block.id as string));
+                        blockSelectionApi.focus();
                       }
-                    }
+                    }}
+                    onMouseDown={(event) => {
+                      resetPreview();
 
-                    const blocks = expandListItemsWithChildren(editor, selectionNodes).map(
-                      ([node]) => node,
-                    );
-                    blockSelectionApi.set(blocks.map((block) => block.id as string));
-                    blockSelectionApi.focus();
-                  }
-                }}
-                onMouseDown={(event) => {
-                  resetPreview();
+                      if (event.button !== 0 && event.button !== 2) return;
+                      if (event.shiftKey) return;
 
-                  if (event.button !== 0 && event.button !== 2) return;
-                  if (event.shiftKey) return;
-
-                  event.preventDefault();
+                      event.preventDefault();
 
                       const blockSelection = blockSelectionApi.getNodes({ sort: true });
                       let selectionNodes =
@@ -216,15 +217,15 @@ function Draggable(props: PlateElementProps) {
                         editor.tf.collapse();
                       }
 
-                  const elements = createDragPreviewElements(editor, blocks);
-                  previewRef.current?.replaceChildren(...elements);
-                  previewRef.current?.classList.remove("hidden");
-                  previewRef.current?.classList.add("opacity-0");
-                  editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
+                      const elements = createDragPreviewElements(editor, blocks);
+                      previewRef.current?.replaceChildren(...elements);
+                      previewRef.current?.classList.remove("hidden");
+                      previewRef.current?.classList.add("opacity-0");
+                      editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
-                  blockSelectionApi.set(blocks.map((block) => block.id as string));
-                  blockSelectionApi.focus();
-                }}
+                      blockSelectionApi.set(blocks.map((block) => block.id as string));
+                      blockSelectionApi.focus();
+                    }}
                     onMouseEnter={() => {
                       if (isDragging) return;
 
@@ -265,7 +266,7 @@ function Draggable(props: PlateElementProps) {
                     <DragHandle />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Drag to move</TooltipContent>
+                <TooltipContent>ブロックを移動</TooltipContent>
               </Tooltip>
             </div>
           </div>
