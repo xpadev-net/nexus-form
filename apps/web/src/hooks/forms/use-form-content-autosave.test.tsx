@@ -408,7 +408,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("does not fire keepalive fetch when the value is already in-flight (regular autosave covers it)", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
@@ -422,9 +422,6 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       vi.advanceTimersByTime(2000);
     });
     act(() => {
-      root.unmount();
-    });
-    act(() => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
         {
@@ -433,6 +430,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
           restoreGeneration: 0,
         },
       );
+    });
+    act(() => {
+      root.unmount();
     });
 
     // Keepalive should NOT fire - the value was already picked up by the
@@ -448,7 +448,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("does not store pending save for in-flight value that was already saved by regular autosave", async () => {
+  it("stores in-flight value on unmount when regular autosave has not completed", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn();
@@ -467,29 +467,26 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       root.unmount();
     });
+    await flushPromises();
 
-    // The value was already in-flight (regular autosave mutation started),
-    // so no keepalive fetch should fire - the regular autosave covers it.
-    expect(fetchMock).not.toHaveBeenCalledWith(
+    // The value was in-flight when unmounting, so keepalive fallback should persist it.
+    expect(fetchMock).toHaveBeenCalledWith(
       "http://localhost:3001/api/forms/form-1/content",
       expect.objectContaining({
         keepalive: true,
         method: "PUT",
+        body: JSON.stringify({
+          plateContent: draftContent,
+          expectedVersion: 7,
+        }),
       }),
     );
-
-    act(() => {
-      latestMutationOptions?.onSuccess?.(
-        { plateContentVersion: 8 },
-        {
-          expectedVersion: 7,
-          plateContent: draftContent,
-          restoreGeneration: 0,
-        },
-      );
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
     });
-
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {

@@ -77,6 +77,12 @@ interface ContentSaveInput {
   restoreGeneration: number;
 }
 
+interface InFlightAutosave {
+  plateContent: string;
+  expectedVersion: number;
+  restoreGeneration: number;
+}
+
 interface UseFormContentAutosaveOptions {
   formId: string;
   contentData: ContentQueryData | undefined;
@@ -130,6 +136,7 @@ export function useFormContentAutosave({
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
+  const inFlightRequestRef = useRef<InFlightAutosave | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
@@ -171,6 +178,11 @@ export function useFormContentAutosave({
           saveTimerRef.current = null;
           if (pendingValue == null) return;
           inFlightValueRef.current = pendingValue;
+          inFlightRequestRef.current = {
+            plateContent: pendingValue,
+            expectedVersion: saveBaseVersion,
+            restoreGeneration: restoreGenerationRef.current,
+          };
           pendingValueRef.current = null;
           lastSavedVersionRef.current = saveBaseVersion + 1;
           mutateRef.current({
@@ -341,6 +353,7 @@ export function useFormContentAutosave({
       }
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
+      inFlightRequestRef.current = null;
       lastSavedVersionRef.current = null;
       isConflictActiveRef.current = false;
       suspendAutosaveRef.current = true;
@@ -383,12 +396,20 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      if (
+        inFlightRequestRef.current?.restoreGeneration !==
+        variables.restoreGeneration
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        return;
+      }
       clearResolvedPendingSave(formId, {
         expectedVersion: variables.expectedVersion,
         plateContent: variables.plateContent,
       });
-      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      inFlightRequestRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
@@ -404,8 +425,16 @@ export function useFormContentAutosave({
       setIsSaving(false);
     },
     onError: (err, variables) => {
-      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
+      if (
+        inFlightRequestRef.current?.restoreGeneration !==
+        variables.restoreGeneration
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        return;
+      }
       inFlightValueRef.current = null;
+      inFlightRequestRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
       if (err instanceof RpcError && err.status === 409) {
@@ -453,6 +482,11 @@ export function useFormContentAutosave({
       saveTimerRef.current = null;
       if (pendingValue == null) return;
       inFlightValueRef.current = pendingValue;
+      inFlightRequestRef.current = {
+        plateContent: pendingValue,
+        expectedVersion: versionRef.current,
+        restoreGeneration: restoreGenerationRef.current,
+      };
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
@@ -464,51 +498,73 @@ export function useFormContentAutosave({
     }, 2000);
   }, []);
 
-  // Unmount: clear timer and best-effort save via keepalive fetch.
-  // Only save pendingValueRef (debounce not yet fired).
-  // Do NOT include inFlightValueRef: the regular autosave PUT is already in
-  // flight for that value, and a duplicate keepalive PUT with the same
-  // expectedVersion would produce a 409 that incorrectly creates a pending
-  // save entry for already-saved content.
+  // Unmount/pagehide: clear timer and best-effort save via keepalive fetch.
+  // Fall back both pendingValueRef (not yet fired) and inFlightValueRef
+  // (mutation in progress) so navigation/unload does not lose drafts.
   useEffect(() => {
-    return () => {
+    const persistPendingOrInFlightSave = () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
-      const valueToSave = pendingValueRef.current;
-      if (valueToSave != null) {
-        const keepaliveVersion = versionRef.current;
-        const body = JSON.stringify({
-          plateContent: valueToSave,
-          expectedVersion: keepaliveVersion,
-        });
-        if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
-          fetch(`${baseUrl}/api/forms/${formId}/content`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            keepalive: true,
-            body,
-          })
-            .then((response) => {
-              if (response.ok) {
-                clearResolvedPendingSave(formId, {
-                  expectedVersion: keepaliveVersion,
-                  plateContent: valueToSave,
-                });
-              } else if (baseContentRef.current === valueToSave) {
-                // Regular autosave already saved this content; do not write a duplicate fallback.
-              } else {
-                storePendingSave(formId, body);
-              }
-            })
-            .catch(() => {
+      const pendingValue = pendingValueRef.current;
+      const inFlightRequest = inFlightRequestRef.current;
+      const fallbackValue =
+        pendingValue != null ? pendingValue : inFlightRequest?.plateContent;
+      const fallbackVersion =
+        pendingValue != null
+          ? versionRef.current
+          : inFlightRequest?.expectedVersion;
+      if (fallbackValue == null || fallbackVersion == null) return;
+
+      const body = JSON.stringify({
+        plateContent: fallbackValue,
+        expectedVersion: fallbackVersion,
+      });
+      if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
+        fetch(`${baseUrl}/api/forms/${formId}/content`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          keepalive: true,
+          body,
+        })
+          .then((response) => {
+            if (response.ok) {
+              clearResolvedPendingSave(formId, {
+                expectedVersion: fallbackVersion,
+                plateContent: fallbackValue,
+              });
+            } else if (baseContentRef.current === fallbackValue) {
+              // Regular autosave already saved this content; do not write a duplicate fallback.
+            } else {
               storePendingSave(formId, body);
-            });
-        } else {
-          storePendingSave(formId, body);
-        }
+            }
+          })
+          .catch(() => {
+            storePendingSave(formId, body);
+          });
+      } else {
+        storePendingSave(formId, body);
       }
+    };
+
+    const handlePageHide = () => {
+      persistPendingOrInFlightSave();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        persistPendingOrInFlightSave();
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      persistPendingOrInFlightSave();
     };
   }, [formId]);
 
