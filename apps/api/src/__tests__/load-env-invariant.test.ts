@@ -12,6 +12,6 @@ describe("entrypoint env loading", () => {
     const source = readFileSync(resolve(repoRoot, relativePath), "utf8");
 
     expect(source).toContain("createRequire");
-    expect(source).not.toContain('await import("dotenv")');
+    expect(source).not.toMatch(/await\s+import\(["']dotenv["']\)/);
   });
 });
