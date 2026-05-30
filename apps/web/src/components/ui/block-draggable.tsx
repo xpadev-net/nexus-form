@@ -216,6 +216,8 @@ function Draggable(props: PlateElementProps) {
                       editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
                       blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
+                    }}
+                    onClick={() => {
                       blockSelectionApi.focus();
                     }}
                     onMouseEnter={() => {
@@ -310,13 +312,13 @@ function Gutter({
   );
 }
 
-const DragHandle = memo(function DragHandle() {
+function DragHandle() {
   return (
     <div className="flex size-full items-center justify-center">
       <GripVertical className="text-muted-foreground" />
     </div>
   );
-});
+}
 
 const DropLine = memo(function DropLine({
   className,
