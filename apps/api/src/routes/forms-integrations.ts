@@ -102,7 +102,7 @@ function buildManualSheetsSyncJobId(
     "sheets-manual",
     encodeBullMqJobIdSegment(integrationId),
     encodeBullMqJobIdSegment(responseId),
-  ].join("-");
+  ].join(".");
 }
 
 /**

@@ -195,7 +195,7 @@ describe("Google Sheets sync job status authorization", () => {
       },
     });
     expect(queuedJobs?.[0]?.opts).not.toHaveProperty("attempts");
-    expect(queuedJobs?.[0]?.opts?.jobId).toMatch(/^sheets-manual-/);
+    expect(queuedJobs?.[0]?.opts?.jobId).toMatch(/^sheets-manual\./);
     expect(queuedJobs?.[0]?.opts?.jobId).not.toContain(":");
   });
 
@@ -220,7 +220,7 @@ describe("Google Sheets sync job status authorization", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
-      jobId: expect.stringMatching(/^sheets-manual-/),
+      jobId: expect.stringMatching(/^sheets-manual\./),
       status: "queued",
     });
   });
