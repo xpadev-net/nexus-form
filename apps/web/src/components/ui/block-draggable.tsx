@@ -182,8 +182,8 @@ function Draggable(props: PlateElementProps) {
                       if (
                         !selectionNodes.some(([node]) => node.id === element.id)
                       ) {
-                        const path = editor.api.findPath(element);
-                        if (path) selectionNodes = [[element, path]];
+                        const elementPath = editor.api.findPath(element);
+                        if (elementPath) selectionNodes = [[element, elementPath]];
                       }
 
                       // Process selection nodes to include list children
@@ -217,8 +217,8 @@ function Draggable(props: PlateElementProps) {
 
                       // If current block is not in selection, use it as the starting point
                       if (!selectedBlocks.some(([node]) => node.id === element.id)) {
-                        const path = editor.api.findPath(element);
-                        if (path) selectedBlocks = [[element, path]];
+                        const elementPath = editor.api.findPath(element);
+                        if (elementPath) selectedBlocks = [[element, elementPath]];
                       }
 
                       // Process selection to include list children
