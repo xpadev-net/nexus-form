@@ -1,4 +1,5 @@
 import "./load-env";
+import { rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
@@ -10,6 +11,7 @@ import {
 import type { Worker } from "bullmq";
 import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
+import { z } from "zod";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
@@ -53,6 +55,97 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
   SHUTDOWN_TIMEOUT_MS,
   5_000,
 );
+const WORKER_HEALTH_FILE =
+  process.env.WORKER_HEALTH_FILE ?? "/tmp/nexus-form-worker-health.json";
+const WORKER_HEALTH_PULSE_INTERVAL_MS_ENV = Number(
+  process.env.WORKER_HEALTH_PULSE_INTERVAL_MS,
+);
+const WORKER_HEALTH_PULSE_INTERVAL_MS =
+  Number.isFinite(WORKER_HEALTH_PULSE_INTERVAL_MS_ENV) &&
+  WORKER_HEALTH_PULSE_INTERVAL_MS_ENV > 0
+    ? WORKER_HEALTH_PULSE_INTERVAL_MS_ENV
+    : 5_000;
+
+type WorkerHealthMonitor = {
+  markReady: () => Promise<void>;
+  stop: () => Promise<void>;
+};
+
+export const WorkerHealthSchema = z.object({
+  pid: z.number(),
+  ready: z.boolean(),
+  startedAt: z.number(),
+  lastBeat: z.number(),
+  heartbeatIntervalMs: z.number(),
+  selectedQueues: z.array(z.string()),
+});
+export type WorkerHealthPayload = z.infer<typeof WorkerHealthSchema>;
+
+const createWorkerHealthMonitor = (
+  selectedQueues: string[],
+): WorkerHealthMonitor => {
+  const queueNames = [...new Set(selectedQueues)].sort();
+  let ready = false;
+  let stopped = false;
+  let interval: ReturnType<typeof setInterval> | null = null;
+  let writePromise: Promise<void> = Promise.resolve();
+  const startedAt = Date.now();
+
+  const writeHealth = async (): Promise<void> => {
+    if (stopped) {
+      return;
+    }
+
+    const payload = WorkerHealthSchema.parse({
+      pid: process.pid,
+      ready,
+      startedAt,
+      lastBeat: Date.now(),
+      heartbeatIntervalMs: WORKER_HEALTH_PULSE_INTERVAL_MS,
+      selectedQueues: queueNames,
+    });
+
+    await writeFile(WORKER_HEALTH_FILE, JSON.stringify(payload), "utf8");
+  };
+
+  const scheduleHealthWrite = (): void => {
+    if (stopped) {
+      return;
+    }
+
+    writePromise = writePromise.then(writeHealth).catch((error) => {
+      console.error("[worker] Failed to write worker health:", error);
+    });
+  };
+
+  interval = setInterval(scheduleHealthWrite, WORKER_HEALTH_PULSE_INTERVAL_MS);
+
+  scheduleHealthWrite();
+
+  return {
+    markReady: async () => {
+      if (stopped) {
+        return;
+      }
+
+      ready = true;
+      scheduleHealthWrite();
+      await writePromise;
+    },
+    stop: async () => {
+      if (stopped) {
+        return;
+      }
+
+      stopped = true;
+      if (interval) {
+        clearInterval(interval);
+      }
+      await writePromise.catch(() => undefined);
+      await rm(WORKER_HEALTH_FILE).catch(() => undefined);
+    },
+  };
+};
 
 async function main() {
   console.log(`[worker] Commit: ${process.env.GIT_HASH || "unknown"}`);
@@ -217,6 +310,9 @@ async function main() {
     "Workers started:",
     workers.map((worker) => worker.name),
   );
+  const healthMonitor = createWorkerHealthMonitor(
+    workers.map((worker) => worker.name),
+  );
 
   const metricsInterval = startQueueMetricsCollection();
   const { shutdown: baseShutdown } = createGracefulShutdown({
@@ -233,12 +329,12 @@ async function main() {
     logger: console,
   });
   const shutdown: typeof baseShutdown = async (request) => {
+    await healthMonitor.stop();
     abortWorkerShutdown(
       new DOMException(`Worker shutdown (${request.trigger})`, "AbortError"),
     );
     await baseShutdown(request);
   };
-
   registerShutdownHandlers({
     process,
     shutdown,
@@ -246,6 +342,7 @@ async function main() {
     logger: console,
     uncaughtExceptionTimeoutMs: UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS,
   });
+  await healthMonitor.markReady();
 }
 
 main().catch(async (error) => {

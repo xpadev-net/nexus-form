@@ -34,6 +34,7 @@ COPY --chown=node:node ./packages/shared/ ./packages/shared/
 COPY --chown=node:node ./packages/validation-provider-discord/ ./packages/validation-provider-discord/
 COPY --chown=node:node ./packages/validation-provider-github/ ./packages/validation-provider-github/
 COPY --chown=node:node ./packages/validation-provider-twitter/ ./packages/validation-provider-twitter/
+COPY --chown=node:node ./scripts/worker-health-probe.mjs /app/scripts/worker-health-probe.mjs
 
 # Build workspace packages (exports point to ./dist/ which requires a build step).
 # Built-in providers are loaded at runtime via import.meta.resolve from
@@ -79,6 +80,7 @@ COPY --from=runtime-deps /tmp/worker-deploy/node_modules ./node_modules
 COPY --from=deps /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
 
 COPY --from=prod /app/apps/worker/dist ./apps/worker/dist
+COPY --from=prod /app/scripts/worker-health-probe.mjs /app/scripts/worker-health-probe.mjs
 COPY --from=prod --chown=65532:65532 /app/plugins/validation /app/plugins/validation
 
 USER 65532:65532

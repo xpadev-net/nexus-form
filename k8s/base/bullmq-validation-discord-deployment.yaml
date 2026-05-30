@@ -42,14 +42,20 @@ spec:
         # BullMQ workers don't expose HTTP endpoints; use exec-based probes
         livenessProbe:
           exec:
-            command: ["/nodejs/bin/node", "-e", "process.exit(0)"]
+            command:
+              - "/nodejs/bin/node"
+              - "/app/scripts/worker-health-probe.mjs"
+              - "liveness"
           initialDelaySeconds: 10
           periodSeconds: 15
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           exec:
-            command: ["/nodejs/bin/node", "-e", "process.exit(0)"]
+            command:
+              - "/nodejs/bin/node"
+              - "/app/scripts/worker-health-probe.mjs"
+              - "readiness"
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 3
