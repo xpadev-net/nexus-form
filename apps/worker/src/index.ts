@@ -11,6 +11,7 @@ import {
 import type { Worker } from "bullmq";
 import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
+import { z } from "zod";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
@@ -65,19 +66,20 @@ const WORKER_HEALTH_PULSE_INTERVAL_MS =
     ? WORKER_HEALTH_PULSE_INTERVAL_MS_ENV
     : 5_000;
 
-type WorkerHealthPayload = {
-  pid: number;
-  ready: boolean;
-  startedAt: number;
-  lastBeat: number;
-  heartbeatIntervalMs: number;
-  selectedQueues: string[];
-};
-
 type WorkerHealthMonitor = {
   markReady: () => Promise<void>;
   stop: () => Promise<void>;
 };
+
+export const WorkerHealthSchema = z.object({
+  pid: z.number(),
+  ready: z.boolean(),
+  startedAt: z.number(),
+  lastBeat: z.number(),
+  heartbeatIntervalMs: z.number(),
+  selectedQueues: z.array(z.string()),
+});
+export type WorkerHealthPayload = z.infer<typeof WorkerHealthSchema>;
 
 const createWorkerHealthMonitor = (
   selectedQueues: string[],
@@ -86,6 +88,7 @@ const createWorkerHealthMonitor = (
   let ready = false;
   let stopped = false;
   let interval: ReturnType<typeof setInterval> | null = null;
+  let writePromise: Promise<void> = Promise.resolve();
   const startedAt = Date.now();
 
   const writeHealth = async (): Promise<void> => {
@@ -93,31 +96,41 @@ const createWorkerHealthMonitor = (
       return;
     }
 
-    const payload: WorkerHealthPayload = {
+    const payload = WorkerHealthSchema.parse({
       pid: process.pid,
       ready,
       startedAt,
       lastBeat: Date.now(),
       heartbeatIntervalMs: WORKER_HEALTH_PULSE_INTERVAL_MS,
       selectedQueues: queueNames,
-    };
+    });
+
     await writeFile(WORKER_HEALTH_FILE, JSON.stringify(payload), "utf8");
   };
 
-  interval = setInterval(() => {
-    void writeHealth().catch((error) => {
-      console.error("[worker] Failed to write health file:", error);
-    });
-  }, WORKER_HEALTH_PULSE_INTERVAL_MS);
+  const scheduleHealthWrite = (): void => {
+    if (stopped) {
+      return;
+    }
 
-  void writeHealth().catch((error) => {
-    console.error("[worker] Failed to write initial worker health:", error);
-  });
+    writePromise = writePromise.then(writeHealth).catch((error) => {
+      console.error("[worker] Failed to write worker health:", error);
+    });
+  };
+
+  interval = setInterval(scheduleHealthWrite, WORKER_HEALTH_PULSE_INTERVAL_MS);
+
+  scheduleHealthWrite();
 
   return {
     markReady: async () => {
+      if (stopped) {
+        return;
+      }
+
       ready = true;
-      await writeHealth();
+      scheduleHealthWrite();
+      await writePromise;
     },
     stop: async () => {
       if (stopped) {
@@ -128,6 +141,7 @@ const createWorkerHealthMonitor = (
       if (interval) {
         clearInterval(interval);
       }
+      await writePromise.catch(() => undefined);
       await rm(WORKER_HEALTH_FILE).catch(() => undefined);
     },
   };
@@ -321,8 +335,6 @@ async function main() {
     );
     await baseShutdown(request);
   };
-
-  await healthMonitor.markReady();
   registerShutdownHandlers({
     process,
     shutdown,
@@ -330,6 +342,7 @@ async function main() {
     logger: console,
     uncaughtExceptionTimeoutMs: UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS,
   });
+  await healthMonitor.markReady();
 }
 
 main().catch(async (error) => {

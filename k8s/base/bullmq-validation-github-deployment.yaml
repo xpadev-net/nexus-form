@@ -43,9 +43,8 @@ spec:
           exec:
             command:
               - "/nodejs/bin/node"
-              - "-e"
-              - >
-                const fs=require('fs');const hp=process.env.WORKER_HEALTH_FILE||'/tmp/nexus-form-worker-health.json';const rawMaxAge=Number(process.env.WORKER_HEALTH_MAX_AGE_MS||'15000');const maxAge=Number.isFinite(rawMaxAge)&&rawMaxAge>0?rawMaxAge:15000;try{const data=JSON.parse(fs.readFileSync(hp,'utf8'));if(typeof data.lastBeat!=='number'||!Number.isFinite(data.lastBeat)){process.exit(1)}if(Date.now()-data.lastBeat>maxAge){process.exit(1)}process.exit(0)}catch(_){process.exit(1)}
+              - "/app/scripts/worker-health-probe.mjs"
+              - "liveness"
           initialDelaySeconds: 10
           periodSeconds: 15
           timeoutSeconds: 5
@@ -54,9 +53,8 @@ spec:
           exec:
             command:
               - "/nodejs/bin/node"
-              - "-e"
-              - >
-                const fs=require('fs');const hp=process.env.WORKER_HEALTH_FILE||'/tmp/nexus-form-worker-health.json';const rawMaxAge=Number(process.env.WORKER_HEALTH_MAX_AGE_MS||'15000');const maxAge=Number.isFinite(rawMaxAge)&&rawMaxAge>0?rawMaxAge:15000;try{const data=JSON.parse(fs.readFileSync(hp,'utf8'));if(!data||data.ready!==true){process.exit(1)}if(typeof data.lastBeat!=='number'||!Number.isFinite(data.lastBeat)){process.exit(1)}if(Date.now()-data.lastBeat>maxAge){process.exit(1)}process.exit(0)}catch(_){process.exit(1)}
+              - "/app/scripts/worker-health-probe.mjs"
+              - "readiness"
           initialDelaySeconds: 5
           periodSeconds: 10
           timeoutSeconds: 3
