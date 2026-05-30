@@ -101,7 +101,17 @@ add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''sel
         include /etc/nginx/snippets/spa-security-headers.conf;\n\
     }\n\
     location = /index.html {\n\
+        try_files /index.html =404;\n\
         include /etc/nginx/snippets/spa-security-headers.conf;\n\
+    }\n\
+    location ~ ^/[^/]+\\.[^/]+$ {\n\
+        try_files $uri =404;\n\
+        add_header Cache-Control "public, max-age=3600" always;\n\
+        add_header X-Content-Type-Options "nosniff" always;\n\
+        add_header X-XSS-Protection "0" always;\n\
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
     }\n\
     location / {\n\
         try_files $uri $uri/ @spa;\n\
