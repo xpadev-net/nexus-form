@@ -185,13 +185,12 @@ function Draggable(props: PlateElementProps) {
                         event.preventDefault();
 
 	                        const { blockSelection, processedBlocks } = resolveSelectedBlocks();
-	                        const blocks = processedBlocks;
 
                         if (blockSelection.length === 0) {
                           editor.tf.blur();
                           editor.tf.collapse();
                         }
-                        blockSelectionApi.set(blocks.map((block) => block.id as string));
+	                        blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
                         blockSelectionApi.focus();
                       }
                     }}
@@ -210,13 +209,13 @@ function Draggable(props: PlateElementProps) {
                         editor.tf.collapse();
                       }
 
-                      const elements = createDragPreviewElements(editor, blocks);
+	                      const elements = createDragPreviewElements(editor, processedBlocks);
                       previewRef.current?.replaceChildren(...elements);
                       previewRef.current?.classList.remove("hidden");
                       previewRef.current?.classList.add("opacity-0");
                       editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
 
-	                      blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
+                      blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
                       blockSelectionApi.focus();
                     }}
                     onMouseEnter={() => {
