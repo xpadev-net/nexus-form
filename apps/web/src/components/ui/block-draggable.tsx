@@ -15,10 +15,10 @@ import {
 } from "platejs/react";
 import {
   type ComponentProps,
-  type RefObject,
   memo,
   useCallback,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -108,6 +108,7 @@ function Draggable(props: PlateElementProps) {
   const isInTable = path.length === 4;
 
   const [previewTop, setPreviewTop] = useState(0);
+  const keyboardActivateInProgressRef = useRef(false);
 
   const resetPreview = useCallback(() => {
     if (previewRef.current) {
@@ -118,6 +119,44 @@ function Draggable(props: PlateElementProps) {
 
   const [dragButtonTop, setDragButtonTop] = useState(0);
   const blockTypeLabel = String(element.type);
+  const resolveSelectedBlocks = useCallback(() => {
+    const blockSelection = blockSelectionApi.getNodes({ sort: true });
+    let selectionNodes =
+      blockSelection.length > 0
+        ? blockSelection
+        : editor.api.blocks({ mode: "highest" });
+
+    // If current block is not in selection, use it as the starting point
+    if (!selectionNodes.some(([node]) => node.id === element.id)) {
+      const elementPath = editor.api.findPath(element);
+      if (elementPath) {
+        selectionNodes = [[element, elementPath]];
+      }
+    }
+
+    const processedBlocks = expandListItemsWithChildren(editor, selectionNodes).map(
+      ([node]) => node,
+    );
+
+    return { blockSelection, processedBlocks };
+  }, [blockSelectionApi, editor, element]);
+
+  const updatePreviewTop = useCallback(() => {
+    if (isDragging) return;
+
+    const { processedBlocks } = resolveSelectedBlocks();
+    const canPreview =
+      processedBlocks.length > 1 &&
+      processedBlocks.some((block) => block.id === element.id);
+
+    if (canPreview) {
+      const previewTop = calculatePreviewTop(editor, { blocks: processedBlocks, element });
+      setPreviewTop(previewTop);
+      return;
+    }
+
+    setPreviewTop(0);
+  }, [editor, element.id, isDragging, resolveSelectedBlocks]);
 
   return (
     <div
@@ -151,21 +190,75 @@ function Draggable(props: PlateElementProps) {
                 (isInColumn || isInFormQuestion) && "mr-1.5",
               )}
             >
-              <Button
-                ref={handleRef}
-                variant="ghost"
-                className="-left-0 absolute h-6 w-full p-0"
-                style={{ top: `${dragButtonTop + 3}px` }}
-                aria-label="ブロックを移動"
-                data-plate-prevent-deselect
-              >
-                <DragHandle
-                  isDragging={isDragging}
-                  previewRef={previewRef}
-                  resetPreview={resetPreview}
-                  setPreviewTop={setPreviewTop}
-                />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    ref={handleRef}
+                    variant="ghost"
+                    className="-left-0 absolute h-6 w-full p-0"
+                    style={{ top: `${dragButtonTop + 3}px` }}
+                    aria-label="ブロックを移動"
+                    data-plate-prevent-deselect
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        keyboardActivateInProgressRef.current = true;
+
+                        const { blockSelection, processedBlocks } =
+                          resolveSelectedBlocks();
+
+                        if (blockSelection.length === 0) {
+                          editor.tf.blur();
+                          editor.tf.collapse();
+                        }
+                        blockSelectionApi.set(
+                          processedBlocks.map((block) => block.id as string),
+                        );
+                        blockSelectionApi.focus();
+                      }
+                    }}
+                    onMouseDown={(event) => {
+                      keyboardActivateInProgressRef.current = false;
+                      resetPreview();
+
+                      if (event.button !== 0 && event.button !== 2) return;
+                      if (event.shiftKey) return;
+
+                      event.preventDefault();
+
+                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+
+                      if (blockSelection.length === 0) {
+                        editor.tf.blur();
+                        editor.tf.collapse();
+                      }
+
+                      const elements = createDragPreviewElements(editor, processedBlocks);
+                      previewRef.current?.replaceChildren(...elements);
+                      previewRef.current?.classList.remove("hidden");
+                      previewRef.current?.classList.add("opacity-0");
+                      editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
+
+                      blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
+                    }}
+                    onClick={() => {
+                      if (keyboardActivateInProgressRef.current) {
+                        keyboardActivateInProgressRef.current = false;
+                        return;
+                      }
+
+                      blockSelectionApi.focus();
+                    }}
+                    onMouseEnter={updatePreviewTop}
+                    onMouseUp={() => {
+                      resetPreview();
+                    }}
+                  >
+                    <DragHandle />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>ブロックをドラッグして並び替え</TooltipContent>
+              </Tooltip>
             </div>
           </div>
         </Gutter>
@@ -232,127 +325,13 @@ function Gutter({
   );
 }
 
-const DragHandle = memo(function DragHandle({
-  isDragging,
-  previewRef,
-  resetPreview,
-  setPreviewTop,
-}: {
-  isDragging: boolean;
-  previewRef: RefObject<HTMLDivElement | null>;
-  resetPreview: () => void;
-  setPreviewTop: (top: number) => void;
-}) {
-  const editor = useEditorRef();
-  const element = useElement();
-
+function DragHandle() {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <div
-          className="flex size-full items-center justify-center"
-          role="button"
-          aria-label="Drag to move"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.preventDefault();
-            editor.getApi(BlockSelectionPlugin).blockSelection.focus();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              editor.getApi(BlockSelectionPlugin).blockSelection.focus();
-            }
-          }}
-          onMouseDown={(e) => {
-            resetPreview();
-
-            if ((e.button !== 0 && e.button !== 2) || e.shiftKey) return;
-
-            const blockSelection = editor
-              .getApi(BlockSelectionPlugin)
-              .blockSelection.getNodes({ sort: true });
-
-            let selectionNodes =
-              blockSelection.length > 0
-                ? blockSelection
-                : editor.api.blocks({ mode: "highest" });
-
-            // If current block is not in selection, use it as the starting point
-            if (!selectionNodes.some(([node]) => node.id === element.id)) {
-              const path = editor.api.findPath(element);
-              if (path) selectionNodes = [[element, path]];
-            }
-
-            // Process selection nodes to include list children
-            const blocks = expandListItemsWithChildren(
-              editor,
-              selectionNodes,
-            ).map(([node]) => node);
-
-            if (blockSelection.length === 0) {
-              editor.tf.blur();
-              editor.tf.collapse();
-            }
-
-            const elements = createDragPreviewElements(editor, blocks);
-            previewRef.current?.replaceChildren(...elements);
-            previewRef.current?.classList.remove("hidden");
-            previewRef.current?.classList.add("opacity-0");
-            editor.setOption(DndPlugin, "multiplePreviewRef", previewRef);
-
-            editor
-              .getApi(BlockSelectionPlugin)
-              .blockSelection.set(blocks.map((block) => block.id as string));
-          }}
-          onMouseEnter={() => {
-            if (isDragging) return;
-
-            const blockSelection = editor
-              .getApi(BlockSelectionPlugin)
-              .blockSelection.getNodes({ sort: true });
-
-            let selectedBlocks =
-              blockSelection.length > 0
-                ? blockSelection
-                : editor.api.blocks({ mode: "highest" });
-
-            // If current block is not in selection, use it as the starting point
-            if (!selectedBlocks.some(([node]) => node.id === element.id)) {
-              const path = editor.api.findPath(element);
-              if (path) selectedBlocks = [[element, path]];
-            }
-
-            // Process selection to include list children
-            const processedBlocks = expandListItemsWithChildren(
-              editor,
-              selectedBlocks,
-            );
-
-            const ids = processedBlocks.map((block) => block[0].id as string);
-
-            if (ids.length > 1 && ids.includes(element.id as string)) {
-              const previewTop = calculatePreviewTop(editor, {
-                blocks: processedBlocks.map((block) => block[0]),
-                element,
-              });
-              setPreviewTop(previewTop);
-            } else {
-              setPreviewTop(0);
-            }
-          }}
-          onMouseUp={() => {
-            resetPreview();
-          }}
-          data-plate-prevent-deselect
-        >
-          <GripVertical className="text-muted-foreground" />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent>Drag to move</TooltipContent>
-    </Tooltip>
+    <div className="flex size-full items-center justify-center">
+      <GripVertical className="text-muted-foreground" />
+    </div>
   );
-});
+}
 
 const DropLine = memo(function DropLine({
   className,
