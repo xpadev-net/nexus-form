@@ -89,7 +89,7 @@ for extra_origin in ${CSP_IMG_SRC:-}; do
   case "$normalized_origin" in
     http://* | https://*) ;;
     *)
-      echo "[web] Ignoring invalid CSP_IMG_SRC origin: $extra_origin" >&2
+      echo "[web] Ignoring non-HTTP CSP_IMG_SRC origin: $extra_origin" >&2
       continue
       ;;
   esac
