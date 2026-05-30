@@ -142,6 +142,7 @@ export function useFormContentAutosave({
   const keepaliveSentRef = useRef<{
     generation: number;
     version: number;
+    plateContent: string;
   } | null>(null);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
@@ -410,7 +411,8 @@ export function useFormContentAutosave({
       const shouldClearKeepaliveSent =
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration;
+        keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        keepaliveSentRef.current.plateContent === variables.plateContent;
       if (shouldClearKeepaliveSent) {
         keepaliveSentRef.current = null;
       }
@@ -459,10 +461,9 @@ export function useFormContentAutosave({
     onError: (err, variables) => {
       if (
         keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
-        err instanceof RpcError &&
-        err.status === 409
+        keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        keepaliveSentRef.current.plateContent === variables.plateContent
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
@@ -473,7 +474,8 @@ export function useFormContentAutosave({
       const shouldClearKeepaliveSent =
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration;
+        keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        keepaliveSentRef.current.plateContent === variables.plateContent;
       if (shouldClearKeepaliveSent) {
         keepaliveSentRef.current = null;
       }
@@ -592,6 +594,7 @@ export function useFormContentAutosave({
         keepaliveSentRef.current = {
           generation: keepaliveGeneration,
           version: keepaliveVersion,
+          plateContent: inFlightRequest.plateContent,
         };
       }
 
@@ -611,11 +614,13 @@ export function useFormContentAutosave({
         )
           .then((response) => {
             if (response?.ok) {
+              versionRef.current = fallbackVersion + 1;
+              baseContentRef.current = fallbackValue;
+              lastSavedVersionRef.current = fallbackVersion + 1;
               clearResolvedPendingSave(formId, {
                 expectedVersion: fallbackVersion,
                 plateContent: fallbackValue,
               });
-              keepaliveSentRef.current = null;
               return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.
