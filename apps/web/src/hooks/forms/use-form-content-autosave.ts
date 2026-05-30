@@ -396,12 +396,22 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      const inFlightRequest = inFlightRequestRef.current;
       if (
-        inFlightRequestRef.current?.restoreGeneration !==
-        variables.restoreGeneration
+        inFlightRequest != null &&
+        inFlightRequest.restoreGeneration !== variables.restoreGeneration
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
+        return;
+      }
+      if (variables.restoreGeneration < restoreGenerationRef.current) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        clearResolvedPendingSave(formId, {
+          expectedVersion: variables.expectedVersion,
+          plateContent: variables.plateContent,
+        });
         return;
       }
       clearResolvedPendingSave(formId, {
@@ -425,9 +435,10 @@ export function useFormContentAutosave({
       setIsSaving(false);
     },
     onError: (err, variables) => {
+      const inFlightRequest = inFlightRequestRef.current;
       if (
-        inFlightRequestRef.current?.restoreGeneration !==
-        variables.restoreGeneration
+        inFlightRequest != null &&
+        inFlightRequest.restoreGeneration !== variables.restoreGeneration
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
@@ -521,15 +532,17 @@ export function useFormContentAutosave({
         expectedVersion: fallbackVersion,
       });
       if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
-        fetch(`${baseUrl}/api/forms/${formId}/content`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          keepalive: true,
-          body,
-        })
+        Promise.resolve(
+          fetch(`${baseUrl}/api/forms/${formId}/content`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            keepalive: true,
+            body,
+          }),
+        )
           .then((response) => {
-            if (response.ok) {
+            if (response?.ok) {
               clearResolvedPendingSave(formId, {
                 expectedVersion: fallbackVersion,
                 plateContent: fallbackValue,
