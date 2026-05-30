@@ -58,7 +58,9 @@ COPY ./apps/web/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh && \
     chown -R nginx:nginx /usr/share/nginx/html /docker-entrypoint.sh
 
-# SPA fallback: route all non-file requests to index.html
+# SPA fallback: route all non-file requests to index.html.
+# HSTS is emitted here for TLS-terminating proxies that forward backend headers;
+# browsers ignore this header when the container is reached over direct HTTP.
 RUN mkdir -p /etc/nginx/snippets && \
     printf 'add_header Cache-Control "no-cache, must-revalidate" always;\n\
 add_header X-Frame-Options "DENY" always;\n\
@@ -104,7 +106,7 @@ add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''sel
         try_files /index.html =404;\n\
         include /etc/nginx/snippets/spa-security-headers.conf;\n\
     }\n\
-    location ~ ^/[^/]+\\.[^/]+$ {\n\
+    location ~ ^/[^/]+\\.(ico|png|jpg|jpeg|gif|svg|webp|woff|woff2|ttf|eot|txt|xml|json|webmanifest|gz|br)$ {\n\
         try_files $uri =404;\n\
         add_header Cache-Control "public, max-age=3600" always;\n\
         add_header X-Content-Type-Options "nosniff" always;\n\
