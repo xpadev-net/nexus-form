@@ -11,7 +11,7 @@ import {
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
-import type { Job } from "bullmq";
+import { type Job, UnrecoverableError } from "bullmq";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -43,7 +43,7 @@ const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
-const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
+export const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
 type SheetsSyncAuthFailure = "AUTH_REQUIRED" | "OTHER_FAILURE";
 
 function classifySheetsSyncFailure(
@@ -69,22 +69,17 @@ function getSheetsSyncFailureMessage(
   return `Failed to ${context}: ${result.error.message}`;
 }
 
-function failSheetsSyncWithoutRetry(
-  job: Job<SheetsSyncJob>,
-  reason: string,
-): never {
-  job.discard();
-  throw new Error(reason);
+function failSheetsSyncWithoutRetry(reason: string): never {
+  throw new UnrecoverableError(reason);
 }
 
 function throwSheetsSyncFailure(
-  job: Job<SheetsSyncJob>,
   context: string,
   result: { error: GoogleApiError },
 ): never {
   const message = getSheetsSyncFailureMessage(context, result);
   if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
-    failSheetsSyncWithoutRetry(job, message);
+    failSheetsSyncWithoutRetry(message);
   }
   throw new Error(message);
 }
@@ -194,7 +189,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const initialToken = await getOAuthToken(userId);
   if (!initialToken) {
     return failSheetsSyncWithoutRetry(
-      job,
       authRequiredMessage("OAuth token not found"),
     );
   }
@@ -202,7 +196,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const token = await refreshTokenIfNeeded(initialToken);
   if (!token) {
     return failSheetsSyncWithoutRetry(
-      job,
       authRequiredMessage("OAuth token refresh failed"),
     );
   }
@@ -299,17 +292,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
 
       if (keyValue === "pending") {
-        const sheetCheck = await readSheetForIdempotency(
-          token,
-          {
-            spreadsheetId,
-            sheetName,
-            responseId: response.id,
-          },
-          {
-            job,
-          },
-        );
+        const sheetCheck = await readSheetForIdempotency(token, {
+          spreadsheetId,
+          sheetName,
+          responseId: response.id,
+        });
         if (sheetCheck.exists) {
           return markDuplicateWritten();
         }
@@ -346,17 +333,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         "pending",
       );
 
-      const sheetCheck = await readSheetForIdempotency(
-        token,
-        {
-          spreadsheetId,
-          sheetName,
-          responseId: response.id,
-        },
-        {
-          job,
-        },
-      );
+      const sheetCheck = await readSheetForIdempotency(token, {
+        spreadsheetId,
+        sheetName,
+        responseId: response.id,
+      });
       if (sheetCheck.exists) {
         return markDuplicateWritten();
       }
@@ -385,7 +366,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           values: [headers],
         });
         if (!headerUpdateResult.ok) {
-          throwSheetsSyncFailure(job, "update headers", headerUpdateResult);
+          throwSheetsSyncFailure("update headers", headerUpdateResult);
         }
       }
       await job.updateProgress(80);
@@ -398,7 +379,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       });
 
       if (!appendResult.ok) {
-        throwSheetsSyncFailure(job, "append rows", appendResult);
+        throwSheetsSyncFailure("append rows", appendResult);
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
@@ -459,20 +440,13 @@ async function readSheetForIdempotency(
     sheetName: string;
     responseId: string;
   },
-  options: {
-    job: Job<SheetsSyncJob>;
-  },
 ): Promise<{ ok: true; exists: boolean; headers: string[] }> {
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: `${params.sheetName}!1:1`,
   });
   if (!headerData.ok) {
-    throwSheetsSyncFailure(
-      options.job,
-      "read sheet for idempotency check",
-      headerData,
-    );
+    throwSheetsSyncFailure("read sheet for idempotency check", headerData);
   }
   if (headerData.data.values.length === 0) {
     return { ok: true, exists: false, headers: [] };
@@ -491,7 +465,6 @@ async function readSheetForIdempotency(
   });
   if (!entireColumn.ok) {
     throwSheetsSyncFailure(
-      options.job,
       "read sheet column for idempotency check",
       entireColumn,
     );

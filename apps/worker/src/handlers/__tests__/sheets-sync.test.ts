@@ -1,4 +1,4 @@
-import type { Job } from "bullmq";
+import { type Job, UnrecoverableError } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@nexus-form/database", () => ({
@@ -281,32 +281,34 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("discards and throws when the OAuth token is missing", async () => {
+  it("throws UnrecoverableError when the OAuth token is missing", async () => {
     setupDbSelect([INTEGRATION]);
     mockGetOAuthToken.mockResolvedValue(null);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
-      "AUTH_REQUIRED: OAuth token not found",
-    );
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow("AUTH_REQUIRED: OAuth token not found");
+    expect(job.discard).not.toHaveBeenCalled();
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockRefreshTokenIfNeeded).not.toHaveBeenCalled();
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("discards and throws when OAuth token refresh fails", async () => {
+  it("throws UnrecoverableError when OAuth token refresh fails", async () => {
     setupDbSelect([INTEGRATION]);
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
     mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: OAuth token refresh failed",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
@@ -367,11 +369,13 @@ describe("handleSheetsSync — idempotency states", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: read sheet for idempotency check: invalid credentials",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
@@ -729,11 +733,13 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: update headers: invalid credentials",
     );
+    expect(job.discard).not.toHaveBeenCalled();
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
@@ -746,10 +752,12 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: append rows: invalid credentials",
     );
-    expect(job.discard).toHaveBeenCalledOnce();
+    expect(job.discard).not.toHaveBeenCalled();
   });
 
   it("discards and throws forbidden response from appendRows as AUTH_REQUIRED", async () => {
@@ -761,9 +769,11 @@ describe("handleSheetsSync — write path", () => {
     } as never);
 
     const job = makeJob();
-    await expect(handleSheetsSync(job)).rejects.toThrow(
+    const task = handleSheetsSync(job);
+    await expect(task).rejects.toThrow(UnrecoverableError);
+    await expect(task).rejects.toThrow(
       "AUTH_REQUIRED: append rows: forbidden access",
     );
-    expect(job.discard).toHaveBeenCalledOnce();
+    expect(job.discard).not.toHaveBeenCalled();
   });
 });

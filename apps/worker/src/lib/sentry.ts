@@ -28,6 +28,19 @@ export async function initSentry(): Promise<void> {
 
 export function captureError(error: unknown): void {
   if (!sentryModule) return;
+
+  if (typeof error === "object" && error !== null && "workerContext" in error) {
+    const errorWithContext = error as Error & {
+      workerContext?: Record<string, unknown>;
+    };
+    sentryModule.captureException(errorWithContext, {
+      extra: {
+        workerContext: errorWithContext.workerContext,
+      },
+    });
+    return;
+  }
+
   sentryModule.captureException(error);
 }
 

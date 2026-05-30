@@ -8,9 +8,13 @@ import {
   startupPlugins,
 } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
+import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
-import { handleSheetsSync } from "./handlers/sheets-sync";
+import {
+  AUTH_REQUIRED_SYNC_ERROR_PREFIX,
+  handleSheetsSync,
+} from "./handlers/sheets-sync";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/field-encryption";
 import {
   createGracefulShutdown,
@@ -121,16 +125,91 @@ async function main() {
     );
   }
 
+  const getJobContext = (
+    queueName: string,
+    job?: {
+      id?: string | null;
+      attemptsMade?: number;
+      opts?: { attempts?: number };
+      data?: unknown;
+    } | null,
+  ) => {
+    const record =
+      typeof job?.data === "object" && job.data !== null
+        ? (job.data as Record<string, unknown>)
+        : {};
+    return {
+      queue: queueName,
+      queueJobId: job?.id ?? "unknown",
+      attemptsMade: job?.attemptsMade,
+      maxAttempts: job?.opts?.attempts,
+      formId: record.formId,
+      integrationId: record.integrationId,
+      responseId: record.responseId,
+    };
+  };
+
+  const attachJobContextToError = (
+    error: unknown,
+    context: {
+      queue: string;
+      queueJobId: string;
+      attemptsMade?: number;
+      maxAttempts?: number;
+      formId?: unknown;
+      integrationId?: unknown;
+      responseId?: unknown;
+    },
+  ) => {
+    if (error instanceof Error) {
+      (error as Error & { workerContext?: typeof context }).workerContext =
+        context;
+      return error;
+    }
+    const wrapped = new Error(String(error));
+    const contextualError = wrapped as Error & {
+      workerContext?: typeof context;
+      cause?: unknown;
+    };
+    contextualError.cause = error;
+    contextualError.workerContext = context;
+    return contextualError;
+  };
+
   for (const worker of workers) {
     worker.on("completed", (job) => {
       console.log(`[worker:${worker.name}] completed job=${job.id}`);
     });
     worker.on("failed", (job, error) => {
-      console.error(`[worker:${worker.name}] failed job=${job?.id}`, error);
+      const context = getJobContext(worker.name, job);
+      console.error(
+        `[worker:${worker.name}] failed job=${context.queueJobId} attempt=${context.attemptsMade}/${context.maxAttempts}`,
+        error,
+        context,
+      );
+      const contextualError = attachJobContextToError(error, context);
+      const attemptsMade = job?.attemptsMade ?? 1;
+      const maxAttempts = job?.opts?.attempts ?? 1;
+      const isFinalFailureAttempt = attemptsMade >= maxAttempts;
+      const isUnrecoverableError =
+        contextualError instanceof UnrecoverableError;
+      const isAuthRequiredError =
+        worker.name === GOOGLE_SHEETS_SYNC_QUEUE &&
+        isUnrecoverableError &&
+        contextualError.message.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX);
+
+      if (
+        (isFinalFailureAttempt || isUnrecoverableError) &&
+        !isAuthRequiredError
+      ) {
+        captureError(contextualError);
+      }
     });
     worker.on("error", (error) => {
       console.error(`[worker:${worker.name}] worker error`, error);
-      captureError(error);
+      const context = getJobContext(worker.name);
+      const contextualError = attachJobContextToError(error, context);
+      captureError(contextualError);
     });
   }
 
