@@ -455,11 +455,6 @@ export function useGoogleSheetsSync({
         rawData = await requestSyncStart(false);
       }
       const data = syncStartResponseSchema.parse(rawData);
-      if (fellBackToLatest) {
-        toast.error(
-          "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
-        );
-      }
       const startedStatus: UiSyncState = {
         jobId: data.jobId,
         status: data.status,
@@ -479,6 +474,11 @@ export function useGoogleSheetsSync({
       }, 60_000);
 
       toast.success("同期を開始しました");
+      if (fellBackToLatest) {
+        toast.warning(
+          "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+        );
+      }
 
       try {
         await queryClient.invalidateQueries({

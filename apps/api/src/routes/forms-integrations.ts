@@ -105,6 +105,10 @@ function buildManualSheetsSyncJobId(
   ].join(".");
 }
 
+function hasResponses<T>(responses: T[]): responses is [T, ...T[]] {
+  return responses.length > 0;
+}
+
 /**
  * Google Sheets sync job status response returned with 200 OK.
  * @remarks The `job` object exposes BullMQ status fields including progress, result, attempts, and failure reason.
@@ -177,7 +181,7 @@ export const formsIntegrationsRouter = createHonoApp()
             .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
             .limit(1);
 
-      if (responses.length === 0) {
+      if (!hasResponses(responses)) {
         return c.json(formIntegrationError("No responses to sync"), 404);
       }
 
@@ -208,9 +212,6 @@ export const formsIntegrationsRouter = createHonoApp()
       );
 
       const firstResponse = responses[0];
-      if (!firstResponse) {
-        return c.json(formIntegrationError("No sync jobs were queued"), 500);
-      }
 
       return c.json(
         GoogleSheetsSyncStartResponseSchema.parse({

@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 vi.mock("@/lib/fetch-json", () => {
@@ -46,6 +47,7 @@ vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
+    warning: mocks.toastWarning,
   },
 }));
 
@@ -115,6 +117,7 @@ describe("useGoogleSheetsSync transitions", () => {
     mocks.fetchJson.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+    mocks.toastWarning.mockReset();
   });
 
   afterEach(() => {
@@ -362,10 +365,16 @@ describe("useGoogleSheetsSync transitions", () => {
     expect(JSON.parse(String(startRequests[1]?.[1]?.body))).toEqual({
       force: false,
     });
-    expect(mocks.toastError).toHaveBeenCalledWith(
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
       "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
+    const [successCallOrder] = mocks.toastSuccess.mock.invocationCallOrder;
+    const [warningCallOrder] = mocks.toastWarning.mock.invocationCallOrder;
+    if (successCallOrder === undefined || warningCallOrder === undefined) {
+      throw new Error("Expected success and fallback warning to be shown");
+    }
+    expect(successCallOrder).toBeLessThan(warningCallOrder);
     expect(states.at(-1)?.activeJobId).toBe("latest-job");
 
     act(() => root.unmount());
@@ -394,7 +403,7 @@ describe("useGoogleSheetsSync transitions", () => {
     });
     await flushPromises();
 
-    expect(mocks.toastError).not.toHaveBeenCalledWith(
+    expect(mocks.toastWarning).not.toHaveBeenCalledWith(
       "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
     );
     expect(mocks.toastError).toHaveBeenCalledWith("同期の開始に失敗しました");
