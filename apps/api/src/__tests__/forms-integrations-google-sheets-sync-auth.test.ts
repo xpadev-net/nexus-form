@@ -3,9 +3,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../load-env", () => ({}));
 
 const mocks = vi.hoisted(() => ({
+  addBulk: vi.fn(),
+  db: {
+    select: vi.fn(),
+  },
   getFormIntegration: vi.fn(),
   getJob: vi.fn(),
+  responseRows: [] as Array<{ responseId: string }>,
   upsertFormIntegrationForCurrentOwner: vi.fn(),
+}));
+
+vi.mock("@nexus-form/database", () => ({
+  db: mocks.db,
+  formResponse: {
+    formId: "formResponse.formId",
+    id: "formResponse.id",
+    submittedAt: "formResponse.submittedAt",
+  },
 }));
 
 vi.mock("../lib/dual-auth", () => ({
@@ -40,6 +54,7 @@ vi.mock("../lib/forms/form-integration-service", async () => {
 
 vi.mock("../lib/queues", () => ({
   getSheetsSyncQueue: () => ({
+    addBulk: mocks.addBulk,
     getJob: mocks.getJob,
   }),
 }));
@@ -81,7 +96,30 @@ describe("Google Sheets sync job status authorization", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mocks.responseRows = [];
     mocks.getFormIntegration.mockResolvedValue(configuredIntegration("form-1"));
+    mocks.db.select.mockImplementation(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(async (limit: number) =>
+              mocks.responseRows.slice(0, limit),
+            ),
+          })),
+        })),
+      })),
+    }));
+    mocks.addBulk.mockImplementation(
+      async (
+        jobs: Array<{
+          data: { responseId: string };
+          opts?: { jobId?: string };
+        }>,
+      ) =>
+        jobs.map((job) => ({
+          id: job.opts?.jobId ?? `job-${job.data.responseId}`,
+        })),
+    );
   });
 
   it("saves a Google Sheets integration through the current-owner service path", async () => {
@@ -118,6 +156,151 @@ describe("Google Sheets sync job status authorization", () => {
         headerPolicy: "extend",
       },
     });
+  });
+
+  it("queues bounded manual sync jobs with deterministic ids and default retry settings", async () => {
+    mocks.responseRows = [
+      { responseId: "response-1" },
+      { responseId: "response-2" },
+    ];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      status: "queued",
+    });
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs).toHaveLength(2);
+    expect(queuedJobs?.[0]).toMatchObject({
+      name: "manual-sync",
+      data: {
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+      },
+    });
+    expect(queuedJobs?.[0]?.opts).not.toHaveProperty("attempts");
+    expect(queuedJobs?.[0]?.opts?.jobId).toMatch(/^sheets-manual\./);
+    expect(queuedJobs?.[0]?.opts?.jobId).not.toContain(":");
+  });
+
+  it("returns the deterministic manual sync job id when BullMQ deduplicates an existing job", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    mocks.addBulk.mockResolvedValueOnce([null]);
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+  });
+
+  it("defaults manual sync to the latest response instead of replaying all rows", async () => {
+    mocks.responseRows = [
+      { responseId: "latest-response" },
+      { responseId: "older-response" },
+    ];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs).toHaveLength(1);
+    expect(queuedJobs?.[0]?.data.responseId).toBe("latest-response");
+  });
+
+  it("rejects full manual sync when the response count exceeds the queueing limit", async () => {
+    mocks.responseRows = Array.from({ length: 1001 }, (_, index) => ({
+      responseId: `response-${index}`,
+    }));
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body).toEqual({
+      error:
+        "Full manual sync is limited to 1000 responses; retry without force to sync the latest response only",
+    });
+    expect(mocks.addBulk).not.toHaveBeenCalled();
+  });
+
+  it("allows full manual sync at exactly the response queueing limit", async () => {
+    mocks.responseRows = Array.from({ length: 1000 }, (_, index) => ({
+      responseId: `response-${index}`,
+    }));
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk.mock.calls[0]?.[0]).toHaveLength(1000);
   });
 
   it("returns 404 without leaking job details when the job belongs to another form", async () => {

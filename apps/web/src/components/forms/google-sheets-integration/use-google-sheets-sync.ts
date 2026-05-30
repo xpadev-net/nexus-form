@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { apiUrl } from "@/lib/api";
-import { fetchJson } from "@/lib/fetch-json";
+import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
 import { isRecord } from "@/lib/type-guards";
 import type {
@@ -434,16 +434,27 @@ export function useGoogleSheetsSync({
     });
 
     try {
-      const data = syncStartResponseSchema.parse(
-        await fetchJson<unknown>(
+      const requestSyncStart = (force: boolean): Promise<unknown> =>
+        fetchJson<unknown>(
           apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
           apiRequestInit({
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({ force }),
           }),
-        ),
-      );
+        );
+      let fellBackToLatest = false;
+      let rawData: unknown;
+      try {
+        rawData = await requestSyncStart(true);
+      } catch (error) {
+        if (!(error instanceof HttpError && error.status === 413)) {
+          throw error;
+        }
+        fellBackToLatest = true;
+        rawData = await requestSyncStart(false);
+      }
+      const data = syncStartResponseSchema.parse(rawData);
       const startedStatus: UiSyncState = {
         jobId: data.jobId,
         status: data.status,
@@ -463,6 +474,11 @@ export function useGoogleSheetsSync({
       }, 60_000);
 
       toast.success("同期を開始しました");
+      if (fellBackToLatest) {
+        toast.warning(
+          "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+        );
+      }
 
       try {
         await queryClient.invalidateQueries({

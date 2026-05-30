@@ -1,6 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import { sheetsSyncJobDataSchema } from "@nexus-form/shared";
-import { asc, eq } from "drizzle-orm";
+import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import {
@@ -64,11 +64,11 @@ export type FormIntegrationResponse = z.infer<
 /**
  * Google Sheets manual sync request payload.
  *
- * `force` enables a full replay of existing responses for manual synchronization.
- * If omitted, defaults to `true`.
+ * `force` enables a bounded replay of existing responses for manual synchronization.
+ * If omitted, only the latest response is synchronized.
  */
 export const GoogleSheetsSyncStartRequestSchema = z.object({
-  force: z.boolean().default(true),
+  force: z.boolean().default(false),
 });
 /** Inferred TypeScript type for `GoogleSheetsSyncStartRequestSchema`. */
 export type GoogleSheetsSyncStartRequest = z.infer<
@@ -88,7 +88,26 @@ export type GoogleSheetsSyncStartResponse = z.infer<
   typeof GoogleSheetsSyncStartResponseSchema
 >;
 
-const GOOGLE_SHEETS_MANUAL_SYNC_ATTEMPTS = 1;
+const MAX_MANUAL_SHEETS_SYNC_RESPONSES = 1000;
+
+function encodeBullMqJobIdSegment(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
+
+function buildManualSheetsSyncJobId(
+  integrationId: string,
+  responseId: string,
+): string {
+  return [
+    "sheets-manual",
+    encodeBullMqJobIdSegment(integrationId),
+    encodeBullMqJobIdSegment(responseId),
+  ].join(".");
+}
+
+function hasResponses<T>(responses: T[]): responses is [T, ...T[]] {
+  return responses.length > 0;
+}
 
 /**
  * Google Sheets sync job status response returned with 200 OK.
@@ -148,20 +167,35 @@ export const formsIntegrationsRouter = createHonoApp()
 
       const { db, formResponse } = await import("@nexus-form/database");
 
-      const responses = await db
-        .select({ responseId: formResponse.id })
-        .from(formResponse)
-        .where(eq(formResponse.formId, formId))
-        .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
+      const responses = force
+        ? await db
+            .select({ responseId: formResponse.id })
+            .from(formResponse)
+            .where(eq(formResponse.formId, formId))
+            .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
+            .limit(MAX_MANUAL_SHEETS_SYNC_RESPONSES + 1)
+        : await db
+            .select({ responseId: formResponse.id })
+            .from(formResponse)
+            .where(eq(formResponse.formId, formId))
+            .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+            .limit(1);
 
-      if (responses.length === 0) {
+      if (!hasResponses(responses)) {
         return c.json(formIntegrationError("No responses to sync"), 404);
       }
 
-      const responseIds = force ? responses : responses.slice(-1);
+      if (responses.length > MAX_MANUAL_SHEETS_SYNC_RESPONSES) {
+        return c.json(
+          formIntegrationError(
+            `Full manual sync is limited to ${MAX_MANUAL_SHEETS_SYNC_RESPONSES} responses; retry without force to sync the latest response only`,
+          ),
+          413,
+        );
+      }
 
-      const queuedJobs = await getSheetsSyncQueue().addBulk(
-        responseIds.map((response) => ({
+      await getSheetsSyncQueue().addBulk(
+        responses.map((response) => ({
           name: "manual-sync",
           data: sheetsSyncJobDataSchema.parse({
             formId,
@@ -169,19 +203,22 @@ export const formsIntegrationsRouter = createHonoApp()
             responseId: response.responseId,
           }),
           opts: {
-            attempts: GOOGLE_SHEETS_MANUAL_SYNC_ATTEMPTS,
+            jobId: buildManualSheetsSyncJobId(
+              integration.id,
+              response.responseId,
+            ),
           },
         })),
       );
 
-      const firstJob = queuedJobs[0];
-      if (!firstJob) {
-        return c.json(formIntegrationError("No sync jobs were queued"), 500);
-      }
+      const firstResponse = responses[0];
 
       return c.json(
         GoogleSheetsSyncStartResponseSchema.parse({
-          jobId: firstJob.id,
+          jobId: buildManualSheetsSyncJobId(
+            integration.id,
+            firstResponse.responseId,
+          ),
           status: "queued",
         }),
         200,

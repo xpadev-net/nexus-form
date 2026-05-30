@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HttpError } from "@/lib/fetch-json";
 import type { SyncJobStatusResponse } from "@/types/integrations/google-sheets";
 import type { UiSyncState } from "./types";
 import {
@@ -21,16 +22,32 @@ const mocks = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
-vi.mock("@/lib/fetch-json", () => ({
-  fetchJson: mocks.fetchJson,
-}));
+vi.mock("@/lib/fetch-json", () => {
+  class HttpError extends Error {
+    status: number;
+    body?: unknown;
+
+    constructor(status: number, message: string, body?: unknown) {
+      super(message);
+      this.status = status;
+      this.body = body;
+    }
+  }
+
+  return {
+    fetchJson: mocks.fetchJson,
+    HttpError,
+  };
+});
 
 vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
+    warning: mocks.toastWarning,
   },
 }));
 
@@ -100,6 +117,7 @@ describe("useGoogleSheetsSync transitions", () => {
     mocks.fetchJson.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+    mocks.toastWarning.mockReset();
   });
 
   afterEach(() => {
@@ -310,6 +328,86 @@ describe("useGoogleSheetsSync transitions", () => {
     );
     expect(states.at(-1)?.isSyncing).toBe(false);
     expect(states.at(-1)?.syncStatus).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("falls back to latest-response sync when full manual sync is capped", async () => {
+    mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { force: boolean };
+        if (body.force) {
+          return Promise.reject(
+            new HttpError(413, "Full manual sync is limited"),
+          );
+        }
+        return Promise.resolve({ jobId: "latest-job", status: "queued" });
+      }
+      return new Promise(() => {});
+    });
+    const states: ReturnType<typeof useGoogleSheetsSync>[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await act(async () => {
+      await states.at(-1)?.startSync();
+    });
+    await flushPromises();
+
+    const startRequests = mocks.fetchJson.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
+    );
+    expect(startRequests).toHaveLength(2);
+    expect(JSON.parse(String(startRequests[0]?.[1]?.body))).toEqual({
+      force: true,
+    });
+    expect(JSON.parse(String(startRequests[1]?.[1]?.body))).toEqual({
+      force: false,
+    });
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
+    const [successCallOrder] = mocks.toastSuccess.mock.invocationCallOrder;
+    const [warningCallOrder] = mocks.toastWarning.mock.invocationCallOrder;
+    if (successCallOrder === undefined || warningCallOrder === undefined) {
+      throw new Error("Expected success and fallback warning to be shown");
+    }
+    expect(successCallOrder).toBeLessThan(warningCallOrder);
+    expect(states.at(-1)?.activeJobId).toBe("latest-job");
+
+    act(() => root.unmount());
+  });
+
+  it("does not announce latest-response fallback when the fallback request fails", async () => {
+    mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { force: boolean };
+        if (body.force) {
+          return Promise.reject(
+            new HttpError(413, "Full manual sync is limited"),
+          );
+        }
+        return Promise.reject(new Error("network unavailable"));
+      }
+      return new Promise(() => {});
+    });
+    const states: ReturnType<typeof useGoogleSheetsSync>[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await act(async () => {
+      await states.at(-1)?.startSync();
+    });
+    await flushPromises();
+
+    expect(mocks.toastWarning).not.toHaveBeenCalledWith(
+      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+    );
+    expect(mocks.toastError).toHaveBeenCalledWith("同期の開始に失敗しました");
+    expect(states.at(-1)?.activeJobId).toBeNull();
 
     act(() => root.unmount());
   });
