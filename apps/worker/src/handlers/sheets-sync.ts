@@ -69,21 +69,18 @@ function getSheetsSyncFailureMessage(
   return `Failed to ${context}: ${result.error.message}`;
 }
 
-function failSheetsSyncWithoutRetry(
-  _job: Job<SheetsSyncJob>,
-  reason: string,
-): never {
+function failSheetsSyncWithoutRetry(reason: string): never {
   throw new UnrecoverableError(reason);
 }
 
 function throwSheetsSyncFailure(
-  job: Job<SheetsSyncJob>,
+  _job: Job<SheetsSyncJob>,
   context: string,
   result: { error: GoogleApiError },
 ): never {
   const message = getSheetsSyncFailureMessage(context, result);
   if (classifySheetsSyncFailure(result.error) === "AUTH_REQUIRED") {
-    failSheetsSyncWithoutRetry(job, message);
+    failSheetsSyncWithoutRetry(message);
   }
   throw new Error(message);
 }
@@ -193,7 +190,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const initialToken = await getOAuthToken(userId);
   if (!initialToken) {
     return failSheetsSyncWithoutRetry(
-      job,
       authRequiredMessage("OAuth token not found"),
     );
   }
@@ -201,7 +197,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const token = await refreshTokenIfNeeded(initialToken);
   if (!token) {
     return failSheetsSyncWithoutRetry(
-      job,
       authRequiredMessage("OAuth token refresh failed"),
     );
   }
