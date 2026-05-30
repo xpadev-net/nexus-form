@@ -188,12 +188,15 @@ async function main() {
         context,
       );
       const contextualError = attachJobContextToError(error, context);
+      const attemptsMade = job?.attemptsMade ?? 1;
+      const maxAttempts = job?.opts?.attempts ?? 1;
+      const isFinalFailureAttempt = attemptsMade >= maxAttempts;
       const isAuthRequiredError =
         worker.name === GOOGLE_SHEETS_SYNC_QUEUE &&
         contextualError instanceof UnrecoverableError &&
         contextualError.message.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX);
 
-      if (!isAuthRequiredError) {
+      if (isFinalFailureAttempt && !isAuthRequiredError) {
         captureError(contextualError);
       }
     });

@@ -281,7 +281,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("discards and throws when the OAuth token is missing", async () => {
+  it("throws UnrecoverableError when the OAuth token is missing", async () => {
     setupDbSelect([INTEGRATION]);
     mockGetOAuthToken.mockResolvedValue(null);
 
@@ -296,7 +296,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("discards and throws when OAuth token refresh fails", async () => {
+  it("throws UnrecoverableError when OAuth token refresh fails", async () => {
     setupDbSelect([INTEGRATION]);
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
     mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
