@@ -70,10 +70,9 @@ function getSheetsSyncFailureMessage(
 }
 
 function failSheetsSyncWithoutRetry(
-  job: Job<SheetsSyncJob>,
+  _job: Job<SheetsSyncJob>,
   reason: string,
 ): never {
-  job.discard();
   throw new UnrecoverableError(reason);
 }
 

@@ -1,6 +1,6 @@
 # Plan: R22-M1 Sheets AUTH_REQUIRED terminal handling and worker error context
 
-- status: in_progress
+- status: done
 - generated: 2026-05-31
 - last_updated: 2026-05-31
 - work_type: code
@@ -84,6 +84,17 @@
     - `pnpm --filter @nexus-form/worker lint`
     - `pnpm --filter @nexus-form/worker type-check`
     - `pnpm --filter @nexus-form/worker test`
+  - Notes:
+
+- 2026-05-31 Review fixes applied
+  - Summary:
+    - `failSheetsSyncWithoutRetry` の `job.discard()` を除去
+    - `AUTH_REQUIRED` テストを `UnrecoverableError` の呼び方に合わせて更新
+    - plan status を `done` に更新
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/worker lint`
+    - `pnpm --filter @nexus-form/worker type-check`
+    - `pnpm --filter @nexus-form/worker test src/handlers/__tests__/sheets-sync.test.ts`
   - Notes:
 
 ## Decision Log

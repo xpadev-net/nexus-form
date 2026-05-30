@@ -290,7 +290,6 @@ describe("handleSheetsSync — idempotency states", () => {
       "AUTH_REQUIRED: OAuth token not found",
     );
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockRefreshTokenIfNeeded).not.toHaveBeenCalled();
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
@@ -306,7 +305,6 @@ describe("handleSheetsSync — idempotency states", () => {
       "AUTH_REQUIRED: OAuth token refresh failed",
     );
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
@@ -371,7 +369,6 @@ describe("handleSheetsSync — idempotency states", () => {
       "AUTH_REQUIRED: read sheet for idempotency check: invalid credentials",
     );
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
@@ -733,7 +730,6 @@ describe("handleSheetsSync — write path", () => {
       "AUTH_REQUIRED: update headers: invalid credentials",
     );
 
-    expect(job.discard).toHaveBeenCalledOnce();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
@@ -749,7 +745,7 @@ describe("handleSheetsSync — write path", () => {
     await expect(handleSheetsSync(job)).rejects.toThrow(
       "AUTH_REQUIRED: append rows: invalid credentials",
     );
-    expect(job.discard).toHaveBeenCalledOnce();
+    expect(job.discard).not.toHaveBeenCalled();
   });
 
   it("discards and throws forbidden response from appendRows as AUTH_REQUIRED", async () => {
@@ -764,6 +760,6 @@ describe("handleSheetsSync — write path", () => {
     await expect(handleSheetsSync(job)).rejects.toThrow(
       "AUTH_REQUIRED: append rows: forbidden access",
     );
-    expect(job.discard).toHaveBeenCalledOnce();
+    expect(job.discard).not.toHaveBeenCalled();
   });
 });
