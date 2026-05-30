@@ -37,7 +37,7 @@ normalize_csp_origin() {
 }
 
 escape_sed_replacement() {
-  printf '%s' "$1" | sed -e 's/[\\&#]/\\&/g'
+  printf '%s' "$1" | tr -d '\n' | sed -e 's/[\\&#]/\\&/g'
 }
 
 append_connect_src_from_host_env() {
@@ -112,8 +112,8 @@ for extra_origin in ${CSP_IMG_SRC:-}; do
 done
 set +f
 
-sed -i "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" /etc/nginx/conf.d/default.conf
-sed -i "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" /etc/nginx/conf.d/default.conf
+sed -i "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" /etc/nginx/snippets/spa-security-headers.conf
+sed -i "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" /etc/nginx/snippets/spa-security-headers.conf
 
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__NEXUS_FORM_CONFIG__ = {

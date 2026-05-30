@@ -59,7 +59,17 @@ RUN chmod +x /docker-entrypoint.sh && \
     chown -R nginx:nginx /usr/share/nginx/html /docker-entrypoint.sh
 
 # SPA fallback: route all non-file requests to index.html
-RUN printf 'server {\n\
+RUN mkdir -p /etc/nginx/snippets && \
+    printf 'add_header Cache-Control "no-cache, must-revalidate" always;\n\
+add_header X-Frame-Options "DENY" always;\n\
+add_header X-Content-Type-Options "nosniff" always;\n\
+add_header X-XSS-Protection "0" always;\n\
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
+add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''self'\'' https://hcaptcha.com https://*.hcaptcha.com; style-src '\''self'\''; style-src-attr '\''unsafe-inline'\''; style-src-elem '\''self'\'' '\''unsafe-inline'\''; img-src __CSP_IMG_SRC__; font-src '\''self'\'' data:; connect-src __CSP_CONNECT_SRC__; frame-src https://hcaptcha.com https://*.hcaptcha.com; worker-src '\''self'\'' blob:; object-src '\''none'\''; base-uri '\''self'\''; frame-ancestors '\''none'\''; form-action '\''self'\''" always;\n\
+' > /etc/nginx/snippets/spa-security-headers.conf && \
+    printf 'server {\n\
     listen 8080;\n\
     root /usr/share/nginx/html;\n\
     index index.html;\n\
@@ -78,28 +88,14 @@ RUN printf 'server {\n\
         add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
     }\n\
     location = /index.html {\n\
-        add_header Cache-Control "no-cache, must-revalidate" always;\n\
-        add_header X-Frame-Options "DENY" always;\n\
-        add_header X-Content-Type-Options "nosniff" always;\n\
-        add_header X-XSS-Protection "0" always;\n\
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
-        add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''self'\'' https://hcaptcha.com https://*.hcaptcha.com; style-src '\''self'\''; style-src-attr '\''unsafe-inline'\''; style-src-elem '\''self'\'' '\''unsafe-inline'\''; img-src __CSP_IMG_SRC__; font-src '\''self'\'' data:; connect-src __CSP_CONNECT_SRC__; frame-src https://hcaptcha.com https://*.hcaptcha.com; worker-src '\''self'\'' blob:; object-src '\''none'\''; base-uri '\''self'\''; frame-ancestors '\''none'\''; form-action '\''self'\''" always;\n\
+        include /etc/nginx/snippets/spa-security-headers.conf;\n\
     }\n\
     location / {\n\
         try_files $uri $uri/ /index.html;\n\
-        add_header Cache-Control "no-cache, must-revalidate" always;\n\
-        add_header X-Frame-Options "DENY" always;\n\
-        add_header X-Content-Type-Options "nosniff" always;\n\
-        add_header X-XSS-Protection "0" always;\n\
-        add_header Referrer-Policy "strict-origin-when-cross-origin" always;\n\
-        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;\n\
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;\n\
-        add_header Content-Security-Policy "default-src '\''self'\''; script-src '\''self'\'' https://hcaptcha.com https://*.hcaptcha.com; style-src '\''self'\''; style-src-attr '\''unsafe-inline'\''; style-src-elem '\''self'\'' '\''unsafe-inline'\''; img-src __CSP_IMG_SRC__; font-src '\''self'\'' data:; connect-src __CSP_CONNECT_SRC__; frame-src https://hcaptcha.com https://*.hcaptcha.com; worker-src '\''self'\'' blob:; object-src '\''none'\''; base-uri '\''self'\''; frame-ancestors '\''none'\''; form-action '\''self'\''" always;\n\
+        include /etc/nginx/snippets/spa-security-headers.conf;\n\
     }\n\
 }\n' > /etc/nginx/conf.d/default.conf
-RUN chown nginx:nginx /etc/nginx/conf.d/default.conf
+RUN chown -R nginx:nginx /etc/nginx/conf.d/default.conf /etc/nginx/snippets
 
 ARG GIT_HASH
 ENV GIT_HASH=${GIT_HASH}
