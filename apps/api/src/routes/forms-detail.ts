@@ -300,7 +300,16 @@ export const formsDetailRouter = createHonoApp()
           400,
         );
       }
-      const parsedSnapshot = JSON.parse(snapshot.plateContent);
+      let parsedSnapshot: unknown;
+      try {
+        parsedSnapshot = JSON.parse(snapshot.plateContent);
+      } catch {
+        return c.json(
+          errorResponse("公開用スナップショットの形式が不正です"),
+          400,
+        );
+      }
+
       const publishedQuestions = extractQuestionsFromPlateContent(
         Array.isArray(parsedSnapshot) ? parsedSnapshot : [],
       );
