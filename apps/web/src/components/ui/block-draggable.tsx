@@ -200,23 +200,26 @@ function Draggable(props: PlateElementProps) {
                     aria-label="ブロックを移動"
                     data-plate-prevent-deselect
                     onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          keyboardActivateInProgressRef.current = true;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        keyboardActivateInProgressRef.current = true;
 
-                        const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+                        const { blockSelection, processedBlocks } =
+                          resolveSelectedBlocks();
 
                         if (blockSelection.length === 0) {
                           editor.tf.blur();
                           editor.tf.collapse();
                         }
-                        blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
+                        blockSelectionApi.set(
+                          processedBlocks.map((block) => block.id as string),
+                        );
                         blockSelectionApi.focus();
                       }
                     }}
-                        onMouseDown={(event) => {
-                          keyboardActivateInProgressRef.current = false;
-                          resetPreview();
+                    onMouseDown={(event) => {
+                      keyboardActivateInProgressRef.current = false;
+                      resetPreview();
 
                       if (event.button !== 0 && event.button !== 2) return;
                       if (event.shiftKey) return;
