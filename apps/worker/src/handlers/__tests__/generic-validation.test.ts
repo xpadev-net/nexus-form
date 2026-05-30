@@ -316,6 +316,56 @@ describe("handleGenericValidation", () => {
     expect(mockProviderRegistryGet).not.toHaveBeenCalled();
   });
 
+  it("AbortError（最終試行時）はPROCESSING状態をFAILEDへ更新し、ok:falseで終了する", async () => {
+    const rule = makeRule({
+      validate: vi
+        .fn()
+        .mockRejectedValue(new DOMException("Shutdown", "AbortError")),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Validation interrupted during shutdown",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+      }),
+    );
+  });
+
+  it("AbortError（最終試行以外）は再キューされるよう再スローする", async () => {
+    const rule = makeRule({
+      validate: vi
+        .fn()
+        .mockRejectedValue(new DOMException("Shutdown", "AbortError")),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("markValidationProcessingがConcurrentDeleteError以外をスローした場合は再スローする", async () => {
     mockMarkValidationProcessing.mockRejectedValue(new Error("db unavailable"));
     const job = makeJob({

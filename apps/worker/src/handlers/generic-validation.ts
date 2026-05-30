@@ -106,6 +106,10 @@ function getRetryAfterSeconds(retryAfter: number): number {
   return Math.min(Math.ceil(retryAfter), maxRetryAfterSeconds);
 }
 
+function isAbortError(error: unknown): error is DOMException {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
 function isFinalBullMqAttempt(job: Job<GenericValidationJob>): boolean {
   const attempts =
     typeof job.opts.attempts === "number" && job.opts.attempts > 0
@@ -325,7 +329,22 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (isAbortError(error) && isFinalBullMqAttempt(job)) {
+      await writeValidationResult({
+        responseId,
+        formId,
+        ruleId,
+        referencedBlockId,
+        service: serviceType,
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+        errorMessage:
+          error.message || "Validation job interrupted during shutdown",
+        jobId: job.id?.toString(),
+      });
+      return { ok: false, error: "Validation interrupted during shutdown" };
+    }
+    if (isAbortError(error)) {
       throw error;
     }
     const providerErrorParse = providerErrorSchema.safeParse(error);
