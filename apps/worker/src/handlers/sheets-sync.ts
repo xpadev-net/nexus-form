@@ -74,7 +74,6 @@ function failSheetsSyncWithoutRetry(reason: string): never {
 }
 
 function throwSheetsSyncFailure(
-  _job: Job<SheetsSyncJob>,
   context: string,
   result: { error: GoogleApiError },
 ): never {
@@ -379,7 +378,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           values: [headers],
         });
         if (!headerUpdateResult.ok) {
-          throwSheetsSyncFailure(job, "update headers", headerUpdateResult);
+          throwSheetsSyncFailure("update headers", headerUpdateResult);
         }
       }
       await job.updateProgress(80);
@@ -392,7 +391,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       });
 
       if (!appendResult.ok) {
-        throwSheetsSyncFailure(job, "append rows", appendResult);
+        throwSheetsSyncFailure("append rows", appendResult);
       }
       // Promote "pending" → "done" BEFORE updateProgress so a
       // transient BullMQ/Redis error on progress update doesn't trigger a retry
@@ -453,7 +452,7 @@ async function readSheetForIdempotency(
     sheetName: string;
     responseId: string;
   },
-  options: {
+  _options: {
     job: Job<SheetsSyncJob>;
   },
 ): Promise<{ ok: true; exists: boolean; headers: string[] }> {
@@ -462,11 +461,7 @@ async function readSheetForIdempotency(
     rangeA1: `${params.sheetName}!1:1`,
   });
   if (!headerData.ok) {
-    throwSheetsSyncFailure(
-      options.job,
-      "read sheet for idempotency check",
-      headerData,
-    );
+    throwSheetsSyncFailure("read sheet for idempotency check", headerData);
   }
   if (headerData.data.values.length === 0) {
     return { ok: true, exists: false, headers: [] };
@@ -485,7 +480,6 @@ async function readSheetForIdempotency(
   });
   if (!entireColumn.ok) {
     throwSheetsSyncFailure(
-      options.job,
       "read sheet column for idempotency check",
       entireColumn,
     );
