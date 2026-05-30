@@ -8,6 +8,7 @@ import {
   startupPlugins,
 } from "@nexus-form/integrations";
 import type { Worker } from "bullmq";
+import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import { handleSheetsSync } from "./handlers/sheets-sync";
@@ -184,7 +185,9 @@ async function main() {
         context,
       );
       const contextualError = attachJobContextToError(error, context);
-      captureError(contextualError);
+      if (!(contextualError instanceof UnrecoverableError)) {
+        captureError(contextualError);
+      }
     });
     worker.on("error", (error) => {
       console.error(`[worker:${worker.name}] worker error`, error);

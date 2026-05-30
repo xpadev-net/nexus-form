@@ -292,17 +292,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
 
       if (keyValue === "pending") {
-        const sheetCheck = await readSheetForIdempotency(
-          token,
-          {
-            spreadsheetId,
-            sheetName,
-            responseId: response.id,
-          },
-          {
-            job,
-          },
-        );
+        const sheetCheck = await readSheetForIdempotency(token, {
+          spreadsheetId,
+          sheetName,
+          responseId: response.id,
+        });
         if (sheetCheck.exists) {
           return markDuplicateWritten();
         }
@@ -339,17 +333,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         "pending",
       );
 
-      const sheetCheck = await readSheetForIdempotency(
-        token,
-        {
-          spreadsheetId,
-          sheetName,
-          responseId: response.id,
-        },
-        {
-          job,
-        },
-      );
+      const sheetCheck = await readSheetForIdempotency(token, {
+        spreadsheetId,
+        sheetName,
+        responseId: response.id,
+      });
       if (sheetCheck.exists) {
         return markDuplicateWritten();
       }
@@ -451,9 +439,6 @@ async function readSheetForIdempotency(
     spreadsheetId: string;
     sheetName: string;
     responseId: string;
-  },
-  _options: {
-    job: Job<SheetsSyncJob>;
   },
 ): Promise<{ ok: true; exists: boolean; headers: string[] }> {
   const headerData = await readRange(token, {
