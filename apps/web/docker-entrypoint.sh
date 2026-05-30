@@ -61,22 +61,7 @@ append_connect_src_from_host_env() {
 }
 
 csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
-if [ -n "${VITE_API_URL:-}" ]; then
-  api_origin="$(normalize_csp_origin "$VITE_API_URL")" || {
-    api_origin="$(normalize_csp_origin "https://$VITE_API_URL")" || {
-      echo "[web] Warning: normalize_csp_origin rejected VITE_API_URL='$VITE_API_URL'; not added to csp_connect_src/CSP_CONNECT_SRC" >&2
-      api_origin=""
-    }
-    if [ -n "$api_origin" ]; then
-      echo "[web] Info: VITE_API_URL='$VITE_API_URL' has no scheme; using $api_origin in csp_connect_src/CSP_CONNECT_SRC" >&2
-    fi
-  }
-else
-  api_origin=""
-fi
-if [ -n "$api_origin" ]; then
-  csp_connect_src="$csp_connect_src $api_origin"
-fi
+append_connect_src_from_host_env "VITE_API_URL" "${VITE_API_URL:-}"
 append_connect_src_from_host_env "VITE_TELEMETRY_HOST" "${VITE_TELEMETRY_HOST:-}"
 append_connect_src_from_host_env "VITE_TELEMETRY_V4_HOST" "${VITE_TELEMETRY_V4_HOST:-}"
 append_connect_src_from_host_env "VITE_TELEMETRY_V6_HOST" "${VITE_TELEMETRY_V6_HOST:-}"
