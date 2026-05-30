@@ -15,6 +15,91 @@ json_encode() {
   fi
 }
 
+normalize_csp_origin() {
+  value="$1"
+  case "$value" in
+    http://* | https://* | ws://* | wss://*) ;;
+    *) return 1 ;;
+  esac
+
+  origin="$(printf '%s' "$value" | sed -E 's@^((https?|wss?)://[^/?#]+).*@\1@')"
+  if printf '%s' "$origin" | grep -Eq '^(https?|wss?)://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]+)?$'; then
+    port="$(printf '%s' "$origin" | sed -nE 's@^(https?|wss?)://([A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\]):([0-9]+)$@\3@p')"
+    if [ -n "$port" ] && ! { [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; } 2>/dev/null; then
+      return 1
+    fi
+
+    printf '%s' "$origin"
+    return 0
+  fi
+
+  return 1
+}
+
+escape_sed_replacement() {
+  printf '%s' "$1" | tr -d '\n' | sed -e 's/[\\&#]/\\&/g'
+}
+
+append_connect_src_from_host_env() {
+  env_name="$1"
+  env_value="$2"
+
+  if [ -z "$env_value" ]; then
+    return 0
+  fi
+
+  normalized_origin="$(normalize_csp_origin "$env_value")" ||
+    {
+      normalized_origin="$(normalize_csp_origin "https://$env_value")" || {
+        echo "[web] Warning: normalize_csp_origin rejected $env_name='$env_value'; not added to csp_connect_src/CSP_CONNECT_SRC" >&2
+        return 0
+      }
+      echo "[web] Info: $env_name='$env_value' has no scheme; using $normalized_origin in csp_connect_src/CSP_CONNECT_SRC" >&2
+    }
+
+  csp_connect_src="$csp_connect_src $normalized_origin"
+}
+
+csp_connect_src="'self' https://hcaptcha.com https://*.hcaptcha.com"
+append_connect_src_from_host_env "VITE_API_URL" "${VITE_API_URL:-}"
+append_connect_src_from_host_env "VITE_TELEMETRY_HOST" "${VITE_TELEMETRY_HOST:-}"
+append_connect_src_from_host_env "VITE_TELEMETRY_V4_HOST" "${VITE_TELEMETRY_V4_HOST:-}"
+append_connect_src_from_host_env "VITE_TELEMETRY_V6_HOST" "${VITE_TELEMETRY_V6_HOST:-}"
+
+# CSP_CONNECT_SRC is a space-separated list of additional origins.
+set -f
+for extra_origin in ${CSP_CONNECT_SRC:-}; do
+  normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
+    echo "[web] Ignoring invalid CSP_CONNECT_SRC origin: $extra_origin" >&2
+    continue
+  }
+  csp_connect_src="$csp_connect_src $normalized_origin"
+done
+set +f
+
+csp_img_src="'self' data: blob:"
+
+# CSP_IMG_SRC is a space-separated list of additional image origins.
+set -f
+for extra_origin in ${CSP_IMG_SRC:-}; do
+  normalized_origin="$(normalize_csp_origin "$extra_origin")" || {
+    echo "[web] Ignoring invalid CSP_IMG_SRC origin: $extra_origin" >&2
+    continue
+  }
+  case "$normalized_origin" in
+    http://* | https://*) ;;
+    *)
+      echo "[web] Ignoring non-HTTP CSP_IMG_SRC origin: $extra_origin" >&2
+      continue
+      ;;
+  esac
+  csp_img_src="$csp_img_src $normalized_origin"
+done
+set +f
+
+sed -i "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" /etc/nginx/snippets/spa-security-headers.conf
+sed -i "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" /etc/nginx/snippets/spa-security-headers.conf
+
 cat <<EOF > /usr/share/nginx/html/env-config.js
 window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
