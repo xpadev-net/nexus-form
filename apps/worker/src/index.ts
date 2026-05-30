@@ -173,7 +173,7 @@ async function main() {
     };
     contextualError.cause = error;
     contextualError.workerContext = context;
-    return wrapped;
+    return contextualError;
   };
 
   for (const worker of workers) {
@@ -189,6 +189,7 @@ async function main() {
       );
       const contextualError = attachJobContextToError(error, context);
       const isAuthRequiredError =
+        worker.name === GOOGLE_SHEETS_SYNC_QUEUE &&
         contextualError instanceof UnrecoverableError &&
         contextualError.message.startsWith(AUTH_REQUIRED_SYNC_ERROR_PREFIX);
 
