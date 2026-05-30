@@ -139,6 +139,10 @@ export function useFormContentAutosave({
   const inFlightRequestRef = useRef<InFlightAutosave | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
+  const keepaliveSentRef = useRef<{
+    generation: number;
+    version: number;
+  } | null>(null);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
@@ -321,6 +325,12 @@ export function useFormContentAutosave({
       inFlightValueRef.current = valueToSave;
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
+      inFlightRequestRef.current = {
+        plateContent: valueToSave,
+        expectedVersion: saveBaseVersion,
+        restoreGeneration: restoreGenerationRef.current,
+      };
+      keepaliveSentRef.current = null;
       lastSavedVersionRef.current = saveBaseVersion + 1;
       mutateRef.current({
         plateContent: valueToSave,
@@ -354,6 +364,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
+      keepaliveSentRef.current = null;
       lastSavedVersionRef.current = null;
       isConflictActiveRef.current = false;
       suspendAutosaveRef.current = true;
@@ -396,13 +407,22 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      const shouldClearKeepaliveSent =
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.version === variables.expectedVersion &&
+        keepaliveSentRef.current.generation === variables.restoreGeneration;
+      if (shouldClearKeepaliveSent) {
+        keepaliveSentRef.current = null;
+      }
       const inFlightRequest = inFlightRequestRef.current;
       if (
         inFlightRequest != null &&
         inFlightRequest.restoreGeneration !== variables.restoreGeneration
       ) {
-        inFlightValueRef.current = null;
-        inFlightRequestRef.current = null;
+        clearResolvedPendingSave(formId, {
+          expectedVersion: variables.expectedVersion,
+          plateContent: variables.plateContent,
+        });
         return;
       }
       if (variables.restoreGeneration < restoreGenerationRef.current) {
@@ -435,13 +455,31 @@ export function useFormContentAutosave({
       setIsSaving(false);
     },
     onError: (err, variables) => {
+      if (
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        keepaliveSentRef.current.version === variables.expectedVersion &&
+        err instanceof RpcError &&
+        err.status === 409
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        setIsSaving(false);
+        keepaliveSentRef.current = null;
+        return;
+      }
+      const shouldClearKeepaliveSent =
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.version === variables.expectedVersion &&
+        keepaliveSentRef.current.generation === variables.restoreGeneration;
+      if (shouldClearKeepaliveSent) {
+        keepaliveSentRef.current = null;
+      }
       const inFlightRequest = inFlightRequestRef.current;
       if (
         inFlightRequest != null &&
         inFlightRequest.restoreGeneration !== variables.restoreGeneration
       ) {
-        inFlightValueRef.current = null;
-        inFlightRequestRef.current = null;
         return;
       }
       if (variables.restoreGeneration < restoreGenerationRef.current) {
@@ -503,6 +541,7 @@ export function useFormContentAutosave({
         expectedVersion: versionRef.current,
         restoreGeneration: restoreGenerationRef.current,
       };
+      keepaliveSentRef.current = null;
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
@@ -534,6 +573,24 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
+      const shouldTrackKeepalive =
+        pendingValue == null && inFlightRequest != null;
+      const keepaliveGeneration = shouldTrackKeepalive
+        ? inFlightRequest.restoreGeneration
+        : null;
+      const keepaliveVersion = shouldTrackKeepalive
+        ? inFlightRequest.expectedVersion
+        : null;
+      if (
+        shouldTrackKeepalive &&
+        keepaliveGeneration != null &&
+        keepaliveVersion != null
+      ) {
+        keepaliveSentRef.current = {
+          generation: keepaliveGeneration,
+          version: keepaliveVersion,
+        };
+      }
 
       const body = JSON.stringify({
         plateContent: fallbackValue,
@@ -555,17 +612,23 @@ export function useFormContentAutosave({
                 expectedVersion: fallbackVersion,
                 plateContent: fallbackValue,
               });
+              keepaliveSentRef.current = null;
+              return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.
+              keepaliveSentRef.current = null;
             } else {
+              keepaliveSentRef.current = null;
               storePendingSave(formId, body);
             }
           })
           .catch(() => {
+            keepaliveSentRef.current = null;
             storePendingSave(formId, body);
           });
       } else {
         storePendingSave(formId, body);
+        keepaliveSentRef.current = null;
       }
     };
 

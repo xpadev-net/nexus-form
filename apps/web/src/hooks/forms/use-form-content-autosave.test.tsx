@@ -451,7 +451,10 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("stores in-flight value on unmount when regular autosave has not completed", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
