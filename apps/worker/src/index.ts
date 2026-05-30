@@ -185,7 +185,11 @@ async function main() {
         context,
       );
       const contextualError = attachJobContextToError(error, context);
-      if (!(contextualError instanceof UnrecoverableError)) {
+      const isAuthRequiredError =
+        contextualError instanceof UnrecoverableError &&
+        contextualError.message.startsWith("AUTH_REQUIRED");
+
+      if (!isAuthRequiredError) {
         captureError(contextualError);
       }
     });
