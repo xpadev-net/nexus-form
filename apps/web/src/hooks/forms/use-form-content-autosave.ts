@@ -444,6 +444,11 @@ export function useFormContentAutosave({
         inFlightRequestRef.current = null;
         return;
       }
+      if (variables.restoreGeneration < restoreGenerationRef.current) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        return;
+      }
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
       setIsSaving(false);
@@ -526,6 +531,9 @@ export function useFormContentAutosave({
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
       if (fallbackValue == null || fallbackVersion == null) return;
+      pendingValueRef.current = null;
+      inFlightValueRef.current = null;
+      inFlightRequestRef.current = null;
 
       const body = JSON.stringify({
         plateContent: fallbackValue,
