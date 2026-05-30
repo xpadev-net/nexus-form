@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
+  normalizeBuiltinPluginPath,
   providerRegistry,
   startupPlugins,
 } from "@nexus-form/integrations";
@@ -56,10 +57,7 @@ async function main() {
   validateWorkerQueuesEnv(process.env.WORKER_QUEUES);
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map((spec) => {
-    const resolvedPath = fileURLToPath(import.meta.resolve(spec));
-    return resolvedPath
-      .replace(/(.*)\/src\//, "$1/dist/")
-      .replace(/\.m?ts$/, ".mjs");
+    return normalizeBuiltinPluginPath(fileURLToPath(import.meta.resolve(spec)));
   });
   const pluginDriftStore = new Redis(getPublisherConnectionOptions());
   let pluginDriftGuardHandle: Awaited<ReturnType<typeof startupPlugins>>;

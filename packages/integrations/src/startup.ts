@@ -1,3 +1,4 @@
+import { basename, dirname, extname, join } from "node:path";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
 import { loadPluginFromFile, PluginLoader } from "./plugin-loader";
@@ -95,6 +96,30 @@ export interface PluginDriftGuardOptions {
 
 export interface PluginDriftGuardHandle {
   stop(): Promise<void>;
+}
+
+/**
+ * Normalize built-in plugin file paths between TS source and packaged MJS artifacts.
+ *
+ * In local tsx execution, `import.meta.resolve()` can return source paths like
+ * `.../<package>/src/<file>.ts`. In production/runtime execution, paths are
+ * already in `dist` and should remain unchanged. This helper rewrites only the
+ * final `src` directory segment before replacing TS extensions with `.mjs`.
+ */
+export function normalizeBuiltinPluginPath(resolvedPath: string): string {
+  if (!/\.(?:m|c)?ts$/.test(extname(resolvedPath))) {
+    return resolvedPath;
+  }
+
+  const pluginDir = dirname(resolvedPath);
+  if (basename(pluginDir) !== "src") {
+    return resolvedPath;
+  }
+
+  return join(dirname(pluginDir), "dist", basename(resolvedPath)).replace(
+    /\.(?:m|c)?ts$/,
+    ".mjs",
+  );
 }
 
 export interface StartupPluginsOptions {

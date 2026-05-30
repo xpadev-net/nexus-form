@@ -7,7 +7,30 @@ import { z } from "zod";
 import type { ValidationProvider } from "../plugin-interface";
 import { ValidationProviderRegistry } from "../provider-registry";
 import type { PluginDriftStore, PluginRuntimeManifest } from "../startup";
-import { startupPlugins } from "../startup";
+import { normalizeBuiltinPluginPath, startupPlugins } from "../startup";
+
+describe("normalizeBuiltinPluginPath", () => {
+  it("converts final src ts path to dist mjs path", () => {
+    const sourcePath = "/repo/src/packages/discord/src/plugin.ts";
+    expect(normalizeBuiltinPluginPath(sourcePath)).toBe(
+      "/repo/src/packages/discord/dist/plugin.mjs",
+    );
+  });
+
+  it("does not rewrite non-final src segments", () => {
+    const sourcePath = "/repo/src/packages/discord/src/module/plugin.ts";
+    expect(normalizeBuiltinPluginPath(sourcePath)).toBe(
+      "/repo/src/packages/discord/src/module/plugin.ts",
+    );
+  });
+
+  it("leaves .mjs paths unchanged", () => {
+    const sourcePath = "/repo/dist/packages/discord/dist/plugin.mjs";
+    expect(normalizeBuiltinPluginPath(sourcePath)).toBe(
+      "/repo/dist/packages/discord/dist/plugin.mjs",
+    );
+  });
+});
 
 class MemoryDriftStore implements PluginDriftStore {
   readonly values = new Map<string, string>();
