@@ -159,22 +159,19 @@ function Draggable(props: PlateElementProps) {
                     style={{ top: `${dragButtonTop + 3}px` }}
                     aria-label="ブロックを移動"
                     data-plate-prevent-deselect
-                    onClick={(event) => {
-                      event.preventDefault();
-                      blockSelectionApi.focus();
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        blockSelectionApi.focus();
-                      }
-                    }}
-                    onMouseDown={(event) => {
-                      event.preventDefault();
-                      resetPreview();
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    blockSelectionApi.focus();
+                  }
+                }}
+                onMouseDown={(event) => {
+                  if (event.button !== 0 && event.button !== 2) return;
+                  if (event.shiftKey) return;
 
-                      if (event.button !== 0 && event.button !== 2) return;
-                      if (event.shiftKey) return;
+                  event.preventDefault();
+                  resetPreview();
+                  blockSelectionApi.focus();
 
                       const blockSelection = blockSelectionApi.getNodes({ sort: true });
                       let selectionNodes =
