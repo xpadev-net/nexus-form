@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { apiUrl } from "@/lib/api";
-import { fetchJson } from "@/lib/fetch-json";
+import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
 import { isRecord } from "@/lib/type-guards";
 import type {
@@ -434,16 +434,25 @@ export function useGoogleSheetsSync({
     });
 
     try {
-      const data = syncStartResponseSchema.parse(
-        await fetchJson<unknown>(
+      const requestSyncStart = (force: boolean) =>
+        fetchJson<unknown>(
           apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
           apiRequestInit({
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ force: true }),
+            body: JSON.stringify({ force }),
           }),
-        ),
-      );
+        );
+      const rawData = await requestSyncStart(true).catch(async (error) => {
+        if (error instanceof HttpError && error.status === 413) {
+          toast.error(
+            "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+          );
+          return requestSyncStart(false);
+        }
+        throw error;
+      });
+      const data = syncStartResponseSchema.parse(rawData);
       const startedStatus: UiSyncState = {
         jobId: data.jobId,
         status: data.status,
