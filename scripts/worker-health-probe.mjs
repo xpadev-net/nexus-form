@@ -9,34 +9,30 @@ if (probeMode !== "liveness" && probeMode !== "readiness") {
 
 const healthPath = process.env.WORKER_HEALTH_FILE ?? "/tmp/nexus-form-worker-health.json";
 
-const shouldExitOne = () => {
-  process.exit(1);
-};
-
 let raw;
 try {
   raw = readFileSync(healthPath, "utf8");
 } catch {
-  shouldExitOne();
+  process.exit(1);
 }
 
 if (!raw) {
-  shouldExitOne();
+  process.exit(1);
 }
 
 let data;
 try {
   data = JSON.parse(raw);
 } catch {
-  shouldExitOne();
+  process.exit(1);
 }
 
 if (!data) {
-  shouldExitOne();
+  process.exit(1);
 }
 
 if (typeof data.lastBeat !== "number" || !Number.isFinite(data.lastBeat)) {
-  shouldExitOne();
+  process.exit(1);
 }
 
 const interval = Number(data.heartbeatIntervalMs);
@@ -49,11 +45,11 @@ const maxAge =
       : 15000;
 
 if (Date.now() - data.lastBeat > maxAge) {
-  shouldExitOne();
+  process.exit(1);
 }
 
 if (probeMode === "readiness" && data.ready !== true) {
-  shouldExitOne();
+  process.exit(1);
 }
 
 process.exit(0);
