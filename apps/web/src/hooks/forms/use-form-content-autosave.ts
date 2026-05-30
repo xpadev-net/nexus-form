@@ -417,7 +417,9 @@ export function useFormContentAutosave({
       const inFlightRequest = inFlightRequestRef.current;
       if (
         inFlightRequest != null &&
-        inFlightRequest.restoreGeneration !== variables.restoreGeneration
+        (inFlightRequest.restoreGeneration !== variables.restoreGeneration ||
+          inFlightRequest.expectedVersion !== variables.expectedVersion ||
+          inFlightRequest.plateContent !== variables.plateContent)
       ) {
         clearResolvedPendingSave(formId, {
           expectedVersion: variables.expectedVersion,
@@ -478,7 +480,9 @@ export function useFormContentAutosave({
       const inFlightRequest = inFlightRequestRef.current;
       if (
         inFlightRequest != null &&
-        inFlightRequest.restoreGeneration !== variables.restoreGeneration
+        (inFlightRequest.restoreGeneration !== variables.restoreGeneration ||
+          inFlightRequest.expectedVersion !== variables.expectedVersion ||
+          inFlightRequest.plateContent !== variables.plateContent)
       ) {
         return;
       }
@@ -637,17 +641,20 @@ export function useFormContentAutosave({
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
+      if (
+        document.visibilityState === "hidden" &&
+        inFlightRequestRef.current != null
+      ) {
         persistPendingOrInFlightSave();
       }
     };
 
     window.addEventListener("pagehide", handlePageHide);
-    window.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       persistPendingOrInFlightSave();
     };
   }, [formId]);
