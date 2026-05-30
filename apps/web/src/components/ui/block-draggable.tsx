@@ -139,6 +139,23 @@ function Draggable(props: PlateElementProps) {
     return { blockSelection, processedBlocks };
   }, [blockSelectionApi, editor, element]);
 
+  const updatePreviewTop = useCallback(() => {
+    if (isDragging) return;
+
+    const { processedBlocks } = resolveSelectedBlocks();
+    const canPreview =
+      processedBlocks.length > 1 &&
+      processedBlocks.some((block) => block.id === element.id);
+
+    if (canPreview) {
+      const previewTop = calculatePreviewTop(editor, { blocks: processedBlocks, element });
+      setPreviewTop(previewTop);
+      return;
+    }
+
+    setPreviewTop(0);
+  }, [editor, element.id, isDragging, resolveSelectedBlocks]);
+
   return (
     <div
       role="group"
@@ -220,23 +237,7 @@ function Draggable(props: PlateElementProps) {
                     onClick={() => {
                       blockSelectionApi.focus();
                     }}
-                    onMouseEnter={() => {
-                      if (isDragging) return;
-
-                      const { processedBlocks } = resolveSelectedBlocks();
-
-                      const ids = processedBlocks.map((block) => block.id as string);
-
-                      if (ids.length > 1 && ids.includes(element.id as string)) {
-                        const previewTop = calculatePreviewTop(editor, {
-                          blocks: processedBlocks,
-                          element,
-                        });
-                        setPreviewTop(previewTop);
-                      } else {
-                        setPreviewTop(0);
-                      }
-                    }}
+                    onMouseEnter={updatePreviewTop}
                     onMouseUp={() => {
                       resetPreview();
                     }}
