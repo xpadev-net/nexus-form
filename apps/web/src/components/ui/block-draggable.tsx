@@ -184,13 +184,13 @@ function Draggable(props: PlateElementProps) {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
 
-	                        const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+                        const { blockSelection, processedBlocks } = resolveSelectedBlocks();
 
                         if (blockSelection.length === 0) {
                           editor.tf.blur();
                           editor.tf.collapse();
                         }
-	                        blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
+                        blockSelectionApi.set(processedBlocks.map((block) => block.id as string));
                         blockSelectionApi.focus();
                       }
                     }}
@@ -202,14 +202,14 @@ function Draggable(props: PlateElementProps) {
 
                       event.preventDefault();
 
-	                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
+                      const { blockSelection, processedBlocks } = resolveSelectedBlocks();
 
                       if (blockSelection.length === 0) {
                         editor.tf.blur();
                         editor.tf.collapse();
                       }
 
-	                      const elements = createDragPreviewElements(editor, processedBlocks);
+                      const elements = createDragPreviewElements(editor, processedBlocks);
                       previewRef.current?.replaceChildren(...elements);
                       previewRef.current?.classList.remove("hidden");
                       previewRef.current?.classList.add("opacity-0");
@@ -223,7 +223,7 @@ function Draggable(props: PlateElementProps) {
 
                       const { processedBlocks } = resolveSelectedBlocks();
 
-                        const ids = processedBlocks.map((block) => block.id as string);
+                      const ids = processedBlocks.map((block) => block.id as string);
 
                       if (ids.length > 1 && ids.includes(element.id as string)) {
                         const previewTop = calculatePreviewTop(editor, {
