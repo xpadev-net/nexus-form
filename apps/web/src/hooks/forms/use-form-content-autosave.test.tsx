@@ -405,7 +405,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
-  it("does not fire keepalive fetch when the value is already in-flight (regular autosave covers it)", async () => {
+  it("does not fire keepalive fetch when regular autosave already completed before unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
@@ -435,9 +435,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       root.unmount();
     });
 
-    // Keepalive should NOT fire - the value was already picked up by the
-    // regular autosave mutation (inFlight), and a duplicate PUT would produce
-    // a spurious 409 that creates a false pending save entry.
+    // Keepalive should NOT fire - onSuccess already completed and cleared
+    // inFlightRequestRef before unmount, so persistPendingOrInFlightSave
+    // finds nothing to persist and returns early.
     expect(fetchMock).not.toHaveBeenCalledWith(
       "http://localhost:3001/api/forms/form-1/content",
       expect.objectContaining({
@@ -490,6 +490,119 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: draftContent,
     });
+  });
+
+  it("stores a newer pending value with the latest version when in-flight autosave wins before keepalive", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+        body: JSON.stringify({
+          plateContent: pendingContent,
+          expectedVersion: 7,
+        }),
+      }),
+    );
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 8,
+      plateContent: pendingContent,
+    });
+  });
+
+  it("does not start a false merge when keepalive saves pending value before in-flight autosave fails", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {

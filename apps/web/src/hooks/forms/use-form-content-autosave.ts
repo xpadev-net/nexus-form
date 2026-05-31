@@ -144,6 +144,7 @@ export function useFormContentAutosave({
     version: number;
     plateContent: string;
   } | null>(null);
+  const keepaliveCoveredRequestRef = useRef<InFlightAutosave | null>(null);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
@@ -366,6 +367,7 @@ export function useFormContentAutosave({
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
       keepaliveSentRef.current = null;
+      keepaliveCoveredRequestRef.current = null;
       lastSavedVersionRef.current = null;
       isConflictActiveRef.current = false;
       suspendAutosaveRef.current = true;
@@ -460,6 +462,21 @@ export function useFormContentAutosave({
     },
     onError: (err, variables) => {
       if (
+        keepaliveCoveredRequestRef.current != null &&
+        keepaliveCoveredRequestRef.current.expectedVersion ===
+          variables.expectedVersion &&
+        keepaliveCoveredRequestRef.current.restoreGeneration ===
+          variables.restoreGeneration &&
+        keepaliveCoveredRequestRef.current.plateContent ===
+          variables.plateContent
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        setIsSaving(false);
+        keepaliveCoveredRequestRef.current = null;
+        return;
+      }
+      if (
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
         keepaliveSentRef.current.generation === variables.restoreGeneration &&
@@ -540,6 +557,7 @@ export function useFormContentAutosave({
         restoreGeneration: restoreGenerationRef.current,
       };
       keepaliveSentRef.current = null;
+      keepaliveCoveredRequestRef.current = null;
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
@@ -573,23 +591,24 @@ export function useFormContentAutosave({
       inFlightRequestRef.current = null;
       const shouldTrackKeepalive = inFlightRequest != null;
       const keepaliveGeneration = shouldTrackKeepalive
-        ? inFlightRequest.restoreGeneration
+        ? restoreGenerationRef.current
         : null;
-      const keepaliveVersion = shouldTrackKeepalive
-        ? inFlightRequest.expectedVersion
-        : null;
-      if (
-        shouldTrackKeepalive &&
-        keepaliveGeneration != null &&
-        keepaliveVersion != null
-      ) {
+      if (shouldTrackKeepalive && keepaliveGeneration != null) {
         keepaliveSentRef.current = {
           generation: keepaliveGeneration,
-          version: keepaliveVersion,
-          plateContent: inFlightRequest.plateContent,
+          version: fallbackVersion,
+          plateContent: fallbackValue,
         };
       }
 
+      const pendingBody = () =>
+        JSON.stringify({
+          plateContent: fallbackValue,
+          expectedVersion:
+            versionRef.current === fallbackVersion
+              ? fallbackVersion
+              : versionRef.current,
+        });
       const body = JSON.stringify({
         plateContent: fallbackValue,
         expectedVersion: fallbackVersion,
@@ -606,25 +625,28 @@ export function useFormContentAutosave({
         )
           .then((response) => {
             if (response?.ok) {
-              versionRef.current = fallbackVersion + 1;
-              baseContentRef.current = fallbackValue;
-              lastSavedVersionRef.current = fallbackVersion + 1;
-              clearResolvedPendingSave(formId, {
-                expectedVersion: fallbackVersion,
-                plateContent: fallbackValue,
-              });
+              if (versionRef.current === fallbackVersion) {
+                versionRef.current = fallbackVersion + 1;
+                baseContentRef.current = fallbackValue;
+                lastSavedVersionRef.current = fallbackVersion + 1;
+                keepaliveCoveredRequestRef.current = inFlightRequest;
+                clearResolvedPendingSave(formId, {
+                  expectedVersion: fallbackVersion,
+                  plateContent: fallbackValue,
+                });
+              }
               return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.
               keepaliveSentRef.current = null;
             } else {
               keepaliveSentRef.current = null;
-              storePendingSave(formId, body);
+              storePendingSave(formId, pendingBody());
             }
           })
           .catch(() => {
             keepaliveSentRef.current = null;
-            storePendingSave(formId, body);
+            storePendingSave(formId, pendingBody());
           });
       } else {
         storePendingSave(formId, body);
