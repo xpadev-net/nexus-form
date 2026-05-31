@@ -535,12 +535,12 @@ export function useFormContentAutosave({
           versionRef.current = data.plateContentVersion;
           baseContentRef.current = variables.plateContent;
           lastSavedVersionRef.current = data.plateContentVersion;
-          pendingRemoteContentRef.current = null;
-          pendingRemoteVersionRef.current = null;
-          queryClient.setQueryData(["formContent", formId], {
-            plateContent: variables.plateContent,
-            plateContentVersion: data.plateContentVersion,
-          });
+          if (pendingRemoteContentRef.current == null) {
+            queryClient.setQueryData(["formContent", formId], {
+              plateContent: variables.plateContent,
+              plateContentVersion: data.plateContentVersion,
+            });
+          }
         }
         clearResolvedPendingSave(formId, {
           expectedVersion: variables.expectedVersion,
@@ -584,7 +584,6 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
-        lastSavedVersionRef.current = null;
         keepaliveCoveredRequestRef.current = null;
         return;
       }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, type ReactNode, useEffect, useRef } from "react";
+import { act, type ReactNode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
@@ -56,6 +56,10 @@ interface TestMutationVariables {
   plateContent: string;
   restoreGeneration: number;
 }
+
+type TestContentData = NonNullable<
+  Parameters<typeof useFormContentAutosave>[0]["contentData"]
+>;
 
 interface TestMutationOptions {
   onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
@@ -218,6 +222,51 @@ function renderAutosave(
   });
 
   return root;
+}
+
+function renderAutosaveWithContentControl(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  onRender?: (hook: UseFormContentAutosaveReturn) => void,
+) {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let setContentData: ((contentData: TestContentData) => void) | undefined;
+
+  function Harness() {
+    const didNotifyReadyRef = useRef(false);
+    const [contentData, setContentDataState] = useState<TestContentData>({
+      plateContent: "[]",
+      plateContentVersion: 7,
+    });
+    setContentData = setContentDataState;
+    const hook = useFormContentAutosave({
+      contentData,
+      contentRefetch: refetchMock,
+      formId: "form-1",
+      getActiveTab: () => "editor",
+    });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
+
+    useEffect(() => {
+      onRender?.(hookRef.current);
+      if (didNotifyReadyRef.current) return;
+      didNotifyReadyRef.current = true;
+      onReady(hookRef.current);
+    });
+
+    return null;
+  }
+
+  act(() => {
+    root.render(<Harness />);
+  });
+
+  if (setContentData == null) {
+    throw new Error("content data setter was not initialized");
+  }
+
+  return { root, setContentData };
 }
 
 async function flushPromises() {
@@ -825,8 +874,74 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(attemptMergeMock).not.toHaveBeenCalled();
-    expect(getLatestLastSavedVersionRef().current).toBeNull();
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("does not overwrite stashed remote content when an older autosave succeeds", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { root, setContentData } = renderAutosaveWithContentControl(
+      (currentHook) => {
+        hook = currentHook;
+      },
+    );
+    const firstContent = '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const secondContent = '[{"type":"p","children":[{"text":"second draft"}]}]';
+    const remoteContent = '[{"type":"p","children":[{"text":"remote draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(firstContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+    act(() => {
+      hook?.handleContentChange(secondContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: secondContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      setContentData({
+        plateContent: remoteContent,
+        plateContentVersion: 9,
+      });
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: firstContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(setQueryDataMock).not.toHaveBeenCalledWith(
+      ["formContent", "form-1"],
+      {
+        plateContent: firstContent,
+        plateContentVersion: 8,
+      },
+    );
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("does not start a false merge when in-flight autosave fails before keepalive resolves", async () => {
