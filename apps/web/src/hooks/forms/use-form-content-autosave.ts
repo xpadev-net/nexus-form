@@ -656,20 +656,10 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
-        if (
-          versionRef.current !== keepaliveSent.version &&
-          baseContentRef.current === keepaliveSent.plateContent
-        ) {
-          pendingKeepaliveRetryRef.current = {
-            errorKind: isConflictError(err) ? "conflict" : "failure",
-            variables,
-          };
-        } else {
-          pendingKeepaliveRetryRef.current = {
-            errorKind: isConflictError(err) ? "conflict" : "failure",
-            variables,
-          };
-        }
+        pendingKeepaliveRetryRef.current = {
+          errorKind: isConflictError(err) ? "conflict" : "failure",
+          variables,
+        };
         return;
       }
       const resolvedPendingKeepalive = resolvedPendingKeepaliveRef.current;
@@ -820,6 +810,11 @@ export function useFormContentAutosave({
         });
         return true;
       };
+      const isCurrentKeepaliveSent = () =>
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.version === fallbackVersion &&
+        keepaliveSentRef.current.generation === keepaliveGeneration &&
+        keepaliveSentRef.current.plateContent === fallbackValue;
       failedPendingKeepaliveRef.current = null;
       resolvedPendingKeepaliveRef.current = null;
       pendingValueRef.current = null;
@@ -853,8 +848,14 @@ export function useFormContentAutosave({
         )
           .then((response) => {
             if (response?.ok) {
+              if (!isCurrentKeepaliveSent()) {
+                return;
+              }
               keepaliveSentRef.current = null;
-              if (versionRef.current === fallbackVersion) {
+              if (
+                versionRef.current === fallbackVersion &&
+                keepaliveGeneration === restoreGenerationRef.current
+              ) {
                 versionRef.current = fallbackVersion + 1;
                 baseContentRef.current = fallbackValue;
                 lastSavedVersionRef.current = fallbackVersion + 1;
@@ -910,6 +911,9 @@ export function useFormContentAutosave({
               return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.
+              if (!isCurrentKeepaliveSent()) {
+                return;
+              }
               const pendingRetry = pendingKeepaliveRetryRef.current;
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
@@ -943,6 +947,9 @@ export function useFormContentAutosave({
               const shouldStoreFallback = shouldStoreFailedFallback(
                 response.status === 409,
               );
+              if (!isCurrentKeepaliveSent()) {
+                return;
+              }
               keepaliveSentRef.current = null;
               if (shouldStoreFallback) {
                 const pendingRetry = pendingKeepaliveRetryRef.current;
@@ -995,6 +1002,9 @@ export function useFormContentAutosave({
               return;
             }
             const shouldStoreFallback = shouldStoreFailedFallback();
+            if (!isCurrentKeepaliveSent()) {
+              return;
+            }
             keepaliveSentRef.current = null;
             if (
               baseContentRef.current !== fallbackValue &&

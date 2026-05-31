@@ -1333,6 +1333,114 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("ignores stale keepalive success after restore advances the generation", async () => {
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const staleContent =
+      '[{"type":"p","children":[{"text":"stale keepalive"}]}]';
+    const restoredContent =
+      '[{"type":"p","children":[{"text":"restored draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(staleContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RESTORE_EDIT_EVENT, {
+          detail: {
+            formId: "form-1",
+            plateContent: restoredContent,
+          },
+        }),
+      );
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps newer keepalive tracking when an older keepalive succeeds after restore", async () => {
+    const keepaliveResolvers: Array<
+      (response: DeferredKeepaliveResponse) => void
+    > = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<DeferredKeepaliveResponse>((resolve) => {
+          keepaliveResolvers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const staleContent =
+      '[{"type":"p","children":[{"text":"stale keepalive"}]}]';
+    const restoredContent =
+      '[{"type":"p","children":[{"text":"restored draft"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"newer keepalive"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(staleContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(RESTORE_EDIT_EVENT, {
+          detail: {
+            formId: "form-1",
+            plateContent: restoredContent,
+          },
+        }),
+      );
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    keepaliveResolvers[0]?.({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    keepaliveResolvers[1]?.({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: newerContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("retries newer edits when a pending-only keepalive wins before autosave", async () => {
     vi.useFakeTimers();
     const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
