@@ -833,6 +833,9 @@ export function useFormContentAutosave({
         keepaliveSentRef.current.version === fallbackVersion &&
         keepaliveSentRef.current.generation === keepaliveGeneration &&
         keepaliveSentRef.current.plateContent === fallbackValue;
+      const hasNewerLiveInFlight = () =>
+        inFlightRequestRef.current != null &&
+        editorValueRef.current !== fallbackValue;
       failedPendingKeepaliveRef.current = null;
       resolvedPendingKeepaliveRef.current = null;
       pendingValueRef.current = null;
@@ -988,32 +991,35 @@ export function useFormContentAutosave({
                     version: fallbackVersion,
                   };
                 }
-                storePendingSave(
-                  formId,
-                  pendingRetry != null &&
-                    pendingRetry.variables.expectedVersion ===
-                      fallbackVersion &&
-                    pendingRetry.variables.restoreGeneration ===
-                      keepaliveGeneration
-                    ? JSON.stringify({
-                        plateContent: pendingRetry.variables.plateContent,
-                        expectedVersion: versionRef.current,
-                      })
-                    : pendingBody(),
-                );
-                if (pendingRetry?.errorKind === "conflict") {
-                  lastSavedVersionRef.current = null;
-                  void attemptMerge();
-                } else if (pendingRetry != null) {
-                  lastSavedVersionRef.current = null;
-                  toast.error("保存に失敗しました");
-                } else if (
-                  canRetryAfterKeepaliveRef.current &&
-                  (allowRetryAfterKeepaliveSave || inFlightRequest != null)
-                ) {
-                  lastSavedVersionRef.current = null;
-                  setIsSaving(false);
-                  toast.error("保存に失敗しました");
+                if (!hasNewerLiveInFlight()) {
+                  storePendingSave(
+                    formId,
+                    pendingRetry != null &&
+                      pendingRetry.variables.expectedVersion ===
+                        fallbackVersion &&
+                      pendingRetry.variables.restoreGeneration ===
+                        keepaliveGeneration
+                      ? JSON.stringify({
+                          plateContent: pendingRetry.variables.plateContent,
+                          expectedVersion: versionRef.current,
+                        })
+                      : pendingBody(),
+                  );
+                  if (pendingRetry?.errorKind === "conflict") {
+                    lastSavedVersionRef.current = null;
+                    void attemptMerge();
+                  } else if (pendingRetry != null) {
+                    lastSavedVersionRef.current = null;
+                    toast.error("保存に失敗しました");
+                  } else if (
+                    canRetryAfterKeepaliveRef.current &&
+                    (allowRetryAfterKeepaliveSave || inFlightRequest != null) &&
+                    inFlightRequestRef.current == null
+                  ) {
+                    lastSavedVersionRef.current = null;
+                    setIsSaving(false);
+                    toast.error("保存に失敗しました");
+                  }
                 }
               } else {
                 pendingKeepaliveRetryRef.current = null;
@@ -1046,31 +1052,35 @@ export function useFormContentAutosave({
                   version: fallbackVersion,
                 };
               }
-              storePendingSave(
-                formId,
-                pendingRetry != null &&
-                  pendingRetry.variables.expectedVersion === fallbackVersion &&
-                  pendingRetry.variables.restoreGeneration ===
-                    keepaliveGeneration
-                  ? JSON.stringify({
-                      plateContent: pendingRetry.variables.plateContent,
-                      expectedVersion: versionRef.current,
-                    })
-                  : pendingBody(),
-              );
-              if (pendingRetry?.errorKind === "conflict") {
-                lastSavedVersionRef.current = null;
-                void attemptMerge();
-              } else if (pendingRetry != null) {
-                lastSavedVersionRef.current = null;
-                toast.error("保存に失敗しました");
-              } else if (
-                canRetryAfterKeepaliveRef.current &&
-                (allowRetryAfterKeepaliveSave || inFlightRequest != null)
-              ) {
-                lastSavedVersionRef.current = null;
-                setIsSaving(false);
-                toast.error("保存に失敗しました");
+              if (!hasNewerLiveInFlight()) {
+                storePendingSave(
+                  formId,
+                  pendingRetry != null &&
+                    pendingRetry.variables.expectedVersion ===
+                      fallbackVersion &&
+                    pendingRetry.variables.restoreGeneration ===
+                      keepaliveGeneration
+                    ? JSON.stringify({
+                        plateContent: pendingRetry.variables.plateContent,
+                        expectedVersion: versionRef.current,
+                      })
+                    : pendingBody(),
+                );
+                if (pendingRetry?.errorKind === "conflict") {
+                  lastSavedVersionRef.current = null;
+                  void attemptMerge();
+                } else if (pendingRetry != null) {
+                  lastSavedVersionRef.current = null;
+                  toast.error("保存に失敗しました");
+                } else if (
+                  canRetryAfterKeepaliveRef.current &&
+                  (allowRetryAfterKeepaliveSave || inFlightRequest != null) &&
+                  inFlightRequestRef.current == null
+                ) {
+                  lastSavedVersionRef.current = null;
+                  setIsSaving(false);
+                  toast.error("保存に失敗しました");
+                }
               }
             } else {
               pendingKeepaliveRetryRef.current = null;

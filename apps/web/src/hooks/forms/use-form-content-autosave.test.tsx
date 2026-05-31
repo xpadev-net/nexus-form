@@ -2280,6 +2280,80 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps saving active when covered keepalive conflicts while a newer autosave is in-flight", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"covered conflict base"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"covered conflict pending"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"newer in-flight draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: inFlightContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(true);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: newerContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("stores pending content when a covered mutation and keepalive both conflict", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
@@ -2472,12 +2546,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     resolveKeepalive({ ok: false, status: 409 });
     await flushPromises();
     await flushPromises();
-    expect(
-      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: keepaliveContent,
-    });
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
 
     act(() => {
       latestMutationOptions?.onError?.(new MockRpcError(409), {
