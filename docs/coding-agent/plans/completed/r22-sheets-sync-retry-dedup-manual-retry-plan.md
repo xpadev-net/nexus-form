@@ -174,7 +174,7 @@
     - `gh-review-hook` then found the pending wait loop could over-read Sheets; the loop now polls Redis while pending is live and rechecks Sheets only after the guard resolves.
     - Sub-agent review found an initial live-pending Sheets read before the wait loop; that read was removed so live pending waits on Redis first.
     - Follow-up hook feedback on stale TTL/double sheet reads was addressed by making the pending wait helper Redis-only and using the normal pre-append sheet check once after expiry.
-    - Final hook feedback on lock acquisition timeout was addressed by extending the wait timeout to cover the pending guard settling window.
+    - Final review feedback on lock TTL sizing was addressed by moving pending guard settling outside the Redis lock; expired pending guards now reacquire the lock before the normal pre-append sheet check and write path.
   - Validation evidence:
     - `rtk pnpm lint:fix`
     - `rtk pnpm type-check`
