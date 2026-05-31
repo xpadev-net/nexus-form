@@ -945,9 +945,45 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("clears the echo version when a reverted in-flight save fails silently", () => {
+    vi.useFakeTimers();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"draft before revert"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+
+    act(() => {
+      hook?.handleContentChange("[]");
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not overwrite stashed remote content when an older autosave succeeds", async () => {
     vi.useFakeTimers();
-    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const { root, setContentData } = renderAutosaveWithContentControl(
       (currentHook) => {
@@ -956,6 +992,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
     const firstContent = '[{"type":"p","children":[{"text":"first draft"}]}]';
     const secondContent = '[{"type":"p","children":[{"text":"second draft"}]}]';
+    const thirdContent = '[{"type":"p","children":[{"text":"third draft"}]}]';
     const remoteContent = '[{"type":"p","children":[{"text":"remote draft"}]}]';
 
     act(() => {
@@ -989,7 +1026,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
     act(() => {
       latestMutationOptions?.onSuccess?.(
-        { plateContentVersion: 8 },
+        { plateContentVersion: 10 },
         {
           expectedVersion: 7,
           plateContent: firstContent,
@@ -1002,12 +1039,29 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       ["formContent", "form-1"],
       {
         plateContent: firstContent,
-        plateContentVersion: 8,
+        plateContentVersion: 10,
       },
     );
     expect(invalidateQueriesMock).toHaveBeenCalledWith({
       queryKey: ["formDiff", "form-1"],
     });
+    act(() => {
+      hook?.handleContentChange(thirdContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+        body: JSON.stringify({
+          plateContent: thirdContent,
+          expectedVersion: 8,
+        }),
+      }),
+    );
 
     act(() => {
       root.unmount();
@@ -2796,6 +2850,8 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("clears a matching pending save when a stale autosave succeeds after restore", () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
     localStorage.setItem(
       "pendingSave:form-1",
       JSON.stringify({
@@ -2804,14 +2860,21 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         retryBlocked: "conflict",
       }),
     );
-    const root = renderAutosave(() => {});
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const restoredContent =
+      '[{"type":"p","children":[{"text":"restored draft"}]}]';
+    const postRestoreContent =
+      '[{"type":"p","children":[{"text":"post-restore draft"}]}]';
 
     act(() => {
       window.dispatchEvent(
         new CustomEvent(RESTORE_EDIT_EVENT, {
           detail: {
             formId: "form-1",
-            plateContent: "restored draft",
+            plateContent: restoredContent,
           },
         }),
       );
@@ -2831,6 +2894,24 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(invalidateQueriesMock).toHaveBeenCalledWith({
       queryKey: ["formDiff", "form-1"],
     });
+
+    act(() => {
+      hook?.handleContentChange(postRestoreContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+        body: JSON.stringify({
+          plateContent: postRestoreContent,
+          expectedVersion: 8,
+        }),
+      }),
+    );
 
     act(() => {
       root.unmount();

@@ -536,10 +536,10 @@ export function useFormContentAutosave({
           inFlightRequest.plateContent !== variables.plateContent)
       ) {
         if (data && "plateContentVersion" in data) {
-          versionRef.current = data.plateContentVersion;
-          lastSavedVersionRef.current = data.plateContentVersion;
           if (pendingRemoteContentRef.current == null) {
+            versionRef.current = data.plateContentVersion;
             baseContentRef.current = variables.plateContent;
+            lastSavedVersionRef.current = data.plateContentVersion;
             queryClient.setQueryData(["formContent", formId], {
               plateContent: variables.plateContent,
               plateContentVersion: data.plateContentVersion,
@@ -556,6 +556,10 @@ export function useFormContentAutosave({
       if (variables.restoreGeneration < restoreGenerationRef.current) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
+        if (data && "plateContentVersion" in data) {
+          versionRef.current = data.plateContentVersion;
+          lastSavedVersionRef.current = data.plateContentVersion;
+        }
         clearResolvedPendingSave(formId, {
           expectedVersion: variables.expectedVersion,
           plateContent: variables.plateContent,
@@ -731,6 +735,7 @@ export function useFormContentAutosave({
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
+        lastSavedVersionRef.current = null;
         setIsSaving(false);
         return;
       }
