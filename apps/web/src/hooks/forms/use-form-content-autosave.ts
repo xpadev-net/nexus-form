@@ -537,9 +537,9 @@ export function useFormContentAutosave({
       ) {
         if (data && "plateContentVersion" in data) {
           versionRef.current = data.plateContentVersion;
-          baseContentRef.current = variables.plateContent;
           lastSavedVersionRef.current = data.plateContentVersion;
           if (pendingRemoteContentRef.current == null) {
+            baseContentRef.current = variables.plateContent;
             queryClient.setQueryData(["formContent", formId], {
               plateContent: variables.plateContent,
               plateContentVersion: data.plateContentVersion,
@@ -798,6 +798,10 @@ export function useFormContentAutosave({
       }
       const pendingValue = pendingValueRef.current;
       const inFlightRequest = inFlightRequestRef.current;
+      // pendingValue is written by the latest editor change, while
+      // inFlightRequest is the previous mutation already sent to the server.
+      // Prefer pendingValue so covered keepalive retries continue with the
+      // newest draft captured at dispatch time.
       const fallbackValue =
         pendingValue != null ? pendingValue : inFlightRequest?.plateContent;
       const fallbackVersion =
