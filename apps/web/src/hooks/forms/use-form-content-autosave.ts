@@ -560,6 +560,7 @@ export function useFormContentAutosave({
           expectedVersion: variables.expectedVersion,
           plateContent: variables.plateContent,
         });
+        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
         return;
       }
       clearResolvedPendingSave(formId, {

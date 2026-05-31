@@ -189,9 +189,40 @@ function stubDeferredKeepaliveFetch(): DeferredKeepaliveFetch {
   };
 }
 
-function renderAutosave(
+function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+
+  function Harness({ children }: { children?: ReactNode }) {
+    const didNotifyReadyRef = useRef(false);
+    const hook = useFormContentAutosave({
+      contentData: { plateContent: "[]", plateContentVersion: 7 },
+      contentRefetch: refetchMock,
+      formId: "form-1",
+      getActiveTab: () => "editor",
+    });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
+
+    useEffect(() => {
+      if (didNotifyReadyRef.current) return;
+      didNotifyReadyRef.current = true;
+      onReady(hookRef.current);
+    }, []);
+
+    return <>{children}</>;
+  }
+
+  act(() => {
+    root.render(<Harness />);
+  });
+
+  return root;
+}
+
+function renderAutosaveWithRenderObserver(
   onReady: (hook: UseFormContentAutosaveReturn) => void,
-  onRender?: (hook: UseFormContentAutosaveReturn) => void,
+  onRender: (hook: UseFormContentAutosaveReturn) => void,
 ) {
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -208,7 +239,7 @@ function renderAutosave(
     hookRef.current = hook;
 
     useEffect(() => {
-      onRender?.(hookRef.current);
+      onRender(hookRef.current);
       if (didNotifyReadyRef.current) return;
       didNotifyReadyRef.current = true;
       onReady(hookRef.current);
@@ -226,7 +257,6 @@ function renderAutosave(
 
 function renderAutosaveWithContentControl(
   onReady: (hook: UseFormContentAutosaveReturn) => void,
-  onRender?: (hook: UseFormContentAutosaveReturn) => void,
 ) {
   const container = document.createElement("div");
   const root = createRoot(container);
@@ -249,11 +279,10 @@ function renderAutosaveWithContentControl(
     hookRef.current = hook;
 
     useEffect(() => {
-      onRender?.(hookRef.current);
       if (didNotifyReadyRef.current) return;
       didNotifyReadyRef.current = true;
       onReady(hookRef.current);
-    });
+    }, []);
 
     return null;
   }
@@ -1747,7 +1776,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -1802,7 +1831,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -1838,7 +1867,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -1885,7 +1914,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -1955,7 +1984,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -2326,7 +2355,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     let latestHook: UseFormContentAutosaveReturn | undefined;
-    const root = renderAutosave(
+    const root = renderAutosaveWithRenderObserver(
       (currentHook) => {
         hook = currentHook;
       },
@@ -2799,7 +2828,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
-    expect(invalidateQueriesMock).not.toHaveBeenCalledWith({
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
       queryKey: ["formDiff", "form-1"],
     });
 
