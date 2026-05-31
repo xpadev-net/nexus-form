@@ -27,6 +27,7 @@ import {
   refreshTokenIfNeeded,
 } from "../lib/oauth-token-store";
 import {
+  getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
   withRedisLock,
@@ -43,6 +44,8 @@ const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
+const PENDING_IDEMPOTENCY_POLL_INTERVAL_MS = 1_000;
+const PENDING_IDEMPOTENCY_EXPIRED_SETTLE_MS = 100;
 export const AUTH_REQUIRED_SYNC_ERROR_PREFIX = "AUTH_REQUIRED";
 type SheetsSyncAuthFailure = "AUTH_REQUIRED" | "OTHER_FAILURE";
 
@@ -86,6 +89,35 @@ function throwSheetsSyncFailure(
 function authRequiredMessage(context: string): string {
   return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}`;
 }
+
+function sleepForPendingIdempotency(ms: number): Promise<void> {
+  if (ms <= 0) {
+    return Promise.resolve();
+  }
+  if (workerShutdownSignal.aborted) {
+    throw workerShutdownSignal.reason instanceof Error
+      ? workerShutdownSignal.reason
+      : new Error("Worker shutdown");
+  }
+
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(
+        workerShutdownSignal.reason instanceof Error
+          ? workerShutdownSignal.reason
+          : new Error("Worker shutdown"),
+      );
+    };
+    timer = setTimeout(() => {
+      workerShutdownSignal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    workerShutdownSignal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 /** Exported public API: Redis lock TTL in ms; sized for critical section API calls
  * plus timeout headroom.
  */
@@ -303,10 +335,20 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
         // The lock TTL expired while another job's critical section is still in
         // progress, or the prior attempt crashed before the row was written.
-        // Throw so BullMQ retries after the short "pending" TTL expires.
-        throw new Error(
-          `[sheets-sync] Concurrent write in progress for ${idempotencyKey}; will retry`,
+        // Sheets sync jobs are no-retry, so wait for the pending guard to
+        // resolve in-process before deciding whether this job should write.
+        const pendingResult = await waitForPendingIdempotencyToResolve(
+          idempotencyKey,
+          token,
+          {
+            spreadsheetId,
+            sheetName,
+            responseId: response.id,
+          },
         );
+        if (pendingResult === "done") {
+          return markDuplicateWritten();
+        }
       }
 
       // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
@@ -474,6 +516,45 @@ async function readSheetForIdempotency(
     .slice(1)
     .some((row) => row[0] === params.responseId);
   return { ok: true, exists, headers };
+}
+
+async function waitForPendingIdempotencyToResolve(
+  idempotencyKey: string,
+  token: OAuthToken,
+  params: {
+    spreadsheetId: string;
+    sheetName: string;
+    responseId: string;
+  },
+): Promise<"done" | "expired"> {
+  while (true) {
+    const ttlMs = await getIdempotencyKeyTtlMs(idempotencyKey);
+    if (ttlMs === -1) {
+      throw new Error(
+        `[sheets-sync] Pending idempotency key ${idempotencyKey} has no TTL`,
+      );
+    }
+
+    await sleepForPendingIdempotency(
+      ttlMs > 0
+        ? Math.min(ttlMs, PENDING_IDEMPOTENCY_POLL_INTERVAL_MS)
+        : PENDING_IDEMPOTENCY_EXPIRED_SETTLE_MS,
+    );
+
+    const currentValue = await getIdempotencyKeyValue(idempotencyKey);
+    if (currentValue === "done") {
+      return "done";
+    }
+
+    const sheetCheck = await readSheetForIdempotency(token, params);
+    if (sheetCheck.exists) {
+      return "done";
+    }
+
+    if (currentValue !== "pending" || ttlMs <= 0) {
+      return "expired";
+    }
+  }
 }
 
 /**

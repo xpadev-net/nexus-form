@@ -49,6 +49,7 @@ vi.mock("../../lib/oauth-token-store", () => ({
 
 vi.mock("../../lib/redis-lock", () => ({
   getIdempotencyKeyValue: vi.fn(),
+  getIdempotencyKeyTtlMs: vi.fn(),
   setIdempotencyKey: vi.fn(),
   withRedisLock: vi.fn(),
 }));
@@ -70,6 +71,7 @@ import {
   refreshTokenIfNeeded,
 } from "../../lib/oauth-token-store";
 import {
+  getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
   withRedisLock,
@@ -89,6 +91,7 @@ const mockExtractQuestionsFromPlateContent = vi.mocked(
   extractQuestionsFromPlateContent,
 );
 const mockGetIdempotencyKeyValue = vi.mocked(getIdempotencyKeyValue);
+const mockGetIdempotencyKeyTtlMs = vi.mocked(getIdempotencyKeyTtlMs);
 const mockSetIdempotencyKey = vi.mocked(setIdempotencyKey);
 const mockWithRedisLock = vi.mocked(withRedisLock);
 const mockGetOAuthToken = vi.mocked(getOAuthToken);
@@ -163,6 +166,7 @@ function setupHappyPathMocks() {
   mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
 
   mockGetIdempotencyKeyValue.mockResolvedValue(null);
+  mockGetIdempotencyKeyTtlMs.mockResolvedValue(0);
   mockSetIdempotencyKey.mockResolvedValue(undefined);
 
   mockReadRange.mockResolvedValue({
@@ -330,7 +334,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
-  it('throws a retry error when idempotency key is "pending"', async () => {
+  it('waits out a stale "pending" idempotency key and writes without BullMQ retry', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");
     mockReadRange.mockResolvedValueOnce({
@@ -338,11 +342,19 @@ describe("handleSheetsSync — idempotency states", () => {
       data: { values: [["Response ID", "block-1"]] },
     } as never);
 
-    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
-      "[sheets-sync] Concurrent write in progress",
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      updatedRows: 1,
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
     );
-    expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
   it('fails closed when the "pending" idempotency sheet check fails', async () => {

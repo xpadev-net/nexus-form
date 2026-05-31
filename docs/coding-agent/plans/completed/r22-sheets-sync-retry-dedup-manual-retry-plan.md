@@ -170,10 +170,12 @@
     - First review found failed manual jobs could block explicit retry while retained.
     - Manual job ID design was updated to include a nonce.
     - Second review returned APPROVED with no findings.
+    - `gh-review-hook` found a worker pending-idempotency path that still assumed BullMQ retry; worker now waits for the pending TTL to resolve in-process before writing.
   - Validation evidence:
     - `rtk pnpm lint:fix`
     - `rtk pnpm type-check`
     - `rtk pnpm test -- --silent`
+    - `rtk pnpm --filter @nexus-form/worker test src/handlers/__tests__/sheets-sync.test.ts`
     - Reviewer status: APPROVED
 
 ## Decision Log
