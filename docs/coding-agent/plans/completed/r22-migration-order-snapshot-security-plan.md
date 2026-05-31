@@ -162,6 +162,10 @@
   - Summary: Addressed gh-review-hook comments by replacing locale-sensitive ID comparison in the migration test helper and hoisting the journal reader helper.
   - Validation evidence: Targeted migration tests, `pnpm lint:fix`, `pnpm type-check`, and `pnpm test -- --silent` passed before the follow-up commit.
   - Notes: No production migration SQL change.
+- 2026-05-31 14:34 Review hook follow-up completed
+  - Summary: Added an assertion that the compatibility migration ranks live structures with `ORDER BY version DESC, createdAt DESC, id DESC`.
+  - Validation evidence: `pnpm --filter @nexus-form/api exec vitest run src/__tests__/database-snapshot-structure-migration.test.ts` passed.
+  - Notes: No production migration SQL change.
 
 ## Decision Log
 - 2026-05-31 14:00 Decision:

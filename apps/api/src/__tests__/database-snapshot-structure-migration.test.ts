@@ -217,5 +217,8 @@ describe("active snapshot structure security compatibility migration", () => {
     );
     expect(sql).toContain("ROW_NUMBER() OVER");
     expect(sql).toContain("PARTITION BY `formId`");
+    expect(sql).toContain(
+      "ORDER BY\n          `version` DESC,\n          `createdAt` DESC,\n          `id` DESC",
+    );
   });
 });
