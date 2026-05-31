@@ -63,7 +63,10 @@ const RETRYABLE_CODES = new Set([
 
 function throwIfShuttingDown(): void {
   if (workerShutdownSignal.aborted) {
-    throw new DOMException("Worker shutting down", "AbortError");
+    throw (
+      workerShutdownSignal.reason ??
+      new DOMException("Worker shutting down", "AbortError")
+    );
   }
 }
 
@@ -81,7 +84,8 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 
 function isRedisLockAcquireTimeout(error: unknown): boolean {
   if (error instanceof RedisLockAcquireTimeoutError) return true;
-  // AbortError from workerShutdownSignal — treat as transient lock failure
+  // Lock wait AbortError/TimeoutError is transient. Worker shutdown AbortError
+  // is intercepted by isShutdownAbortError before this helper is called.
   if (
     error instanceof DOMException &&
     (error.name === "AbortError" || error.name === "TimeoutError")
@@ -108,6 +112,10 @@ function getRetryAfterSeconds(retryAfter: number): number {
 
 function isAbortError(error: unknown): error is DOMException {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function isShutdownAbortError(error: unknown): error is DOMException {
+  return isAbortError(error) && error === workerShutdownSignal.reason;
 }
 
 function isFinalBullMqAttempt(job: Job<GenericValidationJob>): boolean {
@@ -315,6 +323,9 @@ export const handleGenericValidation = async (
           },
         );
       } catch (error) {
+        if (isShutdownAbortError(error)) {
+          throw error;
+        }
         if (isRedisLockAcquireTimeout(error)) {
           throw Object.assign(
             error instanceof Error ? error : new Error(String(error)),
@@ -329,7 +340,10 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
-    if (isAbortError(error) && isFinalBullMqAttempt(job)) {
+    if (
+      isShutdownAbortError(error) ||
+      (isAbortError(error) && isFinalBullMqAttempt(job))
+    ) {
       await writeValidationResult({
         responseId,
         formId,
