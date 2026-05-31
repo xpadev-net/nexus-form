@@ -110,6 +110,10 @@ function isAbortError(error: unknown): error is DOMException {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
+function isShutdownAbortError(error: unknown): boolean {
+  return isAbortError(error) && workerShutdownSignal.aborted;
+}
+
 function isFinalBullMqAttempt(job: Job<GenericValidationJob>): boolean {
   const attempts =
     typeof job.opts.attempts === "number" && job.opts.attempts > 0
@@ -329,7 +333,10 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
-    if (isAbortError(error) && isFinalBullMqAttempt(job)) {
+    if (
+      isAbortError(error) &&
+      (isShutdownAbortError(error) || isFinalBullMqAttempt(job))
+    ) {
       await writeValidationResult({
         responseId,
         formId,
