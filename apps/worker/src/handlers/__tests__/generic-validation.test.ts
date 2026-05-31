@@ -7,6 +7,52 @@ import { DelayedError, type Job } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { handleGenericValidation } from "../generic-validation";
 
+const shutdownSignalMock = vi.hoisted(() => {
+  let controller = new AbortController();
+  const signal = {
+    get aborted(): boolean {
+      return controller.signal.aborted;
+    },
+    get onabort(): AbortSignal["onabort"] {
+      return controller.signal.onabort;
+    },
+    set onabort(value: AbortSignal["onabort"]) {
+      controller.signal.onabort = value;
+    },
+    get reason(): unknown {
+      return controller.signal.reason;
+    },
+    addEventListener(
+      ...args: Parameters<AbortSignal["addEventListener"]>
+    ): void {
+      controller.signal.addEventListener(...args);
+    },
+    dispatchEvent(...args: Parameters<AbortSignal["dispatchEvent"]>): boolean {
+      return controller.signal.dispatchEvent(...args);
+    },
+    removeEventListener(
+      ...args: Parameters<AbortSignal["removeEventListener"]>
+    ): void {
+      controller.signal.removeEventListener(...args);
+    },
+    throwIfAborted(): void {
+      controller.signal.throwIfAborted();
+    },
+  };
+
+  return {
+    signal,
+    abort(reason?: unknown): void {
+      controller.abort(
+        reason ?? new DOMException("Worker shutdown", "AbortError"),
+      );
+    },
+    reset(): void {
+      controller = new AbortController();
+    },
+  };
+});
+
 vi.mock("@nexus-form/integrations", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@nexus-form/integrations")>();
@@ -15,6 +61,15 @@ vi.mock("@nexus-form/integrations", async (importOriginal) => {
     providerRegistry: {
       get: vi.fn(),
     },
+  };
+});
+
+vi.mock("../../lib/shutdown-signal", () => {
+  return {
+    workerShutdownSignal: shutdownSignalMock.signal,
+    abortWorkerShutdown: vi.fn((reason?: unknown) => {
+      shutdownSignalMock.abort(reason);
+    }),
   };
 });
 
@@ -200,6 +255,7 @@ const baseContext = {
 } as unknown as Awaited<ReturnType<typeof getValidationContext>>;
 
 beforeEach(() => {
+  shutdownSignalMock.reset();
   vi.clearAllMocks();
   mockGetValidationContext.mockResolvedValue(baseContext);
   mockMarkValidationProcessing.mockResolvedValue(undefined);
@@ -366,6 +422,130 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("provider AbortError と worker shutdown が重なっても非最終試行では再スローする", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockImplementation(async () => {
+        shutdownSignalMock.abort(
+          new DOMException("Worker shutdown", "AbortError"),
+        );
+        throw new DOMException("Provider timeout", "AbortError");
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      message: "Provider timeout",
+      name: "AbortError",
+    });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("shutdown AbortError は最終試行以外でも PROCESSING 状態を FAILED へ更新する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockImplementation(async () => {
+        const shutdownReason = new DOMException(
+          "Worker shutdown",
+          "AbortError",
+        );
+        shutdownSignalMock.abort(shutdownReason);
+        throw shutdownReason;
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Validation interrupted during shutdown",
+    });
+    expect(mockMarkValidationProcessing).toHaveBeenCalled();
+    expect(rule.validate).toHaveBeenCalledWith("test-input", {});
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "test-provider",
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+      }),
+    );
+  });
+
+  it("PROCESSING 更新直後の shutdown AbortError は provider 実行前でも FAILED へ更新する", async () => {
+    const rule = makeRule();
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    mockMarkValidationProcessing.mockImplementationOnce(async () => {
+      shutdownSignalMock.abort(
+        new DOMException("Worker shutdown", "AbortError"),
+      );
+    });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Validation interrupted during shutdown",
+    });
+    expect(rule.validate).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "test-provider",
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+      }),
+    );
+  });
+
+  it("PROCESSING 更新直後に非 AbortError reason で shutdown しても PROCESSING に残さない", async () => {
+    const rule = makeRule();
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    mockMarkValidationProcessing.mockImplementationOnce(async () => {
+      shutdownSignalMock.abort(new Error("Worker shutdown"));
+    });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Worker shutdown" });
+    expect(rule.validate).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "test-provider",
+        success: false,
+        errorCode: "VALIDATION_ERROR",
+        errorMessage: "Worker shutdown",
+      }),
+    );
+  });
+
   it("markValidationProcessingがConcurrentDeleteError以外をスローした場合は再スローする", async () => {
     mockMarkValidationProcessing.mockRejectedValue(new Error("db unavailable"));
     const job = makeJob({
@@ -523,6 +703,40 @@ describe("handleGenericValidation", () => {
       code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
     });
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("Discord validation の Redis lock 待機中 shutdown AbortError は FAILED へ更新する", async () => {
+    mockWithRedisLock.mockImplementationOnce(async () => {
+      const shutdownReason = new DOMException("Worker shutdown", "AbortError");
+      shutdownSignalMock.abort(shutdownReason);
+      throw shutdownReason;
+    });
+    const rule = makeRule();
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Validation interrupted during shutdown",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "discord",
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+      }),
+    );
   });
 
   it("バリデーション失敗時にok:falseを返す", async () => {

@@ -30,6 +30,12 @@ describe("normalizeBuiltinPluginPath", () => {
       "/repo/dist/packages/discord/dist/plugin.mjs",
     );
   });
+
+  it("does not rewrite production dist paths under ancestor src directories", () => {
+    const sourcePath =
+      "/usr/src/app/packages/validation-provider-discord/dist/plugin.mjs";
+    expect(normalizeBuiltinPluginPath(sourcePath)).toBe(sourcePath);
+  });
 });
 
 class MemoryDriftStore implements PluginDriftStore {
