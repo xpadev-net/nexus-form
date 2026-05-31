@@ -128,6 +128,11 @@ export async function getIdempotencyKeyValue(
   return getLockClient().get(key);
 }
 
+/** 冪等性キーの残り TTL をミリ秒で取得する。Redis の PTTL と同じ値を返す。 */
+export async function getIdempotencyKeyTtlMs(key: string): Promise<number> {
+  return getLockClient().pttl(key);
+}
+
 /** 冪等性キーを value・TTL 付きでセットする。withRedisLock と同一接続を再利用。 */
 export async function setIdempotencyKey(
   key: string,
@@ -141,8 +146,8 @@ export async function setIdempotencyKey(
  * `key` のロックを取得してから `fn` を実行し、完了後に解放する。
  *
  * 待機がタイムアウトした場合は例外を投げる（直列化を保証するため
- * ロック無しでの実行は行わない）。呼び出し元のジョブは BullMQ により
- * 再試行される想定。
+ * ロック無しでの実行は行わない）。呼び出し元はジョブ種別ごとの
+ * retry/no-retry 方針に合わせて例外を扱う。
  */
 export async function withRedisLock<T>(
   key: string,

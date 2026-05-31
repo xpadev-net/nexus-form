@@ -1,5 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
-import { sheetsSyncJobDataSchema } from "@nexus-form/shared";
+import {
+  buildManualSheetsSyncJobId,
+  sheetsSyncJobDataSchema,
+} from "@nexus-form/shared";
 import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -90,21 +94,6 @@ export type GoogleSheetsSyncStartResponse = z.infer<
 
 const MAX_MANUAL_SHEETS_SYNC_RESPONSES = 1000;
 
-function encodeBullMqJobIdSegment(value: string): string {
-  return Buffer.from(value, "utf8").toString("base64url");
-}
-
-function buildManualSheetsSyncJobId(
-  integrationId: string,
-  responseId: string,
-): string {
-  return [
-    "sheets-manual",
-    encodeBullMqJobIdSegment(integrationId),
-    encodeBullMqJobIdSegment(responseId),
-  ].join(".");
-}
-
 function hasResponses<T>(responses: T[]): responses is [T, ...T[]] {
   return responses.length > 0;
 }
@@ -194,19 +183,26 @@ export const formsIntegrationsRouter = createHonoApp()
         );
       }
 
+      const manualSyncNonce = randomUUID();
+      const jobs = responses.map((response) => ({
+        id: buildManualSheetsSyncJobId(
+          integration.id,
+          response.responseId,
+          manualSyncNonce,
+        ),
+        responseId: response.responseId,
+      }));
+
       await getSheetsSyncQueue().addBulk(
-        responses.map((response) => ({
+        jobs.map((job) => ({
           name: "manual-sync",
           data: sheetsSyncJobDataSchema.parse({
             formId,
             integrationId: integration.id,
-            responseId: response.responseId,
+            responseId: job.responseId,
           }),
           opts: {
-            jobId: buildManualSheetsSyncJobId(
-              integration.id,
-              response.responseId,
-            ),
+            jobId: job.id,
           },
         })),
       );
@@ -218,6 +214,7 @@ export const formsIntegrationsRouter = createHonoApp()
           jobId: buildManualSheetsSyncJobId(
             integration.id,
             firstResponse.responseId,
+            manualSyncNonce,
           ),
           status: "queued",
         }),

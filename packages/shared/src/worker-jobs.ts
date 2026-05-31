@@ -2,6 +2,8 @@ import { z } from "zod";
 
 /** BullMQ custom job IDs must not contain `:`. */
 export const VALIDATION_RETRY_JOB_PREFIX = "validation-retry-";
+export const SHEETS_SYNC_AUTO_JOB_PREFIX = "sheets-auto.";
+export const SHEETS_SYNC_MANUAL_JOB_PREFIX = "sheets-manual.";
 
 /**
  * Maps validation result ids (e.g. `validation-result:<hash>`) to a BullMQ-safe segment.
@@ -18,11 +20,32 @@ function sanitizeRetryJobNonce(nonce: string): string {
   return nonce.replaceAll(":", "-");
 }
 
+function encodeSheetsSyncJobIdSegment(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
 export function buildValidationRetryJobId(
   validationResultId: string,
   nonce: string,
 ): string {
   return `${VALIDATION_RETRY_JOB_PREFIX}${sanitizeValidationResultIdForRetryJob(validationResultId)}-${sanitizeRetryJobNonce(nonce)}`;
+}
+
+export function buildAutoSheetsSyncJobId(
+  integrationId: string,
+  responseId: string,
+): string {
+  return `${SHEETS_SYNC_AUTO_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}`;
+}
+
+export function buildManualSheetsSyncJobId(
+  integrationId: string,
+  responseId: string,
+  nonce: string,
+): string {
+  return `${SHEETS_SYNC_MANUAL_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}.${encodeSheetsSyncJobIdSegment(nonce)}`;
 }
 
 export const genericValidationJobDataSchema = z.object({
