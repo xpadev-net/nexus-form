@@ -92,6 +92,13 @@
       "when": 1779930000000,
       "tag": "0012_config_json_column_type",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1780203531326,
+      "tag": "0013_active_snapshot_structure_live_security_compat",
+      "breakpoints": true
     }
   ]
 }
