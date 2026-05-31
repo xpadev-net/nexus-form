@@ -870,6 +870,73 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("ignores a stale covered mutation conflict after a newer autosave succeeds", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"saved after keepalive"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 9 },
+        {
+          expectedVersion: 8,
+          plateContent: newerContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(mutateMock).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("stores a pending keepalive retry instead of mutating after unmount", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

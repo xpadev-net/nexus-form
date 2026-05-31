@@ -661,14 +661,24 @@ export function useFormContentAutosave({
         resolvedPendingKeepalive != null &&
         resolvedPendingKeepalive.version === variables.expectedVersion &&
         resolvedPendingKeepalive.generation === variables.restoreGeneration &&
-        versionRef.current !== resolvedPendingKeepalive.version &&
-        baseContentRef.current === resolvedPendingKeepalive.plateContent
+        versionRef.current !== resolvedPendingKeepalive.version
       ) {
+        const activeRequest = inFlightRequestRef.current;
+        if (
+          activeRequest != null &&
+          !isSameAutosaveRequest(activeRequest, variables)
+        ) {
+          return;
+        }
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
         resolvedPendingKeepaliveRef.current = null;
-        if (variables.plateContent !== resolvedPendingKeepalive.plateContent) {
+        if (
+          variables.plateContent !== resolvedPendingKeepalive.plateContent &&
+          variables.plateContent === editorValueRef.current &&
+          variables.plateContent !== baseContentRef.current
+        ) {
           retryAfterKeepaliveSave(variables);
         }
         return;
@@ -685,6 +695,16 @@ export function useFormContentAutosave({
       if (variables.restoreGeneration < restoreGenerationRef.current) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
+        return;
+      }
+      if (
+        lastSavedVersionRef.current != null &&
+        variables.plateContent !== editorValueRef.current &&
+        variables.plateContent !== baseContentRef.current
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        setIsSaving(false);
         return;
       }
       inFlightValueRef.current = null;
