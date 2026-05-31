@@ -40,6 +40,11 @@
       "types": "./src/constants/status.ts",
       "import": "./dist/constants/status.js",
       "default": "./dist/constants/status.js"
+    },
+    "./node/load-env": {
+      "types": "./src/node/load-env.ts",
+      "import": "./dist/node/load-env.js",
+      "default": "./dist/node/load-env.js"
     }
   },
   "scripts": {
