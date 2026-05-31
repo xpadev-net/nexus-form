@@ -1382,6 +1382,56 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("stores pending save when pending-only keepalive and matching autosave both fail", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"network failed draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

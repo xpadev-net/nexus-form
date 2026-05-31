@@ -578,7 +578,7 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
-        if (keepaliveSent.coveredRequest == null && isConflictError(err)) {
+        if (keepaliveSent.coveredRequest == null) {
           pendingKeepaliveRetryRef.current = {
             error: err,
             variables,
