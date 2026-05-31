@@ -155,6 +155,7 @@ export function useFormContentAutosave({
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
   const inFlightRequestRef = useRef<InFlightAutosave | null>(null);
+  const canRetryAfterKeepaliveRef = useRef(true);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
   const keepaliveSentRef = useRef<{
@@ -741,7 +742,9 @@ export function useFormContentAutosave({
   // Fall back both pendingValueRef (not yet fired) and inFlightValueRef
   // (mutation in progress) so navigation/unload does not lose drafts.
   useEffect(() => {
-    const persistPendingOrInFlightSave = () => {
+    const persistPendingOrInFlightSave = (
+      allowRetryAfterKeepaliveSave = false,
+    ) => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
@@ -754,6 +757,7 @@ export function useFormContentAutosave({
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
       const keepaliveGeneration = restoreGenerationRef.current;
+      if (fallbackValue == null || fallbackVersion == null) return;
       const shouldStoreFailedFallback = (allowLiveInFlight = false) =>
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === fallbackVersion &&
@@ -762,7 +766,24 @@ export function useFormContentAutosave({
         (allowLiveInFlight || inFlightRequestRef.current == null) &&
         (fallbackVersion === versionRef.current ||
           editorValueRef.current === fallbackValue);
-      if (fallbackValue == null || fallbackVersion == null) return;
+      const retryFallbackAfterLocalVersionAdvance = () => {
+        if (
+          fallbackVersion === versionRef.current ||
+          editorValueRef.current !== fallbackValue ||
+          inFlightRequestRef.current != null ||
+          !allowRetryAfterKeepaliveSave ||
+          !canRetryAfterKeepaliveRef.current ||
+          keepaliveGeneration !== restoreGenerationRef.current
+        ) {
+          return false;
+        }
+        retryAfterKeepaliveSave({
+          expectedVersion: fallbackVersion,
+          plateContent: fallbackValue,
+          restoreGeneration: keepaliveGeneration,
+        });
+        return true;
+      };
       failedPendingKeepaliveRef.current = null;
       resolvedPendingKeepaliveRef.current = null;
       pendingValueRef.current = null;
@@ -802,13 +823,11 @@ export function useFormContentAutosave({
                 baseContentRef.current = fallbackValue;
                 lastSavedVersionRef.current = fallbackVersion + 1;
                 keepaliveCoveredRequestRef.current = inFlightRequest;
-                if (inFlightRequest == null) {
-                  resolvedPendingKeepaliveRef.current = {
-                    generation: keepaliveGeneration,
-                    version: fallbackVersion,
-                    plateContent: fallbackValue,
-                  };
-                }
+                resolvedPendingKeepaliveRef.current = {
+                  generation: keepaliveGeneration,
+                  version: fallbackVersion,
+                  plateContent: fallbackValue,
+                };
                 clearResolvedPendingSave(formId, {
                   expectedVersion: fallbackVersion,
                   plateContent: fallbackValue,
@@ -842,6 +861,9 @@ export function useFormContentAutosave({
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
             } else {
+              if (retryFallbackAfterLocalVersionAdvance()) {
+                return;
+              }
               const shouldStoreFallback = shouldStoreFailedFallback(
                 response.status === 409,
               );
@@ -885,6 +907,9 @@ export function useFormContentAutosave({
             }
           })
           .catch(() => {
+            if (retryFallbackAfterLocalVersionAdvance()) {
+              return;
+            }
             const shouldStoreFallback = shouldStoreFailedFallback();
             keepaliveSentRef.current = null;
             if (
@@ -941,14 +966,16 @@ export function useFormContentAutosave({
         document.visibilityState === "hidden" &&
         (inFlightRequestRef.current != null || pendingValueRef.current != null)
       ) {
-        persistPendingOrInFlightSave();
+        persistPendingOrInFlightSave(true);
       }
     };
 
+    canRetryAfterKeepaliveRef.current = true;
     window.addEventListener("pagehide", handlePageHide);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
+      canRetryAfterKeepaliveRef.current = false;
       window.removeEventListener("pagehide", handlePageHide);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       persistPendingOrInFlightSave();

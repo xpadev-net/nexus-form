@@ -226,6 +226,16 @@ async function flushPromises() {
   });
 }
 
+function dispatchHiddenVisibilityChange() {
+  const visibilityStateSpy = vi
+    .spyOn(document, "visibilityState", "get")
+    .mockReturnValue("hidden");
+  act(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  visibilityStateSpy.mockRestore();
+}
+
 describe("useFormContentAutosave unmount keepalive fallback", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", createMemoryStorage());
@@ -802,6 +812,64 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("retries a post-keepalive edit when the keepalive wins before its conflict", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not store stale keepalive content while a newer autosave is in-flight", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
@@ -848,6 +916,56 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("retries pending keepalive content when the covered autosave advances the version first", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"saved first"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"retry after version advance"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: keepaliveContent,
+      restoreGeneration: 0,
+    });
 
     act(() => {
       root.unmount();
