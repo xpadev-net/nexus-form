@@ -375,7 +375,7 @@ describe("handleSheetsSync — idempotency states", () => {
       updatedRows: 1,
     });
     expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledTimes(2);
-    expect(mockReadRange).toHaveBeenCalledTimes(6);
+    expect(mockReadRange).toHaveBeenCalledTimes(4);
     expect(mockAppendRows).toHaveBeenCalledOnce();
   });
 

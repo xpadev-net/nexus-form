@@ -324,15 +324,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       };
 
       if (keyValue === "pending") {
-        const sheetCheck = await readSheetForIdempotency(token, {
-          spreadsheetId,
-          sheetName,
-          responseId: response.id,
-        });
-        if (sheetCheck.exists) {
-          return markDuplicateWritten();
-        }
-
         // The lock TTL expired while another job's critical section is still in
         // progress, or the prior attempt crashed before the row was written.
         // Sheets sync jobs are no-retry, so wait for the pending guard to
