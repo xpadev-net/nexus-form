@@ -1932,6 +1932,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: inFlightContent,
     });
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {
@@ -1983,6 +1984,61 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: pendingContent,
     });
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears last saved version when a covered keepalive rejects after mutation conflict", async () => {
+    vi.useFakeTimers();
+    let rejectKeepalive: (error: Error) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<never>((_, reject) => {
+          rejectKeepalive = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"covered network conflict"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    rejectKeepalive(new Error("network unavailable"));
+    await flushPromises();
+
+    expect(attemptMergeMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: inFlightContent,
+    });
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {

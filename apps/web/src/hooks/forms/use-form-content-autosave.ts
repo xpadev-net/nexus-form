@@ -941,6 +941,7 @@ export function useFormContentAutosave({
                     : pendingBody(),
                 );
                 if (pendingRetry?.errorKind === "conflict") {
+                  lastSavedVersionRef.current = null;
                   void attemptMerge();
                 } else if (pendingRetry != null) {
                   lastSavedVersionRef.current = null;
@@ -987,6 +988,7 @@ export function useFormContentAutosave({
                   : pendingBody(),
               );
               if (pendingRetry?.errorKind === "conflict") {
+                lastSavedVersionRef.current = null;
                 void attemptMerge();
               } else if (pendingRetry != null) {
                 lastSavedVersionRef.current = null;
