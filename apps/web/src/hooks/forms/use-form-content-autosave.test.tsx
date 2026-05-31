@@ -651,6 +651,56 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("does not start a false merge when in-flight autosave fails before keepalive resolves", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

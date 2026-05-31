@@ -83,6 +83,17 @@ interface InFlightAutosave {
   restoreGeneration: number;
 }
 
+function isSameAutosaveRequest(
+  request: InFlightAutosave | null | undefined,
+  variables: ContentSaveInput,
+): boolean {
+  return (
+    request?.expectedVersion === variables.expectedVersion &&
+    request.restoreGeneration === variables.restoreGeneration &&
+    request.plateContent === variables.plateContent
+  );
+}
+
 interface UseFormContentAutosaveOptions {
   formId: string;
   contentData: ContentQueryData | undefined;
@@ -143,6 +154,7 @@ export function useFormContentAutosave({
     generation: number;
     version: number;
     plateContent: string;
+    coveredRequest?: InFlightAutosave;
   } | null>(null);
   const keepaliveCoveredRequestRef = useRef<InFlightAutosave | null>(null);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
@@ -462,13 +474,7 @@ export function useFormContentAutosave({
     },
     onError: (err, variables) => {
       if (
-        keepaliveCoveredRequestRef.current != null &&
-        keepaliveCoveredRequestRef.current.expectedVersion ===
-          variables.expectedVersion &&
-        keepaliveCoveredRequestRef.current.restoreGeneration ===
-          variables.restoreGeneration &&
-        keepaliveCoveredRequestRef.current.plateContent ===
-          variables.plateContent
+        isSameAutosaveRequest(keepaliveCoveredRequestRef.current, variables)
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
@@ -476,11 +482,13 @@ export function useFormContentAutosave({
         keepaliveCoveredRequestRef.current = null;
         return;
       }
+      const keepaliveSent = keepaliveSentRef.current;
       if (
-        keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.version === variables.expectedVersion &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration &&
-        keepaliveSentRef.current.plateContent === variables.plateContent
+        keepaliveSent != null &&
+        keepaliveSent.version === variables.expectedVersion &&
+        keepaliveSent.generation === variables.restoreGeneration &&
+        (keepaliveSent.plateContent === variables.plateContent ||
+          isSameAutosaveRequest(keepaliveSent.coveredRequest, variables))
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
@@ -598,6 +606,7 @@ export function useFormContentAutosave({
           generation: keepaliveGeneration,
           version: fallbackVersion,
           plateContent: fallbackValue,
+          coveredRequest: inFlightRequest ?? undefined,
         };
       }
 
