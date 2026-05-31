@@ -4,6 +4,7 @@ import { act, type ReactNode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
+import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import {
   type UseFormContentAutosaveReturn,
   useFormContentAutosave,
@@ -54,6 +55,7 @@ interface TestMutationOptions {
 
 let latestMutationOptions: TestMutationOptions | undefined;
 const attemptMergeMock = vi.fn();
+const useEditorSSEMock = vi.mocked(useEditorSSE);
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: TestMutationOptions) => {
@@ -174,6 +176,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     rpcMock.mockReset();
     toastWarningMock.mockClear();
     attemptMergeMock.mockClear();
+    useEditorSSEMock.mockClear();
     latestMutationOptions = undefined;
   });
 
@@ -825,6 +828,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: newerContent,
     });
+    expect(
+      useEditorSSEMock.mock.calls.at(-1)?.[1].lastSavedVersionRef.current,
+    ).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {
@@ -881,6 +887,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: newerContent,
     });
+    expect(
+      useEditorSSEMock.mock.calls.at(-1)?.[1].lastSavedVersionRef.current,
+    ).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {
@@ -938,6 +947,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: newerContent,
     });
+    expect(
+      useEditorSSEMock.mock.calls.at(-1)?.[1].lastSavedVersionRef.current,
+    ).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {
@@ -1003,6 +1015,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: newerContent,
     });
+    expect(
+      useEditorSSEMock.mock.calls.at(-1)?.[1].lastSavedVersionRef.current,
+    ).toBeNull();
 
     localStorage.removeItem("pendingSave:form-1");
     act(() => {

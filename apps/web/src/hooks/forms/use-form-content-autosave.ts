@@ -546,6 +546,7 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
+        lastSavedVersionRef.current = null;
         failedPendingKeepaliveRef.current = null;
         storePendingSave(
           formId,
@@ -763,6 +764,7 @@ export function useFormContentAutosave({
               const pendingRetry = pendingKeepaliveRetryRef.current;
               pendingKeepaliveRetryRef.current = null;
               if (inFlightRequest == null) {
+                lastSavedVersionRef.current = null;
                 failedPendingKeepaliveRef.current = {
                   generation: keepaliveGeneration,
                   version: fallbackVersion,
@@ -791,6 +793,7 @@ export function useFormContentAutosave({
               const pendingRetry = pendingKeepaliveRetryRef.current;
               pendingKeepaliveRetryRef.current = null;
               if (inFlightRequest == null) {
+                lastSavedVersionRef.current = null;
                 failedPendingKeepaliveRef.current = {
                   generation: keepaliveGeneration,
                   version: fallbackVersion,
