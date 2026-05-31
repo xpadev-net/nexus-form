@@ -1093,6 +1093,60 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("does not restore stale pending-only keepalive content after a newer autosave succeeds", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: newerContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+    expect(setQueryDataMock).toHaveBeenLastCalledWith(
+      ["formContent", "form-1"],
+      {
+        plateContent: newerContent,
+        plateContentVersion: 8,
+      },
+    );
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("ignores stale failed pending keepalive when a later keepalive covers an in-flight save", async () => {
     vi.useFakeTimers();
     const keepaliveResolvers: Array<

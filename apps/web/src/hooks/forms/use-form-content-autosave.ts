@@ -508,6 +508,13 @@ export function useFormContentAutosave({
         keepaliveSentRef.current.plateContent === variables.plateContent;
       if (shouldClearKeepaliveSent) {
         keepaliveSentRef.current = null;
+      } else if (
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.version === variables.expectedVersion &&
+        keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        editorValueRef.current !== keepaliveSentRef.current.plateContent
+      ) {
+        keepaliveSentRef.current = null;
       }
       const inFlightRequest = inFlightRequestRef.current;
       if (
@@ -726,7 +733,12 @@ export function useFormContentAutosave({
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
       const shouldStoreFailedFallback = () =>
-        pendingValue != null || fallbackVersion === versionRef.current;
+        keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.version === fallbackVersion &&
+        keepaliveSentRef.current.generation === keepaliveGeneration &&
+        keepaliveSentRef.current.plateContent === fallbackValue &&
+        (fallbackVersion === versionRef.current ||
+          editorValueRef.current === fallbackValue);
       failedPendingKeepaliveRef.current = null;
       if (fallbackValue == null || fallbackVersion == null) return;
       pendingValueRef.current = null;
@@ -790,8 +802,9 @@ export function useFormContentAutosave({
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
             } else {
+              const shouldStoreFallback = shouldStoreFailedFallback();
               keepaliveSentRef.current = null;
-              if (shouldStoreFailedFallback()) {
+              if (shouldStoreFallback) {
                 const pendingRetry = pendingKeepaliveRetryRef.current;
                 pendingKeepaliveRetryRef.current = null;
                 if (inFlightRequest == null) {
@@ -817,14 +830,21 @@ export function useFormContentAutosave({
                 if (isConflictError(pendingRetry?.error)) {
                   void attemptMerge();
                 }
+              } else {
+                pendingKeepaliveRetryRef.current = null;
+                clearResolvedPendingSave(formId, {
+                  expectedVersion: fallbackVersion,
+                  plateContent: fallbackValue,
+                });
               }
             }
           })
           .catch(() => {
+            const shouldStoreFallback = shouldStoreFailedFallback();
             keepaliveSentRef.current = null;
             if (
               baseContentRef.current !== fallbackValue &&
-              shouldStoreFailedFallback()
+              shouldStoreFallback
             ) {
               const pendingRetry = pendingKeepaliveRetryRef.current;
               pendingKeepaliveRetryRef.current = null;
@@ -850,6 +870,12 @@ export function useFormContentAutosave({
               if (isConflictError(pendingRetry?.error)) {
                 void attemptMerge();
               }
+            } else {
+              pendingKeepaliveRetryRef.current = null;
+              clearResolvedPendingSave(formId, {
+                expectedVersion: fallbackVersion,
+                plateContent: fallbackValue,
+              });
             }
           });
       } else {
