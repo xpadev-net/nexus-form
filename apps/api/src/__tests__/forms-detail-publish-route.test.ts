@@ -126,6 +126,33 @@ describe("POST /:id/publish", () => {
     expect(mocks.updateSet).not.toHaveBeenCalled();
   });
 
+  it("returns 400 without publishing when the active snapshot JSON is not an array", async () => {
+    mocks.getLatestSnapshot.mockResolvedValue({
+      id: "snapshot-1",
+      formId: "form-1",
+      version: 1,
+      plateContent: "{}",
+      validationRulesJson: "[]",
+      structureJson: "{}",
+      isActive: true,
+      publishedBy: "user-1",
+      publishedAt: new Date("2026-05-31T00:00:00.000Z"),
+      title: "Wrong snapshot shape",
+    });
+
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const response = await formsDetailRouter.request("/form-1/publish", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "公開用スナップショットの形式が不正です",
+    });
+    expect(mocks.updateSet).not.toHaveBeenCalled();
+  });
+
   it("publishes when the active snapshot contains at least one question", async () => {
     mocks.getLatestSnapshot.mockResolvedValue({
       id: "snapshot-1",

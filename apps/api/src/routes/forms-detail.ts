@@ -82,7 +82,7 @@ const formMutationRateLimit = createRateLimit({
 function parseSnapshotPlateContent(plateContent: string): unknown[] | null {
   try {
     const parsed = JSON.parse(plateContent);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -310,7 +310,7 @@ export const formsDetailRouter = createHonoApp()
         );
       }
       const parsedSnapshot = parseSnapshotPlateContent(snapshot.plateContent);
-      if (!parsedSnapshot) {
+      if (parsedSnapshot === null) {
         return c.json(
           errorResponse("公開用スナップショットの形式が不正です"),
           400,
