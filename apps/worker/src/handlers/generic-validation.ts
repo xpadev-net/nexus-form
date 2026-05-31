@@ -63,7 +63,9 @@ const RETRYABLE_CODES = new Set([
 
 function throwIfShuttingDown(): void {
   if (workerShutdownSignal.aborted) {
-    throw new DOMException("Worker shutting down", "AbortError");
+    throw isAbortError(workerShutdownSignal.reason)
+      ? workerShutdownSignal.reason
+      : new DOMException("Worker shutting down", "AbortError");
   }
 }
 
@@ -81,7 +83,8 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 
 function isRedisLockAcquireTimeout(error: unknown): boolean {
   if (error instanceof RedisLockAcquireTimeoutError) return true;
-  // AbortError from workerShutdownSignal — treat as transient lock failure
+  // Lock wait AbortError/TimeoutError is transient. Worker shutdown AbortError
+  // is intercepted by isShutdownAbortError before this helper is called.
   if (
     error instanceof DOMException &&
     (error.name === "AbortError" || error.name === "TimeoutError")
@@ -111,7 +114,7 @@ function isAbortError(error: unknown): error is DOMException {
 }
 
 function isShutdownAbortError(error: unknown): error is DOMException {
-  return isAbortError(error) && workerShutdownSignal.aborted;
+  return isAbortError(error) && error === workerShutdownSignal.reason;
 }
 
 function isFinalBullMqAttempt(job: Job<GenericValidationJob>): boolean {

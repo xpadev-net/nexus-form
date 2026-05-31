@@ -422,13 +422,39 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it("shutdown AbortError は最終試行以外でも PROCESSING 状態を FAILED へ更新する", async () => {
+  it("provider AbortError と worker shutdown が重なっても非最終試行では再スローする", async () => {
     const rule = makeRule({
       validate: vi.fn().mockImplementation(async () => {
         shutdownSignalMock.abort(
           new DOMException("Worker shutdown", "AbortError"),
         );
-        throw new DOMException("Shutdown", "AbortError");
+        throw new DOMException("Provider timeout", "AbortError");
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      message: "Provider timeout",
+      name: "AbortError",
+    });
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("shutdown AbortError は最終試行以外でも PROCESSING 状態を FAILED へ更新する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockImplementation(async () => {
+        const shutdownReason = new DOMException(
+          "Worker shutdown",
+          "AbortError",
+        );
+        shutdownSignalMock.abort(shutdownReason);
+        throw shutdownReason;
       }),
     });
     mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
@@ -652,10 +678,9 @@ describe("handleGenericValidation", () => {
 
   it("Discord validation の Redis lock 待機中 shutdown AbortError は FAILED へ更新する", async () => {
     mockWithRedisLock.mockImplementationOnce(async () => {
-      shutdownSignalMock.abort(
-        new DOMException("Worker shutdown", "AbortError"),
-      );
-      throw new DOMException("Worker shutdown", "AbortError");
+      const shutdownReason = new DOMException("Worker shutdown", "AbortError");
+      shutdownSignalMock.abort(shutdownReason);
+      throw shutdownReason;
     });
     const rule = makeRule();
     const provider = makeProvider(rule);

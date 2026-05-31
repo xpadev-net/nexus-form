@@ -123,6 +123,19 @@
     - `pnpm type-check` passed.
     - `pnpm test -- --silent` passed: 15 tasks.
   - Notes:
+    - Follow-up Reviewer status: APPROVED / 指摘なし.
+
+- 2026-05-31 Second review hook fix applied
+  - Summary:
+    - Greptile identified stale comment wording and possible provider AbortError misclassification when provider abort coincides with worker shutdown.
+    - Shutdown abort detection now requires the caught AbortError to be identical to `workerShutdownSignal.reason`.
+    - Added coverage proving provider-origin AbortError still rethrows when worker shutdown fires before the catch.
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts` passed: 50 tests.
+    - `pnpm lint:fix` passed.
+    - `pnpm type-check` passed.
+    - `pnpm test -- --silent` passed: 15 tasks.
+  - Notes:
     - Follow-up Reviewer dispatch pending after this fix.
 
 ## Decision Log
