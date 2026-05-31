@@ -878,6 +878,44 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("reports an active autosave failure after a newer edit and clears the echo version", () => {
+    vi.useFakeTimers();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not overwrite stashed remote content when an older autosave succeeds", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

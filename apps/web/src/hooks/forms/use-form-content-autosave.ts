@@ -725,7 +725,8 @@ export function useFormContentAutosave({
       if (
         lastSavedVersionRef.current != null &&
         variables.plateContent !== editorValueRef.current &&
-        variables.plateContent !== baseContentRef.current
+        variables.plateContent !== baseContentRef.current &&
+        editorValueRef.current === baseContentRef.current
       ) {
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
