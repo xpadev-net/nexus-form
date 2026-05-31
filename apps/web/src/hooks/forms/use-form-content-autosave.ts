@@ -550,6 +550,7 @@ export function useFormContentAutosave({
           expectedVersion: variables.expectedVersion,
           plateContent: variables.plateContent,
         });
+        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
         return;
       }
       if (variables.restoreGeneration < restoreGenerationRef.current) {
@@ -659,6 +660,9 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
+        // Pending-only keepalive may be saving a different draft at this
+        // version. Park any same-version live mutation error until that
+        // keepalive settles so it can retry against the advanced version.
         pendingKeepaliveRetryRef.current = {
           errorKind: isConflictError(err) ? "conflict" : "failure",
           variables,

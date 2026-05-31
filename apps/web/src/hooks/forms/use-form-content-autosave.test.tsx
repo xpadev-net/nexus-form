@@ -938,6 +938,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         plateContentVersion: 8,
       },
     );
+    expect(invalidateQueriesMock).toHaveBeenCalledWith({
+      queryKey: ["formDiff", "form-1"],
+    });
 
     act(() => {
       root.unmount();
