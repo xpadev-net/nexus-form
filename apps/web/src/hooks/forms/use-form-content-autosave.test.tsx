@@ -15,6 +15,10 @@ import {
 
 const invalidateQueriesMock = vi.fn();
 const setQueryDataMock = vi.fn();
+const queryClientMock = {
+  invalidateQueries: invalidateQueriesMock,
+  setQueryData: setQueryDataMock,
+};
 const mutateMock = vi.fn();
 const refetchMock = vi.fn().mockResolvedValue(undefined);
 const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
@@ -58,10 +62,7 @@ vi.mock("@tanstack/react-query", () => ({
       mutate: mutateMock,
     };
   },
-  useQueryClient: () => ({
-    invalidateQueries: invalidateQueriesMock,
-    setQueryData: setQueryDataMock,
-  }),
+  useQueryClient: () => queryClientMock,
 }));
 
 vi.mock("@/hooks/forms/use-editor-sse", () => ({
@@ -699,6 +700,371 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(attemptMergeMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("retries newer edits when a pending-only keepalive wins before autosave", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+        body: JSON.stringify({
+          plateContent: keepaliveContent,
+          expectedVersion: 7,
+        }),
+      }),
+    );
+
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("starts merge when pending-only keepalive and newer autosave both conflict", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(attemptMergeMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: newerContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not start merge when newer autosave fails without conflict", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: newerContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("starts merge when pending-only keepalive rejects after newer autosave conflict", async () => {
+    vi.useFakeTimers();
+    let rejectKeepalive: (error: Error) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<never>((_, reject) => {
+          rejectKeepalive = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    rejectKeepalive(new Error("network unavailable"));
+    await flushPromises();
+
+    expect(attemptMergeMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: newerContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps newer edits when pending-only keepalive conflicts before newer autosave", async () => {
+    vi.useFakeTimers();
+    rpcMock.mockRejectedValue(new Error("retry unavailable"));
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+    await flushPromises();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: keepaliveContent,
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: newerContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("starts merge when pending-only keepalive and matching autosave both conflict", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"conflicting draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(attemptMergeMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {
