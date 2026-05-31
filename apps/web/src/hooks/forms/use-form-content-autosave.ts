@@ -578,14 +578,10 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
-        if (keepaliveSent.coveredRequest == null) {
-          pendingKeepaliveRetryRef.current = {
-            error: err,
-            variables,
-          };
-        } else {
-          keepaliveSentRef.current = null;
-        }
+        pendingKeepaliveRetryRef.current = {
+          error: err,
+          variables,
+        };
         return;
       }
       const failedPendingKeepalive = failedPendingKeepaliveRef.current;
@@ -622,7 +618,13 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
-        keepaliveSentRef.current = null;
+        pendingKeepaliveRetryRef.current = {
+          error: err,
+          variables: {
+            ...variables,
+            plateContent: keepaliveSent.plateContent,
+          },
+        };
         return;
       }
       if (
@@ -732,6 +734,7 @@ export function useFormContentAutosave({
         pendingValue != null
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
+      const keepaliveGeneration = restoreGenerationRef.current;
       const shouldStoreFailedFallback = () =>
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === fallbackVersion &&
@@ -744,7 +747,6 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
-      const keepaliveGeneration = restoreGenerationRef.current;
       keepaliveSentRef.current = {
         generation: keepaliveGeneration,
         version: fallbackVersion,
