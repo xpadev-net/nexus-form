@@ -1008,6 +1008,76 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("ignores stale failed pending keepalive when a later keepalive covers an in-flight save", async () => {
+    vi.useFakeTimers();
+    const keepaliveResolvers: Array<
+      (response: { ok: boolean; status: number }) => void
+    > = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          keepaliveResolvers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const firstContent = '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"in flight draft"}]}]';
+    const coveredContent =
+      '[{"type":"p","children":[{"text":"covered draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(firstContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    keepaliveResolvers[0]?.({ ok: false, status: 500 });
+    await flushPromises();
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: inFlightContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      hook?.handleContentChange(coveredContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(attemptMergeMock).not.toHaveBeenCalled();
+
+    keepaliveResolvers[1]?.({ ok: true, status: 200 });
+    await flushPromises();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("starts merge when pending-only keepalive rejects after newer autosave conflict", async () => {
     vi.useFakeTimers();
     let rejectKeepalive: (error: Error) => void = () => {};

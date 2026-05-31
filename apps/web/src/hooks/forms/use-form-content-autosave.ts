@@ -718,14 +718,12 @@ export function useFormContentAutosave({
         pendingValue != null
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
+      failedPendingKeepaliveRef.current = null;
       if (fallbackValue == null || fallbackVersion == null) return;
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
       const keepaliveGeneration = restoreGenerationRef.current;
-      if (inFlightRequest == null) {
-        failedPendingKeepaliveRef.current = null;
-      }
       keepaliveSentRef.current = {
         generation: keepaliveGeneration,
         version: fallbackVersion,
