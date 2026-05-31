@@ -2532,6 +2532,113 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("stores a post-unmount retry candidate instead of retrying after pending keepalive succeeds", async () => {
+    vi.useFakeTimers();
+    const keepaliveResolvers: Array<
+      (response: DeferredKeepaliveResponse) => void
+    > = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<DeferredKeepaliveResponse>((resolve) => {
+          keepaliveResolvers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"saved by keepalive"}]}]';
+    const retryContent =
+      '[{"type":"p","children":[{"text":"retry after unmount"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(retryContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: retryContent,
+      restoreGeneration: 0,
+    });
+
+    keepaliveResolvers[0]?.({ ok: true, status: 200 });
+    await flushPromises();
+
+    act(() => {
+      root.unmount();
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: retryContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+
+    keepaliveResolvers[1]?.({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 8,
+      plateContent: retryContent,
+    });
+  });
+
+  it("does not write stale pending-only keepalive content while newer autosave is in-flight", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const staleContent =
+      '[{"type":"p","children":[{"text":"stale pending-only"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"newer active save"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(staleContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("stores a covered in-flight save when both the keepalive and mutation conflict", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

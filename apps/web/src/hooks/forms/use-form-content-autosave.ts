@@ -708,8 +708,17 @@ export function useFormContentAutosave({
               errorKind: isConflictError(err) ? "conflict" : "failure",
               variables,
             };
-          } else {
+          } else if (canRetryAfterKeepaliveRef.current) {
             retryAfterKeepaliveSave(variables);
+          } else {
+            lastSavedVersionRef.current = null;
+            storePendingSave(
+              formId,
+              JSON.stringify({
+                plateContent: variables.plateContent,
+                expectedVersion: versionRef.current,
+              }),
+            );
           }
         }
         return;
@@ -805,6 +814,7 @@ export function useFormContentAutosave({
       }
       const pendingValue = pendingValueRef.current;
       const inFlightRequest = inFlightRequestRef.current;
+      const inFlightRequestAtKeepaliveDispatch = inFlightRequest;
       // pendingValue is written by the latest editor change, while
       // inFlightRequest is the previous mutation already sent to the server.
       // Prefer pendingValue so covered keepalive retries continue with the
@@ -817,15 +827,24 @@ export function useFormContentAutosave({
           : inFlightRequest?.expectedVersion;
       const keepaliveGeneration = restoreGenerationRef.current;
       if (fallbackValue == null || fallbackVersion == null) return;
-      const shouldStoreFailedFallback = (allowLiveInFlight = false) =>
-        keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.version === fallbackVersion &&
-        keepaliveSentRef.current.generation === keepaliveGeneration &&
-        keepaliveSentRef.current.plateContent === fallbackValue &&
-        keepaliveSentRef.current.superseded !== true &&
-        (allowLiveInFlight || inFlightRequestRef.current == null) &&
-        (fallbackVersion === versionRef.current ||
-          editorValueRef.current === fallbackValue);
+      const shouldStoreFailedFallback = (allowLiveInFlight = false) => {
+        const keepaliveSent = keepaliveSentRef.current;
+        return (
+          keepaliveSent != null &&
+          keepaliveSent.version === fallbackVersion &&
+          keepaliveSent.generation === keepaliveGeneration &&
+          keepaliveSent.plateContent === fallbackValue &&
+          keepaliveSent.superseded !== true &&
+          (allowLiveInFlight ||
+            inFlightRequestAtKeepaliveDispatch == null ||
+            isSameAutosaveRequest(
+              keepaliveSent.coveredRequest ?? null,
+              inFlightRequestAtKeepaliveDispatch,
+            )) &&
+          (fallbackVersion === versionRef.current ||
+            editorValueRef.current === fallbackValue)
+        );
+      };
       const retryFallbackAfterLocalVersionAdvance = () => {
         if (
           fallbackVersion === versionRef.current ||
