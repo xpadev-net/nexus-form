@@ -90,7 +90,8 @@ function isSameAutosaveRequest(
   variables: ContentSaveInput,
 ): boolean {
   return (
-    request?.expectedVersion === variables.expectedVersion &&
+    request != null &&
+    request.expectedVersion === variables.expectedVersion &&
     request.restoreGeneration === variables.restoreGeneration &&
     request.plateContent === variables.plateContent
   );
@@ -734,10 +735,7 @@ export function useFormContentAutosave({
       const pendingBody = () =>
         JSON.stringify({
           plateContent: fallbackValue,
-          expectedVersion:
-            versionRef.current === fallbackVersion
-              ? fallbackVersion
-              : versionRef.current,
+          expectedVersion: versionRef.current,
         });
       const body = JSON.stringify({
         plateContent: fallbackValue,
