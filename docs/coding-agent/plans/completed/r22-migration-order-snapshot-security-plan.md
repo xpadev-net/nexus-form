@@ -158,6 +158,10 @@
   - Summary: Full validation passed after aligning API Vitest hook timeout with the existing test timeout; independent Reviewer approved with no findings.
   - Validation evidence: `pnpm lint:fix` passed; `pnpm type-check` passed; `pnpm test -- --silent` passed; Reviewer re-ran both targeted migration tests and approved.
   - Notes: Initial literal `pnpm test --silent` failed because Turbo treats `--silent` as an unsupported Turbo flag; `pnpm test -- --silent` is the pass-through form.
+- 2026-05-31 14:24 Review hook follow-up completed
+  - Summary: Addressed gh-review-hook comments by replacing locale-sensitive ID comparison in the migration test helper and hoisting the journal reader helper.
+  - Validation evidence: Targeted migration tests, `pnpm lint:fix`, `pnpm type-check`, and `pnpm test -- --silent` passed before the follow-up commit.
+  - Notes: No production migration SQL change.
 
 ## Decision Log
 - 2026-05-31 14:00 Decision:

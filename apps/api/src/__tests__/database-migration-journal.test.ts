@@ -24,15 +24,15 @@ function findRepoRoot(startDir: string): string {
   }
 }
 
-describe("database migration journal", () => {
-  function readJournal(): Journal {
-    const journalPath = resolve(
-      findRepoRoot(process.cwd()),
-      "packages/database/drizzle/meta/_journal.json",
-    );
-    return JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
-  }
+function readJournal(): Journal {
+  const journalPath = resolve(
+    findRepoRoot(process.cwd()),
+    "packages/database/drizzle/meta/_journal.json",
+  );
+  return JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
+}
 
+describe("database migration journal", () => {
   it("keeps migration timestamps strictly increasing", () => {
     const journal = readJournal();
 

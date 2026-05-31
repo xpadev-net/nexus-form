@@ -57,7 +57,10 @@ function compareStructuresByLiveOrder(
     return createdAtDiff;
   }
 
-  return right.id.localeCompare(left.id);
+  if (left.id === right.id) {
+    return 0;
+  }
+  return left.id > right.id ? -1 : 1;
 }
 
 function applyCompatibilityRule(
