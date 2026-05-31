@@ -742,8 +742,8 @@ export function useFormContentAutosave({
         keepaliveSentRef.current.plateContent === fallbackValue &&
         (fallbackVersion === versionRef.current ||
           editorValueRef.current === fallbackValue);
-      failedPendingKeepaliveRef.current = null;
       if (fallbackValue == null || fallbackVersion == null) return;
+      failedPendingKeepaliveRef.current = null;
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
