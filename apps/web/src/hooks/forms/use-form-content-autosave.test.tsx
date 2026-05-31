@@ -731,6 +731,64 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("stores a covered keepalive fallback with the version advanced by a stale success", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"keepalive draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"newer draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 8,
+      plateContent: keepaliveContent,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not start a false merge when keepalive saves pending value before in-flight autosave fails", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

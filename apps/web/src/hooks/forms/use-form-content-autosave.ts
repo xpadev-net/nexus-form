@@ -171,7 +171,7 @@ export function useFormContentAutosave({
     plateContent: string;
   } | null>(null);
   const pendingKeepaliveRetryRef = useRef<{
-    error: unknown;
+    errorKind: "conflict" | "failure";
     variables: ContentSaveInput;
   } | null>(null);
   const failedPendingKeepaliveRef = useRef<{
@@ -531,6 +531,17 @@ export function useFormContentAutosave({
           inFlightRequest.expectedVersion !== variables.expectedVersion ||
           inFlightRequest.plateContent !== variables.plateContent)
       ) {
+        if (data && "plateContentVersion" in data) {
+          versionRef.current = data.plateContentVersion;
+          baseContentRef.current = variables.plateContent;
+          lastSavedVersionRef.current = data.plateContentVersion;
+          pendingRemoteContentRef.current = null;
+          pendingRemoteVersionRef.current = null;
+          queryClient.setQueryData(["formContent", formId], {
+            plateContent: variables.plateContent,
+            plateContentVersion: data.plateContentVersion,
+          });
+        }
         clearResolvedPendingSave(formId, {
           expectedVersion: variables.expectedVersion,
           plateContent: variables.plateContent,
@@ -588,7 +599,7 @@ export function useFormContentAutosave({
         inFlightRequestRef.current = null;
         setIsSaving(false);
         pendingKeepaliveRetryRef.current = {
-          error: err,
+          errorKind: isConflictError(err) ? "conflict" : "failure",
           variables: {
             ...variables,
             plateContent: keepaliveSent.plateContent,
@@ -606,7 +617,7 @@ export function useFormContentAutosave({
         inFlightRequestRef.current = null;
         setIsSaving(false);
         pendingKeepaliveRetryRef.current = {
-          error: err,
+          errorKind: isConflictError(err) ? "conflict" : "failure",
           variables,
         };
         return;
@@ -652,7 +663,7 @@ export function useFormContentAutosave({
           retryAfterKeepaliveSave(variables);
         } else {
           pendingKeepaliveRetryRef.current = {
-            error: err,
+            errorKind: isConflictError(err) ? "conflict" : "failure",
             variables,
           };
         }
@@ -877,6 +888,9 @@ export function useFormContentAutosave({
                         expectedVersion: versionRef.current,
                       }),
                     );
+                    if (pendingRetry.errorKind === "failure") {
+                      toast.error("保存に失敗しました");
+                    }
                   }
                 } else {
                   pendingKeepaliveRetryRef.current = null;
@@ -885,8 +899,8 @@ export function useFormContentAutosave({
               failedPendingKeepaliveRef.current = null;
               if (
                 !didRetryAfterKeepaliveSave &&
-                inFlightRequest == null &&
-                inFlightRequestRef.current == null
+                inFlightRequestRef.current == null &&
+                keepaliveCoveredRequestRef.current == null
               ) {
                 setIsSaving(false);
               }
@@ -926,7 +940,7 @@ export function useFormContentAutosave({
                       })
                     : pendingBody(),
                 );
-                if (isConflictError(pendingRetry?.error)) {
+                if (pendingRetry?.errorKind === "conflict") {
                   void attemptMerge();
                 } else if (pendingRetry != null) {
                   lastSavedVersionRef.current = null;
@@ -972,7 +986,7 @@ export function useFormContentAutosave({
                     })
                   : pendingBody(),
               );
-              if (isConflictError(pendingRetry?.error)) {
+              if (pendingRetry?.errorKind === "conflict") {
                 void attemptMerge();
               } else if (pendingRetry != null) {
                 lastSavedVersionRef.current = null;
