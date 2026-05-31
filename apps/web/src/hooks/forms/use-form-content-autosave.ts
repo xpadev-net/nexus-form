@@ -786,18 +786,23 @@ export function useFormContentAutosave({
                 });
               }
               const pendingRetry = pendingKeepaliveRetryRef.current;
+              let didRetryAfterKeepaliveSave = false;
               if (
                 pendingRetry != null &&
                 pendingRetry.variables.expectedVersion === fallbackVersion &&
                 pendingRetry.variables.restoreGeneration === keepaliveGeneration
               ) {
                 if (pendingRetry.variables.plateContent !== fallbackValue) {
+                  didRetryAfterKeepaliveSave = true;
                   retryAfterKeepaliveSave(pendingRetry.variables);
                 } else {
                   pendingKeepaliveRetryRef.current = null;
                 }
               }
               failedPendingKeepaliveRef.current = null;
+              if (!didRetryAfterKeepaliveSave && inFlightRequest == null) {
+                setIsSaving(false);
+              }
               return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.

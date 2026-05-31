@@ -943,6 +943,42 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("clears the saving indicator after a pending-only keepalive succeeds", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const draftContent =
+      '[{"type":"p","children":[{"text":"keepalive saved draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(false);
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("queues a revert to base content while another autosave is in-flight", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
