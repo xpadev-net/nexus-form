@@ -870,6 +870,59 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("stores a pending keepalive retry instead of mutating after unmount", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"typed before unmount"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: newerContent,
+        restoreGeneration: 0,
+      });
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 8,
+      plateContent: newerContent,
+    });
+  });
+
   it("does not store stale keepalive content while a newer autosave is in-flight", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

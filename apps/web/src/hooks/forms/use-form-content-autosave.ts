@@ -580,6 +580,24 @@ export function useFormContentAutosave({
         keepaliveSent != null &&
         keepaliveSent.version === variables.expectedVersion &&
         keepaliveSent.generation === variables.restoreGeneration &&
+        isSameAutosaveRequest(keepaliveSent.coveredRequest, variables)
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        setIsSaving(false);
+        pendingKeepaliveRetryRef.current = {
+          error: err,
+          variables: {
+            ...variables,
+            plateContent: keepaliveSent.plateContent,
+          },
+        };
+        return;
+      }
+      if (
+        keepaliveSent != null &&
+        keepaliveSent.version === variables.expectedVersion &&
+        keepaliveSent.generation === variables.restoreGeneration &&
         keepaliveSent.plateContent === variables.plateContent
       ) {
         inFlightValueRef.current = null;
@@ -614,24 +632,6 @@ export function useFormContentAutosave({
         } else {
           toast.error("保存に失敗しました");
         }
-        return;
-      }
-      if (
-        keepaliveSent != null &&
-        keepaliveSent.version === variables.expectedVersion &&
-        keepaliveSent.generation === variables.restoreGeneration &&
-        isSameAutosaveRequest(keepaliveSent.coveredRequest, variables)
-      ) {
-        inFlightValueRef.current = null;
-        inFlightRequestRef.current = null;
-        setIsSaving(false);
-        pendingKeepaliveRetryRef.current = {
-          error: err,
-          variables: {
-            ...variables,
-            plateContent: keepaliveSent.plateContent,
-          },
-        };
         return;
       }
       if (
@@ -841,8 +841,21 @@ export function useFormContentAutosave({
                 pendingRetry.variables.restoreGeneration === keepaliveGeneration
               ) {
                 if (pendingRetry.variables.plateContent !== fallbackValue) {
-                  didRetryAfterKeepaliveSave = true;
-                  retryAfterKeepaliveSave(pendingRetry.variables);
+                  pendingKeepaliveRetryRef.current = null;
+                  if (canRetryAfterKeepaliveRef.current) {
+                    didRetryAfterKeepaliveSave = true;
+                    retryAfterKeepaliveSave(pendingRetry.variables);
+                  } else {
+                    didRetryAfterKeepaliveSave = true;
+                    lastSavedVersionRef.current = null;
+                    storePendingSave(
+                      formId,
+                      JSON.stringify({
+                        plateContent: pendingRetry.variables.plateContent,
+                        expectedVersion: versionRef.current,
+                      }),
+                    );
+                  }
                 } else {
                   pendingKeepaliveRetryRef.current = null;
                 }
