@@ -163,6 +163,7 @@ export function useFormContentAutosave({
     version: number;
     plateContent: string;
     coveredRequest?: InFlightAutosave;
+    superseded?: boolean;
   } | null>(null);
   const keepaliveCoveredRequestRef = useRef<InFlightAutosave | null>(null);
   const resolvedPendingKeepaliveRef = useRef<{
@@ -522,7 +523,10 @@ export function useFormContentAutosave({
         keepaliveSentRef.current.generation === variables.restoreGeneration &&
         editorValueRef.current !== keepaliveSentRef.current.plateContent
       ) {
-        keepaliveSentRef.current = null;
+        keepaliveSentRef.current = {
+          ...keepaliveSentRef.current,
+          superseded: true,
+        };
       }
       const inFlightRequest = inFlightRequestRef.current;
       if (
@@ -684,7 +688,19 @@ export function useFormContentAutosave({
           variables.plateContent === editorValueRef.current &&
           variables.plateContent !== baseContentRef.current
         ) {
-          retryAfterKeepaliveSave(variables);
+          const activeKeepalive = keepaliveSentRef.current;
+          if (
+            activeKeepalive != null &&
+            activeKeepalive.version === variables.expectedVersion &&
+            activeKeepalive.generation === variables.restoreGeneration
+          ) {
+            pendingKeepaliveRetryRef.current = {
+              errorKind: isConflictError(err) ? "conflict" : "failure",
+              variables,
+            };
+          } else {
+            retryAfterKeepaliveSave(variables);
+          }
         }
         return;
       }
@@ -757,6 +773,7 @@ export function useFormContentAutosave({
       }
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
       schedulePendingAutosave();
     },
@@ -772,6 +789,7 @@ export function useFormContentAutosave({
     ) => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
       }
       const pendingValue = pendingValueRef.current;
       const inFlightRequest = inFlightRequestRef.current;
@@ -788,6 +806,7 @@ export function useFormContentAutosave({
         keepaliveSentRef.current.version === fallbackVersion &&
         keepaliveSentRef.current.generation === keepaliveGeneration &&
         keepaliveSentRef.current.plateContent === fallbackValue &&
+        keepaliveSentRef.current.superseded !== true &&
         (allowLiveInFlight || inFlightRequestRef.current == null) &&
         (fallbackVersion === versionRef.current ||
           editorValueRef.current === fallbackValue);
@@ -900,8 +919,17 @@ export function useFormContentAutosave({
                 }
               }
               failedPendingKeepaliveRef.current = null;
+              if (pendingValueRef.current === fallbackValue) {
+                pendingValueRef.current = null;
+                if (saveTimerRef.current != null) {
+                  window.clearTimeout(saveTimerRef.current);
+                  saveTimerRef.current = null;
+                }
+              }
               if (
                 !didRetryAfterKeepaliveSave &&
+                pendingValueRef.current == null &&
+                saveTimerRef.current == null &&
                 inFlightRequestRef.current == null &&
                 keepaliveCoveredRequestRef.current == null
               ) {
