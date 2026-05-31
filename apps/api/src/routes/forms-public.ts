@@ -11,6 +11,7 @@ import {
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
+  buildAutoSheetsSyncJobId,
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
   getValidationResultId,
@@ -1079,7 +1080,7 @@ async function queueSheetsSyncIfNeeded(
       snapshotVersion: activeSnapshot?.version,
     });
     await getSheetsSyncQueue().add("auto-sync", jobData, {
-      jobId: `sheets:${integration.id}:${responseId}`,
+      jobId: buildAutoSheetsSyncJobId(integration.id, responseId),
     });
   }
 }

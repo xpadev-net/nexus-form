@@ -65,9 +65,14 @@ describe("queues", () => {
     getSheetsSyncQueue();
 
     expect(mocks.queueInstances[0]?.options.defaultJobOptions).toMatchObject({
-      attempts: 3,
       removeOnComplete: 100,
       removeOnFail: 100,
     });
+    expect(
+      mocks.queueInstances[0]?.options.defaultJobOptions,
+    ).not.toHaveProperty("attempts");
+    expect(
+      mocks.queueInstances[0]?.options.defaultJobOptions,
+    ).not.toHaveProperty("backoff");
   });
 });

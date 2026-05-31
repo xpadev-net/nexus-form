@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
+    addSheetsSyncJob: vi.fn(),
     addValidationJob: vi.fn(),
     consumeTokensOrThrow: vi.fn(),
     db: {
@@ -97,7 +98,7 @@ vi.mock("../lib/sessions/jwt", () => ({
 
 vi.mock("../lib/queues", () => ({
   getSheetsSyncQueue: vi.fn(() => ({
-    add: vi.fn().mockResolvedValue({ id: "sheets-job" }),
+    add: mocks.addSheetsSyncJob,
   })),
   getValidationQueue: vi.fn(() => ({
     add: mocks.addValidationJob,
@@ -285,6 +286,10 @@ describe("R11-C2-a public validation outbox", () => {
       mocks.sequence.push("queue:add");
       return { id: "validation-job-1" };
     });
+    mocks.addSheetsSyncJob.mockImplementation(async () => {
+      mocks.sequence.push("sheets:add");
+      return { id: "sheets-job" };
+    });
     mocks.db.update.mockReturnValue({
       set: vi.fn((values: unknown) => {
         mocks.updateSetValues.push(values);
@@ -423,6 +428,34 @@ describe("R11-C2-a public validation outbox", () => {
         ]),
       }),
     );
+  });
+
+  it("queues Sheets sync with a deterministic colon-free auto job id", async () => {
+    const snapshot = activeSnapshot([]);
+    useSuccessfulSubmitSelects(snapshot, {
+      responseRows: [{ id: "integration:one" }],
+    });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addSheetsSyncJob).toHaveBeenCalledWith(
+        "auto-sync",
+        expect.objectContaining({
+          formId: "form-1",
+          integrationId: "integration:one",
+          responseId: expect.any(String),
+          snapshotVersion: 7,
+        }),
+        expect.objectContaining({
+          jobId: expect.stringMatching(/^sheets-auto\.[^.]+\.[^.]+$/),
+        }),
+      );
+    });
+    const jobId = mocks.addSheetsSyncJob.mock.calls[0]?.[2]?.jobId;
+    expect(jobId).not.toContain(":");
   });
 
   it("keeps enqueue failures as FAILED ENQUEUE_FAILED after the tx-created PENDING row", async () => {
