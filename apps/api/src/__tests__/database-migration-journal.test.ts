@@ -25,12 +25,16 @@ function findRepoRoot(startDir: string): string {
 }
 
 describe("database migration journal", () => {
-  it("keeps migration timestamps strictly increasing", () => {
+  function readJournal(): Journal {
     const journalPath = resolve(
       findRepoRoot(process.cwd()),
       "packages/database/drizzle/meta/_journal.json",
     );
-    const journal = JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
+    return JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
+  }
+
+  it("keeps migration timestamps strictly increasing", () => {
+    const journal = readJournal();
 
     for (const [index, entry] of journal.entries.entries()) {
       const previous = journal.entries[index - 1];
@@ -41,5 +45,22 @@ describe("database migration journal", () => {
         `${entry.tag} must be newer than ${previous.tag}`,
       ).toBeGreaterThan(previous.when);
     }
+  });
+
+  it("keeps the configJson column migration after snapshot structure backfill", () => {
+    const journal = readJournal();
+    const snapshotStructure = journal.entries.find(
+      (entry) => entry.tag === "0011_snapshot_structure_json",
+    );
+    const configJsonColumn = journal.entries.find(
+      (entry) => entry.tag === "0012_config_json_column_type",
+    );
+
+    expect(snapshotStructure, "0011 migration must exist").toBeDefined();
+    expect(configJsonColumn, "0012 migration must exist").toBeDefined();
+    if (!snapshotStructure || !configJsonColumn) {
+      throw new Error("Required migrations are missing");
+    }
+    expect(configJsonColumn.when).toBeGreaterThan(snapshotStructure.when);
   });
 });
