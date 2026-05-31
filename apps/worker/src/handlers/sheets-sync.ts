@@ -546,14 +546,16 @@ async function waitForPendingIdempotencyToResolve(
       return "done";
     }
 
+    if (currentValue === "pending" && ttlMs > 0) {
+      continue;
+    }
+
     const sheetCheck = await readSheetForIdempotency(token, params);
     if (sheetCheck.exists) {
       return "done";
     }
 
-    if (currentValue !== "pending" || ttlMs <= 0) {
-      return "expired";
-    }
+    return "expired";
   }
 }
 

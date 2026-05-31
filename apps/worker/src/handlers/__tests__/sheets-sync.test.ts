@@ -357,6 +357,28 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
+  it('does not poll Google Sheets while the "pending" idempotency key is still live', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
+    mockGetIdempotencyKeyTtlMs
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      updatedRows: 1,
+    });
+    expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledTimes(2);
+    expect(mockReadRange).toHaveBeenCalledTimes(6);
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+  });
+
   it('fails closed when the "pending" idempotency sheet check fails', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");

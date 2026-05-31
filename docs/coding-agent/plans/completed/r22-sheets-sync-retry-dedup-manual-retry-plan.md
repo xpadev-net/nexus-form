@@ -171,6 +171,7 @@
     - Manual job ID design was updated to include a nonce.
     - Second review returned APPROVED with no findings.
     - `gh-review-hook` found a worker pending-idempotency path that still assumed BullMQ retry; worker now waits for the pending TTL to resolve in-process before writing.
+    - `gh-review-hook` then found the pending wait loop could over-read Sheets; the loop now polls Redis while pending is live and rechecks Sheets only after the guard resolves.
   - Validation evidence:
     - `rtk pnpm lint:fix`
     - `rtk pnpm type-check`
