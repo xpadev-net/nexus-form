@@ -327,6 +327,7 @@ export function useFormContentAutosave({
       keepaliveCoveredRequestRef.current = null;
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
+      setIsSaving(true);
       lastSavedVersionRef.current = saveBaseVersion + 1;
       mutateRef.current({
         plateContent: pendingValue,
@@ -683,7 +684,12 @@ export function useFormContentAutosave({
         }
         return;
       }
-      if (value === baseContentRef.current && pendingValueRef.current == null) {
+      if (
+        value === baseContentRef.current &&
+        pendingValueRef.current == null &&
+        inFlightRequestRef.current == null &&
+        inFlightValueRef.current == null
+      ) {
         return;
       }
       setIsSaving(true);
@@ -719,6 +725,8 @@ export function useFormContentAutosave({
         pendingValue != null
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
+      const shouldStoreFailedFallback = () =>
+        pendingValue != null || fallbackVersion === versionRef.current;
       failedPendingKeepaliveRef.current = null;
       if (fallbackValue == null || fallbackVersion == null) return;
       pendingValueRef.current = null;
@@ -783,35 +791,41 @@ export function useFormContentAutosave({
               pendingKeepaliveRetryRef.current = null;
             } else {
               keepaliveSentRef.current = null;
-              const pendingRetry = pendingKeepaliveRetryRef.current;
-              pendingKeepaliveRetryRef.current = null;
-              if (inFlightRequest == null) {
-                lastSavedVersionRef.current = null;
-                failedPendingKeepaliveRef.current = {
-                  generation: keepaliveGeneration,
-                  version: fallbackVersion,
-                };
-              }
-              storePendingSave(
-                formId,
-                pendingRetry != null &&
-                  pendingRetry.variables.expectedVersion === fallbackVersion &&
-                  pendingRetry.variables.restoreGeneration ===
-                    keepaliveGeneration
-                  ? JSON.stringify({
-                      plateContent: pendingRetry.variables.plateContent,
-                      expectedVersion: versionRef.current,
-                    })
-                  : pendingBody(),
-              );
-              if (isConflictError(pendingRetry?.error)) {
-                void attemptMerge();
+              if (shouldStoreFailedFallback()) {
+                const pendingRetry = pendingKeepaliveRetryRef.current;
+                pendingKeepaliveRetryRef.current = null;
+                if (inFlightRequest == null) {
+                  lastSavedVersionRef.current = null;
+                  failedPendingKeepaliveRef.current = {
+                    generation: keepaliveGeneration,
+                    version: fallbackVersion,
+                  };
+                }
+                storePendingSave(
+                  formId,
+                  pendingRetry != null &&
+                    pendingRetry.variables.expectedVersion ===
+                      fallbackVersion &&
+                    pendingRetry.variables.restoreGeneration ===
+                      keepaliveGeneration
+                    ? JSON.stringify({
+                        plateContent: pendingRetry.variables.plateContent,
+                        expectedVersion: versionRef.current,
+                      })
+                    : pendingBody(),
+                );
+                if (isConflictError(pendingRetry?.error)) {
+                  void attemptMerge();
+                }
               }
             }
           })
           .catch(() => {
             keepaliveSentRef.current = null;
-            if (baseContentRef.current !== fallbackValue) {
+            if (
+              baseContentRef.current !== fallbackValue &&
+              shouldStoreFailedFallback()
+            ) {
               const pendingRetry = pendingKeepaliveRetryRef.current;
               pendingKeepaliveRetryRef.current = null;
               if (inFlightRequest == null) {

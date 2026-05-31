@@ -10,7 +10,7 @@ const MAX_CONSECUTIVE_SSE_ERRORS = 3;
 const INITIAL_SSE_RECONNECT_DELAY_MS = 1_000;
 const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
 
-type EditorSSEOptions = {
+export type EditorSSEOptions = {
   /** イベント受信時のコールバック（useQuery を使わないコンポーネント向け） */
   onEvent?: (event: EditorSSEEvent) => void;
   /** 保留中の未保存値を追跡する ref。非 null の場合、document_changed の反映を抑制する */
@@ -22,6 +22,10 @@ type EditorSSEOptions = {
   /** コンフリクト解決中かどうかを示す ref。true の間は document_changed を無視する */
   isConflictActiveRef?: MutableRefObject<boolean>;
 };
+
+export type EditorLastSavedVersionRef = NonNullable<
+  EditorSSEOptions["lastSavedVersionRef"]
+>;
 
 /**
  * フォーム編集のリアルタイム更新を SSE で受信し、

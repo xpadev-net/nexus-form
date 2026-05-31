@@ -4,7 +4,11 @@ import { act, type ReactNode, useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
-import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
+import {
+  type EditorLastSavedVersionRef,
+  type EditorSSEOptions,
+  useEditorSSE,
+} from "@/hooks/forms/use-editor-sse";
 import {
   type UseFormContentAutosaveReturn,
   useFormContentAutosave,
@@ -58,11 +62,21 @@ interface TestMutationOptions {
   onError?: (error: unknown, variables: TestMutationVariables) => void;
 }
 
+interface DeferredKeepaliveResponse {
+  ok: boolean;
+  status: number;
+}
+
+interface DeferredKeepaliveFetch {
+  fetchMock: ReturnType<typeof vi.fn>;
+  resolveKeepalive: (response: DeferredKeepaliveResponse) => void;
+}
+
 let latestMutationOptions: TestMutationOptions | undefined;
 const attemptMergeMock = vi.fn();
 const useEditorSSEMock = vi.mocked(useEditorSSE);
 
-function getLatestEditorSSEOptions() {
+function getLatestEditorSSEOptions(): EditorSSEOptions {
   const call = useEditorSSEMock.mock.calls.at(-1);
   if (call == null) {
     throw new Error("useEditorSSE was not called");
@@ -74,7 +88,7 @@ function getLatestEditorSSEOptions() {
   return options;
 }
 
-function getLatestLastSavedVersionRef() {
+function getLatestLastSavedVersionRef(): EditorLastSavedVersionRef {
   const ref = getLatestEditorSSEOptions().lastSavedVersionRef;
   if (ref == null) {
     throw new Error("useEditorSSE lastSavedVersionRef was not provided");
@@ -153,7 +167,28 @@ function createMemoryStorage(): Storage {
   };
 }
 
-function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
+function stubDeferredKeepaliveFetch(): DeferredKeepaliveFetch {
+  let resolveKeepalive: (response: DeferredKeepaliveResponse) => void =
+    () => {};
+  const fetchMock = vi.fn(
+    () =>
+      new Promise<DeferredKeepaliveResponse>((resolve) => {
+        resolveKeepalive = resolve;
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  return {
+    fetchMock,
+    resolveKeepalive: (response: DeferredKeepaliveResponse) => {
+      resolveKeepalive(response);
+    },
+  };
+}
+
+function renderAutosave(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  onRender?: (hook: UseFormContentAutosaveReturn) => void,
+) {
   const container = document.createElement("div");
   const root = createRoot(container);
 
@@ -169,10 +204,11 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
     hookRef.current = hook;
 
     useEffect(() => {
+      onRender?.(hookRef.current);
       if (didNotifyReadyRef.current) return;
       didNotifyReadyRef.current = true;
       onReady(hookRef.current);
-    }, []);
+    });
 
     return <>{children}</>;
   }
@@ -570,15 +606,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("stores a newer pending value with the latest version when in-flight autosave wins before keepalive", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -636,15 +664,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("does not start a false merge when keepalive saves pending value before in-flight autosave fails", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -683,15 +703,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("does not start a false merge when in-flight autosave fails before keepalive resolves", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -733,15 +745,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("retries newer edits when a pending-only keepalive wins before autosave", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -805,15 +809,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("preserves edits typed before a pending-only keepalive retry resolves", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -889,17 +885,114 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps the saving indicator active when a deferred pending save starts after an in-flight save", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    expect(latestHook?.isSaving).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: pendingContent,
+      restoreGeneration: 0,
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("queues a revert to base content while another autosave is in-flight", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200 }),
+    );
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"temporary draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange("[]");
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: "[]",
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("starts merge when pending-only keepalive and newer autosave both conflict", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -950,15 +1043,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("does not start merge when newer autosave fails without conflict", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -1011,11 +1096,11 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("ignores stale failed pending keepalive when a later keepalive covers an in-flight save", async () => {
     vi.useFakeTimers();
     const keepaliveResolvers: Array<
-      (response: { ok: boolean; status: number }) => void
+      (response: DeferredKeepaliveResponse) => void
     > = [];
     const fetchMock = vi.fn(
       () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
+        new Promise<DeferredKeepaliveResponse>((resolve) => {
           keepaliveResolvers.push(resolve);
         }),
     );
@@ -1139,15 +1224,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("keeps newer edits when pending-only keepalive conflicts before newer autosave", async () => {
     vi.useFakeTimers();
     rpcMock.mockRejectedValue(new Error("retry unavailable"));
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
@@ -1204,15 +1281,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("starts merge when pending-only keepalive and matching autosave both conflict", async () => {
     vi.useFakeTimers();
-    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
-      () => {};
-    const fetchMock = vi.fn(
-      () =>
-        new Promise<{ ok: boolean; status: number }>((resolve) => {
-          resolveKeepalive = resolve;
-        }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
     let hook: UseFormContentAutosaveReturn | undefined;
     const root = renderAutosave((currentHook) => {
       hook = currentHook;
