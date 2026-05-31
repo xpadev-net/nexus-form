@@ -375,11 +375,11 @@ describe("handleSheetsSync — idempotency states", () => {
       updatedRows: 1,
     });
     expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledTimes(2);
-    expect(mockReadRange).toHaveBeenCalledTimes(4);
+    expect(mockReadRange).toHaveBeenCalledTimes(2);
     expect(mockAppendRows).toHaveBeenCalledOnce();
   });
 
-  it('fails closed when the "pending" idempotency sheet check fails', async () => {
+  it('fails closed when the expired "pending" idempotency sheet check fails', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");
     mockReadRange.mockResolvedValueOnce({
@@ -391,10 +391,14 @@ describe("handleSheetsSync — idempotency states", () => {
       "Failed to read sheet for idempotency check",
     );
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
   });
 
-  it('discards and throws when the "pending" idempotency sheet check requires auth', async () => {
+  it('discards and throws when the expired "pending" idempotency sheet check requires auth', async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue("pending");
     mockReadRange.mockResolvedValueOnce({
@@ -411,7 +415,11 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
   });
 
   it('promotes "pending" to "done" when the response row already exists', async () => {

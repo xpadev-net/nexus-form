@@ -328,15 +328,8 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         // progress, or the prior attempt crashed before the row was written.
         // Sheets sync jobs are no-retry, so wait for the pending guard to
         // resolve in-process before deciding whether this job should write.
-        const pendingResult = await waitForPendingIdempotencyToResolve(
-          idempotencyKey,
-          token,
-          {
-            spreadsheetId,
-            sheetName,
-            responseId: response.id,
-          },
-        );
+        const pendingResult =
+          await waitForPendingIdempotencyToResolve(idempotencyKey);
         if (pendingResult === "done") {
           return markDuplicateWritten();
         }
@@ -511,12 +504,6 @@ async function readSheetForIdempotency(
 
 async function waitForPendingIdempotencyToResolve(
   idempotencyKey: string,
-  token: OAuthToken,
-  params: {
-    spreadsheetId: string;
-    sheetName: string;
-    responseId: string;
-  },
 ): Promise<"done" | "expired"> {
   while (true) {
     const ttlMs = await getIdempotencyKeyTtlMs(idempotencyKey);
@@ -525,28 +512,32 @@ async function waitForPendingIdempotencyToResolve(
         `[sheets-sync] Pending idempotency key ${idempotencyKey} has no TTL`,
       );
     }
+    if (ttlMs <= 0) {
+      return "expired";
+    }
 
     await sleepForPendingIdempotency(
-      ttlMs > 0
-        ? Math.min(ttlMs, PENDING_IDEMPOTENCY_POLL_INTERVAL_MS)
-        : PENDING_IDEMPOTENCY_EXPIRED_SETTLE_MS,
+      Math.min(ttlMs, PENDING_IDEMPOTENCY_POLL_INTERVAL_MS),
     );
 
     const currentValue = await getIdempotencyKeyValue(idempotencyKey);
     if (currentValue === "done") {
       return "done";
     }
-
-    if (currentValue === "pending" && ttlMs > 0) {
-      continue;
+    if (currentValue !== "pending") {
+      return "expired";
     }
 
-    const sheetCheck = await readSheetForIdempotency(token, params);
-    if (sheetCheck.exists) {
-      return "done";
+    const refreshedTtlMs = await getIdempotencyKeyTtlMs(idempotencyKey);
+    if (refreshedTtlMs === -1) {
+      throw new Error(
+        `[sheets-sync] Pending idempotency key ${idempotencyKey} has no TTL`,
+      );
     }
-
-    return "expired";
+    if (refreshedTtlMs <= 0) {
+      await sleepForPendingIdempotency(PENDING_IDEMPOTENCY_EXPIRED_SETTLE_MS);
+      return "expired";
+    }
   }
 }
 

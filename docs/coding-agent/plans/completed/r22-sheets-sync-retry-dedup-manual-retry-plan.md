@@ -173,6 +173,7 @@
     - `gh-review-hook` found a worker pending-idempotency path that still assumed BullMQ retry; worker now waits for the pending TTL to resolve in-process before writing.
     - `gh-review-hook` then found the pending wait loop could over-read Sheets; the loop now polls Redis while pending is live and rechecks Sheets only after the guard resolves.
     - Sub-agent review found an initial live-pending Sheets read before the wait loop; that read was removed so live pending waits on Redis first.
+    - Follow-up hook feedback on stale TTL/double sheet reads was addressed by making the pending wait helper Redis-only and using the normal pre-append sheet check once after expiry.
   - Validation evidence:
     - `rtk pnpm lint:fix`
     - `rtk pnpm type-check`
