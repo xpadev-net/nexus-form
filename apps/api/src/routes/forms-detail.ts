@@ -79,6 +79,15 @@ const formMutationRateLimit = createRateLimit({
   },
 });
 
+function parseSnapshotPlateContent(plateContent: string): unknown[] | null {
+  try {
+    const parsed = JSON.parse(plateContent);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function getCurrentOrDefaultStructure(
   formId: string,
 ): Promise<FormStructure> {
@@ -300,19 +309,16 @@ export const formsDetailRouter = createHonoApp()
           400,
         );
       }
-      let parsedSnapshot: unknown;
-      try {
-        parsedSnapshot = JSON.parse(snapshot.plateContent);
-      } catch {
+      const parsedSnapshot = parseSnapshotPlateContent(snapshot.plateContent);
+      if (parsedSnapshot === null) {
         return c.json(
           errorResponse("公開用スナップショットの形式が不正です"),
           400,
         );
       }
 
-      const publishedQuestions = extractQuestionsFromPlateContent(
-        Array.isArray(parsedSnapshot) ? parsedSnapshot : [],
-      );
+      const publishedQuestions =
+        extractQuestionsFromPlateContent(parsedSnapshot);
       if (publishedQuestions.length === 0) {
         return c.json(
           errorResponse("質問がありません。質問を追加してから公開してください"),
