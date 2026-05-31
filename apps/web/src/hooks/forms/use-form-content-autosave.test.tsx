@@ -1569,6 +1569,123 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("clears the saving indicator when a pending-only visibility keepalive fails", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const draftContent =
+      '[{"type":"p","children":[{"text":"failed visibility draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    dispatchHiddenVisibilityChange();
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears the saving indicator when a pending-only visibility keepalive rejects", async () => {
+    vi.useFakeTimers();
+    let rejectKeepalive: (error: Error) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<never>((_, reject) => {
+          rejectKeepalive = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const draftContent =
+      '[{"type":"p","children":[{"text":"rejected visibility draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    dispatchHiddenVisibilityChange();
+    rejectKeepalive(new Error("network unavailable"));
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not report a visibility keepalive failure after unmount", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"unmounted visibility draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      root.unmount();
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+  });
+
   it("keeps the saving indicator active when pending-only keepalive succeeds after a new autosave starts", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();

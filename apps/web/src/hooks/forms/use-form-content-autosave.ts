@@ -946,6 +946,14 @@ export function useFormContentAutosave({
                 } else if (pendingRetry != null) {
                   lastSavedVersionRef.current = null;
                   toast.error("保存に失敗しました");
+                } else if (
+                  allowRetryAfterKeepaliveSave &&
+                  canRetryAfterKeepaliveRef.current &&
+                  inFlightRequest == null
+                ) {
+                  lastSavedVersionRef.current = null;
+                  setIsSaving(false);
+                  toast.error("保存に失敗しました");
                 }
               } else {
                 pendingKeepaliveRetryRef.current = null;
@@ -992,6 +1000,14 @@ export function useFormContentAutosave({
                 void attemptMerge();
               } else if (pendingRetry != null) {
                 lastSavedVersionRef.current = null;
+                toast.error("保存に失敗しました");
+              } else if (
+                allowRetryAfterKeepaliveSave &&
+                canRetryAfterKeepaliveRef.current &&
+                inFlightRequest == null
+              ) {
+                lastSavedVersionRef.current = null;
+                setIsSaving(false);
                 toast.error("保存に失敗しました");
               }
             } else {
