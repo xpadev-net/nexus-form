@@ -21,11 +21,6 @@ const VALIDATION_JOB_DEFAULTS: DefaultJobOptions = {
 
 const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
-  attempts: 3,
-  backoff: {
-    type: "exponential",
-    delay: 30_000,
-  },
 };
 
 let _sheetsSyncQueue: Queue | null = null;

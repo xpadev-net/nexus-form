@@ -158,7 +158,7 @@ describe("Google Sheets sync job status authorization", () => {
     });
   });
 
-  it("queues bounded manual sync jobs with deterministic ids and default retry settings", async () => {
+  it("queues bounded manual sync jobs with retryable ids and default retry settings", async () => {
     mocks.responseRows = [
       { responseId: "response-1" },
       { responseId: "response-2" },
@@ -195,13 +195,21 @@ describe("Google Sheets sync job status authorization", () => {
       },
     });
     expect(queuedJobs?.[0]?.opts).not.toHaveProperty("attempts");
+    expect(queuedJobs?.[0]?.opts).not.toHaveProperty("backoff");
+    expect(queuedJobs?.[0]?.opts?.jobId).toBe(body.jobId);
     expect(queuedJobs?.[0]?.opts?.jobId).toMatch(/^sheets-manual\./);
     expect(queuedJobs?.[0]?.opts?.jobId).not.toContain(":");
+    expect(queuedJobs?.[1]?.opts?.jobId).toMatch(/^sheets-manual\./);
+    expect(queuedJobs?.[1]?.opts?.jobId).not.toContain(":");
+    expect(queuedJobs?.[1]?.opts?.jobId).not.toBe(queuedJobs?.[0]?.opts?.jobId);
   });
 
-  it("returns the deterministic manual sync job id when BullMQ deduplicates an existing job", async () => {
-    mocks.responseRows = [{ responseId: "response-1" }];
-    mocks.addBulk.mockResolvedValueOnce([null]);
+  it("queues manual sync jobs with colon-free ids for colon-containing source ids", async () => {
+    mocks.getFormIntegration.mockResolvedValueOnce({
+      ...configuredIntegration("form-1"),
+      id: "integration:one",
+    });
+    mocks.responseRows = [{ responseId: "response:one" }];
 
     const { formsIntegrationsRouter } = await import(
       "../routes/forms-integrations"
@@ -219,10 +227,54 @@ describe("Google Sheets sync job status authorization", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toMatchObject({
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs?.[0]?.opts?.jobId).toBe(body.jobId);
+    expect(body.jobId).toMatch(/^sheets-manual\./);
+    expect(body.jobId).not.toContain(":");
+  });
+
+  it("generates a fresh manual sync job id when retrying the same failed response", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const firstResponse = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const firstBody = await firstResponse.json();
+
+    const retryResponse = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const retryBody = await retryResponse.json();
+
+    expect(firstResponse.status).toBe(200);
+    expect(retryResponse.status).toBe(200);
+    expect(firstBody).toMatchObject({
       jobId: expect.stringMatching(/^sheets-manual\./),
       status: "queued",
     });
+    expect(retryBody).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+    expect(retryBody.jobId).not.toBe(firstBody.jobId);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(2);
   });
 
   it("defaults manual sync to the latest response instead of replaying all rows", async () => {

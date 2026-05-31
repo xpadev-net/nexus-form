@@ -49,6 +49,7 @@ vi.mock("../../lib/oauth-token-store", () => ({
 
 vi.mock("../../lib/redis-lock", () => ({
   getIdempotencyKeyValue: vi.fn(),
+  getIdempotencyKeyTtlMs: vi.fn(),
   setIdempotencyKey: vi.fn(),
   withRedisLock: vi.fn(),
 }));
@@ -70,6 +71,7 @@ import {
   refreshTokenIfNeeded,
 } from "../../lib/oauth-token-store";
 import {
+  getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
   withRedisLock,
@@ -89,6 +91,7 @@ const mockExtractQuestionsFromPlateContent = vi.mocked(
   extractQuestionsFromPlateContent,
 );
 const mockGetIdempotencyKeyValue = vi.mocked(getIdempotencyKeyValue);
+const mockGetIdempotencyKeyTtlMs = vi.mocked(getIdempotencyKeyTtlMs);
 const mockSetIdempotencyKey = vi.mocked(setIdempotencyKey);
 const mockWithRedisLock = vi.mocked(withRedisLock);
 const mockGetOAuthToken = vi.mocked(getOAuthToken);
@@ -163,6 +166,7 @@ function setupHappyPathMocks() {
   mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
 
   mockGetIdempotencyKeyValue.mockResolvedValue(null);
+  mockGetIdempotencyKeyTtlMs.mockResolvedValue(0);
   mockSetIdempotencyKey.mockResolvedValue(undefined);
 
   mockReadRange.mockResolvedValue({
@@ -330,24 +334,83 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
-  it('throws a retry error when idempotency key is "pending"', async () => {
+  it('waits out a stale "pending" idempotency key and writes without BullMQ retry', async () => {
     setupHappyPathMocks();
-    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
     mockReadRange.mockResolvedValueOnce({
       ok: true,
       data: { values: [["Response ID", "block-1"]] },
     } as never);
 
-    await expect(handleSheetsSync(makeJob())).rejects.toThrow(
-      "[sheets-sync] Concurrent write in progress",
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      updatedRows: 1,
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
     );
-    expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockWithRedisLock).toHaveBeenCalledTimes(2);
   });
 
-  it('fails closed when the "pending" idempotency sheet check fails', async () => {
+  it('does not poll Google Sheets while the "pending" idempotency key is still live', async () => {
     setupHappyPathMocks();
-    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
+    mockGetIdempotencyKeyTtlMs
+      .mockResolvedValueOnce(1)
+      .mockResolvedValueOnce(0);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      updatedRows: 1,
+    });
+    expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledTimes(2);
+    expect(mockReadRange).toHaveBeenCalledTimes(2);
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockWithRedisLock).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns duplicate without reading Sheets when a live "pending" key becomes "done"', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce("done");
+    mockGetIdempotencyKeyTtlMs.mockResolvedValueOnce(1);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledOnce();
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockWithRedisLock).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed when the expired "pending" idempotency sheet check fails', async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
     mockReadRange.mockResolvedValueOnce({
       ok: false,
       error: { code: "internal", message: "Sheets unavailable" },
@@ -357,12 +420,18 @@ describe("handleSheetsSync — idempotency states", () => {
       "Failed to read sheet for idempotency check",
     );
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
   });
 
-  it('discards and throws when the "pending" idempotency sheet check requires auth', async () => {
+  it('discards and throws when the expired "pending" idempotency sheet check requires auth', async () => {
     setupHappyPathMocks();
-    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
     mockReadRange.mockResolvedValueOnce({
       ok: false,
       error: { code: "unauthorized", message: "invalid credentials" },
@@ -377,12 +446,18 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(job.discard).not.toHaveBeenCalled();
 
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
   });
 
   it('promotes "pending" to "done" when the response row already exists', async () => {
     setupHappyPathMocks();
-    mockGetIdempotencyKeyValue.mockResolvedValue("pending");
+    mockGetIdempotencyKeyValue
+      .mockResolvedValueOnce("pending")
+      .mockResolvedValueOnce(null);
     // First readRange call: header row (range !1:1)
     // Second readRange call: responseId column (range !A:A) — column A = "Response ID"
     mockReadRange
@@ -587,6 +662,7 @@ describe("handleSheetsSync — write path", () => {
 
     // SHEETS_API_TIMEOUT_MS=30000 × 4 (2 reads + 1 header update + 1 append) + SHEETS_SYNC_LOCK_BUFFER_MS=30000
     expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(150_000);
+    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(155_000);
     expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
       Math.ceil(SHEETS_SYNC_LOCK_TTL_MS / 1000),
     );

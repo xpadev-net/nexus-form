@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAutoSheetsSyncJobId,
+  buildManualSheetsSyncJobId,
   buildValidationRetryJobId,
   genericValidationJobDataSchema,
+  SHEETS_SYNC_AUTO_JOB_PREFIX,
+  SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
   VALIDATION_RETRY_JOB_PREFIX,
@@ -29,6 +33,46 @@ describe("validation retry job ids", () => {
     );
     expect(jobIdWithColonNonce).not.toContain(":");
     expect(jobIdWithColonNonce.endsWith("-job-nonce")).toBe(true);
+  });
+});
+
+describe("sheets sync job ids", () => {
+  it("builds deterministic colon-free auto and manual job ids", () => {
+    const autoJobId = buildAutoSheetsSyncJobId(
+      "integration:one",
+      "response:one",
+    );
+    const manualJobId = buildManualSheetsSyncJobId(
+      "integration:one",
+      "response:one",
+      "retry:one",
+    );
+
+    expect(autoJobId).toBe(
+      `${SHEETS_SYNC_AUTO_JOB_PREFIX}696e746567726174696f6e3a6f6e65.726573706f6e73653a6f6e65`,
+    );
+    expect(manualJobId).toBe(
+      `${SHEETS_SYNC_MANUAL_JOB_PREFIX}696e746567726174696f6e3a6f6e65.726573706f6e73653a6f6e65.72657472793a6f6e65`,
+    );
+    expect(autoJobId).not.toContain(":");
+    expect(manualJobId).not.toContain(":");
+    expect(buildAutoSheetsSyncJobId("integration:one", "response:one")).toBe(
+      autoJobId,
+    );
+    expect(
+      buildManualSheetsSyncJobId(
+        "integration:one",
+        "response:one",
+        "retry:one",
+      ),
+    ).toBe(manualJobId);
+    expect(
+      buildManualSheetsSyncJobId(
+        "integration:one",
+        "response:one",
+        "retry:two",
+      ),
+    ).not.toBe(manualJobId);
   });
 });
 

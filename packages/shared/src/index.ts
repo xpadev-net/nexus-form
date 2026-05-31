@@ -208,8 +208,12 @@ export type {
   SheetsSyncJobData,
 } from "./worker-jobs";
 export {
+  buildAutoSheetsSyncJobId,
+  buildManualSheetsSyncJobId,
   buildValidationRetryJobId,
   genericValidationJobDataSchema,
+  SHEETS_SYNC_AUTO_JOB_PREFIX,
+  SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
   VALIDATION_RETRY_JOB_PREFIX,
