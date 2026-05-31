@@ -471,14 +471,6 @@ export function useFormContentAutosave({
         keepaliveSentRef.current = null;
         return;
       }
-      const shouldClearKeepaliveSent =
-        keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.version === variables.expectedVersion &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration &&
-        keepaliveSentRef.current.plateContent === variables.plateContent;
-      if (shouldClearKeepaliveSent) {
-        keepaliveSentRef.current = null;
-      }
       const inFlightRequest = inFlightRequestRef.current;
       if (
         inFlightRequest != null &&
