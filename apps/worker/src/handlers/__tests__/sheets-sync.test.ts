@@ -629,6 +629,7 @@ describe("handleSheetsSync — write path", () => {
 
     // SHEETS_API_TIMEOUT_MS=30000 × 4 (2 reads + 1 header update + 1 append) + SHEETS_SYNC_LOCK_BUFFER_MS=30000
     expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(150_000);
+    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(185_000);
     expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
       Math.ceil(SHEETS_SYNC_LOCK_TTL_MS / 1000),
     );

@@ -125,8 +125,9 @@ const SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION;
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + SHEETS_SYNC_LOCK_BUFFER_MS;
-/** Exported public API: Redis lock wait timeout in ms; must exceed SHEETS_SYNC_LOCK_TTL_MS so contenders can observe completion. */
-export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
+/** Exported public API: Redis lock wait timeout in ms; covers lock TTL plus pending guard settling. */
+export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS =
+  SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS + 5_000;
 /** Exported public API: pending idempotency TTL in seconds; must exceed lock TTL by an extra retry margin. */
 export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
   (SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) / 1000,
