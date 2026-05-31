@@ -22,25 +22,30 @@ const queryClientMock = {
 };
 const mutateMock = vi.fn();
 const refetchMock = vi.fn().mockResolvedValue(undefined);
-const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
-  () => {
-    class MockRpcError extends Error {
-      status: number;
+const {
+  MockRpcError,
+  putContentMock,
+  rpcMock,
+  toastErrorMock,
+  toastWarningMock,
+} = vi.hoisted(() => {
+  class MockRpcError extends Error {
+    status: number;
 
-      constructor(status: number) {
-        super("rpc error");
-        this.status = status;
-      }
+    constructor(status: number) {
+      super("rpc error");
+      this.status = status;
     }
+  }
 
-    return {
-      MockRpcError,
-      putContentMock: vi.fn((input: unknown) => input),
-      rpcMock: vi.fn(),
-      toastWarningMock: vi.fn(),
-    };
-  },
-);
+  return {
+    MockRpcError,
+    putContentMock: vi.fn((input: unknown) => input),
+    rpcMock: vi.fn(),
+    toastErrorMock: vi.fn(),
+    toastWarningMock: vi.fn(),
+  };
+});
 
 interface TestMutationVariables {
   expectedVersion: number;
@@ -122,7 +127,7 @@ vi.mock("@/lib/api", () => ({
 
 vi.mock("sonner", () => ({
   toast: {
-    error: vi.fn(),
+    error: toastErrorMock,
     success: vi.fn(),
     warning: toastWarningMock,
   },
@@ -194,6 +199,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     putContentMock.mockClear();
     refetchMock.mockClear();
     rpcMock.mockReset();
+    toastErrorMock.mockClear();
     toastWarningMock.mockClear();
     attemptMergeMock.mockClear();
     useEditorSSEMock.mockClear();
@@ -797,6 +803,92 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("preserves edits typed before a pending-only keepalive retry resolves", async () => {
+    vi.useFakeTimers();
+    let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
+      () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; status: number }>((resolve) => {
+          resolveKeepalive = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const retryContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+    const latestContent = '[{"type":"p","children":[{"text":"latest draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(retryContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: retryContent,
+        restoreGeneration: 0,
+      });
+    });
+    act(() => {
+      hook?.handleContentChange(latestContent);
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: retryContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: retryContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 9 },
+        {
+          expectedVersion: 8,
+          plateContent: retryContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 9,
+      plateContent: latestContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("starts merge when pending-only keepalive and newer autosave both conflict", async () => {
     vi.useFakeTimers();
     let resolveKeepalive: (response: { ok: boolean; status: number }) => void =
@@ -894,6 +986,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         restoreGeneration: 0,
       });
     });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
 
     resolveKeepalive({ ok: false, status: 500 });
     await flushPromises();

@@ -16,6 +16,8 @@ const pendingSaveSchema = z.object({
 });
 
 const KEEPALIVE_LIMIT = 64 * 1024;
+const AUTOSAVE_DELAY_MS = 2000;
+const IN_FLIGHT_AUTOSAVE_RETRY_DELAY_MS = 250;
 
 function storePendingSave(formId: string, body: string) {
   try {
@@ -283,7 +285,9 @@ export function useFormContentAutosave({
     keepaliveSentRef.current = null;
     keepaliveCoveredRequestRef.current = null;
     pendingKeepaliveRetryRef.current = null;
-    pendingValueRef.current = null;
+    if (pendingValueRef.current === variables.plateContent) {
+      pendingValueRef.current = null;
+    }
     setIsSaving(true);
     lastSavedVersionRef.current = expectedVersion + 1;
     mutateRef.current({
@@ -291,6 +295,44 @@ export function useFormContentAutosave({
       expectedVersion,
       restoreGeneration: variables.restoreGeneration,
     });
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — all values read through refs
+  const schedulePendingAutosave = useCallback((delayMs = AUTOSAVE_DELAY_MS) => {
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      if (isMergingRef.current || isConflictActiveRef.current) {
+        saveTimerRef.current = null;
+        return;
+      }
+      const pendingValue = pendingValueRef.current;
+      saveTimerRef.current = null;
+      if (pendingValue == null) return;
+      if (
+        inFlightRequestRef.current != null ||
+        inFlightValueRef.current != null
+      ) {
+        schedulePendingAutosave(IN_FLIGHT_AUTOSAVE_RETRY_DELAY_MS);
+        return;
+      }
+      inFlightValueRef.current = pendingValue;
+      inFlightRequestRef.current = {
+        plateContent: pendingValue,
+        expectedVersion: versionRef.current,
+        restoreGeneration: restoreGenerationRef.current,
+      };
+      keepaliveCoveredRequestRef.current = null;
+      pendingValueRef.current = null;
+      const saveBaseVersion = versionRef.current;
+      lastSavedVersionRef.current = saveBaseVersion + 1;
+      mutateRef.current({
+        plateContent: pendingValue,
+        expectedVersion: saveBaseVersion,
+        restoreGeneration: restoreGenerationRef.current,
+      });
+    }, delayMs);
   }, []);
 
   const canonicalizePlateContent = useCallback((raw: string): string => {
@@ -593,6 +635,10 @@ export function useFormContentAutosave({
             error: err,
             variables,
           };
+          if (!isConflictError(err)) {
+            lastSavedVersionRef.current = null;
+            toast.error("保存に失敗しました");
+          }
         }
         return;
       }
@@ -625,56 +671,36 @@ export function useFormContentAutosave({
   mutateRef.current = contentMutation.mutate;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — all values read through refs
-  const handleContentChange = useCallback((value: string) => {
-    editorValueRef.current = value;
-    if (isConflictActiveRef.current || isMergingRef.current) {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        pendingValueRef.current = null;
-      }
-      return;
-    }
-    if (value === baseContentRef.current && pendingValueRef.current == null) {
-      return;
-    }
-    setIsSaving(true);
-    pendingValueRef.current = value;
-    if (suspendAutosaveRef.current) {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      return;
-    }
-    if (saveTimerRef.current != null) {
-      window.clearTimeout(saveTimerRef.current);
-    }
-    saveTimerRef.current = window.setTimeout(() => {
-      if (isMergingRef.current || isConflictActiveRef.current) {
-        saveTimerRef.current = null;
+  const handleContentChange = useCallback(
+    (value: string) => {
+      editorValueRef.current = value;
+      if (isConflictActiveRef.current || isMergingRef.current) {
+        if (saveTimerRef.current != null) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+          pendingValueRef.current = null;
+        }
         return;
       }
-      const pendingValue = pendingValueRef.current;
-      saveTimerRef.current = null;
-      if (pendingValue == null) return;
-      inFlightValueRef.current = pendingValue;
-      inFlightRequestRef.current = {
-        plateContent: pendingValue,
-        expectedVersion: versionRef.current,
-        restoreGeneration: restoreGenerationRef.current,
-      };
-      keepaliveCoveredRequestRef.current = null;
-      pendingValueRef.current = null;
-      const saveBaseVersion = versionRef.current;
-      lastSavedVersionRef.current = saveBaseVersion + 1;
-      mutateRef.current({
-        plateContent: pendingValue,
-        expectedVersion: saveBaseVersion,
-        restoreGeneration: restoreGenerationRef.current,
-      });
-    }, 2000);
-  }, []);
+      if (value === baseContentRef.current && pendingValueRef.current == null) {
+        return;
+      }
+      setIsSaving(true);
+      pendingValueRef.current = value;
+      if (suspendAutosaveRef.current) {
+        if (saveTimerRef.current != null) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        return;
+      }
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+      schedulePendingAutosave();
+    },
+    [schedulePendingAutosave],
+  );
 
   // Unmount/pagehide: clear timer and best-effort save via keepalive fetch.
   // Fall back both pendingValueRef (not yet fired) and inFlightValueRef
