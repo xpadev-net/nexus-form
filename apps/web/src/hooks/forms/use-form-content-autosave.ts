@@ -800,7 +800,11 @@ export function useFormContentAutosave({
                 }
               }
               failedPendingKeepaliveRef.current = null;
-              if (!didRetryAfterKeepaliveSave && inFlightRequest == null) {
+              if (
+                !didRetryAfterKeepaliveSave &&
+                inFlightRequest == null &&
+                inFlightRequestRef.current == null
+              ) {
                 setIsSaving(false);
               }
               return;

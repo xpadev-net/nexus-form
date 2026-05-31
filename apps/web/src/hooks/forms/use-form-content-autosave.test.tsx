@@ -979,6 +979,56 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps the saving indicator active when pending-only keepalive succeeds after a new autosave starts", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"keepalive draft"}]}]';
+    const newAutosaveContent =
+      '[{"type":"p","children":[{"text":"new autosave draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newAutosaveContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newAutosaveContent,
+      restoreGeneration: 0,
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("queues a revert to base content while another autosave is in-flight", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
