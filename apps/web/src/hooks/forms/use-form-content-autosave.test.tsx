@@ -244,6 +244,52 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("does not keep a pending save when keepalive rejects after regular autosave succeeds", async () => {
+    vi.useFakeTimers();
+    let rejectKeepalive: (error: Error) => void = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectKeepalive = reject;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+    act(() => {
+      root.unmount();
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    rejectKeepalive(new Error("network error"));
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
   it("does not keep a pending save when keepalive fetch succeeds", async () => {
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     localStorage.setItem(

@@ -646,7 +646,9 @@ export function useFormContentAutosave({
           })
           .catch(() => {
             keepaliveSentRef.current = null;
-            storePendingSave(formId, pendingBody());
+            if (baseContentRef.current !== fallbackValue) {
+              storePendingSave(formId, pendingBody());
+            }
           });
       } else {
         storePendingSave(formId, body);
