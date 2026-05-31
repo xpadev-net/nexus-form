@@ -660,7 +660,10 @@ export function useFormContentAutosave({
           versionRef.current !== keepaliveSent.version &&
           baseContentRef.current === keepaliveSent.plateContent
         ) {
-          retryAfterKeepaliveSave(variables);
+          pendingKeepaliveRetryRef.current = {
+            errorKind: isConflictError(err) ? "conflict" : "failure",
+            variables,
+          };
         } else {
           pendingKeepaliveRetryRef.current = {
             errorKind: isConflictError(err) ? "conflict" : "failure",
@@ -907,8 +910,32 @@ export function useFormContentAutosave({
               return;
             } else if (baseContentRef.current === fallbackValue) {
               // Regular autosave already saved this content; do not write a duplicate fallback.
+              const pendingRetry = pendingKeepaliveRetryRef.current;
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
+              if (
+                pendingRetry != null &&
+                pendingRetry.variables.expectedVersion === fallbackVersion &&
+                pendingRetry.variables.restoreGeneration ===
+                  keepaliveGeneration &&
+                pendingRetry.variables.plateContent !== fallbackValue
+              ) {
+                if (canRetryAfterKeepaliveRef.current) {
+                  retryAfterKeepaliveSave(pendingRetry.variables);
+                } else {
+                  lastSavedVersionRef.current = null;
+                  storePendingSave(
+                    formId,
+                    JSON.stringify({
+                      plateContent: pendingRetry.variables.plateContent,
+                      expectedVersion: versionRef.current,
+                    }),
+                  );
+                  if (pendingRetry.errorKind === "failure") {
+                    toast.error("保存に失敗しました");
+                  }
+                }
+              }
             } else {
               if (retryFallbackAfterLocalVersionAdvance()) {
                 return;
@@ -947,9 +974,8 @@ export function useFormContentAutosave({
                   lastSavedVersionRef.current = null;
                   toast.error("保存に失敗しました");
                 } else if (
-                  allowRetryAfterKeepaliveSave &&
                   canRetryAfterKeepaliveRef.current &&
-                  inFlightRequest == null
+                  (allowRetryAfterKeepaliveSave || inFlightRequest != null)
                 ) {
                   lastSavedVersionRef.current = null;
                   setIsSaving(false);
@@ -1002,9 +1028,8 @@ export function useFormContentAutosave({
                 lastSavedVersionRef.current = null;
                 toast.error("保存に失敗しました");
               } else if (
-                allowRetryAfterKeepaliveSave &&
                 canRetryAfterKeepaliveRef.current &&
-                inFlightRequest == null
+                (allowRetryAfterKeepaliveSave || inFlightRequest != null)
               ) {
                 lastSavedVersionRef.current = null;
                 setIsSaving(false);
