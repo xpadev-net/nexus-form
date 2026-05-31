@@ -517,6 +517,35 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("PROCESSING 更新直後に非 AbortError reason で shutdown しても PROCESSING に残さない", async () => {
+    const rule = makeRule();
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    mockMarkValidationProcessing.mockImplementationOnce(async () => {
+      shutdownSignalMock.abort(new Error("Worker shutdown"));
+    });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Worker shutdown" });
+    expect(rule.validate).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "test-provider",
+        success: false,
+        errorCode: "VALIDATION_ERROR",
+        errorMessage: "Worker shutdown",
+      }),
+    );
+  });
+
   it("markValidationProcessingがConcurrentDeleteError以外をスローした場合は再スローする", async () => {
     mockMarkValidationProcessing.mockRejectedValue(new Error("db unavailable"));
     const job = makeJob({

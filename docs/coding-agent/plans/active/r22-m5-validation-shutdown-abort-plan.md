@@ -136,7 +136,20 @@
     - `pnpm type-check` passed.
     - `pnpm test -- --silent` passed: 15 tasks.
   - Notes:
-    - Follow-up Reviewer dispatch pending after this fix.
+    - Follow-up Reviewer status: APPROVED / 指摘なし.
+
+- 2026-05-31 Third review hook fix applied
+  - Summary:
+    - Greptile identified the `throwIfShuttingDown` fallback could create a new AbortError outside the identity contract.
+    - `throwIfShuttingDown` now throws `workerShutdownSignal.reason` directly when present.
+    - Added coverage proving a non-AbortError shutdown reason after `PROCESSING` still writes a terminal result instead of leaving `PROCESSING`.
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts` passed: 51 tests.
+    - `pnpm lint:fix` passed.
+    - `pnpm type-check` passed.
+    - `pnpm test -- --silent` passed: 15 tasks.
+  - Notes:
+    - Follow-up Reviewer status: APPROVED / 指摘なし.
 
 ## Decision Log
 - 2026-05-31 Decision:

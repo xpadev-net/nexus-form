@@ -63,9 +63,10 @@ const RETRYABLE_CODES = new Set([
 
 function throwIfShuttingDown(): void {
   if (workerShutdownSignal.aborted) {
-    throw isAbortError(workerShutdownSignal.reason)
-      ? workerShutdownSignal.reason
-      : new DOMException("Worker shutting down", "AbortError");
+    throw (
+      workerShutdownSignal.reason ??
+      new DOMException("Worker shutting down", "AbortError")
+    );
   }
 }
 
