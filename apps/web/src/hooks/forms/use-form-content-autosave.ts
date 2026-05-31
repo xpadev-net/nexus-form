@@ -517,6 +517,7 @@ export function useFormContentAutosave({
         keepaliveSentRef.current = null;
       } else if (
         keepaliveSentRef.current != null &&
+        keepaliveSentRef.current.coveredRequest == null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
         keepaliveSentRef.current.generation === variables.restoreGeneration &&
         editorValueRef.current !== keepaliveSentRef.current.plateContent
@@ -572,6 +573,7 @@ export function useFormContentAutosave({
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
+        lastSavedVersionRef.current = null;
         keepaliveCoveredRequestRef.current = null;
         return;
       }

@@ -767,6 +767,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(getLatestLastSavedVersionRef().current).toBeNull();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
@@ -1080,6 +1081,60 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: keepaliveContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps covered keepalive tracking until the keepalive settles", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const inFlightContent = '[{"type":"p","children":[{"text":"first"}]}]';
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"pending keepalive"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"newer"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: inFlightContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
     expect(mutateMock).toHaveBeenLastCalledWith({
       expectedVersion: 8,
