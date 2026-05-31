@@ -509,14 +509,7 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
-      const shouldClearKeepaliveSent =
-        keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.version === variables.expectedVersion &&
-        keepaliveSentRef.current.generation === variables.restoreGeneration &&
-        keepaliveSentRef.current.plateContent === variables.plateContent;
-      if (shouldClearKeepaliveSent) {
-        keepaliveSentRef.current = null;
-      } else if (
+      if (
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.coveredRequest == null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
@@ -591,9 +584,17 @@ export function useFormContentAutosave({
       if (
         isSameAutosaveRequest(keepaliveCoveredRequestRef.current, variables)
       ) {
-        inFlightValueRef.current = null;
-        inFlightRequestRef.current = null;
-        setIsSaving(false);
+        const activeRequest = inFlightRequestRef.current;
+        if (isSameAutosaveRequest(activeRequest, variables)) {
+          inFlightValueRef.current = null;
+          inFlightRequestRef.current = null;
+        }
+        if (
+          activeRequest == null ||
+          isSameAutosaveRequest(activeRequest, variables)
+        ) {
+          setIsSaving(false);
+        }
         keepaliveCoveredRequestRef.current = null;
         return;
       }

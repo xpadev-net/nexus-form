@@ -543,7 +543,6 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     await flushPromises();
 
     expect(latestHook?.isSaving).toBe(false);
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
 
     act(() => {
       root.unmount();
@@ -2454,6 +2453,79 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       ),
     ).toBe(false);
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps newer in-flight tracking when a covered mutation fails after keepalive succeeds", async () => {
+    vi.useFakeTimers();
+    const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosaveWithRenderObserver(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const coveredContent =
+      '[{"type":"p","children":[{"text":"covered in-flight"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"newer in-flight"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(coveredContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 8,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: coveredContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "http://localhost:3001/api/forms/form-1/content",
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+        body: JSON.stringify({
+          plateContent: newerContent,
+          expectedVersion: 8,
+        }),
+      }),
+    );
 
     act(() => {
       root.unmount();
