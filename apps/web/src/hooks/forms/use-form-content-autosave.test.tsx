@@ -503,6 +503,53 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("clears saving when a failed keepalive resolves after regular autosave already saved the content", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosaveWithRenderObserver(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const draftContent =
+      '[{"type":"p","children":[{"text":"already saved keepalive"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(false);
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not keep a pending save when keepalive fetch succeeds", async () => {
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     localStorage.setItem(
@@ -2351,6 +2398,62 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     keepaliveResolvers[1]?.({ ok: true, status: 200 });
     await flushPromises();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not retry a stale pending keepalive after a newer keepalive succeeds", async () => {
+    const keepaliveResolvers: Array<
+      (response: DeferredKeepaliveResponse) => void
+    > = [];
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<DeferredKeepaliveResponse>((resolve) => {
+          keepaliveResolvers.push(resolve);
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const staleContent =
+      '[{"type":"p","children":[{"text":"stale pending retry"}]}]';
+    const newerContent =
+      '[{"type":"p","children":[{"text":"newer keepalive content"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(staleContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: staleContent,
+        restoreGeneration: 0,
+      });
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    keepaliveResolvers[1]?.({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(
+      mutateMock.mock.calls.some(
+        ([variables]) => variables.plateContent === staleContent,
+      ),
+    ).toBe(false);
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
 
     act(() => {
       root.unmount();

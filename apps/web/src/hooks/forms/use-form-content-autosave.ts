@@ -853,6 +853,7 @@ export function useFormContentAutosave({
         editorValueRef.current !== fallbackValue;
       failedPendingKeepaliveRef.current = null;
       resolvedPendingKeepaliveRef.current = null;
+      pendingKeepaliveRetryRef.current = null;
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
@@ -962,6 +963,7 @@ export function useFormContentAutosave({
               const pendingRetry = pendingKeepaliveRetryRef.current;
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
+              let didRetryAfterKeepaliveSave = false;
               if (
                 pendingRetry != null &&
                 pendingRetry.variables.expectedVersion === fallbackVersion &&
@@ -971,6 +973,7 @@ export function useFormContentAutosave({
               ) {
                 if (canRetryAfterKeepaliveRef.current) {
                   retryAfterKeepaliveSave(pendingRetry.variables);
+                  didRetryAfterKeepaliveSave = true;
                 } else {
                   lastSavedVersionRef.current = null;
                   storePendingSave(
@@ -984,6 +987,15 @@ export function useFormContentAutosave({
                     toast.error("保存に失敗しました");
                   }
                 }
+              }
+              if (
+                !didRetryAfterKeepaliveSave &&
+                pendingValueRef.current == null &&
+                saveTimerRef.current == null &&
+                inFlightRequestRef.current == null &&
+                keepaliveCoveredRequestRef.current == null
+              ) {
+                setIsSaving(false);
               }
             } else {
               if (retryFallbackAfterLocalVersionAdvance()) {
