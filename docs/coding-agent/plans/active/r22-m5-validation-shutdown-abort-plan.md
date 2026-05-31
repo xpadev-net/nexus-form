@@ -112,6 +112,19 @@
   - Notes:
     - `pnpm test --silent` failed because Turbo treats `--silent` as a Turbo argument unless passed after `--`.
 
+- 2026-05-31 Review hook fix applied
+  - Summary:
+    - Greptile identified Discord Redis lock shutdown AbortError was wrapped as `DISCORD_DISTRIBUTED_LOCK_TIMEOUT`.
+    - Inner Discord lock catch now rethrows shutdown AbortError before lock-timeout wrapping.
+    - Added Discord lock shutdown timing coverage.
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts` passed: 49 tests.
+    - `pnpm lint:fix` passed.
+    - `pnpm type-check` passed.
+    - `pnpm test -- --silent` passed: 15 tasks.
+  - Notes:
+    - Follow-up Reviewer dispatch pending after this fix.
+
 ## Decision Log
 - 2026-05-31 Decision:
   - Trigger / new insight: current implementation handles AbortError only on final BullMQ attempt, leaving non-final shutdown aborts able to keep rows in PROCESSING.

@@ -110,7 +110,7 @@ function isAbortError(error: unknown): error is DOMException {
   return error instanceof DOMException && error.name === "AbortError";
 }
 
-function isShutdownAbortError(error: unknown): boolean {
+function isShutdownAbortError(error: unknown): error is DOMException {
   return isAbortError(error) && workerShutdownSignal.aborted;
 }
 
@@ -319,6 +319,9 @@ export const handleGenericValidation = async (
           },
         );
       } catch (error) {
+        if (isShutdownAbortError(error)) {
+          throw error;
+        }
         if (isRedisLockAcquireTimeout(error)) {
           throw Object.assign(
             error instanceof Error ? error : new Error(String(error)),
@@ -334,8 +337,8 @@ export const handleGenericValidation = async (
     }
   } catch (error) {
     if (
-      isAbortError(error) &&
-      (isShutdownAbortError(error) || isFinalBullMqAttempt(job))
+      isShutdownAbortError(error) ||
+      (isAbortError(error) && isFinalBullMqAttempt(job))
     ) {
       await writeValidationResult({
         responseId,

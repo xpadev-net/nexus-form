@@ -650,6 +650,41 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("Discord validation の Redis lock 待機中 shutdown AbortError は FAILED へ更新する", async () => {
+    mockWithRedisLock.mockImplementationOnce(async () => {
+      shutdownSignalMock.abort(
+        new DOMException("Worker shutdown", "AbortError"),
+      );
+      throw new DOMException("Worker shutdown", "AbortError");
+    });
+    const rule = makeRule();
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+      attemptsMade: 1,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Validation interrupted during shutdown",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "discord",
+        success: false,
+        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
+      }),
+    );
+  });
+
   it("バリデーション失敗時にok:falseを返す", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
