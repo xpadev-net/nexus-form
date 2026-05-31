@@ -164,6 +164,11 @@ export function useFormContentAutosave({
     coveredRequest?: InFlightAutosave;
   } | null>(null);
   const keepaliveCoveredRequestRef = useRef<InFlightAutosave | null>(null);
+  const resolvedPendingKeepaliveRef = useRef<{
+    generation: number;
+    version: number;
+    plateContent: string;
+  } | null>(null);
   const pendingKeepaliveRetryRef = useRef<{
     error: unknown;
     variables: ContentSaveInput;
@@ -457,6 +462,7 @@ export function useFormContentAutosave({
       inFlightRequestRef.current = null;
       keepaliveSentRef.current = null;
       keepaliveCoveredRequestRef.current = null;
+      resolvedPendingKeepaliveRef.current = null;
       pendingKeepaliveRetryRef.current = null;
       failedPendingKeepaliveRef.current = null;
       lastSavedVersionRef.current = null;
@@ -646,10 +652,23 @@ export function useFormContentAutosave({
             error: err,
             variables,
           };
-          if (!isConflictError(err)) {
-            lastSavedVersionRef.current = null;
-            toast.error("保存に失敗しました");
-          }
+        }
+        return;
+      }
+      const resolvedPendingKeepalive = resolvedPendingKeepaliveRef.current;
+      if (
+        resolvedPendingKeepalive != null &&
+        resolvedPendingKeepalive.version === variables.expectedVersion &&
+        resolvedPendingKeepalive.generation === variables.restoreGeneration &&
+        versionRef.current !== resolvedPendingKeepalive.version &&
+        baseContentRef.current === resolvedPendingKeepalive.plateContent
+      ) {
+        inFlightValueRef.current = null;
+        inFlightRequestRef.current = null;
+        setIsSaving(false);
+        resolvedPendingKeepaliveRef.current = null;
+        if (variables.plateContent !== resolvedPendingKeepalive.plateContent) {
+          retryAfterKeepaliveSave(variables);
         }
         return;
       }
@@ -735,15 +754,17 @@ export function useFormContentAutosave({
           ? versionRef.current
           : inFlightRequest?.expectedVersion;
       const keepaliveGeneration = restoreGenerationRef.current;
-      const shouldStoreFailedFallback = () =>
+      const shouldStoreFailedFallback = (allowLiveInFlight = false) =>
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === fallbackVersion &&
         keepaliveSentRef.current.generation === keepaliveGeneration &&
         keepaliveSentRef.current.plateContent === fallbackValue &&
+        (allowLiveInFlight || inFlightRequestRef.current == null) &&
         (fallbackVersion === versionRef.current ||
           editorValueRef.current === fallbackValue);
       if (fallbackValue == null || fallbackVersion == null) return;
       failedPendingKeepaliveRef.current = null;
+      resolvedPendingKeepaliveRef.current = null;
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
       inFlightRequestRef.current = null;
@@ -775,11 +796,19 @@ export function useFormContentAutosave({
         )
           .then((response) => {
             if (response?.ok) {
+              keepaliveSentRef.current = null;
               if (versionRef.current === fallbackVersion) {
                 versionRef.current = fallbackVersion + 1;
                 baseContentRef.current = fallbackValue;
                 lastSavedVersionRef.current = fallbackVersion + 1;
                 keepaliveCoveredRequestRef.current = inFlightRequest;
+                if (inFlightRequest == null) {
+                  resolvedPendingKeepaliveRef.current = {
+                    generation: keepaliveGeneration,
+                    version: fallbackVersion,
+                    plateContent: fallbackValue,
+                  };
+                }
                 clearResolvedPendingSave(formId, {
                   expectedVersion: fallbackVersion,
                   plateContent: fallbackValue,
@@ -813,7 +842,9 @@ export function useFormContentAutosave({
               keepaliveSentRef.current = null;
               pendingKeepaliveRetryRef.current = null;
             } else {
-              const shouldStoreFallback = shouldStoreFailedFallback();
+              const shouldStoreFallback = shouldStoreFailedFallback(
+                response.status === 409,
+              );
               keepaliveSentRef.current = null;
               if (shouldStoreFallback) {
                 const pendingRetry = pendingKeepaliveRetryRef.current;
@@ -840,6 +871,9 @@ export function useFormContentAutosave({
                 );
                 if (isConflictError(pendingRetry?.error)) {
                   void attemptMerge();
+                } else if (pendingRetry != null) {
+                  lastSavedVersionRef.current = null;
+                  toast.error("保存に失敗しました");
                 }
               } else {
                 pendingKeepaliveRetryRef.current = null;
@@ -880,6 +914,9 @@ export function useFormContentAutosave({
               );
               if (isConflictError(pendingRetry?.error)) {
                 void attemptMerge();
+              } else if (pendingRetry != null) {
+                lastSavedVersionRef.current = null;
+                toast.error("保存に失敗しました");
               }
             } else {
               pendingKeepaliveRetryRef.current = null;

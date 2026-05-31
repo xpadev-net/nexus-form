@@ -802,6 +802,186 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("does not store stale keepalive content while a newer autosave is in-flight", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const keepaliveContent =
+      '[{"type":"p","children":[{"text":"hidden draft"}]}]';
+    const newerContent = '[{"type":"p","children":[{"text":"visible draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(keepaliveContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(newerContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).toHaveBeenLastCalledWith({
+      expectedVersion: 7,
+      plateContent: newerContent,
+      restoreGeneration: 0,
+    });
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: newerContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("defers save failure toast while matching pending-only keepalive is unresolved", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"transient draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("reports save failure after matching pending-only keepalive also fails", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"failed transient draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(toastErrorMock).not.toHaveBeenCalled();
+
+    resolveKeepalive({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears pending keepalive tracking after a pending-only keepalive succeeds", async () => {
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const draftContent =
+      '[{"type":"p","children":[{"text":"keepalive only draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+    expect(mutateMock).not.toHaveBeenCalled();
+
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(500), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(mutateMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("retries newer edits when a pending-only keepalive wins before autosave", async () => {
     vi.useFakeTimers();
     const { fetchMock, resolveKeepalive } = stubDeferredKeepaliveFetch();
@@ -1217,13 +1397,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       });
     });
 
-    expect(toastErrorMock).toHaveBeenCalledTimes(1);
-    expect(getLatestLastSavedVersionRef().current).toBeNull();
+    expect(toastErrorMock).not.toHaveBeenCalled();
 
     resolveKeepalive({ ok: false, status: 500 });
     await flushPromises();
 
     expect(attemptMergeMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
     ).toEqual({
