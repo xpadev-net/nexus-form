@@ -161,6 +161,14 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makePublicSubmitFingerprints(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    type: "browser" as const,
+    name: `component-${index}`,
+    value_hash: `hash-${index.toString().padStart(3, "0")}`,
+  }));
+}
+
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
   let callIdx = 0;
@@ -542,6 +550,114 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     await expect(
       checkFormPermissionLevel(editorCtx, FORM_ID, "VIEWER"),
     ).resolves.toBeUndefined();
+  });
+});
+
+// ── R15-C1: Public submit fingerprint payload limit ───────────────────────
+
+describe("R15-C1: public submit accepts full fingerprint payloads", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it("accepts fingerprint-required submissions with 200 fingerprint components", async () => {
+    const { db } = await import("@nexus-form/database");
+    const schema = await import("@nexus-form/database/schema");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            id: "1",
+            type: "form_short_text",
+            blockId: "q1",
+            children: [{ text: "Name" }],
+          },
+        ]),
+        structureJson: JSON.stringify({
+          version: 1,
+          settings: {
+            allow_edit_responses: false,
+            require_fingerprint: true,
+          },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+    ]);
+
+    let insertedFingerprints: unknown;
+    const txInsert = vi.fn((table: unknown) => ({
+      values: vi.fn(async (values: unknown) => {
+        if (table === schema.fingerprintDetail) {
+          insertedFingerprints = values;
+        }
+      }),
+    }));
+    const txSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+    txSpy.mockImplementation(async (fn) =>
+      fn({ insert: txInsert, select: vi.fn() }),
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: makePublicSubmitFingerprints(200),
+        }),
+      },
+    );
+
+    expect(res.status).toBe(201);
+    expect(txSpy).toHaveBeenCalledOnce();
+    expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
+    expect(insertedFingerprints).toHaveLength(200);
+    txSpy.mockRestore();
+  });
+
+  it("rejects fingerprint payloads above 200 before database work", async () => {
+    const { db } = await import("@nexus-form/database");
+    const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+      .select;
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: makePublicSubmitFingerprints(201),
+        }),
+      },
+    );
+
+    expect(res.status).toBe(400);
+    expect(dbSelect).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
   });
 });
 
