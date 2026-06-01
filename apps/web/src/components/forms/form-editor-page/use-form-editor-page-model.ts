@@ -30,8 +30,14 @@ export function useFormEditorPageModel(formId: string) {
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
     retry: shouldRetryQuery,
   });
+  const isNotFound =
+    formQuery.error instanceof RpcError && formQuery.error.status === 404;
 
-  usePageTitle(formQuery.data?.form?.title ?? "フォームを編集");
+  usePageTitle(
+    isNotFound
+      ? "フォームが見つかりません"
+      : (formQuery.data?.form?.title ?? "フォームを編集"),
+  );
 
   const contentQuery = useQuery({
     enabled: !formQuery.isError,
@@ -149,8 +155,6 @@ export function useFormEditorPageModel(formId: string) {
   });
 
   const formData = formQuery.data?.form;
-  const isNotFound =
-    formQuery.error instanceof RpcError && formQuery.error.status === 404;
   const formIdForStatus = formData?.id;
   const rawFormStatus = formData?.status;
   const formStatusResult = FormStatus.safeParse(rawFormStatus);
