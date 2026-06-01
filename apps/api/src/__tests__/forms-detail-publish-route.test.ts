@@ -126,7 +126,7 @@ describe("POST /:id/publish", () => {
     expect(mocks.updateSet).not.toHaveBeenCalled();
   });
 
-  it("returns 400 without publishing when the active snapshot JSON is not an array", async () => {
+  it("returns 400 without publishing when the active snapshot JSON is not an array and is treated as no questions", async () => {
     mocks.getLatestSnapshot.mockResolvedValue({
       id: "snapshot-1",
       formId: "form-1",
@@ -148,7 +148,7 @@ describe("POST /:id/publish", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "公開用スナップショットの形式が不正です",
+      error: "質問がありません。質問を追加してから公開してください",
     });
     expect(mocks.updateSet).not.toHaveBeenCalled();
   });
