@@ -138,7 +138,7 @@ describe("publish snapshot target copy", () => {
 
     expect(container.textContent).toContain("未公開の変更2件");
     expect(container.textContent).toContain(
-      "現在の編集内容を v1 として公開します。",
+      "公開する場合は現在の編集内容を v1 として公開します。保存のみでは公開版は変更されません。",
     );
     expect(container.textContent).toContain("現在の公開版はありません");
 

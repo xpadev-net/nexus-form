@@ -39,7 +39,8 @@ export const UnpublishedChangesSection: FC<UnpublishedChangesSectionProps> = ({
           )}
         </div>
         <p className="pl-6 text-xs text-muted-foreground">
-          現在の編集内容を v{state.nextSnapshotVersion} として公開します。
+          公開する場合は現在の編集内容を v{state.nextSnapshotVersion}{" "}
+          として公開します。保存のみでは公開版は変更されません。
           {currentPublicVersion}
         </p>
         <div className="flex flex-wrap gap-2">
