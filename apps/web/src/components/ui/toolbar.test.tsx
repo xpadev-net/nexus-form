@@ -89,8 +89,8 @@ describe("Toolbar accessible names", () => {
 
   it("exposes split toolbar actions and option triggers with distinct names", () => {
     const { cleanup, container } = renderToolbar(
-      <ToolbarSplitButton tooltip="Bulleted list">
-        <ToolbarSplitButtonPrimary aria-label="Bulleted list">
+      <ToolbarSplitButton pressed={false} tooltip="Bulleted list">
+        <ToolbarSplitButtonPrimary>
           <PlusIcon />
         </ToolbarSplitButtonPrimary>
         <ToolbarSplitButtonSecondary aria-label="Bulleted list options" />
@@ -99,7 +99,7 @@ describe("Toolbar accessible names", () => {
 
     try {
       expect(
-        getByRole(container, "button", { name: "Bulleted list" }),
+        getByRole(container, "radio", { name: "Bulleted list" }),
       ).toBeTruthy();
       expect(
         getByRole(container, "button", { name: "Bulleted list options" }),

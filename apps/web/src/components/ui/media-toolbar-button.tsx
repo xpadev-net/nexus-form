@@ -120,9 +120,7 @@ export function MediaToolbarButton({
         }}
         pressed={open}
       >
-        <ToolbarSplitButtonPrimary aria-label={currentConfig.title}>
-          {currentConfig.icon}
-        </ToolbarSplitButtonPrimary>
+        <ToolbarSplitButtonPrimary>{currentConfig.icon}</ToolbarSplitButtonPrimary>
 
         <DropdownMenu
           open={open}
