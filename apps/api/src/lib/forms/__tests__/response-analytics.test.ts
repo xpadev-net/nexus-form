@@ -155,6 +155,43 @@ function loadByCursor<T extends { id: string; submittedAt: Date | string }>(
 }
 
 describe("aggregateAllBlocksInBatches", () => {
+  it("returns empty analytics for configured blocks when there are no responses", async () => {
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      blocks,
+      loadByCursor([]),
+      { batchSize: 2 },
+    );
+
+    expect(actual).toEqual(aggregateAllBlocks("form-1", blocks, []));
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          block_id: "choice-block",
+          total_responses: 0,
+          response_rate: 0,
+          analytics_data: expect.objectContaining({
+            total_responses: 0,
+            options: [
+              { label: "Same label", count: 0, percentage: 0 },
+              { label: "Same label", count: 0, percentage: 0 },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "text-block",
+          total_responses: 0,
+          response_rate: 0,
+          analytics_data: {
+            total_responses: 0,
+            responses: [],
+            word_count_stats: undefined,
+          },
+        }),
+      ]),
+    );
+  });
+
   it("matches the non-batched aggregate across multiple response batches", async () => {
     const responses = [
       responseRow("response-1", 1, "a"),
