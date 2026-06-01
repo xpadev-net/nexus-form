@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const schema = {
@@ -199,6 +199,55 @@ function activeSnapshot(
       },
     }),
   };
+}
+
+function publicSnapshot(options: {
+  title: string;
+  version: number;
+  blockId: string;
+  questionTitle: string;
+}) {
+  return {
+    ...activeSnapshot([]),
+    id: `snapshot-${options.version}`,
+    version: options.version,
+    title: options.title,
+    plateContent: JSON.stringify([
+      {
+        type: "form_short_text",
+        blockId: options.blockId,
+        children: [{ text: options.questionTitle }],
+      },
+    ]),
+  };
+}
+
+type PublicGetBody = {
+  form: { status: string; title: string };
+  plateContent: string | null;
+};
+
+function usePublicGetSelect(params: {
+  status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+  dueScheduleId: string | null;
+}) {
+  useSelectResults([
+    [
+      {
+        id: "form-1",
+        publicId: "public-form-1",
+        title: "Schedule form",
+        description: null,
+        status: params.status,
+        dueScheduleId: params.dueScheduleId,
+      },
+    ],
+  ]);
+}
+
+async function getPublicForm() {
+  const { formsPublicRouter } = await import("../routes/forms-public");
+  return formsPublicRouter.request("/public/public-form-1");
 }
 
 function useSuccessfulSubmitSelects(
@@ -625,5 +674,116 @@ describe("R11-C2-a public validation outbox", () => {
 
     expect(response.status).toBe(201);
     expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+  });
+});
+
+describe("R23-T3 scheduled public form visibility", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    mocks.processFormSchedule.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps the public form hidden before the publish start time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    usePublicGetSelect({ status: "DRAFT", dueScheduleId: null });
+
+    const response = await getPublicForm();
+
+    expect(response.status).toBe(404);
+    expect(mocks.processFormSchedule).not.toHaveBeenCalled();
+    expect(mocks.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("shows the scheduled snapshot after the publish start time", async () => {
+    const now = new Date("2026-06-01T00:01:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const snapshot = publicSnapshot({
+      title: "Launch snapshot",
+      version: 1,
+      blockId: "start-block",
+      questionTitle: "Visible after start",
+    });
+    usePublicGetSelect({ status: "DRAFT", dueScheduleId: "schedule-start" });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "PUBLISHED",
+      message: "Form automatically published based on schedule",
+    });
+    mocks.getLatestSnapshot.mockImplementationOnce(async () => {
+      expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+      return snapshot;
+    });
+
+    const response = await getPublicForm();
+    const body = (await response.json()) as PublicGetBody;
+
+    expect(response.status).toBe(200);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+    expect(body.form.status).toBe("PUBLISHED");
+    expect(body.plateContent).toBe(snapshot.plateContent);
+    expect(body.plateContent).toContain("Visible after start");
+  });
+
+  it("hides the public form after the scheduled deadline unpublishes it", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:02:00.000Z"));
+    usePublicGetSelect({
+      status: "PUBLISHED",
+      dueScheduleId: "schedule-deadline",
+    });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "UNPUBLISHED",
+      message: "Form automatically unpublished based on schedule",
+    });
+
+    const response = await getPublicForm();
+
+    expect(response.status).toBe(404);
+    expect(mocks.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("keeps the form public and serves the switched active snapshot", async () => {
+    const now = new Date("2026-06-01T00:03:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const switchedSnapshot = publicSnapshot({
+      title: "Switched snapshot",
+      version: 2,
+      blockId: "switch-block",
+      questionTitle: "Visible after snapshot switch",
+    });
+    usePublicGetSelect({
+      status: "PUBLISHED",
+      dueScheduleId: "schedule-switch",
+    });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: false,
+      newStatus: "PUBLISHED",
+      message: "Snapshot switched to version 2 based on schedule",
+    });
+    mocks.getLatestSnapshot.mockImplementationOnce(async () => {
+      expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+      return switchedSnapshot;
+    });
+
+    const response = await getPublicForm();
+    const body = (await response.json()) as PublicGetBody;
+
+    expect(response.status).toBe(200);
+    expect(body.form.status).toBe("PUBLISHED");
+    expect(body.plateContent).toBe(switchedSnapshot.plateContent);
+    expect(body.plateContent).toContain("Visible after snapshot switch");
   });
 });
