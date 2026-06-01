@@ -854,6 +854,171 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("GitHub validation 成功時は metadata を含む結果を DB/SSE 書き込み経路へ渡す", async () => {
+    const githubMetadata = {
+      username: "octocat",
+      userId: 1,
+      displayName: "Octocat",
+      avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+      profileUrl: "https://github.com/octocat",
+      bio: "A cat",
+      publicRepos: 8,
+      followers: 5000,
+      following: 9,
+      createdAt: "2011-01-25T18:44:36Z",
+      updatedAt: "2023-01-01T00:00:00Z",
+    };
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: true,
+        metadata: githubMetadata,
+      }),
+      metadataSchema: {
+        safeParse: vi.fn().mockReturnValue({
+          success: true,
+          data: githubMetadata,
+        }),
+      } as unknown as ValidationProviderRule["metadataSchema"],
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "github",
+      snapshotRuleType: "default",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: true, provider: "github" });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "github",
+        success: true,
+        metadata: githubMetadata,
+      }),
+    );
+  });
+
+  it("GitHub validation の入力形式が不正な場合は validate を呼ばずに INPUT_VALIDATION_ERROR を書き込む", async () => {
+    const validateFn = vi.fn().mockResolvedValue({ isValid: true });
+    const rule = makeRule({
+      inputSchema: {
+        parse: vi.fn().mockImplementation(() => {
+          throw new Error("Invalid GitHub username");
+        }),
+      } as unknown as ValidationProviderRule["inputSchema"],
+      validate: validateFn,
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "github",
+      snapshotRuleType: "default",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Input validation failed" });
+    expect(validateFn).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "github",
+        success: false,
+        errorCode: "INPUT_VALIDATION_ERROR",
+        errorMessage: "Invalid input format",
+      }),
+    );
+  });
+
+  it.each([
+    ["timeout", "TIMEOUT"],
+    ["5xx", "GITHUB_API_ERROR"],
+  ])("GitHub retryable %s result without retryAfter は最終試行前に BullMQ retry へ委譲し結果を書かない", async (_caseName, errorCode) => {
+    const safeGitHubApiFailureMessage =
+      "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode,
+        errorMessage: safeGitHubApiFailureMessage,
+      }),
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "github",
+      snapshotRuleType: "default",
+      attemptsMade: 1,
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      safeGitHubApiFailureMessage,
+    );
+
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("GitHub retryable result without retryAfter は最終 BullMQ attempt で安全な失敗理由を書き込み遅延再試行しない", async () => {
+    const safeGitHubApiFailureMessage =
+      "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "TIMEOUT",
+        errorMessage: safeGitHubApiFailureMessage,
+      }),
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "github" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "github",
+      snapshotRuleType: "default",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "github",
+        success: false,
+        errorCode: "TIMEOUT",
+        errorMessage: safeGitHubApiFailureMessage,
+      }),
+    );
+    const writtenPayload = mockWriteValidationResult.mock.calls[0]?.[0];
+    expect(writtenPayload?.errorMessage).not.toContain("api.github.com");
+    expect(writtenPayload?.errorMessage).not.toContain("token=secret");
+  });
+
   it("バリデーション失敗時にok:falseを返す", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({

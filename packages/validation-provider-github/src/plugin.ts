@@ -23,6 +23,11 @@ const RETRYABLE_GITHUB_HTTP_STATUSES = new Set([500, 502, 503, 504]);
 
 const GitHubMetadataSchema = GitHubUserInfoSchema;
 
+const GITHUB_EXTERNAL_SERVICE_ERROR_MESSAGE =
+  "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
+const GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE =
+  "GitHub APIへのリクエストに失敗しました";
+
 const invalidGitHubApiResponseResult: ValidationProviderResult = Object.freeze({
   isValid: false,
   errorCode: GitHubErrorCode.GITHUB_API_ERROR,
@@ -49,6 +54,32 @@ function resolveGitHubClient(): ReturnType<typeof getGitHubClient> {
   } catch {
     return getGitHubClient();
   }
+}
+
+function isRetryableGitHubProviderError(error: {
+  code: GitHubErrorCode;
+  status?: number;
+}): boolean {
+  return (
+    RETRYABLE_GITHUB_ERROR_CODES.has(error.code) ||
+    (error.status != null && RETRYABLE_GITHUB_HTTP_STATUSES.has(error.status))
+  );
+}
+
+function getSafeGitHubProviderErrorMessage(error: {
+  code: GitHubErrorCode;
+  status?: number;
+}): string {
+  if (isRetryableGitHubProviderError(error)) {
+    if (error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
+      return "GitHub API rate limit exceeded";
+    }
+    return GITHUB_EXTERNAL_SERVICE_ERROR_MESSAGE;
+  }
+  if (error.code === GitHubErrorCode.GITHUB_AUTH_FAILED) {
+    return "GitHub API authentication failed";
+  }
+  return GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE;
 }
 
 const userExistsRule: ValidationProviderRule = {
@@ -102,14 +133,12 @@ const userExistsRule: ValidationProviderRule = {
           error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
             ? error.retryAfter
             : undefined;
+        const retryable = isRetryableGitHubProviderError(error);
         return {
           isValid: false,
           errorCode: error.code,
-          errorMessage: error.message,
-          retryable:
-            RETRYABLE_GITHUB_ERROR_CODES.has(error.code) ||
-            (error.status != null &&
-              RETRYABLE_GITHUB_HTTP_STATUSES.has(error.status)),
+          errorMessage: getSafeGitHubProviderErrorMessage(error),
+          retryable,
           ...(error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
             ? {
                 retryAfter:
@@ -119,12 +148,10 @@ const userExistsRule: ValidationProviderRule = {
         };
       }
 
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
       return {
         isValid: false,
         errorCode: GitHubErrorCode.GITHUB_API_ERROR,
-        errorMessage,
+        errorMessage: GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE,
       };
     }
   },
