@@ -953,6 +953,58 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("stores a covered keepalive fallback when in-flight autosave fails before keepalive settles", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosaveWithRenderObserver(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const inFlightContent =
+      '[{"type":"p","children":[{"text":"first draft"}]}]';
+    const pendingContent =
+      '[{"type":"p","children":[{"text":"second draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(inFlightContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      hook?.handleContentChange(pendingContent);
+    });
+    dispatchHiddenVisibilityChange();
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(409), {
+        expectedVersion: 7,
+        plateContent: inFlightContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    resolveKeepalive({ ok: false, status: 409 });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: pendingContent,
+    });
+    expect(latestHook?.isSaving).toBe(false);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("reports an active autosave failure after a newer edit and clears the echo version", () => {
     vi.useFakeTimers();
     let hook: UseFormContentAutosaveReturn | undefined;

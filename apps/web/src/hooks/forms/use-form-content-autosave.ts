@@ -513,6 +513,11 @@ export function useFormContentAutosave({
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
         keepaliveSentRef.current.generation === variables.restoreGeneration &&
+        (!isSameAutosaveRequest(
+          keepaliveSentRef.current.coveredRequest ?? null,
+          variables,
+        ) ||
+          keepaliveSentRef.current.plateContent === variables.plateContent) &&
         editorValueRef.current !== keepaliveSentRef.current.plateContent
       ) {
         keepaliveSentRef.current = {
@@ -772,10 +777,16 @@ export function useFormContentAutosave({
     (value: string) => {
       editorValueRef.current = value;
       const keepaliveSent = keepaliveSentRef.current;
+      const coveredRequestResolvedAtCurrentVersion =
+        keepaliveSent?.coveredRequest != null &&
+        versionRef.current === keepaliveSent.version + 1 &&
+        baseContentRef.current === keepaliveSent.coveredRequest.plateContent;
       if (
         keepaliveSent?.superseded === true &&
         keepaliveSent.generation === restoreGenerationRef.current &&
-        keepaliveSent.plateContent === value
+        keepaliveSent.plateContent === value &&
+        (keepaliveSent.version === versionRef.current ||
+          coveredRequestResolvedAtCurrentVersion)
       ) {
         keepaliveSentRef.current = {
           ...keepaliveSent,
@@ -844,6 +855,15 @@ export function useFormContentAutosave({
       if (fallbackValue == null || fallbackVersion == null) return;
       const shouldStoreFailedFallback = (allowLiveInFlight = false) => {
         const keepaliveSent = keepaliveSentRef.current;
+        const coveredRequestResolvedAtCurrentVersion =
+          keepaliveSent?.coveredRequest != null &&
+          inFlightRequestAtKeepaliveDispatch != null &&
+          isSameAutosaveRequest(
+            keepaliveSent.coveredRequest,
+            inFlightRequestAtKeepaliveDispatch,
+          ) &&
+          versionRef.current === fallbackVersion + 1 &&
+          baseContentRef.current === keepaliveSent.coveredRequest.plateContent;
         return (
           keepaliveSent != null &&
           keepaliveSent.version === fallbackVersion &&
@@ -857,6 +877,7 @@ export function useFormContentAutosave({
               inFlightRequestAtKeepaliveDispatch,
             )) &&
           (fallbackVersion === versionRef.current ||
+            coveredRequestResolvedAtCurrentVersion ||
             editorValueRef.current === fallbackValue)
         );
       };
