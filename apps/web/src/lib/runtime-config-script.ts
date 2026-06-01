@@ -35,9 +35,18 @@ export function injectRuntimeConfigScript(
   html: string,
   env: RuntimeConfigEnv,
 ): string {
+  const envConfigScriptPattern =
+    /<script\b(?=[^>]*\bsrc=(["'])\/env-config\.js\1)[^>]*>\s*<\/script>/;
+  const envConfigScriptTag = html.match(envConfigScriptPattern)?.[0];
+  if (!envConfigScriptTag) {
+    throw new Error(
+      "Unable to inject runtime config: missing /env-config.js script tag in index.html",
+    );
+  }
+
   const scriptTag = `<script>${createRuntimeConfigScript(env)}</script>`;
   return html.replace(
-    '<script src="/env-config.js"></script>',
-    `${scriptTag}\n    <script src="/env-config.js"></script>`,
+    envConfigScriptTag,
+    `${scriptTag}\n    ${envConfigScriptTag}`,
   );
 }

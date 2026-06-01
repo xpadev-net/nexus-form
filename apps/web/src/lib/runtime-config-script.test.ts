@@ -27,7 +27,9 @@ describe("createRuntimeConfig", () => {
       telemetryV6Host: "ipv6.example.com",
     });
   });
+});
 
+describe("createRuntimeConfigScript", () => {
   it("serializes hCaptcha and telemetry values into window config", () => {
     const script = createRuntimeConfigScript({
       VITE_HCAPTCHA_SITE_KEY: "10000000-ffff-ffff-ffff-000000000001",
@@ -48,7 +50,9 @@ describe("createRuntimeConfig", () => {
       }),
     );
   });
+});
 
+describe("injectRuntimeConfigScript", () => {
   it("injects the initial runtime config before container runtime overrides", () => {
     const html = [
       "<html>",
@@ -74,6 +78,35 @@ describe("createRuntimeConfig", () => {
       transformedHtml.indexOf("window.__NEXUS_FORM_CONFIG__"),
     ).toBeLessThan(
       transformedHtml.indexOf('<script src="/env-config.js"></script>'),
+    );
+  });
+
+  it("supports attributes on the env config script anchor", () => {
+    const html = [
+      "<html>",
+      "  <head>",
+      `    <script defer crossorigin="anonymous" src='/env-config.js'></script>`,
+      "  </head>",
+      "</html>",
+    ].join("\n");
+
+    const transformedHtml = injectRuntimeConfigScript(html, {
+      VITE_HCAPTCHA_SITE_KEY: "10000000-ffff-ffff-ffff-000000000001",
+    });
+
+    expect(transformedHtml).toContain("window.__NEXUS_FORM_CONFIG__ = ");
+    expect(
+      transformedHtml.indexOf("window.__NEXUS_FORM_CONFIG__"),
+    ).toBeLessThan(transformedHtml.indexOf("src='/env-config.js'"));
+  });
+
+  it("fails fast when the env config script anchor is missing", () => {
+    expect(() =>
+      injectRuntimeConfigScript("<html><head></head></html>", {
+        VITE_HCAPTCHA_SITE_KEY: "10000000-ffff-ffff-ffff-000000000001",
+      }),
+    ).toThrow(
+      "Unable to inject runtime config: missing /env-config.js script tag in index.html",
     );
   });
 });
