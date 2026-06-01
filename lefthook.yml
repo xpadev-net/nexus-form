@@ -28,4 +28,4 @@ pre-push:
     type-check:
       run: pnpm type-check
     test:
-      run: pnpm test
+      run: TURBO_CONCURRENCY=1 pnpm test -- --maxWorkers=1
