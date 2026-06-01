@@ -35,8 +35,6 @@ export default defineConfig({
     globals: true,
     hookTimeout: 30000,
     testTimeout: 30000,
-    maxWorkers: 1,
-    fileParallelism: false,
     exclude: ["**/node_modules/**", "**/dist/**"],
   },
 });

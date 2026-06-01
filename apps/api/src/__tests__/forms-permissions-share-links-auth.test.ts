@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
   getUserFormPermission: vi.fn(),
   getFormPermissions: vi.fn(),
   getShareLinks: vi.fn(),
+  formPermissionTable: {
+    formId: "formPermission.formId",
+    id: "formPermission.id",
+    userId: "formPermission.userId",
+  },
   permissionLookupLimit: vi.fn(),
   PermissionRemovalError: class PermissionRemovalError extends Error {
     code: string;
@@ -33,6 +38,13 @@ const mocks = vi.hoisted(() => ({
   txInsert: vi.fn(),
   txInsertValues: vi.fn(),
   updateShareLink: vi.fn(),
+  userTable: {
+    id: "user.id",
+    name: "user.name",
+    email: "user.email",
+    createdAt: "user.createdAt",
+    updatedAt: "user.updatedAt",
+  },
   userLookupLimit: vi.fn(),
   validateShareLinkRole: vi.fn(),
 }));
@@ -42,22 +54,12 @@ vi.mock("@nexus-form/database", () => ({
     select: mocks.dbSelect,
     transaction: mocks.dbTransaction,
   },
-  user: {
-    id: "user.id",
-    name: "user.name",
-    email: "user.email",
-    createdAt: "user.createdAt",
-    updatedAt: "user.updatedAt",
-  },
+  user: mocks.userTable,
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
   formInvitation: {},
-  formPermission: {
-    formId: "formPermission.formId",
-    id: "formPermission.id",
-    userId: "formPermission.userId",
-  },
+  formPermission: mocks.formPermissionTable,
   formShareLink: {
     id: "formShareLink.id",
     formId: "formShareLink.formId",
@@ -364,7 +366,7 @@ describe("R14-H6 permission creation user existence checks", () => {
         callback: (transaction: {
           insert: typeof mocks.txInsert;
           select: () => {
-            from: () => {
+            from: (table: unknown) => {
               where: () => {
                 limit:
                   | typeof mocks.userLookupLimit
@@ -374,24 +376,23 @@ describe("R14-H6 permission creation user existence checks", () => {
           };
         }) => Promise<unknown>,
       ) => {
-        let selectCount = 0;
         const tx = {
           insert: mocks.txInsert.mockReturnValue({
             values: mocks.txInsertValues,
           }),
-          select: () => {
-            selectCount += 1;
-            return {
-              from: () => ({
-                where: () => ({
-                  limit:
-                    selectCount === 1
-                      ? mocks.userLookupLimit
-                      : mocks.permissionLookupLimit,
-                }),
-              }),
-            };
-          },
+          select: () => ({
+            from: (table: unknown) => {
+              if (table === mocks.userTable) {
+                return { where: () => ({ limit: mocks.userLookupLimit }) };
+              }
+              if (table === mocks.formPermissionTable) {
+                return {
+                  where: () => ({ limit: mocks.permissionLookupLimit }),
+                };
+              }
+              throw new Error("Unexpected permission creation lookup table");
+            },
+          }),
         };
         return callback(tx);
       },

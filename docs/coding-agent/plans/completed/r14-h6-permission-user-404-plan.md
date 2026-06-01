@@ -143,12 +143,19 @@
 - 2026-06-01 Pre-push validation alignment
   - Summary:
     - Local pre-push hook runs plain `turbo test`; API vitest parallelism hit the same existing timeout-sensitive suites that were already documented in validation.
-    - Aligned `apps/api/vitest.config.ts` with the successful full-test validation by setting `maxWorkers: 1` and `fileParallelism: false`.
+    - First aligned `apps/api/vitest.config.ts` with the successful full-test validation by setting `maxWorkers: 1` and `fileParallelism: false`.
+    - After Greptile review, removed the global API Vitest sequential setting and scoped `--maxWorkers=1` to the pre-push hook test command instead.
+    - Replaced the order-dependent permission creation transaction mock with table-aware `.from()` matching.
   - Validation evidence:
     - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-permissions-share-links-auth.test.ts` passed: 16 tests.
     - `pnpm lint:fix` passed: 9 tasks.
     - `pnpm type-check` passed: 16 tasks.
     - `pnpm test -- --silent` passed: 15 tasks, API 76 files / 714 tests.
+    - After Greptile follow-up changes:
+      - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-permissions-share-links-auth.test.ts` passed: 16 tests.
+      - `pnpm lint:fix` passed: 9 tasks.
+      - `pnpm type-check` passed: 16 tasks.
+      - `TURBO_CONCURRENCY=1 pnpm test -- --silent --maxWorkers=1` passed: 15 tasks, API 76 files / 714 tests.
   - Notes:
     - This keeps the hook on normal verification rather than bypassing pre-push checks.
 
@@ -178,3 +185,8 @@
   - Plan delta (what changed): API Vitest config に deterministic worker limit を追加し、local hook と通過済み full-test 条件を揃えた。
   - Tradeoffs considered: hook bypass は禁止されているため使わず、既存の timeout-sensitive suites を安定実行する test config 変更に限定した。
   - User approval: no separate approval requested; required to satisfy push/merge delegation without bypassing hooks.
+- 2026-06-01 Decision:
+  - Trigger / new insight: Greptile が API Vitest global sequential 設定と order-dependent transaction mock を指摘した。
+  - Plan delta (what changed): API Vitest global 設定を戻し、pre-push hook の test command だけ `TURBO_CONCURRENCY=1 pnpm test -- --maxWorkers=1` に変更した。transaction mock は `.from()` の table identity で user / formPermission を判定するようにした。
+  - Tradeoffs considered: global test slowdown は避け、hook bypass なしで local pre-push の安定性を確保する範囲に閉じた。
+  - User approval: requested by review hook feedback.
