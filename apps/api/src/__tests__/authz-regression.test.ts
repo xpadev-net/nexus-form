@@ -656,36 +656,40 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
   );
 
-  it("rejects fingerprint payloads above 200 before database work", async () => {
-    const { db } = await import("@nexus-form/database");
-    const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
-      .select;
-    const transactionSpy = vi.spyOn(
-      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
-      "transaction",
-    );
+  it(
+    "rejects fingerprint payloads above 200 before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
 
-    const { formsPublicRouter } = await import("../routes/forms-public");
+      const { formsPublicRouter } = await import("../routes/forms-public");
 
-    const res = await formsPublicRouter.request(
-      "/public/test-public-id/submit",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          responses: [],
-          captchaToken: "test-captcha-token",
-          telemetry: { v4Token: "tok-v4" },
-          fingerprints: makePublicSubmitFingerprints(201),
-        }),
-      },
-    );
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            fingerprints: makePublicSubmitFingerprints(201),
+          }),
+        },
+      );
 
-    expect(res.status).toBe(400);
-    expect(dbSelect).not.toHaveBeenCalled();
-    expect(transactionSpy).not.toHaveBeenCalled();
-    transactionSpy.mockRestore();
-  });
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
 });
 
 // ── R3-H3: Captcha gates public submit validation and DB work ────────────────
