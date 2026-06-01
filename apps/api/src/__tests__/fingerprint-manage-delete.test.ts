@@ -171,4 +171,29 @@ describe("DELETE /manage fingerprint cleanup", () => {
       ],
     });
   });
+
+  it("applies the stricter destructive rate limit to cleanup deletes", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    const { fingerprintRouter } = await import("../routes/fingerprint");
+    clearRateLimitStoreForTests();
+
+    let res: Response | null = null;
+    for (let i = 0; i < 11; i++) {
+      res = await fingerprintRouter.request("/manage", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-forwarded-for": "203.0.113.74",
+        },
+        body: JSON.stringify({ before: "2026-01-01T00:00:00.000Z" }),
+      });
+    }
+
+    if (!res) throw new Error("Expected a response");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
 });

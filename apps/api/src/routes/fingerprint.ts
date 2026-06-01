@@ -79,6 +79,19 @@ const fingerprintMutationRateLimit = createRateLimit({
   },
 });
 
+const fingerprintDestructiveRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:fingerprint-destructive:${subject}:${c.req.path}`;
+  },
+});
+
 async function getResponseFormId(responseId: string): Promise<string | null> {
   const [resp] = await db
     .select({ formId: formResponse.formId })
@@ -275,7 +288,7 @@ export const fingerprintRouter = createHonoApp()
   .delete(
     "/manage",
     withDualAuth(["admin"]),
-    fingerprintMutationRateLimit,
+    fingerprintDestructiveRateLimit,
     zValidator("json", deleteManageSchema),
     async (c) => {
       const { responseId, formId, before } = c.req.valid("json");
@@ -356,7 +369,7 @@ export const fingerprintRouter = createHonoApp()
   .put(
     "/retention",
     withDualAuth(["admin"]),
-    fingerprintMutationRateLimit,
+    fingerprintDestructiveRateLimit,
     async (c) => {
       const manager = getDataRetentionManager();
       const result = await manager.cleanupExpiredData();
