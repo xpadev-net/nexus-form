@@ -18,6 +18,7 @@ import {
 } from "@nexus-form/database/schema";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { Context } from "hono";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
@@ -69,19 +70,27 @@ const transferOwnerSchema = z.object({
 const formMutationRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   maxRequests: 30,
-  keyGenerator: (c) => {
-    const auth = c.get("dualAuthContext");
-    const subject =
-      auth?.user_id !== undefined
-        ? `user:${auth.user_id}`
-        : `ip:${getClientIp(c)}`;
-    return `rate_limit:forms-detail:${subject}:${c.req.path}`;
-  },
+  keyGenerator: (c) =>
+    `rate_limit:forms-detail:${getRateLimitSubject(c)}:${c.req.path}`,
+});
+
+const formDestructiveMutationRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  keyGenerator: (c) =>
+    `rate_limit:forms-detail-destructive:${getRateLimitSubject(c)}:${c.req.path}`,
 });
 
 type SnapshotPlateContentParseResult =
   | { ok: true; plateContent: unknown }
   | { ok: false };
+
+function getRateLimitSubject(c: Context): string {
+  const auth = c.get("dualAuthContext");
+  return auth?.user_id !== undefined
+    ? `user:${auth.user_id}`
+    : `ip:${getClientIp(c)}`;
+}
 
 function parseSnapshotPlateContent(
   plateContent: string,
@@ -228,7 +237,7 @@ export const formsDetailRouter = createHonoApp()
   .delete(
     "/:id",
     withDualFormAuth("OWNER"),
-    formMutationRateLimit,
+    formDestructiveMutationRateLimit,
     async (c) => {
       const id = c.req.param("id");
 
@@ -378,7 +387,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/regenerate-public-url",
     withDualFormAuth("EDITOR"),
-    formMutationRateLimit,
+    formDestructiveMutationRateLimit,
     async (c) => {
       const id = c.req.param("id");
       const publicId = randomUUID();
@@ -389,7 +398,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/transfer-ownership",
     withDualFormAuth("OWNER"),
-    formMutationRateLimit,
+    formDestructiveMutationRateLimit,
     zValidator("json", transferOwnerSchema),
     async (c) => {
       const id = c.req.param("id");

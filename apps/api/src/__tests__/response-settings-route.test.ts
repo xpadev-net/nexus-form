@@ -247,4 +247,44 @@ describe("PATCH /:id/settings/responses", () => {
       },
     });
   });
+
+  it("returns 429 when response settings updates exceed the forms-detail mutation rate limit", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    clearRateLimitStoreForTests();
+    mocks.getFormStructure.mockResolvedValue({
+      version: 2,
+      settings: {
+        allow_edit_responses: false,
+      },
+    });
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const responses: Response[] = [];
+    for (let i = 0; i < 31; i++) {
+      responses.push(
+        await formsDetailRouter.request("/form-1/settings/responses", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            allowEdit: true,
+            maxResponses: null,
+            requireFingerprint: false,
+          }),
+        }),
+      );
+    }
+
+    for (const allowed of responses.slice(0, 30)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const limited = responses[30];
+    if (!limited) throw new Error("Expected a rate-limited response");
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("X-RateLimit-Limit")).toBe("30");
+    expect(limited.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+    await expect(limited.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
 });

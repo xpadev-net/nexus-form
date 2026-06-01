@@ -166,4 +166,34 @@ describe("POST /:id/transfer-ownership integration ownership", () => {
       userId: "new-owner-user-id",
     });
   });
+
+  it("returns 429 when ownership transfers exceed the destructive mutation rate limit", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    clearRateLimitStoreForTests();
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const responses: Response[] = [];
+    for (let i = 0; i < 11; i++) {
+      responses.push(
+        await formsDetailRouter.request("/form-1/transfer-ownership", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ newOwnerUserId: "new-owner-user-id" }),
+        }),
+      );
+    }
+
+    for (const allowed of responses.slice(0, 10)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const limited = responses[10];
+    if (!limited) throw new Error("Expected a rate-limited response");
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("X-RateLimit-Limit")).toBe("10");
+    expect(limited.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+    await expect(limited.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
 });
