@@ -14,9 +14,11 @@ const pendingSaveSchema = z.object({
   plateContent: z.string(),
   expectedVersion: z.number().int(),
   retryBlocked: z.literal("conflict").optional(),
+  source: z.literal("in-flight").optional(),
 });
 
 const KEEPALIVE_LIMIT = 64 * 1024;
+const IN_FLIGHT_FALLBACK_RETRY_DELAY_MS = 1000;
 
 function storePendingSave(formId: string, body: string) {
   try {
@@ -497,11 +499,14 @@ export function useFormContentAutosave({
             plateContent: inFlightValueRef.current,
             expectedVersion:
               inFlightExpectedVersionRef.current ?? versionRef.current,
+            source: "in-flight",
           }),
         );
         return;
       }
       if (valueToSave != null) {
+        // Pending content is newer than any in-flight content, so it is the
+        // only fallback stored when both refs are set.
         const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({
           plateContent: valueToSave,
@@ -561,37 +566,84 @@ export function useFormContentAutosave({
       return;
     }
     if (result.data.retryBlocked === "conflict") return;
-    clearPendingSave(formId);
-    const retryPayload = {
-      expectedVersion: result.data.expectedVersion,
-      plateContent: result.data.plateContent,
+    const retryPendingSave = (pendingSaveBody: string) => {
+      const retryParseResult = pendingSaveSchema.safeParse(
+        JSON.parse(pendingSaveBody),
+      );
+      if (!retryParseResult.success) {
+        clearPendingSave(formId);
+        return;
+      }
+      const retryPayload = {
+        expectedVersion: retryParseResult.data.expectedVersion,
+        plateContent: retryParseResult.data.plateContent,
+      };
+      clearPendingSave(formId);
+      rpc(
+        client.api.forms[":id"].content.$put({
+          param: { id: formId },
+          json: retryPayload,
+        }),
+      )
+        .then(() => {
+          toast.success("前回未保存の変更を復元しました");
+          void queryClient.invalidateQueries({
+            queryKey: ["formContent", formId],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: formDiffQueryKey(formId),
+          });
+        })
+        .catch((err) => {
+          if (err instanceof RpcError && err.status === 409) {
+            storePendingSave(
+              formId,
+              JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
+            );
+            toast.warning("前回未保存の変更が競合しています");
+            return;
+          }
+          storePendingSave(formId, pendingSaveBody);
+        });
     };
-    rpc(
-      client.api.forms[":id"].content.$put({
-        param: { id: formId },
-        json: retryPayload,
-      }),
-    )
-      .then(() => {
-        toast.success("前回未保存の変更を復元しました");
-        void queryClient.invalidateQueries({
-          queryKey: ["formContent", formId],
-        });
-        void queryClient.invalidateQueries({
-          queryKey: formDiffQueryKey(formId),
-        });
-      })
-      .catch((err) => {
-        if (err instanceof RpcError && err.status === 409) {
-          storePendingSave(
-            formId,
-            JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
-          );
-          toast.warning("前回未保存の変更が競合しています");
-          return;
-        }
-        storePendingSave(formId, saved);
-      });
+    if (result.data.source !== "in-flight") {
+      retryPendingSave(saved);
+      return;
+    }
+    const retryTimer = window.setTimeout(() => {
+      let currentSaved: string | null;
+      try {
+        currentSaved = localStorage.getItem(key);
+      } catch {
+        clearPendingSave(formId);
+        return;
+      }
+      if (!currentSaved) return;
+      let currentRawParsed: unknown;
+      try {
+        currentRawParsed = JSON.parse(currentSaved);
+      } catch {
+        clearPendingSave(formId);
+        return;
+      }
+      const currentResult = pendingSaveSchema.safeParse(currentRawParsed);
+      if (!currentResult.success) {
+        clearPendingSave(formId);
+        return;
+      }
+      if (
+        currentResult.data.source !== "in-flight" ||
+        currentResult.data.retryBlocked === "conflict" ||
+        currentResult.data.expectedVersion !== result.data.expectedVersion ||
+        currentResult.data.plateContent !== result.data.plateContent
+      ) {
+        return;
+      }
+      retryPendingSave(currentSaved);
+    }, IN_FLIGHT_FALLBACK_RETRY_DELAY_MS);
+    return () => {
+      window.clearTimeout(retryTimer);
+    };
   }, [formId, queryClient]);
 
   return {

@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD013 -->
+
 # Plan: R22-M9 Autosave In-Flight Fallback
 
 - status: done
@@ -6,9 +8,11 @@
 - work_type: code
 
 ## Goal
+
 - Preserve autosave content that is already in-flight when unmount/navigation happens, without reintroducing R14-M2 keepalive duplicate sends or leaving stale fallback after normal success.
 
 ## Definition of Done
+
 - In-flight autosave content has a fallback/retry safety net after unmount/navigation.
 - Normal mutation success clears stale fallback for the same content.
 - R14-M2 keepalive 409 double-send prevention remains intact.
@@ -16,6 +20,7 @@
 - Required validation and independent review pass.
 
 ## Scope / Non-goals
+
 - Scope:
   - `apps/web/src/hooks/forms/use-form-content-autosave.ts`
   - `apps/web/src/hooks/forms/use-form-content-autosave.test.tsx`
@@ -27,6 +32,7 @@
   - Shared `docs/coding-agent/lessons.md` updates unless a new durable lesson is required.
 
 ## Context (workspace)
+
 - Related files/areas:
   - `apps/web/src/hooks/forms/use-form-content-autosave.ts`
   - `apps/web/src/hooks/forms/use-form-content-autosave.test.tsx`
@@ -41,15 +47,18 @@
   - `docs/coding-agent/rules` is absent, so validation is derived from project instructions and harness defaults.
 
 ## Open Questions
+
 - None.
 
 ## Assumptions
+
 - The delegated prompt explicitly authorizes implementation through PR and merge, so separate plan approval is waived.
 - The fallback should be scoped to the in-flight value present during unmount/navigation and cleared by normal success for that value.
 
 ## Tasks
 
 ### Task_1: Add in-flight fallback safety
+
 - type: impl
 - owns:
   - `apps/web/src/hooks/forms/use-form-content-autosave.ts`
@@ -68,6 +77,7 @@
     detail: "Reviewer verifies hook behavior against R14-M2/R16-H3 constraints."
 
 ### Task_2: Cover fallback and stale cleanup
+
 - type: test
 - owns:
   - `apps/web/src/hooks/forms/use-form-content-autosave.test.tsx`
@@ -86,6 +96,7 @@
     detail: "`rtk pnpm --filter @nexus-form/web exec vitest run src/hooks/forms/use-form-content-autosave.test.tsx`"
 
 ### Task_3: Required repository validation
+
 - type: chore
 - owns: []
 - depends_on: [Task_1, Task_2]
@@ -110,6 +121,7 @@
     detail: "`rtk pnpm test -- --silent`"
 
 ### Task_4: Independent review
+
 - type: review
 - owns: []
 - depends_on: [Task_1, Task_2, Task_3]
@@ -125,16 +137,19 @@
     detail: "Independent review of diff, tests, and validation evidence."
 
 ## Task Waves
+
 - Wave 1 (parallel): [Task_1]
 - Wave 2 (parallel): [Task_2]
 - Wave 3 (parallel): [Task_3]
 - Wave 4 (parallel): [Task_4]
 
 ## Rollback / Safety
+
 - Revert the hook and focused test changes as one logical change.
 - Do not change parent worktree state.
 
 ## Progress Log
+
 - 2026-06-01 20:15 Wave 0 started: [Research]
   - Summary: Researcher dispatched for read-only context on R22-M9, target hook, and nearest tests.
   - Validation evidence: Researcher identified the in-flight normal autosave failure/unload fallback gap and the R14-M2/R16-H3 regression tests to preserve.
@@ -153,10 +168,11 @@
   - Notes: `lint:fix` formatted one web file; full test completed with 15 successful Turbo tasks.
 - 2026-06-01 20:33 Wave 4 completed: [Task_4]
   - Summary: Independent Reviewer approved the final diff.
-  - Validation evidence: Reviewer status APPROVED with no findings; reviewer also ran `rtk git diff --check -- apps/web/src/hooks/forms/use-form-content-autosave.ts apps/web/src/hooks/forms/use-form-content-autosave.test.tsx docs/coding-agent/plans/active/r22-m9-autosave-inflight-fallback-plan.md` successfully.
+  - Validation evidence: Reviewer status APPROVED with no findings; reviewer also ran `rtk git diff --check -- apps/web/src/hooks/forms/use-form-content-autosave.ts apps/web/src/hooks/forms/use-form-content-autosave.test.tsx docs/coding-agent/plans/completed/r22-m9-autosave-inflight-fallback-plan.md` successfully.
   - Notes: Completed Researcher and Reviewer processes were closed by the Orchestrator.
 
 ## Decision Log
+
 - 2026-06-01 20:15 Decision: keep implementation local and narrow
   - Trigger / new insight: Delegation explicitly restricts the task to R22-M9 only.
   - Plan delta (what changed): Single hook/test slice; no UI, API, or shared lessons work unless required.
@@ -164,6 +180,7 @@
   - User approval: waived by explicit delegation prompt.
 
 ## Notes
+
 - Risks:
   - Persisting in-flight fallback too early can leave stale localStorage after normal success.
   - Sending in-flight content through keepalive can reintroduce duplicate 409 behavior.

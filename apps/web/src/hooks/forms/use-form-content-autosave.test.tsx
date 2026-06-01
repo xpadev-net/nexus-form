@@ -430,6 +430,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     ).toEqual({
       expectedVersion: 7,
       plateContent: draftContent,
+      source: "in-flight",
     });
 
     act(() => {
@@ -473,6 +474,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     ).toEqual({
       expectedVersion: 7,
       plateContent: draftContent,
+      source: "in-flight",
     });
 
     act(() => {
@@ -488,6 +490,72 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     ).toEqual({
       expectedVersion: 7,
       plateContent: draftContent,
+      source: "in-flight",
+    });
+  });
+
+  it("delays retrying in-flight fallback so the original request can clear it first", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockResolvedValue({ plateContentVersion: 8 });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+
+    localStorage.removeItem("pendingSave:form-1");
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("retries in-flight fallback after the original request has not cleared it", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockResolvedValue({ plateContentVersion: 8 });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: {
+          expectedVersion: 7,
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      }),
+    );
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
     });
   });
 
