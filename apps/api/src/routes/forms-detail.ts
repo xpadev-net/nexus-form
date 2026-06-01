@@ -322,6 +322,8 @@ export const formsDetailRouter = createHonoApp()
         );
       }
 
+      // Valid non-array JSON is treated as an empty form so the existing
+      // "no questions" branch handles legacy/imported snapshot shape issues.
       const snapshotPlateContent = Array.isArray(parsedSnapshot.plateContent)
         ? parsedSnapshot.plateContent
         : [];

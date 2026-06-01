@@ -126,7 +126,7 @@ describe("POST /:id/publish", () => {
     expect(mocks.updateSet).not.toHaveBeenCalled();
   });
 
-  it("returns 400 without publishing when the active snapshot JSON is not an array", async () => {
+  it("returns 400 without publishing when the active snapshot JSON is not an array and is treated as no questions", async () => {
     mocks.getLatestSnapshot.mockResolvedValue({
       id: "snapshot-1",
       formId: "form-1",
