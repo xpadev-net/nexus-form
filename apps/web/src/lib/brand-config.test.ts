@@ -41,7 +41,21 @@ describe("brandConfig", () => {
     expect(brandConfig.primaryColor).toBe("#123456");
   });
 
-  it("rejects empty string brand config fields", async () => {
+  it("keeps defaults when runtime brand config values resolve to empty strings", async () => {
+    vi.stubGlobal("window", {
+      __BRAND_CONFIG__: {
+        appName: "",
+        primaryColor: "",
+      },
+    });
+
+    const { brandConfig } = await loadBrandConfig();
+
+    expect(brandConfig.appName).toBe("Nexus Form");
+    expect(brandConfig.primaryColor).toBe("#2563eb");
+  });
+
+  it("keeps valid runtime fields when appName resolves to an empty runtime value", async () => {
     vi.stubGlobal("window", {
       __BRAND_CONFIG__: {
         appName: "",
