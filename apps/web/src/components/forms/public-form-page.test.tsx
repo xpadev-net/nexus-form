@@ -426,7 +426,12 @@ describe("PublicFormPage password protection", () => {
     ).toBe(true);
     expect(
       submittedFingerprints.some(
-        (fingerprint) => fingerprint.name === "thumbmarkjs-129",
+        (fingerprint) => fingerprint.name === "thumbmarkjs-99",
+      ),
+    ).toBe(true);
+    expect(
+      submittedFingerprints.some(
+        (fingerprint) => fingerprint.name === "thumbmarkjs-100",
       ),
     ).toBe(false);
 
