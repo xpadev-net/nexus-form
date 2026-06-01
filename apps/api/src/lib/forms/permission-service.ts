@@ -735,7 +735,8 @@ export async function updatePermissionRole(
   userId: string,
   newRole: FormPermissionType,
 ): Promise<FormPermissionWithUser> {
-  return await db.transaction(async (tx) => {
+  let shouldRevokeEditorAccess = false;
+  const permission = await db.transaction(async (tx) => {
     // フォームの存在確認
     const [foundForm] = await tx
       .select({ id: form.id })
@@ -774,6 +775,9 @@ export async function updatePermissionRole(
     if (newRole !== "VIEWER" && newRole !== "EDITOR") {
       throw new Error("Invalid role. Only VIEWER and EDITOR are allowed.");
     }
+
+    shouldRevokeEditorAccess =
+      currentPermission.role === "EDITOR" && newRole === "VIEWER";
 
     // 権限を更新
     await tx
@@ -843,6 +847,13 @@ export async function updatePermissionRole(
       },
     };
   });
+
+  if (shouldRevokeEditorAccess) {
+    const { publishSseAccessRevoked } = await import("../redis-publisher");
+    await publishSseAccessRevoked(formId, userId);
+  }
+
+  return permission;
 }
 
 /**

@@ -256,7 +256,7 @@ export const formsPermissionsRouter = createHonoApp()
       );
     },
   )
-  .get("/:id/permissions/me", async (c) => {
+  .get("/:id/permissions/me", withDualFormAuth("VIEWER"), async (c) => {
     const formId = c.req.param("id");
     const auth = c.get("dualAuthContext");
     if (!auth) return c.json(errorResponse("Unauthorized"), 401);

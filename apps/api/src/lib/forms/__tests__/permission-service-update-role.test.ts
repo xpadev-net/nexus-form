@@ -74,6 +74,12 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn(),
 }));
 
+const publishSseAccessRevoked = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../../redis-publisher", () => ({
+  publishSseAccessRevoked,
+}));
+
 import { updatePermissionRole } from "../permission-service";
 
 describe("updatePermissionRole share-link revocation", () => {
@@ -109,5 +115,11 @@ describe("updatePermissionRole share-link revocation", () => {
     );
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.isActive", true);
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.role", "EDITOR");
+  });
+
+  it("publishes an SSE access revoke event when an EDITOR is downgraded to VIEWER", async () => {
+    await updatePermissionRole("form-1", "editor-1", "VIEWER");
+
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
   });
 });
