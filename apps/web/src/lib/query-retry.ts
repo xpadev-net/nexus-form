@@ -1,12 +1,14 @@
+import { RpcError } from "./api";
+import { HttpError } from "./fetch-json";
+
 const MAX_QUERY_RETRIES = 3;
 
 function getErrorStatus(error: unknown): number | undefined {
-  if (typeof error !== "object" || error === null || !("status" in error)) {
-    return undefined;
+  if (error instanceof RpcError || error instanceof HttpError) {
+    return error.status;
   }
 
-  const { status } = error;
-  return typeof status === "number" ? status : undefined;
+  return undefined;
 }
 
 /**
@@ -25,6 +27,8 @@ export function shouldRetryQuery(
   error: unknown,
 ): boolean {
   const status = getErrorStatus(error);
+  // R15-M6 intentionally treats every 4xx, including 429, as immediately
+  // visible client/API feedback instead of applying the shared retry loop.
   if (status !== undefined && status >= 400 && status < 500) {
     return false;
   }

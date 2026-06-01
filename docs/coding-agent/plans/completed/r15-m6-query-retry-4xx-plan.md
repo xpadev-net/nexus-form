@@ -159,6 +159,10 @@
   - Summary: Independent Reviewer approved the implementation with no findings.
   - Validation evidence: Reviewer status `APPROVED`; reviewer re-ran focused tests and `rtk git diff --check`.
   - Notes: Ready for commit and PR flow.
+- 2026-06-01 16:48 PR review hook follow-up completed
+  - Summary: Greptile flagged broad status duck typing and 429 semantics. Status extraction was narrowed to `RpcError` / `HttpError`, and 429 immediate-error behavior was documented as intentional for R15-M6.
+  - Validation evidence: `rtk pnpm --filter @nexus-form/web exec vitest run src/lib/query-retry.test.ts src/integrations/tanstack-query/root-provider.test.ts` passed, 2 files / 6 tests.
+  - Notes: Awaiting base branch merge and final `gh-review-hook` rerun.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 

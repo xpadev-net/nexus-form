@@ -10,6 +10,9 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(0, new RpcError("Forbidden", 403))).toBe(false);
     expect(shouldRetryQuery(0, new RpcError("Not found", 404))).toBe(false);
     expect(shouldRetryQuery(0, new RpcError("Conflict", 409))).toBe(false);
+  });
+
+  it("treats 429 as immediate client feedback", () => {
     expect(shouldRetryQuery(0, new HttpError(429, "Too many requests"))).toBe(
       false,
     );
@@ -22,6 +25,11 @@ describe("shouldRetryQuery", () => {
     expect(shouldRetryQuery(3, new HttpError(503, "Unavailable"))).toBe(false);
     expect(shouldRetryQuery(2, new Error("Network"))).toBe(true);
     expect(shouldRetryQuery(3, new Error("Network"))).toBe(false);
+  });
+
+  it("retries unknown error shapes even when they have a status property", () => {
+    expect(shouldRetryQuery(2, { status: 409 })).toBe(true);
+    expect(shouldRetryQuery(3, { status: 409 })).toBe(false);
   });
 
   it("does not mutate or replace errors with existing details", () => {
