@@ -480,6 +480,83 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("reports unsaved local edits until the debounced autosave succeeds", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("reports unsaved local edits while an autosave is in-flight even if the editor matches the saved base", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      hook?.handleContentChange("[]");
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
