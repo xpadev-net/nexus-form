@@ -151,6 +151,7 @@ export function ImagesPage() {
       const moveJson = await moveResponse.json();
       if (
         !("data" in moveJson) ||
+        typeof moveJson.data?.key !== "string" ||
         !moveJson.data.key.startsWith("prod/users/")
       ) {
         throw new Error("画像の本番反映に失敗しました");
