@@ -265,6 +265,57 @@ describe("ImagesPage", () => {
     expect(apiMocks.listMock).toHaveBeenCalledOnce();
   });
 
+  it("does not refresh the prod image list when move returns a non-prod key", async () => {
+    apiMocks.listMock.mockResolvedValue(
+      okJson({ success: true, data: { images: [] } }),
+    );
+    apiMocks.presignedUploadMock.mockResolvedValue(
+      okJson({
+        success: true,
+        data: {
+          presignedUrl: "https://s3.example.com/tmp-upload",
+          key: "tmp/users/user-a/upload.jpg",
+        },
+      }),
+    );
+    apiMocks.uploadCompleteMock.mockResolvedValue(
+      okJson({ success: true, data: { key: "tmp/users/user-a/upload.jpg" } }),
+    );
+    apiMocks.moveMock.mockResolvedValue(
+      okJson({
+        success: true,
+        data: {
+          key: "tmp/users/user-a/upload.jpg",
+          bucket: "tmp-bucket",
+          url: "",
+          size: 5,
+          contentType: "image/jpeg",
+        },
+      }),
+    );
+
+    await renderImagesPage(root, container);
+    const file = new File(["image"], "upload.jpg", { type: "image/jpeg" });
+    Object.defineProperty(findFileInput(container), "files", {
+      value: [file],
+      configurable: true,
+    });
+    act(() => {
+      findFileInput(container).dispatchEvent(
+        new Event("change", { bubbles: true }),
+      );
+    });
+
+    await act(async () => {
+      findButton(container, "アップロード").click();
+    });
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("画像の本番反映に失敗しました");
+    });
+    expect(apiMocks.listMock).toHaveBeenCalledOnce();
+  });
+
   it("deletes prod-listed images from the prod bucket and refreshes the list", async () => {
     const image = {
       key: "prod/users/user-a/upload.jpg",
