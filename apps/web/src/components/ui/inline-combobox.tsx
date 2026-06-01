@@ -49,7 +49,6 @@ type InlineComboboxContextValue = {
   removeInput: UseComboboxInputResult["removeInput"];
   showTrigger: boolean;
   trigger: string;
-  setHasEmpty: (hasEmpty: boolean) => void;
 };
 
 const InlineComboboxContext = createContext<InlineComboboxContextValue>(
@@ -140,7 +139,7 @@ const InlineCombobox = ({
     autoFocus: true,
     ref: inputRef,
     onCancelInput: (cause) => {
-      if (cause !== "backspace") {
+      if (cause !== "backspace" && value.length > 0) {
         editor.tf.insertText(trigger + value, {
           at: insertPoint?.current ?? undefined,
         });
@@ -154,15 +153,12 @@ const InlineCombobox = ({
     },
   });
 
-  const [hasEmpty, setHasEmpty] = useState(false);
-
   const contextValue: InlineComboboxContextValue = useMemo(
     () => ({
       filter,
       inputProps,
       inputRef,
       removeInput,
-      setHasEmpty,
       showTrigger,
       trigger,
     }),
@@ -173,7 +169,9 @@ const InlineCombobox = ({
     setValue: (newValue) => startTransition(() => setValue(newValue)),
   });
 
-  const items = store.useState("items");
+  const hasVisibleValue =
+    hasValueProp ? (valueProp?.length ?? 0) > 0 : valueState.length > 0;
+  const shouldShowPopover = !hideWhenNoValue || hasVisibleValue;
 
   /**
    * If there is no active ID and the list of items changes, select the first
@@ -188,11 +186,7 @@ const InlineCombobox = ({
   return (
     <span contentEditable={false}>
       <ComboboxProvider
-        open={
-          (items.length > 0 || hasEmpty) &&
-          (!hideWhenNoValue ||
-            (hasValueProp ? (valueProp?.length ?? 0) : valueState.length) > 0)
-        }
+        open={shouldShowPopover}
         store={store}
       >
         <InlineComboboxContext.Provider value={contextValue}>
@@ -331,17 +325,8 @@ const InlineComboboxEmpty = ({
   children,
   className,
 }: HTMLAttributes<HTMLDivElement>) => {
-  const { setHasEmpty } = use(InlineComboboxContext);
   const store = useComboboxContext();
   const items = store?.useState("items");
-
-  useEffect(() => {
-    setHasEmpty(true);
-
-    return () => {
-      setHasEmpty(false);
-    };
-  }, [setHasEmpty]);
 
   if (items && items.length > 0) return null;
 
