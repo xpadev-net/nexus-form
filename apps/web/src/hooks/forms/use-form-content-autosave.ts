@@ -511,7 +511,6 @@ export function useFormContentAutosave({
     onSuccess: (data, variables) => {
       if (
         keepaliveSentRef.current != null &&
-        keepaliveSentRef.current.coveredRequest == null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
         keepaliveSentRef.current.generation === variables.restoreGeneration &&
         editorValueRef.current !== keepaliveSentRef.current.plateContent
@@ -767,6 +766,17 @@ export function useFormContentAutosave({
   const handleContentChange = useCallback(
     (value: string) => {
       editorValueRef.current = value;
+      const keepaliveSent = keepaliveSentRef.current;
+      if (
+        keepaliveSent?.superseded === true &&
+        keepaliveSent.generation === restoreGenerationRef.current &&
+        keepaliveSent.plateContent === value
+      ) {
+        keepaliveSentRef.current = {
+          ...keepaliveSent,
+          superseded: false,
+        };
+      }
       if (isConflictActiveRef.current || isMergingRef.current) {
         if (saveTimerRef.current != null) {
           window.clearTimeout(saveTimerRef.current);
@@ -1021,12 +1031,12 @@ export function useFormContentAutosave({
               if (retryFallbackAfterLocalVersionAdvance()) {
                 return;
               }
-              const shouldStoreFallback = shouldStoreFailedFallback(
-                response.status === 409,
-              );
               if (!isCurrentKeepaliveSent()) {
                 return;
               }
+              const shouldStoreFallback = shouldStoreFailedFallback(
+                response.status === 409,
+              );
               keepaliveSentRef.current = null;
               if (shouldStoreFallback) {
                 const pendingRetry = pendingKeepaliveRetryRef.current;
@@ -1081,10 +1091,10 @@ export function useFormContentAutosave({
             if (retryFallbackAfterLocalVersionAdvance()) {
               return;
             }
-            const shouldStoreFallback = shouldStoreFailedFallback();
             if (!isCurrentKeepaliveSent()) {
               return;
             }
+            const shouldStoreFallback = shouldStoreFailedFallback();
             keepaliveSentRef.current = null;
             if (
               baseContentRef.current !== fallbackValue &&
