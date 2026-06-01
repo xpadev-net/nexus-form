@@ -137,6 +137,7 @@ const FORM_ID = "form-authz-regression";
 const OWNER_ID = "owner-user-id";
 const VIEWER_ID = "viewer-user-id";
 const EDITOR_ID = "editor-user-id";
+const ROUTE_REGRESSION_TEST_TIMEOUT_MS = 120_000;
 const DEFAULT_STRUCTURE_JSON = JSON.stringify({
   version: 1,
   settings: { allow_edit_responses: false },
@@ -159,6 +160,22 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
     parentVersion: null,
     ...overrides,
   };
+}
+
+const publicSubmitFingerprintTypes = [
+  "browser",
+  "fingerprintjs",
+  "thumbmarkjs",
+] as const;
+
+function makePublicSubmitFingerprints(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    type: publicSubmitFingerprintTypes[
+      index % publicSubmitFingerprintTypes.length
+    ],
+    name: `component-${index}`,
+    value_hash: `hash-${index.toString().padStart(3, "0")}`,
+  }));
 }
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
@@ -411,118 +428,125 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     vi.resetModules();
   });
 
-  it("locks the form row before the response count check when a response limit is enabled", async () => {
-    const { db } = await import("@nexus-form/database");
-    const { getLatestSnapshot } = await import(
-      "../lib/forms/snapshot-repository"
-    );
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({
-        plateContent: JSON.stringify([
-          {
-            id: "1",
-            type: "form_short_text",
-            blockId: "block-1",
-            children: [{ text: "Discord username" }],
-          },
-        ]),
-        validationRulesJson: JSON.stringify([
-          {
-            id: "rule-1",
-            name: "Discord membership",
-            providerName: "discord",
-            ruleType: "membership",
-            referencedBlockIds: ["block-1"],
-            configJson: {},
-            orderIndex: 0,
-          },
-        ]),
-        structureJson: JSON.stringify({
-          version: 1,
-          settings: {
-            allow_edit_responses: false,
-            response_limit: { enabled: true, max_responses: 100 },
-          },
+  it(
+    "locks the form row before the response count check when a response limit is enabled",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "block-1",
+              children: [{ text: "Discord username" }],
+            },
+          ]),
+          validationRulesJson: JSON.stringify([
+            {
+              id: "rule-1",
+              name: "Discord membership",
+              providerName: "discord",
+              ruleType: "membership",
+              referencedBlockIds: ["block-1"],
+              configJson: {},
+              orderIndex: 0,
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              response_limit: { enabled: true, max_responses: 100 },
+            },
+          }),
         }),
-      }),
-    );
+      );
 
-    // form found (PUBLISHED); response limit is carried by the active snapshot.
-    mockDbSelectChain(db, [
-      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-    ]);
+      // form found (PUBLISHED); response limit is carried by the active snapshot.
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
 
-    // txSelectSpy witnesses every SELECT that runs inside the transaction.
-    // If a future change moves the count check outside the transaction,
-    // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
-    const txSelectOrder: string[] = [];
-    const txSelectSpy = vi.fn((selection: unknown) => {
-      return {
-        from: vi.fn((table: unknown) => {
-          const label =
-            selection && typeof selection === "object" && "count" in selection
-              ? "count-select"
-              : table &&
-                  typeof table === "object" &&
-                  "id" in table &&
-                  table.id === "form.id"
-                ? "form-lock-select"
+      // txSelectSpy witnesses every SELECT that runs inside the transaction.
+      // If a future change moves the count check outside the transaction,
+      // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
+      const txSelectOrder: string[] = [];
+      const txSelectSpy = vi.fn((selection: unknown) => {
+        return {
+          from: vi.fn((table: unknown) => {
+            const label =
+              selection && typeof selection === "object" && "count" in selection
+                ? "count-select"
                 : table &&
                     typeof table === "object" &&
                     "id" in table &&
-                    table.id === "formValidationRule.id"
-                  ? "validation-rule-select"
-                  : "other-select";
-          txSelectOrder.push(label);
-          return {
-            where: vi.fn().mockReturnValue(
-              // Awaitable as-is (count / validation-rule reads) and supports
-              // .for("update") for the form lock query.
-              Object.assign(Promise.resolve([{ count: 0 }, { id: "rule-1" }]), {
-                for: vi.fn().mockImplementation(() => {
-                  txSelectOrder.push("form-lock-for-update");
-                  return Promise.resolve([]);
-                }),
-              }),
-            ),
-          };
+                    table.id === "form.id"
+                  ? "form-lock-select"
+                  : table &&
+                      typeof table === "object" &&
+                      "id" in table &&
+                      table.id === "formValidationRule.id"
+                    ? "validation-rule-select"
+                    : "other-select";
+            txSelectOrder.push(label);
+            return {
+              where: vi.fn().mockReturnValue(
+                // Awaitable as-is (count / validation-rule reads) and supports
+                // .for("update") for the form lock query.
+                Object.assign(
+                  Promise.resolve([{ count: 0 }, { id: "rule-1" }]),
+                  {
+                    for: vi.fn().mockImplementation(() => {
+                      txSelectOrder.push("form-lock-for-update");
+                      return Promise.resolve([]);
+                    }),
+                  },
+                ),
+              ),
+            };
+          }),
+        };
+      });
+      const txMock = {
+        select: txSelectSpy,
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockResolvedValue(undefined),
         }),
       };
-    });
-    const txMock = {
-      select: txSelectSpy,
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
-      }),
-    };
 
-    const txSpy = vi.spyOn(
-      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
-      "transaction",
-    );
-    txSpy.mockImplementation(async (fn) => fn(txMock));
+      const txSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      txSpy.mockImplementation(async (fn) => fn(txMock));
 
-    const { formsPublicRouter } = await import("../routes/forms-public");
+      const { formsPublicRouter } = await import("../routes/forms-public");
 
-    await formsPublicRouter.request(`/public/test-public-id/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        responses: [],
-        captchaToken: "test-captcha-token",
-        telemetry: { v4Token: "tok-v4" },
-        fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
-      }),
-    });
+      await formsPublicRouter.request(`/public/test-public-id/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+        }),
+      });
 
-    expect(txSpy).toHaveBeenCalledOnce();
-    expect(txSelectOrder).toEqual([
-      "form-lock-select",
-      "form-lock-for-update",
-      "count-select",
-    ]);
-    txSpy.mockRestore();
-  });
+      expect(txSpy).toHaveBeenCalledOnce();
+      expect(txSelectOrder).toEqual([
+        "form-lock-select",
+        "form-lock-for-update",
+        "count-select",
+      ]);
+      txSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
 
   it("formRoleSatisfies: EDITOR satisfies VIEWER requirement (inverse covered by R2-C1/R2-H3)", async () => {
     // R2-H2 fix also gated the submit path at form-level auth.
@@ -543,6 +567,129 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       checkFormPermissionLevel(editorCtx, FORM_ID, "VIEWER"),
     ).resolves.toBeUndefined();
   });
+});
+
+// ── R15-C1: Public submit fingerprint payload limit ───────────────────────
+
+describe("R15-C1: public submit accepts full fingerprint payloads", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it(
+    "accepts fingerprint-required submissions with 200 fingerprint components",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const schema = await import("@nexus-form/database/schema");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+
+      let insertedFingerprints: unknown;
+      const txInsert = vi.fn((table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (table === schema.fingerprintDetail) {
+            insertedFingerprints = values;
+          }
+        }),
+      }));
+      const txSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      txSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: vi.fn() }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            fingerprints: makePublicSubmitFingerprints(200),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(201);
+      expect(txSpy).toHaveBeenCalledOnce();
+      expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
+      expect(insertedFingerprints).toHaveLength(200);
+      expect(insertedFingerprints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ fingerprintType: "browser" }),
+          expect.objectContaining({ fingerprintType: "fingerprintjs" }),
+          expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
+        ]),
+      );
+      txSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects fingerprint payloads above 200 before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            fingerprints: makePublicSubmitFingerprints(201),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
 });
 
 // ── R3-H3: Captcha gates public submit validation and DB work ────────────────
