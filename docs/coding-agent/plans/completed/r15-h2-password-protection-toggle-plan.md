@@ -6,9 +6,11 @@
 - work_type: code
 
 ## Goal
+
 - 編集画面の公開メニューで、パスワード保護 ON 時にパスワード入力と確定を必須にし、保存成功後に `password` 条件が保持されることを UI とテストで確認する。
 
 ## Definition of Done
+
 - パスワード保護 ON は確認ダイアログ経由でのみ保存される。
 - 空文字や8文字未満では有効化されず、ダイアログ内と toast に原因が出る。
 - キャンセル時は入力が破棄され、既存状態へ明確にロールバックされる。
@@ -17,6 +19,7 @@
 - 関連 unit/component test と必須コマンドが通る。
 
 ## Scope / Non-goals
+
 - Scope:
   - `apps/web/src/hooks/forms/use-form-access-control.ts`
   - `apps/web/src/components/forms/form-publish-menu/**`
@@ -28,6 +31,7 @@
   - 外部認証、role、domain access control の拡張
 
 ## Context (workspace)
+
 - Related files/areas:
   - 指定の `apps/web/src/components/forms/form-access-control.tsx` と `apps/web/src/routes/forms.$id.edit.tsx` は現行ツリーに存在せず、実体は hook と `_authenticated/forms/$id/edit.tsx` および publish menu 配下に分割済み。
   - `apps/web/src/hooks/forms/form-structure-query-keys.ts` は R3-C10 の `formStructure` key 分離済み。
@@ -40,16 +44,19 @@
   - `/Users/xpadev/.codex/plugins/cache/agent-harness/coding-agent-orchestration-harness/0.4.0/skills/engineering-quality-baselines/SKILL.md`
 
 ## Open Questions (max 3)
+
 - Q1: API route 直接テストを追加する必要があるか。
 - Q2: Browser の認証状態が無い場合、component-level evidence で代替するか。
 
 ## Assumptions
+
 - A1: ユーザーが実装・検証・PR・merge まで委任しているため、Plan Gate の明示承認は Orchestrator waiver とする。
 - A2: API は既に `enabled` かつ password 不在を拒否するため、主修正は frontend の確定フローとテストに置く。
 
 ## Tasks
 
 ### Task_1: Access-Control Save And Cache Flow
+
 - type: impl
 - owns:
   - apps/web/src/hooks/forms/use-form-access-control.ts
@@ -68,6 +75,7 @@
     detail: "access-control hook または周辺の focused test で invalidation と error propagation を確認する"
 
 ### Task_2: Password Dialog Enable Flow
+
 - type: impl
 - owns:
   - apps/web/src/components/forms/form-publish-menu/**
@@ -87,6 +95,7 @@
     detail: "publish menu/model の component or hook test で enable/cancel/failure を確認する"
 
 ### Task_3: Required Validation And UI Evidence
+
 - type: test
 - owns:
   - apps/web/src/**/*.test.*
@@ -117,6 +126,7 @@
     detail: "Browser or component-level evidence for password ON -> save -> reload-equivalent retention"
 
 ### Task_4: Independent Review And PR Closeout
+
 - type: review
 - owns: []
 - depends_on: [Task_3]
@@ -166,6 +176,7 @@
   - Auth/session state may block full route validation; component-level evidence is acceptable with explicit note.
 
 ## Rollback / Safety
+
 - Revert only files touched by this branch. Do not modify unrelated user changes or `docs/coding-agent/lessons.md`.
 
 ## Progress Log (append-only)
@@ -196,6 +207,7 @@
   - User approval: waived; delegation prompt is treated as implementation authorization.
 
 ## Notes
+
 - Risks:
   - `useFormAccessControl` hook-level toast and model-level toast can duplicate failure messages.
   - Snapshot/cache paths may need targeted invalidation to avoid stale publish menu state.

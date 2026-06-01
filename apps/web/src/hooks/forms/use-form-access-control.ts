@@ -4,7 +4,9 @@ import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import {
   formAccessControlStructureQueryKey,
+  formDiffQueryKey,
   formLogicStructureQueryKey,
+  unpublishedChangesQueryKey,
 } from "./form-structure-query-keys";
 
 interface PasswordProtectionState {
@@ -65,9 +67,9 @@ export const useFormAccessControl = (formId: string) => {
         queryClient.invalidateQueries({
           queryKey: formLogicStructureQueryKey(formId),
         }),
-        queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
+        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
         queryClient.invalidateQueries({
-          queryKey: ["unpublishedChanges", formId],
+          queryKey: unpublishedChangesQueryKey(formId),
         }),
       ]);
     },

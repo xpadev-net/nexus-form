@@ -1,9 +1,10 @@
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { client, rpc } from "@/lib/api";
+import { formDiffQueryKey } from "./form-structure-query-keys";
 
 export const useFormDiff = (formId: string | null | undefined) => {
   const formDiffQuery = useQuery({
-    queryKey: ["formDiff", formId],
+    queryKey: formDiffQueryKey(formId),
     queryFn: formId
       ? () =>
           rpc(

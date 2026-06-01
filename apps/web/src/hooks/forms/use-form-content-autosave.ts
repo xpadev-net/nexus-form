@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sync";
+import { formDiffQueryKey } from "@/hooks/forms/form-structure-query-keys";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
@@ -154,7 +155,9 @@ export function useFormContentAutosave({
       pendingRemoteContentRef.current = null;
       pendingRemoteVersionRef.current = null;
       const hasInFlightTyping = editorValueRef.current !== mergeLocalContent;
-      void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
+      void queryClient.invalidateQueries({
+        queryKey: formDiffQueryKey(formId),
+      });
       if (!hasInFlightTyping) {
         editorValueRef.current = mergedContent;
         queryClient.setQueryData(["formContent", formId], {
@@ -400,7 +403,9 @@ export function useFormContentAutosave({
           plateContentVersion: data.plateContentVersion,
         });
       }
-      void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
+      void queryClient.invalidateQueries({
+        queryKey: formDiffQueryKey(formId),
+      });
       setIsSaving(false);
     },
     onError: (err, variables) => {
@@ -552,7 +557,9 @@ export function useFormContentAutosave({
         void queryClient.invalidateQueries({
           queryKey: ["formContent", formId],
         });
-        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
+        void queryClient.invalidateQueries({
+          queryKey: formDiffQueryKey(formId),
+        });
       })
       .catch((err) => {
         if (err instanceof RpcError && err.status === 409) {
