@@ -528,10 +528,10 @@ export function useFormContentAutosave({
           inFlightRequest.plateContent !== variables.plateContent)
       ) {
         if (data && "plateContentVersion" in data) {
+          lastSavedVersionRef.current = data.plateContentVersion;
           if (pendingRemoteContentRef.current == null) {
             versionRef.current = data.plateContentVersion;
             baseContentRef.current = variables.plateContent;
-            lastSavedVersionRef.current = data.plateContentVersion;
             queryClient.setQueryData(["formContent", formId], {
               plateContent: variables.plateContent,
               plateContentVersion: data.plateContentVersion,
@@ -604,11 +604,15 @@ export function useFormContentAutosave({
         keepaliveSent.generation === variables.restoreGeneration &&
         isSameAutosaveRequest(keepaliveSent.coveredRequest, variables)
       ) {
+        const errorKind = isConflictError(err) ? "conflict" : "failure";
         inFlightValueRef.current = null;
         inFlightRequestRef.current = null;
         setIsSaving(false);
+        if (errorKind === "failure") {
+          lastSavedVersionRef.current = null;
+        }
         pendingKeepaliveRetryRef.current = {
-          errorKind: isConflictError(err) ? "conflict" : "failure",
+          errorKind,
           variables: {
             ...variables,
             plateContent: keepaliveSent.plateContent,
@@ -668,8 +672,12 @@ export function useFormContentAutosave({
         // Pending-only keepalive may be saving a different draft at this
         // version. Park any same-version live mutation error until that
         // keepalive settles so it can retry against the advanced version.
+        const errorKind = isConflictError(err) ? "conflict" : "failure";
+        if (errorKind === "failure") {
+          lastSavedVersionRef.current = null;
+        }
         pendingKeepaliveRetryRef.current = {
-          errorKind: isConflictError(err) ? "conflict" : "failure",
+          errorKind,
           variables,
         };
         return;
