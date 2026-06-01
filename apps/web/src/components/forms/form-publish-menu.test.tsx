@@ -386,6 +386,35 @@ describe("FormPublishMenu password protection", () => {
     });
   });
 
+  it("trims leading and trailing spaces before saving a password", () => {
+    const container = document.createElement("div");
+    const root = renderMenu(container);
+
+    click(passwordSwitch(container));
+    setInputValue(
+      container.querySelector<HTMLInputElement>(
+        "#password-protection-password",
+      ),
+      "  secret123  ",
+    );
+    submitPasswordDialog(container);
+
+    expect(mocks.mutatePasswordProtection).toHaveBeenCalledWith(
+      {
+        enabled: true,
+        password: "secret123",
+      },
+      expect.objectContaining({
+        onError: expect.any(Function),
+        onSuccess: expect.any(Function),
+      }),
+    );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("keeps the dialog open and shows the save failure both inline and as toast", () => {
     mocks.shouldFailPasswordUpdate = true;
     const container = document.createElement("div");

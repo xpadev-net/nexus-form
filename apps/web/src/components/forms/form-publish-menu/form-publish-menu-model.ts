@@ -408,7 +408,7 @@ export function useFormPublishMenuModel({
     const hintUpdated = passwordHintInput !== currentHint;
     const payload = {
       enabled,
-      password: hasNewPassword ? passwordInput : undefined,
+      password: hasNewPassword ? passwordText : undefined,
       ...(hintUpdated ? { password_hint: passwordHintInput } : {}),
     };
 
