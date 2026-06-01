@@ -100,6 +100,17 @@ describe("injectRuntimeConfigScript", () => {
     ).toBeLessThan(transformedHtml.indexOf("src='/env-config.js'"));
   });
 
+  it("preserves replacement metacharacters in runtime env values", () => {
+    const html =
+      '<html><head><script src="/env-config.js"></script></head></html>';
+
+    const transformedHtml = injectRuntimeConfigScript(html, {
+      VITE_HCAPTCHA_SITE_KEY: "site-$&-$1-$'",
+    });
+
+    expect(transformedHtml).toContain('"hcaptchaSiteKey":"site-$&-$1-$\'"');
+  });
+
   it("fails fast when the env config script anchor is missing", () => {
     expect(() =>
       injectRuntimeConfigScript("<html><head></head></html>", {

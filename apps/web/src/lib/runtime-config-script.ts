@@ -47,6 +47,6 @@ export function injectRuntimeConfigScript(
   const scriptTag = `<script>${createRuntimeConfigScript(env)}</script>`;
   return html.replace(
     envConfigScriptTag,
-    `${scriptTag}\n    ${envConfigScriptTag}`,
+    () => `${scriptTag}\n    ${envConfigScriptTag}`,
   );
 }

@@ -171,6 +171,10 @@
   - Summary: PR #440 was created; first `gh-review-hook 440` returned exit 2 with two Greptile issues and a base-branch update requirement. `origin/master` was merged without rewriting history.
   - Validation evidence: Greptile issues addressed by failing fast when `/env-config.js` anchor is missing, supporting attributes on the anchor tag, and splitting test `describe` blocks. Focused runtime config tests passed again, 2 files / 8 tests.
   - Notes: `pnpm type-check` passed before PR creation; after base merge and review fix, `pnpm --filter @nexus-form/web type-check` passed, but one full `pnpm type-check` run hit a `tsgo` SIGSEGV and a second full run was stopped after web `tsgo` hung for over 7 minutes. `pnpm test -- --silent` after the follow-up hit unrelated API hook timeouts in `routes.test.ts` and `s3-ownership.test.ts` under local load.
+- 2026-06-01 PR review follow-up 2:
+  - Summary: Second `gh-review-hook 440` returned exit 2 for `String.replace` replacement metacharacter handling and base-branch update requirement. `origin/master` was merged without rewriting history.
+  - Validation evidence: Replacement now uses a function so `$` metacharacters in env-derived JSON are preserved. Focused runtime config tests passed, 2 files / 9 tests. `pnpm --filter @nexus-form/web lint:fix`, `pnpm --filter @nexus-form/web type-check`, and `git diff --check` passed.
+  - Notes: Awaiting push and `gh-review-hook 440` rerun.
 
 ## Decision Log
 
