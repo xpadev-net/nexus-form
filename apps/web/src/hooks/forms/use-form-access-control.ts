@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import {
   formAccessControlStructureQueryKey,
@@ -42,7 +43,7 @@ export const useFormAccessControl = (formId: string) => {
     };
   }, [structureQuery.data]);
 
-  const updatePasswordProtection = useMutation({
+  const updatePasswordProtectionMutation = useMutation({
     mutationFn: (params: UpdatePasswordProtectionParams) =>
       rpc(
         client.api.forms[":id"].structure["access-control"].$patch({
@@ -72,10 +73,35 @@ export const useFormAccessControl = (formId: string) => {
     },
   });
 
+  const updatePasswordProtection = {
+    ...updatePasswordProtectionMutation,
+    mutate: (
+      ...[params, options]: Parameters<
+        typeof updatePasswordProtectionMutation.mutate
+      >
+    ) => {
+      updatePasswordProtectionMutation.mutate(params, {
+        ...options,
+        onError: (error, variables, onMutateResult, context) => {
+          if (options?.onError) {
+            options.onError(error, variables, onMutateResult, context);
+            return;
+          }
+
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "パスワード保護の変更に失敗しました",
+          );
+        },
+      });
+    },
+  };
+
   return {
     passwordProtection,
     isLoading: structureQuery.isLoading,
     updatePasswordProtection,
-    isUpdating: updatePasswordProtection.isPending,
+    isUpdating: updatePasswordProtectionMutation.isPending,
   };
 };

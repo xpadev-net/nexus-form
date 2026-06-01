@@ -18,7 +18,9 @@ type MutationOptions = {
 
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
+  mutate: vi.fn(),
   mutationOptions: null as MutationOptions | null,
+  toastError: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -26,7 +28,7 @@ vi.mock("@tanstack/react-query", () => ({
     mocks.mutationOptions = options;
     return {
       isPending: false,
-      mutate: vi.fn(),
+      mutate: mocks.mutate,
     };
   },
   useQuery: () => ({
@@ -65,12 +67,21 @@ vi.mock("@/lib/api", () => ({
   rpc: vi.fn((value: unknown) => value),
 }));
 
+vi.mock("sonner", () => ({
+  toast: {
+    error: mocks.toastError,
+  },
+}));
+
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+let lastHookResult: ReturnType<typeof useFormAccessControl> | null = null;
+
 function Probe() {
-  const { passwordProtection } = useFormAccessControl("form-1");
+  lastHookResult = useFormAccessControl("form-1");
+  const { passwordProtection } = lastHookResult;
   return (
     <div>
       {passwordProtection.enabled ? "enabled" : "disabled"}-
@@ -91,7 +102,10 @@ describe("useFormAccessControl", () => {
   beforeEach(() => {
     mocks.invalidateQueries.mockReset();
     mocks.invalidateQueries.mockResolvedValue(undefined);
+    mocks.mutate.mockReset();
+    mocks.toastError.mockReset();
     mocks.mutationOptions = null;
+    lastHookResult = null;
   });
 
   it("invalidates access control, structure-derived diff, and unpublished-change caches after password update", async () => {
@@ -117,6 +131,86 @@ describe("useFormAccessControl", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["unpublishedChanges", "form-1"],
     });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("shows a fallback toast when password update caller omits onError", () => {
+    const container = document.createElement("div");
+    const root = renderProbe(container);
+
+    act(() => {
+      lastHookResult?.updatePasswordProtection.mutate({ enabled: false });
+    });
+
+    const [, options] = mocks.mutate.mock.calls[0] as [
+      UpdatePasswordProtectionParams,
+      {
+        onError?: (
+          error: unknown,
+          variables: UpdatePasswordProtectionParams,
+          onMutateResult: unknown,
+          context: unknown,
+        ) => void;
+      },
+    ];
+
+    act(() => {
+      options.onError?.(
+        new Error("パスワード保護を更新できませんでした"),
+        { enabled: false },
+        undefined,
+        undefined,
+      );
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "パスワード保護を更新できませんでした",
+    );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("lets caller onError handle feedback without a duplicate fallback toast", () => {
+    const container = document.createElement("div");
+    const root = renderProbe(container);
+    const callerOnError = vi.fn();
+
+    act(() => {
+      lastHookResult?.updatePasswordProtection.mutate(
+        { enabled: false },
+        { onError: callerOnError },
+      );
+    });
+
+    const [, options] = mocks.mutate.mock.calls[0] as [
+      UpdatePasswordProtectionParams,
+      {
+        onError?: (
+          error: Error,
+          variables: UpdatePasswordProtectionParams,
+          onMutateResult: unknown,
+          context: unknown,
+        ) => void;
+      },
+    ];
+    const error = new Error("パスワード保護を更新できませんでした");
+
+    act(() => {
+      options.onError?.(error, { enabled: false }, undefined, undefined);
+    });
+
+    expect(callerOnError).toHaveBeenCalledWith(
+      error,
+      { enabled: false },
+      undefined,
+      undefined,
+    );
+    expect(mocks.toastError).not.toHaveBeenCalled();
 
     act(() => {
       root.unmount();
