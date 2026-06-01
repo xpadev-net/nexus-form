@@ -23,11 +23,11 @@ const RETRYABLE_GITHUB_HTTP_STATUSES = new Set([500, 502, 503, 504]);
 
 const GitHubMetadataSchema = GitHubUserInfoSchema;
 
-const invalidGitHubApiResponseResult: ValidationProviderResult = {
+const invalidGitHubApiResponseResult: ValidationProviderResult = Object.freeze({
   isValid: false,
   errorCode: GitHubErrorCode.GITHUB_API_ERROR,
   errorMessage: "Invalid GitHub API response schema",
-};
+});
 
 function normalizeGitHubUsername(username: string): string {
   let normalized = username.trim();
@@ -94,19 +94,7 @@ const userExistsRule: ValidationProviderRule = {
 
       return {
         isValid: true,
-        metadata: {
-          username: parsedUserData.data.username,
-          userId: parsedUserData.data.userId,
-          displayName: parsedUserData.data.displayName,
-          avatarUrl: parsedUserData.data.avatarUrl,
-          profileUrl: parsedUserData.data.profileUrl,
-          bio: parsedUserData.data.bio,
-          publicRepos: parsedUserData.data.publicRepos,
-          followers: parsedUserData.data.followers,
-          following: parsedUserData.data.following,
-          createdAt: parsedUserData.data.createdAt,
-          updatedAt: parsedUserData.data.updatedAt,
-        },
+        metadata: parsedUserData.data,
       };
     } catch (error) {
       if (isGitHubProviderError(error)) {
