@@ -448,6 +448,38 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
+  it("does not overwrite a conflict-blocked pending save with in-flight fallback", () => {
+    vi.useFakeTimers();
+    const conflictBlockedSave = JSON.stringify({
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"conflict"}]}]',
+      retryBlocked: "conflict",
+    });
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    localStorage.setItem("pendingSave:form-1", conflictBlockedSave);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(
+      conflictBlockedSave,
+    );
+  });
+
   it("keeps in-flight fallback when regular autosave fails after unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';

@@ -69,6 +69,31 @@ function clearResolvedPendingSave(
   }
 }
 
+function storeInFlightPendingSave(
+  formId: string,
+  save: { expectedVersion: number; plateContent: string },
+) {
+  const key = `pendingSave:${formId}`;
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      const result = pendingSaveSchema.safeParse(JSON.parse(existing));
+      if (result.success && result.data.retryBlocked === "conflict") {
+        return;
+      }
+    }
+  } catch {
+    // If the existing entry cannot be inspected, replace it with the recoverable in-flight save.
+  }
+  storePendingSave(
+    formId,
+    JSON.stringify({
+      ...save,
+      source: "in-flight",
+    }),
+  );
+}
+
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
@@ -493,15 +518,11 @@ export function useFormContentAutosave({
       }
       const valueToSave = pendingValueRef.current;
       if (valueToSave == null && inFlightValueRef.current != null) {
-        storePendingSave(
-          formId,
-          JSON.stringify({
-            plateContent: inFlightValueRef.current,
-            expectedVersion:
-              inFlightExpectedVersionRef.current ?? versionRef.current,
-            source: "in-flight",
-          }),
-        );
+        storeInFlightPendingSave(formId, {
+          plateContent: inFlightValueRef.current,
+          expectedVersion:
+            inFlightExpectedVersionRef.current ?? versionRef.current,
+        });
         return;
       }
       if (valueToSave != null) {
