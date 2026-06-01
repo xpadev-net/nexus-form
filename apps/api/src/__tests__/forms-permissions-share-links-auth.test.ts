@@ -13,10 +13,12 @@ const mocks = vi.hoisted(() => ({
   } | null,
   createShareLink: vi.fn(),
   dbSelect: vi.fn(),
+  dbTransaction: vi.fn(),
   deleteShareLink: vi.fn(),
   checkShareLinkPermission: vi.fn(),
   getUserFormPermission: vi.fn(),
   getShareLinks: vi.fn(),
+  permissionLookupLimit: vi.fn(),
   PermissionRemovalError: class PermissionRemovalError extends Error {
     code: string;
 
@@ -27,13 +29,17 @@ const mocks = vi.hoisted(() => ({
     }
   },
   removePermission: vi.fn(),
+  txInsert: vi.fn(),
+  txInsertValues: vi.fn(),
   updateShareLink: vi.fn(),
+  userLookupLimit: vi.fn(),
   validateShareLinkRole: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
     select: mocks.dbSelect,
+    transaction: mocks.dbTransaction,
   },
   user: {
     id: "user.id",
@@ -46,7 +52,11 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   formInvitation: {},
-  formPermission: {},
+  formPermission: {
+    formId: "formPermission.formId",
+    id: "formPermission.id",
+    userId: "formPermission.userId",
+  },
   formShareLink: {
     id: "formShareLink.id",
     formId: "formShareLink.formId",
@@ -318,6 +328,82 @@ describe("R9-C1 share-link management authorization", () => {
       "editor-1",
       undefined,
     );
+  });
+});
+
+describe("R14-H6 permission creation user existence checks", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "owner-1",
+    };
+    mocks.permissionLookupLimit.mockResolvedValue([]);
+    mocks.txInsertValues.mockResolvedValue(undefined);
+  });
+
+  it("returns not found instead of inserting when the target user does not exist", async () => {
+    mocks.userLookupLimit.mockResolvedValue([]);
+    mocks.dbTransaction.mockImplementation(
+      async (
+        callback: (transaction: {
+          insert: typeof mocks.txInsert;
+          select: () => {
+            from: () => {
+              where: () => {
+                limit:
+                  | typeof mocks.userLookupLimit
+                  | typeof mocks.permissionLookupLimit;
+              };
+            };
+          };
+        }) => Promise<unknown>,
+      ) => {
+        let selectCount = 0;
+        const tx = {
+          insert: mocks.txInsert.mockReturnValue({
+            values: mocks.txInsertValues,
+          }),
+          select: () => {
+            selectCount += 1;
+            return {
+              from: () => ({
+                where: () => ({
+                  limit:
+                    selectCount === 1
+                      ? mocks.userLookupLimit
+                      : mocks.permissionLookupLimit,
+                }),
+              }),
+            };
+          },
+        };
+        return callback(tx);
+      },
+    );
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions",
+      {
+        body: JSON.stringify({
+          role: "VIEWER",
+          userId: "missing-user",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({ error: "User not found" });
+    expect(response.status).toBe(404);
+    expect(mocks.userLookupLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.permissionLookupLimit).not.toHaveBeenCalled();
+    expect(mocks.txInsert).not.toHaveBeenCalled();
+    expect(mocks.txInsertValues).not.toHaveBeenCalled();
   });
 });
 
