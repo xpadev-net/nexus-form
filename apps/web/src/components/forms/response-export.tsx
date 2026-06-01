@@ -14,7 +14,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
-      const response = await client.api.forms[":id"].export.$get({
+      const response = await client.api.forms[":id"].responses.export.$get({
         param: { id: formId },
       });
       if (!response.ok) {

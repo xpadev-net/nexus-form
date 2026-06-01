@@ -168,19 +168,10 @@ export function buildResponseExportRecords(
     }>;
   }>,
   formBlocks: Array<{
-    id: string;
-    formId: string;
     blockId: string;
     category: string;
     type: string;
     content: unknown;
-    order: number;
-    version: number;
-    isDeleted: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    createdBy: string;
-    updatedBy: string;
   }>,
 ): { records: ResponseExportRecord[]; fingerprintComponents: Set<string> } {
   // ブロックタイトルマップを作成
@@ -364,7 +355,9 @@ export function formatRecordsToCsv(
         const answer = record.component_columns?.find(
           (col) => col.block_id === blockId,
         );
-        componentValues.push(answer ? JSON.stringify(answer.value) : "");
+        componentValues.push(
+          answer ? stringifyValue(answer.value, answer.block_type) : "",
+        );
       });
 
       const row = [...metadataValues, ...componentValues];
