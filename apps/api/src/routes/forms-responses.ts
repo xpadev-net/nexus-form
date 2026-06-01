@@ -819,6 +819,7 @@ export const formsResponsesRouter = createHonoApp()
       records,
       fingerprintComponents,
       blockTitleMap,
+      formBlocks.map((block) => block.blockId),
     );
 
     return c.body(csv, 200, {

@@ -45,10 +45,10 @@ vi.mock("@/components/ui/button", () => ({
   ),
 }));
 
-function renderExport(container: HTMLElement): Root {
+function renderExport(container: HTMLElement, formId = "form-1"): Root {
   const root = createRoot(container);
   act(() => {
-    root.render(<ResponseExport formId="form-1" />);
+    root.render(<ResponseExport formId={formId} />);
   });
   return root;
 }
@@ -68,8 +68,17 @@ beforeEach(() => {
 describe("ResponseExport", () => {
   it("downloads CSV from the responses export endpoint", async () => {
     const container = document.createElement("div");
-    const root = renderExport(container);
+    const root = renderExport(container, "form id");
     const button = container.querySelector("button");
+    const appendedAnchors: HTMLAnchorElement[] = [];
+    const appendChild = vi
+      .spyOn(document.body, "appendChild")
+      .mockImplementation((node) => {
+        if (node instanceof HTMLAnchorElement) {
+          appendedAnchors.push(node);
+        }
+        return node;
+      });
 
     await act(async () => {
       button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -78,14 +87,16 @@ describe("ResponseExport", () => {
     });
 
     expect(mocks.exportGet).toHaveBeenCalledWith({
-      param: { id: "form-1" },
+      param: { id: "form id" },
     });
     expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(appendedAnchors[0]?.download).toBe("responses-form%20id.csv");
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "エクスポートが完了しました",
     );
     expect(mocks.toastError).not.toHaveBeenCalled();
 
+    appendChild.mockRestore();
     act(() => root.unmount());
   });
 });

@@ -315,6 +315,7 @@ export function formatRecordsToCsv(
   records: ResponseExportRecord[],
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
+  emptyRecordBlockIds: string[] = [],
 ): string {
   try {
     // メタデータヘッダーを共通関数から取得
@@ -323,8 +324,8 @@ export function formatRecordsToCsv(
     // コンポーネント列をヘッダーに追加
     const componentHeaders = new Map<string, string>();
     if (records.length === 0) {
-      blockTitleMap.forEach((title, blockId) => {
-        componentHeaders.set(blockId, title);
+      emptyRecordBlockIds.forEach((blockId) => {
+        componentHeaders.set(blockId, blockTitleMap.get(blockId) ?? blockId);
       });
     } else {
       records.forEach((record) => {

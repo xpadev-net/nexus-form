@@ -180,9 +180,15 @@ describe("response export", () => {
     const questionTitleMap = new Map([
       ["name-block", "氏名"],
       ["choice-block", "希望枠"],
+      ["system-block", "区切り"],
     ]);
 
-    expect(formatRecordsToCsv([], new Set(), questionTitleMap)).toBe(
+    expect(
+      formatRecordsToCsv([], new Set(), questionTitleMap, [
+        "name-block",
+        "choice-block",
+      ]),
+    ).toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
     );
   });
