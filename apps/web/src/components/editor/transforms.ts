@@ -288,7 +288,7 @@ function getContainingFormQuestionPath(editor: PlateEditor): Path | undefined {
   if (!block) return undefined;
 
   const [, path] = block;
-  for (let depth = path.length; depth > 0; depth--) {
+  for (let depth = path.length - 1; depth > 0; depth--) {
     const candidatePath = path.slice(0, depth);
     const entry = editor.api.node<TElement>(candidatePath);
     if (

@@ -27,7 +27,7 @@ const HEADING_TYPES = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 const MAX_DEPTH = 100;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return value != null && typeof value === "object";
+  return value != null && typeof value === "object" && !Array.isArray(value);
 }
 
 function createEmptyParagraphNode() {
