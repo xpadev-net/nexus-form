@@ -170,12 +170,14 @@ describe("POST /:id/transfer-ownership integration ownership", () => {
   it("returns 429 when ownership transfers exceed the destructive mutation rate limit", async () => {
     const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
     clearRateLimitStoreForTests();
+    const { createHonoApp } = await import("../lib/hono");
     const { formsDetailRouter } = await import("../routes/forms-detail");
+    const app = createHonoApp().route("/api/forms", formsDetailRouter);
 
     const responses: Response[] = [];
     for (let i = 0; i < 11; i++) {
       responses.push(
-        await formsDetailRouter.request("/form-1/transfer-ownership", {
+        await app.request(`/api/forms/form-${i}/transfer-ownership`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ newOwnerUserId: "new-owner-user-id" }),
