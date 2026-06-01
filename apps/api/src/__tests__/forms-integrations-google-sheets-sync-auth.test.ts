@@ -329,6 +329,43 @@ describe("Google Sheets sync job status authorization", () => {
     expect(mocks.addBulk.mock.calls[0]?.[0]?.[0]?.opts?.jobId).toBe(body.jobId);
   });
 
+  it("keeps running delayed jobs when they become active before removal", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    const remove = vi.fn(async () => {
+      throw new Error("job is locked");
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      getState: vi
+        .fn()
+        .mockResolvedValueOnce("delayed")
+        .mockResolvedValueOnce("active"),
+      remove,
+    });
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+  });
+
   it("defaults manual sync to the latest response instead of replaying all rows", async () => {
     mocks.responseRows = [
       { responseId: "latest-response" },

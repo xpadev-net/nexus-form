@@ -204,7 +204,13 @@ export const formsIntegrationsRouter = createHonoApp()
             state === "completed" ||
             state === "delayed"
           ) {
-            await existingJob.remove();
+            try {
+              await existingJob.remove();
+            } catch (error) {
+              if ((await existingJob.getState()) !== "active") {
+                throw error;
+              }
+            }
           }
         }),
       );
