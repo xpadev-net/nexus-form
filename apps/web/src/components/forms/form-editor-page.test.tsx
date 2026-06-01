@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, vi } from "vitest";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { RpcError } from "@/lib/api";
 import { FormEditorPage } from "./form-editor-page";
 
@@ -238,6 +239,7 @@ describe("FormEditorPage tab synchronization", () => {
     };
     navigateMock.mockClear();
     snapshotEditorToDraftMock.mockClear();
+    vi.mocked(usePageTitle).mockClear();
     optionsByQueryKey.clear();
     retryByQueryKey.clear();
   });
@@ -328,6 +330,7 @@ describe("FormEditorPage tab synchronization", () => {
       "このフォームは存在しないか、編集権限がありません。",
     );
     expect(container.textContent).toContain("フォーム一覧へ戻る");
+    expect(usePageTitle).toHaveBeenCalledWith("フォームが見つかりません");
     expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
     expect(optionsByQueryKey.get("formContent")?.enabled).toBe(false);
 
@@ -367,6 +370,7 @@ describe("FormEditorPage tab synchronization", () => {
       "フォームの読み込みに失敗しました。",
     );
     expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
 
     act(() => root.unmount());
   });

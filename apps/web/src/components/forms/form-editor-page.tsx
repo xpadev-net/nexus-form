@@ -31,8 +31,8 @@ export function FormEditorPage() {
   if (model.isNotFound) {
     return (
       <FormNotFoundPage
-        actionLabel="フォーム一覧へ戻る"
         description="このフォームは存在しないか、編集権限がありません。"
+        homeActionLabel="フォーム一覧へ戻る"
         showHomeAction
       />
     );
