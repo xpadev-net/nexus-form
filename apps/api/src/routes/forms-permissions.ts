@@ -257,13 +257,9 @@ export const formsPermissionsRouter = createHonoApp()
     },
   )
   .get("/:id/permissions/me", withDualFormAuth("VIEWER"), async (c) => {
-    const formId = c.req.param("id");
     const auth = c.get("dualAuthContext");
     if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-    const role = await getUserFormPermission(auth.user_id, formId, {
-      auth_type: auth.auth_type,
-      form_ids: auth.form_ids,
-    });
+    const role = c.get("dualAuthFormRole");
     return c.json(UserFormPermissionResponseSchema.parse({ role }));
   })
   .get("/:id/permissions/:userId", withDualFormAuth("EDITOR"), async (c) => {

@@ -541,14 +541,11 @@ function formRoleSatisfies(
   return FORM_ROLE_PRIORITY[actual] >= FORM_ROLE_PRIORITY[required];
 }
 
-/**
- * フォーム権限レベルをチェックする
- */
-export async function checkFormPermissionLevel(
+async function resolveFormPermissionRole(
   context: DualAuthContext,
   formId: string,
   requiredRole: FormPermissionRole,
-): Promise<void> {
+): Promise<FormPermissionRole> {
   if (context.auth_type === "session") {
     // フォームを検索
     const [formRecord] = await db
@@ -563,7 +560,7 @@ export async function checkFormPermissionLevel(
 
     // クリエーターは OWNER 権限を持つ
     if (formRecord.creatorId === context.user_id) {
-      return;
+      return "OWNER";
     }
 
     // formId AND userId の両方でフィルタリングして権限を取得
@@ -582,13 +579,18 @@ export async function checkFormPermissionLevel(
       ? (exactPerm.role as FormPermissionRole)
       : null;
 
-    if (!formRoleSatisfies(requiredRole, effectiveRole)) {
+    if (
+      effectiveRole === null ||
+      !formRoleSatisfies(requiredRole, effectiveRole)
+    ) {
       throw new InsufficientFormPermissionError(
         formId,
         requiredRole,
         effectiveRole,
       );
     }
+
+    return effectiveRole;
   }
 
   if (context.auth_type === "api_token") {
@@ -613,9 +615,9 @@ export async function checkFormPermissionLevel(
         throw new InsufficientFormPermissionError(formId, requiredRole, null);
       }
 
-      if (requiredRole === "VIEWER") return;
+      if (requiredRole === "VIEWER") return role;
       if (requiredRole === "EDITOR") {
-        if (role === "EDITOR") return;
+        if (role === "EDITOR") return role;
         throw new InsufficientFormPermissionError(
           formId,
           requiredRole,
@@ -625,7 +627,7 @@ export async function checkFormPermissionLevel(
       if (requiredRole === "OWNER") {
         throw new InsufficientFormPermissionError(formId, requiredRole, role);
       }
-      return;
+      return role;
     }
 
     // anon トークン (user_id が "anon:" プレフィックス) は DB 権限を持たない。
@@ -635,7 +637,7 @@ export async function checkFormPermissionLevel(
     }
 
     // ユーザースコープのトークン: セッションブランチと同等の DB 権限チェック
-    if (formRecord.creatorId === context.user_id) return;
+    if (formRecord.creatorId === context.user_id) return "OWNER";
 
     const [exactPerm] = await db
       .select({ role: formPermission.role })
@@ -652,15 +654,31 @@ export async function checkFormPermissionLevel(
       ? (exactPerm.role as FormPermissionRole)
       : null;
 
-    if (!formRoleSatisfies(requiredRole, effectiveRole)) {
+    if (
+      effectiveRole === null ||
+      !formRoleSatisfies(requiredRole, effectiveRole)
+    ) {
       throw new InsufficientFormPermissionError(
         formId,
         requiredRole,
         effectiveRole,
       );
     }
-    return;
+    return effectiveRole;
   }
+
+  throw new InsufficientFormPermissionError(formId, requiredRole, null);
+}
+
+/**
+ * フォーム権限レベルをチェックする
+ */
+export async function checkFormPermissionLevel(
+  context: DualAuthContext,
+  formId: string,
+  requiredRole: FormPermissionRole,
+): Promise<void> {
+  await resolveFormPermissionRole(context, formId, requiredRole);
 }
 
 /**
@@ -802,7 +820,12 @@ export function withDualFormAuth(
     }
 
     try {
-      await checkFormPermissionLevel(result.context, formId, requiredRole);
+      const effectiveRole = await resolveFormPermissionRole(
+        result.context,
+        formId,
+        requiredRole,
+      );
+      c.set("dualAuthFormRole", effectiveRole);
     } catch (error) {
       if (error instanceof FormPermissionError) {
         const statusCode = error.statusCode;

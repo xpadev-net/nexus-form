@@ -735,118 +735,122 @@ export async function updatePermissionRole(
   userId: string,
   newRole: FormPermissionType,
 ): Promise<FormPermissionWithUser> {
-  let shouldRevokeEditorAccess = false;
-  const permission = await db.transaction(async (tx) => {
-    // フォームの存在確認
-    const [foundForm] = await tx
-      .select({ id: form.id })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
+  const { permission, shouldRevokeEditorAccess } = await db.transaction(
+    async (tx) => {
+      // フォームの存在確認
+      const [foundForm] = await tx
+        .select({ id: form.id })
+        .from(form)
+        .where(eq(form.id, formId))
+        .limit(1);
 
-    if (!foundForm) {
-      throw new Error("Form not found");
-    }
+      if (!foundForm) {
+        throw new Error("Form not found");
+      }
 
-    // 現在の権限を取得
-    const [currentPermission] = await tx
-      .select()
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .limit(1);
-
-    if (!currentPermission) {
-      throw new Error("Permission not found");
-    }
-
-    // OWNER昇格・降格を禁止
-    if (newRole === "OWNER" || currentPermission.role === "OWNER") {
-      throw new Error(
-        "Cannot change owner role. Use transfer ownership instead.",
-      );
-    }
-
-    // VIEWER⇔EDITOR間の変更のみ許可
-    if (newRole !== "VIEWER" && newRole !== "EDITOR") {
-      throw new Error("Invalid role. Only VIEWER and EDITOR are allowed.");
-    }
-
-    shouldRevokeEditorAccess =
-      currentPermission.role === "EDITOR" && newRole === "VIEWER";
-
-    // 権限を更新
-    await tx
-      .update(formPermission)
-      .set({ role: newRole })
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, userId),
-        ),
-      );
-
-    if (newRole === "VIEWER") {
-      await tx
-        .update(formShareLink)
-        .set({ isActive: false })
+      // 現在の権限を取得
+      const [currentPermission] = await tx
+        .select()
+        .from(formPermission)
         .where(
           and(
-            eq(formShareLink.formId, formId),
-            eq(formShareLink.createdBy, userId),
-            eq(formShareLink.isActive, true),
-            eq(formShareLink.role, "EDITOR"),
+            eq(formPermission.formId, formId),
+            eq(formPermission.userId, userId),
+          ),
+        )
+        .limit(1);
+
+      if (!currentPermission) {
+        throw new Error("Permission not found");
+      }
+
+      // OWNER昇格・降格を禁止
+      if (newRole === "OWNER" || currentPermission.role === "OWNER") {
+        throw new Error(
+          "Cannot change owner role. Use transfer ownership instead.",
+        );
+      }
+
+      // VIEWER⇔EDITOR間の変更のみ許可
+      if (newRole !== "VIEWER" && newRole !== "EDITOR") {
+        throw new Error("Invalid role. Only VIEWER and EDITOR are allowed.");
+      }
+
+      const shouldRevokeEditorAccess =
+        currentPermission.role === "EDITOR" && newRole === "VIEWER";
+
+      // 権限を更新
+      await tx
+        .update(formPermission)
+        .set({ role: newRole })
+        .where(
+          and(
+            eq(formPermission.formId, formId),
+            eq(formPermission.userId, userId),
           ),
         );
-    }
 
-    // 更新した権限を取得
-    const [updatedPermission] = await tx
-      .select({
-        id: formPermission.id,
-        formId: formPermission.formId,
-        userId: formPermission.userId,
-        role: formPermission.role,
-        createdAt: formPermission.createdAt,
-        updatedAt: formPermission.updatedAt,
-        userName: user.name,
-        userEmail: user.email,
-      })
-      .from(formPermission)
-      .innerJoin(user, eq(formPermission.userId, user.id))
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .limit(1);
+      if (newRole === "VIEWER") {
+        await tx
+          .update(formShareLink)
+          .set({ isActive: false })
+          .where(
+            and(
+              eq(formShareLink.formId, formId),
+              eq(formShareLink.createdBy, userId),
+              eq(formShareLink.isActive, true),
+              eq(formShareLink.role, "EDITOR"),
+            ),
+          );
+      }
 
-    if (!updatedPermission) {
-      throw new Error("Failed to update permission");
-    }
+      // 更新した権限を取得
+      const [updatedPermission] = await tx
+        .select({
+          id: formPermission.id,
+          formId: formPermission.formId,
+          userId: formPermission.userId,
+          role: formPermission.role,
+          createdAt: formPermission.createdAt,
+          updatedAt: formPermission.updatedAt,
+          userName: user.name,
+          userEmail: user.email,
+        })
+        .from(formPermission)
+        .innerJoin(user, eq(formPermission.userId, user.id))
+        .where(
+          and(
+            eq(formPermission.formId, formId),
+            eq(formPermission.userId, userId),
+          ),
+        )
+        .limit(1);
 
-    return {
-      id: updatedPermission.id,
-      form_id: updatedPermission.formId,
-      user_id: updatedPermission.userId,
-      role: updatedPermission.role as FormPermissionType,
-      created_at: updatedPermission.createdAt.toISOString(),
-      updated_at: updatedPermission.updatedAt.toISOString(),
-      user: {
-        id: updatedPermission.userId,
-        name: updatedPermission.userName,
-        email: updatedPermission.userEmail,
-        discord_id: null,
-        created_at: "",
-        updated_at: "",
-      },
-    };
-  });
+      if (!updatedPermission) {
+        throw new Error("Failed to update permission");
+      }
+
+      return {
+        permission: {
+          id: updatedPermission.id,
+          form_id: updatedPermission.formId,
+          user_id: updatedPermission.userId,
+          role: updatedPermission.role as FormPermissionType,
+          created_at: updatedPermission.createdAt.toISOString(),
+          updated_at: updatedPermission.updatedAt.toISOString(),
+          user: {
+            id: updatedPermission.userId,
+            name: updatedPermission.userName,
+            email: updatedPermission.userEmail,
+            discord_id: null,
+            created_at: "",
+            updated_at: "",
+          },
+        },
+        shouldRevokeEditorAccess,
+      };
+    },
+  );
 
   if (shouldRevokeEditorAccess) {
     const { publishSseAccessRevoked } = await import("../redis-publisher");

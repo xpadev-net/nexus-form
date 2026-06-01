@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
 import type { DualAuthContext } from "./dual-auth";
+import type { FormPermissionRole } from "./permissions/constants";
 
 // Define the environment type for all routes
 export type Env = {
@@ -24,6 +25,7 @@ export type Env = {
       updatedAt: Date;
     } | null;
     dualAuthContext: DualAuthContext | null;
+    dualAuthFormRole: FormPermissionRole | null;
   };
 };
 

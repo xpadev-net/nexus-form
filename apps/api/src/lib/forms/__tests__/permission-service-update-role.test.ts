@@ -122,4 +122,24 @@ describe("updatePermissionRole share-link revocation", () => {
 
     expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
   });
+
+  it("does not publish an SSE access revoke event when the role change is not a downgrade", async () => {
+    mocks.permissionLimit.mockResolvedValue([{ role: "VIEWER" }]);
+    mocks.updatedPermissionLimit.mockResolvedValue([
+      {
+        createdAt: new Date("2026-05-21T00:00:00.000Z"),
+        formId: "form-1",
+        id: "permission-1",
+        role: "EDITOR",
+        updatedAt: new Date("2026-05-21T01:00:00.000Z"),
+        userEmail: "editor@example.com",
+        userId: "editor-1",
+        userName: "Editor",
+      },
+    ]);
+
+    await updatePermissionRole("form-1", "editor-1", "EDITOR");
+
+    expect(publishSseAccessRevoked).not.toHaveBeenCalled();
+  });
 });

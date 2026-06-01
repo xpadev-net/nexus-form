@@ -136,7 +136,10 @@ const roleRank: Record<MockPermissionRole, number> = {
 
 type MockHonoContext = {
   json: (body: unknown, status?: number) => Response;
-  set: (key: string, value: NonNullable<typeof mocks.authContext>) => void;
+  set: (
+    key: string,
+    value: MockPermissionRole | NonNullable<typeof mocks.authContext>,
+  ) => void;
 };
 
 vi.mock("../lib/dual-auth", () => ({
@@ -165,6 +168,7 @@ vi.mock("../lib/dual-auth", () => ({
         );
       }
       c.set("dualAuthContext", mocks.authContext);
+      c.set("dualAuthFormRole", role);
       await next();
     },
 }));
