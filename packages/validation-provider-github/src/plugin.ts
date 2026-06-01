@@ -68,7 +68,6 @@ function isRetryableGitHubProviderError(error: {
 
 function getSafeGitHubProviderErrorMessage(error: {
   code: GitHubErrorCode;
-  message: string;
   status?: number;
 }): string {
   if (isRetryableGitHubProviderError(error)) {
