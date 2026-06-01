@@ -442,6 +442,17 @@ function validMixedResponses(): PublicSubmitResponseItem[] {
   ];
 }
 
+function getStoredResponseDataJson(row: unknown): string {
+  if (typeof row === "object" && row !== null && "responseDataJson" in row) {
+    const value = row.responseDataJson;
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+
+  throw new Error("Inserted response row did not include responseDataJson");
+}
+
 async function submitPublicForm(
   responses: PublicSubmitResponseItem[] = [
     {
@@ -464,24 +475,33 @@ async function submitPublicForm(
   });
 }
 
-describe("R11-C2-a public validation outbox", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    vi.unstubAllEnvs();
-    mocks.sequence.length = 0;
-    mocks.updateSetValues.length = 0;
-    mocks.updateWhereValues.length = 0;
-    mocks.verifyHCaptcha.mockResolvedValue(true);
-    mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
-    mocks.processFormSchedule.mockResolvedValue(null);
-    mocks.resolveSessionIdOrCreate.mockResolvedValue({
-      sessionId: "session-1",
-      jwt: "session-jwt",
-    });
+function resetPublicSubmitMocks(
+  options: {
+    providerRegistryGet?: (name: string) => unknown;
+    trackQueueSequence?: boolean;
+  } = {},
+) {
+  vi.resetModules();
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  mocks.sequence.length = 0;
+  mocks.updateSetValues.length = 0;
+  mocks.updateWhereValues.length = 0;
+  mocks.verifyHCaptcha.mockResolvedValue(true);
+  mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
+  mocks.processFormSchedule.mockResolvedValue(null);
+  mocks.resolveSessionIdOrCreate.mockResolvedValue({
+    sessionId: "session-1",
+    jwt: "session-jwt",
+  });
+  if (options.providerRegistryGet) {
     mocks.providerRegistryGet.mockImplementation((name: string) =>
-      name === "discord" ? { rules: { guild_member: {} } } : undefined,
+      options.providerRegistryGet?.(name),
     );
+  } else {
+    mocks.providerRegistryGet.mockReturnValue(undefined);
+  }
+  if (options.trackQueueSequence) {
     mocks.addValidationJob.mockImplementation(async () => {
       mocks.sequence.push("queue:add");
       return { id: "validation-job-1" };
@@ -490,16 +510,29 @@ describe("R11-C2-a public validation outbox", () => {
       mocks.sequence.push("sheets:add");
       return { id: "sheets-job" };
     });
-    mocks.db.update.mockReturnValue({
-      set: vi.fn((values: unknown) => {
-        mocks.updateSetValues.push(values);
-        return {
-          where: vi.fn((where: unknown) => {
-            mocks.updateWhereValues.push(where);
-            return Promise.resolve(undefined);
-          }),
-        };
-      }),
+  } else {
+    mocks.addValidationJob.mockResolvedValue({ id: "validation-job-1" });
+    mocks.addSheetsSyncJob.mockResolvedValue({ id: "sheets-job" });
+  }
+  mocks.db.update.mockReturnValue({
+    set: vi.fn((values: unknown) => {
+      mocks.updateSetValues.push(values);
+      return {
+        where: vi.fn((where: unknown) => {
+          mocks.updateWhereValues.push(where);
+          return Promise.resolve(undefined);
+        }),
+      };
+    }),
+  });
+}
+
+describe("R11-C2-a public validation outbox", () => {
+  beforeEach(() => {
+    resetPublicSubmitMocks({
+      providerRegistryGet: (name: string) =>
+        name === "discord" ? { rules: { guild_member: {} } } : undefined,
+      trackQueueSequence: true,
     });
   });
 
@@ -830,33 +863,7 @@ describe("R11-C2-a public validation outbox", () => {
 
 describe("R23-T1 public form input validation submit slice", () => {
   beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    vi.unstubAllEnvs();
-    mocks.sequence.length = 0;
-    mocks.updateSetValues.length = 0;
-    mocks.updateWhereValues.length = 0;
-    mocks.verifyHCaptcha.mockResolvedValue(true);
-    mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
-    mocks.processFormSchedule.mockResolvedValue(null);
-    mocks.resolveSessionIdOrCreate.mockResolvedValue({
-      sessionId: "session-1",
-      jwt: "session-jwt",
-    });
-    mocks.providerRegistryGet.mockReturnValue(undefined);
-    mocks.addValidationJob.mockResolvedValue({ id: "validation-job-1" });
-    mocks.addSheetsSyncJob.mockResolvedValue({ id: "sheets-job" });
-    mocks.db.update.mockReturnValue({
-      set: vi.fn((values: unknown) => {
-        mocks.updateSetValues.push(values);
-        return {
-          where: vi.fn((where: unknown) => {
-            mocks.updateWhereValues.push(where);
-            return Promise.resolve(undefined);
-          }),
-        };
-      }),
-    });
+    resetPublicSubmitMocks();
   });
 
   it("accepts and stores a valid public submission covering major question types", async () => {
@@ -874,10 +881,12 @@ describe("R23-T1 public form input validation submit slice", () => {
     expect(getInsertedResponseRow()).toEqual(
       expect.objectContaining({
         formId: "form-1",
-        responseDataJson: JSON.stringify(responses),
         sessionId: "session-1",
       }),
     );
+    expect(
+      JSON.parse(getStoredResponseDataJson(getInsertedResponseRow())),
+    ).toEqual(responses);
     expect(mocks.addValidationJob).not.toHaveBeenCalled();
   });
 
@@ -928,7 +937,6 @@ describe("R23-T1 public form input validation submit slice", () => {
         : response,
     );
     useSuccessfulSubmitSelects(snapshot);
-    useTransactionWithInsertCapture();
 
     const response = await submitPublicForm(responses);
     const body = (await response.json()) as { error: string };
