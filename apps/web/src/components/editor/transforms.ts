@@ -283,6 +283,26 @@ function makeDefaultOptions() {
   ];
 }
 
+function getContainingFormQuestionPath(editor: PlateEditor): Path | undefined {
+  const block = editor.api.block();
+  if (!block) return undefined;
+
+  const [, path] = block;
+  for (let depth = path.length; depth > 0; depth--) {
+    const candidatePath = path.slice(0, depth);
+    const entry = editor.api.node<TElement>(candidatePath);
+    if (
+      entry &&
+      typeof entry[0].type === "string" &&
+      isFormQuestionType(entry[0].type)
+    ) {
+      return candidatePath;
+    }
+  }
+
+  return undefined;
+}
+
 // Insert a form question block (container element with editable children)
 export const insertFormQuestion = (
   editor: PlateEditor,
@@ -302,6 +322,10 @@ export const insertFormQuestion = (
     defaultValidation.options = makeDefaultOptions();
   }
   const validation = options.validation || defaultValidation;
+  const containingQuestionPath = getContainingFormQuestionPath(editor);
+  const insertOptions = containingQuestionPath
+    ? { at: PathApi.next(containingQuestionPath), select: true }
+    : { select: true };
 
   editor.tf.insertNodes(
     {
@@ -310,6 +334,6 @@ export const insertFormQuestion = (
       validation,
       children: [{ type: "p", children: [{ text: label }] }],
     },
-    { select: true },
+    insertOptions,
   );
 };

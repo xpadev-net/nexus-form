@@ -76,6 +76,7 @@ export {
   extractTextFromChildren,
   extractTitleFromChildren,
   regenerateBlockIds,
+  removeNestedQuestionsFromPlateContent,
   resolvePageIndexByPageId,
   splitPlateContentIntoPages,
   validatePlateContent,

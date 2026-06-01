@@ -1,5 +1,5 @@
-import { ElementApi } from "platejs";
-import { createPlatePlugin } from "platejs/react";
+import { ElementApi, type Path, type TElement } from "platejs";
+import { createPlatePlugin, type PlateEditor } from "platejs/react";
 import { isFormQuestionType } from "@/components/editor/plate-types";
 import { FormCheckboxGridKit } from "./form-checkbox-grid-kit";
 import { FormCheckboxKit } from "./form-checkbox-kit";
@@ -13,6 +13,24 @@ import { FormRatingKit } from "./form-rating-kit";
 import { FormSectionKit } from "./form-section-kit";
 import { FormShortTextKit } from "./form-short-text-kit";
 import { FormTimeKit } from "./form-time-kit";
+
+function createEmptyParagraphNode() {
+  return { type: "p", children: [{ text: "" }] };
+}
+
+function hasFormQuestionAncestor(editor: PlateEditor, path: Path): boolean {
+  for (let depth = path.length - 1; depth > 0; depth--) {
+    const entry = editor.api.node<TElement>(path.slice(0, depth));
+    if (
+      entry &&
+      typeof entry[0].type === "string" &&
+      isFormQuestionType(entry[0].type)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Ensures every form question element always has at least one paragraph child.
@@ -28,13 +46,21 @@ const FormQuestionNormalizerPlugin = createPlatePlugin({
       if (
         ElementApi.isElement(n) &&
         typeof n.type === "string" &&
-        isFormQuestionType(n.type) &&
-        n.children.length === 0
+        isFormQuestionType(n.type)
       ) {
-        editor.tf.insertNodes(
-          { type: "p", children: [{ text: "" }] },
-          { at: [...path, 0] },
-        );
+        if (!editor.dom.readOnly && hasFormQuestionAncestor(editor, path)) {
+          const replacement =
+            n.children.length > 0 ? n.children : [createEmptyParagraphNode()];
+          editor.tf.removeNodes({ at: path });
+          editor.tf.insertNodes(replacement, { at: path });
+          return;
+        }
+
+        if (n.children.length > 0) {
+          return normalizeNode(entry);
+        }
+
+        editor.tf.insertNodes(createEmptyParagraphNode(), { at: [...path, 0] });
         return;
       }
       return normalizeNode(entry);

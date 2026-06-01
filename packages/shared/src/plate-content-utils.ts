@@ -26,6 +26,17 @@ const HEADING_TYPES = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
  */
 const MAX_DEPTH = 100;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object";
+}
+
+function createEmptyParagraphNode() {
+  return {
+    type: "p",
+    children: [{ text: "" }],
+  };
+}
+
 export function extractTextFromChildren(
   children: unknown[],
   depth = 0,
@@ -156,6 +167,59 @@ export function regenerateBlockIds(plateContent: unknown[]): unknown[] {
   }
 
   return cloneAndRegenerate(plateContent);
+}
+
+/**
+ * Remove form question nodes that were inserted inside another form question.
+ *
+ * The outer question is preserved, while the nested question wrapper and its
+ * structural data are removed so its visible title/description text remains
+ * ordinary rich-text content.
+ */
+export function removeNestedQuestionsFromPlateContent(
+  plateContent: unknown[],
+): unknown[] {
+  function sanitizeNodes(
+    nodes: unknown[],
+    insideQuestion: boolean,
+    depth = 0,
+  ): unknown[] {
+    if (depth > MAX_DEPTH) return nodes;
+
+    return nodes.flatMap((node) =>
+      sanitizeNode(node, insideQuestion, depth + 1),
+    );
+  }
+
+  function sanitizeNode(
+    node: unknown,
+    insideQuestion: boolean,
+    depth: number,
+  ): unknown[] {
+    if (!isRecord(node)) return [node];
+
+    const isQuestion = isPlateQuestionType(node.type);
+    const clone = { ...node };
+
+    if (Array.isArray(node.children)) {
+      clone.children = sanitizeNodes(
+        node.children,
+        insideQuestion || isQuestion,
+        depth,
+      );
+    }
+
+    if (insideQuestion && isQuestion) {
+      if (Array.isArray(clone.children) && clone.children.length > 0) {
+        return clone.children;
+      }
+      return [createEmptyParagraphNode()];
+    }
+
+    return [clone];
+  }
+
+  return sanitizeNodes(plateContent, false);
 }
 
 // ===== Page splitting =====
