@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, vi } from "vitest";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
 import { FormEditorPage } from "./form-editor-page";
@@ -245,6 +246,7 @@ describe("FormEditorPage tab synchronization", () => {
     hasUnsavedLocalEditsMock.mockReset();
     hasUnsavedLocalEditsMock.mockReturnValue(false);
     snapshotEditorToDraftMock.mockClear();
+    vi.mocked(usePageTitle).mockClear();
     optionsByQueryKey.clear();
     retryByQueryKey.clear();
   });
@@ -377,6 +379,8 @@ describe("FormEditorPage tab synchronization", () => {
     expect(container.textContent).toContain(
       "このフォームは存在しないか、編集権限がありません。",
     );
+    expect(container.textContent).toContain("フォーム一覧へ戻る");
+    expect(usePageTitle).toHaveBeenCalledWith("フォームが見つかりません");
     expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
     expect(optionsByQueryKey.get("formContent")?.enabled).toBe(false);
 
@@ -397,6 +401,7 @@ describe("FormEditorPage tab synchronization", () => {
       "フォームの読み込みに失敗しました。",
     );
     expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
 
     act(() => root.unmount());
   });
@@ -415,6 +420,26 @@ describe("FormEditorPage tab synchronization", () => {
       "フォームの読み込みに失敗しました。",
     );
     expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps server editor load failures on the generic error path", () => {
+    formQueryState = {
+      error: new RpcError("Server error", 500),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain(
+      "フォームの読み込みに失敗しました。",
+    );
+    expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
 
     act(() => root.unmount());
   });
