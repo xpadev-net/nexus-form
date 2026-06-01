@@ -467,6 +467,41 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
+  it("returns an empty response analytics timeline as a successful page", async () => {
+    mocks.db.select.mockReturnValueOnce(limitedQuery([]));
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
+
+    const res = await formsResponseAnalyticsRouter.request(
+      "/form-1/responses/analytics?page=1&pageSize=4",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      timeline: [],
+      pagination: { page: 1, pageSize: 4, hasNext: false },
+    });
+    expect(mocks.offsetCalls).toContain(0);
+    expect(mocks.limitCalls).toContain(5);
+  });
+
+  it("returns empty block analytics successfully when the form has no analytics targets", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([{ plateContent: JSON.stringify([]) }]),
+    );
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
+
+    const res = await formsResponseAnalyticsRouter.request(
+      "/form-1/responses/block-analytics",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ blocks: [] });
+  });
+
   it("applies limit and offset to snapshot lists", async () => {
     const publishedAt = new Date("2026-01-01T00:00:00.000Z");
     mocks.db.select
