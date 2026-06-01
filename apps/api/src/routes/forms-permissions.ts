@@ -147,7 +147,7 @@ export type NullableFormPermissionResponse = z.infer<
 >;
 
 export const UserFormPermissionResponseSchema = z.object({
-  role: FormPermissionType.nullable(),
+  role: FormPermissionType,
 });
 export type UserFormPermissionResponse = z.infer<
   typeof UserFormPermissionResponseSchema

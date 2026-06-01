@@ -411,7 +411,7 @@ describe("R23-T3 share and permission routes", () => {
     );
   });
 
-  it("shows EDITOR before removal and null after permission deletion", async () => {
+  it("shows EDITOR before removal and rejects access after permission deletion", async () => {
     const app = createApp();
     mocks.removePermission.mockImplementationOnce(async () => {
       mocks.permissionRoles.delete("target-user");
