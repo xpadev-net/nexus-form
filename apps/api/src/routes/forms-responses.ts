@@ -75,6 +75,7 @@ const listResponsesQuerySchema = z.object({
 });
 
 const limitedListQuerySchema = paginationQuerySchema;
+const RESPONSE_EXPORT_ROW_LIMIT = 5000;
 
 const createResponseSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
@@ -749,7 +750,17 @@ export const formsResponsesRouter = createHonoApp()
       })
       .from(formResponse)
       .where(eq(formResponse.formId, formId))
-      .orderBy(desc(formResponse.submittedAt), desc(formResponse.id));
+      .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+      .limit(RESPONSE_EXPORT_ROW_LIMIT + 1);
+
+    if (responseRows.length > RESPONSE_EXPORT_ROW_LIMIT) {
+      return c.json(
+        errorResponse(
+          `Response export is limited to ${RESPONSE_EXPORT_ROW_LIMIT} responses`,
+        ),
+        413,
+      );
+    }
 
     const responseIds = responseRows.map((row) => row.id);
     const fingerprintRows =

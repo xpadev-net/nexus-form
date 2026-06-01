@@ -175,4 +175,15 @@ describe("response export", () => {
     );
     expect(csv).not.toContain("区切り");
   });
+
+  it("returns a header row when CSV output has no records", () => {
+    const questionTitleMap = new Map([
+      ["name-block", "氏名"],
+      ["choice-block", "希望枠"],
+    ]);
+
+    expect(formatRecordsToCsv([], new Set(), questionTitleMap)).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
+    );
+  });
 });

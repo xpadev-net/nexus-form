@@ -183,7 +183,11 @@ function orderedQuery(result: unknown[]) {
   return {
     from: vi.fn().mockReturnThis(),
     where: vi.fn().mockReturnThis(),
-    orderBy: vi.fn(() => Promise.resolve(result)),
+    orderBy: vi.fn().mockReturnThis(),
+    limit: vi.fn((value: number) => {
+      mocks.limitCalls.push(value);
+      return Promise.resolve(result);
+    }),
   };
 }
 
@@ -522,6 +526,72 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       '"response-1","respondent-alpha","2026-01-01T00:00:00.000Z","","JP","","1.0000","山田 太郎"',
     );
     expect(mocks.db.select).toHaveBeenCalledTimes(3);
+    expect(mocks.limitCalls).toContain(5001);
+  });
+
+  it("returns a header-only CSV when there are no saved responses", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            plateContent: JSON.stringify([
+              { type: "form_short_text", blockId: "name-block" },
+            ]),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(orderedQuery([]));
+    const { extractQuestionsFromPlateContent } = await import(
+      "@nexus-form/shared"
+    );
+    vi.mocked(extractQuestionsFromPlateContent).mockReturnValueOnce([
+      {
+        blockId: "name-block",
+        type: "short_text",
+        title: "氏名",
+        validation: {},
+      },
+    ]);
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名"',
+    );
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.limitCalls).toContain(5001);
+  });
+
+  it("rejects CSV export before loading fingerprints when response rows exceed the cap", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(limitedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        orderedQuery(
+          Array.from({ length: 5001 }, (_, index) => ({
+            id: `response-${index}`,
+            formId: "form-1",
+            responseDataJson: "[]",
+            submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: null,
+            respondentUuid: `respondent-${index}`,
+            userAgent: null,
+            sessionId: null,
+            countryCode: null,
+          })),
+        ),
+      );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(413);
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Response export is limited to 5000 responses",
+    });
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.limitCalls).toContain(5001);
   });
 
   it("applies limit and offset to response analytics timelines", async () => {

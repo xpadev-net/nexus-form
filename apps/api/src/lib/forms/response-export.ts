@@ -317,26 +317,30 @@ export function formatRecordsToCsv(
   blockTitleMap: Map<string, string>,
 ): string {
   try {
-    if (records.length === 0) return "";
-
     // メタデータヘッダーを共通関数から取得
     const metadataHeaders = buildMetadataHeaders(fingerprintComponents, true);
 
     // コンポーネント列をヘッダーに追加
     const componentHeaders = new Map<string, string>();
-    records.forEach((record) => {
-      if (record.component_columns) {
-        record.component_columns.forEach((col) => {
-          if (!componentHeaders.has(col.block_id)) {
-            const blockTitle =
-              col.question_title?.trim() ||
-              blockTitleMap.get(col.block_id) ||
-              col.block_id;
-            componentHeaders.set(col.block_id, blockTitle);
-          }
-        });
-      }
-    });
+    if (records.length === 0) {
+      blockTitleMap.forEach((title, blockId) => {
+        componentHeaders.set(blockId, title);
+      });
+    } else {
+      records.forEach((record) => {
+        if (record.component_columns) {
+          record.component_columns.forEach((col) => {
+            if (!componentHeaders.has(col.block_id)) {
+              const blockTitle =
+                col.question_title?.trim() ||
+                blockTitleMap.get(col.block_id) ||
+                col.block_id;
+              componentHeaders.set(col.block_id, blockTitle);
+            }
+          });
+        }
+      });
+    }
 
     // ヘッダーを生成
     const csvHeaders = [
