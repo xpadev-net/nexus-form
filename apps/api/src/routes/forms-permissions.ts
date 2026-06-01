@@ -72,6 +72,19 @@ const formPermissionMutationRateLimit = createRateLimit({
   },
 });
 
+const formPermissionDestructiveRateLimit = createRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 10,
+  keyGenerator: (c) => {
+    const auth = c.get("dualAuthContext");
+    const subject =
+      auth?.user_id !== undefined
+        ? `user:${auth.user_id}`
+        : `ip:${getClientIp(c)}`;
+    return `rate_limit:forms-permissions:destructive:${subject}:${c.req.path}`;
+  },
+});
+
 const invitationCreateSchema = z.object({
   email: z.string().email(),
   role: z.enum(["EDITOR", "VIEWER"]),
@@ -286,7 +299,7 @@ export const formsPermissionsRouter = createHonoApp()
   .delete(
     "/:id/permissions/:userId",
     withDualFormAuth("OWNER"),
-    formPermissionMutationRateLimit,
+    formPermissionDestructiveRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const userId = c.req.param("userId");
@@ -314,7 +327,7 @@ export const formsPermissionsRouter = createHonoApp()
   .post(
     "/:id/permissions/transfer-owner",
     withDualFormAuth("OWNER"),
-    formPermissionMutationRateLimit,
+    formPermissionDestructiveRateLimit,
     zValidator("json", transferOwnerSchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -435,7 +448,7 @@ export const formsPermissionsRouter = createHonoApp()
   .delete(
     "/:id/invitations/:invitationId",
     withDualFormAuth("EDITOR"),
-    formPermissionMutationRateLimit,
+    formPermissionDestructiveRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const invitationId = c.req.param("invitationId");
@@ -572,7 +585,7 @@ export const formsPermissionsRouter = createHonoApp()
     "/:id/share-links/:linkId",
     withDualFormAuth("EDITOR"),
     rejectSyntheticShareLinkManagementAuth,
-    formPermissionMutationRateLimit,
+    formPermissionDestructiveRateLimit,
     async (c) => {
       const formId = c.req.param("id");
       const linkId = c.req.param("linkId");
