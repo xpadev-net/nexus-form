@@ -718,10 +718,7 @@ describe("R23-T3 scheduled public form visibility", () => {
       newStatus: "PUBLISHED",
       message: "Form automatically published based on schedule",
     });
-    mocks.getLatestSnapshot.mockImplementationOnce(async () => {
-      expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
-      return snapshot;
-    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(snapshot);
 
     const response = await getPublicForm();
     const body = (await response.json()) as PublicGetBody;
@@ -734,8 +731,9 @@ describe("R23-T3 scheduled public form visibility", () => {
   });
 
   it("hides the public form after the scheduled deadline unpublishes it", async () => {
+    const now = new Date("2026-06-01T00:02:00.000Z");
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-06-01T00:02:00.000Z"));
+    vi.setSystemTime(now);
     usePublicGetSelect({
       status: "PUBLISHED",
       dueScheduleId: "schedule-deadline",
@@ -750,6 +748,7 @@ describe("R23-T3 scheduled public form visibility", () => {
     const response = await getPublicForm();
 
     expect(response.status).toBe(404);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
     expect(mocks.getLatestSnapshot).not.toHaveBeenCalled();
   });
 
@@ -773,15 +772,13 @@ describe("R23-T3 scheduled public form visibility", () => {
       newStatus: "PUBLISHED",
       message: "Snapshot switched to version 2 based on schedule",
     });
-    mocks.getLatestSnapshot.mockImplementationOnce(async () => {
-      expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
-      return switchedSnapshot;
-    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(switchedSnapshot);
 
     const response = await getPublicForm();
     const body = (await response.json()) as PublicGetBody;
 
     expect(response.status).toBe(200);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
     expect(body.form.status).toBe("PUBLISHED");
     expect(body.plateContent).toBe(switchedSnapshot.plateContent);
     expect(body.plateContent).toContain("Visible after snapshot switch");
