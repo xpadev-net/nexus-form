@@ -53,6 +53,13 @@ vi.mock("../lib/forms/form-integration-service", async () => {
 });
 
 vi.mock("../lib/queues", () => ({
+  SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 30_000,
+    },
+  },
   getSheetsSyncQueue: () => ({
     addBulk: mocks.addBulk,
     getJob: mocks.getJob,
@@ -158,7 +165,7 @@ describe("Google Sheets sync job status authorization", () => {
     });
   });
 
-  it("queues bounded manual sync jobs with retryable ids and default retry settings", async () => {
+  it("queues bounded manual sync jobs with deterministic ids and retry settings", async () => {
     mocks.responseRows = [
       { responseId: "response-1" },
       { responseId: "response-2" },
@@ -194,8 +201,13 @@ describe("Google Sheets sync job status authorization", () => {
         responseId: "response-1",
       },
     });
-    expect(queuedJobs?.[0]?.opts).not.toHaveProperty("attempts");
-    expect(queuedJobs?.[0]?.opts).not.toHaveProperty("backoff");
+    expect(queuedJobs?.[0]?.opts).toMatchObject({
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 30_000,
+      },
+    });
     expect(queuedJobs?.[0]?.opts?.jobId).toBe(body.jobId);
     expect(queuedJobs?.[0]?.opts?.jobId).toMatch(/^sheets-manual\./);
     expect(queuedJobs?.[0]?.opts?.jobId).not.toContain(":");
@@ -233,7 +245,7 @@ describe("Google Sheets sync job status authorization", () => {
     expect(body.jobId).not.toContain(":");
   });
 
-  it("generates a fresh manual sync job id when retrying the same failed response", async () => {
+  it("uses the same manual sync job id for consecutive syncs of the same response", async () => {
     mocks.responseRows = [{ responseId: "response-1" }];
 
     const { formsIntegrationsRouter } = await import(
@@ -273,8 +285,85 @@ describe("Google Sheets sync job status authorization", () => {
       jobId: expect.stringMatching(/^sheets-manual\./),
       status: "queued",
     });
-    expect(retryBody.jobId).not.toBe(firstBody.jobId);
+    expect(retryBody.jobId).toBe(firstBody.jobId);
     expect(mocks.addBulk).toHaveBeenCalledTimes(2);
+    expect(mocks.addBulk.mock.calls[1]?.[0]?.[0]?.opts?.jobId).toBe(
+      firstBody.jobId,
+    );
+  });
+
+  it.each([
+    "failed",
+    "completed",
+    "delayed",
+  ] as const)("removes retained %s manual sync jobs before re-queueing", async (state) => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    const remove = vi.fn(async () => undefined);
+    mocks.getJob.mockResolvedValueOnce({
+      getState: vi.fn(async () => state),
+      remove,
+    });
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk.mock.calls[0]?.[0]?.[0]?.opts?.jobId).toBe(body.jobId);
+  });
+
+  it("keeps running delayed jobs when they become active before removal", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    const remove = vi.fn(async () => {
+      throw new Error("job is locked");
+    });
+    mocks.getJob.mockResolvedValueOnce({
+      getState: vi
+        .fn()
+        .mockResolvedValueOnce("delayed")
+        .mockResolvedValueOnce("active"),
+      remove,
+    });
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
   });
 
   it("defaults manual sync to the latest response instead of replaying all rows", async () => {
