@@ -148,7 +148,7 @@ describe("POST /:id/publish", () => {
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
-      error: "公開用スナップショットの形式が不正です",
+      error: "質問がありません。質問を追加してから公開してください",
     });
     expect(mocks.updateSet).not.toHaveBeenCalled();
   });
