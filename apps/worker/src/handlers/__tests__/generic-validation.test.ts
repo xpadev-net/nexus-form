@@ -739,6 +739,121 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("Discord validation の入力形式が不正な場合は validate を呼ばずに INPUT_VALIDATION_ERROR を書き込む", async () => {
+    const validateFn = vi.fn().mockResolvedValue({ isValid: true });
+    const rule = makeRule({
+      inputSchema: {
+        parse: vi.fn().mockImplementation(() => {
+          throw new Error("Invalid Discord user id");
+        }),
+      } as unknown as ValidationProviderRule["inputSchema"],
+      validate: validateFn,
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Input validation failed" });
+    expect(validateFn).not.toHaveBeenCalled();
+    expect(mockWithRedisLock).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "discord",
+        success: false,
+        errorCode: "INPUT_VALIDATION_ERROR",
+        errorMessage: "Invalid input format",
+      }),
+    );
+  });
+
+  it("Discord retryable result without retryAfter は最終試行前に BullMQ retry へ委譲し結果を書かない", async () => {
+    const safeDiscordApiFailureMessage =
+      "Discord APIへの接続に失敗しました。しばらくしてから再試行してください";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "DISCORD_API_TIMEOUT",
+        errorMessage: safeDiscordApiFailureMessage,
+      }),
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+      attemptsMade: 1,
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      safeDiscordApiFailureMessage,
+    );
+
+    expect(mockWithRedisLock).toHaveBeenCalledWith(
+      "nexus-form:discord-validation-api",
+      expect.any(Function),
+      expect.objectContaining({
+        ttlMs: 120_000,
+        waitTimeoutMs: 125_000,
+      }),
+    );
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("Discord retryable result without retryAfter は最終 BullMQ attempt で安全な失敗理由を書き込み遅延再試行しない", async () => {
+    const safeDiscordApiFailureMessage =
+      "Discord APIへの接続に失敗しました。しばらくしてから再試行してください";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "DISCORD_API_TIMEOUT",
+        errorMessage: safeDiscordApiFailureMessage,
+      }),
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(job.moveToDelayed).not.toHaveBeenCalled();
+    expect(job.updateData).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "discord",
+        success: false,
+        errorCode: "DISCORD_API_TIMEOUT",
+        errorMessage: safeDiscordApiFailureMessage,
+      }),
+    );
+  });
+
   it("バリデーション失敗時にok:falseを返す", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
