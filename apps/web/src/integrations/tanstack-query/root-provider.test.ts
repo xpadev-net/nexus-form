@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { RpcError } from "@/lib/api";
+import { HttpError } from "@/lib/fetch-json";
 import { queryClient } from "./root-provider";
 
 describe("queryClient", () => {
@@ -12,7 +13,9 @@ describe("queryClient", () => {
     }
 
     expect(retry(0, new RpcError("Forbidden", 403))).toBe(false);
+    expect(retry(0, new HttpError(404, "Not found"))).toBe(false);
     expect(retry(2, new RpcError("Server error", 500))).toBe(true);
+    expect(retry(2, new HttpError(503, "Unavailable"))).toBe(true);
     expect(retry(3, new Error("Network"))).toBe(false);
   });
 });
