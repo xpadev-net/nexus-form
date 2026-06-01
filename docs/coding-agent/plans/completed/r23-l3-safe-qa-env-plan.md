@@ -1,6 +1,6 @@
 # Plan: R23-L3 Safe QA Environment Docs
 
-- status: in_progress
+- status: done
 - generated: 2026-06-01
 - last_updated: 2026-06-01
 - work_type: docs
@@ -142,6 +142,10 @@
   - Summary: Independent Reviewer が受け入れ条件、秘密情報混入リスク、hCaptcha 未変更、docs-only waiver をレビューし APPROVED。
   - Validation evidence: Reviewer status APPROVED、Findings なし。Orchestrator validation: `rtk pnpm lint:fix` pass、`rtk pnpm type-check` pass、`rtk pnpm test -- --silent` pass。
   - Notes: 実際の外部 QA 実施は手動手順依存で、自動 E2E 実装はスコープ外。
+- 2026-06-01 00:00 Wave 3 in progress: [Task_3]
+  - Summary: PR #458 を作成し、初回 `gh-review-hook 458` で CI は全成功。hook 指摘に従い、base branch を merge し、plan lifecycle を completed へ移動。
+  - Validation evidence: `gh-review-hook 458` 初回は exit 2。CI success、Reviewer confidence 4/5、指摘は plan lifecycle と branch behind のみ。
+  - Notes: 最終 `gh-review-hook` exit 0 と merge commit は PR merge 後の最終報告に記録する。
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
