@@ -91,3 +91,4 @@
 - 2026-06-01: Added `@testing-library/dom` as a web devDependency because the requested regression uses Testing Library `getByRole`.
 - 2026-06-01: Record the reviewer-found untracked-file miss in this plan Decision Log instead of `docs/coding-agent/lessons.md`, because the delegated task workflow treats `lessons.md` as shared and conflict-prone unless essential.
 - 2026-06-01: Before reviewer dispatch on tasks that add files, run `git status --short` and confirm new files are tracked or explicitly included in the review packet as untracked work that will be staged.
+- 2026-06-01: `gh-review-hook` flagged the test's detached container pattern. Updated the test to append the container to `document.body` and remove it during cleanup so role queries do not mask CSS-driven hidden states in jsdom.

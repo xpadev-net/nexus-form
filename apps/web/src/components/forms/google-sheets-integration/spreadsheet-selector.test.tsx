@@ -64,41 +64,46 @@ describe("SpreadsheetSelector", () => {
   it("exposes the refresh button with an accessible name", () => {
     const onRefreshSpreadsheets = vi.fn();
     const container = document.createElement("div");
+    document.body.appendChild(container);
     const root: Root = createRoot(container);
 
-    act(() => {
-      root.render(
-        <SpreadsheetSelector
-          searchQuery=""
-          selectedSpreadsheetId=""
-          filteredSpreadsheets={[]}
-          isFetchingSpreadsheets={false}
-          spreadsheetsErrorMessage="スプレッドシート一覧の取得に失敗しました"
-          isSpreadsheetDialogOpen={false}
-          newSpreadsheetTitle=""
-          isCreatingSpreadsheet={false}
-          onSearchQueryChange={vi.fn()}
-          onRefreshSpreadsheets={onRefreshSpreadsheets}
-          onSelectSpreadsheet={vi.fn()}
-          onSpreadsheetDialogOpenChange={vi.fn()}
-          onNewSpreadsheetTitleChange={vi.fn()}
-          onCreateSpreadsheet={vi.fn()}
-        />,
-      );
-    });
+    try {
+      act(() => {
+        root.render(
+          <SpreadsheetSelector
+            searchQuery=""
+            selectedSpreadsheetId=""
+            filteredSpreadsheets={[]}
+            isFetchingSpreadsheets={false}
+            spreadsheetsErrorMessage="スプレッドシート一覧の取得に失敗しました"
+            isSpreadsheetDialogOpen={false}
+            newSpreadsheetTitle=""
+            isCreatingSpreadsheet={false}
+            onSearchQueryChange={vi.fn()}
+            onRefreshSpreadsheets={onRefreshSpreadsheets}
+            onSelectSpreadsheet={vi.fn()}
+            onSpreadsheetDialogOpenChange={vi.fn()}
+            onNewSpreadsheetTitleChange={vi.fn()}
+            onCreateSpreadsheet={vi.fn()}
+          />,
+        );
+      });
 
-    const refreshButton = getByRole(container, "button", {
-      name: "スプレッドシート一覧を再取得",
-    });
+      const refreshButton = getByRole(container, "button", {
+        name: "スプレッドシート一覧を再取得",
+      });
 
-    act(() => {
-      refreshButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+      act(() => {
+        refreshButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
 
-    expect(onRefreshSpreadsheets).toHaveBeenCalledTimes(1);
+      expect(onRefreshSpreadsheets).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => {
+        root.unmount();
+      });
 
-    act(() => {
-      root.unmount();
-    });
-  });
+      container.remove();
+    }
+  }, 15_000);
 });
