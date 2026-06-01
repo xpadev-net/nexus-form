@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
+import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { FormPageNavigation } from "./form-page-navigation";
 
 export interface FormSubmitRequestData {
@@ -61,14 +62,19 @@ export function FormBody({
       if (!Array.isArray(parsed)) {
         return { parsedContent: [] as unknown[], isContentEmpty: false };
       }
+      const sanitized = sanitizeFormPlateContent(parsed);
       return {
-        parsedContent: parsed as unknown[],
-        isContentEmpty: parsed.length === 0,
+        parsedContent: sanitized,
+        isContentEmpty: sanitized.length === 0,
       };
     } catch {
       return { parsedContent: [] as unknown[], isContentEmpty: false };
     }
   }, [plateContent]);
+  const sanitizedPlateContent = useMemo(
+    () => JSON.stringify(parsedContent),
+    [parsedContent],
+  );
 
   const pages = useMemo(
     () => splitPlateContentIntoPages(parsedContent),
@@ -186,7 +192,7 @@ export function FormBody({
           <div className="rounded-lg border bg-card p-6">
             <PlateViewer
               key={paging.currentPageIndex}
-              value={isMultiPage ? currentPageValue : plateContent}
+              value={isMultiPage ? currentPageValue : sanitizedPlateContent}
             />
           </div>
         ) : (
