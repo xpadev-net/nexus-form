@@ -4,7 +4,7 @@ import type {
   ValidationProviderRule,
 } from "@nexus-form/integrations";
 import { z } from "zod";
-import { getGitHubClient } from "./client";
+import { GitHubUserInfoSchema, getGitHubClient } from "./client";
 import { getGitHubApiTimeoutMs, getGitHubConfig } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 import { isGitHubProviderError } from "./utils";
@@ -21,19 +21,13 @@ const RETRYABLE_GITHUB_ERROR_CODES = new Set<GitHubErrorCode>([
 ]);
 const RETRYABLE_GITHUB_HTTP_STATUSES = new Set([500, 502, 503, 504]);
 
-const GitHubMetadataSchema = z.object({
-  username: z.string(),
-  userId: z.number(),
-  displayName: z.string().nullable(),
-  avatarUrl: z.string().url().nullable(),
-  profileUrl: z.string().url(),
-  bio: z.string().nullable(),
-  publicRepos: z.number().int().nonnegative(),
-  followers: z.number().int().nonnegative(),
-  following: z.number().int().nonnegative(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-});
+const GitHubMetadataSchema = GitHubUserInfoSchema;
+
+const invalidGitHubApiResponseResult: ValidationProviderResult = {
+  isValid: false,
+  errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+  errorMessage: "Invalid GitHub API response schema",
+};
 
 function normalizeGitHubUsername(username: string): string {
   let normalized = username.trim();
@@ -93,20 +87,25 @@ const userExistsRule: ValidationProviderRule = {
         };
       }
 
+      const parsedUserData = GitHubUserInfoSchema.safeParse(userData);
+      if (!parsedUserData.success) {
+        return invalidGitHubApiResponseResult;
+      }
+
       return {
         isValid: true,
         metadata: {
-          username: userData.username,
-          userId: userData.userId,
-          displayName: userData.displayName,
-          avatarUrl: userData.avatarUrl,
-          profileUrl: userData.profileUrl,
-          bio: userData.bio,
-          publicRepos: userData.publicRepos,
-          followers: userData.followers,
-          following: userData.following,
-          createdAt: userData.createdAt,
-          updatedAt: userData.updatedAt,
+          username: parsedUserData.data.username,
+          userId: parsedUserData.data.userId,
+          displayName: parsedUserData.data.displayName,
+          avatarUrl: parsedUserData.data.avatarUrl,
+          profileUrl: parsedUserData.data.profileUrl,
+          bio: parsedUserData.data.bio,
+          publicRepos: parsedUserData.data.publicRepos,
+          followers: parsedUserData.data.followers,
+          following: parsedUserData.data.following,
+          createdAt: parsedUserData.data.createdAt,
+          updatedAt: parsedUserData.data.updatedAt,
         },
       };
     } catch (error) {

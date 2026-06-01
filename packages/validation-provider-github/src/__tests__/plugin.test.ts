@@ -7,15 +7,33 @@ const { getUserByUsernameMock } = vi.hoisted(() => ({
   getUserByUsernameMock: vi.fn(),
 }));
 
-vi.mock("../client", () => ({
-  getGitHubClient: () => ({
-    getUserByUsername: getUserByUsernameMock,
-  }),
-}));
+vi.mock("../client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../client")>();
+  return {
+    ...actual,
+    getGitHubClient: () => ({
+      getUserByUsername: getUserByUsernameMock,
+    }),
+  };
+});
 
 beforeEach(() => {
   getUserByUsernameMock.mockReset();
 });
+
+const validUserData = {
+  username: "octocat",
+  userId: 1,
+  displayName: "Octocat",
+  avatarUrl: "https://avatars.githubusercontent.com/u/1?v=4",
+  profileUrl: "https://github.com/octocat",
+  bio: "A cat",
+  publicRepos: 8,
+  followers: 5000,
+  following: 9,
+  createdAt: "2011-01-25T18:44:36Z",
+  updatedAt: "2023-01-01T00:00:00Z",
+};
 
 describe("githubProvider.rules.user_exists.inputSchema", () => {
   it("accepts usernames matching the advertised GitHub pattern", () => {
@@ -168,5 +186,28 @@ describe("githubProvider.rules.user_exists.validate", () => {
       errorCode: GitHubErrorCode.GITHUB_AUTH_FAILED,
       retryable: false,
     });
+  });
+
+  it.each([
+    ["missing username", { username: undefined }],
+    ["non-numeric userId", { userId: "not-a-number" }],
+    ["invalid createdAt", { createdAt: "not-a-date" }],
+  ])("does not treat malformed GitHub user data as successful validation (%s)", async (_caseName, override) => {
+    getUserByUsernameMock.mockResolvedValueOnce({
+      ...validUserData,
+      ...override,
+    });
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+      errorMessage: "Invalid GitHub API response schema",
+    });
+    expect(result).not.toHaveProperty("metadata");
   });
 });

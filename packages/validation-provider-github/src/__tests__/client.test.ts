@@ -97,6 +97,23 @@ describe("GitHubApiClient.getUserByUsername", () => {
     );
   });
 
+  it("throws GitHubProviderError(GITHUB_API_ERROR) on malformed response (invalid created_at)", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    mockGetByUsername.mockResolvedValue({
+      data: { ...validResponse, created_at: "not-a-date" },
+    });
+
+    const err = await client
+      .getUserByUsername("octocat")
+      .catch((e) => e as GitHubProviderError);
+    expect(err).toBeInstanceOf(GitHubProviderError);
+    expect((err as GitHubProviderError).code).toBe(
+      GitHubErrorCode.GITHUB_API_ERROR,
+    );
+  });
+
   it("returns null on user not found (404)", async () => {
     const mockGetByUsername = vi.mocked(
       octokitConstructorMock.mock.results[0]?.value.users.getByUsername,

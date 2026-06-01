@@ -12,6 +12,8 @@ import {
   parseGitHubError,
 } from "./utils";
 
+const GitHubApiTimestampSchema = z.string().datetime({ offset: true });
+
 const GitHubApiUserSchema = z.object({
   login: z.string().min(1),
   id: z.number().int().positive(),
@@ -22,23 +24,25 @@ const GitHubApiUserSchema = z.object({
   public_repos: z.number().int().nonnegative(),
   followers: z.number().int().nonnegative(),
   following: z.number().int().nonnegative(),
-  created_at: z.string().min(1),
-  updated_at: z.string().min(1),
+  created_at: GitHubApiTimestampSchema,
+  updated_at: GitHubApiTimestampSchema,
 });
 
-export interface GitHubUserInfo {
-  username: string;
-  userId: number;
-  displayName: string | null;
-  avatarUrl: string | null;
-  profileUrl: string;
-  bio: string | null;
-  publicRepos: number;
-  followers: number;
-  following: number;
-  createdAt: string;
-  updatedAt: string;
-}
+export const GitHubUserInfoSchema = z.object({
+  username: z.string().min(1),
+  userId: z.number().int().positive(),
+  displayName: z.string().nullable(),
+  avatarUrl: z.string().url().nullable(),
+  profileUrl: z.string().url(),
+  bio: z.string().nullable(),
+  publicRepos: z.number().int().nonnegative(),
+  followers: z.number().int().nonnegative(),
+  following: z.number().int().nonnegative(),
+  createdAt: GitHubApiTimestampSchema,
+  updatedAt: GitHubApiTimestampSchema,
+});
+
+export type GitHubUserInfo = z.infer<typeof GitHubUserInfoSchema>;
 
 function getRequestSignal(init?: RequestInit): AbortSignal | null {
   return init?.signal instanceof AbortSignal ? init.signal : null;
