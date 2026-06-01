@@ -96,6 +96,26 @@ export const useFormAccessControl = (formId: string) => {
         },
       });
     },
+    mutateAsync: (
+      ...[params, options]: Parameters<
+        typeof updatePasswordProtectionMutation.mutateAsync
+      >
+    ) =>
+      updatePasswordProtectionMutation.mutateAsync(params, {
+        ...options,
+        onError: (error, variables, onMutateResult, context) => {
+          if (options?.onError) {
+            options.onError(error, variables, onMutateResult, context);
+            return;
+          }
+
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "パスワード保護の変更に失敗しました",
+          );
+        },
+      }),
   };
 
   return {
