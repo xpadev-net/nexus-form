@@ -327,6 +327,7 @@ describe("FormEditorPage tab synchronization", () => {
     expect(container.textContent).toContain(
       "このフォームは存在しないか、編集権限がありません。",
     );
+    expect(container.textContent).toContain("フォーム一覧へ戻る");
     expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
     expect(optionsByQueryKey.get("formContent")?.enabled).toBe(false);
 
@@ -347,6 +348,7 @@ describe("FormEditorPage tab synchronization", () => {
       "フォームの読み込みに失敗しました。",
     );
     expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
 
     act(() => root.unmount());
   });
@@ -365,6 +367,25 @@ describe("FormEditorPage tab synchronization", () => {
       "フォームの読み込みに失敗しました。",
     );
     expect(container.textContent).not.toContain("フォームが見つかりません");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps server editor load failures on the generic error path", () => {
+    formQueryState = {
+      error: new RpcError("Server error", 500),
+      isError: true,
+      isLoading: false,
+    };
+
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain(
+      "フォームの読み込みに失敗しました。",
+    );
+    expect(container.textContent).not.toContain("フォームが見つかりません");
+    expect(container.textContent).not.toContain("フォーム一覧へ戻る");
 
     act(() => root.unmount());
   });

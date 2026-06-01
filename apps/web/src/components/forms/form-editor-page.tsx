@@ -30,7 +30,11 @@ export function FormEditorPage() {
 
   if (model.isNotFound) {
     return (
-      <FormNotFoundPage description="このフォームは存在しないか、編集権限がありません。" />
+      <FormNotFoundPage
+        actionLabel="フォーム一覧へ戻る"
+        description="このフォームは存在しないか、編集権限がありません。"
+        showHomeAction
+      />
     );
   }
 
