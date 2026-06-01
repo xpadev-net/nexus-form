@@ -9,6 +9,32 @@ export class HttpError extends Error {
   }
 }
 
+export class NetworkError extends Error {
+  override readonly cause: unknown;
+
+  constructor(message: string, cause: unknown) {
+    super(message);
+    this.name = "NetworkError";
+    this.cause = cause;
+  }
+}
+
+function hasErrorName(error: unknown, name: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === name
+  );
+}
+
+export function throwFetchFailure(error: unknown): never {
+  if (hasErrorName(error, "AbortError")) {
+    throw error;
+  }
+  throw new NetworkError("Network request failed", error);
+}
+
 const parseResponseBody = async (
   response: Response,
 ): Promise<unknown | undefined> => {
@@ -32,10 +58,15 @@ export async function fetchJson<T = undefined>(
       ? input.credentials
       : undefined;
   const credentials = initCredentials ?? requestCredentials ?? "same-origin";
-  const response = await fetch(input, {
-    ...restInit,
-    credentials,
-  });
+  let response: Response;
+  try {
+    response = await fetch(input, {
+      ...restInit,
+      credentials,
+    });
+  } catch (error) {
+    throwFetchFailure(error);
+  }
 
   if (!response.ok) {
     const body = await parseResponseBody(response).catch(() => undefined);
