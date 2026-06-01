@@ -175,6 +175,10 @@
   - Summary: Second `gh-review-hook 440` returned exit 2 for `String.replace` replacement metacharacter handling and base-branch update requirement. `origin/master` was merged without rewriting history.
   - Validation evidence: Replacement now uses a function so `$` metacharacters in env-derived JSON are preserved. Focused runtime config tests passed, 2 files / 9 tests. `pnpm --filter @nexus-form/web lint:fix`, `pnpm --filter @nexus-form/web type-check`, and `git diff --check` passed.
   - Notes: Awaiting push and `gh-review-hook 440` rerun.
+- 2026-06-01 PR review follow-up 3:
+  - Summary: Subsequent hook runs required repeated `origin/master` merges without history rewrite; latest Greptile issue requested deriving `RuntimeConfig` from the zod schema.
+  - Validation evidence: `RuntimeConfig` now uses `z.infer<typeof runtimeConfigSchema>`. Focused runtime config tests passed, 2 files / 9 tests. `pnpm --filter @nexus-form/web type-check` and `git diff --check` passed.
+  - Notes: Awaiting push and `gh-review-hook 440` rerun.
 
 ## Decision Log
 

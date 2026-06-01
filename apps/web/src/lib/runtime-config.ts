@@ -10,15 +10,7 @@ const runtimeConfigSchema = z.object({
   telemetryV6Host: z.string().optional().catch(undefined),
 });
 
-export type RuntimeConfig = {
-  apiUrl?: string;
-  baseUrl?: string;
-  formSecurityDevBypass?: string;
-  hcaptchaSiteKey?: string;
-  telemetryHost?: string;
-  telemetryV4Host?: string;
-  telemetryV6Host?: string;
-};
+export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;
 
 declare global {
   interface Window {
