@@ -632,6 +632,11 @@ export const s3Router = createHonoApp()
         throw error;
       }
 
+      const exists = await s3Service.objectExists(tmpKey, S3_BUCKETS.TMP);
+      if (!exists) {
+        return c.json(errorResponse("File not found in temporary bucket"), 404);
+      }
+
       try {
         const data = await s3Service.moveToProd(tmpKey, finalKey);
         return c.json(MoveResponseSchema.parse({ success: true, data }));
