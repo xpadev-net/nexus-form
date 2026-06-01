@@ -158,6 +158,10 @@
   - Summary: Independent Reviewer approved with no findings.
   - Validation evidence: Reviewer `019e8222-955a-7a83-9a0e-a609a36c1484` status `APPROVED`; Reviewer also reran `rtk pnpm --filter @nexus-form/integrations test` and passed.
   - Notes: Ready for commit and PR.
+- 2026-06-01 17:02 Pre-push follow-up completed
+  - Summary: Initial normal push was blocked by an unrelated Twitter provider startup test timeout under pre-push load. The startup import test was given an explicit 20s timeout without changing assertions.
+  - Validation evidence: `rtk pnpm --filter @nexus-form/validation-provider-twitter exec vitest run src/__tests__/plugin-startup.test.ts --silent` passed; `rtk pnpm --filter @nexus-form/validation-provider-twitter lint:fix` passed; `rtk pnpm --filter @nexus-form/validation-provider-twitter test` passed.
+  - Notes: Proceeding with normal push; no `--no-verify`.
 
 ## Decision Log
 - 2026-06-01 00:00 Decision: continue without explicit approval pause.
