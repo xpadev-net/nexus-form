@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   deleteShareLink: vi.fn(),
   checkShareLinkPermission: vi.fn(),
   getUserFormPermission: vi.fn(),
+  getFormPermissions: vi.fn(),
   getShareLinks: vi.fn(),
   permissionLookupLimit: vi.fn(),
   PermissionRemovalError: class PermissionRemovalError extends Error {
@@ -97,7 +98,7 @@ vi.mock("../lib/forms/permission-service", () => ({
   createShareLink: mocks.createShareLink,
   deleteShareLink: mocks.deleteShareLink,
   getFormInvitations: vi.fn(),
-  getFormPermissions: vi.fn(),
+  getFormPermissions: mocks.getFormPermissions,
   getShareLinks: mocks.getShareLinks,
   getUserFormPermission: mocks.getUserFormPermission,
   PermissionRemovalError: mocks.PermissionRemovalError,
@@ -332,19 +333,32 @@ describe("R9-C1 share-link management authorization", () => {
 });
 
 describe("R14-H6 permission creation user existence checks", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    mocks.authContext = {
-      auth_type: "session",
-      user_id: "owner-1",
-    };
-    mocks.permissionLookupLimit.mockResolvedValue([]);
-    mocks.txInsertValues.mockResolvedValue(undefined);
-  });
+  const createdPermission = {
+    id: "permission-1",
+    form_id: "form-1",
+    user_id: "target-user",
+    role: "VIEWER",
+    created_at: "2026-06-01T00:00:00.000Z",
+    updated_at: "2026-06-01T00:00:00.000Z",
+    user: {
+      id: "target-user",
+      name: "Target User",
+      email: "target@example.com",
+      discord_id: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    },
+  };
 
-  it("returns not found instead of inserting when the target user does not exist", async () => {
-    mocks.userLookupLimit.mockResolvedValue([]);
+  const mockPermissionCreationTransaction = ({
+    existingPermissionRows,
+    userRows,
+  }: {
+    existingPermissionRows: Array<{ id: string }>;
+    userRows: Array<{ id: string }>;
+  }) => {
+    mocks.userLookupLimit.mockResolvedValue(userRows);
+    mocks.permissionLookupLimit.mockResolvedValue(existingPermissionRows);
     mocks.dbTransaction.mockImplementation(
       async (
         callback: (transaction: {
@@ -382,6 +396,30 @@ describe("R14-H6 permission creation user existence checks", () => {
         return callback(tx);
       },
     );
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "owner-1",
+    };
+    mocks.permissionLookupLimit.mockResolvedValue([]);
+    mocks.txInsertValues.mockResolvedValue(undefined);
+    mocks.getFormPermissions.mockResolvedValue({
+      permissions: [createdPermission],
+      total: 1,
+      page: 1,
+      limit: 1,
+    });
+  });
+
+  it("returns not found instead of inserting when the target user does not exist", async () => {
+    mockPermissionCreationTransaction({
+      existingPermissionRows: [],
+      userRows: [],
+    });
 
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
@@ -404,6 +442,82 @@ describe("R14-H6 permission creation user existence checks", () => {
     expect(mocks.permissionLookupLimit).not.toHaveBeenCalled();
     expect(mocks.txInsert).not.toHaveBeenCalled();
     expect(mocks.txInsertValues).not.toHaveBeenCalled();
+    expect(mocks.getFormPermissions).not.toHaveBeenCalled();
+  });
+
+  it("returns conflict without inserting when permission already exists", async () => {
+    mockPermissionCreationTransaction({
+      existingPermissionRows: [{ id: "existing-permission" }],
+      userRows: [{ id: "target-user" }],
+    });
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions",
+      {
+        body: JSON.stringify({
+          role: "VIEWER",
+          userId: "target-user",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Permission already exists",
+    });
+    expect(response.status).toBe(409);
+    expect(mocks.userLookupLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.permissionLookupLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.txInsert).not.toHaveBeenCalled();
+    expect(mocks.txInsertValues).not.toHaveBeenCalled();
+    expect(mocks.getFormPermissions).not.toHaveBeenCalled();
+  });
+
+  it("creates a permission after user and duplicate checks pass", async () => {
+    mockPermissionCreationTransaction({
+      existingPermissionRows: [],
+      userRows: [{ id: "target-user" }],
+    });
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions",
+      {
+        body: JSON.stringify({
+          role: "VIEWER",
+          userId: "target-user",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      permission: createdPermission,
+    });
+    expect(response.status).toBe(201);
+    expect(mocks.userLookupLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.permissionLookupLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.txInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.txInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: "form-1",
+        role: "VIEWER",
+        userId: "target-user",
+      }),
+    );
+    expect(mocks.getFormPermissions).toHaveBeenCalledWith({
+      form_id: "form-1",
+      page: 1,
+      limit: 1,
+      user_id: "target-user",
+    });
   });
 });
 

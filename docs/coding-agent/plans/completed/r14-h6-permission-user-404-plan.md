@@ -127,6 +127,19 @@
   - Notes:
     - PR / review-hook / merge evidence is tracked in final closeout.
 
+- 2026-06-01 Review hook issue fixed
+  - Summary:
+    - `gh-review-hook 434` exited 2 after CI success because Greptile requested success-path and duplicate-conflict coverage for `POST /:id/permissions`.
+    - Added 201 success and 409 duplicate permission tests to the R14-H6 route test block.
+    - Merged `origin/master` as requested by the hook; no history rewrite.
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-permissions-share-links-auth.test.ts` passed: 16 tests.
+    - `pnpm lint:fix` passed: 9 tasks.
+    - `pnpm type-check` passed: 16 tasks.
+    - `TURBO_CONCURRENCY=1 pnpm test -- --silent --maxWorkers=1` passed: 15 tasks, API 76 files / 714 tests.
+  - Notes:
+    - Follow-up `gh-review-hook 434` rerun is required after pushing the fix.
+
 ## Decision Log
 - 2026-06-01 Decision:
   - Trigger / new insight: 対象 route の実装は期待修正済みで、回帰 test が acceptance の主要不足だった。
@@ -143,3 +156,8 @@
   - Plan delta (what changed): 既存 completed plan に記録済みの `TURBO_CONCURRENCY=1` と `--maxWorkers=1` を使い、同じ test body を resource-sensitive でない形で実行した。
   - Tradeoffs considered: timeout 設定や既存 test の修正は R14-H6 の scope を超えるため避けた。
   - User approval: no separate approval requested; this follows existing repo validation precedent.
+- 2026-06-01 Decision:
+  - Trigger / new insight: Greptile の review issue により、missing-user branch だけでなく同一 transaction handler の success / duplicate branch も固定する必要が出た。
+  - Plan delta (what changed): R14-H6 test block に 201 と 409 の route tests を追加した。
+  - Tradeoffs considered: production code は既に期待挙動を満たしているため、handler 全体の regression coverage の追加に留めた。
+  - User approval: requested by review hook and follow-up delegation.
