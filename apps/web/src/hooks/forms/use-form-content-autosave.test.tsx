@@ -438,13 +438,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     // Keepalive should NOT fire - the value was already picked up by the
     // regular autosave mutation (inFlight), and a duplicate PUT would produce
     // a spurious 409 that creates a false pending save entry.
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "http://localhost:3001/api/forms/form-1/content",
-      expect.objectContaining({
-        keepalive: true,
-        method: "PUT",
-      }),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
@@ -470,13 +464,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     // The value was already in-flight (regular autosave mutation started),
     // so no keepalive fetch should fire - the regular autosave covers it.
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      "http://localhost:3001/api/forms/form-1/content",
-      expect.objectContaining({
-        keepalive: true,
-        method: "PUT",
-      }),
-    );
+    expect(fetchMock).not.toHaveBeenCalled();
 
     act(() => {
       latestMutationOptions?.onSuccess?.(
