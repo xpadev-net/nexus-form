@@ -147,6 +147,25 @@ describe("API Route Integration Tests", () => {
       expect(body.token).toBe("better-auth-managed");
       expect(body.note).toBeDefined();
     });
+
+    it("rate limits CSRF token issuance by client IP", async () => {
+      const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+      clearRateLimitStoreForTests();
+
+      let res: Response | null = null;
+      for (let i = 0; i < 61; i++) {
+        res = await app.request("/api/csrf", {
+          headers: { "x-forwarded-for": "203.0.113.72" },
+        });
+      }
+
+      if (!res) throw new Error("Expected a response");
+      expect(res.status).toBe(429);
+      expect(res.headers.get("X-RateLimit-Limit")).toBe("60");
+      await expect(res.json()).resolves.toMatchObject({
+        error: { message: "Too many requests" },
+      });
+    });
   });
 
   describe("GET /api/auth-ext/me", () => {
