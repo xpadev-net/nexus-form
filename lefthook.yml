@@ -5,7 +5,9 @@ pre-commit:
   commands:
     lint:
       glob: "{src,apps,packages}/**/*.{js,jsx,ts,tsx,json,css,md}"
-      exclude: "{src,apps/**/src}/components/ui/**"
+      exclude:
+        - "src/components/ui/**"
+        - "apps/**/src/components/ui/**"
       run: |
         bash -c '
           if [ "$#" -gt 0 ]; then
