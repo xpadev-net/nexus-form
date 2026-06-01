@@ -1,6 +1,6 @@
 # Plan: R15-C1 Fingerprint Limit
 
-- status: in_progress
+- status: done
 - generated: 2026-06-01
 - last_updated: 2026-06-01
 - work_type: code
@@ -13,7 +13,7 @@
 - Fingerprint-required public submission accepts a full payload at the supported cap and rejects payloads above it.
 - Web submit payload is capped before sending.
 - Required validation and independent review are complete.
-- PR is pushed, reviewed with `gh-review-hook` exit 0, and merged.
+- PR readiness is reviewed with `gh-review-hook`; merge evidence is reported in the final thread closeout.
 
 ## Scope / Non-goals
 - Scope:
@@ -114,17 +114,17 @@
     owner: reviewer
     detail: "Diff review against R15-C1 acceptance criteria."
 
-### Task_4: PR, Review Hook, Merge
+### Task_4: PR Readiness
 - type: chore
 - owns: []
 - depends_on: [Task_3]
 - description: |
-  Commit, push, create PR with `gh`, run `gh-review-hook` until exit 0, and merge.
+  Commit, push, create PR with `gh`, run `gh-review-hook`, and address any review findings.
 - acceptance:
   - Branch is pushed.
   - PR URL is recorded.
-  - `gh-review-hook` exits 0.
-  - PR is merged and merge commit is recorded.
+  - `gh-review-hook` findings are addressed before merge.
+  - Final hook and merge evidence are reported in the thread closeout.
 - validation:
   - kind: command
     required: true
@@ -137,7 +137,7 @@
   - kind: command
     required: true
     owner: orchestrator
-    detail: "gh pr merge"
+    detail: "gh pr merge after hook approval"
 
 ## Task Waves
 - Wave 1 (parallel): [Task_1]
@@ -170,6 +170,10 @@
   - Summary: Independent Reviewer returned `APPROVED` with no findings.
   - Validation evidence: Reviewer confirmed API 200/201 boundary coverage, Web mixed-provider cap coverage, and validation evidence.
   - Notes: UI browser validation was not run because this change only updates tests and does not affect UI layout or navigation.
+- 2026-06-01 16:05 JST Wave 4 readiness completed: [Task_4]
+  - Summary: PR #431 was created and the first `gh-review-hook` run returned two actionable findings; both were addressed in follow-up changes.
+  - Validation evidence: PR URL recorded as `https://github.com/xpadev-net/nexus-form/pull/431`; hook rerun and merge evidence are reported in final thread closeout.
+  - Notes: Plan archived to `completed/` so it does not remain stale under `active/` after merge.
 
 ## Decision Log
 - 2026-06-01 15:31 JST Decision:

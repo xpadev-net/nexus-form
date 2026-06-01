@@ -161,9 +161,17 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const publicSubmitFingerprintTypes = [
+  "browser",
+  "fingerprintjs",
+  "thumbmarkjs",
+] as const;
+
 function makePublicSubmitFingerprints(count: number) {
   return Array.from({ length: count }, (_, index) => ({
-    type: "browser" as const,
+    type: publicSubmitFingerprintTypes[
+      index % publicSubmitFingerprintTypes.length
+    ],
     name: `component-${index}`,
     value_hash: `hash-${index.toString().padStart(3, "0")}`,
   }));
@@ -626,6 +634,13 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
     expect(txSpy).toHaveBeenCalledOnce();
     expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
     expect(insertedFingerprints).toHaveLength(200);
+    expect(insertedFingerprints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fingerprintType: "browser" }),
+        expect.objectContaining({ fingerprintType: "fingerprintjs" }),
+        expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
+      ]),
+    );
     txSpy.mockRestore();
   });
 
