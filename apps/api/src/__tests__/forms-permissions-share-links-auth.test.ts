@@ -625,7 +625,7 @@ describe("R16-H1 forms-permissions mutation rate limits", () => {
     clearRateLimitStoreForTests();
   });
 
-  it("returns 429 after the ordinary mutation limit is exceeded", async () => {
+  it("returns 429 after the ordinary mutation limit is exceeded across target IDs", async () => {
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
     );
@@ -633,11 +633,14 @@ describe("R16-H1 forms-permissions mutation rate limits", () => {
 
     for (let i = 0; i < 31; i++) {
       responses.push(
-        await formsPermissionsRouter.request("/form-rate-limit/permissions", {
-          body: JSON.stringify({}),
-          headers: { "content-type": "application/json" },
-          method: "POST",
-        }),
+        await formsPermissionsRouter.request(
+          `/form-rate-limit/permissions/target-user-${i}`,
+          {
+            body: JSON.stringify({}),
+            headers: { "content-type": "application/json" },
+            method: "PUT",
+          },
+        ),
       );
     }
 

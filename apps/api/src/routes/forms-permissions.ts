@@ -64,11 +64,12 @@ const formPermissionMutationRateLimit = createRateLimit({
   maxRequests: 30,
   keyGenerator: (c) => {
     const auth = c.get("dualAuthContext");
+    const formId = c.req.param("id");
     const subject =
       auth?.user_id !== undefined
         ? `user:${auth.user_id}`
         : `ip:${getClientIp(c)}`;
-    return `rate_limit:forms-permissions:${subject}:${c.req.path}`;
+    return `rate_limit:forms-permissions:${subject}:form:${formId}`;
   },
 });
 
