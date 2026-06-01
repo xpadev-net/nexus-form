@@ -27,7 +27,7 @@
   - API optimistic lock behavior changes
   - UI changes
   - R22-M9 in-flight loss recovery design
-  - Parent worktree `/Users/xpadev/IdeaProjects/nexus-form`
+  - Parent worktree `<project-root>`
 
 ## Context (workspace)
 
