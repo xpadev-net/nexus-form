@@ -13,6 +13,7 @@ describe("getRuntimeConfigValue", () => {
       __NEXUS_FORM_CONFIG__: {
         apiUrl: "https://api.runtime.example",
         formSecurityDevBypass: "true",
+        hcaptchaSiteKey: "10000000-ffff-ffff-ffff-000000000001",
         telemetryHost: "telemetry.runtime.example",
         telemetryV4Host: "ipv4.runtime.example",
         telemetryV6Host: "ipv6.runtime.example",
@@ -29,6 +30,12 @@ describe("getRuntimeConfigValue", () => {
     expect(getRuntimeConfigValue("formSecurityDevBypass", "false")).toBe(
       "true",
     );
+    expect(
+      getRuntimeConfigValue(
+        "hcaptchaSiteKey",
+        "10000000-ffff-ffff-ffff-000000000002",
+      ),
+    ).toBe("10000000-ffff-ffff-ffff-000000000001");
     expect(
       getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
     ).toBe("telemetry.runtime.example");
@@ -67,5 +74,24 @@ describe("getRuntimeConfigValue", () => {
     expect(getRuntimeConfigValue("telemetryV6Host", "ipv6.build.example")).toBe(
       "ipv6.build.example",
     );
+  });
+
+  it("ignores invalid runtime config values", () => {
+    vi.stubGlobal("window", {
+      __NEXUS_FORM_CONFIG__: {
+        hcaptchaSiteKey: 123,
+        telemetryHost: { host: "telemetry.runtime.example" },
+      },
+    });
+
+    expect(
+      getRuntimeConfigValue(
+        "hcaptchaSiteKey",
+        "10000000-ffff-ffff-ffff-000000000002",
+      ),
+    ).toBe("10000000-ffff-ffff-ffff-000000000002");
+    expect(
+      getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
+    ).toBe("telemetry.build.example");
   });
 });
