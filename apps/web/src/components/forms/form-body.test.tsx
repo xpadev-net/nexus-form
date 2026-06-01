@@ -3,7 +3,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FormResponseProvider } from "@/contexts/form-response-context";
+import {
+  type AnswerEntry,
+  FormResponseProvider,
+} from "@/contexts/form-response-context";
+import type { FormSubmitRequestData } from "./form-body";
 import { FormBody } from "./form-body";
 
 (
@@ -19,20 +23,122 @@ vi.mock("@/components/editor/plate-viewer", () => ({
   },
 }));
 
-function renderFormBody(container: HTMLElement, plateContent: string): Root {
+function renderFormBody(
+  container: HTMLElement,
+  plateContent: string,
+  options: {
+    captchaReady?: boolean;
+    initialAnswers?: ReadonlyMap<string, AnswerEntry>;
+    onSubmitRequest?: (data: FormSubmitRequestData) => void;
+  } = {},
+): Root {
   const root = createRoot(container);
   act(() => {
     root.render(
-      <FormResponseProvider>
+      <FormResponseProvider initialAnswers={options.initialAnswers}>
         <FormBody
           title="公開フォーム"
           plateContent={plateContent}
           mode="public"
+          captchaReady={options.captchaReady}
+          onSubmitRequest={options.onSubmitRequest}
         />
       </FormResponseProvider>,
     );
   });
   return root;
+}
+
+function questionNode(
+  type: string,
+  blockId: string,
+  title: string,
+  validation?: Record<string, unknown>,
+) {
+  return {
+    type: `form_${type}`,
+    blockId,
+    ...(validation ? { validation } : {}),
+    children: [{ type: "p", children: [{ text: title }] }],
+  };
+}
+
+function publicQuestionFixturePlateContent(): string {
+  const rows = [
+    { id: "row-a", label: "Row A" },
+    { id: "row-b", label: "Row B" },
+  ];
+  const columns = [
+    { id: "col-1", label: "Column 1" },
+    { id: "col-2", label: "Column 2" },
+  ];
+
+  return JSON.stringify([
+    questionNode("section_separator", "section-main", "Main section"),
+    questionNode("short_text", "q-short", "Short answer", {
+      required: true,
+      minLength: 2,
+      maxLength: 20,
+    }),
+    questionNode("long_text", "q-long", "Long answer", { required: true }),
+    questionNode("radio", "q-radio", "Radio choice", {
+      required: true,
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+      ],
+    }),
+    questionNode("checkbox", "q-checkbox", "Checkbox choice", {
+      required: true,
+      minSelections: 2,
+      maxSelections: 3,
+      options: [
+        { id: "red", label: "Red" },
+        { id: "blue", label: "Blue" },
+        { id: "green", label: "Green" },
+      ],
+    }),
+    questionNode("dropdown", "q-dropdown", "Dropdown choice", {
+      required: true,
+      options: [
+        { id: "jp", label: "Japan" },
+        { id: "us", label: "United States" },
+      ],
+    }),
+    questionNode("linear_scale", "q-scale", "Linear scale", {
+      required: true,
+      min: 1,
+      max: 5,
+    }),
+    questionNode("rating", "q-rating", "Rating", {
+      required: true,
+      min: 1,
+      max: 5,
+      maxRating: 5,
+    }),
+    questionNode("choice_grid", "q-choice-grid", "Choice grid", {
+      required: true,
+      rows,
+      columns,
+    }),
+    questionNode("checkbox_grid", "q-checkbox-grid", "Checkbox grid", {
+      required: true,
+      rows,
+      columns,
+      minSelectionsPerRow: 1,
+      maxSelectionsPerRow: 2,
+    }),
+    questionNode("date", "q-date", "Date", {
+      required: true,
+      minDate: "2026-01-01",
+      maxDate: "2026-12-31",
+    }),
+    questionNode("time", "q-time", "Time", {
+      required: true,
+      minTime: "09:00",
+      maxTime: "17:00",
+    }),
+  ]);
 }
 
 describe("FormBody", () => {
@@ -83,6 +189,139 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("フォームの内容が空です。");
     expect(plateViewerValues).toEqual([]);
+
+    act(() => root.unmount());
+  });
+
+  it("submits all answerable public question types and excludes section separators", async () => {
+    const onSubmitRequest = vi.fn();
+    const answers = new Map<string, AnswerEntry>([
+      ["q-short", { value: "Alice" }],
+      ["q-long", { value: "A detailed answer" }],
+      ["q-radio", { value: "yes" }],
+      ["q-checkbox", { values: ["red", "blue"] }],
+      ["q-dropdown", { value: "jp" }],
+      ["q-scale", { value: 4 }],
+      ["q-rating", { value: 5 }],
+      ["q-choice-grid", { responses: { "row-a": "col-1", "row-b": "col-2" } }],
+      [
+        "q-checkbox-grid",
+        { responses: { "row-a": ["col-1"], "row-b": ["col-1", "col-2"] } },
+      ],
+      ["q-date", { value: "2026-06-15" }],
+      ["q-time", { value: "10:30" }],
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      publicQuestionFixturePlateContent(),
+      {
+        captchaReady: true,
+        initialAnswers: answers,
+        onSubmitRequest,
+      },
+    );
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("次へ"),
+    );
+    expect(nextButton).toBeDefined();
+    await act(async () => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    const submitted = onSubmitRequest.mock.calls[0]?.[0];
+    expect(submitted?.visitedQuestionIds).toEqual([
+      "q-short",
+      "q-long",
+      "q-radio",
+      "q-checkbox",
+      "q-dropdown",
+      "q-scale",
+      "q-rating",
+      "q-choice-grid",
+      "q-checkbox-grid",
+      "q-date",
+      "q-time",
+    ]);
+    expect(submitted?.responses).toEqual([
+      expect.objectContaining({
+        question_id: "q-short",
+        question_title: "Short answer",
+        question_type: "short_text",
+        value: "Alice",
+      }),
+      expect.objectContaining({
+        question_id: "q-long",
+        question_title: "Long answer",
+        question_type: "long_text",
+        value: "A detailed answer",
+      }),
+      expect.objectContaining({
+        question_id: "q-radio",
+        question_title: "Radio choice",
+        question_type: "radio",
+        value: "yes",
+      }),
+      expect.objectContaining({
+        question_id: "q-checkbox",
+        question_title: "Checkbox choice",
+        question_type: "checkbox",
+        values: ["red", "blue"],
+      }),
+      expect.objectContaining({
+        question_id: "q-dropdown",
+        question_title: "Dropdown choice",
+        question_type: "dropdown",
+        value: "jp",
+      }),
+      expect.objectContaining({
+        question_id: "q-scale",
+        question_title: "Linear scale",
+        question_type: "linear_scale",
+        value: 4,
+      }),
+      expect.objectContaining({
+        question_id: "q-rating",
+        question_title: "Rating",
+        question_type: "rating",
+        value: 5,
+      }),
+      expect.objectContaining({
+        question_id: "q-choice-grid",
+        question_title: "Choice grid",
+        question_type: "choice_grid",
+        responses: { "row-a": "col-1", "row-b": "col-2" },
+      }),
+      expect.objectContaining({
+        question_id: "q-checkbox-grid",
+        question_title: "Checkbox grid",
+        question_type: "checkbox_grid",
+        responses: { "row-a": ["col-1"], "row-b": ["col-1", "col-2"] },
+      }),
+      expect.objectContaining({
+        question_id: "q-date",
+        question_title: "Date",
+        question_type: "date",
+        value: "2026-06-15",
+      }),
+      expect.objectContaining({
+        question_id: "q-time",
+        question_title: "Time",
+        question_type: "time",
+        value: "10:30",
+      }),
+    ]);
 
     act(() => root.unmount());
   });
