@@ -49,7 +49,6 @@ type InlineComboboxContextValue = {
   removeInput: UseComboboxInputResult["removeInput"];
   showTrigger: boolean;
   trigger: string;
-  setHasEmpty: (hasEmpty: boolean) => void;
 };
 
 const InlineComboboxContext = createContext<InlineComboboxContextValue>(
@@ -154,15 +153,12 @@ const InlineCombobox = ({
     },
   });
 
-  const [, setHasEmpty] = useState(false);
-
   const contextValue: InlineComboboxContextValue = useMemo(
     () => ({
       filter,
       inputProps,
       inputRef,
       removeInput,
-      setHasEmpty,
       showTrigger,
       trigger,
     }),
@@ -329,17 +325,8 @@ const InlineComboboxEmpty = ({
   children,
   className,
 }: HTMLAttributes<HTMLDivElement>) => {
-  const { setHasEmpty } = use(InlineComboboxContext);
   const store = useComboboxContext();
   const items = store?.useState("items");
-
-  useEffect(() => {
-    setHasEmpty(true);
-
-    return () => {
-      setHasEmpty(false);
-    };
-  }, [setHasEmpty]);
 
   if (items && items.length > 0) return null;
 

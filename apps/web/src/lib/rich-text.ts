@@ -34,7 +34,8 @@ function isSlashInputNode(node: Record<string, unknown>): boolean {
 function isRemovableStandaloneTextBlock(
   node: Record<string, unknown>,
 ): boolean {
-  const type = typeof node.type === "string" ? node.type : "p";
+  if (typeof node.type !== "string") return false;
+  const type = node.type;
   if (!REMOVABLE_TEXT_BLOCK_TYPES.has(type)) return false;
   if (!hasOnlyTextLikeChildren(node)) return false;
 

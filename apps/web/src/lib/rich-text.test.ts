@@ -36,6 +36,14 @@ describe("sanitizeFormPlateContent", () => {
     const sanitized = sanitizeFormPlateContent([
       { type: "p", children: [{ text: "Use /help for commands" }] },
       {
+        type: "p",
+        children: [
+          { text: "Path " },
+          { text: "/", bold: true },
+          { text: " segment" },
+        ],
+      },
+      {
         type: "form_short_text",
         blockId: "question-1",
         validation: { type: "short_text", required: false },
@@ -45,6 +53,14 @@ describe("sanitizeFormPlateContent", () => {
 
     expect(sanitized).toEqual([
       { type: "p", children: [{ text: "Use /help for commands" }] },
+      {
+        type: "p",
+        children: [
+          { text: "Path " },
+          { text: "/", bold: true },
+          { text: " segment" },
+        ],
+      },
       {
         type: "form_short_text",
         blockId: "question-1",
