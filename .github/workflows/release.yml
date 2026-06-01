@@ -70,17 +70,20 @@ jobs:
           git push origin master
           
       - name: Create and push tag on master branch
+        id: create-tag
         run: |
-          git fetch --all
-          git checkout master
-          git pull origin master
-          git tag -a v${{ steps.version.outputs.new_version }} -m "Release v${{ steps.version.outputs.new_version }}"
+          git fetch origin master
+          git checkout -B master origin/master
+          master_head=$(git rev-parse HEAD)
+          echo "master_head=${master_head}" >> "$GITHUB_OUTPUT"
+          git tag -a v${{ steps.version.outputs.new_version }} -m "Release v${{ steps.version.outputs.new_version }}" "${master_head}"
           git push origin v${{ steps.version.outputs.new_version }}
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.new_version }}
+          target_commitish: ${{ steps.create-tag.outputs.master_head }}
           name: Release v${{ steps.version.outputs.new_version }}
           draft: false
           prerelease: false
