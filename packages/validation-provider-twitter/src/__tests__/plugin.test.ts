@@ -22,6 +22,21 @@ beforeEach(() => {
   vi.unstubAllGlobals();
 });
 
+const validTwitterUser = {
+  id: "123",
+  username: "TwitterDev",
+  name: "Twitter Dev",
+  description: "Twitter API account",
+  profile_image_url: "http://pbs.twimg.com/profile_images/twitter-dev.png",
+  verified: true,
+  public_metrics: {
+    followers_count: 100,
+    following_count: 10,
+    tweet_count: 25,
+  },
+  created_at: "2024-01-01T00:00:00.000Z",
+};
+
 describe("twitterProvider.rules.user_exists.inputSchema", () => {
   it("accepts usernames matching the advertised Twitter pattern", () => {
     const result =
@@ -79,6 +94,48 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("twitterProvider.rules.user_exists.validate", () => {
+  it("returns safe metadata for an existing Twitter user", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce(validTwitterUser);
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "TwitterDev",
+      {},
+    );
+
+    expect(result).toEqual({
+      isValid: true,
+      metadata: {
+        username: "TwitterDev",
+        userId: "123",
+        displayName: "Twitter Dev",
+        avatarUrl: "https://pbs.twimg.com/profile_images/twitter-dev.png",
+        verified: true,
+        profileUrl: "https://twitter.com/TwitterDev",
+        bio: "Twitter API account",
+        followersCount: 100,
+        followingCount: 10,
+        tweetCount: 25,
+        createdAt: "2024-01-01T00:00:00.000Z",
+      },
+    });
+  });
+
+  it("returns a non-retryable failure when the Twitter user is missing", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce(null);
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "missing_user",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.TWITTER_USER_NOT_FOUND,
+      errorMessage: "Twitterユーザーが見つかりません",
+    });
+    expect(result).not.toHaveProperty("retryable", true);
+  });
+
   it("classifies invalid usernames as input validation errors", async () => {
     const result = await twitterProvider.rules.user_exists?.validate(
       "user/name",
@@ -135,11 +192,15 @@ describe("twitterProvider.rules.user_exists.validate", () => {
     });
   });
 
-  it("marks Twitter 5xx API errors as retryable", async () => {
+  it("marks Twitter 5xx API errors as retryable without leaking upstream details", async () => {
     getUserByUsernameMock.mockRejectedValueOnce({
       response: {
         status: 503,
-        data: { title: "Service unavailable" },
+        data: {
+          detail:
+            "upstream timeout https://api.twitter.com/2/users token=secret trace=abc123",
+          title: "Service unavailable",
+        },
       },
     });
 
@@ -151,9 +212,12 @@ describe("twitterProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: TwitterErrorCode.TWITTER_API_ERROR,
-      errorMessage: "Service unavailable",
+      errorMessage: "Twitter API is temporarily unavailable",
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("api.twitter.com");
+    expect(result?.errorMessage).not.toContain("token");
+    expect(result?.errorMessage).not.toContain("trace");
   });
 
   it.each([
@@ -181,7 +245,12 @@ describe("twitterProvider.rules.user_exists.validate", () => {
 
   it("marks Twitter ETIMEDOUT errors as timeout errors", async () => {
     getUserByUsernameMock.mockRejectedValueOnce(
-      Object.assign(new Error("Timed out"), { code: "ETIMEDOUT" }),
+      Object.assign(
+        new Error(
+          "connect ETIMEDOUT https://api.twitter.com/2/users token=secret",
+        ),
+        { code: "ETIMEDOUT" },
+      ),
     );
 
     const result = await twitterProvider.rules.user_exists?.validate(
@@ -192,8 +261,11 @@ describe("twitterProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: TwitterErrorCode.TIMEOUT,
+      errorMessage: "Request to Twitter API timed out",
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("api.twitter.com");
+    expect(result?.errorMessage).not.toContain("token");
   });
 
   it("keeps Twitter authentication errors non-retryable", async () => {

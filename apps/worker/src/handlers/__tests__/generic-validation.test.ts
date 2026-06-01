@@ -237,9 +237,10 @@ function makeRule(
 
 function makeProvider(
   rule: ValidationProviderRule = makeRule(),
+  name = "test-provider",
 ): ValidationProvider {
   return {
-    name: "test-provider",
+    name,
     label: "Test",
     description: "Test provider",
     rules: { [rule.name]: rule },
@@ -877,6 +878,88 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("Twitter validation 成功時はDB/SSE境界へCOMPLETED相当の結果を書き込む", async () => {
+    const metadata = {
+      username: "TwitterDev",
+      userId: "123",
+      displayName: "Twitter Dev",
+      avatarUrl: "https://pbs.twimg.com/profile_images/twitter-dev.png",
+      verified: true,
+      profileUrl: "https://twitter.com/TwitterDev",
+    };
+    const rule = makeRule({
+      metadataSchema: {
+        safeParse: vi.fn().mockReturnValue({ success: true, data: metadata }),
+      } as unknown as ValidationProviderRule["metadataSchema"],
+      validate: vi.fn().mockResolvedValue({
+        isValid: true,
+        metadata,
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule, "twitter"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "twitter",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: true, provider: "twitter" });
+    expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "twitter",
+        jobId: "job-1",
+      }),
+    );
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        responseId: "r-1",
+        formId: "form-1",
+        service: "twitter",
+        success: true,
+        metadata,
+        jobId: "job-1",
+      }),
+    );
+  });
+
+  it("Twitter username の入力ミスは外部APIを呼ばず安全な失敗理由を書き込む", async () => {
+    const validateFn = vi.fn();
+    const inputParse = vi.fn().mockImplementation(() => {
+      throw new Error("invalid username");
+    });
+    const rule = makeRule({
+      inputSchema: {
+        parse: inputParse,
+      } as unknown as ValidationProviderRule["inputSchema"],
+      validate: validateFn,
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule, "twitter"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "twitter",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: false, error: "Input validation failed" });
+    expect(validateFn).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: "twitter",
+        success: false,
+        errorCode: "INPUT_VALIDATION_ERROR",
+        errorMessage: "Invalid input format",
+      }),
+    );
+  });
+
   it("retryAfterが設定されている場合は指定秒数だけ遅延して再試行させる", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({ isValid: false, retryAfter: 30 }),
@@ -1027,6 +1110,29 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("Twitter 5xx retryable result は最終試行前にBullMQ retryへ委譲し内部詳細を書き込まない", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "TWITTER_API_ERROR",
+        errorMessage: "Twitter API is temporarily unavailable",
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule, "twitter"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "twitter",
+    });
+
+    await expect(handleGenericValidation(job)).rejects.toThrow(
+      "Twitter API is temporarily unavailable",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("retryable result without retryAfter is marked FAILED on the final BullMQ attempt", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
@@ -1057,6 +1163,84 @@ describe("handleGenericValidation", () => {
         errorMessage: "Temporary network error",
       }),
     );
+  });
+
+  it("Twitter 5xx retry exhausted はPROCESSINGをFAILED相当に確定し内部詳細を漏らさない", async () => {
+    const safeMessage = "Twitter API is temporarily unavailable";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "TWITTER_API_ERROR",
+        errorMessage: safeMessage,
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule, "twitter"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "twitter",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: "twitter",
+        success: false,
+        errorCode: "TWITTER_API_ERROR",
+        errorMessage: safeMessage,
+      }),
+    );
+    const writeParams = mockWriteValidationResult.mock.calls[0]?.[0];
+    expect(writeParams?.errorMessage).not.toContain("api.twitter.com");
+    expect(writeParams?.errorMessage).not.toContain("token");
+    expect(writeParams?.errorMessage).not.toContain("trace");
+  });
+
+  it("Twitter timeout retry exhausted はPROCESSINGをFAILED相当に確定し低レベルtimeout文言を漏らさない", async () => {
+    const safeMessage = "Request to Twitter API timed out";
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryable: true,
+        errorCode: "TIMEOUT",
+        errorMessage: safeMessage,
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule, "twitter"));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "twitter",
+      attemptsMade: 2,
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Retryable validation result exhausted",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: "twitter",
+        success: false,
+        errorCode: "TIMEOUT",
+        errorMessage: safeMessage,
+      }),
+    );
+    const writeParams = mockWriteValidationResult.mock.calls[0]?.[0];
+    expect(writeParams?.errorMessage).not.toContain("ETIMEDOUT");
+    expect(writeParams?.errorMessage).not.toContain("api.twitter.com");
+    expect(writeParams?.errorMessage).not.toContain("token");
   });
 
   it("成功 result に retryable が付いていても成功として処理する", async () => {
