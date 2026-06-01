@@ -612,3 +612,80 @@ describe("R10-C2 permission deletion invariants", () => {
     );
   });
 });
+
+describe("R16-H1 forms-permissions mutation rate limits", () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "rate-limit-user",
+    };
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    clearRateLimitStoreForTests();
+  });
+
+  it("returns 429 after the ordinary mutation limit is exceeded across target IDs", async () => {
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const responses: Response[] = [];
+
+    for (let i = 0; i < 31; i++) {
+      responses.push(
+        await formsPermissionsRouter.request(
+          `/form-rate-limit/permissions/target-user-${i}`,
+          {
+            body: JSON.stringify({}),
+            headers: { "content-type": "application/json" },
+            method: "PUT",
+          },
+        ),
+      );
+    }
+
+    for (const allowed of responses.slice(0, 30)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const response = responses[30];
+    if (!response) throw new Error("Expected final rate-limit response");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("X-RateLimit-Limit")).toBe("30");
+    expect(response.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
+
+  it("returns 429 after the lower destructive mutation limit is exceeded across target IDs", async () => {
+    mocks.removePermission.mockResolvedValue(undefined);
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const responses: Response[] = [];
+
+    for (let i = 0; i < 11; i++) {
+      responses.push(
+        await formsPermissionsRouter.request(
+          `/form-rate-limit/permissions/target-user-${i}`,
+          { method: "DELETE" },
+        ),
+      );
+    }
+
+    for (const allowed of responses.slice(0, 10)) {
+      expect(allowed.status).not.toBe(429);
+    }
+
+    const response = responses[10];
+    if (!response) throw new Error("Expected final rate-limit response");
+    expect(response.status).toBe(429);
+    expect(response.headers.get("X-RateLimit-Limit")).toBe("10");
+    expect(response.headers.get("Retry-After")).toMatch(/^[1-9]\d*$/);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+    expect(mocks.removePermission).toHaveBeenCalledTimes(10);
+  });
+});
