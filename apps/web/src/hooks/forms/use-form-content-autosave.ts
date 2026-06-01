@@ -567,9 +567,14 @@ export function useFormContentAutosave({
     }
     if (result.data.retryBlocked === "conflict") return;
     const retryPendingSave = (pendingSaveBody: string) => {
-      const retryParseResult = pendingSaveSchema.safeParse(
-        JSON.parse(pendingSaveBody),
-      );
+      let retryRawParsed: unknown;
+      try {
+        retryRawParsed = JSON.parse(pendingSaveBody);
+      } catch {
+        clearPendingSave(formId);
+        return;
+      }
+      const retryParseResult = pendingSaveSchema.safeParse(retryRawParsed);
       if (!retryParseResult.success) {
         clearPendingSave(formId);
         return;
@@ -603,7 +608,37 @@ export function useFormContentAutosave({
             toast.warning("前回未保存の変更が競合しています");
             return;
           }
-          storePendingSave(formId, JSON.stringify(retryPayload));
+          let currentSaved: string | null;
+          try {
+            currentSaved = localStorage.getItem(key);
+          } catch {
+            storePendingSave(formId, JSON.stringify(retryPayload));
+            return;
+          }
+          if (!currentSaved) {
+            storePendingSave(formId, JSON.stringify(retryPayload));
+            return;
+          }
+          let currentRawParsed: unknown;
+          try {
+            currentRawParsed = JSON.parse(currentSaved);
+          } catch {
+            storePendingSave(formId, JSON.stringify(retryPayload));
+            return;
+          }
+          const currentResult = pendingSaveSchema.safeParse(currentRawParsed);
+          if (!currentResult.success) {
+            storePendingSave(formId, JSON.stringify(retryPayload));
+            return;
+          }
+          if (
+            currentResult.data.retryBlocked !== "conflict" &&
+            currentResult.data.expectedVersion ===
+              retryPayload.expectedVersion &&
+            currentResult.data.plateContent === retryPayload.plateContent
+          ) {
+            storePendingSave(formId, JSON.stringify(retryPayload));
+          }
         });
     };
     if (result.data.source !== "in-flight") {

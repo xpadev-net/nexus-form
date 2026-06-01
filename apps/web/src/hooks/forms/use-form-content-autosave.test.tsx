@@ -589,6 +589,49 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("does not overwrite a newer pending save when an older retry fails", async () => {
+    vi.useFakeTimers();
+    let rejectRetry: (reason?: unknown) => void = () => {};
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    const newerPendingSave = JSON.stringify({
+      expectedVersion: 8,
+      plateContent: '[{"type":"p","children":[{"text":"newer"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectRetry = reject;
+        }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    localStorage.setItem("pendingSave:form-1", newerPendingSave);
+
+    await act(async () => {
+      rejectRetry(new Error("network error"));
+    });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(newerPendingSave);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("reports unsaved local edits until the debounced autosave succeeds", () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
