@@ -31,7 +31,7 @@
 - Existing patterns or references:
   - Researcher context requested for current QueryClient and API error patterns.
 - Repo reference docs consulted:
-  - `/Users/xpadev/.codex/RTK.md`
+  - `RTK.md` (local developer tooling config; not tracked in repo)
   - `AGENTS.md` instructions from task prompt
   - `orchestration-harness`
   - `plan-format`
