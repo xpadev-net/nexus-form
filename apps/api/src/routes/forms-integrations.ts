@@ -199,7 +199,11 @@ export const formsIntegrationsRouter = createHonoApp()
           }
 
           const state = await existingJob.getState();
-          if (state === "failed" || state === "completed") {
+          if (
+            state === "failed" ||
+            state === "completed" ||
+            state === "delayed"
+          ) {
             await existingJob.remove();
           }
         }),

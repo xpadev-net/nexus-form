@@ -295,6 +295,7 @@ describe("Google Sheets sync job status authorization", () => {
   it.each([
     "failed",
     "completed",
+    "delayed",
   ] as const)("removes retained %s manual sync jobs before re-queueing", async (state) => {
     mocks.responseRows = [{ responseId: "response-1" }];
     const remove = vi.fn(async () => undefined);
