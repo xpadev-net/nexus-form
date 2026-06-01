@@ -131,6 +131,7 @@ export function useFormContentAutosave({
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
+  const inFlightExpectedVersionRef = useRef<number | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
@@ -176,6 +177,7 @@ export function useFormContentAutosave({
           inFlightValueRef.current = pendingValue;
           pendingValueRef.current = null;
           lastSavedVersionRef.current = saveBaseVersion + 1;
+          inFlightExpectedVersionRef.current = saveBaseVersion;
           mutateRef.current({
             plateContent: pendingValue,
             expectedVersion: saveBaseVersion,
@@ -313,6 +315,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
+      inFlightExpectedVersionRef.current = saveBaseVersion;
       mutateRef.current({
         plateContent: valueToSave,
         expectedVersion: saveBaseVersion,
@@ -344,6 +347,7 @@ export function useFormContentAutosave({
       }
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       lastSavedVersionRef.current = null;
       isConflictActiveRef.current = false;
       suspendAutosaveRef.current = true;
@@ -392,6 +396,7 @@ export function useFormContentAutosave({
       });
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
@@ -411,6 +416,7 @@ export function useFormContentAutosave({
     onError: (err, variables) => {
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
       if (err instanceof RpcError && err.status === 409) {
@@ -461,6 +467,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
+      inFlightExpectedVersionRef.current = saveBaseVersion;
       mutateRef.current({
         plateContent: pendingValue,
         expectedVersion: saveBaseVersion,
@@ -471,16 +478,29 @@ export function useFormContentAutosave({
 
   // Unmount: clear timer and best-effort save via keepalive fetch.
   // Only save pendingValueRef (debounce not yet fired).
-  // Do NOT include inFlightValueRef: the regular autosave PUT is already in
-  // flight for that value, and a duplicate keepalive PUT with the same
-  // expectedVersion would produce a 409 that incorrectly creates a pending
-  // save entry for already-saved content.
+  // Do NOT send inFlightValueRef via keepalive: the regular autosave PUT is
+  // already in flight for that value, and a duplicate keepalive PUT with the
+  // same expectedVersion would produce a 409 that incorrectly creates a
+  // pending save entry for already-saved content. Store it locally instead so
+  // normal success can clear the fallback, while failed/aborted navigation can
+  // retry it on the next mount.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
       const valueToSave = pendingValueRef.current;
+      if (valueToSave == null && inFlightValueRef.current != null) {
+        storePendingSave(
+          formId,
+          JSON.stringify({
+            plateContent: inFlightValueRef.current,
+            expectedVersion:
+              inFlightExpectedVersionRef.current ?? versionRef.current,
+          }),
+        );
+        return;
+      }
       if (valueToSave != null) {
         const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({

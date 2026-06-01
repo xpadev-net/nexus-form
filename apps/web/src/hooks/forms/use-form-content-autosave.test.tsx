@@ -405,7 +405,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
-  it("does not fire keepalive fetch when the value is already in-flight (regular autosave covers it)", async () => {
+  it("stores in-flight content as fallback without firing keepalive fetch on unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn();
@@ -424,6 +424,14 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       root.unmount();
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
     act(() => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
@@ -435,14 +443,11 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       );
     });
 
-    // Keepalive should NOT fire - the value was already picked up by the
-    // regular autosave mutation (inFlight), and a duplicate PUT would produce
-    // a spurious 409 that creates a false pending save entry.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("does not store pending save for in-flight value that was already saved by regular autosave", async () => {
+  it("keeps in-flight fallback when regular autosave fails after unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn();
@@ -462,22 +467,28 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       root.unmount();
     });
 
-    // The value was already in-flight (regular autosave mutation started),
-    // so no keepalive fetch should fire - the regular autosave covers it.
     expect(fetchMock).not.toHaveBeenCalled();
-
-    act(() => {
-      latestMutationOptions?.onSuccess?.(
-        { plateContentVersion: 8 },
-        {
-          expectedVersion: 7,
-          plateContent: draftContent,
-          restoreGeneration: 0,
-        },
-      );
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
     });
 
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    act(() => {
+      latestMutationOptions?.onError?.(new Error("network error"), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
   });
 
   it("reports unsaved local edits until the debounced autosave succeeds", () => {
