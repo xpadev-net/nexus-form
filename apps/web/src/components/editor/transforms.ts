@@ -292,6 +292,7 @@ export const insertFormQuestion = (
     validation?: Record<string, unknown>;
   } = {},
 ) => {
+  const block = editor.api.block();
   const blockId = crypto.randomUUID();
   const label = options.label || "";
   const defaultValidation: Record<string, unknown> = {
@@ -302,14 +303,27 @@ export const insertFormQuestion = (
     defaultValidation.options = makeDefaultOptions();
   }
   const validation = options.validation || defaultValidation;
+  const questionNode = {
+    type: questionType,
+    blockId,
+    validation,
+    children: [{ type: "p", children: [{ text: label }] }],
+  };
 
-  editor.tf.insertNodes(
-    {
-      type: questionType,
-      blockId,
-      validation,
-      children: [{ type: "p", children: [{ text: label }] }],
-    },
-    { select: true },
-  );
+  editor.tf.withoutNormalizing(() => {
+    if (!block) {
+      editor.tf.insertNodes(questionNode, { select: true });
+      return;
+    }
+
+    const [currentNode, path] = block;
+    editor.tf.insertNodes(questionNode, {
+      at: PathApi.next(path),
+      select: true,
+    });
+
+    if (editor.api.isEmpty(currentNode)) {
+      editor.tf.removeNodes({ at: path });
+    }
+  });
 };
