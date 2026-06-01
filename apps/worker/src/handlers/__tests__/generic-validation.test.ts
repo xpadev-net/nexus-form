@@ -782,7 +782,7 @@ describe("handleGenericValidation", () => {
       validate: vi.fn().mockResolvedValue({
         isValid: false,
         retryable: true,
-        errorCode: "DISCORD_API_TIMEOUT",
+        errorCode: "DISCORD_API_ERROR",
         errorMessage: safeDiscordApiFailureMessage,
       }),
     });
@@ -820,7 +820,7 @@ describe("handleGenericValidation", () => {
       validate: vi.fn().mockResolvedValue({
         isValid: false,
         retryable: true,
-        errorCode: "DISCORD_API_TIMEOUT",
+        errorCode: "DISCORD_API_ERROR",
         errorMessage: safeDiscordApiFailureMessage,
       }),
     });
@@ -848,7 +848,7 @@ describe("handleGenericValidation", () => {
         formId: "form-1",
         service: "discord",
         success: false,
-        errorCode: "DISCORD_API_TIMEOUT",
+        errorCode: "DISCORD_API_ERROR",
         errorMessage: safeDiscordApiFailureMessage,
       }),
     );

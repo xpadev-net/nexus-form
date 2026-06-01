@@ -143,6 +143,10 @@
   - Summary: Full required validation passed and independent Reviewer approved with no findings.
   - Validation evidence: `rtk pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts`, `rtk pnpm --filter @nexus-form/api exec vitest run src/lib/forms/__tests__/validation-rule-repository.test.ts`, `rtk pnpm lint:fix`, `rtk pnpm type-check`, `rtk pnpm test -- --silent`, and `rtk git diff --check` passed.
   - Notes: API smoke initially needed `@nexus-form/database` build output before targeted vitest could resolve imports.
+- 2026-06-01 20:50 PR review follow-up completed
+  - Summary: Greptile noted worker retry fixtures used a fictional Discord error code; tests were aligned to the real provider contract, `DISCORD_API_ERROR`.
+  - Validation evidence: Follow-up validation rerun before final merge.
+  - Notes: PR branch was updated by merging `origin/master`, not rebasing, because the PR was already open.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -151,6 +155,11 @@
   - Plan delta (what changed): Treat approval as waived and keep scope to provider/worker tests plus minimal guard.
   - Tradeoffs considered: API route-level tests were considered but are not needed unless provider/worker changes reveal a route defect.
   - User approval: waived by delegated completion instruction.
+- 2026-06-01 20:50 Decision: apply Greptile fixture-code feedback.
+  - Trigger / new insight: `gh-review-hook` reported two review issues for fictional `DISCORD_API_TIMEOUT` in worker tests.
+  - Plan delta (what changed): Replace fixture and assertion error code with real Discord provider output, `DISCORD_API_ERROR`.
+  - Tradeoffs considered: Importing the provider enum into worker tests was unnecessary coupling for this narrow mocked provider fixture.
+  - User approval: not needed; required PR review fix within original scope.
 
 ## Notes
 - Risks:
