@@ -1,4 +1,5 @@
 import { isPlateQuestionType } from "@nexus-form/shared/forms/form-block";
+import { removeNestedQuestionsFromPlateContent } from "@nexus-form/shared/plate-content";
 
 const MAX_DEPTH = 100;
 const REMOVABLE_TEXT_BLOCK_TYPES = new Set(["p", "a", "link", "slash_input"]);
@@ -68,8 +69,35 @@ function sanitizeNode(node: unknown, depth = 0): unknown | null {
   return changed ? nextNode : node;
 }
 
+function hasNestedQuestionNode(
+  nodes: unknown[],
+  insideQuestion = false,
+  depth = 0,
+): boolean {
+  if (depth > MAX_DEPTH) return false;
+
+  return nodes.some((node) => {
+    if (!isRecord(node)) return false;
+
+    const isQuestion = isPlateQuestionType(node.type);
+    if (insideQuestion && isQuestion) return true;
+
+    return Array.isArray(node.children)
+      ? hasNestedQuestionNode(
+          node.children,
+          insideQuestion || isQuestion,
+          depth + 1,
+        )
+      : false;
+  });
+}
+
 export function sanitizeFormPlateContent(plateContent: unknown[]): unknown[] {
-  return plateContent
+  const withoutTextResidue = plateContent
     .map((node) => sanitizeNode(node))
     .filter((node): node is unknown => node !== null);
+
+  return hasNestedQuestionNode(withoutTextResidue)
+    ? removeNestedQuestionsFromPlateContent(withoutTextResidue)
+    : withoutTextResidue;
 }

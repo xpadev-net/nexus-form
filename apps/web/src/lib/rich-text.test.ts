@@ -69,4 +69,35 @@ describe("sanitizeFormPlateContent", () => {
       },
     ]);
   });
+
+  it("unwraps nested questions while preserving visible description text", () => {
+    const sanitized = sanitizeFormPlateContent([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text", required: false },
+        children: [
+          { type: "p", children: [{ text: "説明文" }] },
+          {
+            type: "form_long_text",
+            blockId: "question-2",
+            validation: { type: "long_text", required: false },
+            children: [{ type: "p", children: [{ text: "混入質問" }] }],
+          },
+        ],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text", required: false },
+        children: [
+          { type: "p", children: [{ text: "説明文" }] },
+          { type: "p", children: [{ text: "混入質問" }] },
+        ],
+      },
+    ]);
+  });
 });

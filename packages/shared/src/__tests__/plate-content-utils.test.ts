@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractQuestionsFromPlateContent,
   extractTitleFromChildren,
+  removeNestedQuestionsFromPlateContent,
   validatePlateContent,
 } from "../plate-content-utils";
 
@@ -101,5 +102,125 @@ describe("validatePlateContent", () => {
         },
       ]),
     ).toBe(true);
+  });
+});
+
+describe("removeNestedQuestionsFromPlateContent", () => {
+  it("unwraps a question inserted into another question description", () => {
+    const sanitized = removeNestedQuestionsFromPlateContent([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text" },
+        children: [
+          { type: "p", children: [{ text: "説明文" }] },
+          {
+            type: "form_long_text",
+            blockId: "question-2",
+            validation: { type: "long_text" },
+            children: [{ type: "p", children: [{ text: "混入質問" }] }],
+          },
+        ],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text" },
+        children: [
+          { type: "p", children: [{ text: "説明文" }] },
+          { type: "p", children: [{ text: "混入質問" }] },
+        ],
+      },
+    ]);
+    expect(validatePlateContent(sanitized)).toBe(true);
+    expect(extractQuestionsFromPlateContent(sanitized)).toHaveLength(1);
+  });
+
+  it("keeps form questions inside non-question containers", () => {
+    const sanitized = removeNestedQuestionsFromPlateContent([
+      {
+        type: "column_group",
+        children: [
+          {
+            type: "column",
+            children: [
+              {
+                type: "form_short_text",
+                blockId: "question-1",
+                children: [{ type: "p", children: [{ text: "氏名" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "column_group",
+        children: [
+          {
+            type: "column",
+            children: [
+              {
+                type: "form_short_text",
+                blockId: "question-1",
+                children: [{ type: "p", children: [{ text: "氏名" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("unwraps a question nested through containers inside another question", () => {
+    const sanitized = removeNestedQuestionsFromPlateContent([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          {
+            type: "column_group",
+            children: [
+              {
+                type: "column",
+                children: [
+                  {
+                    type: "form_long_text",
+                    blockId: "question-2",
+                    validation: { type: "long_text" },
+                    children: [{ type: "p", children: [{ text: "混入質問" }] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          {
+            type: "column_group",
+            children: [
+              {
+                type: "column",
+                children: [{ type: "p", children: [{ text: "混入質問" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(validatePlateContent(sanitized)).toBe(true);
+    expect(extractQuestionsFromPlateContent(sanitized)).toHaveLength(1);
   });
 });
