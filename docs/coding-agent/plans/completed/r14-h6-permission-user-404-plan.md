@@ -140,6 +140,18 @@
   - Notes:
     - Follow-up `gh-review-hook 434` rerun is required after pushing the fix.
 
+- 2026-06-01 Pre-push validation alignment
+  - Summary:
+    - Local pre-push hook runs plain `turbo test`; API vitest parallelism hit the same existing timeout-sensitive suites that were already documented in validation.
+    - Aligned `apps/api/vitest.config.ts` with the successful full-test validation by setting `maxWorkers: 1` and `fileParallelism: false`.
+  - Validation evidence:
+    - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-permissions-share-links-auth.test.ts` passed: 16 tests.
+    - `pnpm lint:fix` passed: 9 tasks.
+    - `pnpm type-check` passed: 16 tasks.
+    - `pnpm test -- --silent` passed: 15 tasks, API 76 files / 714 tests.
+  - Notes:
+    - This keeps the hook on normal verification rather than bypassing pre-push checks.
+
 ## Decision Log
 - 2026-06-01 Decision:
   - Trigger / new insight: 対象 route の実装は期待修正済みで、回帰 test が acceptance の主要不足だった。
@@ -161,3 +173,8 @@
   - Plan delta (what changed): R14-H6 test block に 201 と 409 の route tests を追加した。
   - Tradeoffs considered: production code は既に期待挙動を満たしているため、handler 全体の regression coverage の追加に留めた。
   - User approval: requested by review hook and follow-up delegation.
+- 2026-06-01 Decision:
+  - Trigger / new insight: pre-push hook の plain `turbo test` が API vitest の parallel execution timeout で失敗し、未push修正を残したまま進められなくなった。
+  - Plan delta (what changed): API Vitest config に deterministic worker limit を追加し、local hook と通過済み full-test 条件を揃えた。
+  - Tradeoffs considered: hook bypass は禁止されているため使わず、既存の timeout-sensitive suites を安定実行する test config 変更に限定した。
+  - User approval: no separate approval requested; required to satisfy push/merge delegation without bypassing hooks.
