@@ -221,6 +221,7 @@ export function useFormPublishMenuModel({
           totalChanges,
           hasChangesFromActive,
           activeSnapshotVersion,
+          nextSnapshotVersion: (lastPublishedVersion ?? 0) + 1,
         }
       : null;
 
@@ -572,5 +573,7 @@ export function useFormPublishMenuModel({
     totalChanges,
     unpublishedSection,
     snapshotSaveConfirmLabel: getSnapshotSaveConfirmLabel(dialogMode),
+    snapshotSaveWillPublish:
+      dialogMode === "saveAndPublish" || dialogMode === "saveAndActivate",
   } as const;
 }
