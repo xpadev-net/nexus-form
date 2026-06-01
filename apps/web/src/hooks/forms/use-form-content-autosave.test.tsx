@@ -3320,7 +3320,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         method: "PUT",
         body: JSON.stringify({
           plateContent: postRestoreContent,
-          expectedVersion: 8,
+          expectedVersion: 7,
         }),
       }),
     );
