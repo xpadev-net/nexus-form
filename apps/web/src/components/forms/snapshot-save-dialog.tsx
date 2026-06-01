@@ -24,6 +24,7 @@ interface SnapshotSaveDialogProps {
   lastPublishedVersion: number | null;
   totalChanges: number;
   confirmLabel: string;
+  willPublish: boolean;
   onConfirm: (changeLog: string) => void;
   error: string | null;
 }
@@ -37,11 +38,13 @@ export function SnapshotSaveDialog({
   lastPublishedVersion,
   totalChanges,
   confirmLabel,
+  willPublish,
   onConfirm,
   error,
 }: SnapshotSaveDialogProps) {
   const [changeLog, setChangeLog] = useState("");
   const [activeTab, setActiveTab] = useState("publish");
+  const nextSnapshotVersion = (lastPublishedVersion ?? 0) + 1;
 
   // open prop が外部から false に変更された場合にもリセットする
   useEffect(() => {
@@ -110,6 +113,11 @@ export function SnapshotSaveDialog({
                 最新スナップショット: v{lastPublishedVersion}
               </div>
             )}
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              {willPublish
+                ? `現在の編集内容を v${nextSnapshotVersion} として公開します。`
+                : `現在の編集内容を v${nextSnapshotVersion} として保存します。公開版は変更されません。`}
+            </div>
           </TabsContent>
 
           <TabsContent value="diff" className="space-y-4">

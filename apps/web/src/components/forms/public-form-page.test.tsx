@@ -324,7 +324,7 @@ describe("PublicFormPage password protection", () => {
     });
   });
 
-  it("caps submitted fingerprints to the API maximum", async () => {
+  it("caps mixed submitted fingerprints to the API maximum", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     publicFormData = {
       form: {
@@ -344,10 +344,29 @@ describe("PublicFormPage password protection", () => {
     };
     useFingerprintMockState.fingerprints = [
       {
+        fingerprintType: "browser",
+        components: [
+          { componentName: "timezone", componentValueHash: "hash-timezone" },
+          { componentName: "language", componentValueHash: "hash-language" },
+          { componentName: "platform", componentValueHash: "hash-platform" },
+          { componentName: "userAgent", componentValueHash: "hash-user-agent" },
+        ],
+      },
+      {
         fingerprintType: "fingerprintjs",
-        components: Array.from({ length: 205 }, (_, index) => ({
-          componentName: `component-${index}`,
-          componentValueHash: `hash-${index.toString().padStart(3, "0")}`,
+        components: [
+          { componentName: "visitorId", componentValueHash: "hash-visitor" },
+          ...Array.from({ length: 95 }, (_, index) => ({
+            componentName: `fingerprintjs-${index}`,
+            componentValueHash: `hash-fpjs-${index.toString().padStart(3, "0")}`,
+          })),
+        ],
+      },
+      {
+        fingerprintType: "thumbmarkjs",
+        components: Array.from({ length: 130 }, (_, index) => ({
+          componentName: `thumbmarkjs-${index}`,
+          componentValueHash: `hash-thumb-${index.toString().padStart(3, "0")}`,
         })),
       },
     ];
@@ -379,15 +398,42 @@ describe("PublicFormPage password protection", () => {
     });
 
     const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
+    const submittedFingerprints = submitArgs?.json.fingerprints as {
+      name: string;
+      type: string;
+      value_hash: string;
+    }[];
+    expect(submittedFingerprints.length).toBe(200);
+    expect(submittedFingerprints).toEqual(
+      expect.arrayContaining([
+        {
+          name: "visitorId",
+          type: "fingerprintjs",
+          value_hash: "hash-visitor",
+        },
+        { name: "timezone", type: "browser", value_hash: "hash-timezone" },
+        {
+          name: "thumbmarkjs-0",
+          type: "thumbmarkjs",
+          value_hash: "hash-thumb-000",
+        },
+      ]),
+    );
     expect(
-      (submitArgs?.json.fingerprints as { name: string; value_hash: string }[])
-        .length,
-    ).toBe(200);
-    expect(
-      (
-        submitArgs?.json.fingerprints as { name: string; value_hash: string }[]
-      ).every((fingerprint) => Boolean(fingerprint.value_hash)),
+      submittedFingerprints.every((fingerprint) =>
+        Boolean(fingerprint.value_hash),
+      ),
     ).toBe(true);
+    expect(
+      submittedFingerprints.some(
+        (fingerprint) => fingerprint.name === "thumbmarkjs-99",
+      ),
+    ).toBe(true);
+    expect(
+      submittedFingerprints.some(
+        (fingerprint) => fingerprint.name === "thumbmarkjs-100",
+      ),
+    ).toBe(false);
 
     await act(async () => {
       root.unmount();

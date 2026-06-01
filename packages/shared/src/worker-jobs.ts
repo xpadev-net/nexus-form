@@ -43,9 +43,8 @@ export function buildAutoSheetsSyncJobId(
 export function buildManualSheetsSyncJobId(
   integrationId: string,
   responseId: string,
-  nonce: string,
 ): string {
-  return `${SHEETS_SYNC_MANUAL_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}.${encodeSheetsSyncJobIdSegment(nonce)}`;
+  return `${SHEETS_SYNC_MANUAL_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}`;
 }
 
 export const genericValidationJobDataSchema = z.object({

@@ -36,6 +36,14 @@ describe("normalizeBuiltinPluginPath", () => {
       "/usr/src/app/packages/validation-provider-discord/dist/plugin.mjs";
     expect(normalizeBuiltinPluginPath(sourcePath)).toBe(sourcePath);
   });
+
+  it("rewrites final src ts paths under ancestor src directories", () => {
+    const sourcePath =
+      "/usr/src/app/packages/validation-provider-discord/src/plugin.ts";
+    expect(normalizeBuiltinPluginPath(sourcePath)).toBe(
+      "/usr/src/app/packages/validation-provider-discord/dist/plugin.mjs",
+    );
+  });
 });
 
 class MemoryDriftStore implements PluginDriftStore {

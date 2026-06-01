@@ -12,6 +12,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import type { ValidationStatusValue } from "@nexus-form/shared";
 import {
   buildValidationRetryJobId,
+  extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
@@ -23,6 +24,10 @@ import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
+import {
+  buildResponseExportRecords,
+  formatRecordsToCsv,
+} from "../lib/forms/response-export";
 import { validateResponseData } from "../lib/forms/response-validator";
 import {
   getLatestSnapshotByVersion,
@@ -70,6 +75,7 @@ const listResponsesQuerySchema = z.object({
 });
 
 const limitedListQuerySchema = paginationQuerySchema;
+const RESPONSE_EXPORT_ROW_LIMIT = 5000;
 
 const createResponseSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
@@ -114,6 +120,36 @@ function escapeLikePattern(value: string): string {
 
 function buildPrefixSearchPattern(keyword: string): string {
   return `${escapeLikePattern(keyword)}%`;
+}
+
+function buildExportBlocksFromPlateContent(plateContent: string | null): Array<{
+  blockId: string;
+  category: string;
+  type: string;
+  content: unknown;
+}> {
+  if (!plateContent) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(plateContent);
+    if (!Array.isArray(parsed)) return [];
+
+    return extractQuestionsFromPlateContent(parsed).map((question) => ({
+      blockId: question.blockId,
+      category: "question",
+      type: question.type,
+      content: {
+        title: question.title,
+        validation: question.validation,
+      },
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function csvAttachmentFilename(formId: string): string {
+  return `responses-${encodeURIComponent(formId)}.csv`;
 }
 
 const bulkDeleteSchema = z.object({
@@ -690,6 +726,109 @@ export const formsResponsesRouter = createHonoApp()
       );
     },
   )
+  .get("/:id/responses/export", async (c) => {
+    const formId = c.req.param("id");
+
+    const [targetForm] = await db
+      .select({ plateContent: form.plateContent })
+      .from(form)
+      .where(eq(form.id, formId))
+      .limit(1);
+    if (!targetForm) return c.json(errorResponse("Form not found"), 404);
+
+    const responseRows = await db
+      .select({
+        id: formResponse.id,
+        formId: formResponse.formId,
+        responseDataJson: formResponse.responseDataJson,
+        submittedAt: formResponse.submittedAt,
+        updatedAt: formResponse.updatedAt,
+        respondentUuid: formResponse.respondentUuid,
+        userAgent: formResponse.userAgent,
+        sessionId: formResponse.sessionId,
+        countryCode: formResponse.countryCode,
+      })
+      .from(formResponse)
+      .where(eq(formResponse.formId, formId))
+      .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+      .limit(RESPONSE_EXPORT_ROW_LIMIT + 1);
+
+    if (responseRows.length > RESPONSE_EXPORT_ROW_LIMIT) {
+      return c.json(
+        errorResponse(
+          `Response export is limited to ${RESPONSE_EXPORT_ROW_LIMIT} responses`,
+        ),
+        413,
+      );
+    }
+
+    const responseIds = responseRows.map((row) => row.id);
+    const fingerprintRows =
+      responseIds.length > 0
+        ? await db
+            .select({
+              responseId: fingerprintDetail.responseId,
+              componentName: fingerprintDetail.componentName,
+              componentValueHash: fingerprintDetail.componentValueHash,
+              fingerprintType: fingerprintDetail.fingerprintType,
+            })
+            .from(fingerprintDetail)
+            .where(inArray(fingerprintDetail.responseId, responseIds))
+        : [];
+
+    const fingerprintsByResponseId = new Map<
+      string,
+      Array<{
+        componentName: string;
+        componentValueHash: string;
+        fingerprintType: string;
+      }>
+    >();
+    for (const row of fingerprintRows) {
+      const current = fingerprintsByResponseId.get(row.responseId) ?? [];
+      current.push({
+        componentName: row.componentName,
+        componentValueHash: row.componentValueHash,
+        fingerprintType: row.fingerprintType,
+      });
+      fingerprintsByResponseId.set(row.responseId, current);
+    }
+
+    const formBlocks = buildExportBlocksFromPlateContent(
+      targetForm.plateContent,
+    );
+    const blockTitleMap = new Map(
+      formBlocks.map((block) => {
+        const content =
+          block.content && typeof block.content === "object"
+            ? (block.content as Record<string, unknown>)
+            : null;
+        return [block.blockId, String(content?.title || block.blockId)];
+      }),
+    );
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      formId,
+      responseRows.map((row) => ({
+        ...row,
+        sessionId: process.env.SESSION_ALIAS_SALT ? row.sessionId : null,
+        fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+      })),
+      formBlocks,
+    );
+    const csv = formatRecordsToCsv(
+      records,
+      fingerprintComponents,
+      blockTitleMap,
+      formBlocks.map((block) => block.blockId),
+    );
+
+    return c.body(csv, 200, {
+      "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="${csvAttachmentFilename(
+        formId,
+      )}"`,
+    });
+  })
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");

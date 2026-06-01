@@ -1,9 +1,9 @@
-import { removeNestedQuestionsFromPlateContent } from "@nexus-form/shared";
 import type { Value as PlateValue } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { useEffect, useRef } from "react";
 import { EditorKit } from "@/components/editor/editor-kit";
 import { Editor, EditorContainer } from "@/components/ui/editor";
+import { sanitizeFormPlateContent } from "@/lib/rich-text";
 
 type Props = {
   value: string;
@@ -53,9 +53,7 @@ export function PlateEditorInternal({
     <Plate
       editor={editor}
       onChange={(v) => {
-        const serialized = JSON.stringify(
-          removeNestedQuestionsFromPlateContent(v.value),
-        );
+        const serialized = JSON.stringify(sanitizeFormPlateContent(v.value));
         lastInternalValue.current = serialized;
         lastExternalValue.current = serialized;
         onChangeValue(serialized);

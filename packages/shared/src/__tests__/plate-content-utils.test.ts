@@ -176,4 +176,51 @@ describe("removeNestedQuestionsFromPlateContent", () => {
       },
     ]);
   });
+
+  it("unwraps a question nested through containers inside another question", () => {
+    const sanitized = removeNestedQuestionsFromPlateContent([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          {
+            type: "column_group",
+            children: [
+              {
+                type: "column",
+                children: [
+                  {
+                    type: "form_long_text",
+                    blockId: "question-2",
+                    validation: { type: "long_text" },
+                    children: [{ type: "p", children: [{ text: "混入質問" }] }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          {
+            type: "column_group",
+            children: [
+              {
+                type: "column",
+                children: [{ type: "p", children: [{ text: "混入質問" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(validatePlateContent(sanitized)).toBe(true);
+    expect(extractQuestionsFromPlateContent(sanitized)).toHaveLength(1);
+  });
 });

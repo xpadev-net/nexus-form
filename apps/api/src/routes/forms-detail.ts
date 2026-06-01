@@ -18,6 +18,7 @@ import {
 } from "@nexus-form/database/schema";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { Context } from "hono";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
@@ -69,22 +70,43 @@ const transferOwnerSchema = z.object({
 const formMutationRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   maxRequests: 30,
-  keyGenerator: (c) => {
-    const auth = c.get("dualAuthContext");
-    const subject =
-      auth?.user_id !== undefined
-        ? `user:${auth.user_id}`
-        : `ip:${getClientIp(c)}`;
-    return `rate_limit:forms-detail:${subject}:${c.req.path}`;
-  },
+  keyGenerator: (c) =>
+    `rate_limit:forms-detail:${getRateLimitSubject(c)}:${c.req.path}`,
 });
 
-function parseSnapshotPlateContent(plateContent: string): unknown[] | null {
+const createFormDestructiveMutationRateLimit = (action: string) =>
+  createRateLimit({
+    windowMs: 60 * 1000,
+    maxRequests: 10,
+    keyGenerator: (c) =>
+      `rate_limit:forms-detail-destructive:${getRateLimitSubject(c)}:${action}`,
+  });
+
+const deleteFormRateLimit = createFormDestructiveMutationRateLimit("delete");
+const regeneratePublicUrlRateLimit = createFormDestructiveMutationRateLimit(
+  "regenerate-public-url",
+);
+const transferOwnershipRateLimit =
+  createFormDestructiveMutationRateLimit("transfer-ownership");
+
+type SnapshotPlateContentParseResult =
+  | { ok: true; plateContent: unknown }
+  | { ok: false };
+
+function getRateLimitSubject(c: Context): string {
+  const auth = c.get("dualAuthContext");
+  return auth?.user_id !== undefined
+    ? `user:${auth.user_id}`
+    : `ip:${getClientIp(c)}`;
+}
+
+function parseSnapshotPlateContent(
+  plateContent: string,
+): SnapshotPlateContentParseResult {
   try {
-    const parsed = JSON.parse(plateContent);
-    return Array.isArray(parsed) ? parsed : null;
+    return { ok: true, plateContent: JSON.parse(plateContent) };
   } catch {
-    return null;
+    return { ok: false };
   }
 }
 
@@ -220,80 +242,75 @@ export const formsDetailRouter = createHonoApp()
       );
     },
   )
-  .delete(
-    "/:id",
-    withDualFormAuth("OWNER"),
-    formMutationRateLimit,
-    async (c) => {
-      const id = c.req.param("id");
+  .delete("/:id", withDualFormAuth("OWNER"), deleteFormRateLimit, async (c) => {
+    const id = c.req.param("id");
 
-      await db.transaction(async (tx) => {
-        // Cascade delete related records in dependency order
+    await db.transaction(async (tx) => {
+      // Cascade delete related records in dependency order
 
-        // 1. Delete response-level children (fingerprints, validation results)
-        const responseRows = await tx
-          .select({ id: formResponse.id })
-          .from(formResponse)
-          .where(eq(formResponse.formId, id));
+      // 1. Delete response-level children (fingerprints, validation results)
+      const responseRows = await tx
+        .select({ id: formResponse.id })
+        .from(formResponse)
+        .where(eq(formResponse.formId, id));
 
-        if (responseRows.length > 0) {
-          const responseIds = responseRows.map((r) => r.id);
-          await tx
-            .delete(fingerprintDetail)
-            .where(inArray(fingerprintDetail.responseId, responseIds));
-          await tx
-            .delete(externalServiceValidationResult)
-            .where(
-              inArray(externalServiceValidationResult.responseId, responseIds),
-            );
-        }
+      if (responseRows.length > 0) {
+        const responseIds = responseRows.map((r) => r.id);
+        await tx
+          .delete(fingerprintDetail)
+          .where(inArray(fingerprintDetail.responseId, responseIds));
+        await tx
+          .delete(externalServiceValidationResult)
+          .where(
+            inArray(externalServiceValidationResult.responseId, responseIds),
+          );
+      }
 
-        // 2. Delete form-level validation rules (ruleBlocks first, then rules)
-        const ruleRows = await tx
-          .select({ id: formValidationRule.id })
-          .from(formValidationRule)
+      // 2. Delete form-level validation rules (ruleBlocks first, then rules)
+      const ruleRows = await tx
+        .select({ id: formValidationRule.id })
+        .from(formValidationRule)
+        .where(eq(formValidationRule.formId, id));
+
+      if (ruleRows.length > 0) {
+        const ruleIds = ruleRows.map((r) => r.id);
+        await tx
+          .delete(formValidationRuleBlock)
+          .where(inArray(formValidationRuleBlock.ruleId, ruleIds));
+        await tx
+          .delete(formValidationRule)
           .where(eq(formValidationRule.formId, id));
+      }
 
-        if (ruleRows.length > 0) {
-          const ruleIds = ruleRows.map((r) => r.id);
-          await tx
-            .delete(formValidationRuleBlock)
-            .where(inArray(formValidationRuleBlock.ruleId, ruleIds));
-          await tx
-            .delete(formValidationRule)
-            .where(eq(formValidationRule.formId, id));
-        }
+      // 3. Delete share-link-associated API tokens
+      const shareLinkRows = await tx
+        .select({ id: formShareLink.id })
+        .from(formShareLink)
+        .where(eq(formShareLink.formId, id));
 
-        // 3. Delete share-link-associated API tokens
-        const shareLinkRows = await tx
-          .select({ id: formShareLink.id })
-          .from(formShareLink)
-          .where(eq(formShareLink.formId, id));
+      if (shareLinkRows.length > 0) {
+        const shareLinkIds = shareLinkRows.map((s) => s.id);
+        await tx
+          .delete(apiToken)
+          .where(inArray(apiToken.shareLinkId, shareLinkIds));
+      }
 
-        if (shareLinkRows.length > 0) {
-          const shareLinkIds = shareLinkRows.map((s) => s.id);
-          await tx
-            .delete(apiToken)
-            .where(inArray(apiToken.shareLinkId, shareLinkIds));
-        }
+      // 4. Delete form-level children
+      await tx.delete(formResponse).where(eq(formResponse.formId, id));
+      await tx.delete(formSnapshot).where(eq(formSnapshot.formId, id));
+      await tx.delete(formStructure).where(eq(formStructure.formId, id));
+      await tx.delete(formSchedule).where(eq(formSchedule.formId, id));
+      await tx.delete(formPermission).where(eq(formPermission.formId, id));
+      await tx.delete(formShareLink).where(eq(formShareLink.formId, id));
+      await tx.delete(formIntegration).where(eq(formIntegration.formId, id));
+      await tx.delete(formInvitation).where(eq(formInvitation.formId, id));
 
-        // 4. Delete form-level children
-        await tx.delete(formResponse).where(eq(formResponse.formId, id));
-        await tx.delete(formSnapshot).where(eq(formSnapshot.formId, id));
-        await tx.delete(formStructure).where(eq(formStructure.formId, id));
-        await tx.delete(formSchedule).where(eq(formSchedule.formId, id));
-        await tx.delete(formPermission).where(eq(formPermission.formId, id));
-        await tx.delete(formShareLink).where(eq(formShareLink.formId, id));
-        await tx.delete(formIntegration).where(eq(formIntegration.formId, id));
-        await tx.delete(formInvitation).where(eq(formInvitation.formId, id));
+      // 5. Delete the form itself
+      await tx.delete(form).where(eq(form.id, id));
+    });
 
-        // 5. Delete the form itself
-        await tx.delete(form).where(eq(form.id, id));
-      });
-
-      return c.json(OkResponseSchema.parse({ ok: true }));
-    },
-  )
+    return c.json(OkResponseSchema.parse({ ok: true }));
+  })
   .post(
     "/:id/publish",
     withDualFormAuth("EDITOR"),
@@ -310,15 +327,20 @@ export const formsDetailRouter = createHonoApp()
         );
       }
       const parsedSnapshot = parseSnapshotPlateContent(snapshot.plateContent);
-      if (parsedSnapshot === null) {
+      if (!parsedSnapshot.ok) {
         return c.json(
           errorResponse("公開用スナップショットの形式が不正です"),
           400,
         );
       }
 
+      // Valid non-array JSON is treated as an empty form so the existing
+      // "no questions" branch handles legacy/imported snapshot shape issues.
+      const snapshotPlateContent = Array.isArray(parsedSnapshot.plateContent)
+        ? parsedSnapshot.plateContent
+        : [];
       const publishedQuestions =
-        extractQuestionsFromPlateContent(parsedSnapshot);
+        extractQuestionsFromPlateContent(snapshotPlateContent);
       if (publishedQuestions.length === 0) {
         return c.json(
           errorResponse("質問がありません。質問を追加してから公開してください"),
@@ -368,7 +390,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/regenerate-public-url",
     withDualFormAuth("EDITOR"),
-    formMutationRateLimit,
+    regeneratePublicUrlRateLimit,
     async (c) => {
       const id = c.req.param("id");
       const publicId = randomUUID();
@@ -379,7 +401,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/transfer-ownership",
     withDualFormAuth("OWNER"),
-    formMutationRateLimit,
+    transferOwnershipRateLimit,
     zValidator("json", transferOwnerSchema),
     async (c) => {
       const id = c.req.param("id");

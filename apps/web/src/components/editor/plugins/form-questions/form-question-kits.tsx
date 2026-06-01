@@ -48,7 +48,11 @@ const FormQuestionNormalizerPlugin = createPlatePlugin({
         typeof n.type === "string" &&
         isFormQuestionType(n.type)
       ) {
-        if (!editor.dom.readOnly && hasFormQuestionAncestor(editor, path)) {
+        if (hasFormQuestionAncestor(editor, path)) {
+          if (editor.dom.readOnly) {
+            return normalizeNode(entry);
+          }
+
           const replacement =
             n.children.length > 0 ? n.children : [createEmptyParagraphNode()];
           editor.tf.removeNodes({ at: path });

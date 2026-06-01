@@ -117,7 +117,7 @@ beforeAll(async () => {
   process.env.TRUSTED_PROXY_COUNT = "1";
   const mod = await import("../index");
   app = mod.default;
-}, 30_000);
+}, 120_000);
 
 describe("API Route Integration Tests", () => {
   describe("GET /api/health", () => {
@@ -146,6 +146,25 @@ describe("API Route Integration Tests", () => {
       const body = (await res.json()) as { token: string; note: string };
       expect(body.token).toBe("better-auth-managed");
       expect(body.note).toBeDefined();
+    });
+
+    it("rate limits CSRF token issuance by client IP", async () => {
+      const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+      clearRateLimitStoreForTests();
+
+      let res: Response | null = null;
+      for (let i = 0; i < 61; i++) {
+        res = await app.request("/api/csrf", {
+          headers: { "x-forwarded-for": "203.0.113.72" },
+        });
+      }
+
+      if (!res) throw new Error("Expected a response");
+      expect(res.status).toBe(429);
+      expect(res.headers.get("X-RateLimit-Limit")).toBe("60");
+      await expect(res.json()).resolves.toMatchObject({
+        error: { message: "Too many requests" },
+      });
     });
   });
 

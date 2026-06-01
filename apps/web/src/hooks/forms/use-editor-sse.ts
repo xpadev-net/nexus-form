@@ -5,6 +5,7 @@ import type { MutableRefObject } from "react";
 import { useEffect, useRef } from "react";
 import { baseUrl } from "@/lib/api";
 import { logWarn } from "@/lib/logger";
+import { formDiffQueryKey } from "./form-structure-query-keys";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
 const INITIAL_SSE_RECONNECT_DELAY_MS = 1_000;
@@ -159,7 +160,7 @@ export function useEditorSSE(
             queryKey: ["formContent", formId],
           });
           void queryClient.invalidateQueries({
-            queryKey: ["formDiff", formId],
+            queryKey: formDiffQueryKey(formId),
           });
         }
       });
@@ -180,7 +181,7 @@ export function useEditorSSE(
           queryKey: ["formContent", formId],
         });
         void queryClient.invalidateQueries({
-          queryKey: ["formDiff", formId],
+          queryKey: formDiffQueryKey(formId),
         });
       }
       connect();

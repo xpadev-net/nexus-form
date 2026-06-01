@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import {
   buildManualSheetsSyncJobId,
@@ -13,7 +12,10 @@ import {
   upsertFormIntegrationForCurrentOwner,
 } from "../lib/forms/form-integration-service";
 import { createHonoApp } from "../lib/hono";
-import { getSheetsSyncQueue } from "../lib/queues";
+import {
+  getSheetsSyncQueue,
+  SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
+} from "../lib/queues";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
 
@@ -183,17 +185,37 @@ export const formsIntegrationsRouter = createHonoApp()
         );
       }
 
-      const manualSyncNonce = randomUUID();
       const jobs = responses.map((response) => ({
-        id: buildManualSheetsSyncJobId(
-          integration.id,
-          response.responseId,
-          manualSyncNonce,
-        ),
+        id: buildManualSheetsSyncJobId(integration.id, response.responseId),
         responseId: response.responseId,
       }));
+      const queue = getSheetsSyncQueue();
 
-      await getSheetsSyncQueue().addBulk(
+      await Promise.all(
+        jobs.map(async (job) => {
+          const existingJob = await queue.getJob(job.id);
+          if (!existingJob) {
+            return;
+          }
+
+          const state = await existingJob.getState();
+          if (
+            state === "failed" ||
+            state === "completed" ||
+            state === "delayed"
+          ) {
+            try {
+              await existingJob.remove();
+            } catch (error) {
+              if ((await existingJob.getState()) !== "active") {
+                throw error;
+              }
+            }
+          }
+        }),
+      );
+
+      await queue.addBulk(
         jobs.map((job) => ({
           name: "manual-sync",
           data: sheetsSyncJobDataSchema.parse({
@@ -202,6 +224,7 @@ export const formsIntegrationsRouter = createHonoApp()
             responseId: job.responseId,
           }),
           opts: {
+            ...SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
             jobId: job.id,
           },
         })),
@@ -214,7 +237,6 @@ export const formsIntegrationsRouter = createHonoApp()
           jobId: buildManualSheetsSyncJobId(
             integration.id,
             firstResponse.responseId,
-            manualSyncNonce,
           ),
           status: "queued",
         }),
