@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "@/lib/api";
+import { NetworkError } from "@/lib/fetch-json";
 import { PublicFormPage } from "./public-form-page";
 
 (
@@ -232,7 +233,27 @@ describe("PublicFormPage password protection", () => {
     expect(publicFormRetry?.(0, new RpcError("Not found", 404))).toBe(false);
     expect(publicFormRetry?.(0, new RpcError("Forbidden", 403))).toBe(false);
     expect(publicFormRetry?.(2, new RpcError("Server error", 500))).toBe(true);
-    expect(publicFormRetry?.(3, new Error("Network"))).toBe(false);
+    expect(
+      publicFormRetry?.(
+        2,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(true);
+    expect(
+      publicFormRetry?.(
+        3,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(false);
+    expect(publicFormRetry?.(0, new Error("Unexpected parse failure"))).toBe(
+      false,
+    );
+    expect(
+      publicFormRetry?.(
+        0,
+        new TypeError("Cannot read properties of undefined"),
+      ),
+    ).toBe(false);
 
     act(() => root.unmount());
   });

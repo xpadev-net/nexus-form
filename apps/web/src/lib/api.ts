@@ -1,5 +1,6 @@
 import type { AppType } from "@nexus-form/api";
 import { hc } from "hono/client";
+import { throwFetchFailure } from "./fetch-json";
 import { getRuntimeConfigValue } from "./runtime-config";
 
 export const baseUrl = getRuntimeConfigValue(
@@ -25,11 +26,16 @@ export function apiUrl(path: string): string {
 }
 
 export const client: ReturnType<typeof hc<AppType>> = hc<AppType>(baseUrl, {
-  fetch: (input: RequestInfo | URL, init?: RequestInit) =>
-    fetch(input, {
-      ...init,
-      credentials: "include",
-    }),
+  fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      return await fetch(input, {
+        ...init,
+        credentials: "include",
+      });
+    } catch (error) {
+      throwFetchFailure(error);
+    }
+  },
 });
 
 /**

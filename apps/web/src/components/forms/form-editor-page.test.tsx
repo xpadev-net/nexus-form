@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, vi } from "vitest";
 import { RpcError } from "@/lib/api";
+import { NetworkError } from "@/lib/fetch-json";
 import { FormEditorPage } from "./form-editor-page";
 
 const { hasUnsavedLocalEditsMock } = vi.hoisted(() => ({
@@ -431,18 +432,42 @@ describe("FormEditorPage tab synchronization", () => {
     expect(
       retryByQueryKey.get("formDetail")?.(0, new RpcError("Forbidden", 403)),
     ).toBe(false);
-    expect(retryByQueryKey.get("formDetail")?.(2, new Error("Network"))).toBe(
-      true,
-    );
-    expect(retryByQueryKey.get("formDetail")?.(3, new Error("Network"))).toBe(
-      false,
-    );
-    expect(retryByQueryKey.get("formContent")?.(2, new Error("Network"))).toBe(
-      true,
-    );
-    expect(retryByQueryKey.get("formContent")?.(3, new Error("Network"))).toBe(
-      false,
-    );
+    expect(
+      retryByQueryKey.get("formDetail")?.(
+        2,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(true);
+    expect(
+      retryByQueryKey.get("formDetail")?.(
+        3,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(false);
+    expect(
+      retryByQueryKey.get("formContent")?.(
+        2,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(true);
+    expect(
+      retryByQueryKey.get("formContent")?.(
+        3,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(false);
+    expect(
+      retryByQueryKey.get("formDetail")?.(
+        0,
+        new Error("Unexpected parse failure"),
+      ),
+    ).toBe(false);
+    expect(
+      retryByQueryKey.get("formDetail")?.(
+        0,
+        new TypeError("Cannot read properties of undefined"),
+      ),
+    ).toBe(false);
 
     act(() => root.unmount());
   });
