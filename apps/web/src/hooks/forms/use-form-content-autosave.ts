@@ -361,7 +361,8 @@ export function useFormContentAutosave({
     return (
       editorValueRef.current !== baseContentRef.current ||
       pendingValueRef.current != null ||
-      inFlightValueRef.current != null
+      inFlightValueRef.current != null ||
+      keepaliveCoveredRequestRef.current != null
     );
   }, []);
 
@@ -509,6 +510,11 @@ export function useFormContentAutosave({
         }),
       ),
     onSuccess: (data, variables) => {
+      if (
+        isSameAutosaveRequest(keepaliveCoveredRequestRef.current, variables)
+      ) {
+        keepaliveCoveredRequestRef.current = null;
+      }
       if (
         keepaliveSentRef.current != null &&
         keepaliveSentRef.current.version === variables.expectedVersion &&
@@ -907,6 +913,8 @@ export function useFormContentAutosave({
       const hasNewerLiveInFlight = () =>
         inFlightRequestRef.current != null &&
         editorValueRef.current !== fallbackValue;
+      // Keep failedPendingKeepaliveRef intact when there is no fallback to send;
+      // a duplicate pagehide must not erase the guard for the covered mutation.
       failedPendingKeepaliveRef.current = null;
       pendingKeepaliveRetryRef.current = null;
       pendingValueRef.current = null;
@@ -1004,8 +1012,7 @@ export function useFormContentAutosave({
                 !didRetryAfterKeepaliveSave &&
                 pendingValueRef.current == null &&
                 saveTimerRef.current == null &&
-                inFlightRequestRef.current == null &&
-                keepaliveCoveredRequestRef.current == null
+                inFlightRequestRef.current == null
               ) {
                 setIsSaving(false);
               }

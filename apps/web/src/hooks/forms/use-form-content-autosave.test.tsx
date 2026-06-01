@@ -2014,6 +2014,45 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("clears the saving indicator after a covered in-flight keepalive succeeds", async () => {
+    vi.useFakeTimers();
+    const { resolveKeepalive } = stubDeferredKeepaliveFetch();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosaveWithRenderObserver(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const draftContent =
+      '[{"type":"p","children":[{"text":"covered keepalive draft"}]}]';
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    act(() => {
+      window.dispatchEvent(new Event("pagehide"));
+    });
+
+    resolveKeepalive({ ok: true, status: 200 });
+    await flushPromises();
+
+    expect(latestHook?.isSaving).toBe(false);
+    expect(getLatestLastSavedVersionRef().current).toBe(8);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("clears the saving indicator when a pending-only visibility keepalive fails", async () => {
     vi.useFakeTimers();
     const { resolveKeepalive } = stubDeferredKeepaliveFetch();
