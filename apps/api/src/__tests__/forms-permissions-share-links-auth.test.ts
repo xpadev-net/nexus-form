@@ -655,7 +655,8 @@ describe("R16-H1 forms-permissions mutation rate limits", () => {
     });
   });
 
-  it("returns 429 after the lower destructive mutation limit is exceeded", async () => {
+  it("returns 429 after the lower destructive mutation limit is exceeded across target IDs", async () => {
+    mocks.removePermission.mockResolvedValue(undefined);
     const { formsPermissionsRouter } = await import(
       "../routes/forms-permissions"
     );
@@ -664,12 +665,8 @@ describe("R16-H1 forms-permissions mutation rate limits", () => {
     for (let i = 0; i < 11; i++) {
       responses.push(
         await formsPermissionsRouter.request(
-          "/form-rate-limit/permissions/transfer-owner",
-          {
-            body: JSON.stringify({}),
-            headers: { "content-type": "application/json" },
-            method: "POST",
-          },
+          `/form-rate-limit/permissions/target-user-${i}`,
+          { method: "DELETE" },
         ),
       );
     }
@@ -686,5 +683,6 @@ describe("R16-H1 forms-permissions mutation rate limits", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: { message: "Too many requests" },
     });
+    expect(mocks.removePermission).toHaveBeenCalledTimes(10);
   });
 });

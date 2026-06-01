@@ -77,11 +77,12 @@ const formPermissionDestructiveRateLimit = createRateLimit({
   maxRequests: 10,
   keyGenerator: (c) => {
     const auth = c.get("dualAuthContext");
+    const formId = c.req.param("id");
     const subject =
       auth?.user_id !== undefined
         ? `user:${auth.user_id}`
         : `ip:${getClientIp(c)}`;
-    return `rate_limit:forms-permissions:destructive:${subject}:${c.req.path}`;
+    return `rate_limit:forms-permissions:destructive:${subject}:form:${formId}`;
   },
 });
 
