@@ -168,19 +168,10 @@ export function buildResponseExportRecords(
     }>;
   }>,
   formBlocks: Array<{
-    id: string;
-    formId: string;
     blockId: string;
     category: string;
     type: string;
     content: unknown;
-    order: number;
-    version: number;
-    isDeleted: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    createdBy: string;
-    updatedBy: string;
   }>,
 ): { records: ResponseExportRecord[]; fingerprintComponents: Set<string> } {
   // ブロックタイトルマップを作成
@@ -324,28 +315,33 @@ export function formatRecordsToCsv(
   records: ResponseExportRecord[],
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
+  emptyRecordBlockIds: string[] = [],
 ): string {
   try {
-    if (records.length === 0) return "";
-
     // メタデータヘッダーを共通関数から取得
     const metadataHeaders = buildMetadataHeaders(fingerprintComponents, true);
 
     // コンポーネント列をヘッダーに追加
     const componentHeaders = new Map<string, string>();
-    records.forEach((record) => {
-      if (record.component_columns) {
-        record.component_columns.forEach((col) => {
-          if (!componentHeaders.has(col.block_id)) {
-            const blockTitle =
-              col.question_title?.trim() ||
-              blockTitleMap.get(col.block_id) ||
-              col.block_id;
-            componentHeaders.set(col.block_id, blockTitle);
-          }
-        });
-      }
-    });
+    if (records.length === 0) {
+      emptyRecordBlockIds.forEach((blockId) => {
+        componentHeaders.set(blockId, blockTitleMap.get(blockId) ?? blockId);
+      });
+    } else {
+      records.forEach((record) => {
+        if (record.component_columns) {
+          record.component_columns.forEach((col) => {
+            if (!componentHeaders.has(col.block_id)) {
+              const blockTitle =
+                col.question_title?.trim() ||
+                blockTitleMap.get(col.block_id) ||
+                col.block_id;
+              componentHeaders.set(col.block_id, blockTitle);
+            }
+          });
+        }
+      });
+    }
 
     // ヘッダーを生成
     const csvHeaders = [
@@ -364,7 +360,9 @@ export function formatRecordsToCsv(
         const answer = record.component_columns?.find(
           (col) => col.block_id === blockId,
         );
-        componentValues.push(answer ? JSON.stringify(answer.value) : "");
+        componentValues.push(
+          answer ? stringifyValue(answer.value, answer.block_type) : "",
+        );
       });
 
       const row = [...metadataValues, ...componentValues];

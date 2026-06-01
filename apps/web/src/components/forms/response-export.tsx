@@ -14,7 +14,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
-      const response = await client.api.forms[":id"].export.$get({
+      const response = await client.api.forms[":id"].responses.export.$get({
         param: { id: formId },
       });
       if (!response.ok) {
@@ -25,7 +25,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
-      anchor.download = `responses-${formId}.csv`;
+      anchor.download = `responses-${encodeURIComponent(formId)}.csv`;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
