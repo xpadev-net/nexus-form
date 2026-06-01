@@ -20,6 +20,30 @@ const pendingSaveSchema = z.object({
 const KEEPALIVE_LIMIT = 64 * 1024;
 const IN_FLIGHT_FALLBACK_RETRY_DELAY_MS = 1000;
 
+type PendingSave = z.infer<typeof pendingSaveSchema>;
+
+function parsePendingSave(body: string): PendingSave | null {
+  try {
+    const result = pendingSaveSchema.safeParse(JSON.parse(body));
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCurrentPendingSave(
+  formId: string,
+): { body: string; data: PendingSave } | null {
+  try {
+    const body = localStorage.getItem(`pendingSave:${formId}`);
+    if (!body) return null;
+    const data = parsePendingSave(body);
+    return data ? { body, data } : null;
+  } catch {
+    return null;
+  }
+}
+
 function storePendingSave(formId: string, body: string) {
   try {
     localStorage.setItem(`pendingSave:${formId}`, body);
@@ -49,21 +73,14 @@ function clearResolvedPendingSave(
     return;
   }
   if (!saved) return;
-  let rawParsed: unknown;
-  try {
-    rawParsed = JSON.parse(saved);
-  } catch {
-    clearPendingSave(formId);
-    return;
-  }
-  const result = pendingSaveSchema.safeParse(rawParsed);
-  if (!result.success) {
+  const pendingSave = parsePendingSave(saved);
+  if (!pendingSave) {
     clearPendingSave(formId);
     return;
   }
   if (
-    result.data.expectedVersion === savedContent.expectedVersion &&
-    result.data.plateContent === savedContent.plateContent
+    pendingSave.expectedVersion === savedContent.expectedVersion &&
+    pendingSave.plateContent === savedContent.plateContent
   ) {
     clearPendingSave(formId);
   }
@@ -77,8 +94,8 @@ function storeInFlightPendingSave(
   try {
     const existing = localStorage.getItem(key);
     if (existing) {
-      const result = pendingSaveSchema.safeParse(JSON.parse(existing));
-      if (result.success && result.data.retryBlocked === "conflict") {
+      const pendingSave = parsePendingSave(existing);
+      if (pendingSave?.retryBlocked === "conflict") {
         return;
       }
     }
@@ -565,137 +582,93 @@ export function useFormContentAutosave({
 
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
-    const key = `pendingSave:${formId}`;
-    let saved: string | null;
-    try {
-      saved = localStorage.getItem(key);
-    } catch {
+    const saved = readCurrentPendingSave(formId);
+    if (!saved) {
       clearPendingSave(formId);
       return;
     }
-    if (!saved) return;
-    let rawParsed: unknown;
-    try {
-      rawParsed = JSON.parse(saved);
-    } catch {
-      clearPendingSave(formId);
-      return;
-    }
-    const result = pendingSaveSchema.safeParse(rawParsed);
-    if (!result.success) {
-      clearPendingSave(formId);
-      return;
-    }
-    if (result.data.retryBlocked === "conflict") return;
-    const retryPendingSave = (pendingSaveBody: string) => {
-      let retryRawParsed: unknown;
-      try {
-        retryRawParsed = JSON.parse(pendingSaveBody);
-      } catch {
-        clearPendingSave(formId);
-        return;
-      }
-      const retryParseResult = pendingSaveSchema.safeParse(retryRawParsed);
-      if (!retryParseResult.success) {
+    if (saved.data.retryBlocked === "conflict") return;
+    const retryPendingSave = async (pendingSaveBody: string): Promise<void> => {
+      const retryPending = parsePendingSave(pendingSaveBody);
+      if (!retryPending) {
         clearPendingSave(formId);
         return;
       }
       const retryPayload = {
-        expectedVersion: retryParseResult.data.expectedVersion,
-        plateContent: retryParseResult.data.plateContent,
+        expectedVersion: retryPending.expectedVersion,
+        plateContent: retryPending.plateContent,
       };
       clearPendingSave(formId);
-      rpc(
-        client.api.forms[":id"].content.$put({
-          param: { id: formId },
-          json: retryPayload,
-        }),
-      )
-        .then(() => {
-          toast.success("前回未保存の変更を復元しました");
-          void queryClient.invalidateQueries({
-            queryKey: ["formContent", formId],
-          });
-          void queryClient.invalidateQueries({
-            queryKey: formDiffQueryKey(formId),
-          });
-        })
-        .catch((err) => {
-          if (err instanceof RpcError && err.status === 409) {
-            storePendingSave(
-              formId,
-              JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
-            );
-            toast.warning("前回未保存の変更が競合しています");
-            return;
-          }
-          let currentSaved: string | null;
-          try {
-            currentSaved = localStorage.getItem(key);
-          } catch {
-            storePendingSave(formId, JSON.stringify(retryPayload));
-            return;
-          }
-          if (!currentSaved) {
-            storePendingSave(formId, JSON.stringify(retryPayload));
-            return;
-          }
-          let currentRawParsed: unknown;
-          try {
-            currentRawParsed = JSON.parse(currentSaved);
-          } catch {
-            storePendingSave(formId, JSON.stringify(retryPayload));
-            return;
-          }
-          const currentResult = pendingSaveSchema.safeParse(currentRawParsed);
-          if (!currentResult.success) {
-            storePendingSave(formId, JSON.stringify(retryPayload));
-            return;
-          }
-          if (
-            currentResult.data.retryBlocked !== "conflict" &&
-            currentResult.data.expectedVersion ===
-              retryPayload.expectedVersion &&
-            currentResult.data.plateContent === retryPayload.plateContent
-          ) {
-            storePendingSave(formId, JSON.stringify(retryPayload));
-          }
+      inFlightValueRef.current = retryPayload.plateContent;
+      inFlightExpectedVersionRef.current = retryPayload.expectedVersion;
+      storeInFlightPendingSave(formId, retryPayload);
+      try {
+        await rpc(
+          client.api.forms[":id"].content.$put({
+            param: { id: formId },
+            json: retryPayload,
+          }),
+        );
+        clearResolvedPendingSave(formId, retryPayload);
+        toast.success("前回未保存の変更を復元しました");
+        void queryClient.invalidateQueries({
+          queryKey: ["formContent", formId],
         });
+        void queryClient.invalidateQueries({
+          queryKey: formDiffQueryKey(formId),
+        });
+      } catch (err) {
+        if (err instanceof RpcError && err.status === 409) {
+          storePendingSave(
+            formId,
+            JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
+          );
+          toast.warning("前回未保存の変更が競合しています");
+          return;
+        }
+        const currentPendingSave = readCurrentPendingSave(formId);
+        if (!currentPendingSave) {
+          storePendingSave(formId, JSON.stringify(retryPayload));
+          return;
+        }
+        if (
+          currentPendingSave.data.retryBlocked !== "conflict" &&
+          currentPendingSave.data.expectedVersion ===
+            retryPayload.expectedVersion &&
+          currentPendingSave.data.plateContent === retryPayload.plateContent
+        ) {
+          storePendingSave(formId, JSON.stringify(retryPayload));
+        }
+      } finally {
+        if (
+          inFlightExpectedVersionRef.current === retryPayload.expectedVersion &&
+          inFlightValueRef.current === retryPayload.plateContent
+        ) {
+          inFlightValueRef.current = null;
+          inFlightExpectedVersionRef.current = null;
+        }
+      }
     };
-    if (result.data.source !== "in-flight") {
-      retryPendingSave(saved);
+    if (saved.data.source !== "in-flight") {
+      void retryPendingSave(saved.body);
       return;
     }
     const retryTimer = window.setTimeout(() => {
-      let currentSaved: string | null;
-      try {
-        currentSaved = localStorage.getItem(key);
-      } catch {
-        clearPendingSave(formId);
-        return;
-      }
-      if (!currentSaved) return;
-      let currentRawParsed: unknown;
-      try {
-        currentRawParsed = JSON.parse(currentSaved);
-      } catch {
-        clearPendingSave(formId);
-        return;
-      }
-      const currentResult = pendingSaveSchema.safeParse(currentRawParsed);
-      if (!currentResult.success) {
+      const currentPendingSave = readCurrentPendingSave(formId);
+      if (!currentPendingSave) {
         clearPendingSave(formId);
         return;
       }
       if (
-        currentResult.data.source !== "in-flight" ||
-        currentResult.data.retryBlocked === "conflict" ||
-        currentResult.data.expectedVersion !== result.data.expectedVersion ||
-        currentResult.data.plateContent !== result.data.plateContent
+        currentPendingSave.data.source !== "in-flight" ||
+        currentPendingSave.data.retryBlocked === "conflict" ||
+        currentPendingSave.data.expectedVersion !==
+          saved.data.expectedVersion ||
+        currentPendingSave.data.plateContent !== saved.data.plateContent
       ) {
         return;
       }
-      retryPendingSave(currentSaved);
+      void retryPendingSave(currentPendingSave.body);
     }, IN_FLIGHT_FALLBACK_RETRY_DELAY_MS);
     return () => {
       window.clearTimeout(retryTimer);

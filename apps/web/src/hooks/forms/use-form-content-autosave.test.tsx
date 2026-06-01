@@ -591,6 +591,63 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps in-flight fallback while delayed retry is in-flight and clears it on success", async () => {
+    vi.useFakeTimers();
+    const retryPayload = {
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    };
+    const pendingSave = JSON.stringify({
+      ...retryPayload,
+      source: "in-flight",
+    });
+    let resolveRetry: (value: unknown) => void = () => {};
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: retryPayload,
+      }),
+    );
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      ...retryPayload,
+      source: "in-flight",
+    });
+
+    act(() => {
+      root.unmount();
+    });
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      ...retryPayload,
+      source: "in-flight",
+    });
+
+    await act(async () => {
+      resolveRetry({ plateContentVersion: 8 });
+    });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
   it("stores a failed in-flight retry as a normal pending save for future mounts", async () => {
     vi.useFakeTimers();
     const pendingSave = JSON.stringify({
