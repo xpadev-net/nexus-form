@@ -1,4 +1,16 @@
-type RuntimeConfig = {
+import { z } from "zod";
+
+const runtimeConfigSchema = z.object({
+  apiUrl: z.string().optional().catch(undefined),
+  baseUrl: z.string().optional().catch(undefined),
+  formSecurityDevBypass: z.string().optional().catch(undefined),
+  hcaptchaSiteKey: z.string().optional().catch(undefined),
+  telemetryHost: z.string().optional().catch(undefined),
+  telemetryV4Host: z.string().optional().catch(undefined),
+  telemetryV6Host: z.string().optional().catch(undefined),
+});
+
+export type RuntimeConfig = {
   apiUrl?: string;
   baseUrl?: string;
   formSecurityDevBypass?: string;
@@ -8,12 +20,17 @@ type RuntimeConfig = {
   telemetryV6Host?: string;
 };
 
+declare global {
+  interface Window {
+    __NEXUS_FORM_CONFIG__?: unknown;
+  }
+}
+
 function getRuntimeConfig(): RuntimeConfig {
   if (typeof window === "undefined") return {};
-  const config = (window as unknown as { __NEXUS_FORM_CONFIG__?: unknown })
-    .__NEXUS_FORM_CONFIG__;
-  if (typeof config !== "object" || config === null) return {};
-  return config as RuntimeConfig;
+  const result = runtimeConfigSchema.safeParse(window.__NEXUS_FORM_CONFIG__);
+  if (result.success) return result.data;
+  return {};
 }
 
 export function getRuntimeConfigValue(
