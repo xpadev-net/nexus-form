@@ -79,12 +79,17 @@ const formMutationRateLimit = createRateLimit({
   },
 });
 
-function parseSnapshotPlateContent(plateContent: string): unknown[] | null {
+type SnapshotPlateContentParseResult =
+  | { ok: true; plateContent: unknown }
+  | { ok: false };
+
+function parseSnapshotPlateContent(
+  plateContent: string,
+): SnapshotPlateContentParseResult {
   try {
-    const parsed = JSON.parse(plateContent);
-    return Array.isArray(parsed) ? parsed : null;
+    return { ok: true, plateContent: JSON.parse(plateContent) };
   } catch {
-    return null;
+    return { ok: false };
   }
 }
 
@@ -310,15 +315,20 @@ export const formsDetailRouter = createHonoApp()
         );
       }
       const parsedSnapshot = parseSnapshotPlateContent(snapshot.plateContent);
-      if (parsedSnapshot === null) {
+      if (!parsedSnapshot.ok) {
         return c.json(
           errorResponse("公開用スナップショットの形式が不正です"),
           400,
         );
       }
 
+      // Valid non-array JSON is treated as an empty form so the existing
+      // "no questions" branch handles legacy/imported snapshot shape issues.
+      const snapshotPlateContent = Array.isArray(parsedSnapshot.plateContent)
+        ? parsedSnapshot.plateContent
+        : [];
       const publishedQuestions =
-        extractQuestionsFromPlateContent(parsedSnapshot);
+        extractQuestionsFromPlateContent(snapshotPlateContent);
       if (publishedQuestions.length === 0) {
         return c.json(
           errorResponse("質問がありません。質問を追加してから公開してください"),
