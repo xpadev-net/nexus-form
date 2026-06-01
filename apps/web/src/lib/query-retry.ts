@@ -1,6 +1,13 @@
-import { RpcError } from "./api";
-
 const MAX_QUERY_RETRIES = 3;
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return undefined;
+  }
+
+  const { status } = error;
+  return typeof status === "number" ? status : undefined;
+}
 
 /**
  * Decides whether a TanStack Query request should retry.
@@ -10,14 +17,15 @@ const MAX_QUERY_RETRIES = 3;
  *
  * @param failureCount - The number of failed attempts already reported by TanStack Query.
  * @param error - The thrown query error.
- * @returns `false` for `RpcError` 400-499 responses, otherwise `true` while
+ * @returns `false` for errors with HTTP 400-499 status, otherwise `true` while
  *   `failureCount` is less than `MAX_QUERY_RETRIES`.
  */
 export function shouldRetryQuery(
   failureCount: number,
   error: unknown,
 ): boolean {
-  if (error instanceof RpcError && error.status >= 400 && error.status < 500) {
+  const status = getErrorStatus(error);
+  if (status !== undefined && status >= 400 && status < 500) {
     return false;
   }
   return failureCount < MAX_QUERY_RETRIES;
