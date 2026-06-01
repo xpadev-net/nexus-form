@@ -45,33 +45,24 @@ describe("sheets sync job ids", () => {
     const manualJobId = buildManualSheetsSyncJobId(
       "integration:one",
       "response:one",
-      "retry:one",
     );
 
     expect(autoJobId).toBe(
       `${SHEETS_SYNC_AUTO_JOB_PREFIX}696e746567726174696f6e3a6f6e65.726573706f6e73653a6f6e65`,
     );
     expect(manualJobId).toBe(
-      `${SHEETS_SYNC_MANUAL_JOB_PREFIX}696e746567726174696f6e3a6f6e65.726573706f6e73653a6f6e65.72657472793a6f6e65`,
+      `${SHEETS_SYNC_MANUAL_JOB_PREFIX}696e746567726174696f6e3a6f6e65.726573706f6e73653a6f6e65`,
     );
     expect(autoJobId).not.toContain(":");
     expect(manualJobId).not.toContain(":");
     expect(buildAutoSheetsSyncJobId("integration:one", "response:one")).toBe(
       autoJobId,
     );
+    expect(buildManualSheetsSyncJobId("integration:one", "response:one")).toBe(
+      manualJobId,
+    );
     expect(
-      buildManualSheetsSyncJobId(
-        "integration:one",
-        "response:one",
-        "retry:one",
-      ),
-    ).toBe(manualJobId);
-    expect(
-      buildManualSheetsSyncJobId(
-        "integration:one",
-        "response:one",
-        "retry:two",
-      ),
+      buildManualSheetsSyncJobId("integration:one", "response:two"),
     ).not.toBe(manualJobId);
   });
 });

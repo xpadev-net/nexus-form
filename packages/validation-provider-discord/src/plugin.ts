@@ -75,6 +75,11 @@ const DiscordMetadataSchema = z.object({
   ),
 });
 
+const DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE =
+  "Discord APIへの接続に失敗しました。しばらくしてから再試行してください";
+const DISCORD_EXTERNAL_REQUEST_ERROR_MESSAGE =
+  "Discord APIへのリクエストに失敗しました";
+
 const DiscordUserGuildSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -427,21 +432,21 @@ const guildMemberRule: ValidationProviderRule = {
           return {
             isValid: false,
             errorCode: DiscordErrorCode.DISCORD_API_ERROR,
-            errorMessage: error.message || "Discord API error",
+            errorMessage: DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE,
             retryable: true,
           };
         }
       }
 
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const retryable =
+        !(error instanceof DiscordHttpError) && isRetryableNetworkError(error);
       return {
         isValid: false,
         errorCode: DiscordErrorCode.DISCORD_API_ERROR,
-        errorMessage: errorMessage || "Discord API error",
-        retryable:
-          !(error instanceof DiscordHttpError) &&
-          isRetryableNetworkError(error),
+        errorMessage: retryable
+          ? DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE
+          : DISCORD_EXTERNAL_REQUEST_ERROR_MESSAGE,
+        retryable,
       };
     }
   },

@@ -221,6 +221,7 @@ export function useFormPublishMenuModel({
           totalChanges,
           hasChangesFromActive,
           activeSnapshotVersion,
+          nextSnapshotVersion: (lastPublishedVersion ?? 0) + 1,
         }
       : null;
 
@@ -402,23 +403,24 @@ export function useFormPublishMenuModel({
   const handlePasswordDialogConfirm = () => {
     const action = passwordDialogMode ?? "change";
     const enabled = action === "enable" ? true : passwordProtection.enabled;
-    const hasNewPassword = passwordInput.length > 0;
+    const passwordText = passwordInput.trim();
+    const hasNewPassword = passwordText.length > 0;
     const currentHint = passwordProtection.password_hint ?? "";
     const hintUpdated = passwordHintInput !== currentHint;
     const payload = {
       enabled,
-      password: hasNewPassword ? passwordInput : undefined,
+      password: hasNewPassword ? passwordText : undefined,
       ...(hintUpdated ? { password_hint: passwordHintInput } : {}),
     };
 
     if (enabled && !passwordProtection.hasPassword && !hasNewPassword) {
-      const message = "パスワードを設定してから有効にしてください";
+      const message = "パスワードを入力してから有効にしてください";
       dispatch({ type: "set-password-dialog-error", error: message });
       toast.error(message);
       return;
     }
 
-    if (hasNewPassword && passwordInput.length < 8) {
+    if (hasNewPassword && passwordText.length < 8) {
       const message = "パスワードは8文字以上で入力してください";
       dispatch({ type: "set-password-dialog-error", error: message });
       toast.error(message);
@@ -433,6 +435,7 @@ export function useFormPublishMenuModel({
       return;
     }
 
+    dispatch({ type: "set-password-dialog-error", error: null });
     updatePasswordProtection.mutate(payload, {
       onSuccess: () => {
         toast.success(
@@ -570,5 +573,7 @@ export function useFormPublishMenuModel({
     totalChanges,
     unpublishedSection,
     snapshotSaveConfirmLabel: getSnapshotSaveConfirmLabel(dialogMode),
+    snapshotSaveWillPublish:
+      dialogMode === "saveAndPublish" || dialogMode === "saveAndActivate",
   } as const;
 }

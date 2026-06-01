@@ -23,6 +23,14 @@ const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
 };
 
+export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: {
+    type: "exponential",
+    delay: 30_000,
+  },
+} satisfies Pick<DefaultJobOptions, "attempts" | "backoff">;
+
 let _sheetsSyncQueue: Queue | null = null;
 
 const _validationQueues: Map<string, Queue> = new Map();

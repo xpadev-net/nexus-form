@@ -19,6 +19,7 @@ import { client, RpcError, rpc } from "@/lib/api";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { decodePrefillData } from "@/lib/forms/prefill";
 import { shouldRetryQuery } from "@/lib/query-retry";
+import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
@@ -217,7 +218,7 @@ function PublicFormPageInner() {
           if (!Array.isArray(raw)) {
             throw new SyntaxError("not an array");
           }
-          parsedContent = raw;
+          parsedContent = sanitizeFormPlateContent(raw);
         } catch {
           throw new Error(
             "フォームデータの解析に失敗しました。ページを再読み込みしてください。",

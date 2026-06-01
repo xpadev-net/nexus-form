@@ -8,6 +8,10 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { RpcError } from "@/lib/api";
 import { FormEditorPage } from "./form-editor-page";
 
+const { hasUnsavedLocalEditsMock } = vi.hoisted(() => ({
+  hasUnsavedLocalEditsMock: vi.fn(() => false),
+}));
+
 let searchTab: string | undefined;
 const navigateMock = vi.fn();
 const snapshotEditorToDraftMock = vi.fn();
@@ -90,7 +94,7 @@ vi.mock("@/hooks/forms/use-form-content-autosave", () => ({
     dismissConflict: vi.fn(),
     draftContent: "[]",
     handleContentChange: vi.fn(),
-    hasUnsavedLocalEdits: vi.fn().mockReturnValue(false),
+    hasUnsavedLocalEdits: hasUnsavedLocalEditsMock,
     isMerging: false,
     isSaving: false,
     resolveConflicts: vi.fn(),
@@ -238,6 +242,8 @@ describe("FormEditorPage tab synchronization", () => {
       isLoading: false,
     };
     navigateMock.mockClear();
+    hasUnsavedLocalEditsMock.mockReset();
+    hasUnsavedLocalEditsMock.mockReturnValue(false);
     snapshotEditorToDraftMock.mockClear();
     vi.mocked(usePageTitle).mockClear();
     optionsByQueryKey.clear();
@@ -266,6 +272,49 @@ describe("FormEditorPage tab synchronization", () => {
     ).not.toBeNull();
 
     act(() => root.unmount());
+  });
+
+  it("prevents browser unload while autosave reports unsaved local edits", () => {
+    hasUnsavedLocalEditsMock.mockReturnValue(true);
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(hasUnsavedLocalEditsMock).toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("does not prevent browser unload after local edits are saved", () => {
+    hasUnsavedLocalEditsMock.mockReturnValue(false);
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(hasUnsavedLocalEditsMock).toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("removes the browser unload listener when the editor page unmounts", () => {
+    hasUnsavedLocalEditsMock.mockReturnValue(true);
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    act(() => root.unmount());
+    hasUnsavedLocalEditsMock.mockClear();
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(hasUnsavedLocalEditsMock).not.toHaveBeenCalled();
   });
 
   it("navigates instead of mutating local state when a tab is clicked", () => {

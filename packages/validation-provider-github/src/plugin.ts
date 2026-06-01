@@ -4,7 +4,7 @@ import type {
   ValidationProviderRule,
 } from "@nexus-form/integrations";
 import { z } from "zod";
-import { getGitHubClient } from "./client";
+import { GitHubUserInfoSchema, getGitHubClient } from "./client";
 import { getGitHubApiTimeoutMs, getGitHubConfig } from "./config";
 import { GitHubErrorCode } from "./error-codes";
 import { isGitHubProviderError } from "./utils";
@@ -21,18 +21,17 @@ const RETRYABLE_GITHUB_ERROR_CODES = new Set<GitHubErrorCode>([
 ]);
 const RETRYABLE_GITHUB_HTTP_STATUSES = new Set([500, 502, 503, 504]);
 
-const GitHubMetadataSchema = z.object({
-  username: z.string(),
-  userId: z.number(),
-  displayName: z.string().nullable(),
-  avatarUrl: z.string().url().nullable(),
-  profileUrl: z.string().url(),
-  bio: z.string().nullable(),
-  publicRepos: z.number().int().nonnegative(),
-  followers: z.number().int().nonnegative(),
-  following: z.number().int().nonnegative(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
+const GitHubMetadataSchema = GitHubUserInfoSchema;
+
+const GITHUB_EXTERNAL_SERVICE_ERROR_MESSAGE =
+  "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
+const GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE =
+  "GitHub APIへのリクエストに失敗しました";
+
+const invalidGitHubApiResponseResult: ValidationProviderResult = Object.freeze({
+  isValid: false,
+  errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+  errorMessage: "Invalid GitHub API response schema",
 });
 
 function normalizeGitHubUsername(username: string): string {
@@ -55,6 +54,32 @@ function resolveGitHubClient(): ReturnType<typeof getGitHubClient> {
   } catch {
     return getGitHubClient();
   }
+}
+
+function isRetryableGitHubProviderError(error: {
+  code: GitHubErrorCode;
+  status?: number;
+}): boolean {
+  return (
+    RETRYABLE_GITHUB_ERROR_CODES.has(error.code) ||
+    (error.status != null && RETRYABLE_GITHUB_HTTP_STATUSES.has(error.status))
+  );
+}
+
+function getSafeGitHubProviderErrorMessage(error: {
+  code: GitHubErrorCode;
+  status?: number;
+}): string {
+  if (isRetryableGitHubProviderError(error)) {
+    if (error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT) {
+      return "GitHub API rate limit exceeded";
+    }
+    return GITHUB_EXTERNAL_SERVICE_ERROR_MESSAGE;
+  }
+  if (error.code === GitHubErrorCode.GITHUB_AUTH_FAILED) {
+    return "GitHub API authentication failed";
+  }
+  return GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE;
 }
 
 const userExistsRule: ValidationProviderRule = {
@@ -93,21 +118,14 @@ const userExistsRule: ValidationProviderRule = {
         };
       }
 
+      const parsedUserData = GitHubUserInfoSchema.safeParse(userData);
+      if (!parsedUserData.success) {
+        return invalidGitHubApiResponseResult;
+      }
+
       return {
         isValid: true,
-        metadata: {
-          username: userData.username,
-          userId: userData.userId,
-          displayName: userData.displayName,
-          avatarUrl: userData.avatarUrl,
-          profileUrl: userData.profileUrl,
-          bio: userData.bio,
-          publicRepos: userData.publicRepos,
-          followers: userData.followers,
-          following: userData.following,
-          createdAt: userData.createdAt,
-          updatedAt: userData.updatedAt,
-        },
+        metadata: parsedUserData.data,
       };
     } catch (error) {
       if (isGitHubProviderError(error)) {
@@ -115,14 +133,12 @@ const userExistsRule: ValidationProviderRule = {
           error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
             ? error.retryAfter
             : undefined;
+        const retryable = isRetryableGitHubProviderError(error);
         return {
           isValid: false,
           errorCode: error.code,
-          errorMessage: error.message,
-          retryable:
-            RETRYABLE_GITHUB_ERROR_CODES.has(error.code) ||
-            (error.status != null &&
-              RETRYABLE_GITHUB_HTTP_STATUSES.has(error.status)),
+          errorMessage: getSafeGitHubProviderErrorMessage(error),
+          retryable,
           ...(error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
             ? {
                 retryAfter:
@@ -132,12 +148,10 @@ const userExistsRule: ValidationProviderRule = {
         };
       }
 
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
       return {
         isValid: false,
         errorCode: GitHubErrorCode.GITHUB_API_ERROR,
-        errorMessage,
+        errorMessage: GITHUB_EXTERNAL_REQUEST_ERROR_MESSAGE,
       };
     }
   },

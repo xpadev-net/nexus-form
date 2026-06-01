@@ -119,7 +119,7 @@ export function SpreadsheetSelector({
         <Button
           variant="outline"
           size="icon"
-          aria-label="スプレッドシート一覧を更新"
+          aria-label="スプレッドシート一覧を再取得"
           onClick={onRefreshSpreadsheets}
           disabled={isFetchingSpreadsheets}
         >

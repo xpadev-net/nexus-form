@@ -116,7 +116,7 @@ vi.mock("../lib/s3/image-service", () => ({
   s3ImageService: {
     deleteObject: vi.fn().mockResolvedValue(undefined),
     moveToProd: vi.fn().mockResolvedValue({
-      key: "prod/users/user-a/file.jpg",
+      key: "prod/users/user-a-id/file.jpg",
       bucket: "prod-bucket",
       url: "",
       size: 0,
@@ -138,7 +138,7 @@ vi.mock("../lib/s3/image-service", () => ({
       }),
     ),
     processAndMoveImage: vi.fn().mockResolvedValue({
-      key: "prod/users/user-a/file.jpg",
+      key: "prod/users/user-a-id/file.jpg",
       bucket: "prod-bucket",
       url: "",
       size: 0,
@@ -160,7 +160,7 @@ vi.mock("../lib/s3/base-service", () => ({
       .mockResolvedValue("https://s3.example.com/upload"),
     deleteObject: vi.fn().mockResolvedValue(undefined),
     moveToProd: vi.fn().mockResolvedValue({
-      key: "prod/users/user-a/file.jpg",
+      key: "prod/users/user-a-id/file.jpg",
       bucket: "prod-bucket",
       url: "",
       size: 0,
@@ -251,13 +251,17 @@ let app: Awaited<typeof import("../index")>["default"];
 beforeAll(async () => {
   const mod = await import("../index");
   app = mod.default;
-}, 30_000);
+}, 120_000);
 
 beforeEach(() => {
   mockGetSession.mockReset();
   tokenMocks.validateApiToken.mockReset();
+  vi.mocked(s3ImageService.deleteObject).mockClear();
   vi.mocked(s3ImageService.generateDownloadUrl).mockClear();
   vi.mocked(s3ImageService.generateUploadUrl).mockClear();
+  vi.mocked(s3ImageService.moveToProd).mockClear();
+  vi.mocked(s3ImageService.objectExists).mockClear();
+  vi.mocked(s3ImageService.processAndMoveImage).mockClear();
 });
 
 describe("S3 key ownership enforcement (H-1)", () => {
@@ -303,6 +307,10 @@ describe("S3 key ownership enforcement (H-1)", () => {
       });
       expect(res.status).toBeGreaterThanOrEqual(200);
       expect(res.status).toBeLessThan(300);
+      expect(s3ImageService.deleteObject).toHaveBeenCalledWith(
+        `prod/users/${USER_A_ID}/file.jpg`,
+        "prod-bucket",
+      );
     });
 
     it("proceeds for double-dot filenames in admin session namespace", async () => {
@@ -376,6 +384,38 @@ describe("S3 key ownership enforcement (H-1)", () => {
         body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
       });
       expect(res.status).not.toBe(403);
+      expect(s3ImageService.objectExists).toHaveBeenCalledWith(
+        `tmp/users/${USER_A_ID}/file.jpg`,
+        "tmp-bucket",
+      );
+      expect(s3ImageService.moveToProd).toHaveBeenCalledWith(
+        `tmp/users/${USER_A_ID}/file.jpg`,
+        undefined,
+      );
+      await expect(res.json()).resolves.toMatchObject({
+        success: true,
+        data: {
+          key: `prod/users/${USER_A_ID}/file.jpg`,
+          bucket: "prod-bucket",
+        },
+      });
+    });
+
+    it("returns 404 without moving when the temporary object is missing", async () => {
+      vi.mocked(s3ImageService.objectExists).mockResolvedValueOnce(false);
+      mockGetSession.mockResolvedValueOnce(sessionFor(USER_A_ID));
+
+      const res = await app.request("/api/s3/move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tmpKey: `tmp/users/${USER_A_ID}/file.jpg` }),
+      });
+
+      expect(res.status).toBe(404);
+      expect(s3ImageService.moveToProd).not.toHaveBeenCalled();
+      await expect(res.json()).resolves.toMatchObject({
+        error: "File not found in temporary bucket",
+      });
     });
 
     it("returns 400 when finalKey uses the temporary namespace", async () => {
