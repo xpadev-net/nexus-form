@@ -68,6 +68,9 @@
   - apps/web/src/components/forms/validation-result-list.tsx
   - apps/web/src/**/*.test.ts
   - apps/web/src/**/*.test.tsx
+  - apps/api/vitest.config.ts
+  - apps/api/src/__tests__/routes.test.ts
+  - apps/api/src/__tests__/s3-ownership.test.ts
 - depends_on: [Task_1]
 - description: |
   Add cancel mutation `onError` feedback using the API error message toast pattern and update focused tests.
@@ -175,6 +178,10 @@
   - Summary: Independent Reviewer approved the diff with no findings.
   - Validation evidence: Reviewer inspected `validation-result-list.tsx`, `validation-result-list.test.tsx`, and `use-validation-results.ts`; reviewer reran the focused test successfully.
   - Notes: Residual risk is limited to refetch failure visibility, accepted as outside the cancel API failure notification requirement.
+- 2026-06-01 17:15 Wave 4 in progress: [Task_4]
+  - Summary: PR #436 was created; first `gh-review-hook 436` had all checks green but failed because the branch was 7 commits behind `master`. Merged `origin/master` into the branch and found local API tests exceeding 30s timeouts after the base update.
+  - Validation evidence: `unbounded-query-pagination.test.ts` passed standalone; `forms-public-validation-outbox.test.ts` passed after increasing API Vitest timeout; `routes.test.ts` and `s3-ownership.test.ts` passed after aligning explicit `beforeAll` timeouts.
+  - Notes: Timeout changes are validation-stability fixes needed after base merge, not product behavior changes.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
@@ -188,6 +195,11 @@
   - Plan delta (what changed): Task_2 focused test validation owner changed from worker to orchestrator.
   - Tradeoffs considered: A Worker handoff would add merge overhead without improving coverage for the narrowed change; independent Reviewer remains required.
   - User approval: yes, via delegated implementation ownership.
+- 2026-06-01 17:15 Decision: include API test timeout stability edits after merging `origin/master`.
+  - Trigger / new insight: Required `pnpm test -- --silent` failed in API tests because several existing tests exceeded hard-coded 30s limits locally after the base update; standalone reruns showed slow tests pass when given enough time.
+  - Plan delta (what changed): Task_2 owns expanded to include API Vitest timeout config and two explicit beforeAll timeouts.
+  - Tradeoffs considered: Leaving validation failed would block completion; increasing timeout avoids changing production code or weakening assertions.
+  - User approval: yes, via instruction to resolve validation failures even outside the immediate PR scope.
 
 ## Notes
 - Risks:

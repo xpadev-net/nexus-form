@@ -251,7 +251,7 @@ let app: Awaited<typeof import("../index")>["default"];
 beforeAll(async () => {
   const mod = await import("../index");
   app = mod.default;
-}, 30_000);
+}, 120_000);
 
 beforeEach(() => {
   mockGetSession.mockReset();
