@@ -603,7 +603,7 @@ export function useFormContentAutosave({
             toast.warning("前回未保存の変更が競合しています");
             return;
           }
-          storePendingSave(formId, pendingSaveBody);
+          storePendingSave(formId, JSON.stringify(retryPayload));
         });
     };
     if (result.data.source !== "in-flight") {

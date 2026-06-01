@@ -559,6 +559,36 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("stores a failed in-flight retry as a normal pending save for future mounts", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockRejectedValue(new Error("network error"));
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("reports unsaved local edits until the debounced autosave succeeds", () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
