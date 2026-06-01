@@ -747,7 +747,7 @@ export const integrationsGoogleRouter = createHonoApp()
 
       const raw = rawParsed.data;
       const defaultSheetTitle = raw.sheets?.find(
-        (sheet) => sheet.properties?.title,
+        (sheet) => sheet.properties?.title != null,
       )?.properties?.title;
       const parsed = CreateSpreadsheetOutputSchema.safeParse({
         spreadsheetId: raw.spreadsheetId,

@@ -241,6 +241,25 @@ describe("Google Sheets spreadsheet mutation routes", () => {
     });
   });
 
+  it("returns 502 when Google rejects spreadsheet creation", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/spreadsheets",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "回答同期" }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to create spreadsheet",
+    });
+  });
+
   it("returns 502 when spreadsheet creation returns invalid JSON", async () => {
     fetchMock.mockResolvedValueOnce(createInvalidJsonResponse());
     const app = createApp();
@@ -284,6 +303,25 @@ describe("Google Sheets spreadsheet mutation routes", () => {
 
   it("returns 502 when adding a sheet cannot reach Google", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/spreadsheets/spreadsheet-1/sheets",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Responses" }),
+      },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to add sheet",
+    });
+  });
+
+  it("returns 502 when Google rejects adding a sheet", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 409 }));
     const app = createApp();
 
     const response = await app.request(
