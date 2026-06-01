@@ -7,6 +7,10 @@ import {
 import { toast } from "sonner";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
+import {
+  formDiffQueryKey,
+  unpublishedChangesQueryKey,
+} from "./form-structure-query-keys";
 
 const SNAPSHOT_PAGE_SIZE = 100;
 
@@ -56,7 +60,7 @@ export const useSnapshots = (formId: string | null | undefined) => {
   });
 
   const unpublishedChangesQuery = useQuery({
-    queryKey: ["unpublishedChanges", formId],
+    queryKey: unpublishedChangesQueryKey(formId),
     queryFn: formId
       ? () =>
           rpc(
@@ -107,10 +111,10 @@ export const useSnapshots = (formId: string | null | undefined) => {
           queryKey: ["latestSnapshot", formId],
         }),
         queryClient.invalidateQueries({
-          queryKey: ["unpublishedChanges", formId],
+          queryKey: unpublishedChangesQueryKey(formId),
         }),
         queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
+        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
       ]);
     },
     onError: () => {
@@ -143,11 +147,11 @@ export const useSnapshots = (formId: string | null | undefined) => {
           queryKey: ["latestSnapshot", formId],
         }),
         queryClient.invalidateQueries({
-          queryKey: ["unpublishedChanges", formId],
+          queryKey: unpublishedChangesQueryKey(formId),
         }),
         queryClient.invalidateQueries({ queryKey: ["formContent", formId] }),
         queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
+        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
       ]);
     },
     onError: () => {
