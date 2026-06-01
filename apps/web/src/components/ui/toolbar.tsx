@@ -313,7 +313,20 @@ function withTooltip<T extends ElementType>(Component: T) {
     tooltipTriggerProps,
     ...props
   }: TooltipProps<T>) {
-    const component = <Component {...(props as ComponentProps<T>)} />;
+    const componentProps = props as ComponentProps<T> & {
+      "aria-label"?: string;
+      "aria-labelledby"?: string;
+    };
+    const accessibleProps =
+      typeof tooltip === "string" &&
+      !componentProps["aria-label"] &&
+      !componentProps["aria-labelledby"]
+        ? {
+            ...componentProps,
+            "aria-label": tooltip,
+          }
+        : componentProps;
+    const component = <Component {...(accessibleProps as ComponentProps<T>)} />;
 
     if (tooltip) {
       return (

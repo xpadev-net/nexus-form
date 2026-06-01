@@ -45,32 +45,27 @@ const MEDIA_CONFIG: Record<
     accept: string[];
     icon: ReactNode;
     title: string;
-    tooltip: string;
   }
 > = {
   [KEYS.audio]: {
     accept: ["audio/*"],
     icon: <AudioLinesIcon className="size-4" />,
     title: "Insert Audio",
-    tooltip: "Audio",
   },
   [KEYS.file]: {
     accept: ["*"],
     icon: <FileUpIcon className="size-4" />,
     title: "Insert File",
-    tooltip: "File",
   },
   [KEYS.img]: {
     accept: ["image/*"],
     icon: <ImageIcon className="size-4" />,
     title: "Insert Image",
-    tooltip: "Image",
   },
   [KEYS.video]: {
     accept: ["video/*"],
     icon: <FilmIcon className="size-4" />,
     title: "Insert Video",
-    tooltip: "Video",
   },
 };
 
@@ -113,6 +108,7 @@ export function MediaToolbarButton({
   return (
     <>
       <ToolbarSplitButton
+        tooltip={currentConfig.title}
         onClick={() => {
           openFilePicker();
         }}
@@ -124,9 +120,7 @@ export function MediaToolbarButton({
         }}
         pressed={open}
       >
-        <ToolbarSplitButtonPrimary>
-          {currentConfig.icon}
-        </ToolbarSplitButtonPrimary>
+        <ToolbarSplitButtonPrimary>{currentConfig.icon}</ToolbarSplitButtonPrimary>
 
         <DropdownMenu
           open={open}
@@ -135,7 +129,9 @@ export function MediaToolbarButton({
           {...props}
         >
           <DropdownMenuTrigger asChild>
-            <ToolbarSplitButtonSecondary />
+            <ToolbarSplitButtonSecondary
+              aria-label={`${currentConfig.title} options`}
+            />
           </DropdownMenuTrigger>
 
           <DropdownMenuContent
