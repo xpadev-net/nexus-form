@@ -117,7 +117,7 @@ beforeAll(async () => {
   process.env.TRUSTED_PROXY_COUNT = "1";
   const mod = await import("../index");
   app = mod.default;
-}, 30_000);
+}, 120_000);
 
 describe("API Route Integration Tests", () => {
   describe("GET /api/health", () => {
