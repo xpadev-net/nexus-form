@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => {
   return {
     db,
     mockGetSession: vi.fn(),
+    cleanupExpiredData: vi.fn(),
     deleteWhere: vi.fn(),
     eq: vi.fn((left, right) => ({ op: "eq", left, right })),
     and: vi.fn((...conditions) => ({ op: "and", conditions })),
@@ -90,6 +91,12 @@ vi.mock("drizzle-orm", () => ({
   sql: mocks.sql,
 }));
 
+vi.mock("../lib/fingerprint/data-retention", () => ({
+  getDataRetentionManager: () => ({
+    cleanupExpiredData: mocks.cleanupExpiredData,
+  }),
+}));
+
 function adminSession() {
   return {
     user: {
@@ -122,6 +129,13 @@ describe("DELETE /manage fingerprint cleanup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.mockGetSession.mockResolvedValue(adminSession());
+    mocks.cleanupExpiredData.mockResolvedValue({
+      deletedFingerprintDetails: 0,
+      deletedResponses: 0,
+      totalDeleted: 0,
+      errors: [],
+      cleanupDate: new Date("2026-01-01T00:00:00.000Z"),
+    });
     mocks.deleteWhere.mockResolvedValue([{ affectedRows: 1 }]);
     mocks.db.delete.mockReturnValue({ where: mocks.deleteWhere });
   });
@@ -195,5 +209,27 @@ describe("DELETE /manage fingerprint cleanup", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: { message: "Too many requests" },
     });
+  });
+
+  it("applies the stricter destructive rate limit to retention cleanup", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    const { fingerprintRouter } = await import("../routes/fingerprint");
+    clearRateLimitStoreForTests();
+
+    let res: Response | null = null;
+    for (let i = 0; i < 11; i++) {
+      res = await fingerprintRouter.request("/retention", {
+        method: "PUT",
+        headers: { "x-forwarded-for": "203.0.113.75" },
+      });
+    }
+
+    if (!res) throw new Error("Expected a response");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("10");
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+    expect(mocks.cleanupExpiredData).toHaveBeenCalledTimes(10);
   });
 });
