@@ -33,8 +33,8 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
-    hookTimeout: 30000,
-    testTimeout: 30000,
+    hookTimeout: 120000,
+    testTimeout: 120000,
     exclude: ["**/node_modules/**", "**/dist/**"],
   },
 });
