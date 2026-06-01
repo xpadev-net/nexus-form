@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import {
@@ -73,9 +73,8 @@ export const useFormAccessControl = (formId: string) => {
     },
   });
 
-  const updatePasswordProtection = {
-    ...updatePasswordProtectionMutation,
-    mutate: (
+  const mutatePasswordProtection = useCallback(
+    (
       ...[params, options]: Parameters<
         typeof updatePasswordProtectionMutation.mutate
       >
@@ -96,7 +95,11 @@ export const useFormAccessControl = (formId: string) => {
         },
       });
     },
-    mutateAsync: (
+    [updatePasswordProtectionMutation.mutate],
+  );
+
+  const mutatePasswordProtectionAsync = useCallback(
+    (
       ...[params, options]: Parameters<
         typeof updatePasswordProtectionMutation.mutateAsync
       >
@@ -116,7 +119,21 @@ export const useFormAccessControl = (formId: string) => {
           );
         },
       }),
-  };
+    [updatePasswordProtectionMutation.mutateAsync],
+  );
+
+  const updatePasswordProtection = useMemo(
+    () => ({
+      ...updatePasswordProtectionMutation,
+      mutate: mutatePasswordProtection,
+      mutateAsync: mutatePasswordProtectionAsync,
+    }),
+    [
+      updatePasswordProtectionMutation,
+      mutatePasswordProtection,
+      mutatePasswordProtectionAsync,
+    ],
+  );
 
   return {
     passwordProtection,
