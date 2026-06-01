@@ -3193,6 +3193,45 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("clears the saving indicator when a pending-only visibility fallback exceeds the keepalive limit", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    let latestHook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosaveWithRenderObserver(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      (currentHook) => {
+        latestHook = currentHook;
+      },
+    );
+    const largeContent = "x".repeat(70 * 1024);
+
+    act(() => {
+      hook?.handleContentChange(largeContent);
+    });
+    expect(latestHook?.isSaving).toBe(true);
+
+    dispatchHiddenVisibilityChange();
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(latestHook?.isSaving).toBe(false);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: largeContent,
+    });
+
+    localStorage.removeItem("pendingSave:form-1");
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("clears a blocked pending save after a normal autosave succeeds", () => {
     localStorage.setItem(
       "pendingSave:form-1",

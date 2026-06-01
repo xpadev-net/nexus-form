@@ -1184,6 +1184,8 @@ export function useFormContentAutosave({
         if (inFlightRequest != null) {
           keepaliveCoveredRequestRef.current = inFlightRequest;
           lastSavedVersionRef.current = null;
+        } else if (allowRetryAfterKeepaliveSave) {
+          setIsSaving(false);
         }
         keepaliveSentRef.current = null;
       }
