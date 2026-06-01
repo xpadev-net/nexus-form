@@ -126,6 +126,14 @@
 - 2026-06-01 Wave 3 completed: independent Reviewer returned APPROVED with no findings.
   - Validation evidence:
     - Reviewer reran targeted shared/API/worker tests and approved acceptance coverage.
+- 2026-06-01 PR hook feedback fixed:
+  - Summary:
+    - `gh-review-hook 432` surfaced that deterministic manual job IDs could leave a retained failed/completed job in Redis, making a later manual sync a no-op while still returning `queued`.
+    - Manual sync now removes retained terminal jobs before `addBulk`, preserving active-job dedupe while allowing failed/completed responses to be re-queued truthfully.
+  - Validation evidence:
+    - `rtk pnpm --filter @nexus-form/api test src/__tests__/forms-integrations-google-sheets-sync-auth.test.ts src/lib/__tests__/queues.test.ts`
+    - `rtk pnpm lint:fix`
+    - `rtk pnpm type-check`
 
 ## Decision Log
 - 2026-06-01 Decision:

@@ -292,6 +292,42 @@ describe("Google Sheets sync job status authorization", () => {
     );
   });
 
+  it.each([
+    "failed",
+    "completed",
+  ] as const)("removes retained %s manual sync jobs before re-queueing", async (state) => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+    const remove = vi.fn(async () => undefined);
+    mocks.getJob.mockResolvedValueOnce({
+      getState: vi.fn(async () => state),
+      remove,
+    });
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      jobId: expect.stringMatching(/^sheets-manual\./),
+      status: "queued",
+    });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk).toHaveBeenCalledTimes(1);
+    expect(mocks.addBulk.mock.calls[0]?.[0]?.[0]?.opts?.jobId).toBe(body.jobId);
+  });
+
   it("defaults manual sync to the latest response instead of replaying all rows", async () => {
     mocks.responseRows = [
       { responseId: "latest-response" },

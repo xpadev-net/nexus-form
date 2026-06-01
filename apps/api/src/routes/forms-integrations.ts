@@ -189,8 +189,23 @@ export const formsIntegrationsRouter = createHonoApp()
         id: buildManualSheetsSyncJobId(integration.id, response.responseId),
         responseId: response.responseId,
       }));
+      const queue = getSheetsSyncQueue();
 
-      await getSheetsSyncQueue().addBulk(
+      await Promise.all(
+        jobs.map(async (job) => {
+          const existingJob = await queue.getJob(job.id);
+          if (!existingJob) {
+            return;
+          }
+
+          const state = await existingJob.getState();
+          if (state === "failed" || state === "completed") {
+            await existingJob.remove();
+          }
+        }),
+      );
+
+      await queue.addBulk(
         jobs.map((job) => ({
           name: "manual-sync",
           data: sheetsSyncJobDataSchema.parse({
