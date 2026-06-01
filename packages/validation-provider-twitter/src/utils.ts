@@ -98,7 +98,7 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
           data?.detail ||
           data?.title ||
           `Twitter API error: ${status}`,
-        retryable: status >= 500,
+        retryable: false,
       };
     }
   }

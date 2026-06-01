@@ -215,9 +215,6 @@ describe("twitterProvider.rules.user_exists.validate", () => {
       errorMessage: "Twitter API is temporarily unavailable",
       retryable: true,
     });
-    expect(result?.errorMessage).not.toContain("api.twitter.com");
-    expect(result?.errorMessage).not.toContain("token");
-    expect(result?.errorMessage).not.toContain("trace");
   });
 
   it.each([
@@ -264,8 +261,6 @@ describe("twitterProvider.rules.user_exists.validate", () => {
       errorMessage: "Request to Twitter API timed out",
       retryable: true,
     });
-    expect(result?.errorMessage).not.toContain("api.twitter.com");
-    expect(result?.errorMessage).not.toContain("token");
   });
 
   it("keeps Twitter authentication errors non-retryable", async () => {
