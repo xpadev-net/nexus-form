@@ -293,42 +293,55 @@ export const SnapshotGraph: FC<SnapshotGraphProps> = ({
 
               {isSelected &&
                 (onActivate ?? onRestore ?? onPublishFromHistory) && (
-                  <div className="flex gap-1 px-1.5 pb-1 flex-wrap">
+                  <div className="space-y-1 px-1.5 pb-1">
                     {!snap.isActive && onActivate && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        disabled={isMutating}
-                        onClick={() => onActivate(snap.version)}
-                      >
-                        <Globe className="h-3 w-3 mr-1" />
-                        公開版にする
-                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        公開版にする: v{snap.version} を公開版に切り替えます。
+                      </p>
                     )}
                     {isNotPublished && onPublishFromHistory && (
-                      <Button
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        disabled={isMutating}
-                        onClick={() => onPublishFromHistory(snap.version)}
-                      >
-                        <Upload className="h-3 w-3 mr-1" />
-                        公開する
-                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        公開する: v{snap.version}{" "}
+                        を公開版にしてフォームを公開します。
+                      </p>
                     )}
-                    {onRestore && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 text-xs px-2"
-                        disabled={isMutating}
-                        onClick={() => onRestore(snap.version)}
-                      >
-                        <RotateCcw className="h-3 w-3 mr-1" />
-                        編集を復元
-                      </Button>
-                    )}
+                    <div className="flex gap-1 flex-wrap">
+                      {!snap.isActive && onActivate && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          disabled={isMutating}
+                          onClick={() => onActivate(snap.version)}
+                        >
+                          <Globe className="h-3 w-3 mr-1" />
+                          公開版にする
+                        </Button>
+                      )}
+                      {isNotPublished && onPublishFromHistory && (
+                        <Button
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          disabled={isMutating}
+                          onClick={() => onPublishFromHistory(snap.version)}
+                        >
+                          <Upload className="h-3 w-3 mr-1" />
+                          公開する
+                        </Button>
+                      )}
+                      {onRestore && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-6 text-xs px-2"
+                          disabled={isMutating}
+                          onClick={() => onRestore(snap.version)}
+                        >
+                          <RotateCcw className="h-3 w-3 mr-1" />
+                          編集を復元
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
             </div>
