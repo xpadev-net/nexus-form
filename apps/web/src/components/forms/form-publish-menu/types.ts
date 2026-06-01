@@ -64,6 +64,7 @@ export interface UnpublishedChangesSectionState {
   totalChanges: number;
   hasChangesFromActive: boolean;
   activeSnapshotVersion: number | null;
+  nextSnapshotVersion: number;
 }
 
 export interface PasswordProtectionSectionState {

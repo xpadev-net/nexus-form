@@ -136,6 +136,20 @@ pnpm playwright test --grep "シナリオ1"
 BASE_URL=http://localhost:3001 pnpm test:e2e
 ```
 
+## QA fixture 方針
+
+R23-L3 の共有リンク、招待、Sheets 同期、短時間スケジュール保存は、現時点では安全 fixture の手動 E2E 前提を文書化する段階です。自動 E2E へ組み込むまでは、既存 helper に合わせて次の fixture 形を守ってください。
+
+- 専用テストアカウントだけを使う。例: `qa-owner@example.test`, `qa-invitee@example.test`。
+- テストメール受信先は sink/mailbox を使う。例: `qa-mailbox@example.test`。
+- Google Sheets は QA 専用のテスト Sheet だけを使い、実 Sheet ID はリポジトリに残さない。README、spec、helper では `<QA_GOOGLE_SHEET_ID>` のような placeholder を使う。
+- 短時間スケジュール用フォームは QA 環境で作成した専用フォームだけを使う。例: `R23-L3 QA Schedule Form`。
+- 権限変更/削除、共有リンク失効、公開/非公開/スナップショット切替は、QA owner と QA invitee の 2 アカウント間だけで確認する。
+- 外部サービスは実接続ではなく、QA 用 stub、sandbox、または手動確認用 placeholder を使う。
+- hCaptcha 関連はこの fixture 方針の対象外です。hCaptcha、hCaptcha 用 env、dev bypass 設定を E2E fixture のために変更しないでください。
+
+手動 E2E で確認する場合は、`docs/operations.md` の「R23-L3 安全 QA 環境」に従い、共有リンク token、招待 token、実メールアドレス、実 Google Sheet ID、実認証情報がスクリーンショットやログに残らないようにしてください。
+
 ## トラブルシューティング
 
 ### テストが失敗する場合
