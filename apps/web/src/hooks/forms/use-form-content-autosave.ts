@@ -890,7 +890,6 @@ export function useFormContentAutosave({
         inFlightRequestRef.current != null &&
         editorValueRef.current !== fallbackValue;
       failedPendingKeepaliveRef.current = null;
-      resolvedPendingKeepaliveRef.current = null;
       pendingKeepaliveRetryRef.current = null;
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
