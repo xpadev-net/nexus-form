@@ -326,7 +326,7 @@ export function SpreadsheetSelector({
               {getSpreadsheetDisplayName(pendingSpreadsheet) || "無題"}
               」に変更します。
               {pendingSpreadsheet
-                ? ` ID: ${compactSpreadsheetId(pendingSpreadsheet.id)}`
+                ? ` ID: ${compactSpreadsheetId(pendingSpreadsheet.id)}。`
                 : ""}
               保存するまで同期先には反映されません。
             </AlertDialogDescription>
@@ -427,12 +427,13 @@ function SpreadsheetOptionGroup({
   children,
 }: SpreadsheetOptionGroupProps) {
   return (
-    <fieldset className="space-y-1">
-      <legend className="px-2 text-xs font-medium text-muted-foreground">
+    // biome-ignore lint/a11y/useSemanticElements: listbox children must expose role="group"; fieldset is not a permitted direct child.
+    <div role="group" aria-label={label} className="space-y-1">
+      <p className="px-2 text-xs font-medium text-muted-foreground" aria-hidden>
         {label}
-      </legend>
+      </p>
       {children}
-    </fieldset>
+    </div>
   );
 }
 

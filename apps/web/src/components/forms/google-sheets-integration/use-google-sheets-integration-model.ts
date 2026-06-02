@@ -473,16 +473,14 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     );
   }, [spreadsheetsData?.spreadsheets, searchQuery]);
 
-  const knownSpreadsheetNames = useMemo(() => {
-    const names = knownSpreadsheetNamesRef.current;
-
+  useEffect(() => {
     for (const spreadsheet of spreadsheetsData?.spreadsheets ?? []) {
       const name = spreadsheet.name?.trim();
-      if (name) names.set(spreadsheet.id, name);
+      if (name) knownSpreadsheetNamesRef.current.set(spreadsheet.id, name);
     }
-
-    return names;
   }, [spreadsheetsData?.spreadsheets]);
+
+  const knownSpreadsheetNames = knownSpreadsheetNamesRef.current;
 
   const selectedSpreadsheetName = useMemo(() => {
     const visibleName = spreadsheetsData?.spreadsheets
