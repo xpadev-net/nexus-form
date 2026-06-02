@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { fireEvent } from "@testing-library/dom";
 import type { TElement } from "platejs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -385,8 +386,7 @@ describe("FormBody", () => {
     expect(dateInput).not.toBeNull();
     await act(async () => {
       if (!dateInput) return;
-      dateInput.value = "2026-06-15";
-      dateInput.dispatchEvent(new Event("input", { bubbles: true }));
+      fireEvent.change(dateInput, { target: { value: "2026-06-15" } });
     });
 
     const nextButton = Array.from(container.querySelectorAll("button")).find(
@@ -425,8 +425,7 @@ describe("FormBody", () => {
     expect(dateInput).not.toBeNull();
     await act(async () => {
       if (!dateInput) return;
-      dateInput.value = "2027-01-01";
-      dateInput.dispatchEvent(new Event("input", { bubbles: true }));
+      fireEvent.change(dateInput, { target: { value: "2027-01-01" } });
     });
 
     const nextButton = Array.from(container.querySelectorAll("button")).find(

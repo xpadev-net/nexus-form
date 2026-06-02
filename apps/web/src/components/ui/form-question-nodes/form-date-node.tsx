@@ -1,4 +1,5 @@
 import { withRef } from "@udecode/cn";
+import { isIsoCalendarDate } from "@nexus-form/shared";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
@@ -31,8 +32,6 @@ export const FormDateElement = withRef<typeof PlateElement>(
   },
 );
 
-const dateValuePattern = /^\d{4}-\d{2}-\d{2}$/;
-
 function getDateAnswerValue(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -47,7 +46,7 @@ function isDateValueOutsideValidation(
     | undefined,
 ): boolean {
   if (value === "") return false;
-  if (!dateValuePattern.test(value)) return true;
+  if (!isIsoCalendarDate(value)) return true;
   if (validation?.minDate && value < validation.minDate) return true;
   if (validation?.maxDate && value > validation.maxDate) return true;
   return false;
@@ -77,7 +76,6 @@ export function DateInput({ element }: { element: TElement }) {
       max={validation?.maxDate}
       value={value}
       aria-invalid={isInvalid ? true : undefined}
-      onInput={(e) => syncDateValue(e.currentTarget.value)}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
       onBlur={(e) => syncDateValue(e.currentTarget.value)}
     />

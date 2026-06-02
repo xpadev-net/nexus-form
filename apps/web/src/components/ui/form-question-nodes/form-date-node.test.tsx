@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { fireEvent } from "@testing-library/dom";
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -53,11 +54,12 @@ function AnswerProbe({ onValue }: { onValue: (value: unknown) => void }) {
 function renderDateNode(
   container: HTMLElement,
   onValue: (value: unknown) => void,
+  initialAnswers?: ReadonlyMap<string, { value?: unknown }>,
 ): Root {
   const root = createRoot(container);
   act(() => {
     root.render(
-      <FormResponseProvider>
+      <FormResponseProvider initialAnswers={initialAnswers}>
         <DateInput element={plateState.element as TElement} />
         <AnswerProbe onValue={onValue} />
       </FormResponseProvider>,
@@ -91,22 +93,20 @@ describe("FormDateElement", () => {
 
     await act(async () => {
       if (!input) return;
-      input.value = "2026-06-15";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      fireEvent.change(input, { target: { value: "2026-06-15" } });
     });
     expect(latestValue).toBe("2026-06-15");
 
     await act(async () => {
       if (!input) return;
-      input.value = "2026-06-20";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      fireEvent.change(input, { target: { value: "2026-06-20" } });
     });
     expect(latestValue).toBe("2026-06-20");
 
     await act(async () => {
       if (!input) return;
       input.value = "2026-06-25";
-      input.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      fireEvent.focusOut(input);
     });
     expect(latestValue).toBe("2026-06-25");
 
@@ -125,11 +125,27 @@ describe("FormDateElement", () => {
 
     await act(async () => {
       if (!input) return;
-      input.value = "2026-07-01";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      fireEvent.change(input, { target: { value: "2026-07-01" } });
     });
 
     expect(latestValue).toBe("2026-07-01");
+    expect(
+      container
+        .querySelector<HTMLInputElement>("input[type=date]")
+        ?.getAttribute("aria-invalid"),
+    ).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("marks impossible calendar dates invalid from response state", () => {
+    const container = document.createElement("div");
+    const root = renderDateNode(
+      container,
+      () => {},
+      new Map([["q-date", { value: "2026-02-31" }]]),
+    );
+
     expect(
       container
         .querySelector<HTMLInputElement>("input[type=date]")
