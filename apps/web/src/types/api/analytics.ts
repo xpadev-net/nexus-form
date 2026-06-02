@@ -83,6 +83,12 @@ export interface GridColumn {
   label: string;
 }
 
+/** Grid row definition */
+export interface GridRow {
+  id: string;
+  label: string;
+}
+
 /** Grid row choice count */
 export interface GridRowChoiceCount {
   row_label: string;
@@ -92,12 +98,32 @@ export interface GridRowChoiceCount {
   }>;
 }
 
+/** Grid column choice count */
+export interface GridColumnChoiceCount {
+  column_id: string;
+  column_label: string;
+  row_counts: Array<{
+    row_label: string;
+    count: number;
+  }>;
+}
+
+/** Grid payload entries that could not be counted. */
+export interface InvalidGridResponse {
+  response_id: string;
+  reason: string;
+}
+
 /** Grid analytics */
 export interface GridAnalytics {
   grid_type: "choice_grid" | "checkbox_grid";
+  rows: GridRow[];
   columns: GridColumn[];
   row_analytics: GridRowChoiceCount[];
+  column_analytics: GridColumnChoiceCount[];
+  total_responses: number;
   response_rate: number;
+  invalid_responses: InvalidGridResponse[];
 }
 
 /** Block analytics result */

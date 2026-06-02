@@ -1,4 +1,4 @@
-import { Copy, Trash2 } from "lucide-react";
+import { Copy, Loader2, Trash2 } from "lucide-react";
 import type { FC } from "react";
 import { FormAccessControlSettings } from "@/components/forms/form-access-control-settings";
 import { FormAppearanceSettings } from "@/components/forms/form-appearance-settings";
@@ -16,6 +16,7 @@ export interface FormSettingsTabProps {
   plateContent: string;
   isArchived: boolean;
   archiveLoading: boolean;
+  duplicateLoading: boolean;
   onArchive: () => void;
   onUnarchive: () => void;
   onDuplicate: () => void;
@@ -29,6 +30,7 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
   plateContent,
   isArchived,
   archiveLoading,
+  duplicateLoading,
   onArchive,
   onUnarchive,
   onDuplicate,
@@ -60,8 +62,17 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
             onArchive={onArchive}
             onUnarchive={onUnarchive}
           />
-          <Button variant="outline" size="sm" onClick={onDuplicate}>
-            <Copy className="mr-1 h-3.5 w-3.5" />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onDuplicate}
+            disabled={duplicateLoading}
+          >
+            {duplicateLoading ? (
+              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Copy className="mr-1 h-3.5 w-3.5" />
+            )}
             複製
           </Button>
         </div>

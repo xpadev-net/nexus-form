@@ -101,21 +101,48 @@ interface GridColumn {
   label: string;
 }
 
+interface GridRow {
+  id: string;
+  label: string;
+}
+
 interface GridRowChoiceCount {
   row_label: string;
   column_counts: Array<{ column_id: string; count: number }>;
 }
 
+interface GridColumnChoiceCount {
+  column_id: string;
+  column_label: string;
+  row_counts: Array<{ row_label: string; count: number }>;
+}
+
+interface InvalidGridResponse {
+  response_id: string;
+  reason: string;
+}
+
 interface GridAnalytics {
   grid_type: "choice_grid" | "checkbox_grid";
+  rows: GridRow[];
   columns: GridColumn[];
   row_analytics: GridRowChoiceCount[];
+  column_analytics: GridColumnChoiceCount[];
   total_responses: number;
   response_rate: number;
+  invalid_responses: InvalidGridResponse[];
 }
+
+const MAX_GRID_INVALID_RESPONSE_NOTICES = 10;
 
 const GridAnalyticsSchema = z.object({
   grid_type: z.enum(["choice_grid", "checkbox_grid"]),
+  rows: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+    }),
+  ),
   columns: z.array(
     z.object({
       id: z.string(),
@@ -133,8 +160,26 @@ const GridAnalyticsSchema = z.object({
       ),
     }),
   ),
+  column_analytics: z.array(
+    z.object({
+      column_id: z.string(),
+      column_label: z.string(),
+      row_counts: z.array(
+        z.object({
+          row_label: z.string(),
+          count: z.number(),
+        }),
+      ),
+    }),
+  ),
   total_responses: z.number(),
   response_rate: z.number(),
+  invalid_responses: z.array(
+    z.object({
+      response_id: z.string(),
+      reason: z.string(),
+    }),
+  ),
 });
 
 interface DateDistributionPoint {
@@ -466,6 +511,49 @@ function aggregateScale(
 
 // ===== グリッドブロック (choice_grid, checkbox_grid) =====
 
+function normalizeGridLookupKey(value: string): string {
+  return value.trim();
+}
+
+function buildGridItemLookup<T extends { id: string; label: string }>(
+  items: T[],
+): Map<string, T> {
+  const lookup = new Map<string, T>();
+  const labels = new Map<string, T[]>();
+
+  for (const item of items) {
+    lookup.set(normalizeGridLookupKey(item.id), item);
+    const labelKey = normalizeGridLookupKey(item.label);
+    labels.set(labelKey, [...(labels.get(labelKey) ?? []), item]);
+  }
+
+  for (const [label, matchingItems] of labels) {
+    if (matchingItems.length === 1) {
+      const [item] = matchingItems;
+      if (item && !lookup.has(label)) lookup.set(label, item);
+    }
+  }
+
+  return lookup;
+}
+
+function resolveGridItem<T extends { id: string; label: string }>(
+  lookup: Map<string, T>,
+  value: unknown,
+): T | null {
+  if (typeof value !== "string") return null;
+  return lookup.get(normalizeGridLookupKey(value)) ?? null;
+}
+
+function addInvalidGridResponse(
+  invalidResponses: InvalidGridResponse[],
+  responseId: string,
+  reason: string,
+): void {
+  if (invalidResponses.length >= MAX_GRID_INVALID_RESPONSE_NOTICES) return;
+  invalidResponses.push({ response_id: responseId, reason });
+}
+
 function aggregateGrid(
   block: BlockInfo,
   responses: ParsedResponse[],
@@ -495,6 +583,9 @@ function aggregateGrid(
 
   let respondentCount = 0;
   const rowColumnCounts = new Map<string, Map<string, number>>();
+  const rowLookup = buildGridItemLookup(rows);
+  const columnLookup = buildGridItemLookup(columns);
+  const invalidResponses: InvalidGridResponse[] = [];
 
   for (const row of rows) {
     const colMap = new Map<string, number>();
@@ -511,20 +602,57 @@ function aggregateGrid(
       respondentCount++;
 
       for (const [rowId, value] of Object.entries(item.responses)) {
-        const colMap = rowColumnCounts.get(rowId);
+        const row = resolveGridItem(rowLookup, rowId);
+        if (!row) {
+          addInvalidGridResponse(
+            invalidResponses,
+            resp.id,
+            `Unknown grid row "${rowId}"`,
+          );
+          continue;
+        }
+
+        const colMap = rowColumnCounts.get(row.id);
         if (!colMap) continue;
 
         if (gridType === "choice_grid" && typeof value === "string") {
-          if (colMap.has(value)) {
-            colMap.set(value, (colMap.get(value) ?? 0) + 1);
+          if (value.trim() === "") continue;
+
+          const column = resolveGridItem(columnLookup, value);
+          if (column && colMap.has(column.id)) {
+            colMap.set(column.id, (colMap.get(column.id) ?? 0) + 1);
+          } else {
+            addInvalidGridResponse(
+              invalidResponses,
+              resp.id,
+              `Unknown grid column "${value}" for row "${row.label}"`,
+            );
           }
         } else if (gridType === "checkbox_grid" && Array.isArray(value)) {
           for (const v of value) {
-            const colId = String(v);
-            if (colMap.has(colId)) {
-              colMap.set(colId, (colMap.get(colId) ?? 0) + 1);
+            const column = resolveGridItem(columnLookup, v);
+            if (column && colMap.has(column.id)) {
+              colMap.set(column.id, (colMap.get(column.id) ?? 0) + 1);
+            } else {
+              addInvalidGridResponse(
+                invalidResponses,
+                resp.id,
+                `Unknown grid column "${String(v)}" for row "${row.label}"`,
+              );
             }
           }
+        } else if (gridType === "choice_grid") {
+          addInvalidGridResponse(
+            invalidResponses,
+            resp.id,
+            `Choice grid row "${row.label}" must contain a single selection`,
+          );
+        } else {
+          addInvalidGridResponse(
+            invalidResponses,
+            resp.id,
+            `Checkbox grid row "${row.label}" must contain selection arrays`,
+          );
         }
       }
     }
@@ -540,16 +668,27 @@ function aggregateGrid(
       })),
     };
   });
+  const columnAnalytics: GridColumnChoiceCount[] = columns.map((column) => ({
+    column_id: column.id,
+    column_label: column.label,
+    row_counts: rows.map((row) => ({
+      row_label: row.label,
+      count: rowColumnCounts.get(row.id)?.get(column.id) ?? 0,
+    })),
+  }));
 
   return {
     grid_type: gridType,
+    rows: rows.map((r) => ({ id: r.id, label: r.label })),
     columns: columns.map((c) => ({ id: c.id, label: c.label })),
     row_analytics: rowAnalytics,
+    column_analytics: columnAnalytics,
     total_responses: respondentCount,
     response_rate:
       totalResponseCount > 0
         ? Math.round((respondentCount / totalResponseCount) * 10000) / 10000
         : 0,
+    invalid_responses: invalidResponses,
   };
 }
 
@@ -832,6 +971,38 @@ function mergeGridAnalytics(
         existingRow.column_counts.push({ ...incomingColumn });
       }
     }
+  }
+
+  for (const [
+    columnIndex,
+    incomingColumn,
+  ] of incoming.column_analytics.entries()) {
+    const existingColumn = target.column_analytics[columnIndex];
+    if (!existingColumn) {
+      target.column_analytics.push({
+        column_id: incomingColumn.column_id,
+        column_label: incomingColumn.column_label,
+        row_counts: incomingColumn.row_counts.map((count) => ({ ...count })),
+      });
+      continue;
+    }
+
+    for (const [rowIndex, incomingRow] of incomingColumn.row_counts.entries()) {
+      const existingRow = existingColumn.row_counts[rowIndex];
+      if (existingRow) {
+        existingRow.count += incomingRow.count;
+      } else {
+        existingColumn.row_counts.push({ ...incomingRow });
+      }
+    }
+  }
+
+  const remainingInvalidCapacity =
+    MAX_GRID_INVALID_RESPONSE_NOTICES - target.invalid_responses.length;
+  if (remainingInvalidCapacity > 0) {
+    target.invalid_responses.push(
+      ...incoming.invalid_responses.slice(0, remainingInvalidCapacity),
+    );
   }
 }
 
