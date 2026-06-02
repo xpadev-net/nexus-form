@@ -3,6 +3,8 @@ export interface Spreadsheet {
   name?: string;
 }
 
+export const SPREADSHEET_SELECTOR_RESULT_LIMIT = 20;
+
 export interface Sheet {
   sheetId?: number;
   title: string;
