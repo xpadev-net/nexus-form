@@ -37,6 +37,11 @@ export const FormList = () => {
   const [status, setStatus] = useState<FormFilterStatus>("all");
   const forms = formsQuery.data?.forms ?? [];
 
+  const hasArchivedForms = useMemo(
+    () => forms.some((item) => normalizeFormStatus(item.status) === "archived"),
+    [forms],
+  );
+
   const filteredForms = useMemo(() => {
     return forms.filter((item) => {
       const currentStatus = normalizeFormStatus(item.status);
@@ -84,12 +89,16 @@ export const FormList = () => {
             <EmptyTitle>
               {forms.length === 0
                 ? "フォームがまだありません"
-                : "条件に一致するフォームがありません"}
+                : status === "all" && hasArchivedForms
+                  ? "表示できるフォームがありません"
+                  : "条件に一致するフォームがありません"}
             </EmptyTitle>
             <EmptyDescription>
               {forms.length === 0
                 ? "「新規フォームを作成」ボタンから最初のフォームを作りましょう。"
-                : "検索条件やフィルターを変更してみてください。"}
+                : status === "all" && hasArchivedForms
+                  ? "アーカイブされたフォームはアーカイブフィルターから確認できます。"
+                  : "検索条件やフィルターを変更してみてください。"}
             </EmptyDescription>
           </EmptyHeader>
         </Empty>

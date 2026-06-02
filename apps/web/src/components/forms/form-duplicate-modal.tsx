@@ -43,7 +43,9 @@ export function FormDuplicateModal({
             フォーム複製
           </AlertDialogTitle>
           <AlertDialogDescription>
-            このフォームを複製して「{duplicateTitle}」を作成します。
+            {sourceTitle
+              ? `このフォームを複製して「${duplicateTitle}」を作成します。`
+              : "このフォームを複製して新しいフォームを作成します。"}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <dl className="grid gap-2 rounded border bg-muted/30 p-3 text-sm">

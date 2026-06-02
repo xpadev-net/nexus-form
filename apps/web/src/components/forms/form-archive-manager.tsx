@@ -30,7 +30,6 @@ export function FormArchiveManager({
       <div
         className="flex w-full flex-wrap items-center justify-between gap-3 rounded border bg-muted/30 p-3"
         role="status"
-        aria-live="polite"
       >
         <div className="flex items-center gap-2 text-sm">
           <Archive className="h-4 w-4 text-muted-foreground" />

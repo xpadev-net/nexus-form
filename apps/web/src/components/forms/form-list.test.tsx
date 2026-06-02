@@ -70,6 +70,10 @@ function selectStatus(value: string): void {
 describe("FormList archive filtering", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
+    mocks.forms = [
+      { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
+      { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+    ];
   });
 
   it("hides archived forms from the default all filter and shows them in the archived filter", () => {
@@ -82,6 +86,23 @@ describe("FormList archive filtering", () => {
 
     expect(document.body.textContent).not.toContain("下書きフォーム");
     expect(document.body.textContent).toContain("古いフォーム");
+
+    act(() => root.unmount());
+  });
+
+  it("points users to the archived filter when all forms are archived", () => {
+    mocks.forms = [
+      { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+    ];
+    const root = renderList();
+
+    expect(document.body.textContent).toContain(
+      "表示できるフォームがありません",
+    );
+    expect(document.body.textContent).toContain(
+      "アーカイブされたフォームはアーカイブフィルターから確認できます。",
+    );
+    expect(document.body.textContent).not.toContain("古いフォーム");
 
     act(() => root.unmount());
   });
