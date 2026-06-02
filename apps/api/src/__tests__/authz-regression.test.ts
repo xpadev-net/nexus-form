@@ -280,6 +280,39 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
     ).rejects.toThrow();
   });
 
+  it("uses the share-link VIEWER role instead of the token user's owner identity", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [
+        {
+          id: "link-viewer",
+          role: "VIEWER",
+          isActive: true,
+          formId: FORM_ID,
+          expiresAt: null,
+        },
+      ],
+    ]);
+
+    const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    // Defense-in-depth invariant: the current token authentication path does
+    // not emit both user_id and share_link_id, but permission resolution must
+    // still let the share-link role win if such a context reaches this helper.
+    const shareViewerCtx: DualAuthContext = {
+      user_id: OWNER_ID,
+      auth_type: "api_token",
+      token_id: "tok-viewer",
+      scopes: ["read", "write"],
+      form_ids: [FORM_ID],
+      share_link_id: "link-viewer",
+    };
+
+    await expect(
+      checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
+    ).rejects.toThrow();
+  });
+
   it("resolves for non-expired share-link token when the role matches", async () => {
     const { db } = await import("@nexus-form/database");
     mockDbSelectChain(db, [

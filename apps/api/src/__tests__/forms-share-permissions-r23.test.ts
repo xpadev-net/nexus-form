@@ -57,11 +57,13 @@ const mocks = vi.hoisted(() => ({
     auth_type: "api_token" | "session";
     user_id: string;
     form_ids?: string[];
+    share_link_id?: string;
   } | null,
   createInvitation: vi.fn(),
   getUserFormPermission: vi.fn(),
   permissionRoles: new Map<string, MockPermissionRole>(),
   removePermission: vi.fn(),
+  shareLinkRoles: new Map<string, Exclude<MockPermissionRole, "OWNER">>(),
   updatePermissionRole: vi.fn(),
   validateShareLink: vi.fn(),
 }));
@@ -155,7 +157,9 @@ vi.mock("../lib/dual-auth", () => ({
       if (!mocks.authContext) {
         return c.json({ error: "Unauthorized" }, 401);
       }
-      const role = mocks.permissionRoles.get(mocks.authContext.user_id);
+      const role = mocks.authContext.share_link_id
+        ? mocks.shareLinkRoles.get(mocks.authContext.share_link_id)
+        : mocks.permissionRoles.get(mocks.authContext.user_id);
       if (!role || roleRank[role] < roleRank[requiredRole]) {
         return c.json(
           {
@@ -285,6 +289,7 @@ describe("R23-T3 share and permission routes", () => {
     mocks.permissionRoles.set("editor-1", "EDITOR");
     mocks.permissionRoles.set("owner-1", "OWNER");
     mocks.permissionRoles.set("target-user", "EDITOR");
+    mocks.shareLinkRoles.clear();
     mocks.createInvitation.mockResolvedValue(invitationResponse);
     mocks.getUserFormPermission.mockResolvedValue("EDITOR");
     mocks.removePermission.mockResolvedValue(undefined);
@@ -385,6 +390,56 @@ describe("R23-T3 share and permission routes", () => {
       "Please review",
       undefined,
     );
+  });
+
+  it("uses the share-link role for a separate visitor instead of stored user permissions", async () => {
+    const app = createApp();
+    mocks.permissionRoles.set("target-user", "OWNER");
+    mocks.shareLinkRoles.set("viewer-link", "VIEWER");
+    // Defense-in-depth invariant: token authentication currently does not emit
+    // both a real user_id and share_link_id, but /permissions/me must still
+    // prefer the share-link role if such a context reaches the route.
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "target-user",
+      form_ids: ["form-1"],
+      share_link_id: "viewer-link",
+    };
+
+    const response = await app.request("/api/forms/form-1/permissions/me");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ role: "VIEWER" });
+  });
+
+  it("blocks a separate visitor using a VIEWER share link from editor-only permission routes", async () => {
+    const app = createApp();
+    mocks.shareLinkRoles.set("viewer-link", "VIEWER");
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "share-link:viewer-link",
+      form_ids: ["form-1"],
+      share_link_id: "viewer-link",
+    };
+
+    const response = await app.request("/api/forms/form-1/invitations", {
+      body: JSON.stringify({
+        email: "target@example.com",
+        role: "VIEWER",
+        message: "Please review",
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+        message: "Insufficient permissions",
+      },
+    });
+    expect(mocks.createInvitation).not.toHaveBeenCalled();
   });
 
   it("downgrades another user's EDITOR permission to VIEWER", async () => {
