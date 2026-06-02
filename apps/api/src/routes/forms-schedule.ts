@@ -219,6 +219,12 @@ export const formsScheduleRouter = createHonoApp()
       if (!schedule) {
         return c.json(formScheduleError("Schedule not found"), 404);
       }
+      if (schedule.processedAt) {
+        return c.json(
+          formScheduleError("Schedule cannot be edited after execution"),
+          409,
+        );
+      }
 
       const effectiveAction = payload.action ?? schedule.action;
       const effectiveSnapshotVersion =
