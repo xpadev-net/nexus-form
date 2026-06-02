@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isIsoCalendarDate,
   MAX_RESPONSE_GRID_ROWS,
   MAX_RESPONSE_GRID_SELECTIONS_PER_ROW,
   MAX_RESPONSE_ID_LENGTH,
@@ -7,6 +8,19 @@ import {
   MAX_RESPONSE_TEXT_LENGTH,
   responsePayloadItemSchema,
 } from "../response-data";
+
+describe("isIsoCalendarDate", () => {
+  it("accepts real ISO calendar dates", () => {
+    expect(isIsoCalendarDate("2026-02-28")).toBe(true);
+    expect(isIsoCalendarDate("2024-02-29")).toBe(true);
+  });
+
+  it("rejects impossible or non-ISO dates", () => {
+    expect(isIsoCalendarDate("2026-02-31")).toBe(false);
+    expect(isIsoCalendarDate("2026-6-15")).toBe(false);
+    expect(isIsoCalendarDate(" 2026-06-15 ")).toBe(false);
+  });
+});
 
 describe("responsePayloadItemSchema", () => {
   const baseResponse = {

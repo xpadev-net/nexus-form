@@ -97,6 +97,7 @@ export type {
 } from "./response-data";
 export {
   ANSWERABLE_QUESTION_TYPES,
+  isIsoCalendarDate,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_DATA_JSON_BYTES,
   MAX_RESPONSE_GRID_ROWS,
