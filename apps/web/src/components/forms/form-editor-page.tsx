@@ -89,6 +89,7 @@ export function FormEditorPage() {
         formId={id}
         isArchived={model.formStatus === "ARCHIVED"}
         archiveLoading={model.isArchivePending}
+        duplicateLoading={model.isDuplicatePending}
         onArchive={model.archiveForm}
         onUnarchive={model.unarchiveForm}
         onDuplicate={() => model.setShowDuplicateModal(true)}
@@ -134,6 +135,7 @@ export function FormEditorPage() {
       />
       <FormDuplicateModal
         open={model.showDuplicateModal}
+        sourceTitle={model.formData?.title}
         isDuplicating={model.isDuplicatePending}
         onConfirm={model.duplicateForm}
         onClose={() => model.setShowDuplicateModal(false)}
