@@ -314,7 +314,7 @@ export const formsScheduleRouter = createHonoApp()
       if (target.processedAt) {
         return c.json(
           formScheduleError("Schedule cannot be cancelled after execution"),
-          400,
+          409,
         );
       }
       const cancelledAt = new Date(target.triggerAt.getTime() - 1000);

@@ -167,12 +167,13 @@ function buildScheduleSummary(data: EntryFormData, snapshots: Snapshot[]) {
 function getDisplayStatus(
   entry: ScheduleEntry,
   snapshots: Snapshot[],
+  snapshotsLoading: boolean,
 ): DisplayScheduleStatus {
   if (
     entry.status === "COMPLETED" &&
     entry.action === "SWITCH_SNAPSHOT" &&
     entry.snapshotVersion != null &&
-    snapshots.length > 0 &&
+    !snapshotsLoading &&
     !snapshots.some((snapshot) => snapshot.version === entry.snapshotVersion)
   ) {
     return "FAILED";
@@ -510,7 +511,11 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
   }, []);
 
   const renderSchedule = (entry: ScheduleEntry) => {
-    const displayStatus = getDisplayStatus(entry, snapshots);
+    const displayStatus = getDisplayStatus(
+      entry,
+      snapshots,
+      snapshotsQuery.isLoading,
+    );
     return (
       <li
         key={entry.id}

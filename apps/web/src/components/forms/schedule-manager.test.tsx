@@ -359,4 +359,38 @@ describe("ScheduleManager", () => {
 
     act(() => root.unmount());
   });
+
+  it("keeps failed recovery visible when snapshots loaded as empty", () => {
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "failed-empty-snapshots",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 2,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("失敗");
+    expect(
+      container.querySelector('button[aria-label="再実行"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="ログ確認"]'),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
 });
