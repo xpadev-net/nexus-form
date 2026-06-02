@@ -8,7 +8,7 @@ Discord / GitHub / Twitter/X の外部検証プロバイダーについて、実
 
 | 項目 | テスト |
 |------|--------|
-| Worker handler の provider 選択後の成功・失敗・保留・再検証 | `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts` の `credentialなしmock providerでworker handlerの成功・失敗・保留・再検証状態を再現できる` |
+| Worker handler の provider 選択後の成功・失敗・保留・再検証 | `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts -t credentialなしmock providerでworker handler` で成功状態・失敗状態・保留状態・再検証状態を個別に確認 |
 | API enqueue / retry claim | `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-public-validation-outbox.test.ts src/__tests__/validation-retry-bulk-update.test.ts` |
 | Worker DB/SSE write helper | `pnpm --filter @nexus-form/worker exec vitest run src/lib/__tests__/validation-helpers.test.ts` |
 | Discord fixture | `pnpm --filter @nexus-form/validation-provider-discord test` |
