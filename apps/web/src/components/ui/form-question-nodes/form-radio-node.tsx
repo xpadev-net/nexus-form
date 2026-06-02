@@ -5,7 +5,7 @@ import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { EMPTY_OPTION_LABEL } from "@/lib/constants/form-question";
+import { getChoiceDisplayLabel } from "./choice-labels";
 import {
   AllowOtherEditor,
   ChoiceOptionsEditor,
@@ -44,7 +44,7 @@ export const FormRadioElement = withRef<typeof PlateElement>(
   },
 );
 
-function RadioInput({ element }: { element: TElement }) {
+export function RadioInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -75,17 +75,31 @@ function RadioInput({ element }: { element: TElement }) {
           })
         }
       >
-        {options.map((option) => (
-          <div key={option.id} className="flex items-center gap-2">
-            <RadioGroupItem value={option.id} id={`${blockId}-${option.id}`} />
-            <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
-              {option.label || EMPTY_OPTION_LABEL}
-            </Label>
-          </div>
-        ))}
+        {options.map((option) => {
+          const label = getChoiceDisplayLabel(option);
+          return (
+            <div key={option.id} className="flex items-center gap-2">
+              <RadioGroupItem
+                value={option.id}
+                id={`${blockId}-${option.id}`}
+                aria-label={label}
+              />
+              <Label
+                htmlFor={`${blockId}-${option.id}`}
+                className="font-normal"
+              >
+                {label}
+              </Label>
+            </div>
+          );
+        })}
         {allowOther && (
           <div className="flex items-center gap-2">
-            <RadioGroupItem value="other" id={`${blockId}-other`} />
+            <RadioGroupItem
+              value="other"
+              id={`${blockId}-other`}
+              aria-label={otherLabel}
+            />
             <Label htmlFor={`${blockId}-other`} className="font-normal">
               {otherLabel}
             </Label>

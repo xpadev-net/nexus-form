@@ -4,6 +4,10 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { Button } from "@/components/ui/button";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import {
+  getGridCellAccessibleName,
+  getGridItemDisplayLabel,
+} from "./choice-labels";
+import {
   EditorControlsWrapper,
   GridItemsEditor,
 } from "./editor-controls";
@@ -39,7 +43,7 @@ export const FormChoiceGridElement = withRef<typeof PlateElement>(
   },
 );
 
-function ChoiceGridInput({ element }: { element: TElement }) {
+export function ChoiceGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -76,7 +80,7 @@ function ChoiceGridInput({ element }: { element: TElement }) {
                 key={col.id}
                 className="border px-3 py-2 text-center text-sm font-medium"
               >
-                {col.label || col.id}
+                {getGridItemDisplayLabel(col)}
               </th>
             ))}
           </tr>
@@ -85,12 +89,14 @@ function ChoiceGridInput({ element }: { element: TElement }) {
           {rows.map((row) => (
             <tr key={row.id}>
               <td className="border px-3 py-2 text-sm font-medium">
-                {row.label || row.id}
+                {getGridItemDisplayLabel(row)}
               </td>
               {columns.map((col) => (
                 <td key={col.id} className="border px-3 py-2 text-center">
                   <Button
                     type="button"
+                    role="radio"
+                    aria-checked={responses[row.id] === col.id}
                     variant="ghost"
                     onClick={() => handleSelect(row.id, col.id)}
                     className={cn(
@@ -99,7 +105,7 @@ function ChoiceGridInput({ element }: { element: TElement }) {
                         ? "border-primary bg-primary hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
                         : "border-input hover:border-primary/50 hover:bg-transparent dark:hover:bg-transparent",
                     )}
-                    aria-label={`${row.label}: ${col.label}`}
+                    aria-label={getGridCellAccessibleName(row, col)}
                   >
                     {responses[row.id] === col.id && (
                       <span className="h-2 w-2 rounded-full bg-primary-foreground" />
