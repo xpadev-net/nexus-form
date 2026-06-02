@@ -1,0 +1,143 @@
+// @vitest-environment jsdom
+
+import type { ComponentProps, ReactNode } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FormList } from "./form-list";
+
+const mocks = vi.hoisted(() => ({
+  forms: [
+    { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
+    { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+  ],
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a>,
+}));
+
+vi.mock("@/hooks/forms/use-forms", () => ({
+  useForms: () => ({
+    formsQuery: {
+      data: { forms: mocks.forms },
+      isError: false,
+      isLoading: false,
+    },
+  }),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    asChild: _asChild,
+    children,
+    ...props
+  }: ComponentProps<"button"> & {
+    asChild?: boolean;
+    size?: string;
+    variant?: string;
+  }) => <button {...props}>{children}</button>,
+}));
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+function renderList(): Root {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(<FormList />);
+  });
+  return root;
+}
+
+function selectStatus(value: string): void {
+  const select = document.querySelector(
+    'select[aria-label="フォームステータス絞り込み"]',
+  );
+  expect(select).toBeInstanceOf(HTMLSelectElement);
+  act(() => {
+    if (!(select instanceof HTMLSelectElement)) {
+      throw new Error("Status filter not found");
+    }
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function setSearchTerm(value: string): void {
+  const input = document.querySelector('input[aria-label="フォーム名検索"]');
+  expect(input).toBeInstanceOf(HTMLInputElement);
+  act(() => {
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Search input not found");
+    }
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    valueSetter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("FormList archive filtering", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    mocks.forms = [
+      { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
+      { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+    ];
+  });
+
+  it("hides archived forms from the default all filter and shows them in the archived filter", () => {
+    const root = renderList();
+
+    expect(document.body.textContent).toContain("下書きフォーム");
+    expect(document.body.textContent).not.toContain("古いフォーム");
+
+    selectStatus("archived");
+
+    expect(document.body.textContent).not.toContain("下書きフォーム");
+    expect(document.body.textContent).toContain("古いフォーム");
+
+    act(() => root.unmount());
+  });
+
+  it("points users to the archived filter when all forms are archived", () => {
+    mocks.forms = [
+      { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+    ];
+    const root = renderList();
+
+    expect(document.body.textContent).toContain(
+      "表示できるフォームがありません",
+    );
+    expect(document.body.textContent).toContain(
+      "アーカイブされたフォームはアーカイブフィルターから確認できます。",
+    );
+    expect(document.body.textContent).not.toContain("古いフォーム");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the regular empty-state message when a search term hides the results", () => {
+    const root = renderList();
+
+    setSearchTerm("一致しない検索語");
+
+    expect(document.body.textContent).toContain(
+      "条件に一致するフォームがありません",
+    );
+    expect(document.body.textContent).toContain(
+      "検索条件やフィルターを変更してみてください。",
+    );
+    expect(document.body.textContent).not.toContain(
+      "アーカイブされたフォームはアーカイブフィルターから確認できます。",
+    );
+
+    act(() => root.unmount());
+  });
+});
