@@ -20,7 +20,7 @@ export const PREFILL_UNSUPPORTED_QUESTION_TYPES = [
   "checkbox_grid",
 ] as const;
 
-export const PREFILL_QUESTION_TYPE_LABELS: Record<string, string> = {
+const PREFILL_QUESTION_TYPE_LABELS: Record<string, string> = {
   short_text: "短文",
   long_text: "長文",
   radio: "ラジオ",

@@ -118,9 +118,9 @@ export function FormPrefillGenerator({
   const hasPrefillValues = Object.keys(supportedPrefillValues).length > 0;
 
   const generatedUrl = useMemo(() => {
-    if (!hasPrefillValues) return "";
+    if (Object.keys(supportedPrefillValues).length === 0) return "";
     return buildPrefillUrl(getOrigin(), publicId, supportedPrefillValues);
-  }, [hasPrefillValues, supportedPrefillValues, publicId]);
+  }, [supportedPrefillValues, publicId]);
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;
 
