@@ -145,7 +145,7 @@ export function SpreadsheetSelector({
       return;
     }
 
-    if (!selectedSpreadsheetId) {
+    if (!currentLinkedSpreadsheetId) {
       onSelectSpreadsheet(spreadsheet.id);
       setIsSelectorOpen(false);
       return;

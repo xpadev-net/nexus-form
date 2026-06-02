@@ -436,4 +436,43 @@ describe("SpreadsheetSelector", () => {
       cleanupSelector(root, container);
     }
   }, 15_000);
+
+  it("does not confirm when changing an unsaved first-time selection", () => {
+    const onSelectSpreadsheet = vi.fn();
+    const { container, root } = renderSelector({
+      selectedSpreadsheetId: "spreadsheet-a",
+      selectedSpreadsheetName: "Spreadsheet A",
+      currentLinkedSpreadsheetId: "",
+      filteredSpreadsheets: [
+        { id: "spreadsheet-a", name: "Spreadsheet A" },
+        { id: "spreadsheet-b", name: "Spreadsheet B" },
+      ],
+      onSelectSpreadsheet,
+    });
+
+    try {
+      const selector = getByRole(container, "combobox", {
+        name: /Spreadsheet A/,
+      });
+
+      act(() => {
+        selector.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      const nextSpreadsheet = getByRole(container, "option", {
+        name: /Spreadsheet B/,
+      });
+
+      act(() => {
+        nextSpreadsheet.dispatchEvent(
+          new MouseEvent("click", { bubbles: true }),
+        );
+      });
+
+      expect(onSelectSpreadsheet).toHaveBeenCalledWith("spreadsheet-b");
+      expect(queryByText(container, "連携先を変更しますか？")).toBeNull();
+    } finally {
+      cleanupSelector(root, container);
+    }
+  }, 15_000);
 });
