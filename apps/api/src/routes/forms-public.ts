@@ -13,6 +13,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   buildAutoSheetsSyncJobId,
   extractQuestionsFromPlateContent,
+  FormConfirmationSchema,
   genericValidationJobDataSchema,
   getValidationResultId,
   MAX_RESPONSE_BODY_BYTES,
@@ -238,6 +239,10 @@ function getPasswordProtection(
   parsed: ParsedStructure,
 ): PasswordProtection | undefined {
   return parsed.access_control?.password_protection;
+}
+
+function buildSubmitConfirmation(parsed: ParsedStructure) {
+  return FormConfirmationSchema.parse(parsed.confirmation ?? {});
 }
 
 function isPasswordVerified(c: Context, formId: string): boolean {
@@ -712,7 +717,9 @@ export const formsPublicRouter = createHonoApp()
         .limit(1);
 
       const submitResponse = PublicSubmitResponseSchema.parse({
+        responseId,
         response: createdResponse ?? null,
+        confirmation: buildSubmitConfirmation(parsedStructure),
       });
       return c.json(submitResponse, 201);
     },

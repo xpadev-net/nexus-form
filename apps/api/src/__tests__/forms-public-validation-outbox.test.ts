@@ -349,6 +349,7 @@ async function getPublicForm() {
 function useSuccessfulSubmitSelects(
   snapshot: ReturnType<typeof activeSnapshot>,
   options?: {
+    finalResponseRows?: unknown[];
     responseRows?: unknown[];
   },
 ) {
@@ -362,6 +363,7 @@ function useSuccessfulSubmitSelects(
       },
     ],
     options?.responseRows ?? [],
+    options?.finalResponseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
@@ -689,6 +691,66 @@ describe("R11-C2-a public validation outbox", () => {
     });
     const jobId = mocks.addSheetsSyncJob.mock.calls[0]?.[2]?.jobId;
     expect(jobId).not.toContain(":");
+  });
+
+  it("returns the published confirmation snapshot with the created response", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        confirmation: {
+          title: "送信ありがとうございます",
+          message: "受付が完了しました。",
+          supplemental_link: {
+            label: "次の手順",
+            url: "https://example.com/next",
+          },
+          contact: { label: "問い合わせ", email: "help@example.com" },
+          redirect_url: "https://example.com/done",
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T00:00:00.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body).toEqual({
+      confirmation: {
+        title: "送信ありがとうございます",
+        message: "受付が完了しました。",
+        supplemental_link: {
+          label: "次の手順",
+          url: "https://example.com/next",
+        },
+        contact: { label: "問い合わせ", email: "help@example.com" },
+        redirect_url: "https://example.com/done",
+        show_response_summary: false,
+        allow_edit_link: false,
+      },
+      responseId: expect.any(String),
+      response: expect.objectContaining({ id: "response-1" }),
+    });
   });
 
   it("keeps enqueue failures as FAILED ENQUEUE_FAILED after the tx-created PENDING row", async () => {
