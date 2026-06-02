@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import { logError } from "../logger";
+import {
+  buildResponseLabelLookupFromBlocks,
+  resolveResponseDisplayValue,
+} from "./response-choice-labels";
 import { calculateUniqueness } from "./uniqueness-calculator";
 
 /**
@@ -53,6 +57,7 @@ export type ResponseExportRecord = {
     block_type: string;
     question_title?: string;
     value: unknown;
+    display_value?: unknown;
   }>;
 };
 
@@ -184,6 +189,7 @@ export function buildResponseExportRecords(
     const title = (content?.title as string) || block.blockId;
     blockTitleMap.set(block.blockId, title);
   });
+  const responseLabelLookup = buildResponseLabelLookupFromBlocks(formBlocks);
 
   // 疑似ID生成用の名前空間（フォーム固有）
   const namespace = uuidv5(formId, uuidv5.DNS);
@@ -252,12 +258,19 @@ export function buildResponseExportRecords(
           (r) => r.question_id === block.blockId,
         );
         const value = resolveResponseValue(blockResponse);
+        const displayValue = resolveResponseDisplayValue(
+          blockResponse,
+          responseLabelLookup.get(block.blockId),
+        );
 
         return {
           block_id: block.blockId,
           block_type: block.type,
           question_title: blockResponse?.question_title,
           value,
+          ...(displayValue !== undefined
+            ? { display_value: displayValue }
+            : {}),
         };
       });
 
@@ -361,7 +374,12 @@ export function formatRecordsToCsv(
           (col) => col.block_id === blockId,
         );
         componentValues.push(
-          answer ? stringifyValue(answer.value, answer.block_type) : "",
+          answer
+            ? stringifyValue(
+                answer.display_value ?? answer.value,
+                answer.block_type,
+              )
+            : "",
         );
       });
 
@@ -400,6 +418,7 @@ function stringifyValue(value: unknown, blockType: string): string {
     }
     case "choice_grid":
     case "checkbox_grid": {
+      if (typeof value === "string") return value;
       return typeof value === "object" ? JSON.stringify(value) : "";
     }
     default:

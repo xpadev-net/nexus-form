@@ -25,6 +25,10 @@ import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import {
+  addDisplayLabelsToResponseDataJson,
+  buildResponseLabelLookupFromQuestions,
+} from "../lib/forms/response-choice-labels";
+import {
   buildResponseExportRecords,
   formatRecordsToCsv,
 } from "../lib/forms/response-export";
@@ -1149,9 +1153,31 @@ export const formsResponsesRouter = createHonoApp()
       .limit(1);
     if (!response) return c.json(errorResponse("Response not found"), 404);
 
+    const [targetForm] = await db
+      .select({ plateContent: form.plateContent })
+      .from(form)
+      .where(eq(form.id, formId))
+      .limit(1);
+    const questions = targetForm?.plateContent
+      ? buildQuestionsFromPlateContent(targetForm.plateContent)
+      : [];
+    const responseDataJsonWithLabels =
+      questions.length > 0
+        ? addDisplayLabelsToResponseDataJson(
+            response.responseDataJson,
+            buildResponseLabelLookupFromQuestions(questions),
+          )
+        : null;
+    const displayResponse = responseDataJsonWithLabels
+      ? { ...response, responseDataJson: responseDataJsonWithLabels }
+      : response;
+
     const externalValidations = await getExternalValidationResults(responseId);
     return c.json(
-      ResponseDetailResponseSchema.parse({ response, externalValidations }),
+      ResponseDetailResponseSchema.parse({
+        response: displayResponse,
+        externalValidations,
+      }),
     );
   })
   .put(

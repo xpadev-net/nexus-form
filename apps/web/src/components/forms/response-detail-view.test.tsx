@@ -60,7 +60,8 @@ describe("ResponseDetailView", () => {
                 question_id: "interests",
                 question_type: "checkbox",
                 question_title: "興味",
-                values: ["TypeScript", "React"],
+                values: ["ts", "react"],
+                display_values: ["TypeScript", "React"],
                 other_value: "アクセシビリティ",
               },
               {
@@ -71,6 +72,7 @@ describe("ResponseDetailView", () => {
                   monday: ["morning", "evening"],
                   tuesday: [],
                 },
+                display_value: "月曜: 午前, 夜\n火曜: 未回答",
               },
               {
                 question_id: "secure-field",
@@ -87,7 +89,8 @@ describe("ResponseDetailView", () => {
                 question_id: "blank-other",
                 question_type: "radio",
                 question_title: "その他なし",
-                value: "選択肢A",
+                value: "option-a",
+                display_value: "選択肢A",
                 other_value: null,
               },
               {
@@ -114,8 +117,8 @@ describe("ResponseDetailView", () => {
     expect(container.textContent).toContain("TypeScript, React");
     expect(container.textContent).toContain("その他: アクセシビリティ");
     expect(container.textContent).toContain("参加可能日 (availability)");
-    expect(container.textContent).toContain("monday: morning, evening");
-    expect(container.textContent).toContain("tuesday: 未回答");
+    expect(container.textContent).toContain("月曜: 午前, 夜");
+    expect(container.textContent).toContain("火曜: 未回答");
     expect(container.textContent).toContain("未設定の質問 (secure-field)");
     expect(container.textContent).toContain("暗号化済みの回答");
     expect(container.textContent).toContain("分類 (metadata-like)");
