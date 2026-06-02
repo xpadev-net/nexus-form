@@ -1,3 +1,5 @@
+import type { PasswordProtectionPublicationSnapshot } from "../password-protection-publication";
+
 export type PublishState = "published" | "unpublished";
 export type PublishProcessState = "idle" | "processing";
 export type SnapshotAvailability = "available" | "missing";
@@ -68,11 +70,7 @@ export interface UnpublishedChangesSectionState {
   nextSnapshotVersion: number;
 }
 
-export interface PasswordProtectionPublicationSnapshot {
-  enabled: boolean;
-  hasPassword: boolean;
-  password_hint?: string;
-}
+export type { PasswordProtectionPublicationSnapshot };
 
 export interface PasswordProtectionSectionState {
   isEnabled: boolean;

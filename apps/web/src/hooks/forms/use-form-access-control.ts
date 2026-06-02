@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
+import type { PasswordProtectionPublicationSnapshot } from "@/components/forms/password-protection-publication";
 import { client, rpc } from "@/lib/api";
 import {
   formAccessControlStructureQueryKey,
@@ -10,12 +11,6 @@ import {
 } from "./form-structure-query-keys";
 
 interface PasswordProtectionState {
-  enabled: boolean;
-  hasPassword: boolean;
-  password_hint?: string;
-}
-
-interface PasswordProtectionPublicationSnapshot {
   enabled: boolean;
   hasPassword: boolean;
   password_hint?: string;
