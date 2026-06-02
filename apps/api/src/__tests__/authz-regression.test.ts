@@ -292,6 +292,9 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
     ]);
 
     const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    // Defense-in-depth invariant: the current token authentication path does
+    // not emit both user_id and share_link_id, but permission resolution must
+    // still let the share-link role win if such a context reaches this helper.
     const shareViewerCtx: DualAuthContext = {
       user_id: OWNER_ID,
       auth_type: "api_token",

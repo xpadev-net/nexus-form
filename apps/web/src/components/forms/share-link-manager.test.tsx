@@ -33,7 +33,6 @@ const mocks = vi.hoisted(
     copyShareLinkUrl: ReturnType<typeof vi.fn>;
     createShareLinkMutate: ReturnType<typeof vi.fn>;
     deleteShareLinkMutate: ReturnType<typeof vi.fn>;
-    selectOnValueChange: ((value: string) => void) | null;
     shareLinksRefetch: ReturnType<typeof vi.fn>;
     shareLinksQuery: ShareLinksQueryMock;
     toastError: ReturnType<typeof vi.fn>;
@@ -42,7 +41,6 @@ const mocks = vi.hoisted(
     copyShareLinkUrl: vi.fn(),
     createShareLinkMutate: vi.fn(),
     deleteShareLinkMutate: vi.fn(),
-    selectOnValueChange: null,
     shareLinksRefetch: vi.fn(),
     shareLinksQuery: {
       data: {
@@ -150,32 +148,26 @@ vi.mock("@/components/ui/select", () => ({
   Select: ({
     children,
     onValueChange,
+    value,
   }: {
     children: ReactNode;
     onValueChange?: (value: string) => void;
-  }) => {
-    mocks.selectOnValueChange = onValueChange ?? null;
-    return <div>{children}</div>;
-  },
-  SelectContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
-  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
-    <button
-      data-testid={`share-role-${value}`}
-      type="button"
-      onClick={() => mocks.selectOnValueChange?.(value)}
+    value?: string;
+  }) => (
+    <select
+      aria-label="権限"
+      value={value}
+      onChange={(event) => onValueChange?.(event.currentTarget.value)}
     >
       {children}
-    </button>
+    </select>
   ),
-  SelectTrigger: ({
-    children,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-    children: ReactNode;
-  }) => <button {...props}>{children}</button>,
-  SelectValue: () => <span>閲覧者</span>,
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
+    <option value={value}>{children}</option>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
 }));
 
 vi.mock("@/components/ui/switch", () => ({
@@ -192,7 +184,6 @@ vi.mock("@/components/ui/switch", () => ({
 describe("ShareLinkManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.selectOnValueChange = null;
     mocks.shareLinksQuery = {
       data: {
         share_links: [
@@ -272,15 +263,14 @@ describe("ShareLinkManager", () => {
     const container = document.createElement("div");
     const root = renderManager(container);
 
-    const editorRoleButton = container.querySelector(
-      'button[data-testid="share-role-EDITOR"]',
+    const roleSelect = container.querySelector<HTMLSelectElement>(
+      'select[aria-label="権限"]',
     );
-    expect(editorRoleButton).not.toBeNull();
+    expect(roleSelect).not.toBeNull();
 
     act(() => {
-      editorRoleButton?.dispatchEvent(
-        new MouseEvent("click", { bubbles: true }),
-      );
+      if (roleSelect) roleSelect.value = "EDITOR";
+      roleSelect?.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
     const createButton = Array.from(container.querySelectorAll("button")).find(
