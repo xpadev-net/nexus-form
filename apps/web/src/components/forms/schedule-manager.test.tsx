@@ -21,7 +21,9 @@ const mocks = vi.hoisted(() => ({
     refetch: vi.fn(),
   },
   snapshotsQuery: {
-    data: { snapshots: [] as SnapshotFixture[] },
+    data: { snapshots: [] as SnapshotFixture[] } as
+      | { snapshots: SnapshotFixture[] }
+      | undefined,
     error: null as Error | null,
     isError: false,
     isLoading: false,
@@ -232,6 +234,43 @@ describe("ScheduleManager", () => {
     });
 
     expect(mocks.snapshotsRefetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("does not mark completed snapshot schedules as failed while snapshots errored", () => {
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.snapshotsQuery = {
+      ...mocks.snapshotsQuery,
+      data: undefined,
+      error: new Error("スナップショットを読み込めませんでした。"),
+      isError: true,
+    };
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "completed-snapshot-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 2,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("実行済み");
+    expect(container.textContent).not.toContain("失敗");
+    expect(container.querySelector('button[aria-label="再実行"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="ログ確認"]')).toBeNull();
 
     act(() => root.unmount());
   });

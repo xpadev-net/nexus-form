@@ -168,12 +168,14 @@ function getDisplayStatus(
   entry: ScheduleEntry,
   snapshots: Snapshot[],
   snapshotsLoading: boolean,
+  snapshotsError: boolean,
 ): DisplayScheduleStatus {
   if (
     entry.status === "COMPLETED" &&
     entry.action === "SWITCH_SNAPSHOT" &&
     entry.snapshotVersion != null &&
     !snapshotsLoading &&
+    !snapshotsError &&
     !snapshots.some((snapshot) => snapshot.version === entry.snapshotVersion)
   ) {
     return "FAILED";
@@ -515,6 +517,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
       entry,
       snapshots,
       snapshotsQuery.isLoading,
+      snapshotsQuery.isError,
     );
     return (
       <li
