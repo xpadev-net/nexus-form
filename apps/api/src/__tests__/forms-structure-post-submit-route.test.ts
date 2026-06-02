@@ -137,6 +137,17 @@ const currentStructure = {
         enabled: true,
         recipients: ["audit@example.com"],
       },
+      discord: {
+        enabled: true,
+        webhook_url: "https://discord.com/api/webhooks/123/duplicate-token",
+      },
+      webhook: {
+        enabled: true,
+        url: "https://pipedream.com/hooks/duplicate",
+        secret: "duplicate-secret-duplicate-secret-123",
+        timeout_seconds: 10,
+        retry_attempts: 1,
+      },
     },
   },
 };
@@ -186,7 +197,9 @@ describe("forms structure post-submit settings", () => {
       retry_attempts: 3,
     });
     expect(JSON.stringify(body)).not.toContain("discord-token");
+    expect(JSON.stringify(body)).not.toContain("duplicate-token");
     expect(JSON.stringify(body)).not.toContain("current-secret");
+    expect(JSON.stringify(body)).not.toContain("duplicate-secret");
   });
 
   it("redacts notification and access-control secrets from structure diffs", async () => {
@@ -376,6 +389,58 @@ describe("forms structure post-submit settings", () => {
     );
   });
 
+  it("preserves omitted notification channels on partial post-submit PATCH", async () => {
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request(
+      "/form-1/structure/post-submit",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confirmation: {
+            title: "Partial update",
+            message: "Only email changes.",
+          },
+          notifications: {
+            on_submit: {
+              email: {
+                enabled: true,
+                recipients: ["partial@example.com"],
+              },
+            },
+          },
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    expect(mocks.saveFormStructure).toHaveBeenCalledWith(
+      "form-1",
+      expect.objectContaining({
+        confirmation: expect.objectContaining({
+          title: "Partial update",
+          message: "Only email changes.",
+          redirect_url: "https://example.com/after",
+          show_response_summary: true,
+          allow_edit_link: true,
+        }),
+        notifications: expect.objectContaining({
+          on_submit: {
+            email: {
+              enabled: true,
+              recipients: ["partial@example.com"],
+            },
+            discord: currentStructure.notifications.on_submit.discord,
+            webhook: currentStructure.notifications.on_submit.webhook,
+          },
+        }),
+      }),
+      "user-1",
+      "Update post-submit settings",
+    );
+  });
+
   it("rejects invalid webhook URLs before saving", async () => {
     const { formsStructureRouter } = await import("../routes/forms-structure");
 
@@ -432,6 +497,17 @@ describe("forms structure post-submit settings", () => {
                 has_secret: true,
               },
             },
+            on_duplicate_detected: {
+              discord: {
+                enabled: true,
+                has_webhook_url: true,
+              },
+              webhook: {
+                enabled: true,
+                has_url: true,
+                has_secret: true,
+              },
+            },
           },
         },
       }),
@@ -456,6 +532,92 @@ describe("forms structure post-submit settings", () => {
               has_secret: undefined,
               timeout_seconds: 30,
               retry_attempts: 3,
+            },
+          },
+          on_duplicate_detected: {
+            discord: {
+              enabled: false,
+              webhook_url: undefined,
+              has_webhook_url: undefined,
+            },
+            webhook: {
+              enabled: false,
+              url: undefined,
+              secret: undefined,
+              has_url: undefined,
+              has_secret: undefined,
+              timeout_seconds: 30,
+              retry_attempts: 3,
+            },
+          },
+        },
+      }),
+      "user-1",
+      undefined,
+    );
+  });
+
+  it("restores duplicate notification secrets when only duplicate channels are masked", async () => {
+    mocks.getFormStructure.mockResolvedValueOnce({
+      version: 1,
+      settings: { require_fingerprint: true },
+      notifications: {
+        on_submit: {},
+        on_duplicate_detected:
+          currentStructure.notifications.on_duplicate_detected,
+      },
+    });
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: { require_fingerprint: true },
+          notifications: {
+            on_submit: {},
+            on_duplicate_detected: {
+              discord: {
+                enabled: true,
+                has_webhook_url: true,
+              },
+              webhook: {
+                enabled: true,
+                has_url: true,
+                has_secret: true,
+                timeout_seconds: 20,
+                retry_attempts: 2,
+              },
+            },
+          },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mocks.getFormStructure).toHaveBeenCalledWith("form-1");
+    expect(mocks.saveFormStructure).toHaveBeenCalledWith(
+      "form-1",
+      expect.objectContaining({
+        notifications: {
+          on_submit: {},
+          on_duplicate_detected: {
+            discord: {
+              enabled: true,
+              webhook_url:
+                "https://discord.com/api/webhooks/123/duplicate-token",
+              has_webhook_url: undefined,
+            },
+            webhook: {
+              enabled: true,
+              url: "https://pipedream.com/hooks/duplicate",
+              secret: "duplicate-secret-duplicate-secret-123",
+              has_url: undefined,
+              has_secret: undefined,
+              timeout_seconds: 20,
+              retry_attempts: 2,
             },
           },
         },

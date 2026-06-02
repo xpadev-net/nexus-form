@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Link2, Mail, MessageCircle, Save, Webhook } from "lucide-react";
+import {
+  Bell,
+  Link2,
+  Mail,
+  MessageCircle,
+  Save,
+  Trash2,
+  Webhook,
+} from "lucide-react";
 import { type FC, type FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,6 +55,11 @@ interface PostSubmitDraft {
   webhookHasSecret: boolean;
   webhookTimeoutSeconds: number;
   webhookRetryAttempts: number;
+}
+
+interface PostSubmitPayload {
+  confirmation: FormConfirmation;
+  notifications: FormNotifications;
 }
 
 function emptyToUndefined(value: string): string | undefined {
@@ -103,7 +117,7 @@ function draftFromSettings(
   };
 }
 
-function buildPostSubmitPayload(draft: PostSubmitDraft) {
+function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
   const supplementalLabel = emptyToUndefined(draft.supplementalLinkLabel);
   const supplementalUrl = emptyToUndefined(draft.supplementalLinkUrl);
   const contactLabel = emptyToUndefined(draft.contactLabel);
@@ -154,6 +168,19 @@ function buildPostSubmitPayload(draft: PostSubmitDraft) {
   return { confirmation, notifications };
 }
 
+function validationMessage(error: unknown): string {
+  if (error instanceof z.ZodError) {
+    return error.issues[0]?.message ?? "入力内容を確認してください";
+  }
+  return error instanceof Error ? error.message : "入力内容を確認してください";
+}
+
+/**
+ * Renders creator-owned post-submit confirmation and notification settings.
+ *
+ * @param formId - Form identifier used to load and patch the form structure.
+ * @returns Post-submit settings editor section.
+ */
 export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
   formId,
 }) => {
@@ -234,9 +261,7 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
     try {
       buildPostSubmitPayload(draft);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "入力内容を確認してください";
-      setValidationError(message);
+      setValidationError(validationMessage(error));
       return;
     }
     saveMutation.mutate(draft);
@@ -430,9 +455,25 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="post-submit-discord-webhook">
-                Discord Webhook URL
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="post-submit-discord-webhook">
+                  Discord Webhook URL
+                </Label>
+                {draft.discordHasWebhookUrl && !draft.discordWebhookUrl ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      updateDraft("discordHasWebhookUrl", false);
+                      updateDraft("discordEnabled", false);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    保存済み URL を削除
+                  </Button>
+                ) : null}
+              </div>
               <Input
                 id="post-submit-discord-webhook"
                 type="url"
@@ -490,7 +531,23 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
           </div>
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="post-submit-webhook-url">Webhook URL</Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="post-submit-webhook-url">Webhook URL</Label>
+                {draft.webhookHasUrl && !draft.webhookUrl ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      updateDraft("webhookHasUrl", false);
+                      updateDraft("webhookEnabled", false);
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    保存済み URL を削除
+                  </Button>
+                ) : null}
+              </div>
               <Input
                 id="post-submit-webhook-url"
                 type="url"
@@ -512,9 +569,22 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
               ) : null}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="post-submit-webhook-secret">
-                署名シークレット
-              </Label>
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="post-submit-webhook-secret">
+                  署名シークレット
+                </Label>
+                {draft.webhookHasSecret && !draft.webhookSecret ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => updateDraft("webhookHasSecret", false)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    保存済み secret を削除
+                  </Button>
+                ) : null}
+              </div>
               <Input
                 id="post-submit-webhook-secret"
                 type="password"

@@ -4,7 +4,12 @@ export const formLogicStructureQueryKey = (formId: string) =>
 export const formAccessControlStructureQueryKey = (formId: string) =>
   ["formStructure", "accessControl", formId] as const;
 
-export const formPostSubmitStructureQueryKey = (formId: string) =>
+/**
+ * Builds the public query key for post-submit form-structure caching and invalidation.
+ */
+export const formPostSubmitStructureQueryKey = (
+  formId: string,
+): readonly ["formStructure", "postSubmit", string] =>
   ["formStructure", "postSubmit", formId] as const;
 
 export const formDiffQueryKey = (formId: string | null | undefined) =>

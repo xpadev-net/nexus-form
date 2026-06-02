@@ -24,6 +24,7 @@ import {
   EmailNotificationChannelSchema,
   FormAppearanceSchema,
   FormConfirmationSchema,
+  type FormNotifications,
   FormNotificationsSchema,
   SecureWebhookUrlSchema,
   StoredLogicRuleSchema,
@@ -169,8 +170,6 @@ function maskFormStructureSecrets(
   const ac = structure.access_control;
   const pp = ac?.password_protection;
   const notifications = structure.notifications;
-  const discord = notifications?.on_submit?.discord;
-  const webhook = notifications?.on_submit?.webhook;
 
   return {
     ...structure,
@@ -188,35 +187,50 @@ function maskFormStructureSecrets(
       : {}),
     ...(notifications
       ? {
-          notifications: {
-            ...notifications,
-            on_submit: {
-              ...notifications.on_submit,
-              ...(discord
-                ? {
-                    discord: {
-                      ...discord,
-                      webhook_url: undefined,
-                      has_webhook_url: !!discord.webhook_url,
-                    },
-                  }
-                : {}),
-              ...(webhook
-                ? {
-                    webhook: {
-                      ...webhook,
-                      url: undefined,
-                      secret: undefined,
-                      has_url: !!webhook.url,
-                      has_secret: !!webhook.secret,
-                    },
-                  }
-                : {}),
-            },
-          },
+          notifications: maskNotificationSecrets(notifications),
         }
       : {}),
   };
+}
+
+function maskNotificationSecrets(
+  value: NonNullable<FormStructureType["notifications"]>,
+): FormStructureType["notifications"] {
+  return maskNotificationValue(value, []) as FormStructureType["notifications"];
+}
+
+function maskNotificationValue(value: unknown, path: string[]): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item, index) =>
+      maskNotificationValue(item, [...path, String(index)]),
+    );
+  }
+  if (!isRecord(value)) return value;
+
+  const masked = Object.fromEntries(
+    Object.entries(value).map(([entryKey, entryValue]) => [
+      entryKey,
+      maskNotificationValue(entryValue, [...path, entryKey]),
+    ]),
+  );
+  const channel = path.at(-1);
+  if (channel === "discord") {
+    return {
+      ...masked,
+      webhook_url: undefined,
+      has_webhook_url: !!value.webhook_url,
+    };
+  }
+  if (channel === "webhook") {
+    return {
+      ...masked,
+      url: undefined,
+      secret: undefined,
+      has_url: !!value.url,
+      has_secret: !!value.secret,
+    };
+  }
+  return masked;
 }
 
 function restoreMaskedNotificationSecrets(
@@ -226,10 +240,53 @@ function restoreMaskedNotificationSecrets(
   const notifications = structure.notifications;
   if (!notifications) return structure;
 
-  const discord = notifications.on_submit.discord;
-  const webhook = notifications.on_submit.webhook;
-  const currentDiscord = currentStructure.notifications?.on_submit.discord;
-  const currentWebhook = currentStructure.notifications?.on_submit.webhook;
+  return {
+    ...structure,
+    notifications: {
+      ...notifications,
+      on_submit: restoreMaskedNotificationChannels(
+        notifications.on_submit,
+        currentStructure.notifications?.on_submit,
+      ),
+      ...(notifications.on_duplicate_detected
+        ? {
+            on_duplicate_detected: restoreMaskedNotificationChannels(
+              notifications.on_duplicate_detected,
+              currentStructure.notifications?.on_duplicate_detected,
+            ),
+          }
+        : {}),
+    },
+  };
+}
+
+function hasMaskedNotificationSecretFlags(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMaskedNotificationSecretFlags(item));
+  }
+  if (!isRecord(value)) return false;
+
+  if (
+    value.has_webhook_url === true ||
+    value.has_url === true ||
+    value.has_secret === true
+  ) {
+    return true;
+  }
+
+  return Object.values(value).some((item) =>
+    hasMaskedNotificationSecretFlags(item),
+  );
+}
+
+function restoreMaskedNotificationChannels(
+  channels: FormNotifications["on_submit"],
+  currentChannels: FormNotifications["on_submit"] | undefined,
+): FormNotifications["on_submit"] {
+  const discord = channels.discord;
+  const webhook = channels.webhook;
+  const currentDiscord = currentChannels?.discord;
+  const currentWebhook = currentChannels?.webhook;
   const restoredDiscordWebhookUrl =
     discord?.webhook_url ??
     (discord?.has_webhook_url ? currentDiscord?.webhook_url : undefined);
@@ -237,40 +294,34 @@ function restoreMaskedNotificationSecrets(
     webhook?.url ?? (webhook?.has_url ? currentWebhook?.url : undefined);
 
   return {
-    ...structure,
-    notifications: {
-      ...notifications,
-      on_submit: {
-        ...notifications.on_submit,
-        ...(discord
-          ? {
-              discord: {
-                ...discord,
-                enabled:
-                  discord.enabled &&
-                  (!discord.has_webhook_url || !!restoredDiscordWebhookUrl),
-                webhook_url: restoredDiscordWebhookUrl,
-                has_webhook_url: undefined,
-              },
-            }
-          : {}),
-        ...(webhook
-          ? {
-              webhook: {
-                ...webhook,
-                enabled:
-                  webhook.enabled && (!webhook.has_url || !!restoredWebhookUrl),
-                url: restoredWebhookUrl,
-                secret:
-                  webhook.secret ??
-                  (webhook.has_secret ? currentWebhook?.secret : undefined),
-                has_url: undefined,
-                has_secret: undefined,
-              },
-            }
-          : {}),
-      },
-    },
+    ...channels,
+    ...(discord
+      ? {
+          discord: {
+            ...discord,
+            enabled:
+              discord.enabled &&
+              (!discord.has_webhook_url || !!restoredDiscordWebhookUrl),
+            webhook_url: restoredDiscordWebhookUrl,
+            has_webhook_url: undefined,
+          },
+        }
+      : {}),
+    ...(webhook
+      ? {
+          webhook: {
+            ...webhook,
+            enabled:
+              webhook.enabled && (!webhook.has_url || !!restoredWebhookUrl),
+            url: restoredWebhookUrl,
+            secret:
+              webhook.secret ??
+              (webhook.has_secret ? currentWebhook?.secret : undefined),
+            has_url: undefined,
+            has_secret: undefined,
+          },
+        }
+      : {}),
   };
 }
 
@@ -353,9 +404,12 @@ function redactSensitiveStructureValue(
 ): unknown {
   const key = path.at(-1);
   const scope = path[0];
+  const notificationChannel = path.at(-2);
   if (
     (scope === "notifications" &&
-      (key === "webhook_url" || key === "url" || key === "secret")) ||
+      ((notificationChannel === "discord" && key === "webhook_url") ||
+        (notificationChannel === "webhook" &&
+          (key === "url" || key === "secret")))) ||
     (scope === "access_control" && key === "password")
   ) {
     return REDACTED_STRUCTURE_VALUE;
@@ -444,9 +498,7 @@ export const formsStructureRouter = createHonoApp()
         let structure = payload.structure;
         const needsCurrentStructure =
           !!structure.access_control?.password_protection?.has_password ||
-          !!structure.notifications?.on_submit.discord?.has_webhook_url ||
-          !!structure.notifications?.on_submit.webhook?.has_url ||
-          !!structure.notifications?.on_submit.webhook?.has_secret;
+          hasMaskedNotificationSecretFlags(structure.notifications);
         const currentStructure = needsCurrentStructure
           ? await getFormStructure(formId)
           : undefined;
@@ -662,8 +714,15 @@ export const formsStructureRouter = createHonoApp()
         const currentStructure = await getFormStructure(formId);
         const currentOnSubmit = currentStructure.notifications?.on_submit ?? {};
         const requestedOnSubmit = payload.notifications.on_submit;
-        const requestedDiscord = requestedOnSubmit.discord;
-        const requestedWebhook = requestedOnSubmit.webhook;
+        const hasRequestedEmail = Object.hasOwn(requestedOnSubmit, "email");
+        const hasRequestedDiscord = Object.hasOwn(requestedOnSubmit, "discord");
+        const hasRequestedWebhook = Object.hasOwn(requestedOnSubmit, "webhook");
+        const requestedDiscord = hasRequestedDiscord
+          ? requestedOnSubmit.discord
+          : undefined;
+        const requestedWebhook = hasRequestedWebhook
+          ? requestedOnSubmit.webhook
+          : undefined;
 
         const discordWebhookUrl =
           requestedDiscord?.webhook_url ??
@@ -684,23 +743,29 @@ export const formsStructureRouter = createHonoApp()
         const notificationsResult = FormNotificationsSchema.safeParse({
           ...currentStructure.notifications,
           on_submit: {
-            email: requestedOnSubmit.email,
-            discord: requestedDiscord
-              ? {
-                  ...requestedDiscord,
-                  webhook_url: discordWebhookUrl,
-                  has_webhook_url: undefined,
-                }
-              : undefined,
-            webhook: requestedWebhook
-              ? {
-                  ...requestedWebhook,
-                  url: webhookUrl,
-                  secret: webhookSecret,
-                  has_url: undefined,
-                  has_secret: undefined,
-                }
-              : undefined,
+            email: hasRequestedEmail
+              ? requestedOnSubmit.email
+              : currentOnSubmit.email,
+            discord: hasRequestedDiscord
+              ? requestedDiscord
+                ? {
+                    ...requestedDiscord,
+                    webhook_url: discordWebhookUrl,
+                    has_webhook_url: undefined,
+                  }
+                : undefined
+              : currentOnSubmit.discord,
+            webhook: hasRequestedWebhook
+              ? requestedWebhook
+                ? {
+                    ...requestedWebhook,
+                    url: webhookUrl,
+                    secret: webhookSecret,
+                    has_url: undefined,
+                    has_secret: undefined,
+                  }
+                : undefined
+              : currentOnSubmit.webhook,
           },
         });
 

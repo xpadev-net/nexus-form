@@ -83,6 +83,7 @@ vi.mock("lucide-react", () => ({
   Mail: () => <span data-icon="mail" />,
   MessageCircle: () => <span data-icon="message" />,
   Save: () => <span data-icon="save" />,
+  Trash2: () => <span data-icon="trash" />,
   Webhook: () => <span data-icon="webhook" />,
 }));
 
@@ -172,6 +173,17 @@ function click(element: Element | null) {
   });
 }
 
+function findButtonByText(
+  container: HTMLElement,
+  text: string,
+): HTMLButtonElement | null {
+  return (
+    [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.includes(text),
+    ) ?? null
+  );
+}
+
 function submit(element: HTMLFormElement | null) {
   expect(element).not.toBeNull();
   act(() => {
@@ -259,6 +271,43 @@ describe("FormPostSubmitSettings", () => {
     act(() => root.unmount());
   });
 
+  it("lets masked webhook values be removed explicitly", async () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    click(findButtonByText(container, "保存済み URL を削除"));
+    click(findButtonByText(container, "保存済み URL を削除"));
+    click(findButtonByText(container, "保存済み secret を削除"));
+    submit(
+      container.querySelector<HTMLFormElement>("#form-post-submit-settings"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const patchPayload = mocks.patchPostSubmitRequest.mock.calls[0]?.[0];
+    expect(patchPayload).toMatchObject({
+      json: {
+        notifications: {
+          on_submit: {
+            discord: {
+              enabled: false,
+              has_webhook_url: false,
+            },
+            webhook: {
+              enabled: false,
+              has_url: false,
+              has_secret: false,
+            },
+          },
+        },
+      },
+    });
+
+    act(() => root.unmount());
+  });
+
   it("saves post-submit settings with the dedicated patch endpoint", async () => {
     const container = document.createElement("div");
     const root = renderSettings(container);
@@ -335,6 +384,25 @@ describe("FormPostSubmitSettings", () => {
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "送信後設定を保存しました",
     );
+
+    act(() => root.unmount());
+  });
+
+  it("shows a readable validation message before saving invalid settings", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-link-url"),
+      "",
+    );
+    submit(
+      container.querySelector<HTMLFormElement>("#form-post-submit-settings"),
+    );
+
+    expect(mocks.patchPostSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain("[{");
+    expect(container.textContent).toContain("Invalid input");
 
     act(() => root.unmount());
   });
