@@ -440,6 +440,7 @@ describe("PublicFormPage password protection", () => {
               message: "回答を受け付けました。ご協力ありがとうございました。",
             },
             response: { id: "response-1" },
+            responseId: "response-1",
           },
     );
 
@@ -561,6 +562,7 @@ describe("PublicFormPage password protection", () => {
               message: "回答を受け付けました。ご協力ありがとうございました。",
             },
             response: { id: "response-1" },
+            responseId: "response-1",
           },
     );
     const container = document.createElement("div");
