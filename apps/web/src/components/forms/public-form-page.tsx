@@ -25,7 +25,6 @@ import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import {
   FormAppearanceSchema,
   type FormConfirmation,
-  FormConfirmationSchema,
 } from "@/types/validation/form";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
@@ -292,11 +291,7 @@ function PublicSubmitCompletion({
               )}
             </section>
           ) : null}
-          {confirmation.allow_edit_link ? (
-            <p className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-              回答の編集リンクは現在利用できません。
-            </p>
-          ) : null}
+          {/* TODO: render an edit URL here when public response editing is available. */}
           <div className="flex flex-wrap gap-3">
             {confirmation.supplemental_link ? (
               <a
@@ -501,9 +496,7 @@ function PublicFormPageInner() {
         if (!responseId) {
           throw new Error("回答 ID を取得できませんでした。");
         }
-        const confirmation = FormConfirmationSchema.parse(
-          submitResult.confirmation,
-        );
+        const confirmation = submitResult.confirmation;
         dispatch({
           type: "submit-success",
           responseId,

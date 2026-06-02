@@ -691,9 +691,6 @@ describe("PublicFormPage password protection", () => {
     expect(container.textContent).toContain("回答サマリー");
     expect(container.textContent).toContain("Name");
     expect(container.textContent).toContain("Alice");
-    expect(container.textContent).toContain(
-      "回答の編集リンクは現在利用できません。",
-    );
     expect(container.textContent).toContain("次の手順");
     expect(container.textContent).toContain("問い合わせ");
     expect(container.textContent).not.toContain("回答を送信");
