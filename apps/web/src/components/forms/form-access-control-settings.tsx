@@ -64,6 +64,14 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
       return;
     }
 
+    if (
+      !hintUpdated &&
+      !shouldSendPassword &&
+      enabled === passwordProtection.enabled
+    ) {
+      return;
+    }
+
     setError(null);
     updatePasswordProtection.mutate(
       {

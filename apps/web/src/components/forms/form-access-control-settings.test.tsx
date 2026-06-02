@@ -276,4 +276,23 @@ describe("FormAccessControlSettings", () => {
       root.unmount();
     });
   });
+
+  it("does not save when password protection settings are unchanged", () => {
+    mocks.passwordProtection = {
+      enabled: true,
+      hasPassword: true,
+      password_hint: "pet name",
+    };
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    submit(container);
+
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
 });
