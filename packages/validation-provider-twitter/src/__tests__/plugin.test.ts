@@ -38,6 +38,13 @@ const validTwitterUser = {
 };
 
 describe("twitterProvider.rules.user_exists.inputSchema", () => {
+  it("documents bearer token and API permission requirements through provider metadata", () => {
+    const rule = twitterProvider.rules.user_exists;
+
+    expect(rule?.description).toContain("TWITTER_BEARER_TOKEN");
+    expect(rule?.inputHint).toContain("Users lookup権限");
+  });
+
   it("accepts usernames matching the advertised Twitter pattern", () => {
     const result =
       twitterProvider.rules.user_exists?.inputSchema.safeParse("User_Name1");

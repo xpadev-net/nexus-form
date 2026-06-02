@@ -65,6 +65,26 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result?.success).toBe(false);
   });
 
+  it("documents required setup and permission failure hints through provider metadata", () => {
+    const rule = discordProvider.rules.guild_member;
+
+    expect(rule?.description).toContain("DISCORD_BOT_TOKEN");
+    expect(rule?.inputHint).toContain("必要権限が不足");
+    expect(rule?.configFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "guildId",
+          required: true,
+          description: expect.stringContaining("検証用Botが参加済み"),
+        }),
+        expect.objectContaining({
+          name: "roleIds",
+          description: expect.stringContaining("ロール一覧取得権限"),
+        }),
+      ]),
+    );
+  });
+
   it("does not call list members for saturated username searches by default", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     const saturatedSearch = Array.from({ length: 1000 }, (_, index) => ({
