@@ -47,8 +47,10 @@ function normalizeTwitterUsername(username: string): string {
 const userExistsRule: ValidationProviderRule = {
   name: "user_exists",
   label: "ユーザー存在検証",
-  description: "Twitter/Xユーザーが存在することを検証します",
-  inputHint: "Twitterユーザー名を入力してください（@不要）",
+  description:
+    "Twitter/Xユーザーが存在することを検証します。実行にはTWITTER_BEARER_TOKENとUsers lookup APIを呼び出せる権限が必要です。",
+  inputHint:
+    "Twitter/Xユーザー名を入力してください（@不要）。Bearer tokenが未設定、無効、またはUsers lookup権限が不足している場合は認証エラーとして失敗します。",
   inputPattern: "^[a-zA-Z0-9_]{1,15}$",
   patternTemplate: {
     id: "twitter",

@@ -85,8 +85,10 @@ function getSafeGitHubProviderErrorMessage(error: {
 const userExistsRule: ValidationProviderRule = {
   name: "user_exists",
   label: "ユーザー存在検証",
-  description: "GitHubユーザーが存在することを検証します",
-  inputHint: "GitHubユーザー名を入力してください（@不要）",
+  description:
+    "GitHubユーザーが存在することを検証します。GitHub App credential が設定されている場合は認証済みAPI、未設定の場合は未認証APIで検証します。",
+  inputHint:
+    "GitHubユーザー名を入力してください（@不要）。GitHub Appの認証情報やinstallation権限が不足している場合は認証エラーとして失敗します。",
   inputPattern: "^[a-zA-Z\\d](?:[a-zA-Z\\d]|-(?=[a-zA-Z\\d])){0,38}$",
   patternTemplate: {
     id: "github",
