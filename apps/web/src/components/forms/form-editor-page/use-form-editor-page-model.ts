@@ -110,7 +110,12 @@ export function useFormEditorPageModel(formId: string) {
     mutationFn: () =>
       rpc(client.api.forms[":id"].duplicate.$post({ param: { id: formId } })),
     onSuccess: (data) => {
-      toast.success("フォームを複製しました");
+      setShowDuplicateModal(false);
+      toast.success(
+        data?.form?.title
+          ? `${data.form.title} を作成しました`
+          : "フォームを複製しました",
+      );
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
       if (data?.form?.id) {
         void router.navigate({
@@ -129,6 +134,16 @@ export function useFormEditorPageModel(formId: string) {
       rpc(client.api.forms[":id"].archive.$post({ param: { id: formId } })),
     onSuccess: () => {
       toast.success("フォームをアーカイブしました");
+      queryClient.setQueryData<typeof formQuery.data>(
+        ["formDetail", formId],
+        (current) => {
+          if (!current?.form) return current;
+          return {
+            ...current,
+            form: { ...current.form, status: "ARCHIVED" },
+          };
+        },
+      );
       void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
@@ -144,6 +159,16 @@ export function useFormEditorPageModel(formId: string) {
       rpc(client.api.forms[":id"].unarchive.$post({ param: { id: formId } })),
     onSuccess: () => {
       toast.success("アーカイブを解除しました");
+      queryClient.setQueryData<typeof formQuery.data>(
+        ["formDetail", formId],
+        (current) => {
+          if (!current?.form) return current;
+          return {
+            ...current,
+            form: { ...current.form, status: "DRAFT" },
+          };
+        },
+      );
       void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },

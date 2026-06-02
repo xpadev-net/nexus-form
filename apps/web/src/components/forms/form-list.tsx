@@ -40,7 +40,10 @@ export const FormList = () => {
   const filteredForms = useMemo(() => {
     return forms.filter((item) => {
       const currentStatus = normalizeFormStatus(item.status);
-      const matchesStatus = status === "all" || currentStatus === status;
+      const matchesStatus =
+        status === "all"
+          ? currentStatus !== "archived"
+          : currentStatus === status;
       const matchesSearch = item.title
         .toLowerCase()
         .includes(searchTerm.toLowerCase());
