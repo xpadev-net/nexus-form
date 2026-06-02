@@ -396,6 +396,9 @@ describe("R23-T3 share and permission routes", () => {
     const app = createApp();
     mocks.permissionRoles.set("target-user", "OWNER");
     mocks.shareLinkRoles.set("viewer-link", "VIEWER");
+    // Defense-in-depth invariant: token authentication currently does not emit
+    // both a real user_id and share_link_id, but /permissions/me must still
+    // prefer the share-link role if such a context reaches the route.
     mocks.authContext = {
       auth_type: "api_token",
       user_id: "target-user",
