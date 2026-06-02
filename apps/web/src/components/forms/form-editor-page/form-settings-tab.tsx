@@ -1,5 +1,6 @@
 import { Copy, Trash2 } from "lucide-react";
 import type { FC } from "react";
+import { FormAccessControlSettings } from "@/components/forms/form-access-control-settings";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
 import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integration";
 import { ScheduleManager } from "@/components/forms/schedule-manager";
@@ -30,6 +31,8 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <ScheduleManager formId={formId} />
       </section>
+
+      <FormAccessControlSettings formId={formId} />
 
       <GoogleSheetsIntegration formId={formId} />
 
