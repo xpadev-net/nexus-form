@@ -195,20 +195,12 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
 
   const saveMutation = useMutation({
     mutationFn: async (appearance: FormAppearance) => {
-      const current = await rpc(
-        client.api.forms[":id"].structure.$get({ param: { id: formId } }),
-      );
-      const currentStructure = current.structure;
       const parsed = FormAppearanceSchema.parse(appearance);
       return rpc(
-        client.api.forms[":id"].structure.$put({
+        client.api.forms[":id"].structure.appearance.$patch({
           param: { id: formId },
           json: {
-            structure: {
-              ...currentStructure,
-              appearance: parsed,
-            },
-            changeLog: "Update appearance settings",
+            appearance: parsed,
           },
         }),
       );

@@ -16,7 +16,10 @@ type MutationOptions<TInput> = {
 const mocks = vi.hoisted(() => ({
   getRequest: vi.fn(() => ({ kind: "get" })),
   invalidateQueries: vi.fn(),
-  putRequest: vi.fn((payload: unknown) => ({ kind: "put", payload })),
+  patchAppearanceRequest: vi.fn((payload: unknown) => ({
+    kind: "patchAppearance",
+    payload,
+  })),
   rpc: vi.fn(),
   toast: { error: vi.fn(), success: vi.fn() },
 }));
@@ -59,7 +62,9 @@ vi.mock("@/lib/api", () => ({
         ":id": {
           structure: {
             $get: mocks.getRequest,
-            $put: mocks.putRequest,
+            appearance: {
+              $patch: mocks.patchAppearanceRequest,
+            },
           },
         },
       },
@@ -204,7 +209,7 @@ describe("FormAppearanceSettings", () => {
     };
     mocks.getRequest.mockClear();
     mocks.invalidateQueries.mockReset();
-    mocks.putRequest.mockClear();
+    mocks.patchAppearanceRequest.mockClear();
     mocks.rpc.mockReset();
     mocks.rpc.mockImplementation(async (request: { kind?: string }) =>
       request.kind === "get" ? structureData : {},
@@ -250,7 +255,7 @@ describe("FormAppearanceSettings", () => {
     act(() => root.unmount());
   });
 
-  it("saves appearance into the form structure", async () => {
+  it("saves appearance with the appearance patch endpoint", async () => {
     const container = document.createElement("div");
     const root = renderSettings(container);
 
@@ -266,19 +271,20 @@ describe("FormAppearanceSettings", () => {
       await Promise.resolve();
     });
 
-    const putPayload = mocks.putRequest.mock.calls[0]?.[0];
-    expect(putPayload).toMatchObject({
+    const patchPayload = mocks.patchAppearanceRequest.mock.calls[0]?.[0];
+    expect(mocks.getRequest).not.toHaveBeenCalled();
+    expect(patchPayload).toMatchObject({
       json: {
-        changeLog: "Update appearance settings",
-        structure: {
-          appearance: {
-            theme: {
-              primary_color: "#111111",
-            },
+        appearance: {
+          theme: {
+            primary_color: "#111111",
           },
         },
       },
       param: { id: "form-1" },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: { structure: expect.anything() },
     });
     expect(mocks.toast.success).toHaveBeenCalledWith("外観設定を保存しました");
 
