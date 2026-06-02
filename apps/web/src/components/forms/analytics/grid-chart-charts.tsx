@@ -11,9 +11,17 @@ import {
   ChartTooltip,
 } from "@/components/ui/chart-recharts";
 import { labelToCssColor } from "@/lib/utils/color";
-import type { GridAnalytics, GridRowChoiceCount } from "@/types/api/analytics";
+import type {
+  GridAnalytics,
+  GridRowChoiceCount,
+  InvalidGridResponse,
+} from "@/types/api/analytics";
 
 const MAX_INVALID_GRID_RESPONSES_DISPLAYED = 10;
+
+interface InvalidGridResponseListEntry extends InvalidGridResponse {
+  key: string;
+}
 
 const createChartConfig = (columns: GridAnalytics["columns"]): ChartConfig => {
   const config: ChartConfig = {};
@@ -50,6 +58,22 @@ const transformGridData = (
   });
 };
 
+function createInvalidResponseListEntries(
+  responses: InvalidGridResponse[],
+): InvalidGridResponseListEntry[] {
+  const keyCounts = new Map<string, number>();
+
+  return responses.map((response) => {
+    const baseKey = `${response.response_id}:${response.reason}`;
+    const occurrence = keyCounts.get(baseKey) ?? 0;
+    keyCounts.set(baseKey, occurrence + 1);
+    return {
+      ...response,
+      key: `${baseKey}:${occurrence}`,
+    };
+  });
+}
+
 export interface GridChartDisplayChartsProps {
   data: GridAnalytics;
   blockTitle?: string;
@@ -68,8 +92,11 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
     0,
     MAX_INVALID_GRID_RESPONSES_DISPLAYED,
   );
+  const visibleInvalidResponseEntries = createInvalidResponseListEntries(
+    visibleInvalidResponses,
+  );
   const hiddenInvalidResponseCount =
-    invalidResponses.length - visibleInvalidResponses.length;
+    invalidResponses.length - visibleInvalidResponseEntries.length;
 
   const chartData = transformGridData(data.row_analytics, data.columns);
 
@@ -84,17 +111,14 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
         </div>
       )}
 
-      {visibleInvalidResponses.length > 0 && (
+      {visibleInvalidResponseEntries.length > 0 && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           <p className="font-medium">
             一部の回答をグリッド集計から除外しました
           </p>
           <ul className="mt-2 space-y-1">
-            {visibleInvalidResponses.map((response) => (
-              <li
-                key={`${response.response_id}:${response.reason}`}
-                className="break-words"
-              >
+            {visibleInvalidResponseEntries.map((response) => (
+              <li key={response.key} className="break-words">
                 <span className="font-mono">{response.response_id}</span>:{" "}
                 {response.reason}
               </li>
