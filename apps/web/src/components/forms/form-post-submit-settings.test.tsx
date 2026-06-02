@@ -328,6 +328,14 @@ describe("FormPostSubmitSettings", () => {
       container.querySelector<HTMLInputElement>("#post-submit-link-url"),
       "https://example.com/next",
     );
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-contact-label"),
+      "サポート窓口",
+    );
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-contact-email"),
+      "",
+    );
     click(container.querySelector("#post-submit-email-enabled"));
     setInputValue(
       container.querySelector<HTMLTextAreaElement>(
@@ -376,6 +384,13 @@ describe("FormPostSubmitSettings", () => {
             },
           },
         },
+      },
+    });
+    expect(patchPayload).toMatchObject({
+      json: {
+        confirmation: expect.not.objectContaining({
+          contact: expect.anything(),
+        }),
       },
     });
     expect(patchPayload).not.toMatchObject({

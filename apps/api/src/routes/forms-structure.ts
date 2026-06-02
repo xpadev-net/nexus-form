@@ -743,6 +743,10 @@ export const formsStructureRouter = createHonoApp()
           (requestedWebhook?.has_secret
             ? currentOnSubmit.webhook?.secret
             : undefined);
+        const webhookHeaders =
+          requestedWebhook && Object.hasOwn(requestedWebhook, "headers")
+            ? requestedWebhook.headers
+            : currentOnSubmit.webhook?.headers;
 
         const notificationsResult = FormNotificationsSchema.safeParse({
           ...currentStructure.notifications,
@@ -765,6 +769,7 @@ export const formsStructureRouter = createHonoApp()
                     ...requestedWebhook,
                     url: webhookUrl,
                     secret: webhookSecret,
+                    headers: webhookHeaders,
                     has_url: undefined,
                     has_secret: undefined,
                   }

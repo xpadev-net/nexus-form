@@ -128,6 +128,9 @@ const currentStructure = {
         enabled: true,
         url: "https://zapier.com/hooks/catch/current",
         secret: "current-secret-current-secret-123456",
+        headers: {
+          "X-Custom-Header": "preserve-me",
+        },
         timeout_seconds: 30,
         retry_attempts: 3,
       },
@@ -193,6 +196,9 @@ describe("forms structure post-submit settings", () => {
       enabled: true,
       has_url: true,
       has_secret: true,
+      headers: {
+        "X-Custom-Header": "preserve-me",
+      },
       timeout_seconds: 30,
       retry_attempts: 3,
     });
@@ -376,6 +382,9 @@ describe("forms structure post-submit settings", () => {
               enabled: true,
               url: "https://zapier.com/hooks/catch/current",
               secret: "current-secret-current-secret-123456",
+              headers: {
+                "X-Custom-Header": "preserve-me",
+              },
               timeout_seconds: 45,
               retry_attempts: 2,
             },

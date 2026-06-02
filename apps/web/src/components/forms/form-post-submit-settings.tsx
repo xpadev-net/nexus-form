@@ -137,7 +137,7 @@ function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
         ? { label: supplementalLabel, url: supplementalUrl }
         : undefined,
     contact:
-      contactLabel || contactEmail || contactUrl
+      contactEmail || contactUrl
         ? { label: contactLabel, email: contactEmail, url: contactUrl }
         : undefined,
   });
