@@ -31,14 +31,18 @@ type ShareLinksQueryMock = {
 const mocks = vi.hoisted(
   (): {
     copyShareLinkUrl: ReturnType<typeof vi.fn>;
+    createShareLinkMutate: ReturnType<typeof vi.fn>;
     deleteShareLinkMutate: ReturnType<typeof vi.fn>;
+    selectOnValueChange: ((value: string) => void) | null;
     shareLinksRefetch: ReturnType<typeof vi.fn>;
     shareLinksQuery: ShareLinksQueryMock;
     toastError: ReturnType<typeof vi.fn>;
     toastSuccess: ReturnType<typeof vi.fn>;
   } => ({
     copyShareLinkUrl: vi.fn(),
+    createShareLinkMutate: vi.fn(),
     deleteShareLinkMutate: vi.fn(),
+    selectOnValueChange: null,
     shareLinksRefetch: vi.fn(),
     shareLinksQuery: {
       data: {
@@ -84,7 +88,7 @@ vi.mock("@/hooks/forms/use-share-links", () => ({
     copyShareLinkUrl: mocks.copyShareLinkUrl,
     createShareLinkMutation: {
       isPending: false,
-      mutate: vi.fn(),
+      mutate: mocks.createShareLinkMutate,
     },
     deleteShareLinkMutation: {
       isPending: false,
@@ -95,6 +99,38 @@ vi.mock("@/hooks/forms/use-share-links", () => ({
       mutate: vi.fn(),
     },
   }),
+}));
+
+vi.mock("@/components/ui/alert-dialog", () => ({
+  AlertDialog: ({ children, open }: { children: ReactNode; open?: boolean }) =>
+    open ? <div>{children}</div> : null,
+  AlertDialogAction: ({
+    children,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    children: ReactNode;
+  }) => <button {...props}>{children}</button>,
+  AlertDialogCancel: ({
+    children,
+    ...props
+  }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+    children: ReactNode;
+  }) => <button {...props}>{children}</button>,
+  AlertDialogContent: ({ children }: { children: ReactNode }) => (
+    <div role="alertdialog">{children}</div>
+  ),
+  AlertDialogDescription: ({ children }: { children: ReactNode }) => (
+    <p>{children}</p>
+  ),
+  AlertDialogFooter: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogHeader: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertDialogTitle: ({ children }: { children: ReactNode }) => (
+    <h2>{children}</h2>
+  ),
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -111,11 +147,28 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/select", () => ({
-  Select: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  Select: ({
+    children,
+    onValueChange,
+  }: {
+    children: ReactNode;
+    onValueChange?: (value: string) => void;
+  }) => {
+    mocks.selectOnValueChange = onValueChange ?? null;
+    return <div>{children}</div>;
+  },
   SelectContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
-  SelectItem: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
+    <button
+      data-testid={`share-role-${value}`}
+      type="button"
+      onClick={() => mocks.selectOnValueChange?.(value)}
+    >
+      {children}
+    </button>
+  ),
   SelectTrigger: ({
     children,
     ...props
@@ -139,6 +192,7 @@ vi.mock("@/components/ui/switch", () => ({
 describe("ShareLinkManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.selectOnValueChange = null;
     mocks.shareLinksQuery = {
       data: {
         share_links: [
@@ -161,6 +215,106 @@ describe("ShareLinkManager", () => {
         options?.onSuccess?.();
       },
     );
+    mocks.createShareLinkMutate.mockImplementation(
+      (
+        _payload: { role: "EDITOR" | "VIEWER" },
+        options?: { onSuccess?: () => void },
+      ) => {
+        options?.onSuccess?.();
+      },
+    );
+  });
+
+  it("shows role differences and the no-expiration warning near link creation", () => {
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain(
+      "フォーム内容の閲覧のみ。フォーム編集と回答閲覧はできません。",
+    );
+    expect(container.textContent).toContain(
+      "フォーム構成や公開設定を編集でき、送信済み回答も閲覧できます。",
+    );
+    expect(container.textContent).toContain(
+      "新規リンクは期限なしで作成されます",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("creates a viewer link without the editor confirmation dialog", () => {
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("作成"),
+    );
+    expect(createButton).toBeDefined();
+
+    act(() => {
+      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(mocks.createShareLinkMutate).toHaveBeenCalledWith(
+      { role: "VIEWER" },
+      expect.objectContaining({
+        onError: expect.any(Function),
+        onSuccess: expect.any(Function),
+      }),
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("共有リンクを作成しました");
+
+    act(() => root.unmount());
+  });
+
+  it("requires confirmation before creating an editor link", () => {
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const editorRoleButton = container.querySelector(
+      'button[data-testid="share-role-EDITOR"]',
+    );
+    expect(editorRoleButton).not.toBeNull();
+
+    act(() => {
+      editorRoleButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const createButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("作成"),
+    );
+    expect(createButton).toBeDefined();
+
+    act(() => {
+      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.createShareLinkMutate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("編集者リンクを作成しますか?");
+    expect(container.textContent).toContain("送信済み回答も閲覧できます");
+    expect(container.textContent).toContain("期限なし");
+
+    const confirmButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "編集者リンクを作成",
+    );
+    expect(confirmButton).toBeDefined();
+
+    act(() => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.createShareLinkMutate).toHaveBeenCalledWith(
+      { role: "EDITOR" },
+      expect.objectContaining({
+        onError: expect.any(Function),
+        onSuccess: expect.any(Function),
+      }),
+    );
+
+    act(() => root.unmount());
   });
 
   it("shows a failure toast and manual copy URL when clipboard copy returns false", async () => {
