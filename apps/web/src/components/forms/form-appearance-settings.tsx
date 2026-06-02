@@ -371,12 +371,12 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
               <NativeSelect
                 id="appearance-width"
                 value={draftAppearance.layout.width}
-                onChange={(event) =>
-                  updateLayout(
-                    "width",
-                    FormLayoutSchema.shape.width.parse(event.target.value),
-                  )
-                }
+                onChange={(event) => {
+                  const result = FormLayoutSchema.shape.width.safeParse(
+                    event.target.value,
+                  );
+                  if (result.success) updateLayout("width", result.data);
+                }}
                 className="w-full"
               >
                 <NativeSelectOption value="compact">
@@ -391,12 +391,12 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
               <NativeSelect
                 id="appearance-alignment"
                 value={draftAppearance.layout.alignment}
-                onChange={(event) =>
-                  updateLayout(
-                    "alignment",
-                    FormLayoutSchema.shape.alignment.parse(event.target.value),
-                  )
-                }
+                onChange={(event) => {
+                  const result = FormLayoutSchema.shape.alignment.safeParse(
+                    event.target.value,
+                  );
+                  if (result.success) updateLayout("alignment", result.data);
+                }}
                 className="w-full"
               >
                 <NativeSelectOption value="center">中央</NativeSelectOption>
@@ -408,12 +408,12 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
               <NativeSelect
                 id="appearance-spacing"
                 value={draftAppearance.layout.spacing}
-                onChange={(event) =>
-                  updateLayout(
-                    "spacing",
-                    FormLayoutSchema.shape.spacing.parse(event.target.value),
-                  )
-                }
+                onChange={(event) => {
+                  const result = FormLayoutSchema.shape.spacing.safeParse(
+                    event.target.value,
+                  );
+                  if (result.success) updateLayout("spacing", result.data);
+                }}
                 className="w-full"
               >
                 <NativeSelectOption value="compact">少なめ</NativeSelectOption>
