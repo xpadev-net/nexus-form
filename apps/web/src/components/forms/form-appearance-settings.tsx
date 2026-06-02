@@ -130,6 +130,7 @@ const ColorField: FC<{
         className="h-9 w-14 p-1"
       />
       <Input
+        aria-label={`${label} HEX 値`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={brandConfig.primaryColor}
@@ -213,8 +214,6 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
       );
     },
     onSuccess: async () => {
-      setIsDirty(false);
-      toast.success("外観設定を保存しました");
       await Promise.all([
         queryClient.invalidateQueries({
           queryKey: formAppearanceStructureQueryKey(formId),
@@ -224,6 +223,8 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
           queryKey: unpublishedChangesQueryKey(formId),
         }),
       ]);
+      setIsDirty(false);
+      toast.success("外観設定を保存しました");
     },
     onError: (error) => {
       toast.error(

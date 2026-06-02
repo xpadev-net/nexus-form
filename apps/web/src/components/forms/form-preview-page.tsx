@@ -19,10 +19,8 @@ import { client, rpc } from "@/lib/api";
 import { formatJapanDate } from "@/lib/formatters";
 import { decodePrefillData } from "@/lib/forms/prefill";
 import { FormAppearanceSchema } from "@/types/validation/form";
+import { formAppearanceStructureQueryKey } from "./form-appearance-settings";
 import { FormBody } from "./form-body";
-
-const formPreviewAppearanceStructureQueryKey = (formId: string) =>
-  ["formStructure", "appearance", formId] as const;
 
 export function FormPreviewPage() {
   const { id } = useParams({ from: "/forms/preview/$id" });
@@ -51,7 +49,7 @@ export function FormPreviewPage() {
   });
 
   const structureQuery = useQuery({
-    queryKey: formPreviewAppearanceStructureQueryKey(id),
+    queryKey: formAppearanceStructureQueryKey(id),
     queryFn: () =>
       rpc(client.api.forms[":id"].structure.$get({ param: { id } })),
   });
@@ -64,8 +62,15 @@ export function FormPreviewPage() {
     typeof selectedVersion === "number" ? selectedVersion : null,
   );
 
-  const isLoading = formQuery.isLoading || contentQuery.isLoading;
-  const error = formQuery.error || contentQuery.error;
+  const isLatestPreview = selectedVersion === "latest";
+  const isLoading =
+    formQuery.isLoading ||
+    contentQuery.isLoading ||
+    (isLatestPreview && structureQuery.isLoading);
+  const error =
+    formQuery.error ||
+    contentQuery.error ||
+    (isLatestPreview ? structureQuery.error : null);
 
   usePageTitle(
     formQuery.data?.form?.title

@@ -77,11 +77,21 @@ function contrastTextColor(hexColor: string): string {
           .join("")}`
       : hexColor;
   const value = Number.parseInt(expanded.slice(1), 16);
-  const red = (value >> 16) & 255;
-  const green = (value >> 8) & 255;
-  const blue = value & 255;
+  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(
+    (channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.03928
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    },
+  );
+  const red = channels[0] ?? 0;
+  const green = channels[1] ?? 0;
+  const blue = channels[2] ?? 0;
   const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-  return luminance > 150 ? "black" : "white";
+  const blackContrast = (luminance + 0.05) / 0.05;
+  const whiteContrast = 1.05 / (luminance + 0.05);
+  return blackContrast >= whiteContrast ? "black" : "white";
 }
 
 function formBodyStyle(appearance: FormAppearance): FormBodyStyle {
@@ -100,7 +110,8 @@ function formBodyStyle(appearance: FormAppearance): FormBodyStyle {
 }
 
 function backgroundImageStyle(url: string): BackgroundImageStyle {
-  return { backgroundImage: `url(${url})` };
+  const escapedUrl = url.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return { backgroundImage: `url("${escapedUrl}")` };
 }
 
 function formWidthClass(width: FormAppearance["layout"]["width"]): string {
