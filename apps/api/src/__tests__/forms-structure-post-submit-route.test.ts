@@ -450,6 +450,70 @@ describe("forms structure post-submit settings", () => {
     );
   });
 
+  it("removes supplemental link and contact when post-submit PATCH sends null", async () => {
+    mocks.getFormStructure.mockResolvedValueOnce({
+      ...currentStructure,
+      confirmation: {
+        ...currentStructure.confirmation,
+        supplemental_link: {
+          label: "Old guide",
+          url: "https://example.com/old-guide",
+        },
+        contact: {
+          label: "Old support",
+          email: "old-support@example.com",
+        },
+      },
+    });
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request(
+      "/form-1/structure/post-submit",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          confirmation: {
+            title: "Keep title",
+            message: "Keep message",
+            supplemental_link: null,
+            contact: null,
+          },
+          notifications: {
+            on_submit: {},
+          },
+        }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const savedStructure = mocks.saveFormStructure.mock.calls[0]?.[1];
+    expect(savedStructure).toEqual(
+      expect.objectContaining({
+        confirmation: expect.objectContaining({
+          title: "Keep title",
+          message: "Keep message",
+          redirect_url: "https://example.com/after",
+          show_response_summary: true,
+          allow_edit_link: true,
+        }),
+      }),
+    );
+    if (
+      !savedStructure ||
+      typeof savedStructure !== "object" ||
+      !("confirmation" in savedStructure) ||
+      !savedStructure.confirmation ||
+      typeof savedStructure.confirmation !== "object"
+    ) {
+      throw new Error("confirmation was not saved");
+    }
+    expect(
+      Object.hasOwn(savedStructure.confirmation, "supplemental_link"),
+    ).toBe(false);
+    expect(Object.hasOwn(savedStructure.confirmation, "contact")).toBe(false);
+  });
+
   it("rejects invalid webhook URLs before saving", async () => {
     const { formsStructureRouter } = await import("../routes/forms-structure");
 

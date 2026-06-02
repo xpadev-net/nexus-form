@@ -308,6 +308,43 @@ describe("FormPostSubmitSettings", () => {
     act(() => root.unmount());
   });
 
+  it("sends null when saved supplemental link and contact values are cleared", async () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-link-label"),
+      "",
+    );
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-link-url"),
+      "",
+    );
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#post-submit-contact-email"),
+      "",
+    );
+    submit(
+      container.querySelector<HTMLFormElement>("#form-post-submit-settings"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const patchPayload = mocks.patchPostSubmitRequest.mock.calls[0]?.[0];
+    expect(patchPayload).toMatchObject({
+      json: {
+        confirmation: {
+          supplemental_link: null,
+          contact: null,
+        },
+      },
+    });
+
+    act(() => root.unmount());
+  });
+
   it("saves post-submit settings with the dedicated patch endpoint", async () => {
     const container = document.createElement("div");
     const root = renderSettings(container);
@@ -388,9 +425,9 @@ describe("FormPostSubmitSettings", () => {
     });
     expect(patchPayload).toMatchObject({
       json: {
-        confirmation: expect.not.objectContaining({
-          contact: expect.anything(),
-        }),
+        confirmation: {
+          contact: null,
+        },
       },
     });
     expect(patchPayload).toMatchObject({

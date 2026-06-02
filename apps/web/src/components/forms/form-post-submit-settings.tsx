@@ -57,10 +57,17 @@ interface PostSubmitDraft {
   webhookRetryAttempts: number;
 }
 
-const PostSubmitConfirmationPayloadSchema = FormConfirmationSchema.omit({
+const PostSubmitConfirmationBasePayloadSchema = FormConfirmationSchema.omit({
   show_response_summary: true,
   allow_edit_link: true,
 });
+
+const PostSubmitConfirmationPayloadSchema =
+  PostSubmitConfirmationBasePayloadSchema.extend({
+    supplemental_link:
+      PostSubmitConfirmationBasePayloadSchema.shape.supplemental_link.nullable(),
+    contact: PostSubmitConfirmationBasePayloadSchema.shape.contact.nullable(),
+  });
 
 interface PostSubmitPayload {
   confirmation: z.infer<typeof PostSubmitConfirmationPayloadSchema>;
@@ -140,11 +147,11 @@ function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
     supplemental_link:
       supplementalLabel || supplementalUrl
         ? { label: supplementalLabel, url: supplementalUrl }
-        : undefined,
+        : null,
     contact:
       contactEmail || contactUrl
         ? { label: contactLabel, email: contactEmail, url: contactUrl }
-        : undefined,
+        : null,
   });
 
   const notifications = FormNotificationsTransportSchema.parse({

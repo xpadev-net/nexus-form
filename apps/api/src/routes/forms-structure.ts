@@ -86,8 +86,10 @@ const postSubmitConfirmationUpdateSchema = z.object({
   title: z.string().min(1).max(120),
   message: z.string().max(2000),
   redirect_url: z.string().url().optional(),
-  supplemental_link: postSubmitSupplementalLinkUpdateSchema.optional(),
-  contact: postSubmitContactUpdateSchema.optional(),
+  supplemental_link: postSubmitSupplementalLinkUpdateSchema
+    .nullable()
+    .optional(),
+  contact: postSubmitContactUpdateSchema.nullable().optional(),
   show_response_summary: z.boolean().optional(),
   allow_edit_link: z.boolean().optional(),
 });
@@ -760,10 +762,20 @@ export const formsStructureRouter = createHonoApp()
               "Invalid post-submit notification settings",
           };
         }
-        const confirmationResult = FormConfirmationSchema.safeParse({
+        const confirmationCandidate = {
           ...currentStructure.confirmation,
           ...payload.confirmation,
-        });
+        };
+        if (payload.confirmation.supplemental_link === null) {
+          delete confirmationCandidate.supplemental_link;
+        }
+        if (payload.confirmation.contact === null) {
+          delete confirmationCandidate.contact;
+        }
+
+        const confirmationResult = FormConfirmationSchema.safeParse(
+          confirmationCandidate,
+        );
         if (!confirmationResult.success) {
           return {
             error:
