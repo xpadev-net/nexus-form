@@ -100,6 +100,7 @@ const ChoiceAnalyticsSchema = z.object({
 /** choice_grid / checkbox_grid のブロック集計。 */
 const GridAnalyticsSchema = z.object({
   grid_type: z.enum(["choice_grid", "checkbox_grid"]),
+  rows: z.array(z.object({ id: z.string(), label: z.string() })),
   columns: z.array(z.object({ id: z.string(), label: z.string() })),
   row_analytics: z.array(
     z.object({
@@ -109,8 +110,23 @@ const GridAnalyticsSchema = z.object({
       ),
     }),
   ),
+  column_analytics: z.array(
+    z.object({
+      column_id: z.string(),
+      column_label: z.string(),
+      row_counts: z.array(
+        z.object({ row_label: z.string(), count: z.number().int() }),
+      ),
+    }),
+  ),
   total_responses: z.number().int(),
   response_rate: z.number(),
+  invalid_responses: z.array(
+    z.object({
+      response_id: z.string(),
+      reason: z.string(),
+    }),
+  ),
 });
 
 /** date ブロックの集計。 */
