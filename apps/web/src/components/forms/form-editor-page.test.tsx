@@ -183,6 +183,9 @@ vi.mock("@/components/forms/form-publish-menu", () => ({
 vi.mock("@/components/forms/form-access-control-settings", () => ({
   FormAccessControlSettings: () => null,
 }));
+vi.mock("@/components/forms/form-appearance-settings", () => ({
+  FormAppearanceSettings: () => null,
+}));
 vi.mock("@/components/forms/form-sharing-section", () => ({
   FormSharingSection: () => null,
 }));

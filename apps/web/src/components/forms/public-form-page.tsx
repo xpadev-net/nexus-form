@@ -21,6 +21,7 @@ import { decodePrefillData } from "@/lib/forms/prefill";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
+import { FormAppearanceSchema } from "@/types/validation/form";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -197,6 +198,12 @@ function PublicFormPageInner() {
     formData?.structure?.settings?.require_fingerprint !== false;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
   const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
+  const appearanceResult = FormAppearanceSchema.safeParse(
+    formData?.structure?.appearance ?? {},
+  );
+  const appearance = appearanceResult.success
+    ? appearanceResult.data
+    : undefined;
 
   const handleCaptchaVerify = useCallback((token: string) => {
     dispatch({ type: "captcha-verified", token });
@@ -380,6 +387,7 @@ function PublicFormPageInner() {
       description={formData.form.description ?? undefined}
       plateContent={formData.plateContent ?? "[]"}
       mode="public"
+      appearance={appearance}
       onSubmitRequest={(data) => void handleSubmitRequest(data)}
       preSubmitSlot={
         hCaptchaBypassEnabled ? null : (

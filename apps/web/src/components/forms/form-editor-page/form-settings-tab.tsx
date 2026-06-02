@@ -1,6 +1,7 @@
 import { Copy, Trash2 } from "lucide-react";
 import type { FC } from "react";
 import { FormAccessControlSettings } from "@/components/forms/form-access-control-settings";
+import { FormAppearanceSettings } from "@/components/forms/form-appearance-settings";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
 import { FormPublicUrlSettings } from "@/components/forms/form-public-url-settings";
 import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integration";
@@ -10,6 +11,9 @@ import { TabsContent } from "@/components/ui/tabs";
 
 export interface FormSettingsTabProps {
   formId: string;
+  formTitle: string;
+  formDescription?: string;
+  plateContent: string;
   isArchived: boolean;
   archiveLoading: boolean;
   onArchive: () => void;
@@ -20,6 +24,9 @@ export interface FormSettingsTabProps {
 
 export const FormSettingsTab: FC<FormSettingsTabProps> = ({
   formId,
+  formTitle,
+  formDescription,
+  plateContent,
   isArchived,
   archiveLoading,
   onArchive,
@@ -29,6 +36,13 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
 }) => {
   return (
     <TabsContent value="settings" className="space-y-4">
+      <FormAppearanceSettings
+        formId={formId}
+        formTitle={formTitle}
+        formDescription={formDescription}
+        plateContent={plateContent}
+      />
+
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <ScheduleManager formId={formId} />
       </section>

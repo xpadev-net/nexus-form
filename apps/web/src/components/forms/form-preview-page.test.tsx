@@ -2,7 +2,7 @@
 
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FormPreviewPage } from "./form-preview-page";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -34,6 +34,32 @@ vi.mock("@tanstack/react-query", () => ({
     if (queryKey[0] === "formContent") {
       return {
         data: { plateContent: "[]", plateContentVersion: 1 },
+        error: null,
+        isLoading: false,
+      };
+    }
+    if (queryKey[0] === "formStructure") {
+      return {
+        data: {
+          structure: {
+            appearance: {
+              theme: {
+                primary_color: "#2563eb",
+                accent_color: "#16a34a",
+                background_color: "#ffffff",
+                font_family: "Inter",
+              },
+              layout: {
+                width: "medium",
+                alignment: "center",
+                spacing: "comfortable",
+                show_progress_bar: true,
+                progress_position: "top",
+                show_question_numbers: true,
+              },
+            },
+          },
+        },
         error: null,
         isLoading: false,
       };

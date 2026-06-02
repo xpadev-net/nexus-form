@@ -18,7 +18,11 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
 import { formatJapanDate } from "@/lib/formatters";
 import { decodePrefillData } from "@/lib/forms/prefill";
+import { FormAppearanceSchema } from "@/types/validation/form";
 import { FormBody } from "./form-body";
+
+const formPreviewAppearanceStructureQueryKey = (formId: string) =>
+  ["formStructure", "appearance", formId] as const;
 
 export function FormPreviewPage() {
   const { id } = useParams({ from: "/forms/preview/$id" });
@@ -44,6 +48,12 @@ export function FormPreviewPage() {
   const contentQuery = useQuery({
     queryKey: ["formContent", id],
     queryFn: () => rpc(client.api.forms[":id"].content.$get({ param: { id } })),
+  });
+
+  const structureQuery = useQuery({
+    queryKey: formPreviewAppearanceStructureQueryKey(id),
+    queryFn: () =>
+      rpc(client.api.forms[":id"].structure.$get({ param: { id } })),
   });
 
   const { snapshotsQuery } = useSnapshots(id);
@@ -95,6 +105,13 @@ export function FormPreviewPage() {
     selectedVersion === "latest"
       ? (contentQuery.data?.plateContent ?? "[]")
       : (snapshotContentQuery.data?.plateContent ?? null);
+  const latestAppearanceResult = FormAppearanceSchema.safeParse(
+    structureQuery.data?.structure?.appearance ?? {},
+  );
+  const previewAppearance =
+    selectedVersion === "latest" && latestAppearanceResult.success
+      ? latestAppearanceResult.data
+      : undefined;
 
   const isSnapshotLoading =
     typeof selectedVersion === "number" &&
@@ -195,6 +212,7 @@ export function FormPreviewPage() {
             description={form?.description ?? undefined}
             plateContent={plateContent ?? "[]"}
             mode="preview"
+            appearance={previewAppearance}
             onSubmitRequest={handlePreviewSubmit}
             error={previewError}
             onErrorChange={setPreviewError}

@@ -1,0 +1,494 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Laptop, Palette, Save, Smartphone } from "lucide-react";
+import { type FC, type FormEvent, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  NativeSelect,
+  NativeSelectOption,
+} from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
+import {
+  formDiffQueryKey,
+  unpublishedChangesQueryKey,
+} from "@/hooks/forms/form-structure-query-keys";
+import { client, rpc } from "@/lib/api";
+import { brandConfig } from "@/lib/brand-config";
+import { cn } from "@/lib/utils";
+import {
+  type FormAppearance,
+  FormAppearanceSchema,
+  type FormLayout,
+  FormLayoutSchema,
+  type FormTheme,
+} from "@/types/validation/form";
+import { FormBody } from "./form-body";
+
+export const formAppearanceStructureQueryKey = (formId: string) =>
+  ["formStructure", "appearance", formId] as const;
+
+type PreviewViewport = "mobile" | "desktop";
+
+interface FormAppearanceSettingsProps {
+  formId: string;
+  formTitle: string;
+  formDescription?: string;
+  plateContent: string;
+}
+
+function emptyToUndefined(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
+function parseAppearance(value: unknown): FormAppearance {
+  const result = FormAppearanceSchema.safeParse(value ?? {});
+  return result.success ? result.data : FormAppearanceSchema.parse({});
+}
+
+function expandHex(hexColor: string): string | null {
+  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hexColor)) {
+    return null;
+  }
+  if (hexColor.length === 7) return hexColor;
+  return `#${hexColor
+    .slice(1)
+    .split("")
+    .map((char) => `${char}${char}`)
+    .join("")}`;
+}
+
+function relativeLuminance(hexColor: string): number | null {
+  const expanded = expandHex(hexColor);
+  if (!expanded) return null;
+  const value = Number.parseInt(expanded.slice(1), 16);
+  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(
+    (channel) => {
+      const normalized = channel / 255;
+      return normalized <= 0.03928
+        ? normalized / 12.92
+        : ((normalized + 0.055) / 1.055) ** 2.4;
+    },
+  );
+  const red = channels[0] ?? 0;
+  const green = channels[1] ?? 0;
+  const blue = channels[2] ?? 0;
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string): number | null {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  if (foregroundLuminance === null || backgroundLuminance === null) {
+    return null;
+  }
+  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
+  const darker = Math.min(foregroundLuminance, backgroundLuminance);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function colorWarnings(appearance: FormAppearance): string[] {
+  const { theme } = appearance;
+  const checks = [
+    {
+      label: "テーマ色",
+      ratio: contrastRatio(theme.primary_color, theme.background_color),
+      minimum: 4.5,
+    },
+    {
+      label: "アクセント色",
+      ratio: contrastRatio(theme.accent_color, theme.background_color),
+      minimum: 3,
+    },
+  ];
+
+  return checks
+    .filter((check) => check.ratio !== null && check.ratio < check.minimum)
+    .map(
+      (check) =>
+        `${check.label}と背景色のコントラストが ${check.minimum}:1 未満です。`,
+    );
+}
+
+const ColorField: FC<{
+  id: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}> = ({ id, label, value, onChange }) => (
+  <div className="space-y-2">
+    <Label htmlFor={id}>{label}</Label>
+    <div className="flex gap-2">
+      <Input
+        id={id}
+        type="color"
+        value={expandHex(value) ?? brandConfig.primaryColor}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 w-14 p-1"
+      />
+      <Input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={brandConfig.primaryColor}
+        className="font-mono"
+      />
+    </div>
+  </div>
+);
+
+export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
+  formId,
+  formTitle,
+  formDescription,
+  plateContent,
+}) => {
+  const queryClient = useQueryClient();
+  const [draftAppearance, setDraftAppearance] = useState<FormAppearance>(() =>
+    FormAppearanceSchema.parse({}),
+  );
+  const [isDirty, setIsDirty] = useState(false);
+  const [previewViewport, setPreviewViewport] =
+    useState<PreviewViewport>("desktop");
+
+  const structureQuery = useQuery({
+    queryKey: formAppearanceStructureQueryKey(formId),
+    queryFn: () =>
+      rpc(client.api.forms[":id"].structure.$get({ param: { id: formId } })),
+    enabled: !!formId,
+  });
+
+  const savedAppearance = useMemo(
+    () => parseAppearance(structureQuery.data?.structure?.appearance),
+    [structureQuery.data],
+  );
+
+  useEffect(() => {
+    if (isDirty) return;
+    setDraftAppearance(savedAppearance);
+  }, [isDirty, savedAppearance]);
+
+  const updateTheme = <Key extends keyof FormTheme>(
+    key: Key,
+    value: FormTheme[Key],
+  ) => {
+    setIsDirty(true);
+    setDraftAppearance((current) => ({
+      ...current,
+      theme: { ...current.theme, [key]: value },
+    }));
+  };
+
+  const updateLayout = <Key extends keyof FormLayout>(
+    key: Key,
+    value: FormLayout[Key],
+  ) => {
+    setIsDirty(true);
+    setDraftAppearance((current) => ({
+      ...current,
+      layout: { ...current.layout, [key]: value },
+    }));
+  };
+
+  const saveMutation = useMutation({
+    mutationFn: async (appearance: FormAppearance) => {
+      const current = await rpc(
+        client.api.forms[":id"].structure.$get({ param: { id: formId } }),
+      );
+      const currentStructure = current.structure;
+      const parsed = FormAppearanceSchema.parse(appearance);
+      return rpc(
+        client.api.forms[":id"].structure.$put({
+          param: { id: formId },
+          json: {
+            structure: {
+              ...currentStructure,
+              appearance: parsed,
+            },
+            changeLog: "Update appearance settings",
+          },
+        }),
+      );
+    },
+    onSuccess: async () => {
+      setIsDirty(false);
+      toast.success("外観設定を保存しました");
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: formAppearanceStructureQueryKey(formId),
+        }),
+        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
+        queryClient.invalidateQueries({
+          queryKey: unpublishedChangesQueryKey(formId),
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "外観設定の保存に失敗しました",
+      );
+    },
+  });
+
+  const warnings = colorWarnings(draftAppearance);
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    saveMutation.mutate(draftAppearance);
+  };
+
+  return (
+    <section className="rounded-lg border bg-card p-6 shadow-sm">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <Palette className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold">外観</h2>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            質問番号、テーマ、ブランド、余白とレイアウトをまとめて調整します。
+          </p>
+        </div>
+        <Button
+          type="submit"
+          form="form-appearance-settings"
+          disabled={saveMutation.isPending || !structureQuery.data}
+          size="sm"
+        >
+          <Save className="h-4 w-4" />
+          {saveMutation.isPending ? "保存中..." : "保存"}
+        </Button>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)]">
+        <form
+          id="form-appearance-settings"
+          className="space-y-5"
+          onSubmit={handleSubmit}
+        >
+          <div className="grid gap-4 md:grid-cols-3">
+            <ColorField
+              id="appearance-primary-color"
+              label="テーマ色"
+              value={draftAppearance.theme.primary_color}
+              onChange={(value) => updateTheme("primary_color", value)}
+            />
+            <ColorField
+              id="appearance-accent-color"
+              label="アクセント色"
+              value={draftAppearance.theme.accent_color}
+              onChange={(value) => updateTheme("accent_color", value)}
+            />
+            <ColorField
+              id="appearance-background-color"
+              label="背景色"
+              value={draftAppearance.theme.background_color}
+              onChange={(value) => updateTheme("background_color", value)}
+            />
+          </div>
+
+          {warnings.length > 0 ? (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>配色の警告</AlertTitle>
+              <AlertDescription>
+                {warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="appearance-brand-name">ブランド名</Label>
+              <Input
+                id="appearance-brand-name"
+                value={draftAppearance.theme.brand_name ?? ""}
+                onChange={(event) =>
+                  updateTheme(
+                    "brand_name",
+                    emptyToUndefined(event.target.value),
+                  )
+                }
+                placeholder="Nexus Form"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="appearance-font-family">フォント</Label>
+              <NativeSelect
+                id="appearance-font-family"
+                value={draftAppearance.theme.font_family}
+                onChange={(event) =>
+                  updateTheme("font_family", event.target.value)
+                }
+                className="w-full"
+              >
+                <NativeSelectOption value="Inter">Inter</NativeSelectOption>
+                <NativeSelectOption value="system-ui">
+                  System UI
+                </NativeSelectOption>
+                <NativeSelectOption value="serif">Serif</NativeSelectOption>
+                <NativeSelectOption value="monospace">
+                  Monospace
+                </NativeSelectOption>
+              </NativeSelect>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="appearance-logo-url">ロゴ URL</Label>
+              <Input
+                id="appearance-logo-url"
+                type="url"
+                value={draftAppearance.theme.logo_url ?? ""}
+                onChange={(event) =>
+                  updateTheme("logo_url", emptyToUndefined(event.target.value))
+                }
+                placeholder="https://example.com/logo.png"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="appearance-cover-image-url">カバー画像 URL</Label>
+              <Input
+                id="appearance-cover-image-url"
+                type="url"
+                value={draftAppearance.theme.cover_image_url ?? ""}
+                onChange={(event) =>
+                  updateTheme(
+                    "cover_image_url",
+                    emptyToUndefined(event.target.value),
+                  )
+                }
+                placeholder="https://example.com/cover.jpg"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="appearance-width">幅</Label>
+              <NativeSelect
+                id="appearance-width"
+                value={draftAppearance.layout.width}
+                onChange={(event) =>
+                  updateLayout(
+                    "width",
+                    FormLayoutSchema.shape.width.parse(event.target.value),
+                  )
+                }
+                className="w-full"
+              >
+                <NativeSelectOption value="compact">
+                  コンパクト
+                </NativeSelectOption>
+                <NativeSelectOption value="medium">標準</NativeSelectOption>
+                <NativeSelectOption value="full">全幅</NativeSelectOption>
+              </NativeSelect>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="appearance-alignment">配置</Label>
+              <NativeSelect
+                id="appearance-alignment"
+                value={draftAppearance.layout.alignment}
+                onChange={(event) =>
+                  updateLayout(
+                    "alignment",
+                    FormLayoutSchema.shape.alignment.parse(event.target.value),
+                  )
+                }
+                className="w-full"
+              >
+                <NativeSelectOption value="center">中央</NativeSelectOption>
+                <NativeSelectOption value="left">左寄せ</NativeSelectOption>
+              </NativeSelect>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="appearance-spacing">余白</Label>
+              <NativeSelect
+                id="appearance-spacing"
+                value={draftAppearance.layout.spacing}
+                onChange={(event) =>
+                  updateLayout(
+                    "spacing",
+                    FormLayoutSchema.shape.spacing.parse(event.target.value),
+                  )
+                }
+                className="w-full"
+              >
+                <NativeSelectOption value="compact">少なめ</NativeSelectOption>
+                <NativeSelectOption value="comfortable">
+                  標準
+                </NativeSelectOption>
+                <NativeSelectOption value="spacious">広め</NativeSelectOption>
+              </NativeSelect>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <Label htmlFor="appearance-question-numbers">質問番号</Label>
+              <p className="mt-1 text-sm text-muted-foreground">
+                公開フォームとプレビューに Q1, Q2 の番号を表示します。
+              </p>
+            </div>
+            <Switch
+              id="appearance-question-numbers"
+              checked={draftAppearance.layout.show_question_numbers}
+              onCheckedChange={(checked) =>
+                updateLayout("show_question_numbers", checked)
+              }
+            />
+          </div>
+
+          <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
+            保存済みの外観は次回公開時に `structure.appearance` として公開
+            snapshot に含まれます。未保存の入力と右側の表示幅切替は snapshot
+            には含まれません。
+          </div>
+        </form>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">ライブプレビュー</p>
+            <div className="flex rounded-md border p-1">
+              <Button
+                type="button"
+                variant={previewViewport === "mobile" ? "secondary" : "ghost"}
+                size="icon-sm"
+                aria-label="モバイル幅でプレビュー"
+                onClick={() => setPreviewViewport("mobile")}
+              >
+                <Smartphone className="h-4 w-4" />
+              </Button>
+              <Button
+                type="button"
+                variant={previewViewport === "desktop" ? "secondary" : "ghost"}
+                size="icon-sm"
+                aria-label="デスクトップ幅でプレビュー"
+                onClick={() => setPreviewViewport("desktop")}
+              >
+                <Laptop className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div
+            className={cn(
+              "overflow-hidden rounded-lg border bg-background",
+              previewViewport === "mobile" ? "mx-auto max-w-[390px]" : "w-full",
+            )}
+            data-preview-viewport={previewViewport}
+          >
+            <FormBody
+              title={formTitle}
+              description={formDescription}
+              plateContent={plateContent}
+              mode="preview"
+              appearance={draftAppearance}
+              success="これはプレビューです。回答は保存されません。"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
