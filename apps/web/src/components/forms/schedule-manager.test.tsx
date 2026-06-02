@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScheduleManager } from "./schedule-manager";
 
@@ -11,6 +12,7 @@ import { ScheduleManager } from "./schedule-manager";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  clipboardWriteText: vi.fn<Clipboard["writeText"]>(),
   schedulesRefetch: vi.fn(),
   snapshotsRefetch: vi.fn(),
   schedulesQuery: {
@@ -159,6 +161,13 @@ vi.mock("@/lib/api", () => ({
 describe("ScheduleManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.clipboardWriteText.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: mocks.clipboardWriteText,
+      } satisfies Pick<Clipboard, "writeText">,
+    });
     mocks.schedulesQuery = {
       data: undefined,
       error: null,
@@ -296,7 +305,7 @@ describe("ScheduleManager", () => {
     act(() => root.unmount());
   });
 
-  it("labels pending, completed, failed, and cancelled schedules with recovery actions", () => {
+  it("labels pending, completed, failed, and cancelled schedules with recovery actions", async () => {
     const timestamp = "2026-06-01T00:00:00.000Z";
     mocks.snapshotsQuery = {
       ...mocks.snapshotsQuery,
@@ -378,7 +387,7 @@ describe("ScheduleManager", () => {
     expect(container.textContent).toContain("失敗");
     expect(container.textContent).toContain("取消済み");
     expect(container.textContent).toContain(
-      "切り替え先のスナップショットを確認できません。再実行するか、管理ログで詳細を確認してください。",
+      "切り替え先のスナップショットを確認できません。再実行するか、管理ログで scheduleId=failed-schedule を検索してください。",
     );
     expect(
       container.querySelector('button[aria-label="再実行"]'),
@@ -386,6 +395,19 @@ describe("ScheduleManager", () => {
     expect(
       container.querySelector('button[aria-label="ログ確認"]'),
     ).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector('button[aria-label="ログ確認"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith(
+      "scheduleId=failed-schedule",
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      "管理ログ検索キーをコピーしました: scheduleId=failed-schedule",
+    );
 
     act(() => {
       container

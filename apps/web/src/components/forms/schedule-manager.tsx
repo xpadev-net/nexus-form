@@ -183,6 +183,10 @@ function getDisplayStatus(
   return entry.status;
 }
 
+function getScheduleLogLookupKey(entry: ScheduleEntry) {
+  return `scheduleId=${entry.id}`;
+}
+
 function StatusIcon({ status }: { status: DisplayScheduleStatus }) {
   const className = `h-4 w-4 shrink-0 ${STATUS_ICON_CLASSES[status]}`;
 
@@ -508,8 +512,15 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
     });
   }, []);
 
-  const handleShowLogs = useCallback((entry: ScheduleEntry) => {
-    toast.warning(`管理ログで scheduleId=${entry.id} を確認してください`);
+  const handleShowLogs = useCallback(async (entry: ScheduleEntry) => {
+    const lookupKey = getScheduleLogLookupKey(entry);
+
+    try {
+      await navigator.clipboard.writeText(lookupKey);
+      toast.success(`管理ログ検索キーをコピーしました: ${lookupKey}`);
+    } catch {
+      toast.warning(`管理ログで ${lookupKey} を検索してください`);
+    }
   }, []);
 
   const renderSchedule = (entry: ScheduleEntry) => {
@@ -556,7 +567,11 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
           ) : null}
           {displayStatus === "FAILED" ? (
             <p className="text-xs text-destructive">
-              切り替え先のスナップショットを確認できません。再実行するか、管理ログで詳細を確認してください。
+              切り替え先のスナップショットを確認できません。再実行するか、管理ログで{" "}
+              <span className="font-mono">
+                {getScheduleLogLookupKey(entry)}
+              </span>{" "}
+              を検索してください。
             </p>
           ) : null}
         </div>
@@ -597,7 +612,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
               size="icon"
               variant="ghost"
               className="h-7 w-7"
-              onClick={() => handleShowLogs(entry)}
+              onClick={() => void handleShowLogs(entry)}
               aria-label="ログ確認"
             >
               <FileSearch className="h-3.5 w-3.5" />
