@@ -87,6 +87,9 @@ export function FormEditorPage() {
 
       <FormSettingsTab
         formId={id}
+        formTitle={model.formData?.title ?? "フォーム"}
+        formDescription={model.formData?.description ?? undefined}
+        plateContent={model.draftContent ?? model.plateContent}
         isArchived={model.formStatus === "ARCHIVED"}
         archiveLoading={model.isArchivePending}
         duplicateLoading={model.isDuplicatePending}

@@ -19,7 +19,10 @@ import {
   type FormStructure as FormStructureType,
 } from "../types/domain/form";
 import { isoDate } from "../types/domain/iso-date";
-import { StoredLogicRuleSchema } from "../types/validation/form";
+import {
+  FormAppearanceSchema,
+  StoredLogicRuleSchema,
+} from "../types/validation/form";
 import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
 const structureUpdateSchema = z.object({
@@ -45,6 +48,10 @@ const accessControlUpdateSchema = z.object({
     password: z.string().min(8).optional(),
     password_hint: z.string().max(200).optional(),
   }),
+});
+
+const appearanceUpdateSchema = z.object({
+  appearance: FormAppearanceSchema,
 });
 
 const logicUpdateSchema = z.object({
@@ -344,6 +351,45 @@ export const formsStructureRouter = createHonoApp()
           },
           resolveAuditUserId(auth.user_id),
           "Update logic rules",
+        );
+      }).catch((error) => {
+        if (error instanceof FormStructureNotFoundError) {
+          return null;
+        }
+        throw error;
+      });
+
+      if (!result) {
+        return c.json(formStructureError("Form structure not found"), 404);
+      }
+
+      return c.json(
+        FormStructureVersionResponseSchema.parse({ structure: result }),
+      );
+    },
+  )
+  .patch(
+    "/:id/structure/appearance",
+    withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
+    zValidator("json", appearanceUpdateSchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
+      const payload = c.req.valid("json");
+
+      const result = await withFormStructureMutationLock(formId, async () => {
+        const currentStructure = await getFormStructure(formId);
+
+        return saveFormStructure(
+          formId,
+          {
+            ...currentStructure,
+            appearance: payload.appearance,
+          },
+          resolveAuditUserId(auth.user_id),
+          "Update appearance settings",
         );
       }).catch((error) => {
         if (error instanceof FormStructureNotFoundError) {

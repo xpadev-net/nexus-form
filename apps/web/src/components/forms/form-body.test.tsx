@@ -9,6 +9,7 @@ import {
   type AnswerEntry,
   FormResponseProvider,
 } from "@/contexts/form-response-context";
+import type { FormAppearance } from "@/types/validation/form";
 import type { FormSubmitRequestData } from "./form-body";
 import { FormBody } from "./form-body";
 
@@ -66,6 +67,7 @@ function renderFormBody(
   container: HTMLElement,
   plateContent: string,
   options: {
+    appearance?: FormAppearance;
     captchaReady?: boolean;
     initialAnswers?: ReadonlyMap<string, AnswerEntry>;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
@@ -79,6 +81,7 @@ function renderFormBody(
           title="公開フォーム"
           plateContent={plateContent}
           mode="public"
+          appearance={options.appearance}
           captchaReady={options.captchaReady}
           onSubmitRequest={options.onSubmitRequest}
         />
@@ -180,6 +183,27 @@ function publicQuestionFixturePlateContent(): string {
   ]);
 }
 
+function appearanceWithQuestionNumbers(
+  showQuestionNumbers: boolean,
+): FormAppearance {
+  return {
+    theme: {
+      primary_color: "#2563eb",
+      accent_color: "#16a34a",
+      background_color: "#ffffff",
+      font_family: "Inter",
+    },
+    layout: {
+      width: "compact",
+      alignment: "left",
+      spacing: "compact",
+      show_progress_bar: true,
+      progress_position: "top",
+      show_question_numbers: showQuestionNumbers,
+    },
+  };
+}
+
 describe("FormBody", () => {
   beforeEach(() => {
     plateViewerValues.length = 0;
@@ -214,7 +238,97 @@ describe("FormBody", () => {
         children: [{ type: "p", children: [{ text: "氏名" }] }],
       },
     ]);
+    expect(renderedValue).not.toContain("Q1.");
+    expect(
+      container.querySelector("[data-form-question-numbers='hidden']"),
+    ).not.toBeNull();
     expect(container.textContent).not.toContain('text":"/"');
+
+    act(() => root.unmount());
+  });
+
+  it("hides question numbers when appearance disables them", () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "question-1", "氏名", {
+          required: false,
+        }),
+      ]),
+      {
+        appearance: appearanceWithQuestionNumbers(false),
+      },
+    );
+
+    const renderedValue = plateViewerValues.at(-1);
+    expect(renderedValue).toBeDefined();
+    expect(renderedValue).not.toContain("Q1.");
+    expect(
+      container
+        .querySelector<HTMLElement>("[data-form-appearance-width='compact']")
+        ?.style.getPropertyValue("--primary-foreground"),
+    ).toBe("white");
+    expect(
+      container.querySelector("[data-form-question-numbers='hidden']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-form-appearance-width='compact']"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("adds global question numbers to nested public questions", () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        {
+          type: "column_group",
+          children: [
+            {
+              type: "column",
+              children: [
+                questionNode(
+                  "short_text",
+                  "nested-question",
+                  "Nested question",
+                  {
+                    required: false,
+                  },
+                ),
+              ],
+            },
+          ],
+        },
+      ]),
+      { appearance: appearanceWithQuestionNumbers(true) },
+    );
+
+    const renderedValue = plateViewerValues.at(-1);
+    expect(renderedValue).toBeDefined();
+    expect(JSON.parse(renderedValue ?? "[]")).toEqual([
+      {
+        type: "column_group",
+        children: [
+          {
+            type: "column",
+            children: [
+              {
+                type: "form_short_text",
+                blockId: "nested-question",
+                validation: { required: false },
+                children: [
+                  { type: "p", children: [{ bold: true, text: "Q1. " }] },
+                  { type: "p", children: [{ text: "Nested question" }] },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
 
     act(() => root.unmount());
   });
@@ -378,6 +492,7 @@ describe("FormBody", () => {
 
     const container = document.createElement("div");
     const root = renderFormBody(container, plateContent, {
+      appearance: appearanceWithQuestionNumbers(true),
       captchaReady: true,
     });
 
@@ -400,6 +515,8 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("Next page");
     expect(container.textContent).toContain("2 / 2");
     expect(container.textContent).not.toContain("必須項目が未入力です");
+    expect(plateViewerValues.at(-1)).toContain("Q2.");
+    expect(plateViewerValues.at(-1)).not.toContain("Q1.");
 
     act(() => root.unmount());
   });

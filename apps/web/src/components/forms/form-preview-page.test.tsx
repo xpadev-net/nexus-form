@@ -2,8 +2,31 @@
 
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FormPreviewPage } from "./form-preview-page";
+
+const mockAppearance = vi.hoisted(() => ({
+  theme: {
+    primary_color: "#2563eb",
+    accent_color: "#16a34a",
+    background_color: "#ffffff",
+    font_family: "Inter",
+  },
+  layout: {
+    width: "medium",
+    alignment: "center",
+    spacing: "comfortable",
+    show_progress_bar: true,
+    progress_position: "top",
+    show_question_numbers: true,
+  },
+}));
+const formBodyProps = vi.hoisted(
+  () =>
+    [] as Array<{
+      appearance?: unknown;
+    }>,
+);
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -38,6 +61,17 @@ vi.mock("@tanstack/react-query", () => ({
         isLoading: false,
       };
     }
+    if (queryKey[0] === "formStructure") {
+      return {
+        data: {
+          structure: {
+            appearance: mockAppearance,
+          },
+        },
+        error: null,
+        isLoading: false,
+      };
+    }
     return {
       data: {
         form: {
@@ -58,7 +92,10 @@ vi.mock("@/components/forms/form-status-badge", () => ({
   FormStatusBadge: () => <span data-testid="status-badge" />,
 }));
 vi.mock("@/components/forms/form-body", () => ({
-  FormBody: () => <main data-testid="form-body" />,
+  FormBody: (props: { appearance?: unknown }) => {
+    formBodyProps.push(props);
+    return <main data-testid="form-body" />;
+  },
 }));
 vi.mock("@/contexts/form-response-context", () => ({
   FormResponseProvider: ({ children }: { children: ReactNode }) => (
@@ -88,6 +125,7 @@ vi.mock("@/lib/api", () => ({
 
 describe("FormPreviewPage links", () => {
   it("renders preview navigation links without nested buttons", () => {
+    formBodyProps.length = 0;
     const html = renderToStaticMarkup(<FormPreviewPage />);
 
     expect(html).not.toContain("<button");
@@ -96,5 +134,13 @@ describe("FormPreviewPage links", () => {
     expect(html).toContain('href="/forms/public/public-1"');
     expect(html).toContain('href="/forms/form-1/edit"');
     expect(html).toContain('target="_blank"');
+  });
+
+  it("passes latest structure appearance to FormBody", () => {
+    formBodyProps.length = 0;
+
+    renderToStaticMarkup(<FormPreviewPage />);
+
+    expect(formBodyProps.at(-1)?.appearance).toEqual(mockAppearance);
   });
 });
