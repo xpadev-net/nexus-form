@@ -25,6 +25,10 @@ import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import {
+  addDisplayLabelsToResponseDataJson,
+  buildResponseLabelLookupFromQuestions,
+} from "../lib/forms/response-choice-labels";
+import {
   buildResponseExportRecords,
   formatRecordsToCsv,
 } from "../lib/forms/response-export";
@@ -1140,18 +1144,50 @@ export const formsResponsesRouter = createHonoApp()
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");
-    const [response] = await db
-      .select()
+    const [result] = await db
+      .select({
+        response: {
+          id: formResponse.id,
+          formId: formResponse.formId,
+          responseDataJson: formResponse.responseDataJson,
+          submittedAt: formResponse.submittedAt,
+          updatedAt: formResponse.updatedAt,
+          respondentUuid: formResponse.respondentUuid,
+          userAgent: formResponse.userAgent,
+          sessionId: formResponse.sessionId,
+          countryCode: formResponse.countryCode,
+        },
+        plateContent: form.plateContent,
+      })
       .from(formResponse)
+      .innerJoin(form, eq(form.id, formResponse.formId))
       .where(
         and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
       )
       .limit(1);
-    if (!response) return c.json(errorResponse("Response not found"), 404);
+    if (!result) return c.json(errorResponse("Response not found"), 404);
+
+    const { response, plateContent } = result;
+    const questions = plateContent
+      ? buildQuestionsFromPlateContent(plateContent)
+      : [];
+    const responseDataJsonWithLabels =
+      questions.length > 0
+        ? addDisplayLabelsToResponseDataJson(
+            response.responseDataJson,
+            buildResponseLabelLookupFromQuestions(questions),
+          )
+        : null;
+    const displayResponse = responseDataJsonWithLabels
+      ? { ...response, responseDataJson: responseDataJsonWithLabels }
+      : response;
 
     const externalValidations = await getExternalValidationResults(responseId);
     return c.json(
-      ResponseDetailResponseSchema.parse({ response, externalValidations }),
+      ResponseDetailResponseSchema.parse({
+        response: displayResponse,
+        externalValidations,
+      }),
     );
   })
   .put(

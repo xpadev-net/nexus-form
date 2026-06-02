@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildResponseExportRecords,
   formatRecordsToCsv,
+  mapRecordToSheetRow,
+  type ResponseExportRecord,
 } from "../response-export";
 
 const submittedAt = new Date("2026-05-17T01:00:00.000Z");
@@ -31,7 +33,15 @@ const formBlocks = [
     blockId: "checkbox-block",
     category: "question",
     type: "checkbox",
-    content: { title: "興味", validation: {} },
+    content: {
+      title: "興味",
+      validation: {
+        options: [
+          { id: "ts", label: "TypeScript" },
+          { id: "react", label: "React" },
+        ],
+      },
+    },
   },
   {
     blockId: "grid-block",
@@ -96,7 +106,7 @@ describe("response export", () => {
             {
               question_id: "checkbox-block",
               question_type: "checkbox",
-              values: ["TypeScript", "React"],
+              values: ["ts", "react"],
             },
             {
               question_id: "grid-block",
@@ -134,18 +144,21 @@ describe("response export", () => {
         block_type: "radio",
         question_title: undefined,
         value: "morning",
+        display_value: "午前",
       },
       {
         block_id: "checkbox-block",
         block_type: "checkbox",
         question_title: undefined,
-        value: ["TypeScript", "React"],
+        value: ["ts", "react"],
+        display_value: ["TypeScript", "React"],
       },
       {
         block_id: "grid-block",
         block_type: "choice_grid",
         question_title: undefined,
         value: { monday: "morning" },
+        display_value: "月曜: 午前",
       },
       {
         block_id: "rating-block",
@@ -171,7 +184,7 @@ describe("response export", () => {
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠","興味","参加可能日","満足度","未回答"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","morning","TypeScript, React","{""monday"":""morning""}","5",""',
+      '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","月曜: 午前","5",""',
     );
     expect(csv).not.toContain("区切り");
   });
@@ -191,5 +204,59 @@ describe("response export", () => {
     ).toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
     );
+  });
+
+  it("prefers display labels when mapping records to sheet rows", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-1",
+        form_id: "form-1",
+        respondent_uuid: "respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        ua_uuid: null,
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "choice-block",
+          block_type: "radio",
+          value: "morning",
+          display_value: "午前",
+        },
+        {
+          block_id: "checkbox-block",
+          block_type: "checkbox",
+          value: ["ts", "react"],
+          display_value: ["TypeScript", "React"],
+        },
+        {
+          block_id: "grid-block",
+          block_type: "choice_grid",
+          value: { monday: "morning" },
+          display_value: "月曜: 午前",
+        },
+      ],
+    };
+
+    const newLayoutRow = mapRecordToSheetRow(record, [], blockTitleMap);
+    expect(newLayoutRow.row.slice(-3)).toEqual([
+      "午前",
+      "TypeScript, React",
+      "月曜: 午前",
+    ]);
+
+    const existingLayoutRow = mapRecordToSheetRow(
+      record,
+      newLayoutRow.idRow,
+      blockTitleMap,
+      undefined,
+      newLayoutRow.titleRow,
+    );
+    expect(existingLayoutRow.row.slice(-3)).toEqual([
+      "午前",
+      "TypeScript, React",
+      "月曜: 午前",
+    ]);
   });
 });

@@ -5,7 +5,7 @@ import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { EMPTY_OPTION_LABEL } from "@/lib/constants/form-question";
+import { getChoiceDisplayLabel } from "./choice-labels";
 import {
   AllowOtherEditor,
   ChoiceOptionsEditor,
@@ -46,7 +46,7 @@ export const FormCheckboxElement = withRef<typeof PlateElement>(
   },
 );
 
-function CheckboxInput({ element }: { element: TElement }) {
+export function CheckboxInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -92,18 +92,20 @@ function CheckboxInput({ element }: { element: TElement }) {
       <div className="grid gap-3">
         {options.map((option) => {
           const isChecked = selected.includes(option.id);
+          const label = getChoiceDisplayLabel(option);
           return (
             <div key={option.id} className="flex items-center gap-2">
               <Checkbox
                 id={`${blockId}-${option.id}`}
                 checked={isChecked}
                 disabled={!isChecked && atMax}
+                aria-label={label}
                 onCheckedChange={(checked) =>
                   toggleOption(option.id, checked === true)
                 }
               />
               <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
-                {option.label || EMPTY_OPTION_LABEL}
+                {label}
               </Label>
             </div>
           );
@@ -114,6 +116,7 @@ function CheckboxInput({ element }: { element: TElement }) {
               id={`${blockId}-other`}
               checked={isOtherSelected}
               disabled={!isOtherSelected && atMax}
+              aria-label={otherLabel}
               onCheckedChange={(checked) =>
                 toggleOption("other", checked === true)
               }
