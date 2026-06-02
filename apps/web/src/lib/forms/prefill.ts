@@ -1,6 +1,92 @@
+import type { ExtractedQuestion } from "@nexus-form/shared";
 import type { AnswerEntry } from "@/contexts/form-response-context";
 
 export type PrefillData = Record<string, AnswerEntry>;
+
+export const PREFILL_SUPPORTED_QUESTION_TYPES = [
+  "short_text",
+  "long_text",
+  "radio",
+  "checkbox",
+  "dropdown",
+  "linear_scale",
+  "rating",
+  "date",
+  "time",
+] as const;
+
+export const PREFILL_UNSUPPORTED_QUESTION_TYPES = [
+  "choice_grid",
+  "checkbox_grid",
+] as const;
+
+const PREFILL_QUESTION_TYPE_LABELS: Record<string, string> = {
+  short_text: "短文",
+  long_text: "長文",
+  radio: "ラジオ",
+  checkbox: "チェックボックス",
+  dropdown: "プルダウン",
+  linear_scale: "均等目盛",
+  rating: "評価",
+  choice_grid: "選択グリッド",
+  checkbox_grid: "チェックボックスグリッド",
+  date: "日付",
+  time: "時刻",
+};
+
+interface UnsupportedPrefillGuidance {
+  alternative: string;
+  reason: string;
+}
+
+export interface PrefillQuestionTypeInfo {
+  alternative?: string;
+  label: string;
+  reason?: string;
+  supported: boolean;
+}
+
+const PREFILL_UNSUPPORTED_GUIDANCE: Record<string, UnsupportedPrefillGuidance> =
+  {
+    choice_grid: {
+      reason: "行と列の組み合わせを1つの短いURLで安全に表現しづらいためです。",
+      alternative:
+        "単一選択の設問に分割するか、回答者向けの説明文で事前入力内容を伝えてください。",
+    },
+    checkbox_grid: {
+      reason:
+        "行ごとに複数選択を持つ表形式のため、URL内の初期値が複雑になりやすいためです。",
+      alternative:
+        "チェックボックス設問に分割するか、回答者向けの説明文で事前入力内容を伝えてください。",
+    },
+  };
+
+export function isPrefillSupportedQuestionType(type: string): boolean {
+  return (PREFILL_SUPPORTED_QUESTION_TYPES as readonly string[]).includes(type);
+}
+
+export function getPrefillQuestionTypeLabel(type: string): string {
+  return PREFILL_QUESTION_TYPE_LABELS[type] ?? type;
+}
+
+export function getPrefillQuestionTypeInfo(
+  type: string,
+): PrefillQuestionTypeInfo {
+  const guidance = PREFILL_UNSUPPORTED_GUIDANCE[type];
+  const supported = isPrefillSupportedQuestionType(type);
+  return {
+    alternative:
+      guidance?.alternative ??
+      (supported ? undefined : "通常の設問へ分割してください。"),
+    label: getPrefillQuestionTypeLabel(type),
+    reason:
+      guidance?.reason ??
+      (supported
+        ? undefined
+        : "この質問タイプ用の初期値入力UIがまだ用意されていないためです。"),
+    supported,
+  };
+}
 
 export function isEntryEmpty(entry: AnswerEntry): boolean {
   return (
@@ -10,6 +96,40 @@ export function isEntryEmpty(entry: AnswerEntry): boolean {
     entry.other_value === undefined &&
     entry.other_values === undefined
   );
+}
+
+export function filterPrefillDataForSupportedQuestions(
+  questions: ExtractedQuestion[],
+  data: PrefillData,
+): PrefillData {
+  const supportedQuestionIds = new Set(
+    questions
+      .filter((question) => isPrefillSupportedQuestionType(question.type))
+      .map((question) => question.blockId),
+  );
+  const filtered: PrefillData = {};
+
+  for (const [questionId, entry] of Object.entries(data)) {
+    if (supportedQuestionIds.has(questionId) && !isEntryEmpty(entry)) {
+      filtered[questionId] = entry;
+    }
+  }
+
+  return filtered;
+}
+
+export function getPrefilledQuestions(
+  questions: ExtractedQuestion[],
+  data: PrefillData,
+): ExtractedQuestion[] {
+  return questions.filter((question) => {
+    const entry = data[question.blockId];
+    return (
+      entry !== undefined &&
+      !isEntryEmpty(entry) &&
+      isPrefillSupportedQuestionType(question.type)
+    );
+  });
 }
 
 function isValidScalar(v: unknown): boolean {
