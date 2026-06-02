@@ -1,5 +1,6 @@
 import {
   extractQuestionsFromPlateContent,
+  type ResponseDataItem,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -46,6 +47,12 @@ type CollectedFingerprintComponent = {
 type CollectedFingerprintData = {
   fingerprintType: FingerprintType | string;
   components: CollectedFingerprintComponent[];
+};
+
+type ResponseSummaryItem = {
+  questionId: string;
+  title: string;
+  value: string;
 };
 
 function isFormSecurityBypassEnabledForDevelopment(): boolean {
@@ -107,6 +114,7 @@ interface PublicFormPageState {
   submitted: {
     responseId: string;
     confirmation: FormConfirmation;
+    responseSummary: ResponseSummaryItem[];
   } | null;
   captchaToken: string | null;
   hasVerifiedPassword: boolean;
@@ -120,6 +128,7 @@ type PublicFormPageAction =
       type: "submit-success";
       responseId: string;
       confirmation: FormConfirmation;
+      responseSummary: ResponseSummaryItem[];
     }
   | { type: "submit-error"; message: string }
   | { type: "password-verified" }
@@ -154,6 +163,7 @@ function publicFormPageReducer(
         submitted: {
           responseId: action.responseId,
           confirmation: action.confirmation,
+          responseSummary: action.responseSummary,
         },
         captchaToken: null,
         error: null,
@@ -169,12 +179,60 @@ function publicFormPageReducer(
   }
 }
 
+function formatResponseValue(value: ResponseDataItem["value"]): string {
+  if (value === null || value === undefined || value === "") {
+    return "未回答";
+  }
+  return String(value);
+}
+
+function formatResponseSummaryValue(item: ResponseDataItem): string {
+  const values: string[] = [];
+  if (item.value !== undefined) {
+    values.push(formatResponseValue(item.value));
+  }
+  if (item.values && item.values.length > 0) {
+    values.push(item.values.map((value) => String(value)).join(", "));
+  }
+  if (item.responses && Object.keys(item.responses).length > 0) {
+    values.push(
+      Object.entries(item.responses)
+        .map(([rowId, value]) => {
+          const formattedValue = Array.isArray(value)
+            ? value.join(", ")
+            : value;
+          return `${rowId}: ${formattedValue}`;
+        })
+        .join(" / "),
+    );
+  }
+  if (item.other_value) {
+    values.push(`その他: ${item.other_value}`);
+  }
+  if (item.other_values && item.other_values.length > 0) {
+    values.push(`その他: ${item.other_values.join(", ")}`);
+  }
+  return values.join(" / ") || "未回答";
+}
+
+function buildResponseSummary(
+  items: ResponseDataItem[],
+): ResponseSummaryItem[] {
+  return items.map((item) => ({
+    questionId: item.question_id,
+    title: item.question_title?.trim() || item.question_id,
+    value: formatResponseSummaryValue(item),
+  }));
+}
+
 function PublicSubmitCompletion({
   responseId,
   confirmation,
+  responseSummary,
 }: {
   responseId: string;
   confirmation: FormConfirmation;
+  responseSummary: ResponseSummaryItem[];
 }) {
   useEffect(() => {
     const redirectUrl = confirmation.redirect_url;
@@ -210,6 +268,35 @@ function PublicSubmitCompletion({
               {responseId}
             </dd>
           </dl>
+          {confirmation.show_response_summary ? (
+            <section
+              aria-label="回答サマリー"
+              className="rounded-md bg-muted/40 px-4 py-3 text-sm"
+            >
+              <h2 className="font-medium">回答サマリー</h2>
+              {responseSummary.length > 0 ? (
+                <dl className="mt-3 space-y-3">
+                  {responseSummary.map((item) => (
+                    <div key={item.questionId}>
+                      <dt className="font-medium">{item.title}</dt>
+                      <dd className="mt-1 whitespace-pre-wrap text-muted-foreground">
+                        {item.value}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="mt-2 text-muted-foreground">
+                  回答内容はありません。
+                </p>
+              )}
+            </section>
+          ) : null}
+          {confirmation.allow_edit_link ? (
+            <p className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+              回答の編集リンクは現在利用できません。
+            </p>
+          ) : null}
           <div className="flex flex-wrap gap-3">
             {confirmation.supplemental_link ? (
               <a
@@ -417,7 +504,12 @@ function PublicFormPageInner() {
         const confirmation = FormConfirmationSchema.parse(
           submitResult.confirmation,
         );
-        dispatch({ type: "submit-success", responseId, confirmation });
+        dispatch({
+          type: "submit-success",
+          responseId,
+          confirmation,
+          responseSummary: buildResponseSummary(parsedInput.data),
+        });
         clearAnswers();
 
         // hCaptchaをリセット（再送信時に再度認証が必要）
@@ -473,6 +565,7 @@ function PublicFormPageInner() {
       <PublicSubmitCompletion
         responseId={state.submitted.responseId}
         confirmation={state.submitted.confirmation}
+        responseSummary={state.submitted.responseSummary}
       />
     );
   }

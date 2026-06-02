@@ -12,6 +12,20 @@ import { PublicFormPage } from "./public-form-page";
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+type MockSubmitRequestData = {
+  responses: {
+    question_id: string;
+    question_type: string;
+    question_title: string;
+    value?: string | number | boolean | null;
+    values?: Array<string | number | boolean>;
+    responses?: Record<string, string | string[]>;
+    other_value?: string;
+    other_values?: string[];
+  }[];
+  visitedQuestionIds: string[];
+};
+
 type PublicFormData = {
   form: {
     description: string | null;
@@ -27,6 +41,8 @@ type PublicFormData = {
       supplemental_link?: { label: string; url: string };
       contact?: { label?: string; email?: string; url?: string };
       redirect_url?: string;
+      show_response_summary?: boolean;
+      allow_edit_link?: boolean;
     };
     settings?: { require_fingerprint?: boolean };
   } | null;
@@ -51,6 +67,12 @@ const apiMocks = vi.hoisted(() => ({
 }));
 const requiredValidationMock = vi.hoisted(() => ({
   findUnansweredRequired: vi.fn(),
+}));
+const formBodyMockState = vi.hoisted(() => ({
+  submitData: {
+    responses: [],
+    visitedQuestionIds: [],
+  } as MockSubmitRequestData,
 }));
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
@@ -134,8 +156,8 @@ vi.mock("@/components/forms/form-body", () => ({
     captchaReady?: boolean;
     error?: string | null;
     onSubmitRequest?: (data: {
-      responses: [];
-      visitedQuestionIds: [];
+      responses: MockSubmitRequestData["responses"];
+      visitedQuestionIds: string[];
     }) => void | Promise<void>;
     preSubmitSlot?: ReactNode;
     title: string;
@@ -149,9 +171,7 @@ vi.mock("@/components/forms/form-body", () => ({
       {error ? <p data-testid="form-error">{error}</p> : null}
       <button
         type="button"
-        onClick={() =>
-          void onSubmitRequest?.({ responses: [], visitedQuestionIds: [] })
-        }
+        onClick={() => void onSubmitRequest?.(formBodyMockState.submitData)}
       >
         submit
       </button>
@@ -240,6 +260,7 @@ describe("PublicFormPage password protection", () => {
     apiMocks.telemetryPost.mockReset();
     requiredValidationMock.findUnansweredRequired.mockReset();
     requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
+    formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
     publicFormRetry = undefined;
   });
 
@@ -620,9 +641,22 @@ describe("PublicFormPage password protection", () => {
           },
           contact: { label: "問い合わせ", email: "help@example.com" },
           redirect_url: "https://example.com/done",
+          show_response_summary: true,
+          allow_edit_link: true,
         },
         settings: { require_fingerprint: false },
       },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q1",
+          question_type: "form_short_text",
+          question_title: "Name",
+          value: "Alice",
+        },
+      ],
+      visitedQuestionIds: ["q1"],
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
@@ -652,6 +686,12 @@ describe("PublicFormPage password protection", () => {
     expect(container.textContent).toContain("送信ありがとうございます");
     expect(container.textContent).toContain("受付が完了しました。");
     expect(container.textContent).toContain("response-123");
+    expect(container.textContent).toContain("回答サマリー");
+    expect(container.textContent).toContain("Name");
+    expect(container.textContent).toContain("Alice");
+    expect(container.textContent).toContain(
+      "回答の編集リンクは現在利用できません。",
+    );
     expect(container.textContent).toContain("次の手順");
     expect(container.textContent).toContain("問い合わせ");
     expect(container.textContent).not.toContain("回答を送信");
