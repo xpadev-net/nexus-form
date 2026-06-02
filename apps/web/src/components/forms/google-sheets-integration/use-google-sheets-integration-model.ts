@@ -480,19 +480,15 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     }
   }, [spreadsheetsData?.spreadsheets]);
 
-  const knownSpreadsheetNames = knownSpreadsheetNamesRef.current;
-
   const selectedSpreadsheetName = useMemo(() => {
     const visibleName = spreadsheetsData?.spreadsheets
       .find((spreadsheet) => spreadsheet.id === selectedSpreadsheetId)
       ?.name?.trim();
 
-    return visibleName || knownSpreadsheetNames.get(selectedSpreadsheetId);
-  }, [
-    knownSpreadsheetNames,
-    spreadsheetsData?.spreadsheets,
-    selectedSpreadsheetId,
-  ]);
+    return (
+      visibleName || knownSpreadsheetNamesRef.current.get(selectedSpreadsheetId)
+    );
+  }, [spreadsheetsData?.spreadsheets, selectedSpreadsheetId]);
 
   const currentLinkedSpreadsheetId = savedConfig?.spreadsheetId ?? "";
   const currentLinkedSpreadsheetName = useMemo(() => {
@@ -500,12 +496,11 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
       .find((spreadsheet) => spreadsheet.id === currentLinkedSpreadsheetId)
       ?.name?.trim();
 
-    return visibleName || knownSpreadsheetNames.get(currentLinkedSpreadsheetId);
-  }, [
-    currentLinkedSpreadsheetId,
-    knownSpreadsheetNames,
-    spreadsheetsData?.spreadsheets,
-  ]);
+    return (
+      visibleName ||
+      knownSpreadsheetNamesRef.current.get(currentLinkedSpreadsheetId)
+    );
+  }, [currentLinkedSpreadsheetId, spreadsheetsData?.spreadsheets]);
 
   const handleRefreshSpreadsheets = useCallback(() => {
     void queryClient.invalidateQueries({
