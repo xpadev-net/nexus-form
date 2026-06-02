@@ -107,6 +107,12 @@ async function flushPromises(): Promise<void> {
   });
 }
 
+async function flushAsyncWork(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+}
+
 function jsonBody(init: RequestInit | undefined): unknown {
   if (typeof init?.body !== "string") {
     throw new Error("Expected JSON string request body");
@@ -229,6 +235,21 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
     expect(createCall).toBeDefined();
     expect(jsonBody(createCall?.[1])).toEqual({ title: "回答同期" });
 
+    const spreadsheetListCall = mocks.fetchJson.mock.calls.find(
+      ([input, init]) => {
+        const url = new URL(input as string);
+        return (
+          init?.method !== "POST" &&
+          url.pathname === "/api/integrations/google/spreadsheets" &&
+          url.searchParams.get("pageSize") !== "1"
+        );
+      },
+    );
+    expect(spreadsheetListCall).toBeDefined();
+    expect(
+      new URL(spreadsheetListCall?.[0] as string).searchParams.get("pageSize"),
+    ).toBe("21");
+
     const addSheetCall = mocks.fetchJson.mock.calls.find(([input, init]) => {
       const url = new URL(input as string);
       return (
@@ -261,6 +282,75 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ["google-sheets-config", "form-1"],
     });
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the selected spreadsheet name when a later search omits it", async () => {
+    mocks.fetchJson.mockImplementation((input: string) => {
+      const url = new URL(input);
+
+      if (url.pathname === "/api/forms/form-1/integrations/google-sheets") {
+        return Promise.resolve({ integration: null });
+      }
+
+      if (url.pathname === "/api/integrations/google/spreadsheets") {
+        if (url.searchParams.get("pageSize") === "1") {
+          return Promise.resolve({
+            spreadsheets: [{ id: "connection-check" }],
+          });
+        }
+
+        if (url.searchParams.get("query") === "no-match") {
+          return Promise.resolve({ spreadsheets: [] });
+        }
+
+        return Promise.resolve({
+          spreadsheets: [
+            { id: "spreadsheet-a", name: "Spreadsheet A" },
+            { id: "spreadsheet-b", name: "Spreadsheet B" },
+          ],
+        });
+      }
+
+      if (
+        url.pathname ===
+        "/api/integrations/google/spreadsheets/spreadsheet-a/sheets"
+      ) {
+        return Promise.resolve({ sheets: [] });
+      }
+
+      throw new Error(`Unexpected request: GET ${input}`);
+    });
+
+    const states: GoogleSheetsIntegrationModel[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(states.at(-1)?.filteredSpreadsheets).toEqual([
+      { id: "spreadsheet-a", name: "Spreadsheet A" },
+      { id: "spreadsheet-b", name: "Spreadsheet B" },
+    ]);
+
+    await act(async () => {
+      states.at(-1)?.handleSelectSpreadsheet("spreadsheet-a");
+    });
+    await flushAsyncWork();
+
+    expect(states.at(-1)?.selectedSpreadsheetName).toBe("Spreadsheet A");
+
+    await act(async () => {
+      states.at(-1)?.handleSearchQueryChange("no-match");
+    });
+    await flushAsyncWork();
+    await flushAsyncWork();
+
+    expect(states.at(-1)?.selectedSpreadsheetId).toBe("spreadsheet-a");
+    expect(states.at(-1)?.selectedSpreadsheetName).toBe("Spreadsheet A");
 
     act(() => root.unmount());
   });

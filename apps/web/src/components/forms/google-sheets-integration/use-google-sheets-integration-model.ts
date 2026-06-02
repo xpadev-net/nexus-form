@@ -192,6 +192,7 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     });
 
   const hasInitializedConfigRef = useRef(false);
+  const knownSpreadsheetNamesRef = useRef(new Map<string, string>());
   const { handleConnect } = useGoogleOAuth({ queryClient });
 
   const {
@@ -246,7 +247,7 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     queryKey: ["spreadsheets", searchQuery],
     queryFn: async () => {
       const params = new URLSearchParams({
-        pageSize: String(SPREADSHEET_SELECTOR_RESULT_LIMIT),
+        pageSize: String(SPREADSHEET_SELECTOR_RESULT_LIMIT + 1),
       });
       if (searchQuery) params.set("query", searchQuery);
       return await fetchJson<{ spreadsheets: Spreadsheet[] }>(
@@ -472,22 +473,41 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     );
   }, [spreadsheetsData?.spreadsheets, searchQuery]);
 
-  const selectedSpreadsheetName = useMemo(
-    () =>
-      spreadsheetsData?.spreadsheets.find(
-        (spreadsheet) => spreadsheet.id === selectedSpreadsheetId,
-      )?.name,
-    [spreadsheetsData?.spreadsheets, selectedSpreadsheetId],
-  );
+  const knownSpreadsheetNames = useMemo(() => {
+    const names = knownSpreadsheetNamesRef.current;
+
+    for (const spreadsheet of spreadsheetsData?.spreadsheets ?? []) {
+      const name = spreadsheet.name?.trim();
+      if (name) names.set(spreadsheet.id, name);
+    }
+
+    return names;
+  }, [spreadsheetsData?.spreadsheets]);
+
+  const selectedSpreadsheetName = useMemo(() => {
+    const visibleName = spreadsheetsData?.spreadsheets
+      .find((spreadsheet) => spreadsheet.id === selectedSpreadsheetId)
+      ?.name?.trim();
+
+    return visibleName || knownSpreadsheetNames.get(selectedSpreadsheetId);
+  }, [
+    knownSpreadsheetNames,
+    spreadsheetsData?.spreadsheets,
+    selectedSpreadsheetId,
+  ]);
 
   const currentLinkedSpreadsheetId = savedConfig?.spreadsheetId ?? "";
-  const currentLinkedSpreadsheetName = useMemo(
-    () =>
-      spreadsheetsData?.spreadsheets.find(
-        (spreadsheet) => spreadsheet.id === currentLinkedSpreadsheetId,
-      )?.name,
-    [currentLinkedSpreadsheetId, spreadsheetsData?.spreadsheets],
-  );
+  const currentLinkedSpreadsheetName = useMemo(() => {
+    const visibleName = spreadsheetsData?.spreadsheets
+      .find((spreadsheet) => spreadsheet.id === currentLinkedSpreadsheetId)
+      ?.name?.trim();
+
+    return visibleName || knownSpreadsheetNames.get(currentLinkedSpreadsheetId);
+  }, [
+    currentLinkedSpreadsheetId,
+    knownSpreadsheetNames,
+    spreadsheetsData?.spreadsheets,
+  ]);
 
   const handleRefreshSpreadsheets = useCallback(() => {
     void queryClient.invalidateQueries({
