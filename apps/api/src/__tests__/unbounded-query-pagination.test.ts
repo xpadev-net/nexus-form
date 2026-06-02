@@ -793,6 +793,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     const res = await formsResponsesRouter.request("/form-1/responses/export");
 
     expect(res.status).toBe(413);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
     await expect(res.json()).resolves.toMatchObject({
       error: "Response export is limited to 5000 responses",
     });

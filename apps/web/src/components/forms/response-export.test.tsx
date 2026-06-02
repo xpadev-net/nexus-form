@@ -55,11 +55,15 @@ function renderExport(container: HTMLElement, formId = "form-1"): Root {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.exportGet.mockResolvedValue({
-    ok: true,
-    status: 200,
-    blob: vi.fn().mockResolvedValue(new Blob(["csv"], { type: "text/csv" })),
-  });
+  mocks.exportGet.mockResolvedValue(
+    new Response("csv", {
+      status: 200,
+      headers: {
+        "Content-Disposition": 'attachment; filename="responses-form-1.csv"',
+        "Content-Type": "text/csv; charset=utf-8",
+      },
+    }),
+  );
   URL.createObjectURL = vi.fn(() => "blob:nexus-form-csv");
   URL.revokeObjectURL = vi.fn();
   HTMLAnchorElement.prototype.click = vi.fn();
@@ -90,13 +94,108 @@ describe("ResponseExport", () => {
       param: { id: "form id" },
     });
     expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
-    expect(appendedAnchors[0]?.download).toBe("responses-form%20id.csv");
+    expect(appendedAnchors[0]?.download).toBe("responses-form-1.csv");
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
-      "エクスポートが完了しました",
+      "すべての回答CSVを生成しました。ダウンロードを開始します。",
     );
     expect(mocks.toastError).not.toHaveBeenCalled();
 
     appendChild.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it("shows loading state until the CSV blob is ready", async () => {
+    const container = document.createElement("div");
+    let resolveResponse: (response: Response) => void = () => {};
+    mocks.exportGet.mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
+    const root = renderExport(container);
+    const button = container.querySelector("button");
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute("aria-busy")).toBe("true");
+    expect(button?.textContent).toContain("CSV生成中...");
+
+    await act(async () => {
+      resolveResponse(
+        new Response("csv", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+          },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(button?.disabled).toBe(false);
+    expect(button?.getAttribute("aria-busy")).toBe("false");
+    expect(button?.textContent).toContain("CSVエクスポート");
+
+    act(() => root.unmount());
+  });
+
+  it("shows the API error body when CSV export fails", async () => {
+    const container = document.createElement("div");
+    mocks.exportGet.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "Response export is limited to 5000 responses",
+        }),
+        {
+          status: 413,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const root = renderExport(container);
+    const button = container.querySelector("button");
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "Response export is limited to 5000 responses",
+    );
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("does not surface raw HTML error bodies in the failure toast", async () => {
+    const container = document.createElement("div");
+    mocks.exportGet.mockResolvedValue(
+      new Response("<html><body>Bad gateway</body></html>", {
+        status: 502,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const root = renderExport(container);
+    const button = container.querySelector("button");
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith("HTTP 502");
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+
     act(() => root.unmount());
   });
 });
