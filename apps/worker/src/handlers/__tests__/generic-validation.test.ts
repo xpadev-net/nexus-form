@@ -5,6 +5,7 @@ import {
 } from "@nexus-form/integrations";
 import { DelayedError, type Job } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { handleGenericValidation } from "../generic-validation";
 
 const shutdownSignalMock = vi.hoisted(() => {
@@ -187,6 +188,7 @@ const mockProviderRegistryGet = vi.mocked(providerRegistry.get);
 const mockWithRedisLock = vi.mocked(withRedisLock);
 
 function makeJob(data: {
+  jobId?: string;
   responseId: string;
   ruleId: string;
   referencedBlockId: string;
@@ -197,9 +199,9 @@ function makeJob(data: {
   retryAfterCount?: number;
   attemptsMade?: number;
 }): Job {
-  const { attemptsMade, ...jobData } = data;
+  const { attemptsMade, jobId, ...jobData } = data;
   return {
-    id: "job-1",
+    id: jobId ?? "job-1",
     data: {
       snapshotProviderName: "test-provider",
       snapshotRuleType: "default",
@@ -654,6 +656,134 @@ describe("handleGenericValidation", () => {
     expect(result).toEqual({ ok: true, provider: "test-provider" });
     expect(mockWriteValidationResult).toHaveBeenCalledWith(
       expect.objectContaining({ success: true }),
+    );
+  });
+
+  it("credentialなしmock providerでworker handlerの成功・失敗・保留・再検証状態を再現できる", async () => {
+    const validationConfig = { mode: "fixture" };
+    const validateFn = vi.fn();
+    const rule = makeRule({
+      name: "mock_rule",
+      configSchema: z.object({ mode: z.literal("fixture") }),
+      metadataSchema: z.record(z.string(), z.unknown()),
+      validate: validateFn,
+    });
+    mockProviderRegistryGet.mockReturnValue(
+      makeProvider(rule, "mock_external"),
+    );
+    const baseJobData = {
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "mock_external",
+      snapshotRuleType: "mock_rule",
+      snapshotConfigJson: validationConfig,
+    };
+
+    validateFn.mockResolvedValueOnce({
+      isValid: true,
+      metadata: { fixtureCase: "success" },
+    });
+    const successResult = await handleGenericValidation(makeJob(baseJobData));
+
+    expect(successResult).toEqual({ ok: true, provider: "mock_external" });
+    expect(mockProviderRegistryGet).toHaveBeenCalledWith("mock_external");
+    expect(validateFn).toHaveBeenLastCalledWith("test-input", validationConfig);
+    expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+      }),
+    );
+    expect(mockWriteValidationResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+        success: true,
+        metadata: { fixtureCase: "success" },
+      }),
+    );
+
+    mockMarkValidationProcessing.mockClear();
+    mockWriteValidationResult.mockClear();
+    validateFn.mockResolvedValueOnce({
+      isValid: false,
+      errorCode: "MOCK_PERMISSION_DENIED",
+      errorMessage: "Mock provider permission denied",
+      retryable: false,
+    });
+    const failureResult = await handleGenericValidation(makeJob(baseJobData));
+
+    expect(failureResult).toEqual({
+      ok: false,
+      provider: "mock_external",
+    });
+    expect(mockWriteValidationResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+        success: false,
+        errorCode: "MOCK_PERMISSION_DENIED",
+        errorMessage: "Mock provider permission denied",
+      }),
+    );
+
+    mockMarkValidationProcessing.mockClear();
+    mockWriteValidationResult.mockClear();
+    validateFn.mockResolvedValueOnce({
+      isValid: false,
+      errorCode: "MOCK_RATE_LIMIT",
+      errorMessage: "Mock provider is temporarily rate limited",
+      retryAfter: 45,
+      retryable: true,
+    });
+    const pendingJob = makeJob(baseJobData);
+
+    await expect(
+      handleGenericValidation(pendingJob, "lock-token"),
+    ).rejects.toBeInstanceOf(DelayedError);
+    expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+        jobId: "job-1",
+      }),
+    );
+    expect(pendingJob.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryAfterCount: 1,
+      }),
+    );
+    expect(pendingJob.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+
+    mockMarkValidationProcessing.mockClear();
+    mockWriteValidationResult.mockClear();
+    validateFn.mockResolvedValueOnce({
+      isValid: true,
+      metadata: { fixtureCase: "revalidation" },
+    });
+    const retryJobId = "validation-retry-result-fixture-rerun";
+    const retryResult = await handleGenericValidation(
+      makeJob({
+        ...baseJobData,
+        jobId: retryJobId,
+      }),
+    );
+
+    expect(retryResult).toEqual({ ok: true, provider: "mock_external" });
+    expect(mockMarkValidationProcessing).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+        jobId: retryJobId,
+      }),
+    );
+    expect(mockWriteValidationResult).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        service: "mock_external",
+        success: true,
+        metadata: { fixtureCase: "revalidation" },
+        jobId: retryJobId,
+      }),
     );
   });
 

@@ -38,6 +38,13 @@ const safeGitHubApiFailureMessage =
   "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
 
 describe("githubProvider.rules.user_exists.inputSchema", () => {
+  it("documents credential and installation permission requirements through provider metadata", () => {
+    const rule = githubProvider.rules.user_exists;
+
+    expect(rule?.description).toContain("GitHub App credential");
+    expect(rule?.inputHint).toContain("installation権限");
+  });
+
   it("accepts usernames matching the advertised GitHub pattern", () => {
     const result =
       githubProvider.rules.user_exists?.inputSchema.safeParse("octo-cat");
