@@ -321,7 +321,9 @@ describe("ScheduleManager", () => {
             triggerAt: timestamp,
             action: "PUBLISH",
             snapshotVersion: null,
-            processedAt: null,
+            processedAt: new Date(
+              new Date(timestamp).getTime() - 1000,
+            ).toISOString(),
             status: "CANCELLED",
             createdAt: timestamp,
             updatedAt: timestamp,

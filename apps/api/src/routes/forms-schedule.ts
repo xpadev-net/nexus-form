@@ -295,15 +295,24 @@ export const formsScheduleRouter = createHonoApp()
         );
       }
       const cancelledAt = new Date(target.triggerAt.getTime() - 1000);
-      await db
+      const updateResult = await db
         .update(formSchedule)
         .set({ processedAt: cancelledAt })
         .where(
           and(
             eq(formSchedule.id, scheduleId),
+            eq(formSchedule.formId, formId),
             isNull(formSchedule.processedAt),
           ),
         );
+      if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+        return c.json(
+          formScheduleError(
+            "Schedule was already processed and cannot be cancelled",
+          ),
+          409,
+        );
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );
