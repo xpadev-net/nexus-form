@@ -690,6 +690,7 @@ describe("PublicFormPage password protection", () => {
               message: "回答を受け付けました。ご協力ありがとうございました。",
             },
             response: { id: "response-locked" },
+            responseId: "response-locked",
           },
     );
     const container = document.createElement("div");

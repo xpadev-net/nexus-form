@@ -4,7 +4,7 @@ import {
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
-import { useCallback, useMemo, useReducer, useRef } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { z } from "zod";
 import {
   FormResponseProvider,
@@ -176,6 +176,17 @@ function PublicSubmitCompletion({
   responseId: string;
   confirmation: FormConfirmation;
 }) {
+  useEffect(() => {
+    const redirectUrl = confirmation.redirect_url;
+    if (!redirectUrl) return;
+
+    const redirectTimeout = window.setTimeout(() => {
+      window.location.replace(redirectUrl);
+    }, 1500);
+
+    return () => window.clearTimeout(redirectTimeout);
+  }, [confirmation.redirect_url]);
+
   const contactHref = confirmation.contact?.email
     ? `mailto:${confirmation.contact.email}`
     : confirmation.contact?.url;
@@ -214,10 +225,8 @@ function PublicSubmitCompletion({
               <a
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
                 href={confirmation.redirect_url}
-                rel="noreferrer"
-                target="_blank"
               >
-                次へ進む
+                今すぐ移動
               </a>
             ) : null}
             {contactHref && contactLabel ? (
