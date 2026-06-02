@@ -611,6 +611,30 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         "!",
       ],
     ]);
+    expect(vi.mocked(sql).mock.calls).toEqual(
+      expect.arrayContaining([
+        [expect.anything(), "formResponse.submittedAt", "formResponse.id"],
+      ]),
+    );
+  });
+
+  it("uses a stable response id tiebreaker for search sort order", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(limitedQuery([]));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?q=alpha&sort=updatedAt&order=asc",
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(sql).mock.calls).toEqual(
+      expect.arrayContaining([
+        [expect.anything(), "formResponse.updatedAt", "formResponse.id"],
+      ]),
+    );
   });
 
   it("bounds candidate scans for sparse response body searches", async () => {

@@ -328,11 +328,11 @@ function buildResponseListOrderBy(
 ) {
   return sortOrder === "asc"
     ? sortField === "updatedAt"
-      ? sql`${formResponse.updatedAt} asc`
-      : sql`${formResponse.submittedAt} asc`
+      ? sql`${formResponse.updatedAt} asc, ${formResponse.id} asc`
+      : sql`${formResponse.submittedAt} asc, ${formResponse.id} asc`
     : sortField === "updatedAt"
-      ? sql`${formResponse.updatedAt} desc`
-      : sql`${formResponse.submittedAt} desc`;
+      ? sql`${formResponse.updatedAt} desc, ${formResponse.id} asc`
+      : sql`${formResponse.submittedAt} desc, ${formResponse.id} asc`;
 }
 
 function buildResponseSearchCondition(
