@@ -41,6 +41,8 @@ export const FormList = () => {
     () => forms.some((item) => normalizeFormStatus(item.status) === "archived"),
     [forms],
   );
+  const shouldShowArchiveFilterHint =
+    status === "all" && searchTerm === "" && hasArchivedForms;
 
   const filteredForms = useMemo(() => {
     return forms.filter((item) => {
@@ -89,14 +91,14 @@ export const FormList = () => {
             <EmptyTitle>
               {forms.length === 0
                 ? "フォームがまだありません"
-                : status === "all" && hasArchivedForms
+                : shouldShowArchiveFilterHint
                   ? "表示できるフォームがありません"
                   : "条件に一致するフォームがありません"}
             </EmptyTitle>
             <EmptyDescription>
               {forms.length === 0
                 ? "「新規フォームを作成」ボタンから最初のフォームを作りましょう。"
-                : status === "all" && hasArchivedForms
+                : shouldShowArchiveFilterHint
                   ? "アーカイブされたフォームはアーカイブフィルターから確認できます。"
                   : "検索条件やフィルターを変更してみてください。"}
             </EmptyDescription>

@@ -67,6 +67,22 @@ function selectStatus(value: string): void {
   });
 }
 
+function setSearchTerm(value: string): void {
+  const input = document.querySelector('input[aria-label="フォーム名検索"]');
+  expect(input).toBeInstanceOf(HTMLInputElement);
+  act(() => {
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Search input not found");
+    }
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    valueSetter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 describe("FormList archive filtering", () => {
   beforeEach(() => {
     document.body.innerHTML = "";
@@ -103,6 +119,24 @@ describe("FormList archive filtering", () => {
       "アーカイブされたフォームはアーカイブフィルターから確認できます。",
     );
     expect(document.body.textContent).not.toContain("古いフォーム");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the regular empty-state message when a search term hides the results", () => {
+    const root = renderList();
+
+    setSearchTerm("一致しない検索語");
+
+    expect(document.body.textContent).toContain(
+      "条件に一致するフォームがありません",
+    );
+    expect(document.body.textContent).toContain(
+      "検索条件やフィルターを変更してみてください。",
+    );
+    expect(document.body.textContent).not.toContain(
+      "アーカイブされたフォームはアーカイブフィルターから確認できます。",
+    );
 
     act(() => root.unmount());
   });
