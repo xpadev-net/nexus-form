@@ -30,6 +30,7 @@ type ShareLinksQueryMock = {
 
 const mocks = vi.hoisted(
   (): {
+    alertDialogOnOpenChange: ((open: boolean) => void) | null;
     copyShareLinkUrl: ReturnType<typeof vi.fn>;
     createShareLinkMutate: ReturnType<typeof vi.fn>;
     deleteShareLinkMutate: ReturnType<typeof vi.fn>;
@@ -38,6 +39,7 @@ const mocks = vi.hoisted(
     toastError: ReturnType<typeof vi.fn>;
     toastSuccess: ReturnType<typeof vi.fn>;
   } => ({
+    alertDialogOnOpenChange: null,
     copyShareLinkUrl: vi.fn(),
     createShareLinkMutate: vi.fn(),
     deleteShareLinkMutate: vi.fn(),
@@ -100,14 +102,35 @@ vi.mock("@/hooks/forms/use-share-links", () => ({
 }));
 
 vi.mock("@/components/ui/alert-dialog", () => ({
-  AlertDialog: ({ children, open }: { children: ReactNode; open?: boolean }) =>
-    open ? <div>{children}</div> : null,
+  AlertDialog: ({
+    children,
+    onOpenChange,
+    open,
+  }: {
+    children: ReactNode;
+    onOpenChange?: (open: boolean) => void;
+    open?: boolean;
+  }) => {
+    mocks.alertDialogOnOpenChange = onOpenChange ?? null;
+    return open ? <div>{children}</div> : null;
+  },
   AlertDialogAction: ({
     children,
+    onClick,
     ...props
   }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
     children: ReactNode;
-  }) => <button {...props}>{children}</button>,
+  }) => (
+    <button
+      {...props}
+      onClick={(event) => {
+        onClick?.(event);
+        mocks.alertDialogOnOpenChange?.(false);
+      }}
+    >
+      {children}
+    </button>
+  ),
   AlertDialogCancel: ({
     children,
     ...props
@@ -184,6 +207,7 @@ vi.mock("@/components/ui/switch", () => ({
 describe("ShareLinkManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.alertDialogOnOpenChange = null;
     mocks.shareLinksQuery = {
       data: {
         share_links: [
@@ -255,6 +279,7 @@ describe("ShareLinkManager", () => {
       }),
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith("共有リンクを作成しました");
+    expect(container.querySelector('[role="alertdialog"]')).toBeNull();
 
     act(() => root.unmount());
   });
