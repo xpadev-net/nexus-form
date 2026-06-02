@@ -157,6 +157,64 @@ describe("forms structure password protection response", () => {
     expect(JSON.stringify(body)).not.toContain("$2b$10$old-password-hash");
   });
 
+  it("treats an unpublished default disabled password setting as synced", async () => {
+    mocks.getFormStructure.mockResolvedValueOnce({
+      version: 1,
+      settings: {},
+      access_control: {
+        require_authentication: false,
+        password_protection: {
+          enabled: false,
+        },
+      },
+    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(null);
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request("/form-1/structure");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.password_protection_publication).toEqual({
+      current: {
+        enabled: false,
+        has_password: false,
+      },
+      published: null,
+      is_synced: true,
+    });
+  });
+
+  it("marks enabled password protection as unpublished when no snapshot exists", async () => {
+    mocks.getFormStructure.mockResolvedValueOnce({
+      version: 1,
+      settings: {},
+      access_control: {
+        require_authentication: false,
+        password_protection: {
+          enabled: true,
+          password: "$2b$10$stored-password-hash",
+        },
+      },
+    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(null);
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request("/form-1/structure");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.password_protection_publication).toEqual({
+      current: {
+        enabled: true,
+        has_password: true,
+      },
+      published: null,
+      is_synced: false,
+    });
+    expect(JSON.stringify(body)).not.toContain("$2b$10$stored-password-hash");
+  });
+
   it("still returns the masked structure when publication state lookup fails", async () => {
     mocks.getFormStructure.mockResolvedValueOnce({
       version: 2,

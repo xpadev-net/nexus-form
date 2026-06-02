@@ -240,15 +240,18 @@ async function getPasswordProtectionPublicationState(
   const current = currentSummary.publicSnapshot;
   const published = publishedSummary?.publicSnapshot ?? null;
 
+  const isSynced =
+    published === null
+      ? !current.enabled && !current.has_password
+      : current.enabled === published.enabled &&
+        current.has_password === published.has_password &&
+        current.password_hint === published.password_hint &&
+        currentSummary.passwordHash === publishedSummary?.passwordHash;
+
   return PasswordProtectionPublicationStateSchema.parse({
     current,
     published,
-    is_synced:
-      published !== null &&
-      current.enabled === published.enabled &&
-      current.has_password === published.has_password &&
-      current.password_hint === published.password_hint &&
-      currentSummary.passwordHash === publishedSummary?.passwordHash,
+    is_synced: isSynced,
   });
 }
 
