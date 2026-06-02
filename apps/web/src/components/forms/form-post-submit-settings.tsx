@@ -25,8 +25,8 @@ import { client, rpc } from "@/lib/api";
 import {
   type FormConfirmation,
   FormConfirmationSchema,
-  type FormNotifications,
-  FormNotificationsSchema,
+  type FormNotificationsTransport,
+  FormNotificationsTransportSchema,
 } from "@/types/validation/form";
 
 interface FormPostSubmitSettingsProps {
@@ -59,7 +59,7 @@ interface PostSubmitDraft {
 
 interface PostSubmitPayload {
   confirmation: FormConfirmation;
-  notifications: FormNotifications;
+  notifications: FormNotificationsTransport;
 }
 
 function emptyToUndefined(value: string): string | undefined {
@@ -79,14 +79,16 @@ function parseConfirmation(value: unknown): FormConfirmation {
   return result.success ? result.data : FormConfirmationSchema.parse({});
 }
 
-function parseNotifications(value: unknown): FormNotifications {
-  const result = FormNotificationsSchema.safeParse(value ?? {});
-  return result.success ? result.data : FormNotificationsSchema.parse({});
+function parseNotifications(value: unknown): FormNotificationsTransport {
+  const result = FormNotificationsTransportSchema.safeParse(value ?? {});
+  return result.success
+    ? result.data
+    : FormNotificationsTransportSchema.parse({});
 }
 
 function draftFromSettings(
   confirmation: FormConfirmation,
-  notifications: FormNotifications,
+  notifications: FormNotificationsTransport,
 ): PostSubmitDraft {
   const email = notifications.on_submit.email;
   const discord = notifications.on_submit.discord;
@@ -140,7 +142,7 @@ function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
         : undefined,
   });
 
-  const notifications = FormNotificationsSchema.parse({
+  const notifications = FormNotificationsTransportSchema.parse({
     on_submit: {
       email: {
         enabled: draft.emailEnabled,
@@ -188,7 +190,7 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
   const [draft, setDraft] = useState<PostSubmitDraft>(() =>
     draftFromSettings(
       FormConfirmationSchema.parse({}),
-      FormNotificationsSchema.parse({}),
+      FormNotificationsTransportSchema.parse({}),
     ),
   );
   const [isDirty, setIsDirty] = useState(false);

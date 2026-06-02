@@ -26,13 +26,20 @@ import {
   FormConfirmationSchema,
   type FormNotifications,
   FormNotificationsSchema,
+  type FormNotificationsTransport,
+  FormNotificationsTransportSchema,
   SecureWebhookUrlSchema,
   StoredLogicRuleSchema,
 } from "../types/validation/form";
 import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
+const FormStructureTransport = FormStructure.extend({
+  notifications: FormNotificationsTransportSchema.optional(),
+});
+type FormStructureTransportType = z.infer<typeof FormStructureTransport>;
+
 const structureUpdateSchema = z.object({
-  structure: FormStructure,
+  structure: FormStructureTransport,
   changeLog: z.string().max(500).optional(),
 });
 
@@ -141,7 +148,7 @@ const servicePaginationSchema = z.object({
 });
 
 const FormStructureEnvelopeSchema = z.object({
-  structure: FormStructure,
+  structure: FormStructureTransport,
 });
 export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
 
@@ -234,9 +241,9 @@ function maskNotificationValue(value: unknown, path: string[]): unknown {
 }
 
 function restoreMaskedNotificationSecrets(
-  structure: FormStructureType,
+  structure: FormStructureTransportType,
   currentStructure: FormStructureType,
-): FormStructureType {
+): FormStructureTransportType {
   const notifications = structure.notifications;
   if (!notifications) return structure;
 
@@ -280,9 +287,9 @@ function hasMaskedNotificationSecretFlags(value: unknown): boolean {
 }
 
 function restoreMaskedNotificationChannels(
-  channels: FormNotifications["on_submit"],
+  channels: FormNotificationsTransport["on_submit"],
   currentChannels: FormNotifications["on_submit"] | undefined,
-): FormNotifications["on_submit"] {
+): FormNotificationsTransport["on_submit"] {
   const discord = channels.discord;
   const webhook = channels.webhook;
   const currentDiscord = currentChannels?.discord;
@@ -552,7 +559,7 @@ export const formsStructureRouter = createHonoApp()
 
         return saveFormStructure(
           formId,
-          structure,
+          FormStructure.parse(structure),
           resolveAuditUserId(auth.user_id),
           payload.changeLog,
         );
@@ -591,11 +598,8 @@ export const formsStructureRouter = createHonoApp()
         query.fromVersion,
         query.toVersion,
       );
-      return c.json(
-        FormStructureDiffResponseSchema.parse(
-          redactStructureDiff(FormStructureDiffResponseSchema.parse(diff)),
-        ),
-      );
+      const parsedDiff = FormStructureDiffResponseSchema.parse(diff);
+      return c.json(redactStructureDiff(parsedDiff));
     },
   )
   .post(

@@ -522,14 +522,11 @@ describe("forms structure post-submit settings", () => {
             discord: {
               enabled: false,
               webhook_url: undefined,
-              has_webhook_url: undefined,
             },
             webhook: {
               enabled: false,
               url: undefined,
               secret: undefined,
-              has_url: undefined,
-              has_secret: undefined,
               timeout_seconds: 30,
               retry_attempts: 3,
             },
@@ -538,14 +535,11 @@ describe("forms structure post-submit settings", () => {
             discord: {
               enabled: false,
               webhook_url: undefined,
-              has_webhook_url: undefined,
             },
             webhook: {
               enabled: false,
               url: undefined,
               secret: undefined,
-              has_url: undefined,
-              has_secret: undefined,
               timeout_seconds: 30,
               retry_attempts: 3,
             },
@@ -608,16 +602,66 @@ describe("forms structure post-submit settings", () => {
               enabled: true,
               webhook_url:
                 "https://discord.com/api/webhooks/123/duplicate-token",
-              has_webhook_url: undefined,
             },
             webhook: {
               enabled: true,
               url: "https://pipedream.com/hooks/duplicate",
               secret: "duplicate-secret-duplicate-secret-123",
-              has_url: undefined,
-              has_secret: undefined,
               timeout_seconds: 20,
               retry_attempts: 2,
+            },
+          },
+        },
+      }),
+      "user-1",
+      undefined,
+    );
+  });
+
+  it("drops false notification mask flags before saving full structure PUT", async () => {
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: { require_fingerprint: true },
+          notifications: {
+            on_submit: {
+              discord: {
+                enabled: false,
+                has_webhook_url: false,
+              },
+              webhook: {
+                enabled: false,
+                has_url: false,
+                has_secret: false,
+              },
+            },
+          },
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mocks.getFormStructure).not.toHaveBeenCalled();
+    expect(mocks.saveFormStructure).toHaveBeenCalledWith(
+      "form-1",
+      expect.objectContaining({
+        notifications: {
+          on_submit: {
+            discord: {
+              enabled: false,
+              webhook_url: undefined,
+            },
+            webhook: {
+              enabled: false,
+              url: undefined,
+              secret: undefined,
+              timeout_seconds: 30,
+              retry_attempts: 3,
             },
           },
         },

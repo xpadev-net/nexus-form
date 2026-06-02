@@ -64,14 +64,24 @@ export const EmailNotificationChannelSchema = z
 
 // --- Discord Notification Channel ---
 
-export const DiscordNotificationChannelSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    webhook_url: DiscordWebhookUrlSchema.optional(),
+const DiscordNotificationChannelBaseSchema = z.object({
+  enabled: z.boolean().default(false),
+  webhook_url: DiscordWebhookUrlSchema.optional(),
+  message_template: z.string().max(2000).optional(),
+});
+
+export const DiscordNotificationChannelSchema =
+  DiscordNotificationChannelBaseSchema.refine(
+    (data) => !data.enabled || !!data.webhook_url,
+    {
+      message: "Discord通知が有効な場合、webhook_urlは必須です",
+    },
+  );
+
+export const DiscordNotificationChannelTransportSchema =
+  DiscordNotificationChannelBaseSchema.extend({
     has_webhook_url: z.boolean().optional(),
-    message_template: z.string().max(2000).optional(),
-  })
-  .refine(
+  }).refine(
     (data) => !data.enabled || !!data.webhook_url || data.has_webhook_url,
     {
       message: "Discord通知が有効な場合、webhook_urlは必須です",
@@ -149,6 +159,19 @@ export const WebhookNotificationChannelSchema = z
   .object({
     enabled: z.boolean().default(false),
     url: SecureWebhookUrlSchema.optional(),
+    secret: z.string().min(32).max(200).optional(), // HMAC-SHA256 requires ≥256 bits (32 chars)
+    headers: z.record(z.string(), z.string()).optional(),
+    timeout_seconds: z.number().int().min(1).max(60).optional().default(30),
+    retry_attempts: z.number().int().min(0).max(5).optional().default(3),
+  })
+  .refine((data) => !data.enabled || !!data.url, {
+    message: "Webhook通知が有効な場合、urlは必須です",
+  });
+
+export const WebhookNotificationChannelTransportSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    url: SecureWebhookUrlSchema.optional(),
     has_url: z.boolean().optional(),
     secret: z.string().min(32).max(200).optional(), // HMAC-SHA256 requires ≥256 bits (32 chars)
     has_secret: z.boolean().optional(),
@@ -168,9 +191,20 @@ const NotificationChannelsSchema = z.object({
   webhook: WebhookNotificationChannelSchema.optional(),
 });
 
+const NotificationChannelsTransportSchema = z.object({
+  email: EmailNotificationChannelSchema.optional(),
+  discord: DiscordNotificationChannelTransportSchema.optional(),
+  webhook: WebhookNotificationChannelTransportSchema.optional(),
+});
+
 export const FormNotificationsSchema = z.object({
   on_submit: NotificationChannelsSchema.default({}),
   on_duplicate_detected: NotificationChannelsSchema.optional(),
+});
+
+export const FormNotificationsTransportSchema = z.object({
+  on_submit: NotificationChannelsTransportSchema.default({}),
+  on_duplicate_detected: NotificationChannelsTransportSchema.optional(),
 });
 
 // --- Form Access Control ---
@@ -240,9 +274,18 @@ export type EmailNotificationChannel = z.infer<
 export type DiscordNotificationChannel = z.infer<
   typeof DiscordNotificationChannelSchema
 >;
+export type DiscordNotificationChannelTransport = z.infer<
+  typeof DiscordNotificationChannelTransportSchema
+>;
 export type WebhookNotificationChannel = z.infer<
   typeof WebhookNotificationChannelSchema
 >;
+export type WebhookNotificationChannelTransport = z.infer<
+  typeof WebhookNotificationChannelTransportSchema
+>;
 export type FormNotifications = z.infer<typeof FormNotificationsSchema>;
+export type FormNotificationsTransport = z.infer<
+  typeof FormNotificationsTransportSchema
+>;
 export type FormAccessControl = z.infer<typeof FormAccessControlSchema>;
 export type FormConfirmation = z.infer<typeof FormConfirmationSchema>;
