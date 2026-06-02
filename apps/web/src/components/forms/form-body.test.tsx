@@ -183,6 +183,27 @@ function publicQuestionFixturePlateContent(): string {
   ]);
 }
 
+function appearanceWithQuestionNumbers(
+  showQuestionNumbers: boolean,
+): FormAppearance {
+  return {
+    theme: {
+      primary_color: "#2563eb",
+      accent_color: "#16a34a",
+      background_color: "#ffffff",
+      font_family: "Inter",
+    },
+    layout: {
+      width: "compact",
+      alignment: "left",
+      spacing: "compact",
+      show_progress_bar: true,
+      progress_position: "top",
+      show_question_numbers: showQuestionNumbers,
+    },
+  };
+}
+
 describe("FormBody", () => {
   beforeEach(() => {
     plateViewerValues.length = 0;
@@ -214,12 +235,13 @@ describe("FormBody", () => {
         type: "form_short_text",
         blockId: "question-1",
         validation: { type: "short_text", required: false },
-        children: [
-          { type: "p", children: [{ bold: true, text: "Q1. " }] },
-          { type: "p", children: [{ text: "氏名" }] },
-        ],
+        children: [{ type: "p", children: [{ text: "氏名" }] }],
       },
     ]);
+    expect(renderedValue).not.toContain("Q1.");
+    expect(
+      container.querySelector("[data-form-question-numbers='hidden']"),
+    ).not.toBeNull();
     expect(container.textContent).not.toContain('text":"/"');
 
     act(() => root.unmount());
@@ -235,22 +257,7 @@ describe("FormBody", () => {
         }),
       ]),
       {
-        appearance: {
-          theme: {
-            primary_color: "#2563eb",
-            accent_color: "#16a34a",
-            background_color: "#ffffff",
-            font_family: "Inter",
-          },
-          layout: {
-            width: "compact",
-            alignment: "left",
-            spacing: "compact",
-            show_progress_bar: true,
-            progress_position: "top",
-            show_question_numbers: false,
-          },
-        },
+        appearance: appearanceWithQuestionNumbers(false),
       },
     );
 
@@ -296,6 +303,7 @@ describe("FormBody", () => {
           ],
         },
       ]),
+      { appearance: appearanceWithQuestionNumbers(true) },
     );
 
     const renderedValue = plateViewerValues.at(-1);
@@ -484,6 +492,7 @@ describe("FormBody", () => {
 
     const container = document.createElement("div");
     const root = renderFormBody(container, plateContent, {
+      appearance: appearanceWithQuestionNumbers(true),
       captchaReady: true,
     });
 

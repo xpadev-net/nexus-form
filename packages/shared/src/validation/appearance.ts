@@ -27,7 +27,7 @@ export const FormLayoutSchema = z.object({
     .default("comfortable"),
   show_progress_bar: z.boolean().default(true),
   progress_position: z.enum(["top", "bottom"]).default("top"),
-  show_question_numbers: z.boolean().default(true),
+  show_question_numbers: z.boolean().default(false),
 });
 
 export function createFormThemeSchema(defaults: AppearanceBrandDefaults) {
@@ -74,7 +74,7 @@ export function createFormAppearanceSchema(defaults: AppearanceBrandDefaults) {
       spacing: "comfortable",
       show_progress_bar: true,
       progress_position: "top",
-      show_question_numbers: true,
+      show_question_numbers: false,
     };
   };
 
