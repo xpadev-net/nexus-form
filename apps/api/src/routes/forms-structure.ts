@@ -20,7 +20,7 @@ import {
 } from "../types/domain/form";
 import { isoDate } from "../types/domain/iso-date";
 import {
-  DiscordWebhookUrlSchema,
+  DiscordNotificationChannelTransportSchema,
   EmailNotificationChannelSchema,
   FormAppearanceSchema,
   FormConfirmationSchema,
@@ -28,8 +28,8 @@ import {
   FormNotificationsSchema,
   type FormNotificationsTransport,
   FormNotificationsTransportSchema,
-  SecureWebhookUrlSchema,
   StoredLogicRuleSchema,
+  WebhookNotificationChannelTransportSchema,
 } from "../types/validation/form";
 import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
@@ -92,34 +92,9 @@ const postSubmitConfirmationUpdateSchema = z.object({
   allow_edit_link: z.boolean().optional(),
 });
 
-const postSubmitDiscordUpdateSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    webhook_url: DiscordWebhookUrlSchema.optional(),
-    has_webhook_url: z.boolean().optional(),
-    message_template: z.string().max(2000).optional(),
-  })
-  .refine(
-    (data) => !data.enabled || !!data.webhook_url || data.has_webhook_url,
-    {
-      message: "Discord通知が有効な場合、webhook_urlは必須です",
-    },
-  );
+const postSubmitDiscordUpdateSchema = DiscordNotificationChannelTransportSchema;
 
-const postSubmitWebhookUpdateSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    url: SecureWebhookUrlSchema.optional(),
-    has_url: z.boolean().optional(),
-    secret: z.string().min(32).max(200).optional(),
-    has_secret: z.boolean().optional(),
-    headers: z.record(z.string(), z.string()).optional(),
-    timeout_seconds: z.number().int().min(1).max(60).optional().default(30),
-    retry_attempts: z.number().int().min(0).max(5).optional().default(3),
-  })
-  .refine((data) => !data.enabled || !!data.url || data.has_url, {
-    message: "Webhook通知が有効な場合、urlは必須です",
-  });
+const postSubmitWebhookUpdateSchema = WebhookNotificationChannelTransportSchema;
 
 const postSubmitNotificationsUpdateSchema = z.object({
   on_submit: z.object({
