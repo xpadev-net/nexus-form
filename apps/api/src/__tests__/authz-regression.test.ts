@@ -60,6 +60,10 @@ vi.mock("../lib/security/hcaptcha", () => ({
   verifyHCaptcha: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("../lib/security/password", () => ({
+  verifyPassword: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
 }));
@@ -927,6 +931,77 @@ describe("R3-M21: password protected public submit fails closed", () => {
     transactionSpy.mockRestore();
   });
 
+  it("requires password verification before validating protected form answers", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { consumeTokensOrThrow } = await import("../lib/telemetry/tokens");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            id: "1",
+            type: "form_short_text",
+            blockId: "secret-question",
+            children: [{ text: "Secret" }],
+          },
+        ]),
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [
+            {
+              question_id: "wrong-question",
+              question_type: "short_text",
+              question_title: "Wrong",
+              value: "probe",
+            },
+          ],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: "Password verification required",
+      passwordRequired: true,
+      passwordHint: "hint",
+    });
+    expect(consumeTokensOrThrow).not.toHaveBeenCalled();
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+
   it("rejects password verification when protection is enabled without a password hash", async () => {
     const { db } = await import("@nexus-form/database");
     const { getLatestSnapshot } = await import(
@@ -1385,6 +1460,147 @@ describe("R4-H1: password protected public GET gates form body", () => {
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
     expect(body.structure).not.toHaveProperty("access_control");
+  });
+
+  it("rejects wrong password attempts without issuing a verified session", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(verifyPassword).mockResolvedValueOnce(false);
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "wrong-password" }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ valid: false });
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    expect(signSessionJwt).not.toHaveBeenCalled();
+  });
+
+  it("issues a verified session cookie after a correct password", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(verifyPassword).mockResolvedValueOnce(true);
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "correct-password" }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ valid: true });
+    expect(verifyPassword).toHaveBeenCalledWith(
+      "correct-password",
+      "hashed-password",
+    );
+    expect(signSessionJwt).toHaveBeenCalledWith("s1", {
+      verifiedForms: [FORM_ID],
+    });
+    expect(res.headers.get("Set-Cookie")).toContain("cf_session=tok");
+  });
+
+  it("returns the public body directly when password protection is disabled in the active snapshot", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: false,
+              password: "hashed-password",
+              password_hint: "old hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Unprotected form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      form: {
+        id: FORM_ID,
+        isPasswordProtected: false,
+      },
+      plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+    });
+    expect(body.structure).not.toHaveProperty("access_control");
+    expect(JSON.stringify(body)).not.toContain("hashed-password");
   });
 });
 
