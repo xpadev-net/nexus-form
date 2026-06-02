@@ -63,6 +63,9 @@ export function GoogleSheetsIntegration({
         <SpreadsheetSelector
           searchQuery={model.searchQuery}
           selectedSpreadsheetId={model.selectedSpreadsheetId}
+          selectedSpreadsheetName={model.selectedSpreadsheetName}
+          currentLinkedSpreadsheetId={model.currentLinkedSpreadsheetId}
+          currentLinkedSpreadsheetName={model.currentLinkedSpreadsheetName}
           filteredSpreadsheets={model.filteredSpreadsheets}
           isFetchingSpreadsheets={model.isFetchingSpreadsheets}
           spreadsheetsErrorMessage={model.spreadsheetsErrorMessage}
