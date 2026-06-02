@@ -2,6 +2,7 @@ import { Copy, Trash2 } from "lucide-react";
 import type { FC } from "react";
 import { FormAccessControlSettings } from "@/components/forms/form-access-control-settings";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
+import { FormPublicUrlSettings } from "@/components/forms/form-public-url-settings";
 import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integration";
 import { ScheduleManager } from "@/components/forms/schedule-manager";
 import { Button } from "@/components/ui/button";
@@ -49,10 +50,18 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
             <Copy className="mr-1 h-3.5 w-3.5" />
             複製
           </Button>
-          <Button variant="destructive" size="sm" onClick={onDelete}>
-            <Trash2 className="mr-1 h-3.5 w-3.5" />
-            削除
-          </Button>
+        </div>
+        <div className="mt-5 border-t pt-5">
+          <h3 className="mb-2 text-sm font-semibold text-destructive">
+            危険操作
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            <FormPublicUrlSettings formId={formId} />
+            <Button variant="destructive" size="sm" onClick={onDelete}>
+              <Trash2 className="mr-1 h-3.5 w-3.5" />
+              削除
+            </Button>
+          </div>
         </div>
       </section>
     </TabsContent>
