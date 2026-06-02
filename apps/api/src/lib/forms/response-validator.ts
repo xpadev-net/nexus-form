@@ -1,6 +1,7 @@
 import {
   getTextLengthViolations,
   isBlankResponseValue,
+  isIsoCalendarDate,
   parseFiniteResponseNumber,
   type ResponseDataItem,
   textMatchesPattern,
@@ -514,7 +515,7 @@ export function validateResponseData(
         typeof response.value === "string" &&
         !isBlankResponseValue(response.value)
       ) {
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(response.value)) {
+        if (!isIsoCalendarDate(response.value)) {
           errors.push(
             `Response ${i + 1}: Invalid date format for question ${response.question_id}`,
           );
