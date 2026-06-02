@@ -72,6 +72,23 @@ export const MAX_RESPONSE_SELECTIONS = 200;
 export const MAX_RESPONSE_GRID_ROWS = 200;
 export const MAX_RESPONSE_GRID_SELECTIONS_PER_ROW = 200;
 
+export function isIsoCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCFullYear(year);
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
 const responseTextSchema = z.string().max(MAX_RESPONSE_TEXT_LENGTH);
 const responseScalarSchema = z.union([
   responseTextSchema,
