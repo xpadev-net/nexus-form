@@ -59,7 +59,6 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
   const shareLinks = shareLinksQuery.data?.share_links ?? [];
 
   const createSelectedShareLink = () => {
-    setIsEditorConfirmOpen(false);
     createShareLinkMutation.mutate(
       { role: newRole },
       {

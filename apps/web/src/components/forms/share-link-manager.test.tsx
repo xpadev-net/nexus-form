@@ -313,6 +313,7 @@ describe("ShareLinkManager", () => {
         onSuccess: expect.any(Function),
       }),
     );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("共有リンクを作成しました");
 
     act(() => root.unmount());
   });
