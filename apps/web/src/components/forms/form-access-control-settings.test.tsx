@@ -272,11 +272,16 @@ describe("FormAccessControlSettings", () => {
   });
 
   it("saves enabled password protection with password, confirmation, and hint", () => {
+    mocks.passwordProtection = {
+      enabled: true,
+      hasPassword: true,
+      password_hint: "old hint",
+    };
     mocks.passwordProtectionPublication = {
       current: {
         enabled: true,
         hasPassword: true,
-        password_hint: "pet name",
+        password_hint: "old hint",
       },
       published: {
         enabled: false,
@@ -287,7 +292,6 @@ describe("FormAccessControlSettings", () => {
     const container = document.createElement("div");
     const root = renderSettings(container);
 
-    click(passwordSwitch(container));
     setInputValue(passwordInput(container), " secret123 ");
     setInputValue(confirmInput(container), "secret123");
     setInputValue(hintInput(container), "pet name");

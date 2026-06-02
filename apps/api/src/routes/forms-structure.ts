@@ -1,4 +1,10 @@
 import { zValidator } from "@hono/zod-validator";
+import {
+  type PasswordProtectionPublicationSnapshot,
+  PasswordProtectionPublicationSnapshotSchema,
+  type PasswordProtectionPublicationState,
+  PasswordProtectionPublicationStateSchema,
+} from "@nexus-form/shared";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
@@ -126,23 +132,14 @@ const servicePaginationSchema = z.object({
   hasPrev: z.boolean(),
 });
 
-const PasswordProtectionPublicationSnapshotSchema = z.object({
-  enabled: z.boolean(),
-  has_password: z.boolean(),
-  password_hint: z.string().optional(),
-});
-type PasswordProtectionPublicationSnapshot = z.infer<
-  typeof PasswordProtectionPublicationSnapshotSchema
->;
-
-const PasswordProtectionPublicationStateSchema = z.object({
-  current: PasswordProtectionPublicationSnapshotSchema,
-  published: PasswordProtectionPublicationSnapshotSchema.nullable(),
-  is_synced: z.boolean(),
-});
-export type PasswordProtectionPublicationState = z.infer<
-  typeof PasswordProtectionPublicationStateSchema
->;
+export type {
+  PasswordProtectionPublicationSnapshot,
+  PasswordProtectionPublicationState,
+};
+export {
+  PasswordProtectionPublicationSnapshotSchema,
+  PasswordProtectionPublicationStateSchema,
+};
 
 const FormStructureEnvelopeSchema = z.object({
   structure: FormStructureTransport,
