@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
 import {
+  formAccessControlStructureQueryKey,
   formDiffQueryKey,
   unpublishedChangesQueryKey,
 } from "./form-structure-query-keys";
@@ -45,6 +46,9 @@ export const useFormPublishActions = (formId: string) => {
         queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
         queryClient.invalidateQueries({
           queryKey: ["latestSnapshot", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: formAccessControlStructureQueryKey(formId),
         }),
         queryClient.invalidateQueries({
           queryKey: unpublishedChangesQueryKey(formId),

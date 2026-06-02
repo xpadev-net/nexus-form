@@ -16,11 +16,37 @@ type MutationOptions = {
   onSuccess?: () => Promise<void> | void;
 };
 
+type StructureQueryData = {
+  structure: {
+    access_control: {
+      password_protection: {
+        enabled: boolean;
+        has_password: boolean;
+        password_hint?: string;
+      };
+    };
+  };
+  password_protection_publication?: {
+    current: {
+      enabled: boolean;
+      has_password: boolean;
+      password_hint?: string;
+    };
+    published: {
+      enabled: boolean;
+      has_password: boolean;
+      password_hint?: string;
+    } | null;
+    is_synced: boolean;
+  };
+};
+
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
   mutationOptions: null as MutationOptions | null,
+  queryData: null as StructureQueryData | null,
   toastError: vi.fn(),
 }));
 
@@ -34,16 +60,7 @@ vi.mock("@tanstack/react-query", () => ({
     };
   },
   useQuery: () => ({
-    data: {
-      structure: {
-        access_control: {
-          password_protection: {
-            enabled: false,
-            has_password: false,
-          },
-        },
-      },
-    },
+    data: mocks.queryData,
     isLoading: false,
   }),
   useQueryClient: () => ({
@@ -81,13 +98,40 @@ vi.mock("sonner", () => ({
 
 let lastHookResult: ReturnType<typeof useFormAccessControl> | null = null;
 
+function createDefaultQueryData(): StructureQueryData {
+  return {
+    structure: {
+      access_control: {
+        password_protection: {
+          enabled: false,
+          has_password: false,
+        },
+      },
+    },
+    password_protection_publication: {
+      current: {
+        enabled: true,
+        has_password: true,
+        password_hint: "new hint",
+      },
+      published: {
+        enabled: false,
+        has_password: true,
+        password_hint: "old hint",
+      },
+      is_synced: false,
+    },
+  };
+}
+
 function Probe() {
   lastHookResult = useFormAccessControl("form-1");
-  const { passwordProtection } = lastHookResult;
+  const { passwordProtection, passwordProtectionPublication } = lastHookResult;
   return (
     <div>
       {passwordProtection.enabled ? "enabled" : "disabled"}-
       {passwordProtection.hasPassword ? "has-password" : "no-password"}
+      {passwordProtectionPublication.isSynced ? "-synced" : "-unsynced"}
     </div>
   );
 }
@@ -107,6 +151,7 @@ describe("useFormAccessControl", () => {
     mocks.mutate.mockReset();
     mocks.mutateAsync.mockReset();
     mocks.mutateAsync.mockResolvedValue(undefined);
+    mocks.queryData = createDefaultQueryData();
     mocks.toastError.mockReset();
     mocks.mutationOptions = null;
     lastHookResult = null;
@@ -117,6 +162,20 @@ describe("useFormAccessControl", () => {
     const root = renderProbe(container);
 
     expect(container.textContent).toContain("disabled-no-password");
+    expect(container.textContent).toContain("unsynced");
+    expect(lastHookResult?.passwordProtectionPublication).toEqual({
+      current: {
+        enabled: true,
+        hasPassword: true,
+        password_hint: "new hint",
+      },
+      published: {
+        enabled: false,
+        hasPassword: true,
+        password_hint: "old hint",
+      },
+      isSynced: false,
+    });
     expect(mocks.mutationOptions?.onSuccess).toBeDefined();
 
     await act(async () => {
@@ -134,6 +193,38 @@ describe("useFormAccessControl", () => {
     });
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["unpublishedChanges", "form-1"],
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("falls back to current form password protection when publication state is absent", () => {
+    mocks.queryData = {
+      structure: {
+        access_control: {
+          password_protection: {
+            enabled: true,
+            has_password: true,
+            password_hint: "draft hint",
+          },
+        },
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderProbe(container);
+
+    expect(container.textContent).toContain("enabled-has-password");
+    expect(container.textContent).toContain("synced");
+    expect(lastHookResult?.passwordProtectionPublication).toEqual({
+      current: {
+        enabled: true,
+        hasPassword: true,
+        password_hint: "draft hint",
+      },
+      published: null,
+      isSynced: true,
     });
 
     act(() => {

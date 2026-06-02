@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { client, rpc } from "@/lib/api";
 import {
+  formAccessControlStructureQueryKey,
   formDiffQueryKey,
   unpublishedChangesQueryKey,
 } from "./form-structure-query-keys";
@@ -105,16 +106,27 @@ export const useSnapshots = (formId: string | null | undefined) => {
       );
     },
     onSuccess: async () => {
+      if (!formId) return;
+      const targetFormId = formId;
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
         queryClient.invalidateQueries({
-          queryKey: ["latestSnapshot", formId],
+          queryKey: ["snapshots", targetFormId],
         }),
         queryClient.invalidateQueries({
-          queryKey: unpublishedChangesQueryKey(formId),
+          queryKey: ["latestSnapshot", targetFormId],
         }),
-        queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
+        queryClient.invalidateQueries({
+          queryKey: formAccessControlStructureQueryKey(targetFormId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: unpublishedChangesQueryKey(targetFormId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["formDetail", targetFormId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: formDiffQueryKey(targetFormId),
+        }),
       ]);
     },
     onError: () => {
@@ -132,26 +144,41 @@ export const useSnapshots = (formId: string | null | undefined) => {
       );
     },
     onSuccess: async (data) => {
-      await queryClient.cancelQueries({ queryKey: ["formContent", formId] });
+      if (!formId) return;
+      const targetFormId = formId;
+      await queryClient.cancelQueries({
+        queryKey: ["formContent", targetFormId],
+      });
       window.dispatchEvent(
         new CustomEvent(RESTORE_EDIT_EVENT, {
           detail: {
-            formId,
+            formId: targetFormId,
             plateContent: data.plateContent,
           },
         }),
       );
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
         queryClient.invalidateQueries({
-          queryKey: ["latestSnapshot", formId],
+          queryKey: ["snapshots", targetFormId],
         }),
         queryClient.invalidateQueries({
-          queryKey: unpublishedChangesQueryKey(formId),
+          queryKey: ["latestSnapshot", targetFormId],
         }),
-        queryClient.invalidateQueries({ queryKey: ["formContent", formId] }),
-        queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
+        queryClient.invalidateQueries({
+          queryKey: formAccessControlStructureQueryKey(targetFormId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: unpublishedChangesQueryKey(targetFormId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["formContent", targetFormId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["formDetail", targetFormId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: formDiffQueryKey(targetFormId),
+        }),
       ]);
     },
     onError: () => {

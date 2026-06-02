@@ -44,6 +44,11 @@ export const UnpublishedChangesSection: FC<UnpublishedChangesSectionProps> = ({
           <br />
           {currentPublicVersion}
         </p>
+        {state.hasPasswordProtectionChanges ? (
+          <p className="pl-6 text-xs font-medium text-amber-600">
+            未反映の公開設定: パスワード保護
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={isBusy} onClick={onPublishChanges}>
             <Upload className="mr-1 h-3.5 w-3.5" />
