@@ -69,6 +69,13 @@ const LIKE_ESCAPE_CHAR = "!";
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(20),
+  /**
+   * 回答一覧検索の正式 query。
+   * メタデータに加え、短文/長文の回答本文と、radio/checkbox/dropdown の
+   * 表示ラベルおよび保存内部値を検索対象にする。
+   */
+  q: z.string().max(200).optional(),
+  /** @deprecated q を使用する。既存クライアント互換のため当面受け付ける。 */
   keyword: z.string().max(200).optional(),
   sort: z.enum(["submittedAt", "updatedAt"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
@@ -120,6 +127,293 @@ function escapeLikePattern(value: string): string {
 
 function buildPrefixSearchPattern(keyword: string): string {
   return `${escapeLikePattern(keyword)}%`;
+}
+
+function buildContainsSearchPattern(keyword: string): string {
+  return `%${escapeLikePattern(keyword)}%`;
+}
+
+function buildQuotedJsonContainsPattern(value: string): string {
+  return buildContainsSearchPattern(JSON.stringify(value));
+}
+
+const responseSearchItemSchema = z
+  .object({
+    question_id: z.string(),
+    question_type: z.string(),
+    value: z.unknown().optional(),
+    values: z.array(z.unknown()).optional(),
+    other_value: z.string().optional(),
+    other_values: z.array(z.string()).optional(),
+  })
+  .passthrough();
+const responseSearchItemsSchema = z.array(responseSearchItemSchema);
+
+type ResponseSearchItem = z.infer<typeof responseSearchItemSchema>;
+
+type ResponseChoiceLabelsByQuestion = Map<string, Map<string, string>>;
+
+type ResponseSearchRow = {
+  id: string;
+  formId: string;
+  submittedAt: Date;
+  updatedAt: Date | null;
+  respondentUuid: string;
+  userAgent: string | null;
+  sessionId: string | null;
+  countryCode: string | null;
+  responseDataJson: string;
+};
+
+type ResponseListRow = Omit<ResponseSearchRow, "responseDataJson">;
+
+function buildResponseChoiceLabelsByQuestion(
+  plateContent: string | null,
+): ResponseChoiceLabelsByQuestion {
+  if (!plateContent) return new Map();
+
+  const labelsByQuestion: ResponseChoiceLabelsByQuestion = new Map();
+  for (const question of buildQuestionsFromPlateContent(plateContent)) {
+    const options = question.validation?.options;
+    if (!options || options.length === 0) continue;
+
+    labelsByQuestion.set(
+      question.id,
+      new Map(options.map((option) => [option.id, option.label])),
+    );
+  }
+  return labelsByQuestion;
+}
+
+function normalizeSearchText(value: string): string {
+  return value.toLocaleLowerCase();
+}
+
+function searchableScalar(value: unknown): string | null {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return String(value);
+  }
+  return null;
+}
+
+function matchesSearchTerm(value: string | null, normalizedTerm: string) {
+  return value !== null && normalizeSearchText(value).includes(normalizedTerm);
+}
+
+function choiceSearchValues(
+  item: ResponseSearchItem,
+  choiceLabels: ResponseChoiceLabelsByQuestion,
+): string[] {
+  const labels = choiceLabels.get(item.question_id);
+  const values =
+    item.question_type === "checkbox" && item.values
+      ? item.values
+      : item.value !== undefined
+        ? [item.value]
+        : [];
+
+  return values.flatMap((value) => {
+    const raw = searchableScalar(value);
+    if (raw === null) return [];
+    const label = labels?.get(raw);
+    return label ? [label, raw] : [raw];
+  });
+}
+
+function responseItemMatchesSearch(
+  item: ResponseSearchItem,
+  choiceLabels: ResponseChoiceLabelsByQuestion,
+  normalizedTerm: string,
+): boolean {
+  if (
+    (item.question_type === "short_text" ||
+      item.question_type === "long_text") &&
+    matchesSearchTerm(searchableScalar(item.value), normalizedTerm)
+  ) {
+    return true;
+  }
+
+  if (
+    ["radio", "checkbox", "dropdown"].includes(item.question_type) &&
+    choiceSearchValues(item, choiceLabels).some((value) =>
+      matchesSearchTerm(value, normalizedTerm),
+    )
+  ) {
+    return true;
+  }
+
+  if (matchesSearchTerm(item.other_value ?? null, normalizedTerm)) {
+    return true;
+  }
+
+  return (
+    item.other_values?.some((value) =>
+      matchesSearchTerm(value, normalizedTerm),
+    ) ?? false
+  );
+}
+
+function parseResponseSearchItems(responseDataJson: string) {
+  try {
+    const parsed: unknown = JSON.parse(responseDataJson);
+    const result = responseSearchItemsSchema.safeParse(parsed);
+    return result.success ? result.data : [];
+  } catch {
+    return [];
+  }
+}
+
+function metadataMatchesPrefixSearch(
+  row: Pick<ResponseSearchRow, "id" | "respondentUuid" | "countryCode">,
+  normalizedTerm: string,
+): boolean {
+  return [row.id, row.respondentUuid, row.countryCode ?? ""].some((value) =>
+    normalizeSearchText(value).startsWith(normalizedTerm),
+  );
+}
+
+function responseRowMatchesSearch(
+  row: ResponseSearchRow,
+  searchTerm: string,
+  choiceLabels: ResponseChoiceLabelsByQuestion,
+): boolean {
+  const normalizedTerm = normalizeSearchText(searchTerm);
+  if (metadataMatchesPrefixSearch(row, normalizedTerm)) return true;
+
+  return parseResponseSearchItems(row.responseDataJson).some((item) =>
+    responseItemMatchesSearch(item, choiceLabels, normalizedTerm),
+  );
+}
+
+function toResponseListRow(row: ResponseSearchRow): ResponseListRow {
+  const { responseDataJson: _responseDataJson, ...listRow } = row;
+  return listRow;
+}
+
+function matchingChoiceOptionIds(
+  choiceLabels: ResponseChoiceLabelsByQuestion,
+  searchTerm: string,
+): string[] {
+  const normalizedTerm = normalizeSearchText(searchTerm);
+  const matchingIds = new Set<string>();
+  for (const options of choiceLabels.values()) {
+    for (const [id, label] of options) {
+      if (normalizeSearchText(label).includes(normalizedTerm)) {
+        matchingIds.add(id);
+      }
+    }
+  }
+  return [...matchingIds];
+}
+
+function buildResponseListOrderBy(
+  sortField: "submittedAt" | "updatedAt",
+  sortOrder: "asc" | "desc",
+) {
+  return sortOrder === "asc"
+    ? sortField === "updatedAt"
+      ? sql`${formResponse.updatedAt} asc`
+      : sql`${formResponse.submittedAt} asc`
+    : sortField === "updatedAt"
+      ? sql`${formResponse.updatedAt} desc`
+      : sql`${formResponse.submittedAt} desc`;
+}
+
+function buildResponseSearchCondition(
+  formId: string,
+  searchTerm: string,
+  choiceLabels: ResponseChoiceLabelsByQuestion,
+) {
+  const keywordPattern = buildPrefixSearchPattern(searchTerm);
+  const countryCodePattern = buildPrefixSearchPattern(searchTerm.toUpperCase());
+  const responseDataPatterns = [
+    buildContainsSearchPattern(searchTerm),
+    ...matchingChoiceOptionIds(choiceLabels, searchTerm).map(
+      buildQuotedJsonContainsPattern,
+    ),
+  ];
+
+  return and(
+    eq(formResponse.formId, formId),
+    or(
+      sql`${formResponse.id} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+      sql`${formResponse.respondentUuid} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
+      sql`${formResponse.countryCode} like ${countryCodePattern} escape ${LIKE_ESCAPE_CHAR}`,
+      ...responseDataPatterns.map(
+        (pattern) =>
+          sql`${formResponse.responseDataJson} like ${pattern} escape ${LIKE_ESCAPE_CHAR}`,
+      ),
+    ),
+  );
+}
+
+async function listResponsesWithSearch(options: {
+  formId: string;
+  searchTerm: string;
+  page: number;
+  limit: number;
+  sortField: "submittedAt" | "updatedAt";
+  sortOrder: "asc" | "desc";
+}): Promise<{ responses: ResponseListRow[]; hasNext: boolean }> {
+  const [{ plateContent } = { plateContent: null }] = await db
+    .select({ plateContent: form.plateContent })
+    .from(form)
+    .where(eq(form.id, options.formId))
+    .limit(1);
+  const choiceLabels = buildResponseChoiceLabelsByQuestion(plateContent);
+  const targetMatchCount =
+    (options.page - 1) * options.limit + options.limit + 1;
+  const batchSize = Math.max(options.limit + 1, 200);
+  const matches: ResponseListRow[] = [];
+  let candidateOffset = 0;
+
+  while (matches.length < targetMatchCount) {
+    const rows = await db
+      .select({
+        id: formResponse.id,
+        formId: formResponse.formId,
+        submittedAt: formResponse.submittedAt,
+        updatedAt: formResponse.updatedAt,
+        respondentUuid: formResponse.respondentUuid,
+        userAgent: formResponse.userAgent,
+        sessionId: formResponse.sessionId,
+        countryCode: formResponse.countryCode,
+        responseDataJson: formResponse.responseDataJson,
+      })
+      .from(formResponse)
+      .where(
+        buildResponseSearchCondition(
+          options.formId,
+          options.searchTerm,
+          choiceLabels,
+        ),
+      )
+      .orderBy(buildResponseListOrderBy(options.sortField, options.sortOrder))
+      .offset(candidateOffset)
+      .limit(batchSize);
+
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      if (responseRowMatchesSearch(row, options.searchTerm, choiceLabels)) {
+        matches.push(toResponseListRow(row));
+        if (matches.length >= targetMatchCount) break;
+      }
+    }
+
+    if (rows.length < batchSize) break;
+    candidateOffset += rows.length;
+  }
+
+  const offset = (options.page - 1) * options.limit;
+  return {
+    responses: matches.slice(offset, offset + options.limit),
+    hasNext: matches.length > offset + options.limit,
+  };
 }
 
 function buildExportBlocksFromPlateContent(plateContent: string | null): Array<{
@@ -575,23 +869,26 @@ export const formsResponsesRouter = createHonoApp()
       const sortField = query.sort ?? "submittedAt";
       const sortOrder = query.order ?? "desc";
       const offset = (query.page - 1) * query.limit;
-      const keyword = query.keyword?.trim();
-      const whereCondition = (() => {
-        if (!keyword) return eq(formResponse.formId, formId);
+      const searchTerm = (query.q ?? query.keyword)?.trim();
+      if (searchTerm) {
+        const { responses, hasNext } = await listResponsesWithSearch({
+          formId,
+          searchTerm,
+          page: query.page,
+          limit: query.limit,
+          sortField,
+          sortOrder,
+        });
 
-        const keywordPattern = buildPrefixSearchPattern(keyword);
-        const countryCodePattern = buildPrefixSearchPattern(
-          keyword.toUpperCase(),
+        return c.json(
+          ResponsesListResponseSchema.parse({
+            responses,
+            page: query.page,
+            limit: query.limit,
+            hasNext,
+          }),
         );
-        return and(
-          eq(formResponse.formId, formId),
-          or(
-            sql`${formResponse.id} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
-            sql`${formResponse.respondentUuid} like ${keywordPattern} escape ${LIKE_ESCAPE_CHAR}`,
-            sql`${formResponse.countryCode} like ${countryCodePattern} escape ${LIKE_ESCAPE_CHAR}`,
-          ),
-        );
-      })();
+      }
 
       const rows = await db
         .select({
@@ -605,16 +902,8 @@ export const formsResponsesRouter = createHonoApp()
           countryCode: formResponse.countryCode,
         })
         .from(formResponse)
-        .where(whereCondition)
-        .orderBy(
-          sortOrder === "asc"
-            ? sortField === "updatedAt"
-              ? sql`${formResponse.updatedAt} asc`
-              : sql`${formResponse.submittedAt} asc`
-            : sortField === "updatedAt"
-              ? sql`${formResponse.updatedAt} desc`
-              : sql`${formResponse.submittedAt} desc`,
-        )
+        .where(eq(formResponse.formId, formId))
+        .orderBy(buildResponseListOrderBy(sortField, sortOrder))
         .offset(offset)
         .limit(query.limit + 1);
       const responses = rows.slice(0, query.limit);

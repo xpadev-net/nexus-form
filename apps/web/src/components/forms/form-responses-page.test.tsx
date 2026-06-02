@@ -33,6 +33,11 @@ type ResponsesQueryState = {
   refetch: () => void;
 };
 
+type CapturedUseQueryOptions = {
+  queryFn: () => unknown;
+  queryKey: readonly unknown[];
+};
+
 function renderResponses(container: HTMLElement): Root {
   const root = createRoot(container);
   act(() => {
@@ -43,9 +48,11 @@ function renderResponses(container: HTMLElement): Root {
 
 const queryMock = vi.hoisted(
   (): {
+    lastOptions: CapturedUseQueryOptions | null;
     refetch: ReturnType<typeof vi.fn>;
     state: ResponsesQueryState;
   } => ({
+    lastOptions: null,
     refetch: vi.fn(),
     state: {
       data: {
@@ -72,9 +79,25 @@ const queryMock = vi.hoisted(
   }),
 );
 
+const apiMock = vi.hoisted(() => ({
+  getResponses: vi.fn(() => Promise.resolve({ ok: true })),
+  rpc: vi.fn((value: unknown) => value),
+}));
+
+const filterMock = vi.hoisted(
+  (): {
+    onKeywordChange: ((value: string) => void) | null;
+  } => ({
+    onKeywordChange: null,
+  }),
+);
+
 vi.mock("@tanstack/react-query", () => ({
   keepPreviousData: Symbol("keepPreviousData"),
-  useQuery: () => queryMock.state,
+  useQuery: (options: CapturedUseQueryOptions) => {
+    queryMock.lastOptions = options;
+    return queryMock.state;
+  },
 }));
 
 vi.mock("@/hooks/forms/use-validation-sse", () => ({
@@ -96,15 +119,18 @@ vi.mock("@/components/forms/response-filter", () => ({
   }: {
     keyword: string;
     onKeywordChange: (value: string) => void;
-  }) => (
-    <label>
-      Filter
-      <input
-        value={keyword}
-        onChange={(event) => onKeywordChange(event.currentTarget.value)}
-      />
-    </label>
-  ),
+  }) => {
+    filterMock.onKeywordChange = onKeywordChange;
+    return (
+      <label>
+        Filter
+        <input
+          value={keyword}
+          onChange={(event) => onKeywordChange(event.currentTarget.value)}
+        />
+      </label>
+    );
+  },
 }));
 vi.mock("@/components/ui/button", () => ({
   Button: ({
@@ -115,12 +141,25 @@ vi.mock("@/components/ui/button", () => ({
   }) => <button {...props}>{children}</button>,
 }));
 vi.mock("@/lib/api", () => ({
-  client: {},
-  rpc: vi.fn(),
+  client: {
+    api: {
+      forms: {
+        ":id": {
+          responses: {
+            $get: apiMock.getResponses,
+          },
+        },
+      },
+    },
+  },
+  rpc: apiMock.rpc,
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.useRealTimers();
+  filterMock.onKeywordChange = null;
+  queryMock.lastOptions = null;
   queryMock.state = {
     data: {
       responses: [
@@ -281,6 +320,103 @@ describe("FormResponsesContent accessibility", () => {
     });
 
     expect(queryMock.refetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("passes the committed search term as q", () => {
+    vi.useFakeTimers();
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+    expect(filterMock.onKeywordChange).not.toBeNull();
+
+    act(() => {
+      filterMock.onKeywordChange?.("Needle");
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(queryMock.lastOptions?.queryKey).toContain("Needle");
+
+    queryMock.lastOptions?.queryFn();
+    expect(apiMock.getResponses).toHaveBeenLastCalledWith({
+      param: { id: "form-1" },
+      query: {
+        page: "1",
+        limit: "20",
+        q: "Needle",
+      },
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("distinguishes searching, empty, and error states", () => {
+    vi.useFakeTimers();
+    queryMock.state = {
+      ...queryMock.state,
+      data: {
+        responses: [],
+        hasNext: false,
+        page: 1,
+        limit: 20,
+      },
+      isFetching: true,
+    };
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+    expect(filterMock.onKeywordChange).not.toBeNull();
+
+    act(() => {
+      filterMock.onKeywordChange?.("Needle");
+    });
+
+    expect(container.textContent).toContain("検索中...");
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "検索中...",
+    );
+    expect(container.textContent).not.toContain(
+      "検索条件に一致する回答はありません。",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    queryMock.state = {
+      ...queryMock.state,
+      isFetching: false,
+    };
+
+    act(() => {
+      root.render(<FormResponsesContent formId="form-1" />);
+    });
+
+    expect(container.textContent).toContain(
+      "検索条件に一致する回答はありません。",
+    );
+    expect(container.textContent).not.toContain("検索中...");
+
+    queryMock.state = {
+      ...queryMock.state,
+      data: undefined,
+      error: new Error("回答一覧を読み込めませんでした。"),
+      isError: true,
+    };
+
+    act(() => {
+      root.render(<FormResponsesContent formId="form-1" />);
+    });
+
+    expect(container.textContent).toContain("回答一覧を読み込めませんでした。");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "回答一覧を読み込めませんでした。",
+    );
+    expect(container.textContent).not.toContain(
+      "検索条件に一致する回答はありません。",
+    );
 
     act(() => root.unmount());
   });
