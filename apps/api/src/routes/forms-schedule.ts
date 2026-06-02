@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { formSchedule } from "@nexus-form/database/schema";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   paginationMetadata,
@@ -39,7 +39,6 @@ const scheduleUpdateSchema = z
     triggerAt: futureDatetime.optional(),
     action: z.enum(["PUBLISH", "UNPUBLISH", "SWITCH_SNAPSHOT"]).optional(),
     snapshotVersion: z.number().int().min(1).nullable().optional(),
-    processedAt: z.string().datetime().nullable().optional(),
   })
   .refine(
     (data) =>
@@ -55,9 +54,22 @@ const FormScheduleResponseSchema = z.object({
   action: z.enum(["PUBLISH", "UNPUBLISH", "SWITCH_SNAPSHOT"]),
   snapshotVersion: z.number().int().min(1).nullable(),
   processedAt: isoDate.nullable(),
+  status: z.enum(["PENDING", "COMPLETED", "CANCELLED"]),
   createdAt: isoDate,
   updatedAt: isoDate,
 });
+type FormScheduleRow = typeof formSchedule.$inferSelect;
+
+function serializeSchedule(schedule: FormScheduleRow) {
+  return {
+    ...schedule,
+    status: !schedule.processedAt
+      ? "PENDING"
+      : schedule.processedAt < schedule.triggerAt
+        ? "CANCELLED"
+        : "COMPLETED",
+  } satisfies z.input<typeof FormScheduleResponseSchema>;
+}
 
 const FormScheduleEnvelopeSchema = z.object({
   schedule: FormScheduleResponseSchema,
@@ -131,7 +143,7 @@ export const formsScheduleRouter = createHonoApp()
       const total = totalResult[0]?.count ?? 0;
       return c.json(
         FormScheduleListResponseSchema.parse({
-          schedules,
+          schedules: schedules.map(serializeSchedule),
           pagination: paginationMetadata(page, pageSize, total),
         }),
       );
@@ -159,7 +171,15 @@ export const formsScheduleRouter = createHonoApp()
         .from(formSchedule)
         .where(eq(formSchedule.id, id))
         .limit(1);
-      return c.json(FormScheduleEnvelopeSchema.parse({ schedule }), 201);
+      if (!schedule) {
+        throw new Error("Created schedule not found");
+      }
+      return c.json(
+        FormScheduleEnvelopeSchema.parse({
+          schedule: serializeSchedule(schedule),
+        }),
+        201,
+      );
     },
   )
   .get("/:id/schedule/:scheduleId", async (c) => {
@@ -173,7 +193,11 @@ export const formsScheduleRouter = createHonoApp()
       )
       .limit(1);
     if (!schedule) return c.json(formScheduleError("Schedule not found"), 404);
-    return c.json(FormScheduleEnvelopeSchema.parse({ schedule }));
+    return c.json(
+      FormScheduleEnvelopeSchema.parse({
+        schedule: serializeSchedule(schedule),
+      }),
+    );
   })
   .put(
     "/:id/schedule/:scheduleId",
@@ -194,6 +218,12 @@ export const formsScheduleRouter = createHonoApp()
         .limit(1);
       if (!schedule) {
         return c.json(formScheduleError("Schedule not found"), 404);
+      }
+      if (schedule.processedAt) {
+        return c.json(
+          formScheduleError("Schedule cannot be edited after execution"),
+          409,
+        );
       }
 
       const effectiveAction = payload.action ?? schedule.action;
@@ -216,7 +246,7 @@ export const formsScheduleRouter = createHonoApp()
         );
       }
 
-      await db
+      const updateResult = await db
         .update(formSchedule)
         .set({
           triggerAt: payload.triggerAt
@@ -227,23 +257,36 @@ export const formsScheduleRouter = createHonoApp()
             effectiveAction === "SWITCH_SNAPSHOT"
               ? effectiveSnapshotVersion
               : null,
-          processedAt:
-            payload.processedAt === null
-              ? null
-              : payload.processedAt
-                ? new Date(payload.processedAt)
-                : undefined,
+          updatedAt: new Date(),
         })
-        .where(eq(formSchedule.id, scheduleId));
+        .where(
+          and(
+            eq(formSchedule.id, scheduleId),
+            eq(formSchedule.formId, formId),
+            isNull(formSchedule.processedAt),
+          ),
+        );
+      if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+        return c.json(
+          formScheduleError(
+            "Schedule was already processed and cannot be edited",
+          ),
+          409,
+        );
+      }
 
       const [updated] = await db
         .select()
         .from(formSchedule)
-        .where(eq(formSchedule.id, scheduleId))
+        .where(
+          and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
+        )
         .limit(1);
 
       return c.json(
-        NullableFormScheduleEnvelopeSchema.parse({ schedule: updated ?? null }),
+        NullableFormScheduleEnvelopeSchema.parse({
+          schedule: updated ? serializeSchedule(updated) : null,
+        }),
       );
     },
   )
@@ -255,7 +298,11 @@ export const formsScheduleRouter = createHonoApp()
       const formId = c.req.param("id");
       const scheduleId = c.req.param("scheduleId");
       const [target] = await db
-        .select({ id: formSchedule.id })
+        .select({
+          id: formSchedule.id,
+          triggerAt: formSchedule.triggerAt,
+          processedAt: formSchedule.processedAt,
+        })
         .from(formSchedule)
         .where(
           and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
@@ -264,7 +311,31 @@ export const formsScheduleRouter = createHonoApp()
       if (!target) {
         return c.json(formScheduleError("Schedule not found"), 404);
       }
-      await db.delete(formSchedule).where(eq(formSchedule.id, scheduleId));
+      if (target.processedAt) {
+        return c.json(
+          formScheduleError("Schedule cannot be cancelled after execution"),
+          409,
+        );
+      }
+      const cancelledAt = new Date(target.triggerAt.getTime() - 1000);
+      const updateResult = await db
+        .update(formSchedule)
+        .set({ processedAt: cancelledAt })
+        .where(
+          and(
+            eq(formSchedule.id, scheduleId),
+            eq(formSchedule.formId, formId),
+            isNull(formSchedule.processedAt),
+          ),
+        );
+      if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+        return c.json(
+          formScheduleError(
+            "Schedule was already processed and cannot be cancelled",
+          ),
+          409,
+        );
+      }
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   );
