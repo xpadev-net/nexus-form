@@ -659,7 +659,7 @@ describe("handleGenericValidation", () => {
     );
   });
 
-  it("credentialなしmock providerでworker handlerの成功・失敗・保留・再検証状態を再現できる", async () => {
+  const setupMockExternalProvider = () => {
     const validationConfig = { mode: "fixture" };
     const validateFn = vi.fn();
     const rule = makeRule({
@@ -679,6 +679,13 @@ describe("handleGenericValidation", () => {
       snapshotRuleType: "mock_rule",
       snapshotConfigJson: validationConfig,
     };
+
+    return { baseJobData, validateFn, validationConfig };
+  };
+
+  it("credentialなしmock providerでworker handlerの成功状態を再現できる", async () => {
+    const { baseJobData, validateFn, validationConfig } =
+      setupMockExternalProvider();
 
     validateFn.mockResolvedValueOnce({
       isValid: true,
@@ -701,9 +708,11 @@ describe("handleGenericValidation", () => {
         metadata: { fixtureCase: "success" },
       }),
     );
+  });
 
-    mockMarkValidationProcessing.mockClear();
-    mockWriteValidationResult.mockClear();
+  it("credentialなしmock providerでworker handlerの失敗状態を再現できる", async () => {
+    const { baseJobData, validateFn } = setupMockExternalProvider();
+
     validateFn.mockResolvedValueOnce({
       isValid: false,
       errorCode: "MOCK_PERMISSION_DENIED",
@@ -724,9 +733,11 @@ describe("handleGenericValidation", () => {
         errorMessage: "Mock provider permission denied",
       }),
     );
+  });
 
-    mockMarkValidationProcessing.mockClear();
-    mockWriteValidationResult.mockClear();
+  it("credentialなしmock providerでworker handlerの保留状態を再現できる", async () => {
+    const { baseJobData, validateFn } = setupMockExternalProvider();
+
     validateFn.mockResolvedValueOnce({
       isValid: false,
       errorCode: "MOCK_RATE_LIMIT",
@@ -755,9 +766,11 @@ describe("handleGenericValidation", () => {
       "lock-token",
     );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
 
-    mockMarkValidationProcessing.mockClear();
-    mockWriteValidationResult.mockClear();
+  it("credentialなしmock providerでworker handlerの再検証状態を再現できる", async () => {
+    const { baseJobData, validateFn } = setupMockExternalProvider();
+
     validateFn.mockResolvedValueOnce({
       isValid: true,
       metadata: { fixtureCase: "revalidation" },
