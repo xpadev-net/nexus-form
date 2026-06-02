@@ -465,50 +465,6 @@ export const formsPublicRouter = createHonoApp()
 
       const activeSnapshot = await getLatestSnapshot(target.id);
 
-      // 3. Answer validation against active snapshot's plateContent-derived questions.
-      // Run before quota checks to reject malformed payloads cheaply.
-      const publishedContent = activeSnapshot?.plateContent;
-      const questions = buildPublishedQuestions(publishedContent, {
-        formId: target.id,
-        publicId,
-        operation: "POST /public/:publicId/submit",
-      });
-      if (!questions) {
-        return c.json(errorResponse("Form configuration is invalid"), 500);
-      }
-      if (questions.length === 0) {
-        return c.json(errorResponse("このフォームには質問がありません"), 400);
-      }
-      const answerValidation = validateResponseData(payload.responses, {
-        version: 1,
-        settings: {},
-        questions,
-      });
-      if (!answerValidation.isValid) {
-        logWarn("POST: response validation failed", "forms-public", {
-          publicId,
-          errors: answerValidation.errors,
-        });
-        return c.json(errorResponse("Invalid response data"), 400);
-      }
-
-      // 4. Verify and consume telemetry tokens
-      const telemetryTokens = [
-        payload.telemetry.v4Token,
-        payload.telemetry.v6Token,
-      ].filter((t): t is string => !!t);
-
-      if (!formSecurityBypassEnabled) {
-        try {
-          await consumeTokensOrThrow(telemetryTokens);
-        } catch {
-          return c.json(
-            errorResponse("Invalid or expired telemetry tokens"),
-            403,
-          );
-        }
-      }
-
       const parsedStructure = parsePublishedStructure(
         activeSnapshot?.structureJson,
         {
@@ -521,7 +477,8 @@ export const formsPublicRouter = createHonoApp()
         return c.json(errorResponse("Form configuration is invalid"), 500);
       }
 
-      // 6. Password protection check
+      // 3. Password protection check. Keep this before question validation and
+      // telemetry so locked forms do not leak structure-derived failures.
       const pwProtection = getPasswordProtection(parsedStructure);
 
       if (pwProtection?.enabled) {
@@ -549,7 +506,51 @@ export const formsPublicRouter = createHonoApp()
         }
       }
 
-      // 7. Response limit variable (enforcement happens inside atomic transaction)
+      // 4. Answer validation against active snapshot's plateContent-derived questions.
+      // Run before quota checks to reject malformed payloads cheaply.
+      const publishedContent = activeSnapshot?.plateContent;
+      const questions = buildPublishedQuestions(publishedContent, {
+        formId: target.id,
+        publicId,
+        operation: "POST /public/:publicId/submit",
+      });
+      if (!questions) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
+      if (questions.length === 0) {
+        return c.json(errorResponse("このフォームには質問がありません"), 400);
+      }
+      const answerValidation = validateResponseData(payload.responses, {
+        version: 1,
+        settings: {},
+        questions,
+      });
+      if (!answerValidation.isValid) {
+        logWarn("POST: response validation failed", "forms-public", {
+          publicId,
+          errors: answerValidation.errors,
+        });
+        return c.json(errorResponse("Invalid response data"), 400);
+      }
+
+      // 5. Verify and consume telemetry tokens
+      const telemetryTokens = [
+        payload.telemetry.v4Token,
+        payload.telemetry.v6Token,
+      ].filter((t): t is string => !!t);
+
+      if (!formSecurityBypassEnabled) {
+        try {
+          await consumeTokensOrThrow(telemetryTokens);
+        } catch {
+          return c.json(
+            errorResponse("Invalid or expired telemetry tokens"),
+            403,
+          );
+        }
+      }
+
+      // 6. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure.settings?.response_limit;
       const requireFingerprint =
         !formSecurityBypassEnabled &&
