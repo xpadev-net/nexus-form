@@ -1,4 +1,5 @@
 import type { ExtractedQuestion } from "@nexus-form/shared";
+import { isIsoCalendarDate } from "@nexus-form/shared";
 
 interface AnswerLike {
   value?: unknown;
@@ -44,6 +45,24 @@ function hasRequiredGridRowsAnswered(
   });
 }
 
+function hasRequiredDateAnswered(
+  question: ExtractedQuestion,
+  value: unknown,
+): boolean {
+  if (typeof value !== "string") return false;
+  if (value === "" || !isIsoCalendarDate(value)) return false;
+
+  const validation = question.validation as Record<string, unknown>;
+  const minDate =
+    typeof validation.minDate === "string" ? validation.minDate : undefined;
+  const maxDate =
+    typeof validation.maxDate === "string" ? validation.maxDate : undefined;
+
+  if (minDate && value < minDate) return false;
+  if (maxDate && value > maxDate) return false;
+  return true;
+}
+
 /** Return required questions that have no answer yet. */
 export function findUnansweredRequired(
   questions: ExtractedQuestion[],
@@ -86,6 +105,9 @@ export function findUnansweredRequired(
       }
     }
 
+    if (q.type === "date") {
+      return !hasRequiredDateAnswered(q, answer.value);
+    }
     if (answer.value != null && answer.value !== "") return false;
     if (Array.isArray(answer.values) && answer.values.length > 0) return false;
     if (q.type === "choice_grid" || q.type === "checkbox_grid") {

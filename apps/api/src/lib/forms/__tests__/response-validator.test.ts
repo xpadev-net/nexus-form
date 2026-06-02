@@ -268,6 +268,16 @@ describe("date validation", () => {
       expect.arrayContaining([expect.stringContaining("Invalid date format")]),
     );
   });
+
+  it("rejects impossible calendar dates", () => {
+    const result = validateResponseData(
+      [makeResponse("q1", "date", { value: "2025-02-31" })],
+      form,
+    );
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("Invalid date format")]),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
