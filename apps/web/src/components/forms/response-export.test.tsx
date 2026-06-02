@@ -121,6 +121,7 @@ describe("ResponseExport", () => {
     });
 
     expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute("aria-busy")).toBe("true");
     expect(button?.textContent).toContain("CSV生成中...");
 
     await act(async () => {
@@ -137,6 +138,7 @@ describe("ResponseExport", () => {
     });
 
     expect(button?.disabled).toBe(false);
+    expect(button?.getAttribute("aria-busy")).toBe("false");
     expect(button?.textContent).toContain("CSVエクスポート");
 
     act(() => root.unmount());
@@ -167,6 +169,30 @@ describe("ResponseExport", () => {
     expect(mocks.toastError).toHaveBeenCalledWith(
       "Response export is limited to 5000 responses",
     );
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("does not surface raw HTML error bodies in the failure toast", async () => {
+    const container = document.createElement("div");
+    mocks.exportGet.mockResolvedValue(
+      new Response("<html><body>Bad gateway</body></html>", {
+        status: 502,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const root = renderExport(container);
+    const button = container.querySelector("button");
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith("HTTP 502");
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
 

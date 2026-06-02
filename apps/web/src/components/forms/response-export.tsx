@@ -30,8 +30,12 @@ async function readExportError(response: Response): Promise<string> {
     return getErrorMessage(payload) ?? `HTTP ${response.status}`;
   }
 
-  const body = await response.text().catch(() => "");
-  return body.trim() || `HTTP ${response.status}`;
+  if (contentType.includes("text/plain")) {
+    const body = await response.text().catch(() => "");
+    return body.trim() || `HTTP ${response.status}`;
+  }
+
+  return `HTTP ${response.status}`;
 }
 
 function decodeQuotedFilename(value: string): string {
@@ -42,7 +46,9 @@ function decodeQuotedFilename(value: string): string {
   }
 }
 
-function getContentDispositionFilename(contentDisposition: string | null) {
+function getContentDispositionFilename(
+  contentDisposition: string | null,
+): string | null {
   if (!contentDisposition) return null;
 
   const encodedFilename = contentDisposition.match(
@@ -103,6 +109,7 @@ export function ResponseExport({ formId }: ResponseExportProps) {
       size="sm"
       onClick={handleExportCsv}
       disabled={isExporting}
+      aria-busy={isExporting}
     >
       {isExporting ? (
         <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
