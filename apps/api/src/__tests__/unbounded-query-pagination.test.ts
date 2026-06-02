@@ -355,6 +355,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       [expect.anything(), "formResponse.respondentUuid", "alpha%", "!"],
       [expect.anything(), "formResponse.countryCode", "ALPHA%", "!"],
       [expect.anything(), "formResponse.responseDataJson", "%alpha%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%ALPHA%", "!"],
     ]);
     expect(mocks.offsetCalls).toContain(0);
     expect(mocks.limitCalls).toContain(200);
@@ -442,6 +443,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       [expect.anything(), "formResponse.respondentUuid", "a\\!_!%%", "!"],
       [expect.anything(), "formResponse.countryCode", "A\\!_!%%", "!"],
       [expect.anything(), "formResponse.responseDataJson", "%a\\!_!%%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%A\\!_!%%", "!"],
     ]);
   });
 
@@ -594,6 +596,8 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       .mock.calls.filter((call) => call[1] === "formResponse.responseDataJson");
     expect(responseJsonLikeCalls).toEqual([
       [expect.anything(), "formResponse.responseDataJson", "%Needle%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%needle%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%NEEDLE%", "!"],
       [
         expect.anything(),
         "formResponse.responseDataJson",

@@ -189,6 +189,16 @@ function normalizeSearchText(value: string): string {
   return value.toLocaleLowerCase();
 }
 
+function responseBodySearchTerms(searchTerm: string): string[] {
+  return [
+    ...new Set([
+      searchTerm,
+      normalizeSearchText(searchTerm),
+      searchTerm.toLocaleUpperCase(),
+    ]),
+  ];
+}
+
 function searchableScalar(value: unknown): string | null {
   if (
     typeof value === "string" ||
@@ -331,7 +341,7 @@ function buildResponseSearchCondition(
   const keywordPattern = buildPrefixSearchPattern(searchTerm);
   const countryCodePattern = buildPrefixSearchPattern(searchTerm.toUpperCase());
   const responseDataPatterns = [
-    buildContainsSearchPattern(searchTerm),
+    ...responseBodySearchTerms(searchTerm).map(buildContainsSearchPattern),
     ...matchingChoiceOptionIds(choiceLabels, searchTerm).map(
       buildQuotedJsonContainsPattern,
     ),
