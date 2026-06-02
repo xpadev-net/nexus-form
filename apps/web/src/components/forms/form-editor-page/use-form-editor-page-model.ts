@@ -13,6 +13,25 @@ import { logWarn } from "@/lib/logger";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { FormStatus } from "@/types/validation/shared";
 
+type FormsQueryCache = {
+  forms: Array<{ id: string; status: FormStatus }>;
+};
+
+const updateFormsCacheStatus = (
+  current: FormsQueryCache | undefined,
+  formId: string,
+  status: FormStatus,
+): FormsQueryCache | undefined => {
+  if (!current?.forms) return current;
+
+  return {
+    ...current,
+    forms: current.forms.map((form) =>
+      form.id === formId ? { ...form, status } : form,
+    ),
+  };
+};
+
 export function useFormEditorPageModel(formId: string) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -144,6 +163,9 @@ export function useFormEditorPageModel(formId: string) {
           };
         },
       );
+      queryClient.setQueryData<FormsQueryCache>(["forms"], (current) =>
+        updateFormsCacheStatus(current, formId, "ARCHIVED"),
+      );
       void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
@@ -168,6 +190,9 @@ export function useFormEditorPageModel(formId: string) {
             form: { ...current.form, status: "DRAFT" },
           };
         },
+      );
+      queryClient.setQueryData<FormsQueryCache>(["forms"], (current) =>
+        updateFormsCacheStatus(current, formId, "DRAFT"),
       );
       void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });

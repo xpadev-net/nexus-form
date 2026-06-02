@@ -1,4 +1,5 @@
 import { Copy, Loader2 } from "lucide-react";
+import type { JSX } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,13 +19,24 @@ interface FormDuplicateModalProps {
   sourceTitle?: string;
 }
 
+/**
+ * Renders the duplicate confirmation dialog with the computed copy title,
+ * visible copy policy, and a loading state while the duplicate request runs.
+ *
+ * @param props.open - Whether the dialog is open; see FormDuplicateModalProps["open"].
+ * @param props.isDuplicating - Whether the duplicate action is pending; see FormDuplicateModalProps["isDuplicating"].
+ * @param props.onConfirm - Called when the user confirms duplication; see FormDuplicateModalProps["onConfirm"].
+ * @param props.onClose - Called when the dialog closes outside a pending duplicate; see FormDuplicateModalProps["onClose"].
+ * @param props.sourceTitle - Source form title used to preview the copy name; see FormDuplicateModalProps["sourceTitle"].
+ * @returns A JSX.Element containing the duplicate confirmation dialog.
+ */
 export function FormDuplicateModal({
   open,
   isDuplicating,
   onConfirm,
   onClose,
   sourceTitle,
-}: FormDuplicateModalProps) {
+}: FormDuplicateModalProps): JSX.Element {
   const duplicateTitle = sourceTitle
     ? `${sourceTitle} のコピー`
     : "元フォーム名 のコピー";
