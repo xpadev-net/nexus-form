@@ -31,7 +31,7 @@ async function copyText(text: string): Promise<boolean> {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      return false;
+      // Fall back to the textarea copy path below when the Clipboard API is unavailable at runtime.
     }
   }
 

@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FormPublicUrlSettings } from "./form-public-url-settings";
+import {
+  buildPublicFormUrl,
+  FormPublicUrlSettings,
+} from "./form-public-url-settings";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -89,6 +92,12 @@ describe("FormPublicUrlSettings", () => {
         writeText: vi.fn().mockResolvedValue(undefined),
       },
     });
+  });
+
+  it("builds a public form URL from the current origin", () => {
+    expect(buildPublicFormUrl("new-public-id")).toBe(
+      `${window.location.origin}/forms/public/new-public-id`,
+    );
   });
 
   it("confirms impact, regenerates the public URL, and exposes a copy action", async () => {

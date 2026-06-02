@@ -373,8 +373,11 @@ function installDbMocks() {
   mocks.db.select.mockImplementation(selectBuilder);
   mocks.db.update.mockImplementation(() => ({
     set: vi.fn((values: { publicId?: string }) => ({
-      where: vi.fn(() => {
-        if (values.publicId) {
+      where: vi.fn((condition: EqCondition) => {
+        const targetsCurrentForm =
+          condition.left === mocks.schema.form.id &&
+          condition.right === "form-1";
+        if (targetsCurrentForm && values.publicId) {
           formState.publicId = values.publicId;
         }
         return Promise.resolve(undefined);
