@@ -19,18 +19,22 @@ export type {
   FormAccessControl,
   FormConfirmation,
   FormNotifications,
+  FormNotificationsTransport,
 } from "@nexus-form/shared";
 // 通知・Webhook・アクセス制御・確認スキーマは @nexus-form/shared から re-export
 export {
   ALLOWED_WEBHOOK_DOMAINS,
   DiscordNotificationChannelSchema,
+  DiscordNotificationChannelTransportSchema,
   DiscordWebhookUrlSchema,
   EmailNotificationChannelSchema,
   FormAccessControlSchema,
   FormConfirmationSchema,
   FormNotificationsSchema,
+  FormNotificationsTransportSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,
+  WebhookNotificationChannelTransportSchema,
 } from "@nexus-form/shared";
 
 export const FormLogicConditionSchema = z.object({

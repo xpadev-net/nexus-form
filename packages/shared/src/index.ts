@@ -171,23 +171,29 @@ export {
 } from "./validation/appearance";
 export type {
   DiscordNotificationChannel,
+  DiscordNotificationChannelTransport,
   EmailNotificationChannel,
   FormAccessControl,
   FormConfirmation,
   FormNotifications,
+  FormNotificationsTransport,
   WebhookNotificationChannel,
+  WebhookNotificationChannelTransport,
 } from "./validation/notifications";
 export {
   ALLOWED_WEBHOOK_DOMAINS,
   BASE_WEBHOOK_DOMAINS,
   DiscordNotificationChannelSchema,
+  DiscordNotificationChannelTransportSchema,
   DiscordWebhookUrlSchema,
   EmailNotificationChannelSchema,
   FormAccessControlSchema,
   FormConfirmationSchema,
   FormNotificationsSchema,
+  FormNotificationsTransportSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,
+  WebhookNotificationChannelTransportSchema,
 } from "./validation/notifications";
 export type {
   FormMetadata,

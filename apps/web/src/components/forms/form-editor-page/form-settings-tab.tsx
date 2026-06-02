@@ -3,6 +3,7 @@ import type { FC } from "react";
 import { FormAccessControlSettings } from "@/components/forms/form-access-control-settings";
 import { FormAppearanceSettings } from "@/components/forms/form-appearance-settings";
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
+import { FormPostSubmitSettings } from "@/components/forms/form-post-submit-settings";
 import { FormPublicUrlSettings } from "@/components/forms/form-public-url-settings";
 import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integration";
 import { ScheduleManager } from "@/components/forms/schedule-manager";
@@ -44,6 +45,8 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
         formDescription={formDescription}
         plateContent={plateContent}
       />
+
+      <FormPostSubmitSettings formId={formId} />
 
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <ScheduleManager formId={formId} />
