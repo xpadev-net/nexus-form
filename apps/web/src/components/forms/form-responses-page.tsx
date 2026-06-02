@@ -102,9 +102,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
           query: {
             page: String(state.page),
             limit: String(limit),
-            ...(state.debouncedKeyword
-              ? { keyword: state.debouncedKeyword }
-              : {}),
+            ...(state.debouncedKeyword ? { q: state.debouncedKeyword } : {}),
           },
         }),
       ),
@@ -117,6 +115,14 @@ export function FormResponsesContent({ formId }: { formId: string }) {
     responsesQuery.isPlaceholderData ||
     (data !== undefined && !hasCurrentPageData);
   const hasNextPage = hasCurrentPageData ? data.hasNext : false;
+  const isKeywordCommitPending =
+    state.keyword.trim() !== state.debouncedKeyword;
+  const isSearching =
+    state.viewMode === "list" &&
+    (isKeywordCommitPending ||
+      (state.debouncedKeyword !== "" &&
+        (responsesQuery.isLoading || responsesQuery.isFetching))) &&
+    !responsesQuery.isError;
 
   const handleSelectResponse = useCallback((responseId: string) => {
     dispatch({ type: "select-response", responseId });
@@ -205,11 +211,21 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             </div>
 
             {/* 読み込み中 */}
-            {responsesQuery.isLoading && (
+            {isSearching && (
+              <p
+                className="text-sm text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                検索中...
+              </p>
+            )}
+            {responsesQuery.isLoading && !isSearching && (
               <p className="text-sm text-muted-foreground">読み込み中...</p>
             )}
             {responsesQuery.isFetching &&
               !responsesQuery.isLoading &&
+              !isSearching &&
               !responsesQuery.isError && (
                 <p className="text-xs text-muted-foreground">
                   {isStalePageData
@@ -220,7 +236,10 @@ export function FormResponsesContent({ formId }: { formId: string }) {
 
             {/* エラー */}
             {responsesQuery.isError && (
-              <div className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3">
+              <div
+                className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3"
+                role="alert"
+              >
                 <p className="text-sm text-destructive">
                   {responsesQuery.error instanceof Error
                     ? responsesQuery.error.message
@@ -241,7 +260,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
             {/* 回答リスト */}
             {data && !responsesQuery.isError && (
               <>
-                {data.responses.length === 0 ? (
+                {data.responses.length === 0 && !isSearching ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
                     <p className="text-sm">
                       {state.debouncedKeyword
@@ -249,7 +268,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                         : "回答はまだありません。"}
                     </p>
                   </div>
-                ) : (
+                ) : data.responses.length > 0 ? (
                   <ul className="space-y-2">
                     {data.responses.map((response) => (
                       <li key={response.id}>
@@ -293,7 +312,7 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                       </li>
                     ))}
                   </ul>
-                )}
+                ) : null}
 
                 {/* ページネーション */}
                 {(state.page > 1 || hasNextPage) && (
