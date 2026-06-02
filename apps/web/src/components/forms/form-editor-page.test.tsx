@@ -180,6 +180,9 @@ vi.mock("@/components/forms/form-header", () => ({
 vi.mock("@/components/forms/form-publish-menu", () => ({
   FormPublishMenu: () => null,
 }));
+vi.mock("@/components/forms/form-access-control-settings", () => ({
+  FormAccessControlSettings: () => null,
+}));
 vi.mock("@/components/forms/form-sharing-section", () => ({
   FormSharingSection: () => null,
 }));
