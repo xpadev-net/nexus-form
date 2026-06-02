@@ -68,11 +68,15 @@ export const DiscordNotificationChannelSchema = z
   .object({
     enabled: z.boolean().default(false),
     webhook_url: DiscordWebhookUrlSchema.optional(),
+    has_webhook_url: z.boolean().optional(),
     message_template: z.string().max(2000).optional(),
   })
-  .refine((data) => !data.enabled || !!data.webhook_url, {
-    message: "Discord通知が有効な場合、webhook_urlは必須です",
-  });
+  .refine(
+    (data) => !data.enabled || !!data.webhook_url || data.has_webhook_url,
+    {
+      message: "Discord通知が有効な場合、webhook_urlは必須です",
+    },
+  );
 
 // --- Secure Webhook URL (generic webhook with domain allowlist) ---
 
@@ -145,12 +149,14 @@ export const WebhookNotificationChannelSchema = z
   .object({
     enabled: z.boolean().default(false),
     url: SecureWebhookUrlSchema.optional(),
+    has_url: z.boolean().optional(),
     secret: z.string().min(32).max(200).optional(), // HMAC-SHA256 requires ≥256 bits (32 chars)
+    has_secret: z.boolean().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     timeout_seconds: z.number().int().min(1).max(60).optional().default(30),
     retry_attempts: z.number().int().min(0).max(5).optional().default(3),
   })
-  .refine((data) => !data.enabled || !!data.url, {
+  .refine((data) => !data.enabled || !!data.url || data.has_url, {
     message: "Webhook通知が有効な場合、urlは必須です",
   });
 
@@ -206,6 +212,22 @@ export const FormConfirmationSchema = z.object({
     .max(2000)
     .default("回答を受け付けました。ご協力ありがとうございました。"),
   redirect_url: z.string().url().optional(),
+  supplemental_link: z
+    .object({
+      label: z.string().min(1).max(80),
+      url: z.string().url(),
+    })
+    .optional(),
+  contact: z
+    .object({
+      label: z.string().min(1).max(80).optional(),
+      email: z.string().email().optional(),
+      url: z.string().url().optional(),
+    })
+    .refine((data) => !!data.email || !!data.url, {
+      message: "問い合わせ先には email または url が必要です",
+    })
+    .optional(),
   show_response_summary: z.boolean().default(false),
   allow_edit_link: z.boolean().default(false),
 });

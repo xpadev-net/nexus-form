@@ -4,6 +4,9 @@ export const formLogicStructureQueryKey = (formId: string) =>
 export const formAccessControlStructureQueryKey = (formId: string) =>
   ["formStructure", "accessControl", formId] as const;
 
+export const formPostSubmitStructureQueryKey = (formId: string) =>
+  ["formStructure", "postSubmit", formId] as const;
+
 export const formDiffQueryKey = (formId: string | null | undefined) =>
   ["formDiff", formId] as const;
 

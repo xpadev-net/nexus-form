@@ -2,6 +2,7 @@ import {
   formAccessControlStructureQueryKey,
   formDiffQueryKey,
   formLogicStructureQueryKey,
+  formPostSubmitStructureQueryKey,
   unpublishedChangesQueryKey,
 } from "./form-structure-query-keys";
 
@@ -16,6 +17,11 @@ describe("form structure query keys", () => {
     expect(accessControlKey).toEqual([
       "formStructure",
       "accessControl",
+      formId,
+    ]);
+    expect(formPostSubmitStructureQueryKey(formId)).toEqual([
+      "formStructure",
+      "postSubmit",
       formId,
     ]);
     expect(logicKey).not.toEqual(accessControlKey);

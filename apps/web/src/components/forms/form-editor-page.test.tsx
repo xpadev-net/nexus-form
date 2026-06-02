@@ -186,6 +186,9 @@ vi.mock("@/components/forms/form-access-control-settings", () => ({
 vi.mock("@/components/forms/form-appearance-settings", () => ({
   FormAppearanceSettings: () => null,
 }));
+vi.mock("@/components/forms/form-post-submit-settings", () => ({
+  FormPostSubmitSettings: () => null,
+}));
 vi.mock("@/components/forms/form-sharing-section", () => ({
   FormSharingSection: () => null,
 }));
