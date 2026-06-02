@@ -13,6 +13,8 @@ import {
 import { labelToCssColor } from "@/lib/utils/color";
 import type { GridAnalytics, GridRowChoiceCount } from "@/types/api/analytics";
 
+const MAX_INVALID_GRID_RESPONSES_DISPLAYED = 10;
+
 const createChartConfig = (columns: GridAnalytics["columns"]): ChartConfig => {
   const config: ChartConfig = {};
 
@@ -61,6 +63,13 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
 }) => {
   const chartConfig = createChartConfig(data.columns);
   const isChoiceGrid = data.grid_type === "choice_grid";
+  const invalidResponses = data.invalid_responses ?? [];
+  const visibleInvalidResponses = invalidResponses.slice(
+    0,
+    MAX_INVALID_GRID_RESPONSES_DISPLAYED,
+  );
+  const hiddenInvalidResponseCount =
+    invalidResponses.length - visibleInvalidResponses.length;
 
   const chartData = transformGridData(data.row_analytics, data.columns);
 
@@ -72,6 +81,30 @@ export const GridChartDisplayCharts: FC<GridChartDisplayChartsProps> = ({
           <p className="text-sm text-muted-foreground">
             総回答数: {totalResponses.toLocaleString()}件
           </p>
+        </div>
+      )}
+
+      {visibleInvalidResponses.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <p className="font-medium">
+            一部の回答をグリッド集計から除外しました
+          </p>
+          <ul className="mt-2 space-y-1">
+            {visibleInvalidResponses.map((response) => (
+              <li
+                key={`${response.response_id}:${response.reason}`}
+                className="break-words"
+              >
+                <span className="font-mono">{response.response_id}</span>:{" "}
+                {response.reason}
+              </li>
+            ))}
+          </ul>
+          {hiddenInvalidResponseCount > 0 && (
+            <p className="mt-2 text-xs">
+              ほか {hiddenInvalidResponseCount.toLocaleString()} 件
+            </p>
+          )}
         </div>
       )}
 
