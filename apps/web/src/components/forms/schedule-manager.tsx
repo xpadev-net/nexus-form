@@ -1,15 +1,28 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calendar, CheckCircle2, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  Ban,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  FileSearch,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -36,6 +49,10 @@ import {
 } from "@/hooks/forms/use-snapshots";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
+import {
+  fetchAllSchedules,
+  type ScheduleEntry,
+} from "@/lib/forms/fetch-all-schedules";
 
 const entryFormSchema = z
   .object({
@@ -76,6 +93,32 @@ const ACTION_BADGE_VARIANTS: Record<
   SWITCH_SNAPSHOT: "outline",
 };
 
+type DisplayScheduleStatus = ScheduleEntry["status"] | "FAILED";
+
+const STATUS_LABELS: Record<DisplayScheduleStatus, string> = {
+  PENDING: "未実行",
+  COMPLETED: "実行済み",
+  FAILED: "失敗",
+  CANCELLED: "取消済み",
+};
+
+const STATUS_BADGE_VARIANTS: Record<
+  DisplayScheduleStatus,
+  "default" | "secondary" | "destructive" | "outline"
+> = {
+  PENDING: "outline",
+  COMPLETED: "default",
+  FAILED: "destructive",
+  CANCELLED: "secondary",
+};
+
+const STATUS_ICON_CLASSES: Record<DisplayScheduleStatus, string> = {
+  PENDING: "text-muted-foreground",
+  COMPLETED: "text-green-600",
+  FAILED: "text-destructive",
+  CANCELLED: "text-muted-foreground",
+};
+
 function toLocalDatetimeString(isoString: string): string {
   const date = new Date(isoString);
   const y = date.getFullYear();
@@ -91,6 +134,65 @@ function getSnapshotVersion(data: EntryFormData): number {
     throw new Error("snapshotVersion is required");
   }
   return data.snapshotVersion;
+}
+
+function getSnapshotLabel(snapshots: Snapshot[], version: number | null) {
+  if (version == null) {
+    return "未選択";
+  }
+  const snapshot = snapshots.find((item) => item.version === version);
+  if (!snapshot) {
+    return `v${version}`;
+  }
+  return `v${snapshot.version}${snapshot.isActive ? " (現在)" : ""}${
+    snapshot.changeLog ? ` - ${snapshot.changeLog}` : ""
+  }`;
+}
+
+function buildScheduleSummary(data: EntryFormData, snapshots: Snapshot[]) {
+  const triggerAt = data.triggerAt
+    ? formatJapanLocaleDateTime(new Date(data.triggerAt).toISOString())
+    : "日時未設定";
+
+  if (data.action === "SWITCH_SNAPSHOT") {
+    return `${triggerAt} に公開版を ${getSnapshotLabel(
+      snapshots,
+      data.snapshotVersion,
+    )} へ切り替えます。`;
+  }
+
+  return `${triggerAt} にフォームを ${ACTION_LABELS[data.action]} 状態へ切り替えます。`;
+}
+
+function getDisplayStatus(
+  entry: ScheduleEntry,
+  snapshots: Snapshot[],
+): DisplayScheduleStatus {
+  if (
+    entry.status === "COMPLETED" &&
+    entry.action === "SWITCH_SNAPSHOT" &&
+    entry.snapshotVersion != null &&
+    snapshots.length > 0 &&
+    !snapshots.some((snapshot) => snapshot.version === entry.snapshotVersion)
+  ) {
+    return "FAILED";
+  }
+  return entry.status;
+}
+
+function StatusIcon({ status }: { status: DisplayScheduleStatus }) {
+  const className = `h-4 w-4 shrink-0 ${STATUS_ICON_CLASSES[status]}`;
+
+  if (status === "COMPLETED") {
+    return <CheckCircle2 className={className} />;
+  }
+  if (status === "FAILED") {
+    return <AlertCircle className={className} />;
+  }
+  if (status === "CANCELLED") {
+    return <Ban className={className} />;
+  }
+  return <Clock className={className} />;
 }
 
 interface EntryDialogProps {
@@ -150,6 +252,9 @@ function EntryDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            保存前に実行日時と切り替え先を確認してください。
+          </DialogDescription>
         </DialogHeader>
         <Form {...form}>
           <form
@@ -237,6 +342,14 @@ function EntryDialog({
               />
             )}
 
+            <Alert className="bg-muted/30">
+              <Calendar className="h-4 w-4" />
+              <AlertTitle>保存前の確認</AlertTitle>
+              <AlertDescription>
+                <p>{buildScheduleSummary(form.watch(), snapshots)}</p>
+              </AlertDescription>
+            </Alert>
+
             <DialogFooter>
               <Button
                 type="button"
@@ -261,15 +374,13 @@ interface ScheduleManagerProps {
   formId: string;
 }
 
-import {
-  fetchAllSchedules,
-  type ScheduleEntry,
-} from "@/lib/forms/fetch-all-schedules";
-
 export function ScheduleManager({ formId }: ScheduleManagerProps) {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<ScheduleEntry | null>(null);
+  const [retryDefaults, setRetryDefaults] = useState<EntryFormData | null>(
+    null,
+  );
   const { snapshotsQuery } = useSnapshots(formId);
 
   const schedulesQuery = useQuery({
@@ -371,18 +482,123 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
             param: { id: formId, scheduleId: entry.id },
           }),
         );
-        toast.success("スケジュールを削除しました");
+        toast.success("スケジュールを取り消しました");
         invalidate();
       } catch (err) {
         toast.error(
           err instanceof Error
             ? err.message
-            : "スケジュールの削除に失敗しました",
+            : "スケジュールの取消に失敗しました",
         );
       }
     },
     [formId, invalidate],
   );
+
+  const handleRetry = useCallback((entry: ScheduleEntry) => {
+    setRetryDefaults({
+      triggerAt: toLocalDatetimeString(
+        new Date(Date.now() + 60 * 1000).toISOString(),
+      ),
+      action: entry.action,
+      snapshotVersion: null,
+    });
+  }, []);
+
+  const handleShowLogs = useCallback((entry: ScheduleEntry) => {
+    toast.warning(`管理ログで scheduleId=${entry.id} を確認してください`);
+  }, []);
+
+  const renderSchedule = (entry: ScheduleEntry) => {
+    const displayStatus = getDisplayStatus(entry, snapshots);
+    return (
+      <li
+        key={entry.id}
+        className={`flex items-start gap-3 rounded border px-3 py-2 text-sm ${
+          displayStatus === "COMPLETED" || displayStatus === "CANCELLED"
+            ? "opacity-70"
+            : ""
+        }`}
+      >
+        <StatusIcon status={displayStatus} />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs">
+              {formatJapanLocaleDateTime(entry.triggerAt)}
+            </span>
+            <Badge variant={ACTION_BADGE_VARIANTS[entry.action]}>
+              {ACTION_LABELS[entry.action]}
+              {entry.action === "SWITCH_SNAPSHOT" &&
+                entry.snapshotVersion != null &&
+                ` v${entry.snapshotVersion}`}
+            </Badge>
+            <Badge variant={STATUS_BADGE_VARIANTS[displayStatus]}>
+              {STATUS_LABELS[displayStatus]}
+            </Badge>
+          </div>
+          {displayStatus === "COMPLETED" && entry.processedAt ? (
+            <p className="text-xs text-muted-foreground">
+              {formatJapanLocaleDateTime(entry.processedAt)} に実行済み
+            </p>
+          ) : null}
+          {displayStatus === "CANCELLED" ? (
+            <p className="text-xs text-muted-foreground">
+              予定は取り消され、実行対象から除外されました。
+            </p>
+          ) : null}
+          {displayStatus === "FAILED" ? (
+            <p className="text-xs text-destructive">
+              切り替え先のスナップショットを確認できません。再実行するか、管理ログで詳細を確認してください。
+            </p>
+          ) : null}
+        </div>
+        {displayStatus === "PENDING" && (
+          <div className="flex shrink-0 gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => setEditTarget(entry)}
+              aria-label="編集"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 text-destructive hover:text-destructive"
+              onClick={() => void handleDelete(entry)}
+              aria-label="取消"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+        {displayStatus === "FAILED" && (
+          <div className="flex shrink-0 gap-1">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => handleRetry(entry)}
+              aria-label="再実行"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={() => handleShowLogs(entry)}
+              aria-label="ログ確認"
+            >
+              <FileSearch className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+      </li>
+    );
+  };
 
   return (
     <section className="space-y-3">
@@ -438,51 +654,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
           スケジュールが設定されていません。「追加」から操作を登録できます。
         </p>
       ) : (
-        <ul className="space-y-2">
-          {schedules.map((entry) => (
-            <li
-              key={entry.id}
-              className={`flex items-center gap-3 rounded border px-3 py-2 text-sm ${
-                entry.processedAt ? "opacity-50" : ""
-              }`}
-            >
-              {entry.processedAt && (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-              )}
-              <span className="min-w-0 flex-1 font-mono text-xs">
-                {formatJapanLocaleDateTime(entry.triggerAt)}
-              </span>
-              <Badge variant={ACTION_BADGE_VARIANTS[entry.action]}>
-                {ACTION_LABELS[entry.action]}
-                {entry.action === "SWITCH_SNAPSHOT" &&
-                  entry.snapshotVersion != null &&
-                  ` v${entry.snapshotVersion}`}
-              </Badge>
-              {!entry.processedAt && (
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onClick={() => setEditTarget(entry)}
-                    aria-label="編集"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7 text-destructive hover:text-destructive"
-                    onClick={() => void handleDelete(entry)}
-                    aria-label="削除"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+        <ul className="space-y-2">{schedules.map(renderSchedule)}</ul>
       )}
 
       <EntryDialog
@@ -492,6 +664,17 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
         snapshots={snapshots}
         title="スケジュールを追加"
       />
+
+      {retryDefaults && (
+        <EntryDialog
+          open={true}
+          onClose={() => setRetryDefaults(null)}
+          onSubmit={handleAdd}
+          snapshots={snapshots}
+          title="スケジュールを再実行"
+          defaultValues={retryDefaults}
+        />
+      )}
 
       {editTarget && (
         <EntryDialog
