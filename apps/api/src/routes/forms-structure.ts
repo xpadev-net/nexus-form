@@ -9,6 +9,8 @@ import {
   restoreFormStructure,
   saveFormStructure,
 } from "../lib/forms/form-structure-service";
+import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
+import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
@@ -124,8 +126,28 @@ const servicePaginationSchema = z.object({
   hasPrev: z.boolean(),
 });
 
+const PasswordProtectionPublicationSnapshotSchema = z.object({
+  enabled: z.boolean(),
+  has_password: z.boolean(),
+  password_hint: z.string().optional(),
+});
+type PasswordProtectionPublicationSnapshot = z.infer<
+  typeof PasswordProtectionPublicationSnapshotSchema
+>;
+
+const PasswordProtectionPublicationStateSchema = z.object({
+  current: PasswordProtectionPublicationSnapshotSchema,
+  published: PasswordProtectionPublicationSnapshotSchema.nullable(),
+  is_synced: z.boolean(),
+});
+export type PasswordProtectionPublicationState = z.infer<
+  typeof PasswordProtectionPublicationStateSchema
+>;
+
 const FormStructureEnvelopeSchema = z.object({
   structure: FormStructureTransport,
+  password_protection_publication:
+    PasswordProtectionPublicationStateSchema.optional(),
 });
 export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
 
@@ -175,6 +197,59 @@ function maskFormStructureSecrets(
         }
       : {}),
   };
+}
+
+function getPasswordProtectionPublicationSnapshot(
+  structure: FormStructureType,
+): {
+  publicSnapshot: PasswordProtectionPublicationSnapshot;
+  passwordHash?: string;
+} {
+  const passwordProtection = structure.access_control?.password_protection;
+  if (!passwordProtection) {
+    return {
+      publicSnapshot: {
+        enabled: false,
+        has_password: false,
+      },
+    };
+  }
+
+  return {
+    publicSnapshot: {
+      enabled: passwordProtection.enabled ?? false,
+      has_password: !!passwordProtection.password,
+      password_hint: passwordProtection.password_hint,
+    },
+    passwordHash: passwordProtection.password,
+  };
+}
+
+async function getPasswordProtectionPublicationState(
+  formId: string,
+  currentStructure: FormStructureType,
+): Promise<PasswordProtectionPublicationState> {
+  const activeSnapshot = await getLatestSnapshot(formId);
+  const currentSummary =
+    getPasswordProtectionPublicationSnapshot(currentStructure);
+  const publishedSummary = activeSnapshot
+    ? getPasswordProtectionPublicationSnapshot(
+        parseStoredStructure(activeSnapshot.structureJson),
+      )
+    : undefined;
+  const current = currentSummary.publicSnapshot;
+  const published = publishedSummary?.publicSnapshot ?? null;
+
+  return PasswordProtectionPublicationStateSchema.parse({
+    current,
+    published,
+    is_synced:
+      published !== null &&
+      current.enabled === published.enabled &&
+      current.has_password === published.has_password &&
+      current.password_hint === published.password_hint &&
+      currentSummary.passwordHash === publishedSummary?.passwordHash,
+  });
 }
 
 function maskNotificationSecrets(
@@ -461,9 +536,12 @@ export const formsStructureRouter = createHonoApp()
       }
       throw error;
     }
+    const passwordProtectionPublication =
+      await getPasswordProtectionPublicationState(formId, structure);
     return c.json(
       FormStructureEnvelopeSchema.parse({
         structure: maskFormStructureSecrets(structure),
+        password_protection_publication: passwordProtectionPublication,
       }),
     );
   })

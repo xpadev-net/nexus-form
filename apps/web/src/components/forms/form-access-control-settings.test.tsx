@@ -12,6 +12,12 @@ type PasswordProtectionState = {
   password_hint?: string;
 };
 
+type PasswordProtectionPublicationState = {
+  current: PasswordProtectionState;
+  published: PasswordProtectionState | null;
+  isSynced: boolean;
+};
+
 type UpdatePasswordProtectionParams = {
   enabled: boolean;
   password?: string;
@@ -29,6 +35,14 @@ const mocks = vi.hoisted(() => ({
     enabled: false,
     hasPassword: false,
   } as PasswordProtectionState,
+  passwordProtectionPublication: {
+    current: {
+      enabled: false,
+      hasPassword: false,
+    },
+    published: null,
+    isSynced: true,
+  } as PasswordProtectionPublicationState,
   toast: {
     success: vi.fn(),
   },
@@ -43,6 +57,7 @@ vi.mock("@/hooks/forms/use-form-access-control", () => ({
     isLoading: false,
     isUpdating: false,
     passwordProtection: mocks.passwordProtection,
+    passwordProtectionPublication: mocks.passwordProtectionPublication,
     updatePasswordProtection: {
       mutate: mocks.mutatePasswordProtection,
     },
@@ -52,6 +67,7 @@ vi.mock("@/hooks/forms/use-form-access-control", () => ({
 vi.mock("lucide-react", () => ({
   Lock: () => <span data-icon="lock" />,
   Save: () => <span data-icon="save" />,
+  Upload: () => <span data-icon="upload" />,
 }));
 
 vi.mock("@/components/ui/button", () => ({
@@ -164,6 +180,14 @@ describe("FormAccessControlSettings", () => {
       enabled: false,
       hasPassword: false,
     };
+    mocks.passwordProtectionPublication = {
+      current: {
+        enabled: false,
+        hasPassword: false,
+      },
+      published: null,
+      isSynced: true,
+    };
     mocks.mutatePasswordProtection.mockReset();
     mocks.mutatePasswordProtection.mockImplementation(
       (
@@ -182,6 +206,19 @@ describe("FormAccessControlSettings", () => {
       hasPassword: true,
       password_hint: "pet name",
     };
+    mocks.passwordProtectionPublication = {
+      current: {
+        enabled: true,
+        hasPassword: true,
+        password_hint: "pet name",
+      },
+      published: {
+        enabled: false,
+        hasPassword: true,
+        password_hint: "old pet name",
+      },
+      isSynced: false,
+    };
     const container = document.createElement("div");
     const root = renderSettings(container);
 
@@ -195,6 +232,11 @@ describe("FormAccessControlSettings", () => {
       container.querySelector<HTMLInputElement>("input[readonly]")?.value,
     ).toBe("••••••••");
     expect(hintInput(container)?.value).toBe("pet name");
+    expect(container.textContent).toContain("管理画面の現在設定");
+    expect(container.textContent).toContain("回答者に効いている公開版");
+    expect(container.textContent).toContain(
+      "パスワード保護に未公開の変更があります",
+    );
 
     act(() => {
       root.unmount();
@@ -221,6 +263,18 @@ describe("FormAccessControlSettings", () => {
   });
 
   it("saves enabled password protection with password, confirmation, and hint", () => {
+    mocks.passwordProtectionPublication = {
+      current: {
+        enabled: true,
+        hasPassword: true,
+        password_hint: "pet name",
+      },
+      published: {
+        enabled: false,
+        hasPassword: false,
+      },
+      isSynced: false,
+    };
     const container = document.createElement("div");
     const root = renderSettings(container);
 
@@ -243,6 +297,10 @@ describe("FormAccessControlSettings", () => {
     );
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "パスワード保護を保存しました",
+    );
+    expect(container.textContent).toContain("公開して反映");
+    expect(container.textContent).toContain(
+      "回答者に反映するには、公開 snapshot",
     );
 
     act(() => {

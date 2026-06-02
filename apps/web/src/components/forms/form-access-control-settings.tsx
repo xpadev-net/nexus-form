@@ -1,4 +1,4 @@
-import { Lock, Save } from "lucide-react";
+import { Lock, Save, Upload } from "lucide-react";
 import { type FC, type FormEvent, useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
 }) => {
   const {
     passwordProtection,
+    passwordProtectionPublication,
     isLoading,
     isUpdating,
     updatePasswordProtection,
@@ -32,6 +33,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
     passwordProtection.password_hint ?? "",
   );
   const [error, setError] = useState<string | null>(null);
+  const [showPublishNotice, setShowPublishNotice] = useState(false);
 
   useEffect(() => {
     setEnabled(passwordProtection.enabled);
@@ -40,6 +42,20 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
     setConfirmPassword("");
     setError(null);
   }, [passwordProtection.enabled, passwordProtection.password_hint]);
+
+  useEffect(() => {
+    if (passwordProtectionPublication.isSynced) {
+      setShowPublishNotice(false);
+    }
+  }, [passwordProtectionPublication.isSynced]);
+
+  const handleOpenPublishMenu = () => {
+    const publishMenuTrigger = document.getElementById(
+      "form-publish-menu-trigger",
+    );
+    publishMenuTrigger?.click();
+    publishMenuTrigger?.focus();
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -86,6 +102,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
               ? "パスワード保護を保存しました"
               : "パスワード保護を無効にしました",
           );
+          setShowPublishNotice(true);
           setPassword("");
           setConfirmPassword("");
         },
@@ -102,6 +119,14 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
 
   const statusLabel = enabled ? "有効" : "無効";
   const hasExistingPassword = passwordProtection.hasPassword;
+  const currentPublicationLabel = getPasswordProtectionStatusLabel(
+    passwordProtectionPublication.current,
+  );
+  const publishedPublicationLabel = passwordProtectionPublication.published
+    ? getPasswordProtectionStatusLabel(passwordProtectionPublication.published)
+    : "公開版なし";
+  const publishedHint = passwordProtectionPublication.published?.password_hint;
+  const isPublishPending = !passwordProtectionPublication.isSynced;
 
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -114,10 +139,54 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
           <p className="mt-1 text-sm text-muted-foreground">
             公開フォームを共有パスワードで保護します。
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            パスワード保護は公開 snapshot
+            の対象です。保存後、公開して反映するまで回答者には現在の公開版設定が適用されます。
+          </p>
         </div>
         <span className="rounded-md border px-2 py-1 text-xs text-muted-foreground">
           {statusLabel}
         </span>
+      </div>
+
+      <div className="mb-5 border-y py-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">
+              管理画面の現在設定
+            </p>
+            <p className="mt-1 text-sm font-medium">
+              {currentPublicationLabel}
+            </p>
+            {passwordProtectionPublication.current.password_hint ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                ヒント: {passwordProtectionPublication.current.password_hint}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <p className="text-xs font-medium text-muted-foreground">
+              回答者に効いている公開版
+            </p>
+            <p className="mt-1 text-sm font-medium">
+              {publishedPublicationLabel}
+            </p>
+            {publishedHint ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                ヒント: {publishedHint}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        {isPublishPending ? (
+          <p className="mt-3 text-xs text-amber-600">
+            パスワード保護に未公開の変更があります。回答者へ反映するには公開メニューから公開してください。
+          </p>
+        ) : (
+          <p className="mt-3 text-xs text-muted-foreground">
+            現在設定と公開版設定は一致しています。
+          </p>
+        )}
       </div>
 
       <form className="space-y-4" onSubmit={handleSubmit}>
@@ -215,6 +284,23 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
           </div>
         ) : null}
 
+        {showPublishNotice && isPublishPending ? (
+          <div className="flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              保存しました。回答者に反映するには、公開 snapshot
+              として保存して公開版を更新してください。
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleOpenPublishMenu}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              公開して反映
+            </Button>
+          </div>
+        ) : null}
+
         <div className="flex justify-end">
           <Button type="submit" disabled={isLoading || isUpdating}>
             <Save className="mr-2 h-4 w-4" />
@@ -225,3 +311,14 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
     </section>
   );
 };
+
+function getPasswordProtectionStatusLabel({
+  enabled,
+  hasPassword,
+}: {
+  enabled: boolean;
+  hasPassword: boolean;
+}): string {
+  if (!enabled) return "無効";
+  return hasPassword ? "有効" : "有効（パスワード未設定）";
+}

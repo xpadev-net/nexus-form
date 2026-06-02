@@ -15,6 +15,18 @@ interface PasswordProtectionState {
   password_hint?: string;
 }
 
+interface PasswordProtectionPublicationSnapshot {
+  enabled: boolean;
+  hasPassword: boolean;
+  password_hint?: string;
+}
+
+interface PasswordProtectionPublicationState {
+  current: PasswordProtectionPublicationSnapshot;
+  published: PasswordProtectionPublicationSnapshot | null;
+  isSynced: boolean;
+}
+
 interface UpdatePasswordProtectionParams {
   enabled: boolean;
   password?: string;
@@ -44,6 +56,32 @@ export const useFormAccessControl = (formId: string) => {
       password_hint: pp.password_hint,
     };
   }, [structureQuery.data]);
+
+  const passwordProtectionPublication =
+    useMemo((): PasswordProtectionPublicationState => {
+      const publication = structureQuery.data?.password_protection_publication;
+      const current = {
+        enabled: publication?.current.enabled ?? passwordProtection.enabled,
+        hasPassword:
+          publication?.current.has_password ?? passwordProtection.hasPassword,
+        password_hint:
+          publication?.current.password_hint ??
+          passwordProtection.password_hint,
+      };
+      const published = publication?.published
+        ? {
+            enabled: publication.published.enabled,
+            hasPassword: publication.published.has_password,
+            password_hint: publication.published.password_hint,
+          }
+        : null;
+
+      return {
+        current,
+        published,
+        isSynced: publication?.is_synced ?? true,
+      };
+    }, [passwordProtection, structureQuery.data]);
 
   const updatePasswordProtectionMutation = useMutation({
     mutationFn: (params: UpdatePasswordProtectionParams) =>
@@ -182,6 +220,7 @@ export const useFormAccessControl = (formId: string) => {
 
   return {
     passwordProtection,
+    passwordProtectionPublication,
     isLoading: structureQuery.isLoading,
     updatePasswordProtection,
     isUpdating: updatePasswordProtectionMutation.isPending,

@@ -63,13 +63,23 @@ export interface UnpublishedChangesSectionState {
   actionState: PublishProcessState;
   totalChanges: number;
   hasChangesFromActive: boolean;
+  hasPasswordProtectionChanges: boolean;
   activeSnapshotVersion: number | null;
   nextSnapshotVersion: number;
+}
+
+export interface PasswordProtectionPublicationSnapshot {
+  enabled: boolean;
+  hasPassword: boolean;
+  password_hint?: string;
 }
 
 export interface PasswordProtectionSectionState {
   isEnabled: boolean;
   hasPassword: boolean;
+  current: PasswordProtectionPublicationSnapshot;
+  published: PasswordProtectionPublicationSnapshot | null;
+  hasUnpublishedChanges: boolean;
   updateState: PublishProcessState;
   publishActionState: PublishProcessState;
 }

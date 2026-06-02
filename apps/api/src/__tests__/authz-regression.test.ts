@@ -1396,6 +1396,91 @@ describe("R4-H1: password protected public GET gates form body", () => {
     });
   });
 
+  it("keeps the old public snapshot unprotected until the protected snapshot becomes active", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot)
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+          structureJson: JSON.stringify({
+            version: 1,
+            access_control: {
+              password_protection: {
+                enabled: false,
+                password: "old-hash",
+              },
+            },
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+          structureJson: JSON.stringify({
+            version: 1,
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password: "new-hash",
+                password_hint: "hint",
+              },
+            },
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      );
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Public form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      ],
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Public form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const beforePublish = await formsPublicRouter.request(
+      "/public/test-public-id",
+    );
+    expect(beforePublish.status).toBe(200);
+    await expect(beforePublish.json()).resolves.toMatchObject({
+      form: { isPasswordProtected: false },
+      plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+    });
+
+    const afterPublish = await formsPublicRouter.request(
+      "/public/test-public-id",
+    );
+    expect(afterPublish.status).toBe(200);
+    await expect(afterPublish.json()).resolves.toMatchObject({
+      form: {
+        isPasswordProtected: true,
+        passwordHint: "hint",
+      },
+      structure: null,
+      plateContent: null,
+    });
+  });
+
   it("returns the form body after password verification", async () => {
     const { db } = await import("@nexus-form/database");
     const { extractJwtFromRequest, verifySessionJwt } = await import(

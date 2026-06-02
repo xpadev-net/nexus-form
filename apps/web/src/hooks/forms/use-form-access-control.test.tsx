@@ -43,6 +43,19 @@ vi.mock("@tanstack/react-query", () => ({
           },
         },
       },
+      password_protection_publication: {
+        current: {
+          enabled: true,
+          has_password: true,
+          password_hint: "new hint",
+        },
+        published: {
+          enabled: false,
+          has_password: true,
+          password_hint: "old hint",
+        },
+        is_synced: false,
+      },
     },
     isLoading: false,
   }),
@@ -83,11 +96,12 @@ let lastHookResult: ReturnType<typeof useFormAccessControl> | null = null;
 
 function Probe() {
   lastHookResult = useFormAccessControl("form-1");
-  const { passwordProtection } = lastHookResult;
+  const { passwordProtection, passwordProtectionPublication } = lastHookResult;
   return (
     <div>
       {passwordProtection.enabled ? "enabled" : "disabled"}-
       {passwordProtection.hasPassword ? "has-password" : "no-password"}
+      {passwordProtectionPublication.isSynced ? "-synced" : "-unsynced"}
     </div>
   );
 }
@@ -117,6 +131,7 @@ describe("useFormAccessControl", () => {
     const root = renderProbe(container);
 
     expect(container.textContent).toContain("disabled-no-password");
+    expect(container.textContent).toContain("unsynced");
     expect(mocks.mutationOptions?.onSuccess).toBeDefined();
 
     await act(async () => {

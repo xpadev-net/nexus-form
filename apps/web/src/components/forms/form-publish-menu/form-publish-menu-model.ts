@@ -188,6 +188,7 @@ export function useFormPublishMenuModel({
 
   const {
     passwordProtection,
+    passwordProtectionPublication,
     updatePasswordProtection,
     isUpdating: isPasswordUpdating,
   } = useFormAccessControl(formId);
@@ -220,6 +221,7 @@ export function useFormPublishMenuModel({
           actionState: isProcessing ? "processing" : "idle",
           totalChanges,
           hasChangesFromActive,
+          hasPasswordProtectionChanges: !passwordProtectionPublication.isSynced,
           activeSnapshotVersion,
           nextSnapshotVersion: (lastPublishedVersion ?? 0) + 1,
         }
@@ -228,6 +230,9 @@ export function useFormPublishMenuModel({
   const passwordState: PasswordProtectionSectionState = {
     isEnabled: passwordProtection.enabled,
     hasPassword: passwordProtection.hasPassword,
+    current: passwordProtectionPublication.current,
+    published: passwordProtectionPublication.published,
+    hasUnpublishedChanges: !passwordProtectionPublication.isSynced,
     updateState: isPasswordUpdating ? "processing" : "idle",
     publishActionState: isProcessing ? "processing" : "idle",
   };
