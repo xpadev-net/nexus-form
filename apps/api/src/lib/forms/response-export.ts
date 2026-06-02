@@ -501,7 +501,9 @@ export function mapRecordToSheetRow(
     const componentValues: string[] = [];
     for (const blockId of componentIds) {
       const col = record.component_columns.find((c) => c.block_id === blockId);
-      const value = col ? stringifyValue(col.value, col.block_type) : "";
+      const value = col
+        ? stringifyValue(col.display_value ?? col.value, col.block_type)
+        : "";
       componentValues.push(value);
     }
 
@@ -599,7 +601,10 @@ export function mapRecordToSheetRow(
         blockTitleMap.get(col.block_id) ||
         col.block_id;
       const colIndex = ensureColumnForBlock(col.block_id, rawTitle);
-      const value = stringifyValue(col.value, col.block_type);
+      const value = stringifyValue(
+        col.display_value ?? col.value,
+        col.block_type,
+      );
       row[colIndex] = value ?? "";
     }
   }

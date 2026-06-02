@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildResponseExportRecords,
   formatRecordsToCsv,
+  mapRecordToSheetRow,
+  type ResponseExportRecord,
 } from "../response-export";
 
 const submittedAt = new Date("2026-05-17T01:00:00.000Z");
@@ -202,5 +204,59 @@ describe("response export", () => {
     ).toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
     );
+  });
+
+  it("prefers display labels when mapping records to sheet rows", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-1",
+        form_id: "form-1",
+        respondent_uuid: "respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        ua_uuid: null,
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "choice-block",
+          block_type: "radio",
+          value: "morning",
+          display_value: "午前",
+        },
+        {
+          block_id: "checkbox-block",
+          block_type: "checkbox",
+          value: ["ts", "react"],
+          display_value: ["TypeScript", "React"],
+        },
+        {
+          block_id: "grid-block",
+          block_type: "choice_grid",
+          value: { monday: "morning" },
+          display_value: "月曜: 午前",
+        },
+      ],
+    };
+
+    const newLayoutRow = mapRecordToSheetRow(record, [], blockTitleMap);
+    expect(newLayoutRow.row.slice(-3)).toEqual([
+      "午前",
+      "TypeScript, React",
+      "月曜: 午前",
+    ]);
+
+    const existingLayoutRow = mapRecordToSheetRow(
+      record,
+      newLayoutRow.idRow,
+      blockTitleMap,
+      undefined,
+      newLayoutRow.titleRow,
+    );
+    expect(existingLayoutRow.row.slice(-3)).toEqual([
+      "午前",
+      "TypeScript, React",
+      "月曜: 午前",
+    ]);
   });
 });
