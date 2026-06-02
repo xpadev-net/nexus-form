@@ -156,4 +156,35 @@ describe("forms structure password protection response", () => {
     expect(JSON.stringify(body)).not.toContain("$2b$10$new-password-hash");
     expect(JSON.stringify(body)).not.toContain("$2b$10$old-password-hash");
   });
+
+  it("still returns the masked structure when publication state lookup fails", async () => {
+    mocks.getFormStructure.mockResolvedValueOnce({
+      version: 2,
+      settings: {},
+      access_control: {
+        require_authentication: false,
+        password_protection: {
+          enabled: true,
+          password: "$2b$10$stored-password-hash",
+          password_hint: "pet name",
+        },
+      },
+    });
+    mocks.getLatestSnapshot.mockRejectedValueOnce(
+      new Error("snapshot database unavailable"),
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request("/form-1/structure");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).not.toHaveProperty("password_protection_publication");
+    expect(body.structure.access_control.password_protection).toEqual({
+      enabled: true,
+      has_password: true,
+      password_hint: "pet name",
+    });
+    expect(JSON.stringify(body)).not.toContain("$2b$10$stored-password-hash");
+  });
 });

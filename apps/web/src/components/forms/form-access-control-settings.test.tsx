@@ -72,12 +72,21 @@ vi.mock("lucide-react", () => ({
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({
+    asChild,
     children,
+    size: _size,
+    variant: _variant,
     ...props
   }: ComponentProps<"button"> & {
+    asChild?: boolean;
     variant?: string;
     size?: string;
-  }) => <button {...props}>{children}</button>,
+  }) =>
+    asChild ? (
+      <span data-button-as-child="true">{children}</span>
+    ) : (
+      <button {...props}>{children}</button>
+    ),
 }));
 
 vi.mock("@/components/ui/input", () => ({

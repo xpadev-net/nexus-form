@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useFormAccessControl } from "@/hooks/forms/use-form-access-control";
+import { getPasswordProtectionStatusLabel } from "./password-protection-publication";
 
 interface FormAccessControlSettingsProps {
   formId: string;
@@ -48,14 +49,6 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
       setShowPublishNotice(false);
     }
   }, [passwordProtectionPublication.isSynced]);
-
-  const handleOpenPublishMenu = () => {
-    const publishMenuTrigger = document.getElementById(
-      "form-publish-menu-trigger",
-    );
-    publishMenuTrigger?.click();
-    publishMenuTrigger?.focus();
-  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -290,13 +283,11 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
               保存しました。回答者に反映するには、公開 snapshot
               として保存して公開版を更新してください。
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleOpenPublishMenu}
-            >
-              <Upload className="mr-2 h-4 w-4" />
-              公開して反映
+            <Button asChild variant="outline">
+              <a href="#form-publish-menu-trigger">
+                <Upload className="mr-2 h-4 w-4" />
+                公開して反映へ進む
+              </a>
             </Button>
           </div>
         ) : null}
@@ -311,14 +302,3 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
     </section>
   );
 };
-
-function getPasswordProtectionStatusLabel({
-  enabled,
-  hasPassword,
-}: {
-  enabled: boolean;
-  hasPassword: boolean;
-}): string {
-  if (!enabled) return "無効";
-  return hasPassword ? "有効" : "有効（パスワード未設定）";
-}

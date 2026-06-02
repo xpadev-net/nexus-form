@@ -3,6 +3,7 @@ import { type FC, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { getPasswordProtectionStatusLabel } from "../password-protection-publication";
 import type { PasswordProtectionSectionState } from "./types";
 
 interface PasswordProtectionSectionProps {
@@ -96,14 +97,3 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
     </>
   );
 };
-
-function getPasswordProtectionStatusLabel({
-  enabled,
-  hasPassword,
-}: {
-  enabled: boolean;
-  hasPassword: boolean;
-}): string {
-  if (!enabled) return "無効";
-  return hasPassword ? "有効" : "有効（パスワード未設定）";
-}

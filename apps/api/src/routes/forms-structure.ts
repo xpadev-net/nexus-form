@@ -536,8 +536,15 @@ export const formsStructureRouter = createHonoApp()
       }
       throw error;
     }
-    const passwordProtectionPublication =
-      await getPasswordProtectionPublicationState(formId, structure);
+    let passwordProtectionPublication:
+      | PasswordProtectionPublicationState
+      | undefined;
+    try {
+      passwordProtectionPublication =
+        await getPasswordProtectionPublicationState(formId, structure);
+    } catch {
+      passwordProtectionPublication = undefined;
+    }
     return c.json(
       FormStructureEnvelopeSchema.parse({
         structure: maskFormStructureSecrets(structure),
