@@ -246,7 +246,7 @@ export const formsScheduleRouter = createHonoApp()
         );
       }
 
-      await db
+      const updateResult = await db
         .update(formSchedule)
         .set({
           triggerAt: payload.triggerAt
@@ -257,13 +257,30 @@ export const formsScheduleRouter = createHonoApp()
             effectiveAction === "SWITCH_SNAPSHOT"
               ? effectiveSnapshotVersion
               : null,
+          updatedAt: new Date(),
         })
-        .where(eq(formSchedule.id, scheduleId));
+        .where(
+          and(
+            eq(formSchedule.id, scheduleId),
+            eq(formSchedule.formId, formId),
+            isNull(formSchedule.processedAt),
+          ),
+        );
+      if ((updateResult[0]?.affectedRows ?? 0) === 0) {
+        return c.json(
+          formScheduleError(
+            "Schedule was already processed and cannot be edited",
+          ),
+          409,
+        );
+      }
 
       const [updated] = await db
         .select()
         .from(formSchedule)
-        .where(eq(formSchedule.id, scheduleId))
+        .where(
+          and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
+        )
         .limit(1);
 
       return c.json(
