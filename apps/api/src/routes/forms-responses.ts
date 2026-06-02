@@ -65,6 +65,8 @@ const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
 const LIKE_ESCAPE_CHAR = "!";
+const RESPONSE_SEARCH_MIN_BATCH_SIZE = 200;
+const RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT = 5000;
 
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -377,11 +379,18 @@ async function listResponsesWithSearch(options: {
   const choiceLabels = buildResponseChoiceLabelsByQuestion(plateContent);
   const targetMatchCount =
     (options.page - 1) * options.limit + options.limit + 1;
-  const batchSize = Math.max(options.limit + 1, 200);
+  const batchSize = Math.max(options.limit + 1, RESPONSE_SEARCH_MIN_BATCH_SIZE);
   const matches: ResponseListRow[] = [];
   let candidateOffset = 0;
 
-  while (matches.length < targetMatchCount) {
+  while (
+    matches.length < targetMatchCount &&
+    candidateOffset < RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT
+  ) {
+    const batchLimit = Math.min(
+      batchSize,
+      RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT - candidateOffset,
+    );
     const rows = await db
       .select({
         id: formResponse.id,
@@ -404,7 +413,7 @@ async function listResponsesWithSearch(options: {
       )
       .orderBy(buildResponseListOrderBy(options.sortField, options.sortOrder))
       .offset(candidateOffset)
-      .limit(batchSize);
+      .limit(batchLimit);
 
     if (rows.length === 0) break;
 
@@ -415,8 +424,8 @@ async function listResponsesWithSearch(options: {
       }
     }
 
-    if (rows.length < batchSize) break;
     candidateOffset += rows.length;
+    if (rows.length < batchLimit) break;
   }
 
   const offset = (options.page - 1) * options.limit;

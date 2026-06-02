@@ -613,6 +613,41 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     ]);
   });
 
+  it("bounds candidate scans for sparse response body searches", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    const falsePositiveRows = Array.from({ length: 200 }, (_, index) => ({
+      id: `response-${index + 1}`,
+      formId: "form-1",
+      submittedAt,
+      updatedAt: null,
+      respondentUuid: `respondent-${index + 1}`,
+      userAgent: null,
+      sessionId: null,
+      countryCode: "JP",
+      responseDataJson: "[]",
+    }));
+    mocks.db.select.mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]));
+    for (let batch = 0; batch < 25; batch += 1) {
+      mocks.db.select.mockReturnValueOnce(limitedQuery(falsePositiveRows));
+    }
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?page=1&limit=20&q=sparse",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      responses: [],
+      hasNext: false,
+    });
+    expect(mocks.db.select).toHaveBeenCalledTimes(26);
+    expect(mocks.offsetCalls).toEqual(
+      Array.from({ length: 25 }, (_, index) => index * 200),
+    );
+    expect(mocks.limitCalls.filter((limit) => limit === 200)).toHaveLength(25);
+  });
+
   it("exports saved responseDataJson values as CSV", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
     mocks.db.select
