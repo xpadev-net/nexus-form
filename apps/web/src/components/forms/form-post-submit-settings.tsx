@@ -57,8 +57,29 @@ interface PostSubmitDraft {
   webhookRetryAttempts: number;
 }
 
+const PostSubmitConfirmationPayloadSchema = z.object({
+  title: z.string().min(1).max(120),
+  message: z.string().max(2000),
+  supplemental_link: z
+    .object({
+      label: z.string().min(1).max(80),
+      url: z.string().url(),
+    })
+    .optional(),
+  contact: z
+    .object({
+      label: z.string().min(1).max(80).optional(),
+      email: z.string().email().optional(),
+      url: z.string().url().optional(),
+    })
+    .refine((data) => !!data.email || !!data.url, {
+      message: "問い合わせ先には email または url が必要です",
+    })
+    .optional(),
+});
+
 interface PostSubmitPayload {
-  confirmation: FormConfirmation;
+  confirmation: z.infer<typeof PostSubmitConfirmationPayloadSchema>;
   notifications: FormNotificationsTransport;
 }
 
@@ -129,7 +150,7 @@ function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
   const webhookUrl = emptyToUndefined(draft.webhookUrl);
   const webhookSecret = emptyToUndefined(draft.webhookSecret);
 
-  const confirmation = FormConfirmationSchema.parse({
+  const confirmation = PostSubmitConfirmationPayloadSchema.parse({
     title: draft.title.trim(),
     message: draft.message.trim(),
     supplemental_link:

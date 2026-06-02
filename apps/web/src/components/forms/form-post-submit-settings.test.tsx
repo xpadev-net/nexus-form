@@ -393,6 +393,20 @@ describe("FormPostSubmitSettings", () => {
         }),
       },
     });
+    expect(patchPayload).toMatchObject({
+      json: {
+        confirmation: expect.not.objectContaining({
+          show_response_summary: expect.anything(),
+        }),
+      },
+    });
+    expect(patchPayload).toMatchObject({
+      json: {
+        confirmation: expect.not.objectContaining({
+          allow_edit_link: expect.anything(),
+        }),
+      },
+    });
     expect(patchPayload).not.toMatchObject({
       json: { structure: expect.anything() },
     });
