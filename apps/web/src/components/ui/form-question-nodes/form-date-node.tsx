@@ -31,7 +31,29 @@ export const FormDateElement = withRef<typeof PlateElement>(
   },
 );
 
-function DateInput({ element }: { element: TElement }) {
+const dateValuePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+function getDateAnswerValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function isDateValueOutsideValidation(
+  value: string,
+  validation:
+    | {
+        minDate?: string;
+        maxDate?: string;
+      }
+    | undefined,
+): boolean {
+  if (value === "") return false;
+  if (!dateValuePattern.test(value)) return true;
+  if (validation?.minDate && value < validation.minDate) return true;
+  if (validation?.maxDate && value > validation.maxDate) return true;
+  return false;
+}
+
+export function DateInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -42,13 +64,22 @@ function DateInput({ element }: { element: TElement }) {
         maxDate?: string;
       }
     | undefined;
+  const value = getDateAnswerValue(answer?.value);
+  const syncDateValue = (nextValue: string) => {
+    ctx.setAnswer(blockId, { value: nextValue });
+  };
+  const isInvalid = isDateValueOutsideValidation(value, validation);
+
   return (
     <Input
       type="date"
       min={validation?.minDate}
       max={validation?.maxDate}
-      value={(answer?.value as string) ?? ""}
-      onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
+      value={value}
+      aria-invalid={isInvalid ? true : undefined}
+      onInput={(e) => syncDateValue(e.currentTarget.value)}
+      onChange={(e) => syncDateValue(e.currentTarget.value)}
+      onBlur={(e) => syncDateValue(e.currentTarget.value)}
     />
   );
 }

@@ -44,6 +44,41 @@ function hasRequiredGridRowsAnswered(
   });
 }
 
+function isIsoCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCFullYear(year);
+
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+function hasRequiredDateAnswered(
+  question: ExtractedQuestion,
+  value: unknown,
+): boolean {
+  if (typeof value !== "string") return false;
+  if (value === "" || !isIsoCalendarDate(value)) return false;
+
+  const validation = question.validation as Record<string, unknown>;
+  const minDate =
+    typeof validation.minDate === "string" ? validation.minDate : undefined;
+  const maxDate =
+    typeof validation.maxDate === "string" ? validation.maxDate : undefined;
+
+  if (minDate && value < minDate) return false;
+  if (maxDate && value > maxDate) return false;
+  return true;
+}
+
 /** Return required questions that have no answer yet. */
 export function findUnansweredRequired(
   questions: ExtractedQuestion[],
@@ -86,6 +121,9 @@ export function findUnansweredRequired(
       }
     }
 
+    if (q.type === "date") {
+      return !hasRequiredDateAnswered(q, answer.value);
+    }
     if (answer.value != null && answer.value !== "") return false;
     if (Array.isArray(answer.values) && answer.values.length > 0) return false;
     if (q.type === "choice_grid" || q.type === "checkbox_grid") {

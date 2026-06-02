@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import type { TElement } from "platejs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -16,12 +17,49 @@ import { FormBody } from "./form-body";
 
 const plateViewerValues = vi.hoisted(() => [] as string[]);
 
-vi.mock("@/components/editor/plate-viewer", () => ({
-  PlateViewer: ({ value }: { value: string }) => {
-    plateViewerValues.push(value);
-    return <div data-testid="plate-viewer">{value}</div>;
-  },
-}));
+vi.mock("@/components/editor/plate-viewer", async () => {
+  const { DateInput } = await import(
+    "@/components/ui/form-question-nodes/form-date-node"
+  );
+
+  return {
+    PlateViewer: ({ value }: { value: string }) => {
+      plateViewerValues.push(value);
+      let nodes: unknown[] = [];
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (Array.isArray(parsed)) {
+          nodes = parsed;
+        }
+      } catch {
+        nodes = [];
+      }
+
+      return (
+        <div data-testid="plate-viewer">
+          {value}
+          {nodes.map((node, index) => {
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_date"
+            ) {
+              return (
+                <DateInput
+                  key={
+                    (node as { blockId?: unknown }).blockId?.toString() ?? index
+                  }
+                  element={node as TElement}
+                />
+              );
+            }
+            return null;
+          })}
+        </div>
+      );
+    },
+  };
+});
 
 function renderFormBody(
   container: HTMLElement,
@@ -322,6 +360,84 @@ describe("FormBody", () => {
         value: "10:30",
       }),
     ]);
+
+    act(() => root.unmount());
+  });
+
+  it("allows moving to the next page after entering a required date", async () => {
+    const plateContent = JSON.stringify([
+      questionNode("date", "q-date", "Date", {
+        required: true,
+        minDate: "2026-01-01",
+        maxDate: "2026-12-31",
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: true }),
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+    });
+
+    const dateInput =
+      container.querySelector<HTMLInputElement>("input[type=date]");
+    expect(dateInput).not.toBeNull();
+    await act(async () => {
+      if (!dateInput) return;
+      dateInput.value = "2026-06-15";
+      dateInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("次へ"),
+    );
+    expect(nextButton).toBeDefined();
+    await act(async () => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Next page");
+    expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain("必須項目が未入力です");
+
+    act(() => root.unmount());
+  });
+
+  it("does not move to the next page when a required date is outside its range", async () => {
+    const plateContent = JSON.stringify([
+      questionNode("date", "q-date", "Date", {
+        required: true,
+        minDate: "2026-01-01",
+        maxDate: "2026-12-31",
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: true }),
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+    });
+
+    const dateInput =
+      container.querySelector<HTMLInputElement>("input[type=date]");
+    expect(dateInput).not.toBeNull();
+    await act(async () => {
+      if (!dateInput) return;
+      dateInput.value = "2027-01-01";
+      dateInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("次へ"),
+    );
+    await act(async () => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).not.toContain("Next page");
 
     act(() => root.unmount());
   });

@@ -15,6 +15,69 @@ function makeQuestion(
 }
 
 describe("findUnansweredRequired", () => {
+  it("treats a required date with an ISO value as answered", () => {
+    const question = makeQuestion("date", {
+      required: true,
+      minDate: "2026-01-01",
+      maxDate: "2026-12-31",
+    });
+
+    const unanswered = findUnansweredRequired(
+      [question],
+      new Map([["q1", { value: "2026-06-15" }]]),
+    );
+
+    expect(unanswered).toEqual([]);
+  });
+
+  it("treats an empty required date as unanswered", () => {
+    const question = makeQuestion("date", { required: true });
+
+    const unanswered = findUnansweredRequired(
+      [question],
+      new Map([["q1", { value: "" }]]),
+    );
+
+    expect(unanswered).toEqual([question]);
+  });
+
+  it("treats a required date outside the configured range as unanswered", () => {
+    const question = makeQuestion("date", {
+      required: true,
+      minDate: "2026-01-01",
+      maxDate: "2026-12-31",
+    });
+
+    const unanswered = findUnansweredRequired(
+      [question],
+      new Map([["q1", { value: "2027-01-01" }]]),
+    );
+
+    expect(unanswered).toEqual([question]);
+  });
+
+  it("treats an impossible required date as unanswered", () => {
+    const question = makeQuestion("date", { required: true });
+
+    const unanswered = findUnansweredRequired(
+      [question],
+      new Map([["q1", { value: "2026-02-31" }]]),
+    );
+
+    expect(unanswered).toEqual([question]);
+  });
+
+  it("treats a date with surrounding whitespace as unanswered", () => {
+    const question = makeQuestion("date", { required: true });
+
+    const unanswered = findUnansweredRequired(
+      [question],
+      new Map([["q1", { value: " 2026-06-15 " }]]),
+    );
+
+    expect(unanswered).toEqual([question]);
+  });
+
   it("treats missing choice grid rows as unanswered", () => {
     const question = makeQuestion("choice_grid", {
       required: true,
