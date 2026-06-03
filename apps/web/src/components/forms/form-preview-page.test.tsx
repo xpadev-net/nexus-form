@@ -2,7 +2,7 @@
 
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FormPreviewPage } from "./form-preview-page";
 
 const mockAppearance = vi.hoisted(() => ({
@@ -27,6 +27,9 @@ const formBodyProps = vi.hoisted(
       appearance?: unknown;
     }>,
 );
+const queryMockState = vi.hoisted(() => ({
+  loadingKeys: [] as string[],
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -54,6 +57,14 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
+    const key = queryKey[0] ?? "";
+    if (queryMockState.loadingKeys.includes(key)) {
+      return {
+        data: undefined,
+        error: null,
+        isLoading: true,
+      };
+    }
     if (queryKey[0] === "formContent") {
       return {
         data: { plateContent: "[]", plateContentVersion: 1 },
@@ -124,10 +135,28 @@ vi.mock("@/lib/api", () => ({
 }));
 
 describe("FormPreviewPage links", () => {
-  it("renders preview navigation links without nested buttons", () => {
+  beforeEach(() => {
     formBodyProps.length = 0;
+    queryMockState.loadingKeys = [];
+  });
+
+  it("renders only the preview loading status while initial queries are pending", () => {
+    queryMockState.loadingKeys = ["formContent"];
+
     const html = renderToStaticMarkup(<FormPreviewPage />);
 
+    expect(html).toContain('data-preview-loading="true"');
+    expect(html).toContain("プレビューを準備しています。");
+    expect(html).not.toContain("読み込み中...");
+    expect(html).not.toContain('data-testid="form-body"');
+    expect(formBodyProps).toEqual([]);
+  });
+
+  it("renders preview navigation links without nested buttons", () => {
+    const html = renderToStaticMarkup(<FormPreviewPage />);
+
+    expect(html).not.toContain('data-preview-loading="true"');
+    expect(html).not.toContain("読み込み中...");
     expect(html).not.toContain("<button");
     expect(html).toContain("公開フォーム");
     expect(html).toContain("エディタに戻る");
@@ -137,8 +166,6 @@ describe("FormPreviewPage links", () => {
   });
 
   it("passes latest structure appearance to FormBody", () => {
-    formBodyProps.length = 0;
-
     renderToStaticMarkup(<FormPreviewPage />);
 
     expect(formBodyProps.at(-1)?.appearance).toEqual(mockAppearance);

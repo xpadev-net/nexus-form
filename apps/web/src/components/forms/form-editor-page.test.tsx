@@ -261,7 +261,23 @@ vi.mock("@/components/forms/form-access-control-settings", () => ({
   FormAccessControlSettings: () => null,
 }));
 vi.mock("@/components/forms/form-appearance-settings", () => ({
-  FormAppearanceSettings: () => null,
+  FormAppearanceSettings: ({
+    formId,
+    formTitle,
+    plateContent,
+  }: {
+    formId: string;
+    formTitle: string;
+    plateContent: string;
+  }) => (
+    <section
+      data-form-id={formId}
+      data-plate-content={plateContent}
+      data-testid="appearance-settings"
+    >
+      {formTitle}
+    </section>
+  ),
 }));
 vi.mock("@/components/forms/form-post-submit-settings", () => ({
   FormPostSubmitSettings: () => null,
@@ -516,6 +532,103 @@ describe("FormEditorPage tab synchronization", () => {
     rerenderPage(root);
 
     expect(snapshotEditorToDraftMock).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+  });
+
+  it("renders settings tab from the URL for an unpublished form", () => {
+    searchTab = "settings";
+    formQueryState = {
+      ...formQueryState,
+      data: {
+        form: {
+          id: "form-1",
+          publicId: null,
+          status: "DRAFT",
+          title: "Draft settings form",
+        },
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      container.querySelector("[data-active-tab='settings']"),
+    ).not.toBeNull();
+    const appearanceSettings = container.querySelector(
+      "[data-testid='appearance-settings']",
+    );
+    expect(appearanceSettings).not.toBeNull();
+    expect(appearanceSettings?.textContent).toContain("Draft settings form");
+    expect(appearanceSettings?.getAttribute("data-form-id")).toBe("form-1");
+    expect(container.textContent).toContain("フォーム管理");
+
+    act(() => root.unmount());
+  });
+
+  it("renders settings tab from the URL for a published form", () => {
+    searchTab = "settings";
+    formQueryState = {
+      ...formQueryState,
+      data: {
+        form: {
+          id: "form-1",
+          publicId: "public-1",
+          status: "PUBLISHED",
+          title: "Published settings form",
+        },
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      container.querySelector("[data-active-tab='settings']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='appearance-settings']")
+        ?.textContent,
+    ).toContain("Published settings form");
+    expect(
+      container.querySelector<HTMLAnchorElement>(
+        'a[href="/forms/public/public-1"]',
+      ),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("renders settings tab after switching tabs", () => {
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      container.querySelector("[data-testid='appearance-settings']"),
+    ).toBeNull();
+
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("設定"));
+    expect(settingsButton).toBeDefined();
+
+    act(() => {
+      settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(navigateMock).toHaveBeenCalledWith({
+      params: { id: "form-1" },
+      search: { tab: "settings" },
+      to: "/forms/$id/edit",
+    });
+
+    searchTab = "settings";
+    rerenderPage(root);
+
+    expect(
+      container.querySelector("[data-active-tab='settings']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='appearance-settings']"),
+    ).not.toBeNull();
 
     act(() => root.unmount());
   });

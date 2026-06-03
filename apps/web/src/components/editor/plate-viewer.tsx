@@ -10,11 +10,23 @@ type Props = {
   value: string;
 };
 
+function PlateViewerLoadingFallback() {
+  return (
+    <div
+      aria-hidden="true"
+      className="space-y-3 p-4"
+      data-testid="plate-viewer-loading"
+    >
+      <div className="h-4 w-2/3 rounded bg-muted" />
+      <div className="h-4 w-full rounded bg-muted" />
+      <div className="h-10 w-full rounded bg-muted/70" />
+    </div>
+  );
+}
+
 export function PlateViewer(props: Props) {
   return (
-    <Suspense
-      fallback={<div className="p-4 text-muted-foreground">読み込み中...</div>}
-    >
+    <Suspense fallback={<PlateViewerLoadingFallback />}>
       <LazyPlateViewerInternal {...props} />
     </Suspense>
   );

@@ -86,18 +86,36 @@ vi.mock("lucide-react", () => ({
   Smartphone: () => <span data-icon="smartphone" />,
 }));
 
-vi.mock("./form-body", () => ({
-  FormBody: ({ appearance }: { appearance: FormAppearance }) => (
-    <div
-      data-testid="appearance-preview"
-      data-primary={appearance.theme.primary_color}
-      data-brand={appearance.theme.brand_name ?? ""}
-      data-question-numbers={
-        appearance.layout.show_question_numbers ? "shown" : "hidden"
-      }
-    />
-  ),
-}));
+vi.mock("./form-body", async () => {
+  const { useFormResponse } = await import("@/contexts/form-response-context");
+
+  return {
+    FormBody: ({ appearance }: { appearance: FormAppearance }) => {
+      const { answers, setAnswer } = useFormResponse();
+
+      return (
+        <div
+          data-testid="appearance-preview"
+          data-primary={appearance.theme.primary_color}
+          data-brand={appearance.theme.brand_name ?? ""}
+          data-question-numbers={
+            appearance.layout.show_question_numbers ? "shown" : "hidden"
+          }
+          data-preview-answer-count={String(answers.size)}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setAnswer("preview-question", { value: "preview-only" })
+            }
+          >
+            プレビュー回答
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock("@/components/ui/switch", () => ({
   Switch: ({
@@ -273,6 +291,57 @@ describe("FormAppearanceSettings", () => {
     );
     expect(preview?.getAttribute("data-brand")).toBe("R25 Brand");
     expect(preview?.getAttribute("data-question-numbers")).toBe("hidden");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps live preview answers inside a preview-only provider", async () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    expect(
+      container
+        .querySelector("[data-testid='appearance-preview']")
+        ?.getAttribute("data-preview-answer-count"),
+    ).toBe("0");
+
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("プレビュー回答"),
+      ) ?? null,
+    );
+
+    expect(
+      container
+        .querySelector("[data-testid='appearance-preview']")
+        ?.getAttribute("data-preview-answer-count"),
+    ).toBe("1");
+
+    submit(
+      container.querySelector<HTMLFormElement>("#form-appearance-settings"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const patchPayload = mocks.patchAppearanceRequest.mock.calls[0]?.[0];
+    expect(patchPayload).toMatchObject({
+      json: {
+        appearance: expect.any(Object),
+      },
+      param: { id: "form-1" },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: {
+        responses: expect.anything(),
+      },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: {
+        answers: expect.anything(),
+      },
+    });
 
     act(() => root.unmount());
   });

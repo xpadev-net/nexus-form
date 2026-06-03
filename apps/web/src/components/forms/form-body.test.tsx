@@ -2,7 +2,7 @@
 
 import { fireEvent } from "@testing-library/dom";
 import type { TElement } from "platejs";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -69,13 +69,15 @@ function renderFormBody(
   options: {
     appearance?: FormAppearance;
     captchaReady?: boolean;
+    description?: string;
     initialAnswers?: ReadonlyMap<string, AnswerEntry>;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
   } = {},
 ): Root {
-  const root = createRoot(container);
-  act(() => {
-    root.render(
+  function FormBodyHarness() {
+    const [error, setError] = useState<string | null>(null);
+
+    return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
         <FormBody
           title="公開フォーム"
@@ -83,10 +85,18 @@ function renderFormBody(
           mode="public"
           appearance={options.appearance}
           captchaReady={options.captchaReady}
+          description={options.description}
+          error={error}
+          onErrorChange={setError}
           onSubmitRequest={options.onSubmitRequest}
         />
-      </FormResponseProvider>,
+      </FormResponseProvider>
     );
+  }
+
+  const root = createRoot(container);
+  act(() => {
+    root.render(<FormBodyHarness />);
   });
   return root;
 }
@@ -346,6 +356,49 @@ describe("FormBody", () => {
     act(() => root.unmount());
   });
 
+  it("renders a long multipage grid form without leaving loading text in the body", () => {
+    const longDescription = Array.from(
+      { length: 10 },
+      (_, index) => `説明テキスト ${index + 1}`,
+    ).join("。");
+    const plateContent = JSON.stringify([
+      questionNode("long_text", "q-long", "Long answer", {
+        required: true,
+      }),
+      questionNode("section_separator", "section-details", "Details"),
+      questionNode("choice_grid", "q-choice-grid", "Choice grid", {
+        required: true,
+        rows: [
+          { id: "row-a", label: "Row A" },
+          { id: "row-b", label: "Row B" },
+        ],
+        columns: [
+          { id: "col-1", label: "Column 1" },
+          { id: "col-2", label: "Column 2" },
+        ],
+      }),
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      description: longDescription,
+    });
+
+    expect(container.textContent).toContain("公開フォーム");
+    expect(container.textContent).toContain(longDescription);
+    expect(container.textContent).toContain("Long answer");
+    expect(container.textContent).toContain("次へ");
+    expect(container.textContent).not.toContain("読み込み中...");
+    expect(
+      container.querySelector("[data-testid='plate-viewer']"),
+    ).not.toBeNull();
+    expect(plateViewerValues.at(-1)).toContain("q-long");
+    expect(plateViewerValues.at(-1)).not.toContain("q-choice-grid");
+
+    act(() => root.unmount());
+  });
+
   it("submits all answerable public question types and excludes section separators", async () => {
     const onSubmitRequest = vi.fn();
     const answers = new Map<string, AnswerEntry>([
@@ -475,6 +528,34 @@ describe("FormBody", () => {
         value: "10:30",
       }),
     ]);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps public required validation blocking submit when answers are missing", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-name", "Name", { required: true }),
+      ]),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("必須項目が未入力です: Name");
 
     act(() => root.unmount());
   });

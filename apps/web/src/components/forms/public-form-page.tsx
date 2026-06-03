@@ -224,6 +224,14 @@ function buildResponseSummary(
   }));
 }
 
+function PublicFormLoadingStatus({ message }: { message: string }) {
+  return (
+    <section aria-busy="true" className="p-6" data-public-form-loading="true">
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </section>
+  );
+}
+
 function PublicSubmitCompletion({
   responseId,
   confirmation,
@@ -536,7 +544,7 @@ function PublicFormPageInner() {
   );
 
   if (isLoading) {
-    return <section className="p-6">読み込み中...</section>;
+    return <PublicFormLoadingStatus message="フォームを準備しています。" />;
   }
 
   if (notFound) {
@@ -586,7 +594,7 @@ function PublicFormPageInner() {
         dispatch({ type: "password-verified" });
       }}
     >
-      <section className="p-6">読み込み中...</section>
+      <PublicFormLoadingStatus message="フォーム本文を復元しています。" />
     </PasswordProtectionGate>
   ) : (
     <FormBody
