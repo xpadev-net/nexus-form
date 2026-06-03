@@ -11,6 +11,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
+import { FormResponseProvider } from "@/contexts/form-response-context";
 import {
   formDiffQueryKey,
   unpublishedChangesQueryKey,
@@ -503,14 +504,16 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
             )}
             data-preview-viewport={previewViewport}
           >
-            <FormBody
-              title={formTitle}
-              description={formDescription}
-              plateContent={plateContent}
-              mode="preview"
-              appearance={draftAppearance}
-              success="これはプレビューです。回答は保存されません。"
-            />
+            <FormResponseProvider>
+              <FormBody
+                title={formTitle}
+                description={formDescription}
+                plateContent={plateContent}
+                mode="preview"
+                appearance={draftAppearance}
+                success="これはプレビューです。回答は保存されません。"
+              />
+            </FormResponseProvider>
           </div>
         </div>
       </div>

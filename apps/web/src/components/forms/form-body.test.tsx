@@ -2,7 +2,7 @@
 
 import { fireEvent } from "@testing-library/dom";
 import type { TElement } from "platejs";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -73,9 +73,10 @@ function renderFormBody(
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
   } = {},
 ): Root {
-  const root = createRoot(container);
-  act(() => {
-    root.render(
+  function FormBodyHarness() {
+    const [error, setError] = useState<string | null>(null);
+
+    return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
         <FormBody
           title="公開フォーム"
@@ -83,10 +84,17 @@ function renderFormBody(
           mode="public"
           appearance={options.appearance}
           captchaReady={options.captchaReady}
+          error={error}
+          onErrorChange={setError}
           onSubmitRequest={options.onSubmitRequest}
         />
-      </FormResponseProvider>,
+      </FormResponseProvider>
     );
+  }
+
+  const root = createRoot(container);
+  act(() => {
+    root.render(<FormBodyHarness />);
   });
   return root;
 }
@@ -475,6 +483,34 @@ describe("FormBody", () => {
         value: "10:30",
       }),
     ]);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps public required validation blocking submit when answers are missing", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-name", "Name", { required: true }),
+      ]),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("必須項目が未入力です: Name");
 
     act(() => root.unmount());
   });
