@@ -1,6 +1,7 @@
 import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
+import { useId } from "react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import {
   getGridCellAccessibleName,
@@ -46,6 +47,7 @@ export const FormCheckboxGridElement = withRef<typeof PlateElement>(
 
 export function CheckboxGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
+  const inputIdPrefix = useId();
   if (!ctx) return null;
   const blockId = element.blockId as string;
   const answer = ctx.getAnswer(blockId);
@@ -93,6 +95,7 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
                 <th
                   key={col.id}
                   className="border px-3 py-2 text-center text-sm font-medium"
+                  scope="col"
                 >
                   {getGridItemDisplayLabel(col)}
                 </th>
@@ -100,50 +103,68 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => {
+            {rows.map((row, rowIndex) => {
               const rowSelections = responses[row.id] ?? [];
               const rowAtMax =
                 maxPerRow != null && rowSelections.length >= maxPerRow;
               return (
                 <tr key={row.id}>
-                  <td className="border px-3 py-2 text-sm font-medium">
+                  <th
+                    className="border px-3 py-2 text-left text-sm font-medium"
+                    scope="row"
+                  >
                     {getGridItemDisplayLabel(row)}
-                  </td>
-                  {columns.map((col) => {
+                  </th>
+                  {columns.map((col, columnIndex) => {
                     const isChecked = rowSelections.includes(col.id);
                     const disabled = !isChecked && rowAtMax;
+                    const inputId = `${inputIdPrefix}-cell-${rowIndex}-${columnIndex}`;
                     return (
-                      <td key={col.id} className="border px-3 py-2 text-center">
-                        <button
-                          type="button"
-                          role="checkbox"
-                          aria-checked={isChecked}
-                          disabled={disabled}
-                          onClick={() => toggleCell(row.id, col.id)}
+                      <td key={col.id} className="border p-0 text-center">
+                        <label
+                          htmlFor={inputId}
                           className={cn(
-                            "inline-flex h-4 w-4 items-center justify-center rounded-sm border transition-colors",
-                            isChecked
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : disabled
-                                ? "border-input opacity-40 cursor-not-allowed"
-                                : "border-input hover:border-primary/50",
+                            "relative flex min-h-10 w-full min-w-12 items-center justify-center px-3 py-2",
+                            disabled
+                              ? "cursor-not-allowed"
+                              : "cursor-pointer",
                           )}
-                          aria-label={getGridCellAccessibleName(row, col)}
                         >
-                          {isChecked && (
-                            <svg
-                              className="h-3 w-3"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth={3}
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <path d="M20 6L9 17l-5-5" />
-                            </svg>
-                          )}
-                        </button>
+                          <input
+                            id={inputId}
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={disabled}
+                            onChange={() => toggleCell(row.id, col.id)}
+                            aria-label={getGridCellAccessibleName(row, col)}
+                            className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                          />
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              "inline-flex h-4 w-4 items-center justify-center rounded-sm border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2",
+                              isChecked
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : disabled
+                                  ? "border-input opacity-40"
+                                  : "border-input peer-hover:border-primary/50",
+                            )}
+                          >
+                            {isChecked && (
+                              <svg
+                                className="h-3 w-3"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth={3}
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                            )}
+                          </span>
+                        </label>
                       </td>
                     );
                   })}
