@@ -7,5 +7,37 @@ allowBuilds:
   msgpackr-extract: true
   msw: true
   sharp: true
+minimumReleaseAgeExclude:
+  - '@aws-sdk/checksums@3.1000.1'
+  - '@aws-sdk/client-s3@3.1061.0'
+  - '@aws-sdk/core@3.974.17'
+  - '@aws-sdk/credential-provider-env@3.972.43'
+  - '@aws-sdk/credential-provider-http@3.972.45'
+  - '@aws-sdk/credential-provider-ini@3.972.48'
+  - '@aws-sdk/credential-provider-login@3.972.47'
+  - '@aws-sdk/credential-provider-node@3.972.50'
+  - '@aws-sdk/credential-provider-process@3.972.43'
+  - '@aws-sdk/credential-provider-sso@3.972.47'
+  - '@aws-sdk/credential-provider-web-identity@3.972.47'
+  - '@aws-sdk/middleware-bucket-endpoint@3.972.20'
+  - '@aws-sdk/middleware-expect-continue@3.972.16'
+  - '@aws-sdk/middleware-flexible-checksums@3.974.26'
+  - '@aws-sdk/middleware-location-constraint@3.972.13'
+  - '@aws-sdk/middleware-sdk-s3@3.972.47'
+  - '@aws-sdk/middleware-ssec@3.972.13'
+  - '@aws-sdk/nested-clients@3.997.15'
+  - '@aws-sdk/s3-request-presigner@3.1061.0'
+  - '@aws-sdk/token-providers@3.1060.0'
+  - '@better-auth/core@1.6.14'
+  - '@better-auth/drizzle-adapter@1.6.14'
+  - '@better-auth/kysely-adapter@1.6.14'
+  - '@better-auth/memory-adapter@1.6.14'
+  - '@better-auth/mongo-adapter@1.6.14'
+  - '@better-auth/prisma-adapter@1.6.14'
+  - '@better-auth/telemetry@1.6.14'
+  - '@tanstack/react-router@1.170.11'
+  - '@tanstack/router-core@1.171.9'
+  - axios@1.17.0
+  - better-auth@1.6.14
 overrides:
   js-video-url-parser@<=0.5.2: ^0.5.1
