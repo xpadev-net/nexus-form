@@ -84,6 +84,7 @@ function prefillFixturePlateContent(): string {
 describe("FormPrefillGenerator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: mocks.writeText },
@@ -115,7 +116,8 @@ describe("FormPrefillGenerator", () => {
     act(() => root.unmount());
   });
 
-  it("previews and copies only supported questions when unsupported questions remain in the form", async () => {
+  it("previews reflected and unreflected questions, then gives copy feedback", async () => {
+    vi.useFakeTimers();
     mocks.writeText.mockResolvedValueOnce(undefined);
     const container = document.createElement("div");
     const root = renderGenerator(container);
@@ -134,22 +136,31 @@ describe("FormPrefillGenerator", () => {
     const preview = container.querySelector(
       '[data-testid="prefill-preview-filled-questions"]',
     );
-    expect(preview?.textContent).toContain("以下の設問だけに初期値が入ります");
+    expect(preview?.textContent).toContain("反映される設問");
     expect(preview?.textContent).toContain("氏名 (短文)");
-    expect(preview?.textContent).not.toContain("参加枠");
-    expect(preview?.textContent).not.toContain("必要な備品");
+    expect(preview?.textContent).toContain("反映されない設問");
+    expect(preview?.textContent).toContain("参加枠 (選択グリッド)");
     expect(preview?.textContent).toContain(
-      "未対応設問はURLに含まれず、回答者がフォーム上で入力します。",
+      "必要な備品 (チェックボックスグリッド)",
     );
+    expect(preview?.textContent).toContain("未対応のためURLに含まれません。");
 
-    const generatedUrl =
-      container.querySelector<HTMLInputElement>("input[readonly]")?.value;
+    const generatedUrlInput =
+      container.querySelector<HTMLInputElement>("input[readonly]");
+    const generatedUrl = generatedUrlInput?.value;
     expect(generatedUrl).toBeDefined();
     const encodedPrefill = new URL(generatedUrl ?? "").searchParams.get("p");
     expect(encodedPrefill).not.toBeNull();
     expect(decodePrefillData(encodedPrefill ?? "")).toEqual({
       "q-name": { value: "Alice" },
     });
+
+    const previewLink =
+      container.querySelector<HTMLAnchorElement>('a[target="_blank"]');
+    expect(previewLink?.textContent).toContain("別タブで確認");
+    expect(previewLink?.href).toBe(generatedUrl);
+    expect(previewLink?.rel).toContain("noreferrer");
+    expect(previewLink?.rel).toContain("noopener");
 
     const copyButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("URLをコピー"),
@@ -163,6 +174,113 @@ describe("FormPrefillGenerator", () => {
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "プリフィルURLをコピーしました",
     );
+    expect(copyButton?.textContent).toContain("コピー済み");
+    expect(
+      container
+        .querySelector('[data-testid="prefill-url-preview"] [data-copied]')
+        ?.getAttribute("data-copied"),
+    ).toBe("true");
+
+    act(() => {
+      vi.advanceTimersByTime(2100);
+    });
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(copyButton?.textContent).toContain("コピー済み");
+
+    act(() => {
+      vi.advanceTimersByTime(2100);
+    });
+    expect(copyButton?.textContent).toContain("URLをコピー");
+
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("clears copy feedback when the generated URL is removed and recreated", async () => {
+    vi.useFakeTimers();
+    mocks.writeText.mockResolvedValueOnce(undefined);
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    expect(nameInput).not.toBeNull();
+
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("URLをコピー"),
+    );
+    expect(copyButton).toBeDefined();
+
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(copyButton?.textContent).toContain("コピー済み");
+
+    const clearButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("クリア"),
+    );
+    act(() => {
+      clearButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      container.querySelector('[data-testid="prefill-url-preview"]'),
+    ).toBeNull();
+
+    const recreatedNameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    act(() => {
+      if (recreatedNameInput) {
+        fireEvent.input(recreatedNameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const recreatedCopyButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("URLをコピー"));
+    expect(recreatedCopyButton?.textContent).toContain("URLをコピー");
+    expect(
+      container
+        .querySelector('[data-testid="prefill-url-preview"] [data-copied]')
+        ?.getAttribute("data-copied"),
+    ).toBe("false");
+
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("copies concrete guidance for unsupported grid alternatives", async () => {
+    mocks.writeText.mockResolvedValueOnce(undefined);
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const alternativeButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("代替案をコピー"));
+    expect(alternativeButton).toBeDefined();
+
+    await act(async () => {
+      alternativeButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(mocks.writeText).toHaveBeenCalledWith(
+      "行と列の組み合わせを1つの短いURLで安全に表現しづらいためです。 代替案: 単一選択の設問に分割するか、回答者向けの説明文で事前入力内容を伝えてください。",
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("代替案をコピーしました");
 
     act(() => root.unmount());
   });
