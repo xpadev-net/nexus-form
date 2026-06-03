@@ -21,6 +21,8 @@ import {
 type Action = "generate" | "cleanup";
 type FixtureEnvironment = "local" | "staging";
 
+const NO_CHANGES_TO_PUBLISH_FRAGMENT = "No changes to publish";
+
 interface CliOptions {
   action: Action;
   dryRun: boolean;
@@ -847,7 +849,7 @@ async function publish(client: ApiClient, formId: string, storyId: string) {
     if (
       error instanceof ApiError &&
       error.status === 400 &&
-      error.responseBody.includes("No changes to publish")
+      error.responseBody.includes(NO_CHANGES_TO_PUBLISH_FRAGMENT)
     ) {
       createdVersion = null;
     } else {
