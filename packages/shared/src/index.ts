@@ -208,6 +208,7 @@ export {
   WebhookNotificationChannelSchema,
   WebhookNotificationChannelTransportSchema,
 } from "./validation/notifications";
+export { NO_CHANGES_TO_PUBLISH_CODE } from "./validation/publish-codes";
 export type {
   FormMetadata,
   FormSettings,
@@ -227,7 +228,6 @@ export type {
 } from "./validation/story-fixture";
 export {
   isAnswerableFixtureBlockType,
-  NO_CHANGES_TO_PUBLISH_CODE,
   parseStoryFixtureSet,
   STORY_FIXTURE_PREFIX,
   STORY_FIXTURE_PREFIX_MIN_LENGTH,

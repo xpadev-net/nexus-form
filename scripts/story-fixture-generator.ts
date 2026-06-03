@@ -7,9 +7,9 @@ import {
   responsePayloadItemSchema,
   type ResponseDataItem,
 } from "../packages/shared/src/response-data";
+import { NO_CHANGES_TO_PUBLISH_CODE } from "../packages/shared/src/validation/publish-codes";
 import {
   isAnswerableFixtureBlockType,
-  NO_CHANGES_TO_PUBLISH_CODE,
   parseStoryFixtureSet,
   STORY_FIXTURE_PREFIX,
   STORY_FIXTURE_PREFIX_MIN_LENGTH,
@@ -682,13 +682,18 @@ async function ensureForm(
 ): Promise<FormRow> {
   const existing = existingByTitle.get(fixture.title);
   if (existing) {
+    const description = fixture.description ?? null;
+    if (existing.title === fixture.title && existing.description === description) {
+      return existing;
+    }
+
     const updated = await client.request<{ form: FormRow }>(
       `/api/forms/${existing.id}`,
       {
         method: "PUT",
         body: {
           title: fixture.title,
-          description: fixture.description ?? null,
+          description,
         },
       },
     );
