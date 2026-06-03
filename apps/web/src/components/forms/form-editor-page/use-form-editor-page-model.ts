@@ -361,7 +361,9 @@ export function useFormEditorPageModel(formId: string) {
     titleDraft,
     unarchiveForm: () => unarchiveMutation.mutate(),
     updateTitle: (title: string) => {
-      void saveTitle(title);
+      void saveTitle(title).catch(() => {
+        // The mutation onError already reports the failure for blur-triggered saves.
+      });
     },
     updateTitleDraft: setTitleDraft,
   };

@@ -657,6 +657,34 @@ describe("FormEditorPage tab synchronization", () => {
     act(() => root.unmount());
   });
 
+  it("handles title save failures from blur without rethrowing", async () => {
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "保存失敗タイトル");
+      titleInput.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "フォーム名の保存に失敗しました",
+    );
+
+    act(() => root.unmount());
+  });
+
   it("renders a not-found page for a missing editable form", () => {
     formQueryState = {
       error: new RpcError("Not found", 404),

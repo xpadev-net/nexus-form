@@ -166,6 +166,22 @@ describe("FormList archive filtering", () => {
     act(() => root.unmount());
   });
 
+  it("hides the archived forms banner while searching active forms", () => {
+    const root = renderList();
+
+    expect(document.body.textContent).toContain("アーカイブを表示");
+
+    setSearchTerm("下書き");
+
+    expect(document.body.textContent).toContain("下書きフォーム");
+    expect(document.body.textContent).not.toContain(
+      "アーカイブ済みフォームが 1 件あります",
+    );
+    expect(document.body.textContent).not.toContain("アーカイブを表示");
+
+    act(() => root.unmount());
+  });
+
   it("restores an archived form from the home archived filter", async () => {
     const root = renderList();
 
