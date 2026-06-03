@@ -182,7 +182,18 @@ describe("FormPrefillGenerator", () => {
     ).toBe("true");
 
     act(() => {
-      vi.advanceTimersByTime(2200);
+      vi.advanceTimersByTime(2100);
+    });
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(copyButton?.textContent).toContain("コピー済み");
+
+    act(() => {
+      vi.advanceTimersByTime(2100);
     });
     expect(copyButton?.textContent).toContain("URLをコピー");
 

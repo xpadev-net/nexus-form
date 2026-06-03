@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -60,6 +61,10 @@ interface OptionLike {
   label: string;
 }
 
+interface CopyFeedback {
+  url: string;
+}
+
 const MAX_SAFE_URL_LENGTH = 1900;
 const COPY_FEEDBACK_TIMEOUT_MS = 2200;
 
@@ -81,7 +86,8 @@ export function FormPrefillGenerator({
   publicId,
 }: FormPrefillGeneratorProps) {
   const [prefillValues, setPrefillValues] = useState<PrefillData>({});
-  const [copiedUrlValue, setCopiedUrlValue] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
 
   const questions = useMemo(() => {
     try {
@@ -133,26 +139,34 @@ export function FormPrefillGenerator({
   }, [supportedPrefillValues, publicId]);
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;
-  const copiedUrl = generatedUrl !== "" && copiedUrlValue === generatedUrl;
+  const copiedUrl = generatedUrl !== "" && copyFeedback?.url === generatedUrl;
+
+  const clearCopyFeedbackTimer = useCallback(() => {
+    if (copyFeedbackTimeoutRef.current === null) return;
+    window.clearTimeout(copyFeedbackTimeoutRef.current);
+    copyFeedbackTimeoutRef.current = null;
+  }, []);
 
   useEffect(() => {
-    if (copiedUrlValue === null || generatedUrl === copiedUrlValue) return;
-    setCopiedUrlValue(null);
-  }, [copiedUrlValue, generatedUrl]);
+    if (copyFeedback === null || generatedUrl === copyFeedback.url) return;
+    clearCopyFeedbackTimer();
+    setCopyFeedback(null);
+  }, [clearCopyFeedbackTimer, copyFeedback, generatedUrl]);
 
   useEffect(() => {
-    if (!copiedUrl) return;
-    const timeoutId = window.setTimeout(() => {
-      setCopiedUrlValue(null);
-    }, COPY_FEEDBACK_TIMEOUT_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [copiedUrl]);
+    return clearCopyFeedbackTimer;
+  }, [clearCopyFeedbackTimer]);
 
   const handleCopyUrl = useCallback(async () => {
     if (!generatedUrl) return;
     try {
       await navigator.clipboard.writeText(generatedUrl);
-      setCopiedUrlValue(generatedUrl);
+      clearCopyFeedbackTimer();
+      setCopyFeedback({ url: generatedUrl });
+      copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+        copyFeedbackTimeoutRef.current = null;
+        setCopyFeedback(null);
+      }, COPY_FEEDBACK_TIMEOUT_MS);
       toast.success("プリフィルURLをコピーしました");
       if (isUrlTooLong) {
         toast.warning("URLが長いため一部の環境で開けない可能性があります");
@@ -160,7 +174,7 @@ export function FormPrefillGenerator({
     } catch {
       toast.error("URLをコピーできませんでした");
     }
-  }, [generatedUrl, isUrlTooLong]);
+  }, [clearCopyFeedbackTimer, generatedUrl, isUrlTooLong]);
 
   if (questions.length === 0) {
     return (
@@ -250,9 +264,6 @@ export function FormPrefillGenerator({
               </a>
             </Button>
           </div>
-          <p className="sr-only" aria-live="polite">
-            {copiedUrl ? "プリフィルURLをコピーしました" : ""}
-          </p>
           {isUrlTooLong && (
             <p className="flex items-center gap-1 text-xs text-amber-600">
               <AlertTriangle className="h-3 w-3" />
