@@ -15,8 +15,13 @@ import {
 } from "./notifications";
 import { FormSettingsSchema, StoredLogicRuleSchema } from "./shared";
 
+/** Safe marker required at the start of all story QA fixture form titles. */
 export const STORY_FIXTURE_PREFIX = "Codex Story QA";
+
+/** Minimum prefix length, including the marker plus a dated or scoped suffix. */
 export const STORY_FIXTURE_PREFIX_MIN_LENGTH = STORY_FIXTURE_PREFIX.length + 11;
+
+/** Exact number of R26 story fixtures expected in one generated set. */
 export const STORY_FIXTURE_STORY_COUNT = 30;
 
 const storyIdSchema = z
@@ -25,6 +30,7 @@ const storyIdSchema = z
 
 const answerableQuestionTypes = new Set<string>(ANSWERABLE_QUESTION_TYPES);
 
+/** Form structure envelope used by one fixture story. */
 export const StoryFixtureStructureSchema = z.object({
   version: z.number().int().min(1).default(1),
   settings: FormSettingsSchema,
@@ -35,6 +41,7 @@ export const StoryFixtureStructureSchema = z.object({
 });
 export type StoryFixtureStructure = z.infer<typeof StoryFixtureStructureSchema>;
 
+/** Question block contract used to build editor content and sample answers. */
 export const StoryFixtureBlockSchema = z.object({
   blockId: z.string().min(1).max(200),
   type: BlockType,
@@ -44,6 +51,7 @@ export const StoryFixtureBlockSchema = z.object({
 });
 export type StoryFixtureBlock = z.infer<typeof StoryFixtureBlockSchema>;
 
+/** One S01-S30 fixture definition with blocks, structure, and optional answers. */
 export const StoryFixtureSchema = z.object({
   story: storyIdSchema,
   title: z.string().min(1).max(255),
@@ -55,6 +63,7 @@ export const StoryFixtureSchema = z.object({
 });
 export type StoryFixture = z.infer<typeof StoryFixtureSchema>;
 
+/** Full 30-story fixture set with a safe cleanup prefix invariant. */
 export const StoryFixtureSetSchema = z.object({
   prefix: z.string().min(STORY_FIXTURE_PREFIX_MIN_LENGTH),
   stories: z.array(StoryFixtureSchema).length(STORY_FIXTURE_STORY_COUNT),
@@ -363,14 +372,28 @@ function checkFixtureSetContracts(
   });
 }
 
+/** Fixture set schema with cross-story, block, logic, and answer invariants. */
 export const ValidatedStoryFixtureSetSchema = StoryFixtureSetSchema.superRefine(
   checkFixtureSetContracts,
 );
 
+/**
+ * Validates and parses an unknown value into a complete story fixture set.
+ *
+ * @param input Unknown fixture set input.
+ * @returns A validated story fixture set.
+ * @throws ZodError when any fixture contract is invalid.
+ */
 export function parseStoryFixtureSet(input: unknown): StoryFixtureSet {
   return ValidatedStoryFixtureSetSchema.parse(input);
 }
 
+/**
+ * Checks whether a form block type can receive sample response data.
+ *
+ * @param type Candidate block type.
+ * @returns True when sample answers are valid for the type.
+ */
 export function isAnswerableFixtureBlockType(type: BlockTypeValue): boolean {
   return answerableQuestionTypes.has(type);
 }

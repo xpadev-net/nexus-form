@@ -35,6 +35,8 @@ import {
   routePaginationSchema,
 } from "./form-route-schemas";
 
+const NO_CHANGES_TO_PUBLISH_CODE = "NO_CHANGES_TO_PUBLISH";
+
 const SnapshotListItemResponseSchema = z.object({
   id: z.string(),
   formId: z.string(),
@@ -345,7 +347,13 @@ export const formsSnapshotsRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof NoChangesError) {
-          return c.json(errorResponse(error.message), 400);
+          return c.json(
+            {
+              ...errorResponse(error.message),
+              code: NO_CHANGES_TO_PUBLISH_CODE,
+            },
+            400,
+          );
         }
         if (error instanceof FormValidationError) {
           const details =

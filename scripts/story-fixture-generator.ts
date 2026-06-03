@@ -22,6 +22,7 @@ type Action = "generate" | "cleanup";
 type FixtureEnvironment = "local" | "staging";
 
 const NO_CHANGES_TO_PUBLISH_FRAGMENT = "No changes to publish";
+const NO_CHANGES_TO_PUBLISH_CODE = "NO_CHANGES_TO_PUBLISH";
 
 interface CliOptions {
   action: Action;
@@ -159,7 +160,7 @@ function getStringFlag(
   return typeof value === "string" ? value : undefined;
 }
 
-function assertSafeOptions(options: CliOptions) {
+function assertSafeOptions(options: CliOptions): void {
   if (!options.prefix.startsWith(STORY_FIXTURE_PREFIX)) {
     throw new Error(`Prefix must start with "${STORY_FIXTURE_PREFIX}"`);
   }
@@ -261,10 +262,11 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
         "columns" in blockItem.validation
           ? blockItem.validation.columns[0]?.id
           : undefined;
+      if (!columnId) return null;
       return {
         ...base,
         responses: Object.fromEntries(
-          rows.map((row) => [row.id, columnId ?? ""]),
+          rows.map((row) => [row.id, columnId]),
         ),
       };
     }
@@ -274,10 +276,11 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
         "columns" in blockItem.validation
           ? blockItem.validation.columns[0]?.id
           : undefined;
+      if (!columnId) return null;
       return {
         ...base,
         responses: Object.fromEntries(
-          rows.map((row) => [row.id, columnId ? [columnId] : []]),
+          rows.map((row) => [row.id, [columnId]]),
         ),
       };
     }
@@ -727,7 +730,7 @@ async function saveStructure(
   client: ApiClient,
   fixture: StoryFixture,
   formId: string,
-) {
+): Promise<void> {
   const needsPassword = ["S03", "S15", "S26"].includes(fixture.story);
   const current = await getStructure(client, formId);
   let structure = fixture.structure;
@@ -832,7 +835,20 @@ async function getStructure(
   }
 }
 
-async function publish(client: ApiClient, formId: string, storyId: string) {
+function isNoChangesToPublish(error: ApiError): boolean {
+  try {
+    const parsed = JSON.parse(error.responseBody) as { code?: unknown };
+    return parsed.code === NO_CHANGES_TO_PUBLISH_CODE;
+  } catch {
+    return error.responseBody.includes(NO_CHANGES_TO_PUBLISH_FRAGMENT);
+  }
+}
+
+async function publish(
+  client: ApiClient,
+  formId: string,
+  storyId: string,
+): Promise<void> {
   let createdVersion: number | null = null;
   try {
     const snapshot = await client.request<{
@@ -849,7 +865,7 @@ async function publish(client: ApiClient, formId: string, storyId: string) {
     if (
       error instanceof ApiError &&
       error.status === 400 &&
-      error.responseBody.includes(NO_CHANGES_TO_PUBLISH_FRAGMENT)
+      isNoChangesToPublish(error)
     ) {
       createdVersion = null;
     } else {
@@ -967,7 +983,10 @@ function parseStoredResponseDataJson(json: string): ResponseDataItem[] | null {
   return result.success ? result.data : null;
 }
 
-async function generate(options: CliOptions, fixtureSet: StoryFixtureSet) {
+async function generate(
+  options: CliOptions,
+  fixtureSet: StoryFixtureSet,
+): Promise<void> {
   if (options.dryRun) {
     printRows(
       fixtureSet.stories.map((fixture) => ({
@@ -994,9 +1013,6 @@ async function generate(options: CliOptions, fixtureSet: StoryFixtureSet) {
     await saveContent(client, formRow.id, buildPlateContent(fixture));
     await saveStructure(client, fixture, formRow.id);
     await publish(client, formRow.id, fixture.story);
-    const refreshed = await client.request<{ form: FormRow }>(
-      `/api/forms/${formRow.id}`,
-    );
     const responseIds = options.sampleResponses
       ? await ensureSampleResponses(client, formRow.id, fixture)
       : [];
@@ -1004,7 +1020,7 @@ async function generate(options: CliOptions, fixtureSet: StoryFixtureSet) {
     rows.push({
       story: fixture.story,
       formId: formRow.id,
-      publicUrl: publicUrl(options.webUrl, refreshed.form.publicId),
+      publicUrl: publicUrl(options.webUrl, formRow.publicId),
       responseIds,
       verificationTargets: fixture.verificationTargets,
     });
@@ -1013,7 +1029,10 @@ async function generate(options: CliOptions, fixtureSet: StoryFixtureSet) {
   printRows(rows);
 }
 
-async function cleanup(options: CliOptions, _fixtureSet: StoryFixtureSet) {
+async function cleanup(
+  options: CliOptions,
+  _fixtureSet: StoryFixtureSet,
+): Promise<void> {
   const client = new ApiClient(options.apiUrl, requiredToken(options));
   const forms = await listForms(client);
   const targets = forms.filter((form) => form.title.startsWith(options.prefix));
@@ -1035,7 +1054,7 @@ function requiredToken(options: CliOptions): string {
   return options.apiToken;
 }
 
-function printRows(rows: GeneratedRow[]) {
+function printRows(rows: GeneratedRow[]): void {
   console.log(
     [
       "story\tformId\tpublicUrl\tresponseIds\tverificationTargets",
@@ -1052,7 +1071,7 @@ function printRows(rows: GeneratedRow[]) {
   );
 }
 
-function printCleanupRows(rows: Array<{ id: string; title: string }>) {
+function printCleanupRows(rows: Array<{ id: string; title: string }>): void {
   console.log(
     [
       "cleanupTargetId\ttitle",
@@ -1061,7 +1080,7 @@ function printCleanupRows(rows: Array<{ id: string; title: string }>) {
   );
 }
 
-async function main() {
+async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   assertSafeOptions(options);
   const fixtureSet = buildFixtureSet(options.prefix);
