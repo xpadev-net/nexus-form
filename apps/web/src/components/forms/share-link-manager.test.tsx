@@ -390,6 +390,45 @@ describe("ShareLinkManager", () => {
     act(() => root.unmount());
   });
 
+  it.each([
+    [
+      "INSUFFICIENT_PERMISSIONS structured error",
+      Object.assign(new Error("[object Object]"), {
+        details: {
+          error: {
+            code: "INSUFFICIENT_PERMISSIONS",
+            message: "Insufficient permissions",
+          },
+        },
+      }),
+      "権限不足: 共有リンクを管理する権限がありません。",
+    ],
+    [
+      "expired share link",
+      "Share link has expired",
+      "期限切れ: この共有リンクは有効期限が切れています。",
+    ],
+    [
+      "not-found share link",
+      "Share link not found",
+      "削除済み: この共有リンクは削除済み、または無効化されています。",
+    ],
+  ])("shows a distinct failure copy for %s", (_label, apiError, expectedCopy) => {
+    mocks.shareLinksQuery = {
+      ...mocks.shareLinksQuery,
+      data: undefined,
+      error: apiError instanceof Error ? apiError : new Error(apiError),
+      isError: true,
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain(expectedCopy);
+    expect(container.textContent).not.toContain("共有リンクはまだありません。");
+
+    act(() => root.unmount());
+  });
+
   it("lets users dismiss the manual copy URL panel", async () => {
     mocks.copyShareLinkUrl.mockResolvedValueOnce({
       copied: false,
