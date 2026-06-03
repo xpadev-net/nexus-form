@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Copy, Loader2, RefreshCw } from "lucide-react";
-import { useState } from "react";
+import { Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { PublicUrlCopyField } from "@/components/forms/public-url-copy-field";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,48 +15,52 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { client, rpc } from "@/lib/api";
+import { buildPublicFormUrl } from "@/lib/forms/public-url";
 
 interface FormPublicUrlSettingsProps {
   formId: string;
+  publicId?: string | null;
 }
 
-export function buildPublicFormUrl(publicId: string): string {
-  return `${window.location.origin}/forms/public/${publicId}`;
-}
+type RegeneratedPublicIdState = {
+  formId: string;
+  publicId: string;
+  previousPublicId: string | null;
+};
 
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall back to the textarea copy path below when the Clipboard API is unavailable at runtime.
-    }
-  }
-
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  Object.assign(textArea.style, {
-    left: "-999999px",
-    position: "fixed",
-  });
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  try {
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    document.body.removeChild(textArea);
-  }
-}
-
-export function FormPublicUrlSettings({ formId }: FormPublicUrlSettingsProps) {
+export function FormPublicUrlSettings({
+  formId,
+  publicId,
+}: FormPublicUrlSettingsProps) {
   const queryClient = useQueryClient();
-  const [newPublicUrl, setNewPublicUrl] = useState<string | null>(null);
+  const [regeneratedPublicIdState, setRegeneratedPublicIdState] =
+    useState<RegeneratedPublicIdState | null>(null);
+  const regeneratedPublicId =
+    regeneratedPublicIdState?.formId === formId
+      ? regeneratedPublicIdState.publicId
+      : null;
+  const displayedPublicId = regeneratedPublicId ?? publicId ?? null;
+  const currentPublicUrl = displayedPublicId
+    ? buildPublicFormUrl(displayedPublicId)
+    : null;
+
+  useEffect(() => {
+    setRegeneratedPublicIdState((current) =>
+      current?.formId === formId ? current : null,
+    );
+  }, [formId]);
+
+  useEffect(() => {
+    if (!publicId || !regeneratedPublicIdState) return;
+    if (regeneratedPublicIdState.formId !== formId) return;
+    if (
+      publicId !== regeneratedPublicIdState.publicId &&
+      publicId !== regeneratedPublicIdState.previousPublicId
+    ) {
+      setRegeneratedPublicIdState(null);
+    }
+  }, [formId, publicId, regeneratedPublicIdState]);
 
   const regenerateMutation = useMutation({
     mutationFn: () =>
@@ -65,9 +70,24 @@ export function FormPublicUrlSettings({ formId }: FormPublicUrlSettingsProps) {
         }),
       ),
     onSuccess: (data) => {
-      const url = buildPublicFormUrl(data.publicId);
-      setNewPublicUrl(url);
-      toast.success("公開 URL を再生成しました");
+      setRegeneratedPublicIdState({
+        formId,
+        publicId: data.publicId,
+        previousPublicId: publicId ?? null,
+      });
+      queryClient.setQueryData<{ form?: { publicId?: string | null } }>(
+        ["formDetail", formId],
+        (current) => {
+          if (!current?.form) return current;
+          return {
+            ...current,
+            form: { ...current.form, publicId: data.publicId },
+          };
+        },
+      );
+      toast.success(
+        "公開 URL を再生成しました。旧 URL は無効になり、既存の回答は保持されています。",
+      );
       void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
@@ -80,19 +100,18 @@ export function FormPublicUrlSettings({ formId }: FormPublicUrlSettingsProps) {
     },
   });
 
-  const handleCopy = async () => {
-    if (!newPublicUrl) return;
-
-    const copied = await copyText(newPublicUrl);
-    if (copied) {
-      toast.success("新しい公開 URL をコピーしました");
-      return;
-    }
-    toast.error("公開 URL のコピーに失敗しました");
-  };
-
   return (
     <div className="w-full space-y-3">
+      {currentPublicUrl ? (
+        <PublicUrlCopyField
+          id="current-public-url"
+          label="現在の公開 URL"
+          url={currentPublicUrl}
+          copiedMessage="公開 URL をコピーしました"
+          description="回答者へ共有する公開フォームの URL です。"
+        />
+      ) : null}
+
       <AlertDialog>
         <AlertDialogTrigger asChild>
           <Button
@@ -133,35 +152,14 @@ export function FormPublicUrlSettings({ formId }: FormPublicUrlSettingsProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {newPublicUrl ? (
-        <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-          <label
-            htmlFor="regenerated-public-url"
-            className="text-sm font-medium"
-          >
-            新しい公開 URL
-          </label>
-          <div className="flex gap-2">
-            <Input
-              id="regenerated-public-url"
-              readOnly
-              value={newPublicUrl}
-              className="font-mono text-xs"
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              aria-label="新しい公開 URL をコピー"
-              onClick={handleCopy}
-            >
-              <Copy className="h-4 w-4" />
-            </Button>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            この URL を回答者や共有先へ再配布してください。
-          </p>
-        </div>
+      {regeneratedPublicId ? (
+        <PublicUrlCopyField
+          id="regenerated-public-url"
+          label="新しい公開 URL"
+          url={buildPublicFormUrl(regeneratedPublicId)}
+          copiedMessage="新しい公開 URL をコピーしました"
+          description="旧 URL は無効です。この URL を回答者や共有先へ再配布してください。既存の回答は保持されています。"
+        />
       ) : null}
     </div>
   );

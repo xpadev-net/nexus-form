@@ -49,7 +49,7 @@ type PublicFormData = {
   } | null;
 };
 
-let publicFormData: PublicFormData;
+let publicFormData: PublicFormData | undefined;
 let refetchResult: { data?: PublicFormData; error: Error | null };
 type RetryFn = (failureCount: number, error: unknown) => boolean;
 let publicFormRetry: RetryFn | undefined;
@@ -122,7 +122,7 @@ vi.mock("@tanstack/react-query", () => ({
     publicFormRetry = retry;
     return {
       data: publicFormData,
-      error: null,
+      error: publicFormData ? null : new RpcError("Not found", 404),
       isPending: false,
       refetch: refetchFormMock,
     };
@@ -181,7 +181,18 @@ vi.mock("@/components/forms/form-body", () => ({
 }));
 
 vi.mock("@/components/forms/form-not-found-page", () => ({
-  FormNotFoundPage: () => <main data-testid="not-found" />,
+  FormNotFoundPage: ({
+    description,
+    title = "フォームが見つかりません",
+  }: {
+    description?: string;
+    title?: string;
+  }) => (
+    <main data-testid="not-found">
+      <h1>{title}</h1>
+      {description ? <p>{description}</p> : null}
+    </main>
+  ),
 }));
 
 vi.mock("@/components/forms/hcaptcha-widget", () => ({
@@ -293,6 +304,24 @@ describe("PublicFormPage password protection", () => {
         new TypeError("Cannot read properties of undefined"),
       ),
     ).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("explains that a 404 public URL may have been regenerated", () => {
+    publicFormData = undefined;
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    expect(container.querySelector("[data-testid='not-found']")).not.toBeNull();
+    expect(container.textContent).toContain("フォームが見つかりません");
+    expect(container.textContent).toContain(
+      "公開 URL が再生成された可能性もあります。",
+    );
+    expect(container.textContent).toContain(
+      "最新の URL をフォーム管理者に確認してください。",
+    );
+    expect(container.textContent).not.toContain("public-1");
 
     act(() => root.unmount());
   });
@@ -668,7 +697,7 @@ describe("PublicFormPage password protection", () => {
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
-            confirmation: publicFormData.structure?.confirmation,
+            confirmation: publicFormData?.structure?.confirmation,
             response: null,
             responseId: "response-123",
           },

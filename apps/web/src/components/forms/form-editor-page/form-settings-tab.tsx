@@ -12,6 +12,7 @@ import { TabsContent } from "@/components/ui/tabs";
 
 export interface FormSettingsTabProps {
   formId: string;
+  publicId?: string | null;
   formTitle: string;
   formDescription?: string;
   plateContent: string;
@@ -26,6 +27,7 @@ export interface FormSettingsTabProps {
 
 export const FormSettingsTab: FC<FormSettingsTabProps> = ({
   formId,
+  publicId,
   formTitle,
   formDescription,
   plateContent,
@@ -84,7 +86,7 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
             危険操作
           </h3>
           <div className="flex flex-wrap gap-2">
-            <FormPublicUrlSettings formId={formId} />
+            <FormPublicUrlSettings formId={formId} publicId={publicId} />
             <Button variant="destructive" size="sm" onClick={onDelete}>
               <Trash2 className="mr-1 h-3.5 w-3.5" />
               削除

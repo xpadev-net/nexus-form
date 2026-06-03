@@ -540,7 +540,9 @@ function PublicFormPageInner() {
   }
 
   if (notFound) {
-    return <FormNotFoundPage />;
+    return (
+      <FormNotFoundPage description="このフォームは存在しないか、現在公開されていません。公開 URL が再生成された可能性もあります。最新の URL をフォーム管理者に確認してください。" />
+    );
   }
 
   if (!formData) {
