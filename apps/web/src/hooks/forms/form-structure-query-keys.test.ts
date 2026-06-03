@@ -1,6 +1,9 @@
 import {
   formAccessControlStructureQueryKey,
+  formDiffQueryKey,
   formLogicStructureQueryKey,
+  formPostSubmitStructureQueryKey,
+  unpublishedChangesQueryKey,
 } from "./form-structure-query-keys";
 
 describe("form structure query keys", () => {
@@ -16,6 +19,21 @@ describe("form structure query keys", () => {
       "accessControl",
       formId,
     ]);
+    expect(formPostSubmitStructureQueryKey(formId)).toEqual([
+      "formStructure",
+      "postSubmit",
+      formId,
+    ]);
     expect(logicKey).not.toEqual(accessControlKey);
+  });
+
+  it("centralizes form diff and unpublished-change cache keys", () => {
+    const formId = "form-123";
+
+    expect(formDiffQueryKey(formId)).toEqual(["formDiff", formId]);
+    expect(unpublishedChangesQueryKey(formId)).toEqual([
+      "unpublishedChanges",
+      formId,
+    ]);
   });
 });

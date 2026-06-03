@@ -3,6 +3,10 @@ import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import {
+  getGridCellAccessibleName,
+  getGridItemDisplayLabel,
+} from "./choice-labels";
+import {
   EditorControlsWrapper,
   GridItemsEditor,
   GridSelectionLimitsEditor,
@@ -40,7 +44,7 @@ export const FormCheckboxGridElement = withRef<typeof PlateElement>(
   },
 );
 
-function CheckboxGridInput({ element }: { element: TElement }) {
+export function CheckboxGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -90,7 +94,7 @@ function CheckboxGridInput({ element }: { element: TElement }) {
                   key={col.id}
                   className="border px-3 py-2 text-center text-sm font-medium"
                 >
-                  {col.label || col.id}
+                  {getGridItemDisplayLabel(col)}
                 </th>
               ))}
             </tr>
@@ -103,7 +107,7 @@ function CheckboxGridInput({ element }: { element: TElement }) {
               return (
                 <tr key={row.id}>
                   <td className="border px-3 py-2 text-sm font-medium">
-                    {row.label || row.id}
+                    {getGridItemDisplayLabel(row)}
                   </td>
                   {columns.map((col) => {
                     const isChecked = rowSelections.includes(col.id);
@@ -112,6 +116,8 @@ function CheckboxGridInput({ element }: { element: TElement }) {
                       <td key={col.id} className="border px-3 py-2 text-center">
                         <button
                           type="button"
+                          role="checkbox"
+                          aria-checked={isChecked}
                           disabled={disabled}
                           onClick={() => toggleCell(row.id, col.id)}
                           className={cn(
@@ -122,7 +128,7 @@ function CheckboxGridInput({ element }: { element: TElement }) {
                                 ? "border-input opacity-40 cursor-not-allowed"
                                 : "border-input hover:border-primary/50",
                           )}
-                          aria-label={`${row.label}: ${col.label}`}
+                          aria-label={getGridCellAccessibleName(row, col)}
                         >
                           {isChecked && (
                             <svg

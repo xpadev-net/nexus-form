@@ -7,6 +7,10 @@ import { FormPublishMenu } from "@/components/forms/form-publish-menu";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
 import { Button } from "@/components/ui/button";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  buildPublicFormPath,
+  buildPublicFormUrl,
+} from "@/lib/forms/public-url";
 import type { FormStatus } from "@/types/validation/shared";
 
 export interface EditorHeaderSectionProps {
@@ -19,6 +23,7 @@ export interface EditorHeaderSectionProps {
   publicId?: string | null;
   titleSaveFailureCount: number;
   onTitleBlur?: (title: string) => void;
+  onTitleDraftChange?: (title: string) => void;
   onPublishStatusChange: () => void;
   onResetSuccess: () => void;
 }
@@ -33,6 +38,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
   publicId,
   titleSaveFailureCount,
   onTitleBlur,
+  onTitleDraftChange,
   onPublishStatusChange,
   onResetSuccess,
 }) => {
@@ -41,6 +47,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       <FormHeader
         title={formTitle}
         onTitleBlur={onTitleBlur}
+        onTitleDraftChange={onTitleDraftChange}
         isTitleSaving={isTitleSaving}
         titleSaveFailureCount={titleSaveFailureCount}
         action={
@@ -51,15 +58,15 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
             )}
             {publicId && (
               <Button variant="outline" size="sm" asChild>
-                <Link
-                  to="/forms/public/$publicId"
-                  params={{ publicId }}
+                <a
+                  aria-label={`公開フォームを開く: ${buildPublicFormUrl(publicId)}`}
+                  href={buildPublicFormPath(publicId)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   <ExternalLink className="mr-1 h-3.5 w-3.5" />
                   公開フォームを開く
-                </Link>
+                </a>
               </Button>
             )}
             <Button variant="outline" size="sm" asChild>

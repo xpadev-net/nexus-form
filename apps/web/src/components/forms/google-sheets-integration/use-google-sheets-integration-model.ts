@@ -9,7 +9,12 @@ import type {
   GoogleSheetsIntegrationSetting,
 } from "@/types/integrations/google-sheets";
 import { apiRequestInit } from "./api-request-init";
-import type { Sheet, Spreadsheet, UiSyncState } from "./types";
+import {
+  type Sheet,
+  SPREADSHEET_SELECTOR_RESULT_LIMIT,
+  type Spreadsheet,
+  type UiSyncState,
+} from "./types";
 import { useGoogleOAuth } from "./use-google-oauth";
 import { useGoogleSheetsSync } from "./use-google-sheets-sync";
 
@@ -146,8 +151,11 @@ export interface GoogleSheetsIntegrationModel {
   newSpreadsheetTitle: string;
   savedConfig: GoogleSheetsIntegrationSetting | null | undefined;
   searchQuery: string;
+  selectedSpreadsheetName: string | undefined;
   selectedSheetName: string;
   selectedSpreadsheetId: string;
+  currentLinkedSpreadsheetId: string;
+  currentLinkedSpreadsheetName: string | undefined;
   sheets: Sheet[];
   sheetsErrorMessage: string | null;
   spreadsheetsErrorMessage: string | null;
@@ -184,6 +192,7 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     });
 
   const hasInitializedConfigRef = useRef(false);
+  const knownSpreadsheetNamesRef = useRef(new Map<string, string>());
   const { handleConnect } = useGoogleOAuth({ queryClient });
 
   const {
@@ -237,7 +246,9 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
   } = useQuery({
     queryKey: ["spreadsheets", searchQuery],
     queryFn: async () => {
-      const params = new URLSearchParams({ pageSize: "50" });
+      const params = new URLSearchParams({
+        pageSize: String(SPREADSHEET_SELECTOR_RESULT_LIMIT + 1),
+      });
       if (searchQuery) params.set("query", searchQuery);
       return await fetchJson<{ spreadsheets: Spreadsheet[] }>(
         apiUrl(`/api/integrations/google/spreadsheets?${params}`),
@@ -462,6 +473,35 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     );
   }, [spreadsheetsData?.spreadsheets, searchQuery]);
 
+  useEffect(() => {
+    for (const spreadsheet of spreadsheetsData?.spreadsheets ?? []) {
+      const name = spreadsheet.name?.trim();
+      if (name) knownSpreadsheetNamesRef.current.set(spreadsheet.id, name);
+    }
+  }, [spreadsheetsData?.spreadsheets]);
+
+  const selectedSpreadsheetName = useMemo(() => {
+    const visibleName = spreadsheetsData?.spreadsheets
+      .find((spreadsheet) => spreadsheet.id === selectedSpreadsheetId)
+      ?.name?.trim();
+
+    return (
+      visibleName || knownSpreadsheetNamesRef.current.get(selectedSpreadsheetId)
+    );
+  }, [spreadsheetsData?.spreadsheets, selectedSpreadsheetId]);
+
+  const currentLinkedSpreadsheetId = savedConfig?.spreadsheetId ?? "";
+  const currentLinkedSpreadsheetName = useMemo(() => {
+    const visibleName = spreadsheetsData?.spreadsheets
+      .find((spreadsheet) => spreadsheet.id === currentLinkedSpreadsheetId)
+      ?.name?.trim();
+
+    return (
+      visibleName ||
+      knownSpreadsheetNamesRef.current.get(currentLinkedSpreadsheetId)
+    );
+  }, [currentLinkedSpreadsheetId, spreadsheetsData?.spreadsheets]);
+
   const handleRefreshSpreadsheets = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["spreadsheets"],
@@ -521,8 +561,11 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     newSpreadsheetTitle,
     savedConfig,
     searchQuery,
+    selectedSpreadsheetName,
     selectedSheetName,
     selectedSpreadsheetId,
+    currentLinkedSpreadsheetId,
+    currentLinkedSpreadsheetName,
     sheets: sheetsData?.sheets ?? [],
     sheetsErrorMessage:
       sheetsError instanceof Error ? sheetsError.message : null,

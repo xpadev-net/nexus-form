@@ -1,6 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { client, rpc } from "@/lib/api";
+import {
+  formAccessControlStructureQueryKey,
+  formDiffQueryKey,
+  unpublishedChangesQueryKey,
+} from "./form-structure-query-keys";
 import { useFormDiff } from "./use-form-diff";
 import { useSnapshotPublish } from "./use-snapshot-publish";
 
@@ -43,10 +48,13 @@ export const useFormPublishActions = (formId: string) => {
           queryKey: ["latestSnapshot", formId],
         }),
         queryClient.invalidateQueries({
-          queryKey: ["unpublishedChanges", formId],
+          queryKey: formAccessControlStructureQueryKey(formId),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: unpublishedChangesQueryKey(formId),
         }),
         queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: ["formDiff", formId] }),
+        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
       ]);
     },
   });

@@ -20,6 +20,10 @@ export const UnpublishedChangesSection: FC<UnpublishedChangesSectionProps> = ({
 }) => {
   const isBusy = state.actionState === "processing";
   const isPublished = state.publishState === "published";
+  const currentPublicVersion =
+    state.activeSnapshotVersion != null
+      ? `現在の公開版: v${state.activeSnapshotVersion}`
+      : "現在の公開版はありません";
 
   return (
     <>
@@ -34,6 +38,17 @@ export const UnpublishedChangesSection: FC<UnpublishedChangesSectionProps> = ({
             </Badge>
           )}
         </div>
+        <p className="pl-6 text-xs text-muted-foreground">
+          公開する場合は現在の編集内容を v{state.nextSnapshotVersion}{" "}
+          として公開します。保存のみでは公開版は変更されません。
+          <br />
+          {currentPublicVersion}
+        </p>
+        {state.hasPasswordProtectionChanges ? (
+          <p className="pl-6 text-xs font-medium text-amber-600">
+            未反映の公開設定: パスワード保護
+          </p>
+        ) : null}
         <div className="flex flex-wrap gap-2">
           <Button size="sm" disabled={isBusy} onClick={onPublishChanges}>
             <Upload className="mr-1 h-3.5 w-3.5" />

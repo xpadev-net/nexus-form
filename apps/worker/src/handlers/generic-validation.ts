@@ -41,14 +41,10 @@ function logZodError(prefix: string, err: unknown): void {
 }
 
 const RETRYABLE_HTTP_STATUSES = new Set([429, 502, 503, 504]); // 429 rate-limit; 502/503/504 transient gateway errors
-// NETWORK_ERROR / TIMEOUT: included for future providers or refactored plugin
-// paths that re-throw these codes directly. The current validation-provider-github
-// catches them inside validate() and returns a non-retryable GITHUB_API_ERROR
-// result, so these entries have no effect for that provider today.
-// GITHUB_API_RATE_LIMIT is also caught inside plugin.ts validate() and converted
-// to a result with retryAfter (handled by the `if (result.retryAfter)` throw
-// in the result-processing path below), so it likewise has no effect via this
-// set for the current GitHub provider.
+// NETWORK_ERROR / TIMEOUT / GITHUB_API_RATE_LIMIT are included for providers or
+// refactored plugin paths that re-throw domain errors directly. GitHub currently
+// catches them inside validate() and returns retryable ValidationProviderResult
+// objects, which are handled in the result-processing path below.
 const RETRYABLE_CODES = new Set([
   "ECONNREFUSED",
   "ETIMEDOUT",

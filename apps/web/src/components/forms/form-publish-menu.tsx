@@ -23,7 +23,7 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
     <>
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
+          <Button id="form-publish-menu-trigger" variant="outline" size="sm">
             <span className="flex items-center gap-1.5">
               <TriggerContent state={model.triggerState} />
             </span>
@@ -58,6 +58,7 @@ export function FormPublishMenu(props: FormPublishMenuProps) {
         lastPublishedVersion={model.lastPublishedVersion}
         totalChanges={model.totalChanges}
         confirmLabel={model.snapshotSaveConfirmLabel}
+        willPublish={model.snapshotSaveWillPublish}
         onConfirm={model.handleDialogConfirmClick}
         error={model.snapshotSaveError}
       />

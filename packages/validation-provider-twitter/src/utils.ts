@@ -84,6 +84,13 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
           message: data?.title || "Twitter user not found",
           retryable: false,
         };
+      if (status >= 500) {
+        return {
+          code: TwitterErrorCode.TWITTER_API_ERROR,
+          message: "Twitter API is temporarily unavailable",
+          retryable: true,
+        };
+      }
       return {
         code: TwitterErrorCode.TWITTER_API_ERROR,
         message:
@@ -91,7 +98,7 @@ export function parseTwitterError(error: unknown): TwitterValidationError {
           data?.detail ||
           data?.title ||
           `Twitter API error: ${status}`,
-        retryable: status >= 500,
+        retryable: false,
       };
     }
   }

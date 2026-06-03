@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { googleOAuthToken } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
@@ -9,6 +10,14 @@ import {
   encryptToBase64,
 } from "../lib/crypto/field-encryption";
 import { withDualAuth } from "../lib/dual-auth";
+import {
+  AddSheetGoogleResponseSchema,
+  AddSheetInputSchema,
+  AddSheetOutputSchema,
+  CreateSpreadsheetGoogleResponseSchema,
+  CreateSpreadsheetInputSchema,
+  CreateSpreadsheetOutputSchema,
+} from "../lib/google/sheets-drive.types";
 import { createHonoApp } from "../lib/hono";
 import { errorResponse } from "../types/domain/common";
 import {
@@ -392,6 +401,46 @@ function requireSessionUser(
   return { ok: true, userId: auth.user_id };
 }
 
+async function readGoogleJsonResponse(
+  c: Context,
+  response: Response,
+): Promise<{ ok: true; data: unknown } | { ok: false; response: Response }> {
+  try {
+    return { ok: true, data: await response.json() };
+  } catch {
+    return {
+      ok: false,
+      response: c.json(
+        errorResponse("Unexpected response from Google API"),
+        502,
+      ),
+    };
+  }
+}
+
+async function requireFreshGoogleToken(
+  c: Context,
+  userId: string,
+): Promise<
+  { ok: true; token: StoredGoogleToken } | { ok: false; response: Response }
+> {
+  let token = await getStoredToken(userId);
+  if (!token) {
+    return {
+      ok: false,
+      response: c.json(errorResponse("Google account not connected"), 401),
+    };
+  }
+  token = await refreshIfNeeded(token);
+  if (!token) {
+    return {
+      ok: false,
+      response: c.json(errorResponse("Google account unauthorized"), 401),
+    };
+  }
+  return { ok: true, token };
+}
+
 export const integrationsGoogleRouter = createHonoApp()
   .use("/*", withDualAuth())
   .get("/authorize", async (c) => {
@@ -608,12 +657,9 @@ export const integrationsGoogleRouter = createHonoApp()
     const user = requireSessionUser(c);
     if (!user.ok) return user.response;
 
-    let token = await getStoredToken(user.userId);
-    if (!token)
-      return c.json(errorResponse("Google account not connected"), 401);
-    token = await refreshIfNeeded(token);
-    if (!token)
-      return c.json(errorResponse("Google account unauthorized"), 401);
+    const tokenResult = await requireFreshGoogleToken(c, user.userId);
+    if (!tokenResult.ok) return tokenResult.response;
+    const { token } = tokenResult;
 
     const query = c.req.query("query");
     const pageSize = c.req.query("pageSize");
@@ -655,6 +701,69 @@ export const integrationsGoogleRouter = createHonoApp()
       return c.json(errorResponse("Unexpected response from Google API"), 502);
     return c.json(parsed.data);
   })
+  .post(
+    "/spreadsheets",
+    zValidator("json", CreateSpreadsheetInputSchema),
+    async (c) => {
+      const user = requireSessionUser(c);
+      if (!user.ok) return user.response;
+
+      const tokenResult = await requireFreshGoogleToken(c, user.userId);
+      if (!tokenResult.ok) return tokenResult.response;
+      const { token } = tokenResult;
+      const { title } = c.req.valid("json");
+
+      let response: Response;
+      try {
+        response = await fetch(
+          "https://sheets.googleapis.com/v4/spreadsheets",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ properties: { title } }),
+          },
+        );
+      } catch {
+        return c.json(errorResponse("Failed to create spreadsheet"), 502);
+      }
+
+      if (!response.ok)
+        return c.json(errorResponse("Failed to create spreadsheet"), 502);
+
+      const rawJson = await readGoogleJsonResponse(c, response);
+      if (!rawJson.ok) return rawJson.response;
+
+      const rawParsed = CreateSpreadsheetGoogleResponseSchema.safeParse(
+        rawJson.data,
+      );
+      if (!rawParsed.success)
+        return c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        );
+
+      const raw = rawParsed.data;
+      const defaultSheetTitle = raw.sheets?.find(
+        (sheet) => sheet.properties?.title != null,
+      )?.properties?.title;
+      const parsed = CreateSpreadsheetOutputSchema.safeParse({
+        spreadsheetId: raw.spreadsheetId,
+        title: raw.properties?.title ?? title,
+        spreadsheetUrl: raw.spreadsheetUrl,
+        defaultSheetTitle,
+      });
+      if (!parsed.success)
+        return c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        );
+
+      return c.json(parsed.data);
+    },
+  )
   .get("/spreadsheets/:id/sheets", async (c) => {
     const user = requireSessionUser(c);
     if (!user.ok) return user.response;
@@ -662,12 +771,9 @@ export const integrationsGoogleRouter = createHonoApp()
     const spreadsheetId = c.req.param("id");
     if (!spreadsheetId) return c.json(errorResponse("No spreadsheet id"), 400);
 
-    let token = await getStoredToken(user.userId);
-    if (!token)
-      return c.json(errorResponse("Google account not connected"), 401);
-    token = await refreshIfNeeded(token);
-    if (!token)
-      return c.json(errorResponse("Google account unauthorized"), 401);
+    const tokenResult = await requireFreshGoogleToken(c, user.userId);
+    if (!tokenResult.ok) return tokenResult.response;
+    const { token } = tokenResult;
 
     const response = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}?fields=sheets(properties(sheetId,title))`,
@@ -697,4 +803,80 @@ export const integrationsGoogleRouter = createHonoApp()
     if (!parsedSheets.success)
       return c.json(errorResponse("Unexpected response from Google API"), 502);
     return c.json(parsedSheets.data);
-  });
+  })
+  .post(
+    "/spreadsheets/:id/sheets",
+    zValidator("json", AddSheetInputSchema),
+    async (c) => {
+      const user = requireSessionUser(c);
+      if (!user.ok) return user.response;
+
+      const spreadsheetId = c.req.param("id");
+      if (!spreadsheetId)
+        return c.json(errorResponse("No spreadsheet id"), 400);
+
+      const tokenResult = await requireFreshGoogleToken(c, user.userId);
+      if (!tokenResult.ok) return tokenResult.response;
+      const { token } = tokenResult;
+      const { title } = c.req.valid("json");
+
+      let response: Response;
+      try {
+        response = await fetch(
+          `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token.accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              requests: [
+                {
+                  addSheet: {
+                    properties: { title },
+                  },
+                },
+              ],
+            }),
+          },
+        );
+      } catch {
+        return c.json(errorResponse("Failed to add sheet"), 502);
+      }
+
+      if (!response.ok)
+        return c.json(errorResponse("Failed to add sheet"), 502);
+
+      const rawJson = await readGoogleJsonResponse(c, response);
+      if (!rawJson.ok) return rawJson.response;
+
+      const rawParsed = AddSheetGoogleResponseSchema.safeParse(rawJson.data);
+      if (!rawParsed.success)
+        return c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        );
+
+      const properties = rawParsed.data.replies?.find(
+        (reply) => reply.addSheet?.properties,
+      )?.addSheet?.properties;
+      if (!properties?.title) {
+        return c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        );
+      }
+      const parsed = AddSheetOutputSchema.safeParse({
+        sheetId: properties?.sheetId,
+        title: properties.title,
+      });
+      if (!parsed.success)
+        return c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        );
+
+      return c.json(parsed.data);
+    },
+  );

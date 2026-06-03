@@ -2,7 +2,9 @@ import { Share2 } from "lucide-react";
 import { FormPrefillGenerator } from "@/components/forms/form-prefill-generator";
 import { InvitationManager } from "@/components/forms/invitation-manager";
 import { PermissionEditor } from "@/components/forms/permission-editor";
+import { PublicUrlCopyField } from "@/components/forms/public-url-copy-field";
 import { ShareLinkManager } from "@/components/forms/share-link-manager";
+import { buildPublicFormUrl } from "@/lib/forms/public-url";
 
 interface FormSharingSectionProps {
   formId: string;
@@ -25,12 +27,21 @@ export function FormSharingSection({
       <PermissionEditor formId={formId} />
       <InvitationManager formId={formId} />
       {publicId && (
-        <div className="rounded border p-4">
-          <FormPrefillGenerator
-            plateContent={plateContent}
-            publicId={publicId}
+        <>
+          <PublicUrlCopyField
+            id="sharing-public-url"
+            label="現在の公開 URL"
+            url={buildPublicFormUrl(publicId)}
+            copiedMessage="公開 URL をコピーしました"
+            description="設定タブと同じ現在の公開 URL です。"
           />
-        </div>
+          <div className="rounded border p-4">
+            <FormPrefillGenerator
+              plateContent={plateContent}
+              publicId={publicId}
+            />
+          </div>
+        </>
       )}
     </section>
   );

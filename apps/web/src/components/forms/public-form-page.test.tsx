@@ -5,11 +5,26 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "@/lib/api";
+import { NetworkError } from "@/lib/fetch-json";
 import { PublicFormPage } from "./public-form-page";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+type MockSubmitRequestData = {
+  responses: {
+    question_id: string;
+    question_type: string;
+    question_title: string;
+    value?: string | number | boolean | null;
+    values?: Array<string | number | boolean>;
+    responses?: Record<string, string | string[]>;
+    other_value?: string;
+    other_values?: string[];
+  }[];
+  visitedQuestionIds: string[];
+};
 
 type PublicFormData = {
   form: {
@@ -19,10 +34,22 @@ type PublicFormData = {
     title: string;
   };
   plateContent: string | null;
-  structure: { settings?: { require_fingerprint?: boolean } } | null;
+  structure: {
+    confirmation?: {
+      title?: string;
+      message?: string;
+      supplemental_link?: { label: string; url: string };
+      contact?: { label?: string; email?: string; url?: string };
+      redirect_url?: string;
+      show_response_summary?: boolean;
+      show_response_id?: boolean;
+      allow_edit_link?: boolean;
+    };
+    settings?: { require_fingerprint?: boolean };
+  } | null;
 };
 
-let publicFormData: PublicFormData;
+let publicFormData: PublicFormData | undefined;
 let refetchResult: { data?: PublicFormData; error: Error | null };
 type RetryFn = (failureCount: number, error: unknown) => boolean;
 let publicFormRetry: RetryFn | undefined;
@@ -38,6 +65,15 @@ const apiMocks = vi.hoisted(() => ({
   rpc: vi.fn(),
   submitPost: vi.fn(),
   telemetryPost: vi.fn(),
+}));
+const requiredValidationMock = vi.hoisted(() => ({
+  findUnansweredRequired: vi.fn(),
+}));
+const formBodyMockState = vi.hoisted(() => ({
+  submitData: {
+    responses: [],
+    visitedQuestionIds: [],
+  } as MockSubmitRequestData,
 }));
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
@@ -86,7 +122,7 @@ vi.mock("@tanstack/react-query", () => ({
     publicFormRetry = retry;
     return {
       data: publicFormData,
-      error: null,
+      error: publicFormData ? null : new RpcError("Not found", 404),
       isPending: false,
       refetch: refetchFormMock,
     };
@@ -113,14 +149,16 @@ vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
 vi.mock("@/components/forms/form-body", () => ({
   FormBody: ({
     captchaReady,
+    error,
     onSubmitRequest,
     preSubmitSlot,
     title,
   }: {
     captchaReady?: boolean;
+    error?: string | null;
     onSubmitRequest?: (data: {
-      responses: [];
-      visitedQuestionIds: [];
+      responses: MockSubmitRequestData["responses"];
+      visitedQuestionIds: string[];
     }) => void | Promise<void>;
     preSubmitSlot?: ReactNode;
     title: string;
@@ -131,11 +169,10 @@ vi.mock("@/components/forms/form-body", () => ({
     >
       {title}
       {preSubmitSlot}
+      {error ? <p data-testid="form-error">{error}</p> : null}
       <button
         type="button"
-        onClick={() =>
-          void onSubmitRequest?.({ responses: [], visitedQuestionIds: [] })
-        }
+        onClick={() => void onSubmitRequest?.(formBodyMockState.submitData)}
       >
         submit
       </button>
@@ -144,7 +181,18 @@ vi.mock("@/components/forms/form-body", () => ({
 }));
 
 vi.mock("@/components/forms/form-not-found-page", () => ({
-  FormNotFoundPage: () => <main data-testid="not-found" />,
+  FormNotFoundPage: ({
+    description,
+    title = "フォームが見つかりません",
+  }: {
+    description?: string;
+    title?: string;
+  }) => (
+    <main data-testid="not-found">
+      <h1>{title}</h1>
+      {description ? <p>{description}</p> : null}
+    </main>
+  ),
 }));
 
 vi.mock("@/components/forms/hcaptcha-widget", () => ({
@@ -207,7 +255,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/forms/find-unanswered-required", () => ({
-  findUnansweredRequired: () => [],
+  findUnansweredRequired: requiredValidationMock.findUnansweredRequired,
 }));
 
 describe("PublicFormPage password protection", () => {
@@ -222,6 +270,9 @@ describe("PublicFormPage password protection", () => {
     apiMocks.rpc.mockReset();
     apiMocks.submitPost.mockReset();
     apiMocks.telemetryPost.mockReset();
+    requiredValidationMock.findUnansweredRequired.mockReset();
+    requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
+    formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
     publicFormRetry = undefined;
   });
 
@@ -232,7 +283,45 @@ describe("PublicFormPage password protection", () => {
     expect(publicFormRetry?.(0, new RpcError("Not found", 404))).toBe(false);
     expect(publicFormRetry?.(0, new RpcError("Forbidden", 403))).toBe(false);
     expect(publicFormRetry?.(2, new RpcError("Server error", 500))).toBe(true);
-    expect(publicFormRetry?.(3, new Error("Network"))).toBe(false);
+    expect(
+      publicFormRetry?.(
+        2,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(true);
+    expect(
+      publicFormRetry?.(
+        3,
+        new NetworkError("Network request failed", new TypeError()),
+      ),
+    ).toBe(false);
+    expect(publicFormRetry?.(0, new Error("Unexpected parse failure"))).toBe(
+      false,
+    );
+    expect(
+      publicFormRetry?.(
+        0,
+        new TypeError("Cannot read properties of undefined"),
+      ),
+    ).toBe(false);
+
+    act(() => root.unmount());
+  });
+
+  it("explains that a 404 public URL may have been regenerated", () => {
+    publicFormData = undefined;
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    expect(container.querySelector("[data-testid='not-found']")).not.toBeNull();
+    expect(container.textContent).toContain("フォームが見つかりません");
+    expect(container.textContent).toContain(
+      "公開 URL が再生成された可能性もあります。",
+    );
+    expect(container.textContent).toContain(
+      "最新の URL をフォーム管理者に確認してください。",
+    );
+    expect(container.textContent).not.toContain("public-1");
 
     act(() => root.unmount());
   });
@@ -324,7 +413,7 @@ describe("PublicFormPage password protection", () => {
     });
   });
 
-  it("caps submitted fingerprints to the API maximum", async () => {
+  it("caps mixed submitted fingerprints to the API maximum", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     publicFormData = {
       form: {
@@ -344,10 +433,29 @@ describe("PublicFormPage password protection", () => {
     };
     useFingerprintMockState.fingerprints = [
       {
+        fingerprintType: "browser",
+        components: [
+          { componentName: "timezone", componentValueHash: "hash-timezone" },
+          { componentName: "language", componentValueHash: "hash-language" },
+          { componentName: "platform", componentValueHash: "hash-platform" },
+          { componentName: "userAgent", componentValueHash: "hash-user-agent" },
+        ],
+      },
+      {
         fingerprintType: "fingerprintjs",
-        components: Array.from({ length: 205 }, (_, index) => ({
-          componentName: `component-${index}`,
-          componentValueHash: `hash-${index.toString().padStart(3, "0")}`,
+        components: [
+          { componentName: "visitorId", componentValueHash: "hash-visitor" },
+          ...Array.from({ length: 95 }, (_, index) => ({
+            componentName: `fingerprintjs-${index}`,
+            componentValueHash: `hash-fpjs-${index.toString().padStart(3, "0")}`,
+          })),
+        ],
+      },
+      {
+        fingerprintType: "thumbmarkjs",
+        components: Array.from({ length: 130 }, (_, index) => ({
+          componentName: `thumbmarkjs-${index}`,
+          componentValueHash: `hash-thumb-${index.toString().padStart(3, "0")}`,
         })),
       },
     ];
@@ -356,7 +464,14 @@ describe("PublicFormPage password protection", () => {
     apiMocks.rpc.mockImplementation(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
-        : { response: { id: "response-1" } },
+        : {
+            confirmation: {
+              title: "ご回答ありがとうございます",
+              message: "回答を受け付けました。ご協力ありがとうございました。",
+            },
+            response: { id: "response-1" },
+            responseId: "response-1",
+          },
     );
 
     const container = document.createElement("div");
@@ -379,15 +494,42 @@ describe("PublicFormPage password protection", () => {
     });
 
     const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
+    const submittedFingerprints = submitArgs?.json.fingerprints as {
+      name: string;
+      type: string;
+      value_hash: string;
+    }[];
+    expect(submittedFingerprints.length).toBe(200);
+    expect(submittedFingerprints).toEqual(
+      expect.arrayContaining([
+        {
+          name: "visitorId",
+          type: "fingerprintjs",
+          value_hash: "hash-visitor",
+        },
+        { name: "timezone", type: "browser", value_hash: "hash-timezone" },
+        {
+          name: "thumbmarkjs-0",
+          type: "thumbmarkjs",
+          value_hash: "hash-thumb-000",
+        },
+      ]),
+    );
     expect(
-      (submitArgs?.json.fingerprints as { name: string; value_hash: string }[])
-        .length,
-    ).toBe(200);
-    expect(
-      (
-        submitArgs?.json.fingerprints as { name: string; value_hash: string }[]
-      ).every((fingerprint) => Boolean(fingerprint.value_hash)),
+      submittedFingerprints.every((fingerprint) =>
+        Boolean(fingerprint.value_hash),
+      ),
     ).toBe(true);
+    expect(
+      submittedFingerprints.some(
+        (fingerprint) => fingerprint.name === "thumbmarkjs-99",
+      ),
+    ).toBe(true);
+    expect(
+      submittedFingerprints.some(
+        (fingerprint) => fingerprint.name === "thumbmarkjs-100",
+      ),
+    ).toBe(false);
 
     await act(async () => {
       root.unmount();
@@ -444,7 +586,14 @@ describe("PublicFormPage password protection", () => {
     apiMocks.rpc.mockImplementation(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
-        : { response: { id: "response-1" } },
+        : {
+            confirmation: {
+              title: "ご回答ありがとうございます",
+              message: "回答を受け付けました。ご協力ありがとうございました。",
+            },
+            response: { id: "response-1" },
+            responseId: "response-1",
+          },
     );
     const container = document.createElement("div");
     const root = renderPublicForm(container);
@@ -492,6 +641,162 @@ describe("PublicFormPage password protection", () => {
     expect(
       container.querySelector("[data-testid='hcaptcha-widget']"),
     ).toBeNull();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("switches to a completion screen with confirmation details and removes the submit UI after success", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: {
+        confirmation: {
+          title: "送信ありがとうございます",
+          message: "受付が完了しました。",
+          supplemental_link: {
+            label: "次の手順",
+            url: "https://example.com/next",
+          },
+          contact: { label: "問い合わせ", email: "help@example.com" },
+          redirect_url: "https://example.com/done",
+          show_response_summary: true,
+          show_response_id: false,
+          allow_edit_link: true,
+        },
+        settings: { require_fingerprint: false },
+      },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q1",
+          question_type: "form_short_text",
+          question_title: "Name",
+          value: "Alice",
+        },
+      ],
+      visitedQuestionIds: ["q1"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: publicFormData?.structure?.confirmation,
+            response: null,
+            responseId: "response-123",
+          },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).toBeNull();
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).toContain("送信完了");
+    expect(container.textContent).toContain("送信ありがとうございます");
+    expect(container.textContent).toContain("受付が完了しました。");
+    expect(container.textContent).not.toContain("回答 ID");
+    expect(container.textContent).not.toContain("response-123");
+    expect(container.textContent).toContain("回答サマリー");
+    expect(container.textContent).toContain("Name");
+    expect(container.textContent).toContain("Alice");
+    expect(container.textContent).toContain("次の手順");
+    expect(container.textContent).toContain("問い合わせ");
+    expect(container.textContent).not.toContain("回答を送信");
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        responses: [
+          {
+            question_id: "q1",
+            question_type: "form_short_text",
+            question_title: "Name",
+            value: "Alice",
+          },
+        ],
+      }),
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("keeps double-clicks from sending twice or reviving required errors after success", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "ご回答ありがとうございます",
+              message: "回答を受け付けました。ご協力ありがとうございました。",
+            },
+            response: { id: "response-locked" },
+            responseId: "response-locked",
+          },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+    const submitButton = container.querySelector("button");
+
+    await act(async () => {
+      submitButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      submitButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    requiredValidationMock.findUnansweredRequired.mockReturnValue([
+      { blockId: "q1", title: "Name", type: "short_text" },
+    ]);
+
+    expect(apiMocks.telemetryPost).toHaveBeenCalledTimes(1);
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).toBeNull();
+    expect(container.textContent).toContain("response-locked");
+    expect(container.textContent).not.toContain("必須項目が未入力です");
 
     await act(async () => {
       root.unmount();

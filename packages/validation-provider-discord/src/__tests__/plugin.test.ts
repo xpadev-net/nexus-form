@@ -18,6 +18,9 @@ afterEach(() => {
 });
 
 describe("discordProvider.rules.guild_member.configSchema", () => {
+  const safeDiscordApiFailureMessage =
+    "Discord APIへの接続に失敗しました。しばらくしてから再試行してください";
+
   it("accepts valid Discord snowflake IDs", () => {
     const result = discordProvider.rules.guild_member?.configSchema.safeParse({
       guildId: "123456789012345678",
@@ -60,6 +63,26 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     });
 
     expect(result?.success).toBe(false);
+  });
+
+  it("documents required setup and permission failure hints through provider metadata", () => {
+    const rule = discordProvider.rules.guild_member;
+
+    expect(rule?.description).toContain("DISCORD_BOT_TOKEN");
+    expect(rule?.inputHint).toContain("必要権限が不足");
+    expect(rule?.configFields).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          name: "guildId",
+          required: true,
+          description: expect.stringContaining("検証用Botが参加済み"),
+        }),
+        expect.objectContaining({
+          name: "roleIds",
+          description: expect.stringContaining("ロール一覧取得権限"),
+        }),
+      ]),
+    );
   });
 
   it("does not call list members for saturated username searches by default", async () => {
@@ -194,6 +217,105 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     ).toHaveLength(1);
   });
 
+  it("validates a guild member and returns role metadata from Discord fixtures", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const guildId = "123456789012345678";
+    const targetUserId = "999999999999999999";
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes(`/guilds/${guildId}?with_counts=true`)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            id: guildId,
+            name: "Fixture Guild",
+            icon: null,
+          }),
+        });
+      }
+      if (url.includes("/members/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              user: {
+                id: targetUserId,
+                username: "targetuser",
+                global_name: "Target User",
+                avatar: "avatar-hash",
+              },
+              nick: "Fixture Nick",
+              roles: ["234567890123456789", "345678901234567890"],
+            },
+          ]),
+        });
+      }
+      if (url.includes("/roles")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              id: "234567890123456789",
+              name: "Member",
+              color: 255,
+            },
+            {
+              id: "345678901234567890",
+              name: "Contributor",
+              color: 65_280,
+            },
+          ]),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: vi.fn().mockResolvedValue({ message: "not found" }),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      {
+        guildId,
+        roleIds: ["234567890123456789"],
+        roleCondition: "AND",
+      },
+    );
+
+    expect(result).toEqual({
+      isValid: true,
+      metadata: {
+        userId: targetUserId,
+        username: "targetuser",
+        displayName: "Fixture Nick",
+        avatarUrl: `https://cdn.discordapp.com/avatars/${targetUserId}/avatar-hash.png`,
+        guildMember: true,
+        roles: [
+          {
+            id: "234567890123456789",
+            name: "Member",
+            color: 255,
+          },
+          {
+            id: "345678901234567890",
+            name: "Contributor",
+            color: 65_280,
+          },
+        ],
+      },
+    });
+    expect(
+      fetchMock.mock.calls.filter(([calledUrl]) =>
+        String(calledUrl).includes("/members?"),
+      ),
+    ).toHaveLength(0);
+  });
+
   it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(
@@ -260,8 +382,11 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      errorMessage: safeDiscordApiFailureMessage,
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("fetch failed");
+    expect(result?.errorMessage).not.toContain("EAI_AGAIN");
   });
 
   it("marks Discord abort timeout failures as retryable", async () => {
@@ -277,17 +402,20 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      errorMessage: safeDiscordApiFailureMessage,
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("timed out");
   });
 
-  it("marks Discord 5xx responses as retryable", async () => {
+  it("marks Discord 5xx responses as retryable without leaking response details", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: false,
         status: 500,
+        statusText: "Internal Server Error token=secret trace=abc123",
         json: vi.fn().mockResolvedValue({ message: "Server error" }),
       }),
     );
@@ -299,8 +427,12 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      errorMessage: safeDiscordApiFailureMessage,
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("Internal Server Error");
+    expect(result?.errorMessage).not.toContain("token=secret");
+    expect(result?.errorMessage).not.toContain("trace=abc123");
   });
 
   it("keeps unhandled Discord 4xx HTTP errors non-retryable", async () => {
@@ -322,8 +454,10 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: DiscordErrorCode.DISCORD_API_ERROR,
+      errorMessage: "Discord APIへのリクエストに失敗しました",
       retryable: false,
     });
+    expect(result?.errorMessage).not.toContain("network timeout");
   });
 
   it("keeps Discord authentication failures non-retryable", async () => {

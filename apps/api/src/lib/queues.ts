@@ -1,3 +1,4 @@
+import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
 import { getRedisConnection } from "./redis";
 
@@ -23,7 +24,20 @@ const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
 };
 
+const NOTIFICATION_JOB_DEFAULTS: DefaultJobOptions = {
+  ...JOB_RETENTION_DEFAULTS,
+};
+
+export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS = {
+  attempts: 3,
+  backoff: {
+    type: "exponential",
+    delay: 30_000,
+  },
+} satisfies Pick<DefaultJobOptions, "attempts" | "backoff">;
+
 let _sheetsSyncQueue: Queue | null = null;
+let _formSubmitNotificationQueue: Queue | null = null;
 
 const _validationQueues: Map<string, Queue> = new Map();
 
@@ -69,15 +83,28 @@ export function getSheetsSyncQueue(): Queue {
   return _sheetsSyncQueue;
 }
 
+export function getFormSubmitNotificationQueue(): Queue {
+  if (!_formSubmitNotificationQueue) {
+    const { connection } = getRedisConnection();
+    _formSubmitNotificationQueue = new Queue(FORM_SUBMIT_NOTIFICATION_QUEUE, {
+      connection,
+      defaultJobOptions: NOTIFICATION_JOB_DEFAULTS,
+    });
+  }
+  return _formSubmitNotificationQueue;
+}
+
 export async function closeQueues(): Promise<void> {
   const queues = [
     ..._validationQueues.values(),
     ...(_sheetsSyncQueue ? [_sheetsSyncQueue] : []),
+    ...(_formSubmitNotificationQueue ? [_formSubmitNotificationQueue] : []),
   ];
   try {
     await Promise.all(queues.map((queue) => queue.close()));
   } finally {
     _validationQueues.clear();
     _sheetsSyncQueue = null;
+    _formSubmitNotificationQueue = null;
   }
 }

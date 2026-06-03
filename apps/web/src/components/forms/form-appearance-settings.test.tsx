@@ -1,0 +1,384 @@
+// @vitest-environment jsdom
+
+import type { ReactNode } from "react";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FormAppearance } from "@/types/validation/form";
+import { FormAppearanceSettings } from "./form-appearance-settings";
+
+type MutationOptions<TInput> = {
+  mutationFn: (input: TInput) => Promise<unknown>;
+  onError?: (error: Error) => void;
+  onSuccess?: () => Promise<void> | void;
+};
+
+const mocks = vi.hoisted(() => ({
+  getRequest: vi.fn(() => ({ kind: "get" })),
+  invalidateQueries: vi.fn(),
+  patchAppearanceRequest: vi.fn((payload: unknown) => ({
+    kind: "patchAppearance",
+    payload,
+  })),
+  rpc: vi.fn(),
+  toast: { error: vi.fn(), success: vi.fn() },
+}));
+
+let structureData: {
+  structure: {
+    version: number;
+    settings: { require_fingerprint: boolean };
+    appearance?: FormAppearance;
+  };
+};
+
+vi.mock("@tanstack/react-query", () => ({
+  useMutation: <TInput,>(options: MutationOptions<TInput>) => ({
+    isPending: false,
+    mutate: (input: TInput) => {
+      void options
+        .mutationFn(input)
+        .then(() => options.onSuccess?.())
+        .catch((error) =>
+          options.onError?.(
+            error instanceof Error ? error : new Error("mutation failed"),
+          ),
+        );
+    },
+  }),
+  useQuery: () => ({
+    data: structureData,
+    isLoading: false,
+  }),
+  useQueryClient: () => ({
+    invalidateQueries: mocks.invalidateQueries,
+  }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  client: {
+    api: {
+      forms: {
+        ":id": {
+          structure: {
+            $get: mocks.getRequest,
+            appearance: {
+              $patch: mocks.patchAppearanceRequest,
+            },
+          },
+        },
+      },
+    },
+  },
+  rpc: mocks.rpc,
+}));
+
+vi.mock("sonner", () => ({
+  toast: mocks.toast,
+}));
+
+vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span data-icon="alert" />,
+  ChevronDownIcon: () => <span data-icon="chevron-down" />,
+  Laptop: () => <span data-icon="laptop" />,
+  Palette: () => <span data-icon="palette" />,
+  Save: () => <span data-icon="save" />,
+  Smartphone: () => <span data-icon="smartphone" />,
+}));
+
+vi.mock("./form-body", async () => {
+  const { useFormResponse } = await import("@/contexts/form-response-context");
+
+  return {
+    FormBody: ({ appearance }: { appearance: FormAppearance }) => {
+      const { answers, setAnswer } = useFormResponse();
+
+      return (
+        <div
+          data-testid="appearance-preview"
+          data-primary={appearance.theme.primary_color}
+          data-brand={appearance.theme.brand_name ?? ""}
+          data-question-numbers={
+            appearance.layout.show_question_numbers ? "shown" : "hidden"
+          }
+          data-preview-answer-count={String(answers.size)}
+        >
+          <button
+            type="button"
+            onClick={() =>
+              setAnswer("preview-question", { value: "preview-only" })
+            }
+          >
+            プレビュー回答
+          </button>
+        </div>
+      );
+    },
+  };
+});
+
+vi.mock("@/components/ui/switch", () => ({
+  Switch: ({
+    checked = false,
+    onCheckedChange,
+    ...props
+  }: {
+    checked?: boolean;
+    id?: string;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <button
+      {...props}
+      aria-checked={checked}
+      role="switch"
+      type="button"
+      onClick={() => onCheckedChange?.(!checked)}
+    />
+  ),
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    type = "button",
+    ...props
+  }: {
+    children: ReactNode;
+    type?: "button" | "submit";
+    [key: string]: unknown;
+  }) => (
+    <button {...props} type={type}>
+      {children}
+    </button>
+  ),
+}));
+
+(
+  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+).IS_REACT_ACT_ENVIRONMENT = true;
+
+function renderSettings(container: HTMLElement): Root {
+  const root = createRoot(container);
+  act(() => {
+    root.render(
+      <FormAppearanceSettings
+        formId="form-1"
+        formTitle="Preview form"
+        formDescription="Preview description"
+        plateContent="[]"
+      />,
+    );
+  });
+  return root;
+}
+
+function setInputValue(input: HTMLInputElement | null, value: string) {
+  expect(input).not.toBeNull();
+  const valueSetter = Object.getOwnPropertyDescriptor(
+    HTMLInputElement.prototype,
+    "value",
+  )?.set;
+
+  act(() => {
+    valueSetter?.call(input, value);
+    input?.dispatchEvent(new Event("input", { bubbles: true }));
+    input?.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+function click(element: Element | null) {
+  expect(element).not.toBeNull();
+  act(() => {
+    element?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+function submit(element: HTMLFormElement | null) {
+  expect(element).not.toBeNull();
+  act(() => {
+    element?.dispatchEvent(
+      new Event("submit", { bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+describe("FormAppearanceSettings", () => {
+  beforeEach(() => {
+    structureData = {
+      structure: {
+        version: 1,
+        settings: { require_fingerprint: true },
+        appearance: {
+          theme: {
+            primary_color: "#ffffff",
+            accent_color: "#ffffff",
+            background_color: "#ffffff",
+            font_family: "Inter",
+          },
+          layout: {
+            width: "medium",
+            alignment: "center",
+            spacing: "comfortable",
+            show_progress_bar: true,
+            progress_position: "top",
+            show_question_numbers: true,
+          },
+        },
+      },
+    };
+    mocks.getRequest.mockClear();
+    mocks.invalidateQueries.mockReset();
+    mocks.patchAppearanceRequest.mockClear();
+    mocks.rpc.mockReset();
+    mocks.rpc.mockImplementation(async (request: { kind?: string }) =>
+      request.kind === "get" ? structureData : {},
+    );
+    mocks.toast.error.mockReset();
+    mocks.toast.success.mockReset();
+  });
+
+  it("shows setting scope, publish timing, and mobile desktop preview controls", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    expect(container.textContent).toContain("テーマとブランド");
+    expect(container.textContent).toContain("レイアウトと質問番号");
+    expect(container.textContent).toContain(
+      "保存済みの外観がライブプレビューに反映されています。",
+    );
+    expect(container.textContent).toContain("structure.appearance");
+    expect(
+      container.querySelector("[data-preview-viewport='desktop']"),
+    ).not.toBeNull();
+
+    click(container.querySelector("[aria-label='モバイル幅でプレビュー']"));
+
+    expect(
+      container.querySelector("[data-preview-viewport='mobile']"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("updates the live preview immediately and warns on low contrast", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    expect(container.textContent).toContain("配色の警告");
+    expect(container.textContent).toContain("回答者に読みづらくなる可能性");
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#appearance-primary-color"),
+      "#111111",
+    );
+
+    expect(
+      container
+        .querySelector("[data-testid='appearance-preview']")
+        ?.getAttribute("data-primary"),
+    ).toBe("#111111");
+    expect(container.textContent).toContain(
+      "未保存の変更はライブプレビューだけに反映中です。",
+    );
+
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#appearance-brand-name"),
+      "R25 Brand",
+    );
+    click(container.querySelector("[role='switch']"));
+
+    const preview = container.querySelector(
+      "[data-testid='appearance-preview']",
+    );
+    expect(preview?.getAttribute("data-brand")).toBe("R25 Brand");
+    expect(preview?.getAttribute("data-question-numbers")).toBe("hidden");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps live preview answers inside a preview-only provider", async () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    expect(
+      container
+        .querySelector("[data-testid='appearance-preview']")
+        ?.getAttribute("data-preview-answer-count"),
+    ).toBe("0");
+
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("プレビュー回答"),
+      ) ?? null,
+    );
+
+    expect(
+      container
+        .querySelector("[data-testid='appearance-preview']")
+        ?.getAttribute("data-preview-answer-count"),
+    ).toBe("1");
+
+    submit(
+      container.querySelector<HTMLFormElement>("#form-appearance-settings"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const patchPayload = mocks.patchAppearanceRequest.mock.calls[0]?.[0];
+    expect(patchPayload).toMatchObject({
+      json: {
+        appearance: expect.any(Object),
+      },
+      param: { id: "form-1" },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: {
+        responses: expect.anything(),
+      },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: {
+        answers: expect.anything(),
+      },
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("saves appearance with the appearance patch endpoint", async () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#appearance-primary-color"),
+      "#111111",
+    );
+    submit(
+      container.querySelector<HTMLFormElement>("#form-appearance-settings"),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const patchPayload = mocks.patchAppearanceRequest.mock.calls[0]?.[0];
+    expect(mocks.getRequest).not.toHaveBeenCalled();
+    expect(patchPayload).toMatchObject({
+      json: {
+        appearance: {
+          theme: {
+            primary_color: "#111111",
+          },
+        },
+      },
+      param: { id: "form-1" },
+    });
+    expect(patchPayload).not.toMatchObject({
+      json: { structure: expect.anything() },
+    });
+    expect(mocks.toast.success).toHaveBeenCalledWith("外観設定を保存しました");
+
+    act(() => root.unmount());
+  });
+});

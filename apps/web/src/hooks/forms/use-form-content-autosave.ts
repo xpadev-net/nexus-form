@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sync";
+import { formDiffQueryKey } from "@/hooks/forms/form-structure-query-keys";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
 import { baseUrl, client, RpcError, rpc } from "@/lib/api";
@@ -13,9 +14,35 @@ const pendingSaveSchema = z.object({
   plateContent: z.string(),
   expectedVersion: z.number().int(),
   retryBlocked: z.literal("conflict").optional(),
+  source: z.literal("in-flight").optional(),
 });
 
 const KEEPALIVE_LIMIT = 64 * 1024;
+const IN_FLIGHT_FALLBACK_RETRY_DELAY_MS = 1000;
+
+type PendingSave = z.infer<typeof pendingSaveSchema>;
+
+function parsePendingSave(body: string): PendingSave | null {
+  try {
+    const result = pendingSaveSchema.safeParse(JSON.parse(body));
+    return result.success ? result.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function readCurrentPendingSave(
+  formId: string,
+): { body: string; data: PendingSave } | null {
+  try {
+    const body = localStorage.getItem(`pendingSave:${formId}`);
+    if (!body) return null;
+    const data = parsePendingSave(body);
+    return data ? { body, data } : null;
+  } catch {
+    return null;
+  }
+}
 
 function storePendingSave(formId: string, body: string) {
   try {
@@ -46,24 +73,42 @@ function clearResolvedPendingSave(
     return;
   }
   if (!saved) return;
-  let rawParsed: unknown;
-  try {
-    rawParsed = JSON.parse(saved);
-  } catch {
-    clearPendingSave(formId);
-    return;
-  }
-  const result = pendingSaveSchema.safeParse(rawParsed);
-  if (!result.success) {
+  const pendingSave = parsePendingSave(saved);
+  if (!pendingSave) {
     clearPendingSave(formId);
     return;
   }
   if (
-    result.data.expectedVersion === savedContent.expectedVersion &&
-    result.data.plateContent === savedContent.plateContent
+    pendingSave.expectedVersion === savedContent.expectedVersion &&
+    pendingSave.plateContent === savedContent.plateContent
   ) {
     clearPendingSave(formId);
   }
+}
+
+function storeInFlightPendingSave(
+  formId: string,
+  save: { expectedVersion: number; plateContent: string },
+) {
+  const key = `pendingSave:${formId}`;
+  try {
+    const existing = localStorage.getItem(key);
+    if (existing) {
+      const pendingSave = parsePendingSave(existing);
+      if (pendingSave?.retryBlocked === "conflict") {
+        return;
+      }
+    }
+  } catch {
+    // If the existing entry cannot be inspected, replace it with the recoverable in-flight save.
+  }
+  storePendingSave(
+    formId,
+    JSON.stringify({
+      ...save,
+      source: "in-flight",
+    }),
+  );
 }
 
 interface ContentQueryData {
@@ -130,6 +175,7 @@ export function useFormContentAutosave({
   const saveTimerRef = useRef<number | null>(null);
   const pendingValueRef = useRef<string | null>(null);
   const inFlightValueRef = useRef<string | null>(null);
+  const inFlightExpectedVersionRef = useRef<number | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
@@ -154,7 +200,9 @@ export function useFormContentAutosave({
       pendingRemoteContentRef.current = null;
       pendingRemoteVersionRef.current = null;
       const hasInFlightTyping = editorValueRef.current !== mergeLocalContent;
-      void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
+      void queryClient.invalidateQueries({
+        queryKey: formDiffQueryKey(formId),
+      });
       if (!hasInFlightTyping) {
         editorValueRef.current = mergedContent;
         queryClient.setQueryData(["formContent", formId], {
@@ -173,6 +221,7 @@ export function useFormContentAutosave({
           inFlightValueRef.current = pendingValue;
           pendingValueRef.current = null;
           lastSavedVersionRef.current = saveBaseVersion + 1;
+          inFlightExpectedVersionRef.current = saveBaseVersion;
           mutateRef.current({
             plateContent: pendingValue,
             expectedVersion: saveBaseVersion,
@@ -310,6 +359,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
+      inFlightExpectedVersionRef.current = saveBaseVersion;
       mutateRef.current({
         plateContent: valueToSave,
         expectedVersion: saveBaseVersion,
@@ -341,6 +391,7 @@ export function useFormContentAutosave({
       }
       pendingValueRef.current = null;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       lastSavedVersionRef.current = null;
       isConflictActiveRef.current = false;
       suspendAutosaveRef.current = true;
@@ -389,6 +440,7 @@ export function useFormContentAutosave({
       });
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       if (data && "plateContentVersion" in data) {
         versionRef.current = data.plateContentVersion;
         baseContentRef.current = variables.plateContent;
@@ -400,12 +452,15 @@ export function useFormContentAutosave({
           plateContentVersion: data.plateContentVersion,
         });
       }
-      void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
+      void queryClient.invalidateQueries({
+        queryKey: formDiffQueryKey(formId),
+      });
       setIsSaving(false);
     },
     onError: (err, variables) => {
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
       if (err instanceof RpcError && err.status === 409) {
@@ -456,6 +511,7 @@ export function useFormContentAutosave({
       pendingValueRef.current = null;
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
+      inFlightExpectedVersionRef.current = saveBaseVersion;
       mutateRef.current({
         plateContent: pendingValue,
         expectedVersion: saveBaseVersion,
@@ -466,17 +522,29 @@ export function useFormContentAutosave({
 
   // Unmount: clear timer and best-effort save via keepalive fetch.
   // Only save pendingValueRef (debounce not yet fired).
-  // Do NOT include inFlightValueRef: the regular autosave PUT is already in
-  // flight for that value, and a duplicate keepalive PUT with the same
-  // expectedVersion would produce a 409 that incorrectly creates a pending
-  // save entry for already-saved content.
+  // Do NOT send inFlightValueRef via keepalive: the regular autosave PUT is
+  // already in flight for that value, and a duplicate keepalive PUT with the
+  // same expectedVersion would produce a 409 that incorrectly creates a
+  // pending save entry for already-saved content. Store it locally instead so
+  // normal success can clear the fallback, while failed/aborted navigation can
+  // retry it on the next mount.
   useEffect(() => {
     return () => {
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
       const valueToSave = pendingValueRef.current;
+      if (valueToSave == null && inFlightValueRef.current != null) {
+        storeInFlightPendingSave(formId, {
+          plateContent: inFlightValueRef.current,
+          expectedVersion:
+            inFlightExpectedVersionRef.current ?? versionRef.current,
+        });
+        return;
+      }
       if (valueToSave != null) {
+        // Pending content is newer than any in-flight content, so it is the
+        // only fallback stored when both refs are set.
         const keepaliveVersion = versionRef.current;
         const body = JSON.stringify({
           plateContent: valueToSave,
@@ -514,47 +582,42 @@ export function useFormContentAutosave({
 
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
-    const key = `pendingSave:${formId}`;
-    let saved: string | null;
-    try {
-      saved = localStorage.getItem(key);
-    } catch {
+    const saved = readCurrentPendingSave(formId);
+    if (!saved) {
       clearPendingSave(formId);
       return;
     }
-    if (!saved) return;
-    let rawParsed: unknown;
-    try {
-      rawParsed = JSON.parse(saved);
-    } catch {
+    if (saved.data.retryBlocked === "conflict") return;
+    const retryPendingSave = async (pendingSaveBody: string): Promise<void> => {
+      const retryPending = parsePendingSave(pendingSaveBody);
+      if (!retryPending) {
+        clearPendingSave(formId);
+        return;
+      }
+      const retryPayload = {
+        expectedVersion: retryPending.expectedVersion,
+        plateContent: retryPending.plateContent,
+      };
       clearPendingSave(formId);
-      return;
-    }
-    const result = pendingSaveSchema.safeParse(rawParsed);
-    if (!result.success) {
-      clearPendingSave(formId);
-      return;
-    }
-    if (result.data.retryBlocked === "conflict") return;
-    clearPendingSave(formId);
-    const retryPayload = {
-      expectedVersion: result.data.expectedVersion,
-      plateContent: result.data.plateContent,
-    };
-    rpc(
-      client.api.forms[":id"].content.$put({
-        param: { id: formId },
-        json: retryPayload,
-      }),
-    )
-      .then(() => {
+      inFlightValueRef.current = retryPayload.plateContent;
+      inFlightExpectedVersionRef.current = retryPayload.expectedVersion;
+      storeInFlightPendingSave(formId, retryPayload);
+      try {
+        await rpc(
+          client.api.forms[":id"].content.$put({
+            param: { id: formId },
+            json: retryPayload,
+          }),
+        );
+        clearResolvedPendingSave(formId, retryPayload);
         toast.success("前回未保存の変更を復元しました");
         void queryClient.invalidateQueries({
           queryKey: ["formContent", formId],
         });
-        void queryClient.invalidateQueries({ queryKey: ["formDiff", formId] });
-      })
-      .catch((err) => {
+        void queryClient.invalidateQueries({
+          queryKey: formDiffQueryKey(formId),
+        });
+      } catch (err) {
         if (err instanceof RpcError && err.status === 409) {
           storePendingSave(
             formId,
@@ -563,8 +626,53 @@ export function useFormContentAutosave({
           toast.warning("前回未保存の変更が競合しています");
           return;
         }
-        storePendingSave(formId, saved);
-      });
+        const currentPendingSave = readCurrentPendingSave(formId);
+        if (!currentPendingSave) {
+          storePendingSave(formId, JSON.stringify(retryPayload));
+          return;
+        }
+        if (
+          currentPendingSave.data.retryBlocked !== "conflict" &&
+          currentPendingSave.data.expectedVersion ===
+            retryPayload.expectedVersion &&
+          currentPendingSave.data.plateContent === retryPayload.plateContent
+        ) {
+          storePendingSave(formId, JSON.stringify(retryPayload));
+        }
+      } finally {
+        if (
+          inFlightExpectedVersionRef.current === retryPayload.expectedVersion &&
+          inFlightValueRef.current === retryPayload.plateContent
+        ) {
+          inFlightValueRef.current = null;
+          inFlightExpectedVersionRef.current = null;
+        }
+      }
+    };
+    if (saved.data.source !== "in-flight") {
+      void retryPendingSave(saved.body);
+      return;
+    }
+    const retryTimer = window.setTimeout(() => {
+      const currentPendingSave = readCurrentPendingSave(formId);
+      if (!currentPendingSave) {
+        clearPendingSave(formId);
+        return;
+      }
+      if (
+        currentPendingSave.data.source !== "in-flight" ||
+        currentPendingSave.data.retryBlocked === "conflict" ||
+        currentPendingSave.data.expectedVersion !==
+          saved.data.expectedVersion ||
+        currentPendingSave.data.plateContent !== saved.data.plateContent
+      ) {
+        return;
+      }
+      void retryPendingSave(currentPendingSave.body);
+    }, IN_FLIGHT_FALLBACK_RETRY_DELAY_MS);
+    return () => {
+      window.clearTimeout(retryTimer);
+    };
   }, [formId, queryClient]);
 
   return {

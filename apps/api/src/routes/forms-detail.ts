@@ -18,6 +18,8 @@ import {
 } from "@nexus-form/database/schema";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { Context } from "hono";
+import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
@@ -27,6 +29,7 @@ import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
+import type { Env } from "../lib/hono";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { errorResponse } from "../types/domain/common";
@@ -66,22 +69,65 @@ const transferOwnerSchema = z.object({
   newOwnerUserId: z.string().min(1),
 });
 
+const DuplicateFormResponseSchema = FormCreateResponseSchema.extend({
+  copyPolicy: z.object({
+    title: z.literal("renamed"),
+    publishedStatus: z.literal(false),
+    responses: z.literal(false),
+    sharingSettings: z.literal(false),
+    structureAndValidation: z.literal(true),
+  }),
+});
+export type DuplicateFormResponse = z.infer<typeof DuplicateFormResponseSchema>;
+
+const rejectSyntheticDuplicateOwnerAuth = createMiddleware<Env>(
+  async (c, next) => {
+    const auth = c.get("dualAuthContext");
+    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+    if (
+      auth.auth_type === "api_token" &&
+      (auth.share_link_id !== undefined ||
+        auth.user_id.startsWith("share-link:") ||
+        auth.user_id.startsWith("anon:"))
+    ) {
+      return c.json(errorResponse("Insufficient permissions"), 403);
+    }
+    return next();
+  },
+);
+
 const formMutationRateLimit = createRateLimit({
   windowMs: 60 * 1000,
   maxRequests: 30,
-  keyGenerator: (c) => {
-    const auth = c.get("dualAuthContext");
-    const subject =
-      auth?.user_id !== undefined
-        ? `user:${auth.user_id}`
-        : `ip:${getClientIp(c)}`;
-    return `rate_limit:forms-detail:${subject}:${c.req.path}`;
-  },
+  keyGenerator: (c) =>
+    `rate_limit:forms-detail:${getRateLimitSubject(c)}:${c.req.path}`,
 });
+
+const createFormDestructiveMutationRateLimit = (action: string) =>
+  createRateLimit({
+    windowMs: 60 * 1000,
+    maxRequests: 10,
+    keyGenerator: (c) =>
+      `rate_limit:forms-detail-destructive:${getRateLimitSubject(c)}:${action}`,
+  });
+
+const deleteFormRateLimit = createFormDestructiveMutationRateLimit("delete");
+const regeneratePublicUrlRateLimit = createFormDestructiveMutationRateLimit(
+  "regenerate-public-url",
+);
+const transferOwnershipRateLimit =
+  createFormDestructiveMutationRateLimit("transfer-ownership");
 
 type SnapshotPlateContentParseResult =
   | { ok: true; plateContent: unknown }
   | { ok: false };
+
+function getRateLimitSubject(c: Context): string {
+  const auth = c.get("dualAuthContext");
+  return auth?.user_id !== undefined
+    ? `user:${auth.user_id}`
+    : `ip:${getClientIp(c)}`;
+}
 
 function parseSnapshotPlateContent(
   plateContent: string,
@@ -225,80 +271,75 @@ export const formsDetailRouter = createHonoApp()
       );
     },
   )
-  .delete(
-    "/:id",
-    withDualFormAuth("OWNER"),
-    formMutationRateLimit,
-    async (c) => {
-      const id = c.req.param("id");
+  .delete("/:id", withDualFormAuth("OWNER"), deleteFormRateLimit, async (c) => {
+    const id = c.req.param("id");
 
-      await db.transaction(async (tx) => {
-        // Cascade delete related records in dependency order
+    await db.transaction(async (tx) => {
+      // Cascade delete related records in dependency order
 
-        // 1. Delete response-level children (fingerprints, validation results)
-        const responseRows = await tx
-          .select({ id: formResponse.id })
-          .from(formResponse)
-          .where(eq(formResponse.formId, id));
+      // 1. Delete response-level children (fingerprints, validation results)
+      const responseRows = await tx
+        .select({ id: formResponse.id })
+        .from(formResponse)
+        .where(eq(formResponse.formId, id));
 
-        if (responseRows.length > 0) {
-          const responseIds = responseRows.map((r) => r.id);
-          await tx
-            .delete(fingerprintDetail)
-            .where(inArray(fingerprintDetail.responseId, responseIds));
-          await tx
-            .delete(externalServiceValidationResult)
-            .where(
-              inArray(externalServiceValidationResult.responseId, responseIds),
-            );
-        }
+      if (responseRows.length > 0) {
+        const responseIds = responseRows.map((r) => r.id);
+        await tx
+          .delete(fingerprintDetail)
+          .where(inArray(fingerprintDetail.responseId, responseIds));
+        await tx
+          .delete(externalServiceValidationResult)
+          .where(
+            inArray(externalServiceValidationResult.responseId, responseIds),
+          );
+      }
 
-        // 2. Delete form-level validation rules (ruleBlocks first, then rules)
-        const ruleRows = await tx
-          .select({ id: formValidationRule.id })
-          .from(formValidationRule)
+      // 2. Delete form-level validation rules (ruleBlocks first, then rules)
+      const ruleRows = await tx
+        .select({ id: formValidationRule.id })
+        .from(formValidationRule)
+        .where(eq(formValidationRule.formId, id));
+
+      if (ruleRows.length > 0) {
+        const ruleIds = ruleRows.map((r) => r.id);
+        await tx
+          .delete(formValidationRuleBlock)
+          .where(inArray(formValidationRuleBlock.ruleId, ruleIds));
+        await tx
+          .delete(formValidationRule)
           .where(eq(formValidationRule.formId, id));
+      }
 
-        if (ruleRows.length > 0) {
-          const ruleIds = ruleRows.map((r) => r.id);
-          await tx
-            .delete(formValidationRuleBlock)
-            .where(inArray(formValidationRuleBlock.ruleId, ruleIds));
-          await tx
-            .delete(formValidationRule)
-            .where(eq(formValidationRule.formId, id));
-        }
+      // 3. Delete share-link-associated API tokens
+      const shareLinkRows = await tx
+        .select({ id: formShareLink.id })
+        .from(formShareLink)
+        .where(eq(formShareLink.formId, id));
 
-        // 3. Delete share-link-associated API tokens
-        const shareLinkRows = await tx
-          .select({ id: formShareLink.id })
-          .from(formShareLink)
-          .where(eq(formShareLink.formId, id));
+      if (shareLinkRows.length > 0) {
+        const shareLinkIds = shareLinkRows.map((s) => s.id);
+        await tx
+          .delete(apiToken)
+          .where(inArray(apiToken.shareLinkId, shareLinkIds));
+      }
 
-        if (shareLinkRows.length > 0) {
-          const shareLinkIds = shareLinkRows.map((s) => s.id);
-          await tx
-            .delete(apiToken)
-            .where(inArray(apiToken.shareLinkId, shareLinkIds));
-        }
+      // 4. Delete form-level children
+      await tx.delete(formResponse).where(eq(formResponse.formId, id));
+      await tx.delete(formSnapshot).where(eq(formSnapshot.formId, id));
+      await tx.delete(formStructure).where(eq(formStructure.formId, id));
+      await tx.delete(formSchedule).where(eq(formSchedule.formId, id));
+      await tx.delete(formPermission).where(eq(formPermission.formId, id));
+      await tx.delete(formShareLink).where(eq(formShareLink.formId, id));
+      await tx.delete(formIntegration).where(eq(formIntegration.formId, id));
+      await tx.delete(formInvitation).where(eq(formInvitation.formId, id));
 
-        // 4. Delete form-level children
-        await tx.delete(formResponse).where(eq(formResponse.formId, id));
-        await tx.delete(formSnapshot).where(eq(formSnapshot.formId, id));
-        await tx.delete(formStructure).where(eq(formStructure.formId, id));
-        await tx.delete(formSchedule).where(eq(formSchedule.formId, id));
-        await tx.delete(formPermission).where(eq(formPermission.formId, id));
-        await tx.delete(formShareLink).where(eq(formShareLink.formId, id));
-        await tx.delete(formIntegration).where(eq(formIntegration.formId, id));
-        await tx.delete(formInvitation).where(eq(formInvitation.formId, id));
+      // 5. Delete the form itself
+      await tx.delete(form).where(eq(form.id, id));
+    });
 
-        // 5. Delete the form itself
-        await tx.delete(form).where(eq(form.id, id));
-      });
-
-      return c.json(OkResponseSchema.parse({ ok: true }));
-    },
-  )
+    return c.json(OkResponseSchema.parse({ ok: true }));
+  })
   .post(
     "/:id/publish",
     withDualFormAuth("EDITOR"),
@@ -378,7 +419,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/regenerate-public-url",
     withDualFormAuth("EDITOR"),
-    formMutationRateLimit,
+    regeneratePublicUrlRateLimit,
     async (c) => {
       const id = c.req.param("id");
       const publicId = randomUUID();
@@ -389,7 +430,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/transfer-ownership",
     withDualFormAuth("OWNER"),
-    formMutationRateLimit,
+    transferOwnershipRateLimit,
     zValidator("json", transferOwnerSchema),
     async (c) => {
       const id = c.req.param("id");
@@ -452,6 +493,7 @@ export const formsDetailRouter = createHonoApp()
   .post(
     "/:id/duplicate",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticDuplicateOwnerAuth,
     formMutationRateLimit,
     async (c) => {
       const id = c.req.param("id");
@@ -476,7 +518,7 @@ export const formsDetailRouter = createHonoApp()
         await tx.insert(form).values({
           id: newFormId,
           creatorId: auth.user_id,
-          title: `${sourceForm.title} (コピー)`,
+          title: `${sourceForm.title} のコピー`,
           description: sourceForm.description,
           publicId,
           status: "DRAFT",
@@ -640,7 +682,7 @@ export const formsDetailRouter = createHonoApp()
             changeLog: sourceSnapshot.changeLog,
             // snapshot の title/description は配信時にそのまま使われるため、
             // 複製元の snapshot 値ではなく複製フォームの値に合わせる。
-            title: `${sourceForm.title} (コピー)`,
+            title: `${sourceForm.title} のコピー`,
             description: sourceForm.description,
             parentVersion: null,
             plateContent: sourceSnapshot.plateContent,
@@ -663,7 +705,19 @@ export const formsDetailRouter = createHonoApp()
         .from(form)
         .where(eq(form.id, newFormId))
         .limit(1);
-      return c.json(FormCreateResponseSchema.parse({ form: created }), 201);
+      return c.json(
+        DuplicateFormResponseSchema.parse({
+          form: created,
+          copyPolicy: {
+            title: "renamed",
+            publishedStatus: false,
+            responses: false,
+            sharingSettings: false,
+            structureAndValidation: true,
+          },
+        }),
+        201,
+      );
     },
   )
   .get("/:id/export", withDualFormAuth("VIEWER"), async (c) => {

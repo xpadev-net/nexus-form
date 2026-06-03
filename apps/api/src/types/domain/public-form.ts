@@ -1,4 +1,4 @@
-import { FormStatus } from "@nexus-form/shared";
+import { FormConfirmationSchema, FormStatus } from "@nexus-form/shared";
 import { z } from "zod";
 import { FormResponseRowSchema } from "./form-row";
 
@@ -13,7 +13,7 @@ export const PublicFormStructureSchema = z.object({
   settings: z.record(z.string(), z.unknown()).optional(),
   logic: z.array(z.unknown()).optional(),
   appearance: z.unknown().optional(),
-  confirmation: z.unknown().optional(),
+  confirmation: FormConfirmationSchema.optional(),
 });
 export type PublicFormStructure = z.infer<typeof PublicFormStructureSchema>;
 
@@ -35,7 +35,9 @@ export type PublicFormResponse = z.infer<typeof PublicFormResponseSchema>;
 
 /** POST /public/:publicId/submit のレスポンス。 */
 export const PublicSubmitResponseSchema = z.object({
+  responseId: z.string(),
   response: FormResponseRowSchema.nullable(),
+  confirmation: FormConfirmationSchema,
 });
 export type PublicSubmitResponse = z.infer<typeof PublicSubmitResponseSchema>;
 

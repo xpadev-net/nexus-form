@@ -75,6 +75,11 @@ const DiscordMetadataSchema = z.object({
   ),
 });
 
+const DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE =
+  "Discord APIへの接続に失敗しました。しばらくしてから再試行してください";
+const DISCORD_EXTERNAL_REQUEST_ERROR_MESSAGE =
+  "Discord APIへのリクエストに失敗しました";
+
 const DiscordUserGuildSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -216,8 +221,10 @@ async function getConfiguredGuildRoles(
 const guildMemberRule: ValidationProviderRule = {
   name: "guild_member",
   label: "サーバーメンバー検証",
-  description: "Discordサーバーへの参加状況（必要に応じてロール）を検証します",
-  inputHint: "Discordユーザー名を入力してください（@不要）",
+  description:
+    "Discordサーバーへの参加状況（必要に応じてロール）を検証します。実行にはDISCORD_BOT_TOKENと、対象サーバーに追加済みでメンバー検索・ロール取得が可能なBot権限が必要です。",
+  inputHint:
+    "Discordユーザー名を入力してください（@不要）。Botがサーバーに未参加、または必要権限が不足している場合は権限不足として失敗します。",
   inputPattern: "^[a-z0-9_.]{2,32}$",
   patternTemplate: {
     id: "discord",
@@ -237,7 +244,8 @@ const guildMemberRule: ValidationProviderRule = {
       label: "Discordサーバー",
       kind: "select",
       required: true,
-      description: "検証対象のDiscordサーバーを選択してください",
+      description:
+        "検証対象のDiscordサーバーを選択してください。選択肢には、連携ユーザーが管理者権限を持ち、かつ検証用Botが参加済みのサーバーだけが表示されます。",
       optionSource: {
         endpoint: "/api/external-service/discord/guilds",
         collectionPath: "guilds",
@@ -249,7 +257,8 @@ const guildMemberRule: ValidationProviderRule = {
       name: "roleIds",
       label: "必要なロール",
       kind: "multiselect",
-      description: "検証に必要なロールを選択してください（複数選択可）",
+      description:
+        "検証に必要なロールを選択してください（複数選択可）。Botにロール一覧取得権限がない場合は設定取得または検証が権限不足として失敗します。",
       defaultValue: [],
       optionSource: {
         endpoint: "/api/external-service/discord/roles?guildId={guildId}",
@@ -427,21 +436,21 @@ const guildMemberRule: ValidationProviderRule = {
           return {
             isValid: false,
             errorCode: DiscordErrorCode.DISCORD_API_ERROR,
-            errorMessage: error.message || "Discord API error",
+            errorMessage: DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE,
             retryable: true,
           };
         }
       }
 
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const retryable =
+        !(error instanceof DiscordHttpError) && isRetryableNetworkError(error);
       return {
         isValid: false,
         errorCode: DiscordErrorCode.DISCORD_API_ERROR,
-        errorMessage: errorMessage || "Discord API error",
-        retryable:
-          !(error instanceof DiscordHttpError) &&
-          isRetryableNetworkError(error),
+        errorMessage: retryable
+          ? DISCORD_EXTERNAL_SERVICE_ERROR_MESSAGE
+          : DISCORD_EXTERNAL_REQUEST_ERROR_MESSAGE,
+        retryable,
       };
     }
   },

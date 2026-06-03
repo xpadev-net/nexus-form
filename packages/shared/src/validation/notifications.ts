@@ -64,15 +64,29 @@ export const EmailNotificationChannelSchema = z
 
 // --- Discord Notification Channel ---
 
-export const DiscordNotificationChannelSchema = z
-  .object({
-    enabled: z.boolean().default(false),
-    webhook_url: DiscordWebhookUrlSchema.optional(),
-    message_template: z.string().max(2000).optional(),
-  })
-  .refine((data) => !data.enabled || !!data.webhook_url, {
-    message: "Discord通知が有効な場合、webhook_urlは必須です",
-  });
+const DiscordNotificationChannelBaseSchema = z.object({
+  enabled: z.boolean().default(false),
+  webhook_url: DiscordWebhookUrlSchema.optional(),
+  message_template: z.string().max(2000).optional(),
+});
+
+export const DiscordNotificationChannelSchema =
+  DiscordNotificationChannelBaseSchema.refine(
+    (data) => !data.enabled || !!data.webhook_url,
+    {
+      message: "Discord通知が有効な場合、webhook_urlは必須です",
+    },
+  );
+
+export const DiscordNotificationChannelTransportSchema =
+  DiscordNotificationChannelBaseSchema.extend({
+    has_webhook_url: z.boolean().optional(),
+  }).refine(
+    (data) => !data.enabled || !!data.webhook_url || data.has_webhook_url,
+    {
+      message: "Discord通知が有効な場合、webhook_urlは必須です",
+    },
+  );
 
 // --- Secure Webhook URL (generic webhook with domain allowlist) ---
 
@@ -154,6 +168,21 @@ export const WebhookNotificationChannelSchema = z
     message: "Webhook通知が有効な場合、urlは必須です",
   });
 
+export const WebhookNotificationChannelTransportSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    url: SecureWebhookUrlSchema.optional(),
+    has_url: z.boolean().optional(),
+    secret: z.string().min(32).max(200).optional(), // HMAC-SHA256 requires ≥256 bits (32 chars)
+    has_secret: z.boolean().optional(),
+    headers: z.record(z.string(), z.string()).optional(),
+    timeout_seconds: z.number().int().min(1).max(60).optional().default(30),
+    retry_attempts: z.number().int().min(0).max(5).optional().default(3),
+  })
+  .refine((data) => !data.enabled || !!data.url || data.has_url, {
+    message: "Webhook通知が有効な場合、urlは必須です",
+  });
+
 // --- Form Notifications ---
 
 const NotificationChannelsSchema = z.object({
@@ -162,9 +191,45 @@ const NotificationChannelsSchema = z.object({
   webhook: WebhookNotificationChannelSchema.optional(),
 });
 
+const NotificationChannelsTransportSchema = z.object({
+  email: EmailNotificationChannelSchema.optional(),
+  discord: DiscordNotificationChannelTransportSchema.optional(),
+  webhook: WebhookNotificationChannelTransportSchema.optional(),
+});
+
 export const FormNotificationsSchema = z.object({
   on_submit: NotificationChannelsSchema.default({}),
   on_duplicate_detected: NotificationChannelsSchema.optional(),
+});
+
+export const FormNotificationsTransportSchema = z.object({
+  on_submit: NotificationChannelsTransportSchema.default({}),
+  on_duplicate_detected: NotificationChannelsTransportSchema.optional(),
+});
+
+// --- Form Submit Notification Jobs ---
+
+export const FORM_SUBMIT_NOTIFICATION_QUEUE = "form-submit-notifications";
+export const FORM_SUBMIT_NOTIFICATION_JOB_PREFIX = "form-submit-notification.";
+
+function encodeJobIdSegment(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export function buildFormSubmitNotificationJobId(
+  formId: string,
+  responseId: string,
+): string {
+  return `${FORM_SUBMIT_NOTIFICATION_JOB_PREFIX}${encodeJobIdSegment(formId)}.${encodeJobIdSegment(responseId)}`;
+}
+
+export const FormSubmitNotificationJobDataSchema = z.object({
+  formId: z.string().min(1),
+  responseId: z.string().min(1),
+  snapshotVersion: z.number().int().positive(),
+  submittedAt: z.string().datetime(),
 });
 
 // --- Form Access Control ---
@@ -206,7 +271,24 @@ export const FormConfirmationSchema = z.object({
     .max(2000)
     .default("回答を受け付けました。ご協力ありがとうございました。"),
   redirect_url: z.string().url().optional(),
+  supplemental_link: z
+    .object({
+      label: z.string().min(1).max(80),
+      url: z.string().url(),
+    })
+    .optional(),
+  contact: z
+    .object({
+      label: z.string().min(1).max(80).optional(),
+      email: z.string().email().optional(),
+      url: z.string().url().optional(),
+    })
+    .refine((data) => !!data.email || !!data.url, {
+      message: "問い合わせ先には email または url が必要です",
+    })
+    .optional(),
   show_response_summary: z.boolean().default(false),
+  show_response_id: z.boolean().default(true),
   allow_edit_link: z.boolean().default(false),
 });
 
@@ -218,9 +300,21 @@ export type EmailNotificationChannel = z.infer<
 export type DiscordNotificationChannel = z.infer<
   typeof DiscordNotificationChannelSchema
 >;
+export type DiscordNotificationChannelTransport = z.infer<
+  typeof DiscordNotificationChannelTransportSchema
+>;
 export type WebhookNotificationChannel = z.infer<
   typeof WebhookNotificationChannelSchema
 >;
+export type WebhookNotificationChannelTransport = z.infer<
+  typeof WebhookNotificationChannelTransportSchema
+>;
 export type FormNotifications = z.infer<typeof FormNotificationsSchema>;
+export type FormNotificationsTransport = z.infer<
+  typeof FormNotificationsTransportSchema
+>;
+export type FormSubmitNotificationJobData = z.infer<
+  typeof FormSubmitNotificationJobDataSchema
+>;
 export type FormAccessControl = z.infer<typeof FormAccessControlSchema>;
 export type FormConfirmation = z.infer<typeof FormConfirmationSchema>;

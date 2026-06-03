@@ -29,7 +29,12 @@ vi.mock("@nexus-form/database/schema", () => ({
     responseId: "externalServiceValidationResult.responseId",
     status: "externalServiceValidationResult.status",
   },
-  fingerprintDetail: {},
+  fingerprintDetail: {
+    responseId: "fingerprintDetail.responseId",
+    componentName: "fingerprintDetail.componentName",
+    componentValueHash: "fingerprintDetail.componentValueHash",
+    fingerprintType: "fingerprintDetail.fingerprintType",
+  },
   form: {
     id: "form.id",
     plateContent: "form.plateContent",
@@ -37,6 +42,7 @@ vi.mock("@nexus-form/database/schema", () => ({
   formResponse: {
     id: "formResponse.id",
     formId: "formResponse.formId",
+    responseDataJson: "formResponse.responseDataJson",
     submittedAt: "formResponse.submittedAt",
     updatedAt: "formResponse.updatedAt",
     respondentUuid: "formResponse.respondentUuid",
@@ -173,6 +179,25 @@ function limitedQuery(result: unknown[]) {
   };
 }
 
+function orderedQuery(result: unknown[]) {
+  return {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    limit: vi.fn((value: number) => {
+      mocks.limitCalls.push(value);
+      return Promise.resolve(result);
+    }),
+  };
+}
+
+function whereQuery(result: unknown[]) {
+  return {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn(() => Promise.resolve(result)),
+  };
+}
+
 function countQuery(total: number) {
   return {
     from: vi.fn().mockReturnThis(),
@@ -278,22 +303,31 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
-  it("applies keyword filters before paginating response lists", async () => {
+  it("aliases keyword to response body search before paginating response lists", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
-    mocks.db.select.mockReturnValueOnce(
-      limitedQuery([
-        {
-          id: "response-1",
-          formId: "form-1",
-          submittedAt,
-          updatedAt: null,
-          respondentUuid: "respondent-alpha",
-          userAgent: null,
-          sessionId: null,
-          countryCode: "JP",
-        },
-      ]),
-    );
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        limitedQuery(
+          Array.from({ length: 6 }, (_, index) => ({
+            id: `response-${index + 1}`,
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: `respondent-${index + 1}`,
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "short-question",
+                question_type: "short_text",
+                value: `alpha answer ${index + 1}`,
+              },
+            ]),
+          })),
+        ),
+      );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
@@ -303,7 +337,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toMatchObject({
-      responses: [{ id: "response-1", respondentUuid: "respondent-alpha" }],
+      responses: [{ id: "response-6", respondentUuid: "respondent-6" }],
       page: 2,
       limit: 5,
       hasNext: false,
@@ -320,9 +354,11 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       [expect.anything(), "formResponse.id", "alpha%", "!"],
       [expect.anything(), "formResponse.respondentUuid", "alpha%", "!"],
       [expect.anything(), "formResponse.countryCode", "ALPHA%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%alpha%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%ALPHA%", "!"],
     ]);
-    expect(mocks.offsetCalls).toContain(5);
-    expect(mocks.limitCalls).toContain(6);
+    expect(mocks.offsetCalls).toContain(0);
+    expect(mocks.limitCalls).toContain(200);
   });
 
   it("returns hasNext and trims the extra row for response lists", async () => {
@@ -348,7 +384,13 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     );
 
     expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toMatchObject({
+    const body = (await res.json()) as {
+      responses: Array<{ id: string; responseDataJson?: unknown }>;
+      page: number;
+      limit: number;
+      hasNext: boolean;
+    };
+    expect(body).toMatchObject({
       responses: [
         { id: "response-1" },
         { id: "response-2" },
@@ -360,27 +402,31 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       limit: 5,
       hasNext: true,
     });
+    expect(body.responses[0]).not.toHaveProperty("responseDataJson");
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(6);
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
   });
 
-  it("escapes wildcard characters in response keyword prefix filters", async () => {
+  it("escapes wildcard characters in response search filters", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
-    mocks.db.select.mockReturnValueOnce(
-      limitedQuery([
-        {
-          id: "response-1",
-          formId: "form-1",
-          submittedAt,
-          updatedAt: null,
-          respondentUuid: "respondent-alpha",
-          userAgent: null,
-          sessionId: null,
-          countryCode: "JP",
-        },
-      ]),
-    );
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-alpha",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: "[]",
+          },
+        ]),
+      );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
@@ -396,10 +442,12 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       [expect.anything(), "formResponse.id", "a\\!_!%%", "!"],
       [expect.anything(), "formResponse.respondentUuid", "a\\!_!%%", "!"],
       [expect.anything(), "formResponse.countryCode", "A\\!_!%%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%a\\!_!%%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%A\\!_!%%", "!"],
     ]);
   });
 
-  it("does not use non-sargable keyword filters for response lists", async () => {
+  it("does not search response bodies when the search query is omitted", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
     mocks.db.select.mockReturnValueOnce(
       limitedQuery([
@@ -416,22 +464,341 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       ]),
     );
     const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses");
+
+    expect(res.status).toBe(200);
+    const { sql } = await import("drizzle-orm");
+    const responseBodySearchCalls = vi
+      .mocked(sql)
+      .mock.calls.filter((call) => call[1] === "formResponse.responseDataJson");
+    expect(responseBodySearchCalls).toHaveLength(0);
+    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("searches response body text and choice display labels with q before paginating", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    const { buildQuestionsFromPlateContent } = await import(
+      "../lib/forms/plate-question-builder"
+    );
+    vi.mocked(buildQuestionsFromPlateContent).mockReturnValueOnce([
+      {
+        id: "radio-question",
+        type: "radio",
+        validation: {
+          options: [{ id: "radio-option", label: "Needle Radio" }],
+        },
+      },
+      {
+        id: "checkbox-question",
+        type: "checkbox",
+        validation: {
+          options: [{ id: "checkbox-option", label: "Needle Checkbox" }],
+        },
+      },
+    ] satisfies ReturnType<typeof buildQuestionsFromPlateContent>);
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-short",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-short",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "short-question",
+                question_type: "short_text",
+                value: "Needle short answer",
+              },
+            ]),
+          },
+          {
+            id: "response-long",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-long",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "long-question",
+                question_type: "long_text",
+                value: "Long answer with Needle",
+              },
+            ]),
+          },
+          {
+            id: "response-radio",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-radio",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "radio-question",
+                question_type: "radio",
+                value: "radio-option",
+              },
+            ]),
+          },
+          {
+            id: "response-checkbox",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-checkbox",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "checkbox-question",
+                question_type: "checkbox",
+                values: ["checkbox-option"],
+              },
+            ]),
+          },
+        ]),
+      );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 
     const res = await formsResponsesRouter.request(
-      "/form-1/responses?keyword=alpha",
+      "/form-1/responses?page=1&limit=3&q=Needle",
     );
 
     expect(res.status).toBe(200);
-    const instrCalls = vi
+    const body = (await res.json()) as {
+      responses: Array<{ id: string; responseDataJson?: unknown }>;
+      hasNext: boolean;
+    };
+    expect(body.responses.map((response) => response.id)).toEqual([
+      "response-short",
+      "response-long",
+      "response-radio",
+    ]);
+    expect(body.hasNext).toBe(true);
+    expect(body.responses[0]).not.toHaveProperty("responseDataJson");
+
+    const responseJsonLikeCalls = vi
       .mocked(sql)
-      .mock.calls.filter((call) => String(call[0][0]).includes("instr("));
-    const lowerCalls = vi
-      .mocked(sql)
-      .mock.calls.filter((call) => String(call[0][0]).includes("lower("));
-    expect(instrCalls).toHaveLength(0);
-    expect(lowerCalls).toHaveLength(0);
-    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+      .mock.calls.filter((call) => call[1] === "formResponse.responseDataJson");
+    expect(responseJsonLikeCalls).toEqual([
+      [expect.anything(), "formResponse.responseDataJson", "%Needle%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%needle%", "!"],
+      [expect.anything(), "formResponse.responseDataJson", "%NEEDLE%", "!"],
+      [
+        expect.anything(),
+        "formResponse.responseDataJson",
+        '%"radio-option"%',
+        "!",
+      ],
+      [
+        expect.anything(),
+        "formResponse.responseDataJson",
+        '%"checkbox-option"%',
+        "!",
+      ],
+    ]);
+    expect(vi.mocked(sql).mock.calls).toEqual(
+      expect.arrayContaining([
+        [expect.anything(), "formResponse.submittedAt", "formResponse.id"],
+      ]),
+    );
+  });
+
+  it("uses a stable response id tiebreaker for search sort order", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(limitedQuery([]));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?q=alpha&sort=updatedAt&order=asc",
+    );
+
+    expect(res.status).toBe(200);
+    expect(vi.mocked(sql).mock.calls).toEqual(
+      expect.arrayContaining([
+        [expect.anything(), "formResponse.updatedAt", "formResponse.id"],
+      ]),
+    );
+  });
+
+  it("bounds candidate scans for sparse response body searches", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    const falsePositiveRows = Array.from({ length: 200 }, (_, index) => ({
+      id: `response-${index + 1}`,
+      formId: "form-1",
+      submittedAt,
+      updatedAt: null,
+      respondentUuid: `respondent-${index + 1}`,
+      userAgent: null,
+      sessionId: null,
+      countryCode: "JP",
+      responseDataJson: "[]",
+    }));
+    mocks.db.select.mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]));
+    for (let batch = 0; batch < 25; batch += 1) {
+      mocks.db.select.mockReturnValueOnce(limitedQuery(falsePositiveRows));
+    }
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?page=1&limit=20&q=sparse",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      responses: [],
+      hasNext: false,
+    });
+    expect(mocks.db.select).toHaveBeenCalledTimes(26);
+    expect(mocks.offsetCalls).toEqual(
+      Array.from({ length: 25 }, (_, index) => index * 200),
+    );
+    expect(mocks.limitCalls.filter((limit) => limit === 200)).toHaveLength(25);
+  });
+
+  it("exports saved responseDataJson values as CSV", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            plateContent: JSON.stringify([
+              { type: "form_short_text", blockId: "name-block" },
+            ]),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        orderedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "name-block",
+                question_type: "short_text",
+                value: "山田 太郎",
+              },
+            ]),
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-alpha",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(whereQuery([]));
+    const { extractQuestionsFromPlateContent } = await import(
+      "@nexus-form/shared"
+    );
+    vi.mocked(extractQuestionsFromPlateContent).mockReturnValueOnce([
+      {
+        blockId: "name-block",
+        type: "short_text",
+        title: "氏名",
+        validation: {},
+      },
+    ]);
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toContain("text/csv");
+    expect(res.headers.get("Content-Disposition")).toBe(
+      'attachment; filename="responses-form-1.csv"',
+    );
+    const csv = await res.text();
+    expect(csv.split("\n")[0]).toContain('"氏名"');
+    expect(csv.split("\n")[1]).toBe(
+      '"response-1","respondent-alpha","2026-01-01T00:00:00.000Z","","JP","","1.0000","山田 太郎"',
+    );
+    expect(mocks.db.select).toHaveBeenCalledTimes(3);
+    expect(mocks.limitCalls).toContain(5001);
+  });
+
+  it("returns a header-only CSV when there are no saved responses", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            plateContent: JSON.stringify([
+              { type: "form_short_text", blockId: "name-block" },
+            ]),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(orderedQuery([]));
+    const { extractQuestionsFromPlateContent } = await import(
+      "@nexus-form/shared"
+    );
+    vi.mocked(extractQuestionsFromPlateContent).mockReturnValueOnce([
+      {
+        blockId: "name-block",
+        type: "short_text",
+        title: "氏名",
+        validation: {},
+      },
+    ]);
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(200);
+    await expect(res.text()).resolves.toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名"',
+    );
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.limitCalls).toContain(5001);
+  });
+
+  it("rejects CSV export before loading fingerprints when response rows exceed the cap", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(limitedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        orderedQuery(
+          Array.from({ length: 5001 }, (_, index) => ({
+            id: `response-${index}`,
+            formId: "form-1",
+            responseDataJson: "[]",
+            submittedAt: new Date("2026-01-01T00:00:00.000Z"),
+            updatedAt: null,
+            respondentUuid: `respondent-${index}`,
+            userAgent: null,
+            sessionId: null,
+            countryCode: null,
+          })),
+        ),
+      );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(413);
+    expect(res.headers.get("Content-Type")).toContain("application/json");
+    await expect(res.json()).resolves.toMatchObject({
+      error: "Response export is limited to 5000 responses",
+    });
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.limitCalls).toContain(5001);
   });
 
   it("applies limit and offset to response analytics timelines", async () => {
@@ -465,6 +832,41 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.offsetCalls).toContain(8);
     expect(mocks.limitCalls).toContain(5);
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns an empty response analytics timeline as a successful page", async () => {
+    mocks.db.select.mockReturnValueOnce(limitedQuery([]));
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
+
+    const res = await formsResponseAnalyticsRouter.request(
+      "/form-1/responses/analytics?page=1&pageSize=4",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      timeline: [],
+      pagination: { page: 1, pageSize: 4, hasNext: false },
+    });
+    expect(mocks.offsetCalls).toContain(0);
+    expect(mocks.limitCalls).toContain(5);
+  });
+
+  it("returns empty block analytics successfully when the form has no analytics targets", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      limitedQuery([{ plateContent: JSON.stringify([]) }]),
+    );
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
+
+    const res = await formsResponseAnalyticsRouter.request(
+      "/form-1/responses/block-analytics",
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ blocks: [] });
   });
 
   it("applies limit and offset to snapshot lists", async () => {

@@ -5,7 +5,9 @@ pre-commit:
   commands:
     lint:
       glob: "{src,apps,packages}/**/*.{js,jsx,ts,tsx,json,css,md}"
-      exclude: "{src,apps/**/src}/components/ui/**"
+      exclude:
+        - "src/components/ui/**"
+        - "apps/**/src/components/ui/**"
       run: |
         bash -c '
           if [ "$#" -gt 0 ]; then
@@ -28,4 +30,4 @@ pre-push:
     type-check:
       run: pnpm type-check
     test:
-      run: pnpm test
+      run: TURBO_CONCURRENCY=1 pnpm test -- --maxWorkers=1

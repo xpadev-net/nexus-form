@@ -33,6 +33,14 @@ export const FormResponseAnalytics: FC<FormResponseAnalyticsProps> = ({
   const totalResponses = data.timeline.reduce((sum, d) => sum + d.count, 0);
   const maxCount = Math.max(...data.timeline.map((d) => d.count), 1);
   const blockAnalytics = blockAnalyticsQuery.data?.blocks ?? [];
+  const hasTimeline = data.timeline.length > 0;
+  const hasBlockAnalytics = blockAnalytics.length > 0;
+  const hasBlockAnalyticsError = Boolean(blockAnalyticsQuery.error);
+  const showEmptyState =
+    !hasTimeline &&
+    !blockAnalyticsQuery.isLoading &&
+    !hasBlockAnalytics &&
+    !hasBlockAnalyticsError;
 
   return (
     <div className="space-y-6">
@@ -45,7 +53,7 @@ export const FormResponseAnalytics: FC<FormResponseAnalyticsProps> = ({
         </div>
       </div>
 
-      {data.timeline.length > 0 && (
+      {hasTimeline && (
         <div className="rounded-lg border p-4">
           <h4 className="mb-3 text-sm font-medium text-card-foreground">
             日別レスポンス数
@@ -71,13 +79,25 @@ export const FormResponseAnalytics: FC<FormResponseAnalyticsProps> = ({
         </div>
       )}
 
+      {showEmptyState && (
+        <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
+          <p className="text-sm">分析対象の回答はまだありません。</p>
+        </div>
+      )}
+
       {blockAnalyticsQuery.isLoading && (
         <div className="p-4 text-sm text-muted-foreground">
           ブロック別分析を読み込み中...
         </div>
       )}
 
-      {blockAnalytics.length > 0 && (
+      {hasBlockAnalyticsError && (
+        <div className="p-4 text-sm text-red-500">
+          ブロック別分析の読み込みに失敗しました
+        </div>
+      )}
+
+      {hasBlockAnalytics && (
         <div className="space-y-4">
           <h4 className="text-base font-medium">ブロック別分析</h4>
           {blockAnalytics.map((block) => (

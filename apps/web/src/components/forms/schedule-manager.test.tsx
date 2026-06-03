@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScheduleManager } from "./schedule-manager";
 
@@ -11,23 +12,51 @@ import { ScheduleManager } from "./schedule-manager";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  clipboardWriteText: vi.fn<Clipboard["writeText"]>(),
   schedulesRefetch: vi.fn(),
   snapshotsRefetch: vi.fn(),
   schedulesQuery: {
-    data: undefined as { schedules: [] } | undefined,
+    data: undefined as { schedules: ScheduleFixture[] } | undefined,
     error: null as Error | null,
     isError: false,
     isLoading: false,
     refetch: vi.fn(),
   },
   snapshotsQuery: {
-    data: { snapshots: [] },
+    data: { snapshots: [] as SnapshotFixture[] } as
+      | { snapshots: SnapshotFixture[] }
+      | undefined,
     error: null as Error | null,
     isError: false,
     isLoading: false,
     refetch: vi.fn(),
   },
 }));
+
+type ScheduleFixture = {
+  id: string;
+  formId: string;
+  triggerAt: string;
+  action: "PUBLISH" | "UNPUBLISH" | "SWITCH_SNAPSHOT";
+  snapshotVersion: number | null;
+  processedAt: string | null;
+  status: "PENDING" | "COMPLETED" | "CANCELLED";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SnapshotFixture = {
+  id: string;
+  formId: string;
+  version: number;
+  isActive: boolean;
+  publishedBy: string | null;
+  publishedAt: string;
+  changeLog?: string | null;
+  title: string;
+  description?: string | null;
+  parentVersion?: number | null;
+};
 
 function renderManager(container: HTMLElement): Root {
   const root = createRoot(container);
@@ -54,7 +83,16 @@ vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
     success: vi.fn(),
+    warning: vi.fn(),
   },
+}));
+
+vi.mock("@/components/ui/alert", () => ({
+  Alert: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  AlertDescription: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
+  AlertTitle: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -75,6 +113,9 @@ vi.mock("@/components/ui/dialog", () => ({
     open ? <div>{children}</div> : null,
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
+  ),
+  DialogDescription: ({ children }: { children: ReactNode }) => (
+    <p>{children}</p>
   ),
   DialogFooter: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -120,6 +161,13 @@ vi.mock("@/lib/api", () => ({
 describe("ScheduleManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.clipboardWriteText.mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: mocks.clipboardWriteText,
+      } satisfies Pick<Clipboard, "writeText">,
+    });
     mocks.schedulesQuery = {
       data: undefined,
       error: null,
@@ -195,6 +243,214 @@ describe("ScheduleManager", () => {
     });
 
     expect(mocks.snapshotsRefetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("does not mark completed snapshot schedules as failed while snapshots errored", () => {
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.snapshotsQuery = {
+      ...mocks.snapshotsQuery,
+      data: undefined,
+      error: new Error("スナップショットを読み込めませんでした。"),
+      isError: true,
+    };
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "completed-snapshot-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 2,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("実行済み");
+    expect(container.textContent).not.toContain("失敗");
+    expect(container.querySelector('button[aria-label="再実行"]')).toBeNull();
+    expect(container.querySelector('button[aria-label="ログ確認"]')).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows a save summary before creating a schedule", () => {
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "追加",
+    );
+    expect(addButton).not.toBeNull();
+
+    act(() => {
+      addButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("保存前の確認");
+    expect(container.textContent).toContain(
+      "日時未設定 にフォームを 公開 状態へ切り替えます。",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("labels pending, completed, failed, and cancelled schedules with recovery actions", async () => {
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.snapshotsQuery = {
+      ...mocks.snapshotsQuery,
+      data: {
+        snapshots: [
+          {
+            id: "snapshot-1",
+            formId: "form-1",
+            version: 1,
+            isActive: true,
+            publishedBy: null,
+            publishedAt: timestamp,
+            changeLog: null,
+            title: "v1",
+            description: null,
+            parentVersion: null,
+          },
+        ],
+      },
+    };
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "pending-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "PUBLISH",
+            snapshotVersion: null,
+            processedAt: null,
+            status: "PENDING",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          {
+            id: "completed-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "UNPUBLISH",
+            snapshotVersion: null,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          {
+            id: "failed-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 3,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          {
+            id: "cancelled-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "PUBLISH",
+            snapshotVersion: null,
+            processedAt: new Date(
+              new Date(timestamp).getTime() - 1000,
+            ).toISOString(),
+            status: "CANCELLED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("未実行");
+    expect(container.textContent).toContain("実行済み");
+    expect(container.textContent).toContain("失敗");
+    expect(container.textContent).toContain("取消済み");
+    expect(container.textContent).toContain(
+      "切り替え先のスナップショットを確認できません。再実行するか、管理ログで scheduleId=failed-schedule を検索してください。",
+    );
+    expect(
+      container.querySelector('button[aria-label="再実行"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="ログ確認"]'),
+    ).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector('button[aria-label="ログ確認"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith(
+      "scheduleId=failed-schedule",
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      "管理ログ検索キーをコピーしました: scheduleId=failed-schedule",
+    );
+
+    act(() => {
+      container
+        .querySelector('button[aria-label="再実行"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("スケジュールを再実行");
+    expect(container.textContent).toContain("公開版を 未選択 へ切り替えます。");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps failed recovery visible when snapshots loaded as empty", () => {
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "failed-empty-snapshots",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 2,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    expect(container.textContent).toContain("失敗");
+    expect(
+      container.querySelector('button[aria-label="再実行"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="ログ確認"]'),
+    ).not.toBeNull();
 
     act(() => root.unmount());
   });

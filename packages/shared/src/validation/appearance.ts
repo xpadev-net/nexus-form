@@ -22,9 +22,12 @@ export interface AppearanceBrandDefaults {
 export const FormLayoutSchema = z.object({
   width: z.enum(["full", "medium", "compact"]).default("medium"),
   alignment: z.enum(["left", "center"]).default("center"),
+  spacing: z
+    .enum(["compact", "comfortable", "spacious"])
+    .default("comfortable"),
   show_progress_bar: z.boolean().default(true),
   progress_position: z.enum(["top", "bottom"]).default("top"),
-  show_question_numbers: z.boolean().default(true),
+  show_question_numbers: z.boolean().default(false),
 });
 
 export function createFormThemeSchema(defaults: AppearanceBrandDefaults) {
@@ -33,6 +36,7 @@ export function createFormThemeSchema(defaults: AppearanceBrandDefaults) {
     accent_color: HexColorSchema.default(defaults.accentColor),
     background_color: HexColorSchema.default("#ffffff"),
     font_family: z.string().min(1).max(100).default("Inter"),
+    brand_name: z.string().max(120).optional(),
     logo_url: z.string().url().optional(),
     cover_image_url: z.string().url().optional(),
   });
@@ -53,6 +57,7 @@ export function createFormAppearanceSchema(defaults: AppearanceBrandDefaults) {
       accent_color: "#000000",
       background_color: "#ffffff",
       font_family: "Inter",
+      brand_name: undefined,
       logo_url: undefined,
       cover_image_url: undefined,
     } satisfies z.infer<typeof FormThemeSchema>;
@@ -66,9 +71,10 @@ export function createFormAppearanceSchema(defaults: AppearanceBrandDefaults) {
     return {
       width: "medium",
       alignment: "center",
+      spacing: "comfortable",
       show_progress_bar: true,
       progress_position: "top",
-      show_question_numbers: true,
+      show_question_numbers: false,
     };
   };
 

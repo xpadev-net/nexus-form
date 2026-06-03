@@ -30,7 +30,11 @@ export function FormEditorPage() {
 
   if (model.isNotFound) {
     return (
-      <FormNotFoundPage description="このフォームは存在しないか、編集権限がありません。" />
+      <FormNotFoundPage
+        description="このフォームは存在しないか、編集権限がありません。"
+        homeActionLabel="フォーム一覧へ戻る"
+        showHomeAction
+      />
     );
   }
 
@@ -58,6 +62,7 @@ export function FormEditorPage() {
         publicId={model.formData?.publicId}
         titleSaveFailureCount={model.titleSaveFailureCount}
         onTitleBlur={model.formData ? model.updateTitle : undefined}
+        onTitleDraftChange={model.updateTitleDraft}
         onPublishStatusChange={model.handlePublishStatusChange}
         onResetSuccess={model.refetchContent}
       />
@@ -83,8 +88,13 @@ export function FormEditorPage() {
 
       <FormSettingsTab
         formId={id}
+        publicId={model.formData?.publicId}
+        formTitle={model.formData?.title ?? "フォーム"}
+        formDescription={model.formData?.description ?? undefined}
+        plateContent={model.draftContent ?? model.plateContent}
         isArchived={model.formStatus === "ARCHIVED"}
         archiveLoading={model.isArchivePending}
+        duplicateLoading={model.isDuplicatePending}
         onArchive={model.archiveForm}
         onUnarchive={model.unarchiveForm}
         onDuplicate={() => model.setShowDuplicateModal(true)}
@@ -130,6 +140,7 @@ export function FormEditorPage() {
       />
       <FormDuplicateModal
         open={model.showDuplicateModal}
+        sourceTitle={model.titleDraft.trim() || model.formData?.title}
         isDuplicating={model.isDuplicatePending}
         onConfirm={model.duplicateForm}
         onClose={() => model.setShowDuplicateModal(false)}

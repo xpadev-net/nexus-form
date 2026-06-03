@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import { logError } from "../logger";
+import {
+  buildResponseLabelLookupFromBlocks,
+  resolveResponseDisplayValue,
+} from "./response-choice-labels";
 import { calculateUniqueness } from "./uniqueness-calculator";
 
 /**
@@ -53,6 +57,7 @@ export type ResponseExportRecord = {
     block_type: string;
     question_title?: string;
     value: unknown;
+    display_value?: unknown;
   }>;
 };
 
@@ -168,19 +173,10 @@ export function buildResponseExportRecords(
     }>;
   }>,
   formBlocks: Array<{
-    id: string;
-    formId: string;
     blockId: string;
     category: string;
     type: string;
     content: unknown;
-    order: number;
-    version: number;
-    isDeleted: boolean;
-    createdAt: Date;
-    updatedAt: Date;
-    createdBy: string;
-    updatedBy: string;
   }>,
 ): { records: ResponseExportRecord[]; fingerprintComponents: Set<string> } {
   // ブロックタイトルマップを作成
@@ -193,6 +189,7 @@ export function buildResponseExportRecords(
     const title = (content?.title as string) || block.blockId;
     blockTitleMap.set(block.blockId, title);
   });
+  const responseLabelLookup = buildResponseLabelLookupFromBlocks(formBlocks);
 
   // 疑似ID生成用の名前空間（フォーム固有）
   const namespace = uuidv5(formId, uuidv5.DNS);
@@ -261,12 +258,19 @@ export function buildResponseExportRecords(
           (r) => r.question_id === block.blockId,
         );
         const value = resolveResponseValue(blockResponse);
+        const displayValue = resolveResponseDisplayValue(
+          blockResponse,
+          responseLabelLookup.get(block.blockId),
+        );
 
         return {
           block_id: block.blockId,
           block_type: block.type,
           question_title: blockResponse?.question_title,
           value,
+          ...(displayValue !== undefined
+            ? { display_value: displayValue }
+            : {}),
         };
       });
 
@@ -324,28 +328,33 @@ export function formatRecordsToCsv(
   records: ResponseExportRecord[],
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
+  emptyRecordBlockIds: string[] = [],
 ): string {
   try {
-    if (records.length === 0) return "";
-
     // メタデータヘッダーを共通関数から取得
     const metadataHeaders = buildMetadataHeaders(fingerprintComponents, true);
 
     // コンポーネント列をヘッダーに追加
     const componentHeaders = new Map<string, string>();
-    records.forEach((record) => {
-      if (record.component_columns) {
-        record.component_columns.forEach((col) => {
-          if (!componentHeaders.has(col.block_id)) {
-            const blockTitle =
-              col.question_title?.trim() ||
-              blockTitleMap.get(col.block_id) ||
-              col.block_id;
-            componentHeaders.set(col.block_id, blockTitle);
-          }
-        });
-      }
-    });
+    if (records.length === 0) {
+      emptyRecordBlockIds.forEach((blockId) => {
+        componentHeaders.set(blockId, blockTitleMap.get(blockId) ?? blockId);
+      });
+    } else {
+      records.forEach((record) => {
+        if (record.component_columns) {
+          record.component_columns.forEach((col) => {
+            if (!componentHeaders.has(col.block_id)) {
+              const blockTitle =
+                col.question_title?.trim() ||
+                blockTitleMap.get(col.block_id) ||
+                col.block_id;
+              componentHeaders.set(col.block_id, blockTitle);
+            }
+          });
+        }
+      });
+    }
 
     // ヘッダーを生成
     const csvHeaders = [
@@ -364,7 +373,14 @@ export function formatRecordsToCsv(
         const answer = record.component_columns?.find(
           (col) => col.block_id === blockId,
         );
-        componentValues.push(answer ? JSON.stringify(answer.value) : "");
+        componentValues.push(
+          answer
+            ? stringifyValue(
+                answer.display_value ?? answer.value,
+                answer.block_type,
+              )
+            : "",
+        );
       });
 
       const row = [...metadataValues, ...componentValues];
@@ -402,6 +418,7 @@ function stringifyValue(value: unknown, blockType: string): string {
     }
     case "choice_grid":
     case "checkbox_grid": {
+      if (typeof value === "string") return value;
       return typeof value === "object" ? JSON.stringify(value) : "";
     }
     default:
@@ -484,7 +501,9 @@ export function mapRecordToSheetRow(
     const componentValues: string[] = [];
     for (const blockId of componentIds) {
       const col = record.component_columns.find((c) => c.block_id === blockId);
-      const value = col ? stringifyValue(col.value, col.block_type) : "";
+      const value = col
+        ? stringifyValue(col.display_value ?? col.value, col.block_type)
+        : "";
       componentValues.push(value);
     }
 
@@ -582,7 +601,10 @@ export function mapRecordToSheetRow(
         blockTitleMap.get(col.block_id) ||
         col.block_id;
       const colIndex = ensureColumnForBlock(col.block_id, rawTitle);
-      const value = stringifyValue(col.value, col.block_type);
+      const value = stringifyValue(
+        col.display_value ?? col.value,
+        col.block_type,
+      );
       row[colIndex] = value ?? "";
     }
   }

@@ -155,6 +155,476 @@ function loadByCursor<T extends { id: string; submittedAt: Date | string }>(
 }
 
 describe("aggregateAllBlocksInBatches", () => {
+  it("aggregates saved responseDataJson values across major question payload shapes", async () => {
+    const fixtureBlocks = [
+      {
+        blockId: "short-text",
+        type: "short_text",
+        content: { title: "氏名", validation: {} },
+      },
+      {
+        blockId: "radio",
+        type: "radio",
+        content: {
+          title: "希望枠",
+          validation: {
+            options: [
+              { id: "morning", label: "午前" },
+              { id: "afternoon", label: "午後" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "checkbox",
+        type: "checkbox",
+        content: {
+          title: "興味",
+          validation: {
+            options: [
+              { id: "typescript", label: "TypeScript" },
+              { id: "react", label: "React" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "choice-grid",
+        type: "choice_grid",
+        content: {
+          title: "参加可能日",
+          validation: {
+            rows: [{ id: "monday", label: "月曜" }],
+            columns: [{ id: "morning", label: "午前" }],
+          },
+        },
+      },
+      {
+        blockId: "checkbox-grid",
+        type: "checkbox_grid",
+        content: {
+          title: "対応可能時間",
+          validation: {
+            rows: [{ id: "tuesday", label: "火曜" }],
+            columns: [
+              { id: "morning", label: "午前" },
+              { id: "evening", label: "夜" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "rating",
+        type: "rating",
+        content: { title: "満足度", validation: { maxRating: 5 } },
+      },
+      {
+        blockId: "date",
+        type: "date",
+        content: { title: "希望日", validation: {} },
+      },
+      {
+        blockId: "time",
+        type: "time",
+        content: { title: "希望時刻", validation: {} },
+      },
+    ];
+    const responses = [
+      {
+        id: "response-1",
+        submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "short-text",
+            question_type: "short_text",
+            value: "山田 太郎",
+          },
+          {
+            question_id: "radio",
+            question_type: "radio",
+            value: "morning",
+          },
+          {
+            question_id: "checkbox",
+            question_type: "checkbox",
+            values: ["typescript", "react"],
+          },
+          {
+            question_id: "choice-grid",
+            question_type: "choice_grid",
+            responses: { monday: "morning" },
+          },
+          {
+            question_id: "checkbox-grid",
+            question_type: "checkbox_grid",
+            responses: { tuesday: ["morning", "evening"] },
+          },
+          {
+            question_id: "rating",
+            question_type: "rating",
+            value: 5,
+          },
+          {
+            question_id: "date",
+            question_type: "date",
+            value: "2026-05-20",
+          },
+          {
+            question_id: "time",
+            question_type: "time",
+            value: "09:30",
+          },
+        ]),
+      },
+    ];
+
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      fixtureBlocks,
+      loadByCursor(responses),
+      { batchSize: 1 },
+    );
+
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          block_id: "short-text",
+          total_responses: 1,
+          analytics_data: expect.objectContaining({
+            responses: [
+              expect.objectContaining({
+                response_id: "response-1",
+                value: "山田 太郎",
+              }),
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "radio",
+          analytics_data: expect.objectContaining({
+            options: [
+              { label: "午前", count: 1, percentage: 100 },
+              { label: "午後", count: 0, percentage: 0 },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "checkbox",
+          analytics_data: expect.objectContaining({
+            options: [
+              { label: "TypeScript", count: 1, percentage: 100 },
+              { label: "React", count: 1, percentage: 100 },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "choice-grid",
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "月曜",
+                column_counts: [{ column_id: "morning", count: 1 }],
+              },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "checkbox-grid",
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "火曜",
+                column_counts: [
+                  { column_id: "morning", count: 1 },
+                  { column_id: "evening", count: 1 },
+                ],
+              },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "rating",
+          analytics_data: expect.objectContaining({
+            options: expect.arrayContaining([
+              { label: "5", count: 1, percentage: 100 },
+            ]),
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "date",
+          analytics_data: expect.objectContaining({
+            distribution: [{ date: "2026-05-20", count: 1, percentage: 100 }],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "time",
+          analytics_data: expect.objectContaining({
+            distribution: [{ time: "09:30", count: 1, percentage: 100 }],
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("resolves grid response ids and legacy labels without breaking on invalid payloads", async () => {
+    const fixtureBlocks = [
+      {
+        blockId: "choice-grid-single",
+        type: "choice_grid",
+        content: {
+          title: "1x1 Grid",
+          validation: {
+            rows: [{ id: "row-single", label: "単一行" }],
+            columns: [{ id: "col-single", label: "単一列" }],
+          },
+        },
+      },
+      {
+        blockId: "choice-grid",
+        type: "choice_grid",
+        content: {
+          title: "Choice Grid",
+          validation: {
+            rows: [
+              { id: "row-a", label: "月曜" },
+              { id: "row-b", label: "火曜" },
+            ],
+            columns: [
+              { id: "col-morning", label: "午前" },
+              { id: "col-evening", label: "夜" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "checkbox-grid",
+        type: "checkbox_grid",
+        content: {
+          title: "Checkbox Grid",
+          validation: {
+            rows: [
+              { id: "row-a", label: "月曜" },
+              { id: "row-b", label: "火曜" },
+            ],
+            columns: [
+              { id: "col-morning", label: "午前" },
+              { id: "col-evening", label: "夜" },
+            ],
+          },
+        },
+      },
+    ];
+    const responses = [
+      {
+        id: "response-1",
+        submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "choice-grid-single",
+            question_type: "choice_grid",
+            responses: { "row-single": "col-single" },
+          },
+          {
+            question_id: "choice-grid",
+            question_type: "choice_grid",
+            responses: { "row-a": "col-morning", "row-b": "" },
+          },
+          {
+            question_id: "checkbox-grid",
+            question_type: "checkbox_grid",
+            responses: {
+              "row-a": ["col-morning"],
+              "row-b": ["col-morning", "col-evening"],
+            },
+          },
+        ]),
+      },
+      {
+        id: "legacy-label-response",
+        submittedAt: new Date("2026-05-17T01:01:00.000Z"),
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "choice-grid",
+            question_type: "choice_grid",
+            responses: { 月曜: "夜" },
+          },
+          {
+            question_id: "checkbox-grid",
+            question_type: "checkbox_grid",
+            responses: { 火曜: ["午前", "夜"] },
+          },
+        ]),
+      },
+      {
+        id: "invalid-grid-response",
+        submittedAt: new Date("2026-05-17T01:02:00.000Z"),
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "choice-grid",
+            question_type: "choice_grid",
+            responses: {
+              "unknown-row": "col-morning",
+              "row-a": ["col-morning"],
+            },
+          },
+          {
+            question_id: "checkbox-grid",
+            question_type: "checkbox_grid",
+            responses: { "row-a": "col-morning", "row-b": ["unknown-column"] },
+          },
+        ]),
+      },
+    ];
+
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      fixtureBlocks,
+      loadByCursor(responses),
+      { batchSize: 2 },
+    );
+
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          block_id: "choice-grid-single",
+          total_responses: 1,
+          analytics_data: expect.objectContaining({
+            rows: [{ id: "row-single", label: "単一行" }],
+            columns: [{ id: "col-single", label: "単一列" }],
+            row_analytics: [
+              {
+                row_label: "単一行",
+                column_counts: [{ column_id: "col-single", count: 1 }],
+              },
+            ],
+            invalid_responses: [],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "choice-grid",
+          total_responses: 3,
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "月曜",
+                column_counts: [
+                  { column_id: "col-morning", count: 1 },
+                  { column_id: "col-evening", count: 1 },
+                ],
+              },
+              {
+                row_label: "火曜",
+                column_counts: [
+                  { column_id: "col-morning", count: 0 },
+                  { column_id: "col-evening", count: 0 },
+                ],
+              },
+            ],
+            column_analytics: [
+              {
+                column_id: "col-morning",
+                column_label: "午前",
+                row_counts: [
+                  { row_label: "月曜", count: 1 },
+                  { row_label: "火曜", count: 0 },
+                ],
+              },
+              {
+                column_id: "col-evening",
+                column_label: "夜",
+                row_counts: [
+                  { row_label: "月曜", count: 1 },
+                  { row_label: "火曜", count: 0 },
+                ],
+              },
+            ],
+            invalid_responses: [
+              {
+                response_id: "invalid-grid-response",
+                reason: 'Unknown grid row "unknown-row"',
+              },
+              {
+                response_id: "invalid-grid-response",
+                reason:
+                  'Choice grid row "月曜" must contain a single selection',
+              },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "checkbox-grid",
+          total_responses: 3,
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "月曜",
+                column_counts: [
+                  { column_id: "col-morning", count: 1 },
+                  { column_id: "col-evening", count: 0 },
+                ],
+              },
+              {
+                row_label: "火曜",
+                column_counts: [
+                  { column_id: "col-morning", count: 2 },
+                  { column_id: "col-evening", count: 2 },
+                ],
+              },
+            ],
+            invalid_responses: [
+              {
+                response_id: "invalid-grid-response",
+                reason:
+                  'Checkbox grid row "月曜" must contain selection arrays',
+              },
+              {
+                response_id: "invalid-grid-response",
+                reason: 'Unknown grid column "unknown-column" for row "火曜"',
+              },
+            ],
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("returns empty analytics for configured blocks when there are no responses", async () => {
+    const actual = await aggregateAllBlocksInBatches(
+      "form-1",
+      blocks,
+      loadByCursor([]),
+      { batchSize: 2 },
+    );
+
+    expect(actual).toEqual(aggregateAllBlocks("form-1", blocks, []));
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          block_id: "choice-block",
+          total_responses: 0,
+          response_rate: 0,
+          analytics_data: expect.objectContaining({
+            total_responses: 0,
+            options: [
+              { label: "Same label", count: 0, percentage: 0 },
+              { label: "Same label", count: 0, percentage: 0 },
+            ],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "text-block",
+          total_responses: 0,
+          response_rate: 0,
+          analytics_data: {
+            total_responses: 0,
+            responses: [],
+            word_count_stats: undefined,
+          },
+        }),
+      ]),
+    );
+  });
+
   it("matches the non-batched aggregate across multiple response batches", async () => {
     const responses = [
       responseRow("response-1", 1, "a"),

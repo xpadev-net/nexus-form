@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const schema = {
@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     addSheetsSyncJob: vi.fn(),
+    addNotificationJob: vi.fn(),
     addValidationJob: vi.fn(),
     consumeTokensOrThrow: vi.fn(),
     db: {
@@ -97,6 +98,9 @@ vi.mock("../lib/sessions/jwt", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  getFormSubmitNotificationQueue: vi.fn(() => ({
+    add: mocks.addNotificationJob,
+  })),
   getSheetsSyncQueue: vi.fn(() => ({
     add: mocks.addSheetsSyncJob,
   })),
@@ -201,9 +205,155 @@ function activeSnapshot(
   };
 }
 
+function publicSnapshot(options: {
+  title: string;
+  version: number;
+  blockId: string;
+  questionTitle: string;
+}) {
+  return {
+    ...activeSnapshot([]),
+    id: `snapshot-${options.version}`,
+    version: options.version,
+    title: options.title,
+    plateContent: JSON.stringify([
+      {
+        type: "form_short_text",
+        blockId: options.blockId,
+        children: [{ text: options.questionTitle }],
+      },
+    ]),
+  };
+}
+
+function questionNode(
+  type: string,
+  blockId: string,
+  validation?: Record<string, unknown>,
+) {
+  return {
+    type: `form_${type}`,
+    blockId,
+    ...(validation ? { validation } : {}),
+    children: [{ text: `Question ${blockId}` }],
+  };
+}
+
+function mixedQuestionSnapshot() {
+  const rows = [
+    { id: "row-a", label: "Row A" },
+    { id: "row-b", label: "Row B" },
+  ];
+  const columns = [
+    { id: "col-1", label: "Column 1" },
+    { id: "col-2", label: "Column 2" },
+  ];
+
+  return {
+    ...activeSnapshot([]),
+    id: "snapshot-mixed",
+    version: 23,
+    plateContent: JSON.stringify([
+      questionNode("section_separator", "section-main"),
+      questionNode("short_text", "q-short", {
+        required: true,
+        minLength: 2,
+        maxLength: 20,
+      }),
+      questionNode("long_text", "q-long", { required: true }),
+      questionNode("radio", "q-radio", {
+        required: true,
+        options: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+      }),
+      questionNode("checkbox", "q-checkbox", {
+        required: true,
+        minSelections: 2,
+        maxSelections: 3,
+        options: [
+          { id: "red", label: "Red" },
+          { id: "blue", label: "Blue" },
+          { id: "green", label: "Green" },
+        ],
+      }),
+      questionNode("dropdown", "q-dropdown", {
+        required: true,
+        options: [
+          { id: "jp", label: "Japan" },
+          { id: "us", label: "United States" },
+        ],
+      }),
+      questionNode("linear_scale", "q-scale", {
+        required: true,
+        min: 1,
+        max: 5,
+      }),
+      questionNode("rating", "q-rating", {
+        required: true,
+        min: 1,
+        max: 5,
+        maxRating: 5,
+      }),
+      questionNode("choice_grid", "q-choice-grid", {
+        required: true,
+        rows,
+        columns,
+      }),
+      questionNode("checkbox_grid", "q-checkbox-grid", {
+        required: true,
+        rows,
+        columns,
+        minSelectionsPerRow: 1,
+        maxSelectionsPerRow: 2,
+      }),
+      questionNode("date", "q-date", {
+        required: true,
+        minDate: "2026-01-01",
+        maxDate: "2026-12-31",
+      }),
+      questionNode("time", "q-time", {
+        required: true,
+        minTime: "09:00",
+        maxTime: "17:00",
+      }),
+    ]),
+  };
+}
+
+type PublicGetBody = {
+  form: { status: string; title: string };
+  plateContent: string | null;
+};
+
+function usePublicGetSelect(params: {
+  status: "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
+  dueScheduleId: string | null;
+}) {
+  useSelectResults([
+    [
+      {
+        id: "form-1",
+        publicId: "public-form-1",
+        title: "Schedule form",
+        description: null,
+        status: params.status,
+        dueScheduleId: params.dueScheduleId,
+      },
+    ],
+  ]);
+}
+
+async function getPublicForm() {
+  const { formsPublicRouter } = await import("../routes/forms-public");
+  return formsPublicRouter.request("/public/public-form-1");
+}
+
 function useSuccessfulSubmitSelects(
   snapshot: ReturnType<typeof activeSnapshot>,
   options?: {
+    finalResponseRows?: unknown[];
     responseRows?: unknown[];
   },
 ) {
@@ -216,17 +366,20 @@ function useSuccessfulSubmitSelects(
         dueScheduleId: null,
       },
     ],
+    options?.finalResponseRows ?? [],
     options?.responseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
 
 function useTransactionWithInsertCapture() {
+  let insertedResponseRow: unknown;
   let insertedValidationRows: unknown;
   const txInsert = vi.fn((table: unknown) => ({
     values: vi.fn(async (values: unknown) => {
       if (table === mocks.schema.formResponse) {
         mocks.sequence.push("tx:response");
+        insertedResponseRow = values;
       }
       if (table === mocks.schema.externalServiceValidationResult) {
         mocks.sequence.push("tx:validation");
@@ -241,22 +394,86 @@ function useTransactionWithInsertCapture() {
     mocks.sequence.push("tx:commit");
     return result;
   });
-  return { getInsertedValidationRows: () => insertedValidationRows, txInsert };
+  return {
+    getInsertedResponseRow: () => insertedResponseRow,
+    getInsertedValidationRows: () => insertedValidationRows,
+    txInsert,
+  };
 }
 
-async function submitPublicForm() {
+type PublicSubmitResponseItem = {
+  question_id: string;
+  question_type: string;
+  question_title?: string;
+  value?: string | number | boolean | null;
+  values?: (string | number | boolean)[];
+  responses?: Record<string, string | string[]>;
+  other_value?: string;
+  other_values?: string[];
+};
+
+function validMixedResponses(): PublicSubmitResponseItem[] {
+  return [
+    {
+      question_id: "q-short",
+      question_type: "short_text",
+      value: "Alice",
+    },
+    {
+      question_id: "q-long",
+      question_type: "long_text",
+      value: "A detailed answer",
+    },
+    { question_id: "q-radio", question_type: "radio", value: "yes" },
+    {
+      question_id: "q-checkbox",
+      question_type: "checkbox",
+      values: ["red", "blue"],
+    },
+    { question_id: "q-dropdown", question_type: "dropdown", value: "jp" },
+    { question_id: "q-scale", question_type: "linear_scale", value: 4 },
+    { question_id: "q-rating", question_type: "rating", value: 5 },
+    {
+      question_id: "q-choice-grid",
+      question_type: "choice_grid",
+      responses: { "row-a": "col-1", "row-b": "col-2" },
+    },
+    {
+      question_id: "q-checkbox-grid",
+      question_type: "checkbox_grid",
+      responses: { "row-a": ["col-1"], "row-b": ["col-1", "col-2"] },
+    },
+    { question_id: "q-date", question_type: "date", value: "2026-06-15" },
+    { question_id: "q-time", question_type: "time", value: "10:30" },
+  ];
+}
+
+function getStoredResponseDataJson(row: unknown): string {
+  if (typeof row === "object" && row !== null && "responseDataJson" in row) {
+    const value = row.responseDataJson;
+    if (typeof value === "string") {
+      return value;
+    }
+  }
+
+  throw new Error("Inserted response row did not include responseDataJson");
+}
+
+async function submitPublicForm(
+  responses: PublicSubmitResponseItem[] = [
+    {
+      question_id: "block-1",
+      question_type: "short_text",
+      value: "xpadev",
+    },
+  ],
+) {
   const { formsPublicRouter } = await import("../routes/forms-public");
   return formsPublicRouter.request("/public/public-form-1/submit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      responses: [
-        {
-          question_id: "block-1",
-          question_type: "short_text",
-          value: "xpadev",
-        },
-      ],
+      responses,
       captchaToken: "captcha-token",
       telemetry: { v4Token: "telemetry-token" },
       fingerprints: [],
@@ -264,24 +481,37 @@ async function submitPublicForm() {
   });
 }
 
-describe("R11-C2-a public validation outbox", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    vi.unstubAllEnvs();
-    mocks.sequence.length = 0;
-    mocks.updateSetValues.length = 0;
-    mocks.updateWhereValues.length = 0;
-    mocks.verifyHCaptcha.mockResolvedValue(true);
-    mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
-    mocks.processFormSchedule.mockResolvedValue(null);
-    mocks.resolveSessionIdOrCreate.mockResolvedValue({
-      sessionId: "session-1",
-      jwt: "session-jwt",
-    });
+function resetPublicSubmitMocks(
+  options: {
+    providerRegistryGet?: (name: string) => unknown;
+    trackQueueSequence?: boolean;
+  } = {},
+) {
+  vi.resetModules();
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  mocks.sequence.length = 0;
+  mocks.updateSetValues.length = 0;
+  mocks.updateWhereValues.length = 0;
+  mocks.verifyHCaptcha.mockResolvedValue(true);
+  mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
+  mocks.processFormSchedule.mockResolvedValue(null);
+  mocks.resolveSessionIdOrCreate.mockResolvedValue({
+    sessionId: "session-1",
+    jwt: "session-jwt",
+  });
+  if (options.providerRegistryGet) {
     mocks.providerRegistryGet.mockImplementation((name: string) =>
-      name === "discord" ? { rules: { guild_member: {} } } : undefined,
+      options.providerRegistryGet?.(name),
     );
+  } else {
+    mocks.providerRegistryGet.mockReturnValue(undefined);
+  }
+  if (options.trackQueueSequence) {
+    mocks.addNotificationJob.mockImplementation(async () => {
+      mocks.sequence.push("notification:add");
+      return { id: "notification-job-1" };
+    });
     mocks.addValidationJob.mockImplementation(async () => {
       mocks.sequence.push("queue:add");
       return { id: "validation-job-1" };
@@ -290,16 +520,30 @@ describe("R11-C2-a public validation outbox", () => {
       mocks.sequence.push("sheets:add");
       return { id: "sheets-job" };
     });
-    mocks.db.update.mockReturnValue({
-      set: vi.fn((values: unknown) => {
-        mocks.updateSetValues.push(values);
-        return {
-          where: vi.fn((where: unknown) => {
-            mocks.updateWhereValues.push(where);
-            return Promise.resolve(undefined);
-          }),
-        };
-      }),
+  } else {
+    mocks.addNotificationJob.mockResolvedValue({ id: "notification-job-1" });
+    mocks.addValidationJob.mockResolvedValue({ id: "validation-job-1" });
+    mocks.addSheetsSyncJob.mockResolvedValue({ id: "sheets-job" });
+  }
+  mocks.db.update.mockReturnValue({
+    set: vi.fn((values: unknown) => {
+      mocks.updateSetValues.push(values);
+      return {
+        where: vi.fn((where: unknown) => {
+          mocks.updateWhereValues.push(where);
+          return Promise.resolve(undefined);
+        }),
+      };
+    }),
+  });
+}
+
+describe("R11-C2-a public validation outbox", () => {
+  beforeEach(() => {
+    resetPublicSubmitMocks({
+      providerRegistryGet: (name: string) =>
+        name === "discord" ? { rules: { guild_member: {} } } : undefined,
+      trackQueueSequence: true,
     });
   });
 
@@ -366,7 +610,21 @@ describe("R11-C2-a public validation outbox", () => {
         orderIndex: 1,
       },
     ]);
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -401,7 +659,21 @@ describe("R11-C2-a public validation outbox", () => {
 
   it("persists the enqueue jobId only while the validation row has no jobId", async () => {
     const snapshot = activeSnapshot();
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -456,6 +728,273 @@ describe("R11-C2-a public validation outbox", () => {
     });
     const jobId = mocks.addSheetsSyncJob.mock.calls[0]?.[2]?.jobId;
     expect(jobId).not.toContain(":");
+  });
+
+  it("queues only enabled submit notification channels after a successful response", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            email: {
+              enabled: false,
+              recipients: ["owner@example.com"],
+            },
+            discord: {
+              enabled: true,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+              message_template: "new response {{response_id}}",
+            },
+            webhook: {
+              enabled: false,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).toHaveBeenCalledWith(
+        "form-submit",
+        expect.objectContaining({
+          formId: "form-1",
+          responseId: expect.any(String),
+          snapshotVersion: 7,
+          submittedAt: "2026-06-03T12:34:56.000Z",
+        }),
+        expect.objectContaining({
+          jobId: expect.stringMatching(
+            /^form-submit-notification\.[^.]+\.[^.]+$/,
+          ),
+        }),
+      );
+    });
+    expect(mocks.addNotificationJob.mock.calls[0]?.[2]?.jobId).not.toContain(
+      ":",
+    );
+    const jobDataJson = JSON.stringify(
+      mocks.addNotificationJob.mock.calls[0]?.[1],
+    );
+    expect(jobDataJson).not.toContain("discord-token");
+    expect(jobDataJson).not.toContain("current-secret");
+  });
+
+  it("skips submit notification enqueue when the created response timestamp is unavailable", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            discord: {
+              enabled: true,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, { finalResponseRows: [] });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not queue submit notifications when every channel is off", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            email: {
+              enabled: false,
+              recipients: ["owner@example.com"],
+            },
+            discord: {
+              enabled: false,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+            },
+            webhook: {
+              enabled: false,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps submit success fail-open when notification enqueue fails", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            webhook: {
+              enabled: true,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+              timeout_seconds: 30,
+              retry_attempts: 1,
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
+    useTransactionWithInsertCapture();
+    mocks.addNotificationJob.mockRejectedValueOnce(
+      new Error("Redis unavailable"),
+    );
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("returns the published confirmation snapshot with the created response", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        confirmation: {
+          title: "送信ありがとうございます",
+          message: "受付が完了しました。",
+          supplemental_link: {
+            label: "次の手順",
+            url: "https://example.com/next",
+          },
+          contact: { label: "問い合わせ", email: "help@example.com" },
+          redirect_url: "https://example.com/done",
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T00:00:00.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body).toEqual({
+      confirmation: {
+        title: "送信ありがとうございます",
+        message: "受付が完了しました。",
+        supplemental_link: {
+          label: "次の手順",
+          url: "https://example.com/next",
+        },
+        contact: { label: "問い合わせ", email: "help@example.com" },
+        redirect_url: "https://example.com/done",
+        show_response_summary: false,
+        show_response_id: true,
+        allow_edit_link: false,
+      },
+      responseId: expect.any(String),
+      response: expect.objectContaining({ id: "response-1" }),
+    });
   });
 
   it("keeps enqueue failures as FAILED ENQUEUE_FAILED after the tx-created PENDING row", async () => {
@@ -607,14 +1146,8 @@ describe("R11-C2-a public validation outbox", () => {
         },
       ],
       [
-        {
-          structureJson: JSON.stringify({
-            settings: {
-              allow_edit_responses: false,
-              require_fingerprint: true,
-            },
-          }),
-        },
+        // Created response lookup. Empty rows keep the response body nullable
+        // while still allowing fail-open background jobs to run.
       ],
       [],
     ]);
@@ -625,5 +1158,200 @@ describe("R11-C2-a public validation outbox", () => {
 
     expect(response.status).toBe(201);
     expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+  });
+});
+
+describe("R23-T1 public form input validation submit slice", () => {
+  beforeEach(() => {
+    resetPublicSubmitMocks();
+  });
+
+  it("accepts and stores a valid public submission covering major question types", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    const { getInsertedResponseRow } = useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm(responses);
+
+    expect(response.status).toBe(201);
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith([
+      "telemetry-token",
+    ]);
+    expect(getInsertedResponseRow()).toEqual(
+      expect.objectContaining({
+        formId: "form-1",
+        sessionId: "session-1",
+      }),
+    );
+    expect(
+      JSON.parse(getStoredResponseDataJson(getInsertedResponseRow())),
+    ).toEqual(responses);
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "required text",
+      patch: { question_id: "q-short", value: "" },
+    },
+    {
+      name: "scale range",
+      patch: { question_id: "q-scale", value: 6 },
+    },
+    {
+      name: "rating range",
+      patch: { question_id: "q-rating", value: 0 },
+    },
+    {
+      name: "checkbox selection count",
+      patch: { question_id: "q-checkbox", values: ["red"] },
+    },
+    {
+      name: "choice grid required row",
+      patch: {
+        question_id: "q-choice-grid",
+        responses: { "row-a": "col-1", "row-b": "" },
+      },
+    },
+    {
+      name: "checkbox grid per-row selection count",
+      patch: {
+        question_id: "q-checkbox-grid",
+        responses: { "row-a": [], "row-b": ["col-1"] },
+      },
+    },
+    {
+      name: "date range",
+      patch: { question_id: "q-date", value: "2027-01-01" },
+    },
+    {
+      name: "time range",
+      patch: { question_id: "q-time", value: "18:00" },
+    },
+  ])("rejects invalid public submission data for $name", async ({ patch }) => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses().map((response) =>
+      response.question_id === patch.question_id
+        ? { ...response, ...patch }
+        : response,
+    );
+    useSuccessfulSubmitSelects(snapshot);
+
+    const response = await submitPublicForm(responses);
+    const body = (await response.json()) as { error: string };
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("Invalid response data");
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+  });
+});
+
+describe("R23-T3 scheduled public form visibility", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+    mocks.processFormSchedule.mockResolvedValue(null);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps the public form hidden before the publish start time", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    usePublicGetSelect({ status: "DRAFT", dueScheduleId: null });
+
+    const response = await getPublicForm();
+
+    expect(response.status).toBe(404);
+    expect(mocks.processFormSchedule).not.toHaveBeenCalled();
+    expect(mocks.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("shows the scheduled snapshot after the publish start time", async () => {
+    const now = new Date("2026-06-01T00:01:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const snapshot = publicSnapshot({
+      title: "Launch snapshot",
+      version: 1,
+      blockId: "start-block",
+      questionTitle: "Visible after start",
+    });
+    usePublicGetSelect({ status: "DRAFT", dueScheduleId: "schedule-start" });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "PUBLISHED",
+      message: "Form automatically published based on schedule",
+    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(snapshot);
+
+    const response = await getPublicForm();
+    const body = (await response.json()) as PublicGetBody;
+
+    expect(response.status).toBe(200);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+    expect(body.form.status).toBe("PUBLISHED");
+    expect(body.plateContent).toBe(snapshot.plateContent);
+    expect(body.plateContent).toContain("Visible after start");
+  });
+
+  it("hides the public form after the scheduled deadline unpublishes it", async () => {
+    const now = new Date("2026-06-01T00:02:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    usePublicGetSelect({
+      status: "PUBLISHED",
+      dueScheduleId: "schedule-deadline",
+    });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "UNPUBLISHED",
+      message: "Form automatically unpublished based on schedule",
+    });
+
+    const response = await getPublicForm();
+
+    expect(response.status).toBe(404);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+    expect(mocks.getLatestSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("keeps the form public and serves the switched active snapshot", async () => {
+    const now = new Date("2026-06-01T00:03:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+    const switchedSnapshot = publicSnapshot({
+      title: "Switched snapshot",
+      version: 2,
+      blockId: "switch-block",
+      questionTitle: "Visible after snapshot switch",
+    });
+    usePublicGetSelect({
+      status: "PUBLISHED",
+      dueScheduleId: "schedule-switch",
+    });
+    mocks.processFormSchedule.mockResolvedValueOnce({
+      processed: true,
+      statusChanged: false,
+      newStatus: "PUBLISHED",
+      message: "Snapshot switched to version 2 based on schedule",
+    });
+    mocks.getLatestSnapshot.mockResolvedValueOnce(switchedSnapshot);
+
+    const response = await getPublicForm();
+    const body = (await response.json()) as PublicGetBody;
+
+    expect(response.status).toBe(200);
+    expect(mocks.processFormSchedule).toHaveBeenCalledWith("form-1", now);
+    expect(body.form.status).toBe("PUBLISHED");
+    expect(body.plateContent).toBe(switchedSnapshot.plateContent);
+    expect(body.plateContent).toContain("Visible after snapshot switch");
   });
 });

@@ -405,7 +405,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
-  it("does not fire keepalive fetch when the value is already in-flight (regular autosave covers it)", async () => {
+  it("stores in-flight content as fallback without firing keepalive fetch on unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn();
@@ -424,6 +424,15 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     act(() => {
       root.unmount();
     });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      source: "in-flight",
+    });
+
     act(() => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
@@ -435,14 +444,43 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       );
     });
 
-    // Keepalive should NOT fire - the value was already picked up by the
-    // regular autosave mutation (inFlight), and a duplicate PUT would produce
-    // a spurious 409 that creates a false pending save entry.
     expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
-  it("does not store pending save for in-flight value that was already saved by regular autosave", async () => {
+  it("does not overwrite a conflict-blocked pending save with in-flight fallback", () => {
+    vi.useFakeTimers();
+    const conflictBlockedSave = JSON.stringify({
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"conflict"}]}]',
+      retryBlocked: "conflict",
+    });
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    localStorage.setItem("pendingSave:form-1", conflictBlockedSave);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.unmount();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(
+      conflictBlockedSave,
+    );
+  });
+
+  it("keeps in-flight fallback when regular autosave fails after unmount", async () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn();
@@ -462,9 +500,253 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       root.unmount();
     });
 
-    // The value was already in-flight (regular autosave mutation started),
-    // so no keepalive fetch should fire - the regular autosave covers it.
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      source: "in-flight",
+    });
+
+    act(() => {
+      latestMutationOptions?.onError?.(new Error("network error"), {
+        expectedVersion: 7,
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      source: "in-flight",
+    });
+  });
+
+  it("delays retrying in-flight fallback so the original request can clear it first", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockResolvedValue({ plateContentVersion: 8 });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+
+    localStorage.removeItem("pendingSave:form-1");
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("retries in-flight fallback after the original request has not cleared it", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockResolvedValue({ plateContentVersion: 8 });
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: {
+          expectedVersion: 7,
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      }),
+    );
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps in-flight fallback while delayed retry is in-flight and clears it on success", async () => {
+    vi.useFakeTimers();
+    const retryPayload = {
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    };
+    const pendingSave = JSON.stringify({
+      ...retryPayload,
+      source: "in-flight",
+    });
+    let resolveRetry: (value: unknown) => void = () => {};
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRetry = resolve;
+        }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        json: retryPayload,
+      }),
+    );
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      ...retryPayload,
+      source: "in-flight",
+    });
+
+    act(() => {
+      root.unmount();
+    });
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      ...retryPayload,
+      source: "in-flight",
+    });
+
+    await act(async () => {
+      resolveRetry({ plateContentVersion: 8 });
+    });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("stores a failed in-flight retry as a normal pending save for future mounts", async () => {
+    vi.useFakeTimers();
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockRejectedValue(new Error("network error"));
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not overwrite a newer pending save when an older retry fails", async () => {
+    vi.useFakeTimers();
+    let rejectRetry: (reason?: unknown) => void = () => {};
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      source: "in-flight",
+    });
+    const newerPendingSave = JSON.stringify({
+      expectedVersion: 8,
+      plateContent: '[{"type":"p","children":[{"text":"newer"}]}]',
+      source: "in-flight",
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    rpcMock.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectRetry = reject;
+        }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    await flushPromises();
+
+    localStorage.setItem("pendingSave:form-1", newerPendingSave);
+
+    await act(async () => {
+      rejectRetry(new Error("network error"));
+    });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(newerPendingSave);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("reports unsaved local edits until the debounced autosave succeeds", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
 
     act(() => {
       latestMutationOptions?.onSuccess?.(
@@ -477,7 +759,43 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       );
     });
 
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("reports unsaved local edits while an autosave is in-flight even if the editor matches the saved base", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      hook?.handleContentChange("[]");
+    });
+
+    expect(hook?.hasUnsavedLocalEdits()).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("falls back to localStorage without fetch when the body exceeds the keepalive limit", async () => {

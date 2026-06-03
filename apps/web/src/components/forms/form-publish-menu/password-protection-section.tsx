@@ -3,6 +3,7 @@ import { type FC, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { getPasswordProtectionStatusLabel } from "../password-protection-publication";
 import type { PasswordProtectionSectionState } from "./types";
 
 interface PasswordProtectionSectionProps {
@@ -34,6 +35,10 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
     : state.hasPassword
       ? "パスワード保護は現在無効です"
       : "有効化のため、パスワードを入力してください";
+  const currentLabel = getPasswordProtectionStatusLabel(state.current);
+  const publishedLabel = state.published
+    ? getPasswordProtectionStatusLabel(state.published)
+    : "公開版なし";
 
   return (
     <>
@@ -78,6 +83,15 @@ export const PasswordProtectionSection: FC<PasswordProtectionSectionProps> = ({
             <KeyRound className="h-3.5 w-3.5" />
             {buttonLabel}
           </Button>
+        </div>
+        <div className="pl-6 text-xs text-muted-foreground">
+          <p>現在設定: {currentLabel}</p>
+          <p>公開版設定: {publishedLabel}</p>
+          {state.hasUnpublishedChanges ? (
+            <p className="font-medium text-amber-600">
+              保存済みの変更は公開して反映するまで回答者には適用されません
+            </p>
+          ) : null}
         </div>
       </div>
     </>

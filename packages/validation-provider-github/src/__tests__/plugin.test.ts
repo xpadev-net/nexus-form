@@ -34,8 +34,17 @@ const validUserData = {
   createdAt: "2011-01-25T18:44:36Z",
   updatedAt: "2023-01-01T00:00:00Z",
 };
+const safeGitHubApiFailureMessage =
+  "GitHub APIへの接続に失敗しました。しばらくしてから再試行してください";
 
 describe("githubProvider.rules.user_exists.inputSchema", () => {
+  it("documents credential and installation permission requirements through provider metadata", () => {
+    const rule = githubProvider.rules.user_exists;
+
+    expect(rule?.description).toContain("GitHub App credential");
+    expect(rule?.inputHint).toContain("installation権限");
+  });
+
   it("accepts usernames matching the advertised GitHub pattern", () => {
     const result =
       githubProvider.rules.user_exists?.inputSchema.safeParse("octo-cat");
@@ -80,10 +89,39 @@ describe("githubProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("githubProvider.rules.user_exists.validate", () => {
+  it("validates an existing GitHub user and returns metadata from fixtures", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce(validUserData);
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toEqual({
+      isValid: true,
+      metadata: validUserData,
+    });
+  });
+
+  it("returns a user-not-found validation failure for typoed GitHub usernames", async () => {
+    getUserByUsernameMock.mockResolvedValueOnce(null);
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocatt",
+      {},
+    );
+
+    expect(result).toEqual({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_USER_NOT_FOUND,
+      errorMessage: "GitHubユーザー「octocatt」が見つかりません。",
+    });
+  });
+
   it("uses structured GitHub provider error codes", async () => {
     getUserByUsernameMock.mockRejectedValueOnce(
       new GitHubProviderError(
-        "GitHub authentication failed",
+        "GitHub authentication failed token=secret",
         GitHubErrorCode.GITHUB_AUTH_FAILED,
       ),
     );
@@ -96,8 +134,9 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: GitHubErrorCode.GITHUB_AUTH_FAILED,
-      errorMessage: "GitHub authentication failed",
+      errorMessage: "GitHub API authentication failed",
     });
+    expect(result?.errorMessage).not.toContain("token=secret");
     expect(result).not.toHaveProperty("retryAfter");
   });
 
@@ -118,6 +157,7 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+      errorMessage: "GitHub API rate limit exceeded",
       retryAfter: 90,
       retryable: true,
     });
@@ -126,7 +166,7 @@ describe("githubProvider.rules.user_exists.validate", () => {
   it("marks GitHub 5xx provider errors as retryable", async () => {
     getUserByUsernameMock.mockRejectedValueOnce(
       new GitHubProviderError(
-        "GitHub API unavailable",
+        "GitHub API unavailable token=secret trace=abc123",
         GitHubErrorCode.GITHUB_API_ERROR,
         undefined,
         503,
@@ -141,9 +181,11 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: GitHubErrorCode.GITHUB_API_ERROR,
-      errorMessage: "GitHub API unavailable",
+      errorMessage: safeGitHubApiFailureMessage,
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("token=secret");
+    expect(result?.errorMessage).not.toContain("trace=abc123");
   });
 
   it("marks GitHub provider network errors as retryable", async () => {
@@ -162,8 +204,58 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: GitHubErrorCode.NETWORK_ERROR,
+      errorMessage: safeGitHubApiFailureMessage,
       retryable: true,
     });
+    expect(result?.errorMessage).not.toContain("Temporary network failure");
+  });
+
+  it("marks GitHub provider timeout errors as retryable without leaking low-level details", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "request to https://api.github.com/users/octocat timed out token=secret",
+        GitHubErrorCode.TIMEOUT,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.TIMEOUT,
+      errorMessage: safeGitHubApiFailureMessage,
+      retryable: true,
+    });
+    expect(result?.errorMessage).not.toContain("api.github.com");
+    expect(result?.errorMessage).not.toContain("token=secret");
+  });
+
+  it("keeps unhandled GitHub API errors non-retryable without leaking upstream details", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "Validation failed for https://api.github.com/users/octocat token=secret",
+        GitHubErrorCode.GITHUB_API_ERROR,
+        undefined,
+        422,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_API_ERROR,
+      errorMessage: "GitHub APIへのリクエストに失敗しました",
+      retryable: false,
+    });
+    expect(result?.errorMessage).not.toContain("api.github.com");
+    expect(result?.errorMessage).not.toContain("token=secret");
   });
 
   it("does not mark GitHub permanent provider errors as retryable", async () => {
@@ -184,6 +276,7 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toMatchObject({
       isValid: false,
       errorCode: GitHubErrorCode.GITHUB_AUTH_FAILED,
+      errorMessage: "GitHub API authentication failed",
       retryable: false,
     });
   });

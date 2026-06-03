@@ -149,6 +149,38 @@ describe("external service form OAuth authorization", () => {
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 
+  it("rate limits external service API proxy calls by authenticated user", async () => {
+    const { clearRateLimitStoreForTests } = await import("../lib/rate-limit");
+    clearRateLimitStoreForTests();
+    getSession.mockResolvedValue({
+      user: {
+        id: "rate-limit-user-id",
+        isSuspended: false,
+      },
+      session: {
+        id: "session-rate-limit-user-id",
+      },
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    let res: Response | null = null;
+    for (let i = 0; i < 31; i++) {
+      res = await externalServiceRouter.request("/discord/unknown-api", {
+        headers: { "x-forwarded-for": "203.0.113.73" },
+      });
+    }
+
+    if (!res) throw new Error("Expected a response");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("30");
+    await expect(res.json()).resolves.toMatchObject({
+      error: { message: "Too many requests" },
+    });
+  });
+
   it("rejects non-creator users before using the creator's linked account", async () => {
     mockSession(CO_OWNER_ID);
     mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);

@@ -14,6 +14,8 @@ const ResponseDetailItemSchema = z
     value: z.unknown().optional(),
     values: z.array(z.unknown()).optional(),
     responses: z.record(z.string(), z.unknown()).optional(),
+    display_value: z.unknown().optional(),
+    display_values: z.array(z.unknown()).optional(),
     other_value: z.unknown().optional(),
     other_values: z.array(z.unknown()).optional(),
   })
@@ -64,7 +66,11 @@ function formatResponseValue(value: unknown): string {
 function formatResponseItemValue(item: ResponseDetailItem): string {
   const parts: string[] = [];
 
-  if (item.responses && Object.keys(item.responses).length > 0) {
+  if ("display_value" in item) {
+    parts.push(formatResponseValue(item.display_value));
+  } else if (Array.isArray(item.display_values)) {
+    parts.push(formatResponseValue(item.display_values));
+  } else if (item.responses && Object.keys(item.responses).length > 0) {
     parts.push(
       ...Object.entries(item.responses).map(
         ([rowId, rowValue]) => `${rowId}: ${formatResponseValue(rowValue)}`,

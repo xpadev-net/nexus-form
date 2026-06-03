@@ -60,6 +60,10 @@ vi.mock("../lib/security/hcaptcha", () => ({
   verifyHCaptcha: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("../lib/security/password", () => ({
+  verifyPassword: vi.fn().mockResolvedValue(false),
+}));
+
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
 }));
@@ -137,6 +141,7 @@ const FORM_ID = "form-authz-regression";
 const OWNER_ID = "owner-user-id";
 const VIEWER_ID = "viewer-user-id";
 const EDITOR_ID = "editor-user-id";
+const ROUTE_REGRESSION_TEST_TIMEOUT_MS = 120_000;
 const DEFAULT_STRUCTURE_JSON = JSON.stringify({
   version: 1,
   settings: { allow_edit_responses: false },
@@ -159,6 +164,22 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
     parentVersion: null,
     ...overrides,
   };
+}
+
+const publicSubmitFingerprintTypes = [
+  "browser",
+  "fingerprintjs",
+  "thumbmarkjs",
+] as const;
+
+function makePublicSubmitFingerprints(count: number) {
+  return Array.from({ length: count }, (_, index) => ({
+    type: publicSubmitFingerprintTypes[
+      index % publicSubmitFingerprintTypes.length
+    ],
+    name: `component-${index}`,
+    value_hash: `hash-${index.toString().padStart(3, "0")}`,
+  }));
 }
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
@@ -251,6 +272,39 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
       auth_type: "api_token",
       token_id: "tok-viewer",
       scopes: ["read"],
+      share_link_id: "link-viewer",
+    };
+
+    await expect(
+      checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
+    ).rejects.toThrow();
+  });
+
+  it("uses the share-link VIEWER role instead of the token user's owner identity", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [
+        {
+          id: "link-viewer",
+          role: "VIEWER",
+          isActive: true,
+          formId: FORM_ID,
+          expiresAt: null,
+        },
+      ],
+    ]);
+
+    const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    // Defense-in-depth invariant: the current token authentication path does
+    // not emit both user_id and share_link_id, but permission resolution must
+    // still let the share-link role win if such a context reaches this helper.
+    const shareViewerCtx: DualAuthContext = {
+      user_id: OWNER_ID,
+      auth_type: "api_token",
+      token_id: "tok-viewer",
+      scopes: ["read", "write"],
+      form_ids: [FORM_ID],
       share_link_id: "link-viewer",
     };
 
@@ -411,118 +465,125 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
     vi.resetModules();
   });
 
-  it("locks the form row before the response count check when a response limit is enabled", async () => {
-    const { db } = await import("@nexus-form/database");
-    const { getLatestSnapshot } = await import(
-      "../lib/forms/snapshot-repository"
-    );
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({
-        plateContent: JSON.stringify([
-          {
-            id: "1",
-            type: "form_short_text",
-            blockId: "block-1",
-            children: [{ text: "Discord username" }],
-          },
-        ]),
-        validationRulesJson: JSON.stringify([
-          {
-            id: "rule-1",
-            name: "Discord membership",
-            providerName: "discord",
-            ruleType: "membership",
-            referencedBlockIds: ["block-1"],
-            configJson: {},
-            orderIndex: 0,
-          },
-        ]),
-        structureJson: JSON.stringify({
-          version: 1,
-          settings: {
-            allow_edit_responses: false,
-            response_limit: { enabled: true, max_responses: 100 },
-          },
+  it(
+    "locks the form row before the response count check when a response limit is enabled",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "block-1",
+              children: [{ text: "Discord username" }],
+            },
+          ]),
+          validationRulesJson: JSON.stringify([
+            {
+              id: "rule-1",
+              name: "Discord membership",
+              providerName: "discord",
+              ruleType: "membership",
+              referencedBlockIds: ["block-1"],
+              configJson: {},
+              orderIndex: 0,
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              response_limit: { enabled: true, max_responses: 100 },
+            },
+          }),
         }),
-      }),
-    );
+      );
 
-    // form found (PUBLISHED); response limit is carried by the active snapshot.
-    mockDbSelectChain(db, [
-      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-    ]);
+      // form found (PUBLISHED); response limit is carried by the active snapshot.
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
 
-    // txSelectSpy witnesses every SELECT that runs inside the transaction.
-    // If a future change moves the count check outside the transaction,
-    // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
-    const txSelectOrder: string[] = [];
-    const txSelectSpy = vi.fn((selection: unknown) => {
-      return {
-        from: vi.fn((table: unknown) => {
-          const label =
-            selection && typeof selection === "object" && "count" in selection
-              ? "count-select"
-              : table &&
-                  typeof table === "object" &&
-                  "id" in table &&
-                  table.id === "form.id"
-                ? "form-lock-select"
+      // txSelectSpy witnesses every SELECT that runs inside the transaction.
+      // If a future change moves the count check outside the transaction,
+      // txSelectSpy sees zero calls and the test fails — catching the TOCTOU regression.
+      const txSelectOrder: string[] = [];
+      const txSelectSpy = vi.fn((selection: unknown) => {
+        return {
+          from: vi.fn((table: unknown) => {
+            const label =
+              selection && typeof selection === "object" && "count" in selection
+                ? "count-select"
                 : table &&
                     typeof table === "object" &&
                     "id" in table &&
-                    table.id === "formValidationRule.id"
-                  ? "validation-rule-select"
-                  : "other-select";
-          txSelectOrder.push(label);
-          return {
-            where: vi.fn().mockReturnValue(
-              // Awaitable as-is (count / validation-rule reads) and supports
-              // .for("update") for the form lock query.
-              Object.assign(Promise.resolve([{ count: 0 }, { id: "rule-1" }]), {
-                for: vi.fn().mockImplementation(() => {
-                  txSelectOrder.push("form-lock-for-update");
-                  return Promise.resolve([]);
-                }),
-              }),
-            ),
-          };
+                    table.id === "form.id"
+                  ? "form-lock-select"
+                  : table &&
+                      typeof table === "object" &&
+                      "id" in table &&
+                      table.id === "formValidationRule.id"
+                    ? "validation-rule-select"
+                    : "other-select";
+            txSelectOrder.push(label);
+            return {
+              where: vi.fn().mockReturnValue(
+                // Awaitable as-is (count / validation-rule reads) and supports
+                // .for("update") for the form lock query.
+                Object.assign(
+                  Promise.resolve([{ count: 0 }, { id: "rule-1" }]),
+                  {
+                    for: vi.fn().mockImplementation(() => {
+                      txSelectOrder.push("form-lock-for-update");
+                      return Promise.resolve([]);
+                    }),
+                  },
+                ),
+              ),
+            };
+          }),
+        };
+      });
+      const txMock = {
+        select: txSelectSpy,
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockResolvedValue(undefined),
         }),
       };
-    });
-    const txMock = {
-      select: txSelectSpy,
-      insert: vi.fn().mockReturnValue({
-        values: vi.fn().mockResolvedValue(undefined),
-      }),
-    };
 
-    const txSpy = vi.spyOn(
-      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
-      "transaction",
-    );
-    txSpy.mockImplementation(async (fn) => fn(txMock));
+      const txSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      txSpy.mockImplementation(async (fn) => fn(txMock));
 
-    const { formsPublicRouter } = await import("../routes/forms-public");
+      const { formsPublicRouter } = await import("../routes/forms-public");
 
-    await formsPublicRouter.request(`/public/test-public-id/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        responses: [],
-        captchaToken: "test-captcha-token",
-        telemetry: { v4Token: "tok-v4" },
-        fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
-      }),
-    });
+      await formsPublicRouter.request(`/public/test-public-id/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+        }),
+      });
 
-    expect(txSpy).toHaveBeenCalledOnce();
-    expect(txSelectOrder).toEqual([
-      "form-lock-select",
-      "form-lock-for-update",
-      "count-select",
-    ]);
-    txSpy.mockRestore();
-  });
+      expect(txSpy).toHaveBeenCalledOnce();
+      expect(txSelectOrder).toEqual([
+        "form-lock-select",
+        "form-lock-for-update",
+        "count-select",
+      ]);
+      txSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
 
   it("formRoleSatisfies: EDITOR satisfies VIEWER requirement (inverse covered by R2-C1/R2-H3)", async () => {
     // R2-H2 fix also gated the submit path at form-level auth.
@@ -543,6 +604,129 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
       checkFormPermissionLevel(editorCtx, FORM_ID, "VIEWER"),
     ).resolves.toBeUndefined();
   });
+});
+
+// ── R15-C1: Public submit fingerprint payload limit ───────────────────────
+
+describe("R15-C1: public submit accepts full fingerprint payloads", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it(
+    "accepts fingerprint-required submissions with 200 fingerprint components",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const schema = await import("@nexus-form/database/schema");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: true,
+            },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+
+      let insertedFingerprints: unknown;
+      const txInsert = vi.fn((table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (table === schema.fingerprintDetail) {
+            insertedFingerprints = values;
+          }
+        }),
+      }));
+      const txSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      txSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: vi.fn() }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            fingerprints: makePublicSubmitFingerprints(200),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(201);
+      expect(txSpy).toHaveBeenCalledOnce();
+      expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
+      expect(insertedFingerprints).toHaveLength(200);
+      expect(insertedFingerprints).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ fingerprintType: "browser" }),
+          expect.objectContaining({ fingerprintType: "fingerprintjs" }),
+          expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
+        ]),
+      );
+      txSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects fingerprint payloads above 200 before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            fingerprints: makePublicSubmitFingerprints(201),
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
 });
 
 // ── R3-H3: Captcha gates public submit validation and DB work ────────────────
@@ -743,6 +927,77 @@ describe("R3-M21: password protected public submit fails closed", () => {
     await expect(res.json()).resolves.toEqual({
       error: "Form password protection is misconfigured",
     });
+    expect(transactionSpy).not.toHaveBeenCalled();
+    transactionSpy.mockRestore();
+  });
+
+  it("requires password verification before validating protected form answers", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { consumeTokensOrThrow } = await import("../lib/telemetry/tokens");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: JSON.stringify([
+          {
+            id: "1",
+            type: "form_short_text",
+            blockId: "secret-question",
+            children: [{ text: "Secret" }],
+          },
+        ]),
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+    ]);
+    const transactionSpy = vi.spyOn(
+      db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+      "transaction",
+    );
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          responses: [
+            {
+              question_id: "wrong-question",
+              question_type: "short_text",
+              question_title: "Wrong",
+              value: "probe",
+            },
+          ],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(403);
+    await expect(res.json()).resolves.toEqual({
+      error: "Password verification required",
+      passwordRequired: true,
+      passwordHint: "hint",
+    });
+    expect(consumeTokensOrThrow).not.toHaveBeenCalled();
     expect(transactionSpy).not.toHaveBeenCalled();
     transactionSpy.mockRestore();
   });
@@ -1141,6 +1396,91 @@ describe("R4-H1: password protected public GET gates form body", () => {
     });
   });
 
+  it("keeps the old public snapshot unprotected until the protected snapshot becomes active", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot)
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+          structureJson: JSON.stringify({
+            version: 1,
+            access_control: {
+              password_protection: {
+                enabled: false,
+                password: "old-hash",
+              },
+            },
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      )
+      .mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+          structureJson: JSON.stringify({
+            version: 1,
+            access_control: {
+              password_protection: {
+                enabled: true,
+                password: "new-hash",
+                password_hint: "hint",
+              },
+            },
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      );
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Public form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      ],
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Public form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const beforePublish = await formsPublicRouter.request(
+      "/public/test-public-id",
+    );
+    expect(beforePublish.status).toBe(200);
+    await expect(beforePublish.json()).resolves.toMatchObject({
+      form: { isPasswordProtected: false },
+      plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+    });
+
+    const afterPublish = await formsPublicRouter.request(
+      "/public/test-public-id",
+    );
+    expect(afterPublish.status).toBe(200);
+    await expect(afterPublish.json()).resolves.toMatchObject({
+      form: {
+        isPasswordProtected: true,
+        passwordHint: "hint",
+      },
+      structure: null,
+      plateContent: null,
+    });
+  });
+
   it("returns the form body after password verification", async () => {
     const { db } = await import("@nexus-form/database");
     const { extractJwtFromRequest, verifySessionJwt } = await import(
@@ -1205,6 +1545,147 @@ describe("R4-H1: password protected public GET gates form body", () => {
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
     expect(body.structure).not.toHaveProperty("access_control");
+  });
+
+  it("rejects wrong password attempts without issuing a verified session", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(verifyPassword).mockResolvedValueOnce(false);
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "wrong-password" }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ valid: false });
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+    expect(signSessionJwt).not.toHaveBeenCalled();
+  });
+
+  it("issues a verified session cookie after a correct password", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(verifyPassword).mockResolvedValueOnce(true);
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: true,
+              password: "hashed-password",
+              password_hint: "hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "correct-password" }),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({ valid: true });
+    expect(verifyPassword).toHaveBeenCalledWith(
+      "correct-password",
+      "hashed-password",
+    );
+    expect(signSessionJwt).toHaveBeenCalledWith("s1", {
+      verifiedForms: [FORM_ID],
+    });
+    expect(res.headers.get("Set-Cookie")).toContain("cf_session=tok");
+  });
+
+  it("returns the public body directly when password protection is disabled in the active snapshot", async () => {
+    const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+      makeSnapshot({
+        plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+        structureJson: JSON.stringify({
+          version: 1,
+          access_control: {
+            password_protection: {
+              enabled: false,
+              password: "hashed-password",
+              password_hint: "old hint",
+            },
+          },
+          settings: { allow_edit_responses: false },
+        }),
+      }),
+    );
+    mockDbSelectChain(db, [
+      [
+        {
+          id: FORM_ID,
+          publicId: "test-public-id",
+          title: "Unprotected form",
+          description: null,
+          status: "PUBLISHED",
+          plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+        },
+      ],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request("/public/test-public-id");
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      form: {
+        id: FORM_ID,
+        isPasswordProtected: false,
+      },
+      plateContent: '[{"type":"p","children":[{"text":"public"}]}]',
+    });
+    expect(body.structure).not.toHaveProperty("access_control");
+    expect(JSON.stringify(body)).not.toContain("hashed-password");
   });
 });
 

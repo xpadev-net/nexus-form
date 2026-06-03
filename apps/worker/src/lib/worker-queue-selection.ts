@@ -1,8 +1,12 @@
+import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
+
 export const GOOGLE_SHEETS_SYNC_QUEUE = "google-sheets-sync";
+export { FORM_SUBMIT_NOTIFICATION_QUEUE };
 
 export type WorkerQueueSelection = {
   validationQueues: string[];
   includeSheetsSync: boolean;
+  includeFormSubmitNotifications: boolean;
   unknownQueues: string[];
 };
 
@@ -35,6 +39,7 @@ export function selectWorkerQueues(
     return {
       validationQueues: availableValidationQueues,
       includeSheetsSync: true,
+      includeFormSubmitNotifications: true,
       unknownQueues: [],
     };
   }
@@ -44,6 +49,7 @@ export function selectWorkerQueues(
   const availableQueues = new Set([
     ...availableValidationQueues,
     GOOGLE_SHEETS_SYNC_QUEUE,
+    FORM_SUBMIT_NOTIFICATION_QUEUE,
   ]);
 
   return {
@@ -51,6 +57,9 @@ export function selectWorkerQueues(
       requestedQueues.has(queueName),
     ),
     includeSheetsSync: requestedQueues.has(GOOGLE_SHEETS_SYNC_QUEUE),
+    includeFormSubmitNotifications: requestedQueues.has(
+      FORM_SUBMIT_NOTIFICATION_QUEUE,
+    ),
     unknownQueues: [...requestedQueues].filter(
       (queueName) => !availableQueues.has(queueName),
     ),

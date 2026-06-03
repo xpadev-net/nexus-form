@@ -69,6 +69,14 @@ export {
   isPlateQuestionType,
   toPlateQuestionType,
 } from "./forms/form-block";
+export type {
+  PasswordProtectionPublicationSnapshot,
+  PasswordProtectionPublicationState,
+} from "./forms/password-protection-publication";
+export {
+  PasswordProtectionPublicationSnapshotSchema,
+  PasswordProtectionPublicationStateSchema,
+} from "./forms/password-protection-publication";
 export type { ExtractedQuestion, PlatePage } from "./plate-content-utils";
 export {
   ensureNodeIds,
@@ -76,6 +84,7 @@ export {
   extractTextFromChildren,
   extractTitleFromChildren,
   regenerateBlockIds,
+  removeNestedQuestionsFromPlateContent,
   resolvePageIndexByPageId,
   splitPlateContentIntoPages,
   validatePlateContent,
@@ -96,6 +105,7 @@ export type {
 } from "./response-data";
 export {
   ANSWERABLE_QUESTION_TYPES,
+  isIsoCalendarDate,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_DATA_JSON_BYTES,
   MAX_RESPONSE_GRID_ROWS,
@@ -169,23 +179,34 @@ export {
 } from "./validation/appearance";
 export type {
   DiscordNotificationChannel,
+  DiscordNotificationChannelTransport,
   EmailNotificationChannel,
   FormAccessControl,
   FormConfirmation,
   FormNotifications,
+  FormNotificationsTransport,
+  FormSubmitNotificationJobData,
   WebhookNotificationChannel,
+  WebhookNotificationChannelTransport,
 } from "./validation/notifications";
 export {
   ALLOWED_WEBHOOK_DOMAINS,
   BASE_WEBHOOK_DOMAINS,
+  buildFormSubmitNotificationJobId,
   DiscordNotificationChannelSchema,
+  DiscordNotificationChannelTransportSchema,
   DiscordWebhookUrlSchema,
   EmailNotificationChannelSchema,
+  FORM_SUBMIT_NOTIFICATION_JOB_PREFIX,
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
   FormAccessControlSchema,
   FormConfirmationSchema,
   FormNotificationsSchema,
+  FormNotificationsTransportSchema,
+  FormSubmitNotificationJobDataSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,
+  WebhookNotificationChannelTransportSchema,
 } from "./validation/notifications";
 export type {
   FormMetadata,
