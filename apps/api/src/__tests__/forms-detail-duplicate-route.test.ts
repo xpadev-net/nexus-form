@@ -266,6 +266,9 @@ describe("POST /:id/duplicate", () => {
         title: "応募フォーム のコピー",
       }),
     );
+    expect(mocks.insertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ publicId: "public-1" }),
+    );
     expect(mocks.insertTables).toHaveLength(1);
   });
 

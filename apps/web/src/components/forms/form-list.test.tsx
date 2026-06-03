@@ -11,10 +11,43 @@ const mocks = vi.hoisted(() => ({
     { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
     { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
   ],
+  invalidateQueries: vi.fn(),
+  setQueryData: vi.fn(),
+  unarchivePost: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a>,
+  Link: ({
+    children,
+    className,
+  }: {
+    children: ReactNode;
+    className?: string;
+  }) => (
+    <a className={className} href="/">
+      {children}
+    </a>
+  ),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+  useMutation: ({
+    mutationFn,
+    onSuccess,
+  }: {
+    mutationFn: (formId: string) => Promise<unknown>;
+    onSuccess?: (data: unknown, formId: string) => void;
+  }) => ({
+    isPending: false,
+    mutate: vi.fn(async (formId: string) => {
+      const data = await mutationFn(formId);
+      onSuccess?.(data, formId);
+    }),
+  }),
+  useQueryClient: () => ({
+    invalidateQueries: mocks.invalidateQueries,
+    setQueryData: mocks.setQueryData,
+  }),
 }));
 
 vi.mock("@/hooks/forms/use-forms", () => ({
@@ -37,6 +70,27 @@ vi.mock("@/components/ui/button", () => ({
     size?: string;
     variant?: string;
   }) => <button {...props}>{children}</button>,
+}));
+
+vi.mock("@/lib/api", () => ({
+  client: {
+    api: {
+      forms: {
+        ":id": {
+          unarchive: {
+            $post: mocks.unarchivePost,
+          },
+        },
+      },
+    },
+  },
+  rpc: vi.fn(async () => ({ ok: true })),
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: vi.fn(),
+  },
 }));
 
 (
@@ -90,6 +144,10 @@ describe("FormList archive filtering", () => {
       { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
       { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
     ];
+    mocks.invalidateQueries.mockClear();
+    mocks.setQueryData.mockClear();
+    mocks.unarchivePost.mockClear();
+    mocks.unarchivePost.mockReturnValue({ operation: "unarchive" });
   });
 
   it("hides archived forms from the default all filter and shows them in the archived filter", () => {
@@ -97,11 +155,58 @@ describe("FormList archive filtering", () => {
 
     expect(document.body.textContent).toContain("下書きフォーム");
     expect(document.body.textContent).not.toContain("古いフォーム");
+    expect(document.body.textContent).toContain("アーカイブを表示");
 
     selectStatus("archived");
 
     expect(document.body.textContent).not.toContain("下書きフォーム");
     expect(document.body.textContent).toContain("古いフォーム");
+    expect(document.body.textContent).toContain("復元");
+
+    act(() => root.unmount());
+  });
+
+  it("restores an archived form from the home archived filter", async () => {
+    const root = renderList();
+
+    selectStatus("archived");
+    const restoreButton = Array.from(document.querySelectorAll("button")).find(
+      (item) => item.textContent?.includes("復元"),
+    );
+    expect(restoreButton).toBeDefined();
+
+    await act(async () => {
+      restoreButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.unarchivePost).toHaveBeenCalledWith({
+      param: { id: "archived-form" },
+    });
+    expect(mocks.setQueryData).toHaveBeenCalledWith(
+      ["forms"],
+      expect.any(Function),
+    );
+    const updateCache = mocks.setQueryData.mock.calls[0]?.[1];
+    expect(updateCache).toBeInstanceOf(Function);
+    if (typeof updateCache !== "function") {
+      throw new Error("Forms cache updater not found");
+    }
+    expect(
+      updateCache({
+        forms: [
+          { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
+          { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
+        ],
+      }),
+    ).toEqual({
+      forms: [
+        { id: "draft-form", status: "DRAFT", title: "下書きフォーム" },
+        { id: "archived-form", status: "DRAFT", title: "古いフォーム" },
+      ],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["forms"],
+    });
 
     act(() => root.unmount());
   });

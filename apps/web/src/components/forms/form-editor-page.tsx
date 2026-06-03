@@ -62,6 +62,7 @@ export function FormEditorPage() {
         publicId={model.formData?.publicId}
         titleSaveFailureCount={model.titleSaveFailureCount}
         onTitleBlur={model.formData ? model.updateTitle : undefined}
+        onTitleDraftChange={model.updateTitleDraft}
         onPublishStatusChange={model.handlePublishStatusChange}
         onResetSuccess={model.refetchContent}
       />
@@ -138,7 +139,7 @@ export function FormEditorPage() {
       />
       <FormDuplicateModal
         open={model.showDuplicateModal}
-        sourceTitle={model.formData?.title}
+        sourceTitle={model.titleDraft.trim() || model.formData?.title}
         isDuplicating={model.isDuplicatePending}
         onConfirm={model.duplicateForm}
         onClose={() => model.setShowDuplicateModal(false)}

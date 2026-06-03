@@ -43,6 +43,8 @@ export function useFormEditorPageModel(formId: string) {
   );
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleSavePromiseRef = useRef<Promise<unknown> | null>(null);
 
   const formQuery = useQuery({
     queryKey: ["formDetail", formId],
@@ -112,6 +114,32 @@ export function useFormEditorPageModel(formId: string) {
     },
   });
 
+  const saveTitle = async (title: string) => {
+    const promise = updateTitleMutation.mutateAsync(title);
+    titleSavePromiseRef.current = promise;
+    try {
+      await promise;
+    } finally {
+      if (titleSavePromiseRef.current === promise) {
+        titleSavePromiseRef.current = null;
+      }
+    }
+  };
+
+  const saveTitleBeforeDuplicate = async () => {
+    const pendingTitleSave = titleSavePromiseRef.current;
+    if (pendingTitleSave) {
+      await pendingTitleSave;
+      return;
+    }
+
+    const savedTitle = formQuery.data?.form?.title?.trim() ?? "";
+    const draftTitle = titleDraft.trim();
+    if (!draftTitle || draftTitle === savedTitle) return;
+
+    await saveTitle(draftTitle);
+  };
+
   const deleteMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].$delete({ param: { id: formId } })),
@@ -126,8 +154,12 @@ export function useFormEditorPageModel(formId: string) {
   });
 
   const duplicateMutation = useMutation({
-    mutationFn: () =>
-      rpc(client.api.forms[":id"].duplicate.$post({ param: { id: formId } })),
+    mutationFn: async () => {
+      await saveTitleBeforeDuplicate();
+      return rpc(
+        client.api.forms[":id"].duplicate.$post({ param: { id: formId } }),
+      );
+    },
     onSuccess: (data) => {
       setShowDuplicateModal(false);
       toast.success(
@@ -209,6 +241,12 @@ export function useFormEditorPageModel(formId: string) {
   const rawFormStatus = formData?.status;
   const formStatusResult = FormStatus.safeParse(rawFormStatus);
   const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
+
+  useEffect(() => {
+    if (formData?.title) {
+      setTitleDraft(formData.title);
+    }
+  }, [formData?.title]);
 
   useEffect(() => {
     if (tab === undefined || isEditorTab(tab)) return;
@@ -308,7 +346,11 @@ export function useFormEditorPageModel(formId: string) {
     showDeleteModal,
     showDuplicateModal,
     titleSaveFailureCount: updateTitleMutation.failureCount,
+    titleDraft,
     unarchiveForm: () => unarchiveMutation.mutate(),
-    updateTitle: (title: string) => updateTitleMutation.mutate(title),
+    updateTitle: (title: string) => {
+      void saveTitle(title);
+    },
+    updateTitleDraft: setTitleDraft,
   };
 }

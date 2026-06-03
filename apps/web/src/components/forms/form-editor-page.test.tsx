@@ -3,7 +3,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
@@ -28,6 +28,19 @@ type QueryOptions = {
   queryKey: string[];
   retry?: RetryFn;
 };
+type MutationOptions = {
+  mutationFn: (variables?: unknown) => Promise<unknown>;
+  onError?: (error: unknown) => void;
+  onSuccess?: (data: unknown, variables?: unknown) => void;
+};
+
+function readMockOperation(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || !("operation" in value)) {
+    return undefined;
+  }
+  const operation = value.operation;
+  return typeof operation === "string" ? operation : undefined;
+}
 
 let formQueryState: QueryState;
 let contentQueryState: QueryState;
@@ -60,10 +73,20 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useMutation: () => ({
+  useMutation: (options: MutationOptions) => ({
     failureCount: 0,
     isPending: false,
-    mutate: vi.fn(),
+    mutate: vi.fn((variables?: unknown) => {
+      void options
+        .mutationFn(variables)
+        .then((data) => options.onSuccess?.(data, variables))
+        .catch((error) => options.onError?.(error));
+    }),
+    mutateAsync: vi.fn(async (variables?: unknown) => {
+      const data = await options.mutationFn(variables);
+      options.onSuccess?.(data, variables);
+      return data;
+    }),
   }),
   useQuery: (options: QueryOptions) => {
     const { queryKey, retry } = options;
@@ -167,12 +190,43 @@ vi.mock("@/components/forms/form-deletion-modal", () => ({
   FormDeletionModal: () => null,
 }));
 vi.mock("@/components/forms/form-duplicate-modal", () => ({
-  FormDuplicateModal: () => null,
+  FormDuplicateModal: ({
+    open,
+    onConfirm,
+    sourceTitle,
+  }: {
+    open: boolean;
+    onConfirm: () => void;
+    sourceTitle?: string;
+  }) =>
+    open ? (
+      <div>
+        <p>コピー後: {sourceTitle} のコピー</p>
+        <button type="button" onClick={onConfirm}>
+          複製確定
+        </button>
+      </div>
+    ) : null,
 }));
 vi.mock("@/components/forms/form-header", () => ({
-  FormHeader: ({ action, title }: { action?: ReactNode; title: string }) => (
+  FormHeader: ({
+    action,
+    onTitleBlur,
+    onTitleDraftChange,
+    title,
+  }: {
+    action?: ReactNode;
+    onTitleBlur?: (title: string) => void;
+    onTitleDraftChange?: (title: string) => void;
+    title: string;
+  }) => (
     <header>
-      <h1>{title}</h1>
+      <input
+        aria-label="フォーム名"
+        defaultValue={title}
+        onBlur={(event) => onTitleBlur?.(event.currentTarget.value)}
+        onChange={(event) => onTitleDraftChange?.(event.currentTarget.value)}
+      />
       {action}
     </header>
   ),
@@ -208,13 +262,43 @@ vi.mock("@/components/forms/schedule-manager", () => ({
   ScheduleManager: () => null,
 }));
 vi.mock("@/components/ui/button", () => ({
-  Button: ({ children }: { children: ReactNode }) => <span>{children}</span>,
+  Button: ({
+    asChild,
+    children,
+    ...props
+  }: ComponentProps<"button"> & { asChild?: boolean }) =>
+    asChild ? children : <button {...props}>{children}</button>,
 }));
 vi.mock("@/hooks/use-page-title", () => ({
   usePageTitle: vi.fn(),
 }));
 vi.mock("@/lib/api", () => ({
-  client: {},
+  client: {
+    api: {
+      forms: {
+        ":id": {
+          $delete: vi.fn(() => ({ operation: "delete" })),
+          $get: vi.fn(() => ({ operation: "get-form" })),
+          $put: vi.fn(({ json }: { json: { title: string } }) => ({
+            operation: "update-title",
+            title: json.title,
+          })),
+          archive: {
+            $post: vi.fn(() => ({ operation: "archive" })),
+          },
+          content: {
+            $get: vi.fn(() => ({ operation: "get-content" })),
+          },
+          duplicate: {
+            $post: vi.fn(() => ({ operation: "duplicate" })),
+          },
+          unarchive: {
+            $post: vi.fn(() => ({ operation: "unarchive" })),
+          },
+        },
+      },
+    },
+  },
   RpcError: class RpcError extends Error {
     readonly details = null;
     readonly status: number;
@@ -225,7 +309,31 @@ vi.mock("@/lib/api", () => ({
       this.status = status;
     }
   },
-  rpc: vi.fn(),
+  rpc: vi.fn(async (request: { operation?: string; title?: string }) => {
+    if (request.operation === "update-title") {
+      formQueryState = {
+        ...formQueryState,
+        data: {
+          form: {
+            ...(formQueryState.data as { form: Record<string, unknown> }).form,
+            title: request.title,
+          },
+        },
+      };
+      return { form: (formQueryState.data as { form: unknown }).form };
+    }
+    if (request.operation === "duplicate") {
+      return {
+        form: {
+          id: "duplicated-form",
+          title: `${
+            (formQueryState.data as { form: { title: string } }).form.title
+          } のコピー`,
+        },
+      };
+    }
+    return {};
+  }),
 }));
 vi.mock("@/lib/logger", () => ({
   logWarn: vi.fn(),
@@ -370,6 +478,107 @@ describe("FormEditorPage tab synchronization", () => {
     rerenderPage(root);
 
     expect(snapshotEditorToDraftMock).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("saves a dirty title before duplicating and previews that title in the dialog", async () => {
+    searchTab = "settings";
+    const { client, rpc } = await import("@/lib/api");
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    act(() => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "保存前タイトル");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const duplicateButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("複製"));
+    expect(duplicateButton).toBeDefined();
+    await act(async () => {
+      duplicateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("保存前タイトル のコピー");
+
+    const confirmButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("複製確定"),
+    );
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const formsClient = client.api.forms[":id"];
+    expect(formsClient.$put).toHaveBeenCalledWith({
+      json: { title: "保存前タイトル" },
+      param: { id: "form-1" },
+    });
+    expect(formsClient.duplicate.$post).toHaveBeenCalledWith({
+      param: { id: "form-1" },
+    });
+    const updateTitleCallIndex = vi
+      .mocked(rpc)
+      .mock.calls.findIndex(
+        ([request]) => readMockOperation(request) === "update-title",
+      );
+    const duplicateCallIndex = vi
+      .mocked(rpc)
+      .mock.calls.findIndex(
+        ([request]) => readMockOperation(request) === "duplicate",
+      );
+    expect(updateTitleCallIndex).toBeGreaterThanOrEqual(0);
+    expect(duplicateCallIndex).toBeGreaterThan(updateTitleCallIndex);
+
+    act(() => root.unmount());
+  });
+
+  it("falls back to the saved title in duplicate preview when the title draft is blank", async () => {
+    searchTab = "settings";
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    act(() => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "   ");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const duplicateButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("複製"));
+    await act(async () => {
+      duplicateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Test form のコピー");
+    expect(container.textContent).not.toContain("    のコピー");
 
     act(() => root.unmount());
   });
