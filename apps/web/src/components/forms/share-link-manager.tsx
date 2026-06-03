@@ -43,6 +43,56 @@ function isShareLinkRole(value: string): value is "EDITOR" | "VIEWER" {
   return value === "EDITOR" || value === "VIEWER";
 }
 
+function getRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function getApiErrorDetails(error: unknown): {
+  code?: string;
+  message?: string;
+} {
+  const errorRecord = getRecord(error);
+  const details = getRecord(errorRecord?.details);
+  const nestedError = getRecord(details?.error);
+  return {
+    code: typeof nestedError?.code === "string" ? nestedError.code : undefined,
+    message:
+      typeof nestedError?.message === "string"
+        ? nestedError.message
+        : undefined,
+  };
+}
+
+function formatShareLinkFailureMessage(error: unknown): string {
+  const apiError = getApiErrorDetails(error);
+  const message =
+    apiError.message ??
+    (error instanceof Error
+      ? error.message
+      : "共有リンクの取得に失敗しました。");
+  if (
+    apiError.code === "INSUFFICIENT_PERMISSIONS" ||
+    message.includes("Insufficient permissions")
+  ) {
+    return "権限不足: 共有リンクを管理する権限がありません。";
+  }
+  if (message.includes("expired") || message.includes("期限切れ")) {
+    return "期限切れ: この共有リンクは有効期限が切れています。";
+  }
+  if (
+    message.includes("not found") ||
+    message.includes("inactive") ||
+    message.includes("deleted") ||
+    message.includes("削除")
+  ) {
+    return "削除済み: この共有リンクは削除済み、または無効化されています。";
+  }
+  return message;
+}
+
 export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
   const {
     shareLinksQuery,
@@ -111,10 +161,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
     });
   };
 
-  const errorMessage =
-    shareLinksQuery.error instanceof Error
-      ? shareLinksQuery.error.message
-      : "共有リンクの取得に失敗しました。";
+  const errorMessage = formatShareLinkFailureMessage(shareLinksQuery.error);
 
   return (
     <div className="space-y-4 rounded border p-4">
