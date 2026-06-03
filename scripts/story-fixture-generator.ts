@@ -7,7 +7,10 @@ import {
   responsePayloadItemSchema,
   type ResponseDataItem,
 } from "../packages/shared/src/response-data";
-import { NO_CHANGES_TO_PUBLISH_CODE } from "../packages/shared/src/validation/publish-codes";
+import {
+  NO_CHANGES_TO_PUBLISH_CODE,
+  NO_CHANGES_TO_PUBLISH_MESSAGE,
+} from "../packages/shared/src/validation/publish-codes";
 import {
   isAnswerableFixtureBlockType,
   parseStoryFixtureSet,
@@ -21,8 +24,6 @@ import {
 
 type Action = "generate" | "cleanup";
 type FixtureEnvironment = "local" | "staging";
-
-const NO_CHANGES_TO_PUBLISH_FRAGMENT = "No changes to publish";
 
 interface CliOptions {
   action: Action;
@@ -720,7 +721,9 @@ async function saveContent(
     plateContentVersion: number;
   }>(`/api/forms/${formId}/content`);
 
-  if (current.plateContent === plateContent) return;
+  if (stableJsonString(current.plateContent) === stableJsonString(plateContent)) {
+    return;
+  }
 
   await client.request(`/api/forms/${formId}/content`, {
     method: "PUT",
@@ -808,6 +811,14 @@ function stableStringify(value: unknown): string {
   return JSON.stringify(normalizeStableValue(value)) ?? "undefined";
 }
 
+function stableJsonString(value: string): string {
+  try {
+    return stableStringify(JSON.parse(value));
+  } catch {
+    return value;
+  }
+}
+
 function normalizeStableValue(value: unknown): unknown {
   if (value === undefined || value === null || typeof value !== "object") {
     return value;
@@ -845,7 +856,7 @@ function isNoChangesToPublish(error: ApiError): boolean {
     const parsed = JSON.parse(error.responseBody) as { code?: unknown };
     return parsed.code === NO_CHANGES_TO_PUBLISH_CODE;
   } catch {
-    return error.responseBody.includes(NO_CHANGES_TO_PUBLISH_FRAGMENT);
+    return error.responseBody.includes(NO_CHANGES_TO_PUBLISH_MESSAGE);
   }
 }
 

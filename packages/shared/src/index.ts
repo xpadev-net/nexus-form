@@ -208,7 +208,10 @@ export {
   WebhookNotificationChannelSchema,
   WebhookNotificationChannelTransportSchema,
 } from "./validation/notifications";
-export { NO_CHANGES_TO_PUBLISH_CODE } from "./validation/publish-codes";
+export {
+  NO_CHANGES_TO_PUBLISH_CODE,
+  NO_CHANGES_TO_PUBLISH_MESSAGE,
+} from "./validation/publish-codes";
 export type {
   FormMetadata,
   FormSettings,

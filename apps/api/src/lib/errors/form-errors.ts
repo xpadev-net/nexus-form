@@ -1,3 +1,5 @@
+import { NO_CHANGES_TO_PUBLISH_MESSAGE } from "@nexus-form/shared";
+
 /**
  * フォーム権限関連のカスタムエラークラス
  */
@@ -83,7 +85,7 @@ export class SnapshotNotFoundError extends Error {
  */
 export class NoChangesError extends Error {
   constructor() {
-    super("No changes to publish");
+    super(NO_CHANGES_TO_PUBLISH_MESSAGE);
     this.name = "NoChangesError";
   }
 
