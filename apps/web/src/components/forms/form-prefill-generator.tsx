@@ -50,6 +50,7 @@ import {
   PREFILL_UNSUPPORTED_QUESTION_TYPES,
   type PrefillData,
 } from "@/lib/forms/prefill";
+import { buildPublicFormUrl } from "@/lib/forms/public-url";
 
 interface FormPrefillGeneratorProps {
   plateContent: string;
@@ -68,17 +69,9 @@ interface CopyFeedback {
 const MAX_SAFE_URL_LENGTH = 1900;
 const COPY_FEEDBACK_TIMEOUT_MS = 2200;
 
-function buildPrefillUrl(
-  baseUrl: string,
-  publicId: string,
-  data: PrefillData,
-): string {
+function buildPrefillUrl(publicId: string, data: PrefillData): string {
   const encoded = encodePrefillData(data);
-  return `${baseUrl}/forms/public/${publicId}?p=${encoded}`;
-}
-
-function getOrigin(): string {
-  return window.location.origin;
+  return `${buildPublicFormUrl(publicId)}?p=${encoded}`;
 }
 
 export function FormPrefillGenerator({
@@ -135,7 +128,7 @@ export function FormPrefillGenerator({
 
   const generatedUrl = useMemo(() => {
     if (Object.keys(supportedPrefillValues).length === 0) return "";
-    return buildPrefillUrl(getOrigin(), publicId, supportedPrefillValues);
+    return buildPrefillUrl(publicId, supportedPrefillValues);
   }, [supportedPrefillValues, publicId]);
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;

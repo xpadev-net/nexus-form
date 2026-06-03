@@ -149,6 +149,9 @@ describe("FormPrefillGenerator", () => {
       container.querySelector<HTMLInputElement>("input[readonly]");
     const generatedUrl = generatedUrlInput?.value;
     expect(generatedUrl).toBeDefined();
+    expect(generatedUrl).toContain(
+      `${window.location.origin}/forms/public/public-form-1?p=`,
+    );
     const encodedPrefill = new URL(generatedUrl ?? "").searchParams.get("p");
     expect(encodedPrefill).not.toBeNull();
     expect(decodePrefillData(encodedPrefill ?? "")).toEqual({

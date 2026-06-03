@@ -87,6 +87,7 @@ export function FormEditorPage() {
 
       <FormSettingsTab
         formId={id}
+        publicId={model.formData?.publicId}
         formTitle={model.formData?.title ?? "フォーム"}
         formDescription={model.formData?.description ?? undefined}
         plateContent={model.draftContent ?? model.plateContent}
