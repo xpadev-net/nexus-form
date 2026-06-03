@@ -9,6 +9,10 @@ import {
   type AnswerEntry,
   FormResponseProvider,
 } from "@/contexts/form-response-context";
+import {
+  clickAssociatedLabel,
+  requireInput,
+} from "@/test-utils/form-control-labels";
 import type { FormAppearance } from "@/types/validation/form";
 import type { FormSubmitRequestData } from "./form-body";
 import { FormBody } from "./form-body";
@@ -229,23 +233,6 @@ function appearanceWithQuestionNumbers(
       show_question_numbers: showQuestionNumbers,
     },
   };
-}
-
-function clickAssociatedLabel(container: HTMLElement, input: HTMLInputElement) {
-  const label = container.querySelector<HTMLLabelElement>(
-    `label[for="${input.id}"]`,
-  );
-  if (!label) {
-    throw new Error(`Expected label for ${input.id}`);
-  }
-  label.click();
-}
-
-function requireInput(element: HTMLElement): HTMLInputElement {
-  if (!(element instanceof HTMLInputElement)) {
-    throw new Error("Expected a native input element");
-  }
-  return element;
 }
 
 describe("FormBody", () => {

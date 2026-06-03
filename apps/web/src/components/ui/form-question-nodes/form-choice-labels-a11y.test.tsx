@@ -11,6 +11,10 @@ import {
   FormResponseProvider,
   useFormResponse,
 } from "@/contexts/form-response-context";
+import {
+  getAssociatedLabel,
+  requireInput,
+} from "@/test-utils/form-control-labels";
 import { CheckboxGridInput } from "./form-checkbox-grid-node";
 import { CheckboxInput } from "./form-checkbox-node";
 import { ChoiceGridInput } from "./form-choice-grid-node";
@@ -81,26 +85,6 @@ function testElement(
     validation,
     children: [{ text: "" }],
   };
-}
-
-function getAssociatedLabel(
-  container: HTMLElement,
-  input: HTMLInputElement,
-): HTMLLabelElement {
-  const label = container.querySelector<HTMLLabelElement>(
-    `label[for="${input.id}"]`,
-  );
-  if (!label) {
-    throw new Error(`Expected label for ${input.id}`);
-  }
-  return label;
-}
-
-function requireInput(element: HTMLElement): HTMLInputElement {
-  if (!(element instanceof HTMLInputElement)) {
-    throw new Error("Expected a native input element");
-  }
-  return element;
 }
 
 describe("public choice controls accessible labels", () => {

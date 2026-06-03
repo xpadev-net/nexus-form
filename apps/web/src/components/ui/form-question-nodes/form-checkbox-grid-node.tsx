@@ -91,10 +91,9 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
           <thead>
             <tr>
               <th className="border px-3 py-2 text-left text-sm font-medium" />
-              {columns.map((col, columnIndex) => (
+              {columns.map((col) => (
                 <th
                   key={col.id}
-                  id={`${inputIdPrefix}-column-${columnIndex}`}
                   className="border px-3 py-2 text-center text-sm font-medium"
                   scope="col"
                 >
@@ -111,7 +110,6 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
               return (
                 <tr key={row.id}>
                   <th
-                    id={`${inputIdPrefix}-row-${rowIndex}`}
                     className="border px-3 py-2 text-left text-sm font-medium"
                     scope="row"
                   >
