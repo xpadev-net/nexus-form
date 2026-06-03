@@ -111,6 +111,57 @@ const unlockedFormData: PublicFormData = {
   structure: { settings: { require_fingerprint: false } },
 };
 
+function sectionBranchingPlateContent(): string {
+  return JSON.stringify([
+    {
+      type: "form_radio",
+      blockId: "q-entity-type",
+      validation: {
+        required: true,
+        options: [
+          { id: "individual", label: "個人" },
+          { id: "corporate", label: "法人" },
+        ],
+      },
+      children: [{ type: "p", children: [{ text: "契約種別" }] }],
+    },
+    {
+      type: "form_section_separator",
+      blockId: "section-corporate",
+      validation: {
+        navigation_rules: [
+          {
+            id: "rule-corporate-branch",
+            name: "法人の場合は追加情報へ",
+            conditions: [
+              {
+                question_id: "q-entity-type",
+                operator: "equals",
+                value: "corporate",
+              },
+            ],
+            condition_match: "all",
+            action: {
+              type: "jump_to_section",
+              target_id: "section-corporate",
+            },
+            enabled: true,
+            priority: 1,
+          },
+        ],
+        default_action: { type: "submit" },
+      },
+      children: [{ type: "p", children: [{ text: "法人追加情報" }] }],
+    },
+    {
+      type: "form_short_text",
+      blockId: "q-company-name",
+      validation: { required: true },
+      children: [{ type: "p", children: [{ text: "法人名" }] }],
+    },
+  ]);
+}
+
 function renderPublicForm(container: HTMLElement): Root {
   const root = createRoot(container);
   act(() => {
@@ -282,7 +333,7 @@ vi.mock("@/lib/forms/find-unanswered-required", () => ({
   findUnansweredRequired: requiredValidationMock.findUnansweredRequired,
 }));
 
-describe("PublicFormPage password protection", () => {
+describe("PublicFormPage", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     publicFormData = lockedFormData;
@@ -844,6 +895,86 @@ describe("PublicFormPage password protection", () => {
         ],
       }),
     });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("submits only visited branch answers from a section-branching public form", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "S28 section branching form",
+      },
+      plateContent: sectionBranchingPlateContent(),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q-entity-type",
+          question_type: "radio",
+          question_title: "契約種別",
+          value: "individual",
+        },
+      ],
+      visitedQuestionIds: ["q-entity-type"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "ご回答ありがとうございます",
+              message: "回答を受け付けました。ご協力ありがとうございました。",
+            },
+            response: { id: "response-individual" },
+            responseId: "response-individual",
+          },
+    );
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(requiredValidationMock.findUnansweredRequired).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          blockId: "q-entity-type",
+          title: "契約種別",
+        }),
+      ],
+      expect.anything(),
+    );
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        responses: [
+          {
+            question_id: "q-entity-type",
+            question_type: "radio",
+            question_title: "契約種別",
+            value: "individual",
+          },
+        ],
+      }),
+    });
+    const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
+    expect(submitArgs?.json.responses).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ question_id: "q-company-name" }),
+      ]),
+    );
 
     await act(async () => {
       root.unmount();
