@@ -22,6 +22,14 @@ import { FormAppearanceSchema } from "@/types/validation/form";
 import { formAppearanceStructureQueryKey } from "./form-appearance-settings";
 import { FormBody } from "./form-body";
 
+function PreviewLoadingStatus({ message }: { message: string }) {
+  return (
+    <section aria-busy="true" className="p-6" data-preview-loading="true">
+      <p className="text-sm text-muted-foreground">{message}</p>
+    </section>
+  );
+}
+
 export function FormPreviewPage() {
   const { id } = useParams({ from: "/forms/preview/$id" });
   const { p: prefillParam } = useSearch({ from: "/forms/preview/$id" });
@@ -88,7 +96,7 @@ export function FormPreviewPage() {
   }, []);
 
   if (isLoading) {
-    return <section className="p-6">読み込み中...</section>;
+    return <PreviewLoadingStatus message="プレビューを準備しています。" />;
   }
 
   if (error) {
@@ -198,7 +206,7 @@ export function FormPreviewPage() {
 
       {/* プレビュー本体 */}
       {isSnapshotLoading ? (
-        <section className="p-6">読み込み中...</section>
+        <PreviewLoadingStatus message="選択したバージョンを準備しています。" />
       ) : snapshotError ? (
         <section className="p-6">
           <p className="text-sm text-destructive">

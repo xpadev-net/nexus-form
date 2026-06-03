@@ -50,6 +50,7 @@ type PublicFormData = {
 };
 
 let publicFormData: PublicFormData | undefined;
+let publicFormIsPending: boolean;
 let refetchResult: { data?: PublicFormData; error: Error | null };
 type RetryFn = (failureCount: number, error: unknown) => boolean;
 let publicFormRetry: RetryFn | undefined;
@@ -74,6 +75,12 @@ const formBodyMockState = vi.hoisted(() => ({
     responses: [],
     visitedQuestionIds: [],
   } as MockSubmitRequestData,
+  renderProps: [] as Array<{
+    captchaReady?: boolean;
+    description?: string;
+    plateContent: string;
+    title: string;
+  }>,
 }));
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
@@ -121,9 +128,13 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ retry }: { retry?: RetryFn }) => {
     publicFormRetry = retry;
     return {
-      data: publicFormData,
-      error: publicFormData ? null : new RpcError("Not found", 404),
-      isPending: false,
+      data: publicFormIsPending ? undefined : publicFormData,
+      error: publicFormIsPending
+        ? null
+        : publicFormData
+          ? null
+          : new RpcError("Not found", 404),
+      isPending: publicFormIsPending,
       refetch: refetchFormMock,
     };
   },
@@ -149,35 +160,48 @@ vi.mock("@/hooks/fingerprint/use-fingerprint", () => ({
 vi.mock("@/components/forms/form-body", () => ({
   FormBody: ({
     captchaReady,
+    description,
     error,
     onSubmitRequest,
+    plateContent,
     preSubmitSlot,
     title,
   }: {
     captchaReady?: boolean;
+    description?: string;
     error?: string | null;
     onSubmitRequest?: (data: {
       responses: MockSubmitRequestData["responses"];
       visitedQuestionIds: string[];
     }) => void | Promise<void>;
+    plateContent: string;
     preSubmitSlot?: ReactNode;
     title: string;
-  }) => (
-    <main
-      data-captcha-ready={captchaReady ? "true" : "false"}
-      data-testid="public-form-body"
-    >
-      {title}
-      {preSubmitSlot}
-      {error ? <p data-testid="form-error">{error}</p> : null}
-      <button
-        type="button"
-        onClick={() => void onSubmitRequest?.(formBodyMockState.submitData)}
+  }) => {
+    formBodyMockState.renderProps.push({
+      captchaReady,
+      description,
+      plateContent,
+      title,
+    });
+    return (
+      <main
+        data-captcha-ready={captchaReady ? "true" : "false"}
+        data-testid="public-form-body"
       >
-        submit
-      </button>
-    </main>
-  ),
+        {title}
+        {description ? <p>{description}</p> : null}
+        {preSubmitSlot}
+        {error ? <p data-testid="form-error">{error}</p> : null}
+        <button
+          type="button"
+          onClick={() => void onSubmitRequest?.(formBodyMockState.submitData)}
+        >
+          submit
+        </button>
+      </main>
+    );
+  },
 }));
 
 vi.mock("@/components/forms/form-not-found-page", () => ({
@@ -262,6 +286,7 @@ describe("PublicFormPage password protection", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     publicFormData = lockedFormData;
+    publicFormIsPending = false;
     refetchResult = { data: unlockedFormData, error: null };
     useFingerprintMockState.collect = vi.fn().mockResolvedValue([]);
     useFingerprintMockState.fingerprints = [];
@@ -273,6 +298,7 @@ describe("PublicFormPage password protection", () => {
     requiredValidationMock.findUnansweredRequired.mockReset();
     requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
     formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
+    formBodyMockState.renderProps.length = 0;
     publicFormRetry = undefined;
   });
 
@@ -306,6 +332,85 @@ describe("PublicFormPage password protection", () => {
     ).toBe(false);
 
     act(() => root.unmount());
+  });
+
+  it("unmounts the public loading status after a slow query resolves to a long multipage grid form", async () => {
+    const longDescription = Array.from(
+      { length: 8 },
+      (_, index) => `長い説明文の段落 ${index + 1}`,
+    ).join("。");
+    const multipageGridContent = JSON.stringify([
+      {
+        type: "form_long_text",
+        blockId: "long-answer",
+        validation: { required: true },
+        children: [{ type: "p", children: [{ text: "長文回答" }] }],
+      },
+      {
+        type: "form_section_separator",
+        blockId: "next-page",
+        children: [{ type: "p", children: [{ text: "詳細ページ" }] }],
+      },
+      {
+        type: "form_choice_grid",
+        blockId: "grid-answer",
+        validation: {
+          required: true,
+          rows: [{ id: "row-1", label: "Row 1" }],
+          columns: [{ id: "col-1", label: "Column 1" }],
+        },
+        children: [{ type: "p", children: [{ text: "Grid question" }] }],
+      },
+    ]);
+    publicFormIsPending = true;
+    publicFormData = undefined;
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    expect(
+      container.querySelector("[data-public-form-loading='true']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).toBeNull();
+    expect(container.textContent).toContain("フォームを準備しています。");
+    expect(container.textContent).not.toContain("読み込み中...");
+
+    publicFormIsPending = false;
+    publicFormData = {
+      form: {
+        description: longDescription,
+        isPasswordProtected: false,
+        title: "公開中のフォーム",
+      },
+      plateContent: multipageGridContent,
+      structure: { settings: { require_fingerprint: false } },
+    };
+
+    await act(async () => {
+      root.render(<PublicFormPage />);
+    });
+
+    expect(
+      container.querySelector("[data-public-form-loading='true']"),
+    ).toBeNull();
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).not.toBeNull();
+    expect(container.textContent).toContain("公開中のフォーム");
+    expect(container.textContent).toContain(longDescription);
+    expect(container.textContent).not.toContain("読み込み中...");
+    expect(container.querySelector("[aria-live]")).toBeNull();
+    expect(formBodyMockState.renderProps.at(-1)).toMatchObject({
+      description: longDescription,
+      plateContent: multipageGridContent,
+      title: "公開中のフォーム",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("explains that a 404 public URL may have been regenerated", () => {
