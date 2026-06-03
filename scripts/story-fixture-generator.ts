@@ -11,6 +11,7 @@ import {
   isAnswerableFixtureBlockType,
   parseStoryFixtureSet,
   STORY_FIXTURE_PREFIX,
+  STORY_FIXTURE_PREFIX_MIN_LENGTH,
   type StoryFixture,
   type StoryFixtureBlock,
   type StoryFixtureSet,
@@ -160,7 +161,7 @@ function assertSafeOptions(options: CliOptions) {
   if (!options.prefix.startsWith(STORY_FIXTURE_PREFIX)) {
     throw new Error(`Prefix must start with "${STORY_FIXTURE_PREFIX}"`);
   }
-  if (options.prefix.length < STORY_FIXTURE_PREFIX.length + 11) {
+  if (options.prefix.length < STORY_FIXTURE_PREFIX_MIN_LENGTH) {
     throw new Error(
       "Prefix must include an explicit run marker, for example a date",
     );
@@ -759,9 +760,9 @@ async function saveStructure(
   }
 
   if (needsPassword) {
-    const current = await getStructure(client, formId);
+    const refreshed = await getStructure(client, formId);
     const currentPassword =
-      current?.structure.access_control?.password_protection;
+      refreshed?.structure.access_control?.password_protection;
     if (
       currentPassword?.enabled === true &&
       currentPassword.has_password === true &&
@@ -856,14 +857,11 @@ async function ensureSampleResponses(
   if (!fixture.sampleResponses || fixture.sampleResponses.length === 0)
     return [];
   const respondentUuid = `codex-story-qa:${fixture.story}`;
-  const existing = await client.request<{
-    responses: Array<{ id: string; respondentUuid: string }>;
-  }>(
-    `/api/forms/${formId}/responses?q=${encodeURIComponent(respondentUuid)}&limit=20`,
+  const existingIds = await listFixtureResponseIds(
+    client,
+    formId,
+    respondentUuid,
   );
-  const existingIds = existing.responses
-    .filter((response) => response.respondentUuid === respondentUuid)
-    .map((response) => response.id);
   if (existingIds.length > 0) {
     const [primaryId, ...duplicateIds] = existingIds;
     if (!primaryId) return [];
@@ -908,6 +906,32 @@ async function ensureSampleResponses(
   });
 
   return created.response ? [created.response.id] : [];
+}
+
+async function listFixtureResponseIds(
+  client: ApiClient,
+  formId: string,
+  respondentUuid: string,
+): Promise<string[]> {
+  const ids: string[] = [];
+  const limit = 100;
+  let page = 1;
+  while (true) {
+    const response = await client.request<{
+      responses: Array<{ id: string; respondentUuid: string }>;
+      hasNext: boolean;
+    }>(
+      `/api/forms/${formId}/responses?q=${encodeURIComponent(respondentUuid)}&page=${page}&limit=${limit}`,
+    );
+    ids.push(
+      ...response.responses
+        .filter((item) => item.respondentUuid === respondentUuid)
+        .map((item) => item.id),
+    );
+    if (!response.hasNext) break;
+    page += 1;
+  }
+  return ids;
 }
 
 function parseStoredResponseDataJson(json: string): ResponseDataItem[] | null {

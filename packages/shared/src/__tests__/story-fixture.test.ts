@@ -69,6 +69,13 @@ describe("parseStoryFixtureSet", () => {
     expect(() => parseStoryFixtureSet(fixture)).toThrow(/Missing story id S01/);
   });
 
+  it("rejects fixture prefixes without a run marker", () => {
+    const fixture = fixtureSet();
+    fixture.prefix = STORY_FIXTURE_PREFIX;
+
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(/Too small/);
+  });
+
   it("rejects block validation type mismatches", () => {
     const fixture = fixtureSet();
     const firstBlock = fixture.stories[0]?.blocks[0];

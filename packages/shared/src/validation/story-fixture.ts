@@ -16,6 +16,7 @@ import {
 import { FormSettingsSchema, StoredLogicRuleSchema } from "./shared";
 
 export const STORY_FIXTURE_PREFIX = "Codex Story QA";
+export const STORY_FIXTURE_PREFIX_MIN_LENGTH = STORY_FIXTURE_PREFIX.length + 11;
 export const STORY_FIXTURE_STORY_COUNT = 30;
 
 const storyIdSchema = z
@@ -55,7 +56,7 @@ export const StoryFixtureSchema = z.object({
 export type StoryFixture = z.infer<typeof StoryFixtureSchema>;
 
 export const StoryFixtureSetSchema = z.object({
-  prefix: z.string().min(STORY_FIXTURE_PREFIX.length),
+  prefix: z.string().min(STORY_FIXTURE_PREFIX_MIN_LENGTH),
   stories: z.array(StoryFixtureSchema).length(STORY_FIXTURE_STORY_COUNT),
 });
 export type StoryFixtureSet = z.infer<typeof StoryFixtureSetSchema>;

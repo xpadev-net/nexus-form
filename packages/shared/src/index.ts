@@ -229,6 +229,7 @@ export {
   isAnswerableFixtureBlockType,
   parseStoryFixtureSet,
   STORY_FIXTURE_PREFIX,
+  STORY_FIXTURE_PREFIX_MIN_LENGTH,
   STORY_FIXTURE_STORY_COUNT,
   StoryFixtureBlockSchema,
   StoryFixtureSchema,
