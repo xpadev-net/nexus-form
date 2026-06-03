@@ -49,11 +49,11 @@ function renderResponses(container: HTMLElement): Root {
 const queryMock = vi.hoisted(
   (): {
     lastOptions: CapturedUseQueryOptions | null;
-    refetch: ReturnType<typeof vi.fn>;
+    refetch: ReturnType<typeof vi.fn<ResponsesQueryState["refetch"]>>;
     state: ResponsesQueryState;
   } => ({
     lastOptions: null,
-    refetch: vi.fn(),
+    refetch: vi.fn<ResponsesQueryState["refetch"]>(),
     state: {
       data: {
         responses: [
@@ -74,7 +74,7 @@ const queryMock = vi.hoisted(
       isFetching: false,
       isLoading: false,
       isPlaceholderData: false,
-      refetch: vi.fn(),
+      refetch: vi.fn<ResponsesQueryState["refetch"]>(),
     },
   }),
 );

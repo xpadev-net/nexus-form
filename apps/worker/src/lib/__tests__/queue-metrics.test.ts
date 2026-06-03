@@ -171,13 +171,16 @@ describe("closeMetricsQueues", () => {
     const waitingCount = createDeferred<number>();
     const firstQueue = createQueueMock();
     firstQueue.getWaitingCount.mockReturnValue(waitingCount.promise);
-    vi.mocked(Queue).mockImplementationOnce(
-      () => firstQueue as unknown as InstanceType<typeof Queue>,
-    );
+    vi.mocked(Queue).mockImplementationOnce(function createFirstQueueMock() {
+      return firstQueue as unknown as InstanceType<typeof Queue>;
+    });
 
+    const queueCallsBeforeCollection = vi.mocked(Queue).mock.calls.length;
     const metricsPromise = collectQueueMetrics();
     await vi.waitFor(() => {
-      expect(Queue).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(Queue).mock.calls.length).toBeGreaterThan(
+        queueCallsBeforeCollection,
+      );
     });
 
     const closePromise = closeMetricsQueues();
@@ -185,7 +188,9 @@ describe("closeMetricsQueues", () => {
 
     await Promise.all([metricsPromise, closePromise]);
 
-    expect(Queue).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(Queue).mock.calls.length).toBe(
+      queueCallsBeforeCollection + 1,
+    );
     expect(firstQueue.close).toHaveBeenCalledTimes(1);
   });
 });
