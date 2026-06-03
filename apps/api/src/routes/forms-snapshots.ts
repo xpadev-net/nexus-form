@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { formSnapshot } from "@nexus-form/database/schema";
+import { NO_CHANGES_TO_PUBLISH_CODE } from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -27,7 +28,7 @@ import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-l
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
-import { errorResponse } from "../types/domain/common";
+import { ErrorResponseSchema, errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
 import { isoDate } from "../types/domain/iso-date";
 import {
@@ -120,6 +121,13 @@ const PublishSnapshotValidationErrorResponseSchema = z.object({
 });
 export type PublishSnapshotValidationErrorResponse = z.infer<
   typeof PublishSnapshotValidationErrorResponseSchema
+>;
+
+const NoChangesToPublishErrorResponseSchema = ErrorResponseSchema.extend({
+  code: z.literal(NO_CHANGES_TO_PUBLISH_CODE),
+});
+export type NoChangesToPublishErrorResponse = z.infer<
+  typeof NoChangesToPublishErrorResponseSchema
 >;
 
 const UnpublishedChangesInfoResponseSchema = z.object({
@@ -345,7 +353,11 @@ export const formsSnapshotsRouter = createHonoApp()
         return c.json(response);
       } catch (error) {
         if (error instanceof NoChangesError) {
-          return c.json(errorResponse(error.message), 400);
+          const response = NoChangesToPublishErrorResponseSchema.parse({
+            ...errorResponse(error.message),
+            code: NO_CHANGES_TO_PUBLISH_CODE,
+          });
+          return c.json(response, 400);
         }
         if (error instanceof FormValidationError) {
           const details =

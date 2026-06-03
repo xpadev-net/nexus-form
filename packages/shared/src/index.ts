@@ -208,6 +208,10 @@ export {
   WebhookNotificationChannelSchema,
   WebhookNotificationChannelTransportSchema,
 } from "./validation/notifications";
+export {
+  NO_CHANGES_TO_PUBLISH_CODE,
+  NO_CHANGES_TO_PUBLISH_MESSAGE,
+} from "./validation/publish-codes";
 export type {
   FormMetadata,
   FormSettings,
@@ -219,6 +223,24 @@ export {
   FormStatus,
   StoredLogicRuleSchema,
 } from "./validation/shared";
+export type {
+  StoryFixture,
+  StoryFixtureBlock,
+  StoryFixtureSet,
+  StoryFixtureStructure,
+} from "./validation/story-fixture";
+export {
+  isAnswerableFixtureBlockType,
+  parseStoryFixtureSet,
+  STORY_FIXTURE_PREFIX,
+  STORY_FIXTURE_PREFIX_MIN_LENGTH,
+  STORY_FIXTURE_STORY_COUNT,
+  StoryFixtureBlockSchema,
+  StoryFixtureSchema,
+  StoryFixtureSetSchema,
+  StoryFixtureStructureSchema,
+  ValidatedStoryFixtureSetSchema,
+} from "./validation/story-fixture";
 export type { ValidationResultIdentity } from "./validation-results";
 export {
   getValidationResultId,
