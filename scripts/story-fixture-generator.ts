@@ -687,7 +687,7 @@ async function ensureForm(
   const existing = existingByTitle.get(fixture.title);
   if (existing) {
     const description = fixture.description ?? null;
-    if (existing.title === fixture.title && existing.description === description) {
+    if (existing.description === description) {
       return existing;
     }
 
@@ -856,8 +856,14 @@ async function getStructure(
 
 function isNoChangesToPublish(error: ApiError): boolean {
   try {
-    const parsed = JSON.parse(error.responseBody) as { code?: unknown };
-    return parsed.code === NO_CHANGES_TO_PUBLISH_CODE;
+    const parsed = JSON.parse(error.responseBody) as {
+      code?: unknown;
+      error?: unknown;
+    };
+    return (
+      parsed.code === NO_CHANGES_TO_PUBLISH_CODE ||
+      parsed.error === NO_CHANGES_TO_PUBLISH_MESSAGE
+    );
   } catch {
     return error.responseBody.includes(NO_CHANGES_TO_PUBLISH_MESSAGE);
   }
