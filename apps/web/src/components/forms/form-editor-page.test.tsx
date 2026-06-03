@@ -7,6 +7,7 @@ import { beforeEach, vi } from "vitest";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
+import { buildPublicFormUrl } from "@/lib/forms/public-url";
 import { FormEditorPage } from "./form-editor-page";
 
 const { hasUnsavedLocalEditsMock } = vi.hoisted(() => ({
@@ -347,6 +348,21 @@ describe("FormEditorPage tab synchronization", () => {
       search: { tab: "responses" },
       to: "/forms/$id/edit",
     });
+
+    act(() => root.unmount());
+  });
+
+  it("uses the current public URL in the editor header open action", () => {
+    const container = document.createElement("div");
+    const root = renderPage(container);
+    const publicLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/forms/public/public-1"]',
+    );
+
+    expect(publicLink).not.toBeNull();
+    expect(publicLink?.getAttribute("aria-label")).toBe(
+      `公開フォームを開く: ${buildPublicFormUrl("public-1")}`,
+    );
 
     act(() => root.unmount());
   });

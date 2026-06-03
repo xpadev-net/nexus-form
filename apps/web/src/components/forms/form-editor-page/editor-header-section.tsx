@@ -1,4 +1,3 @@
-import { Link } from "@tanstack/react-router";
 import { ExternalLink, Eye } from "lucide-react";
 import type { FC } from "react";
 import { EDITOR_TAB_DEFINITIONS } from "@/components/forms/form-editor-page/editor-tab-definitions";
@@ -7,6 +6,10 @@ import { FormPublishMenu } from "@/components/forms/form-publish-menu";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
 import { Button } from "@/components/ui/button";
 import { TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  buildPublicFormPath,
+  buildPublicFormUrl,
+} from "@/lib/forms/public-url";
 import type { FormStatus } from "@/types/validation/shared";
 
 export interface EditorHeaderSectionProps {
@@ -51,27 +54,26 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
             )}
             {publicId && (
               <Button variant="outline" size="sm" asChild>
-                <Link
-                  to="/forms/public/$publicId"
-                  params={{ publicId }}
+                <a
+                  aria-label={`公開フォームを開く: ${buildPublicFormUrl(publicId)}`}
+                  href={buildPublicFormPath(publicId)}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   <ExternalLink className="mr-1 h-3.5 w-3.5" />
                   公開フォームを開く
-                </Link>
+                </a>
               </Button>
             )}
             <Button variant="outline" size="sm" asChild>
-              <Link
-                to="/forms/preview/$id"
-                params={{ id: formId }}
+              <a
+                href={`/forms/preview/${formId}`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 <Eye className="mr-1 h-3.5 w-3.5" />
                 プレビュー
-              </Link>
+              </a>
             </Button>
             {hasFormData && (
               <FormPublishMenu
