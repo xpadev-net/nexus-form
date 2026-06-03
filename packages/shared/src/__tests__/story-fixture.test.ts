@@ -217,5 +217,11 @@ describe("parseStoryFixtureSet", () => {
     expect(() => parseStoryFixtureSet(fixture)).toThrow(
       /Logic sourceBlockId missing-source/,
     );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Logic condition field missing-condition/,
+    );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Logic targetBlockId missing-target/,
+    );
   });
 });
