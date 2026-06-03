@@ -259,10 +259,6 @@ export function useFormEditorPageModel(formId: string) {
   const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
 
   useEffect(() => {
-    setTitleDraft(formData?.title ?? "");
-  }, [formData?.title]);
-
-  useEffect(() => {
     if (tab === undefined || isEditorTab(tab)) return;
     void router.navigate({
       to: "/forms/$id/edit",
