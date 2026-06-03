@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Copy, Loader2, RefreshCw } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { PublicUrlCopyField } from "@/components/forms/public-url-copy-field";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +15,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { client, rpc } from "@/lib/api";
 import { buildPublicFormUrl } from "@/lib/forms/public-url";
 
@@ -23,87 +23,11 @@ interface FormPublicUrlSettingsProps {
   publicId?: string | null;
 }
 
-interface PublicUrlCopyFieldProps {
-  id: string;
-  label: string;
-  url: string;
-  copiedMessage: string;
-  description?: string;
-}
-
 type RegeneratedPublicIdState = {
   formId: string;
   publicId: string;
   previousPublicId: string | null;
 };
-
-async function copyText(text: string): Promise<boolean> {
-  if (navigator.clipboard) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Fall back to the textarea copy path below when the Clipboard API is unavailable at runtime.
-    }
-  }
-
-  const textArea = document.createElement("textarea");
-  textArea.value = text;
-  Object.assign(textArea.style, {
-    left: "-999999px",
-    position: "fixed",
-  });
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-  try {
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    document.body.removeChild(textArea);
-  }
-}
-
-export function PublicUrlCopyField({
-  id,
-  label,
-  url,
-  copiedMessage,
-  description,
-}: PublicUrlCopyFieldProps) {
-  const handleCopy = async () => {
-    const copied = await copyText(url);
-    if (copied) {
-      toast.success(copiedMessage);
-      return;
-    }
-    toast.error("公開 URL のコピーに失敗しました");
-  };
-
-  return (
-    <div className="space-y-2 rounded-md border bg-muted/40 p-3">
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
-      <div className="flex gap-2">
-        <Input id={id} readOnly value={url} className="font-mono text-xs" />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label={`${label} をコピー`}
-          onClick={handleCopy}
-        >
-          <Copy className="h-4 w-4" />
-        </Button>
-      </div>
-      {description ? (
-        <p className="text-sm text-muted-foreground">{description}</p>
-      ) : null}
-    </div>
-  );
-}
 
 export function FormPublicUrlSettings({
   formId,

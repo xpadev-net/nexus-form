@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { ExternalLink, Eye } from "lucide-react";
 import type { FC } from "react";
 import { EDITOR_TAB_DEFINITIONS } from "@/components/forms/form-editor-page/editor-tab-definitions";
@@ -66,14 +67,15 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
               </Button>
             )}
             <Button variant="outline" size="sm" asChild>
-              <a
-                href={`/forms/preview/${formId}`}
+              <Link
+                to="/forms/preview/$id"
+                params={{ id: formId }}
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 <Eye className="mr-1 h-3.5 w-3.5" />
                 プレビュー
-              </a>
+              </Link>
             </Button>
             {hasFormData && (
               <FormPublishMenu

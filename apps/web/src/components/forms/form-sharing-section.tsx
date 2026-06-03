@@ -1,8 +1,8 @@
 import { Share2 } from "lucide-react";
 import { FormPrefillGenerator } from "@/components/forms/form-prefill-generator";
-import { PublicUrlCopyField } from "@/components/forms/form-public-url-settings";
 import { InvitationManager } from "@/components/forms/invitation-manager";
 import { PermissionEditor } from "@/components/forms/permission-editor";
+import { PublicUrlCopyField } from "@/components/forms/public-url-copy-field";
 import { ShareLinkManager } from "@/components/forms/share-link-manager";
 import { buildPublicFormUrl } from "@/lib/forms/public-url";
 
