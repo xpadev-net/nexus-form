@@ -207,6 +207,31 @@ export const FormNotificationsTransportSchema = z.object({
   on_duplicate_detected: NotificationChannelsTransportSchema.optional(),
 });
 
+// --- Form Submit Notification Jobs ---
+
+export const FORM_SUBMIT_NOTIFICATION_QUEUE = "form-submit-notifications";
+export const FORM_SUBMIT_NOTIFICATION_JOB_PREFIX = "form-submit-notification.";
+
+function encodeJobIdSegment(value: string): string {
+  return Array.from(new TextEncoder().encode(value), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+export function buildFormSubmitNotificationJobId(
+  formId: string,
+  responseId: string,
+): string {
+  return `${FORM_SUBMIT_NOTIFICATION_JOB_PREFIX}${encodeJobIdSegment(formId)}.${encodeJobIdSegment(responseId)}`;
+}
+
+export const FormSubmitNotificationJobDataSchema = z.object({
+  formId: z.string().min(1),
+  responseId: z.string().min(1),
+  snapshotVersion: z.number().int().positive(),
+  submittedAt: z.string().datetime(),
+});
+
 // --- Form Access Control ---
 
 export const FormAccessControlSchema = z.object({
@@ -286,6 +311,9 @@ export type WebhookNotificationChannelTransport = z.infer<
 export type FormNotifications = z.infer<typeof FormNotificationsSchema>;
 export type FormNotificationsTransport = z.infer<
   typeof FormNotificationsTransportSchema
+>;
+export type FormSubmitNotificationJobData = z.infer<
+  typeof FormSubmitNotificationJobDataSchema
 >;
 export type FormAccessControl = z.infer<typeof FormAccessControlSchema>;
 export type FormConfirmation = z.infer<typeof FormConfirmationSchema>;

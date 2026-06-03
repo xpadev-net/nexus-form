@@ -400,8 +400,7 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
         </div>
 
         <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          公開後の送信完了画面への表示反映と通知送信処理への接続は、別 slice
-          で対応します。
+          公開後は、保存済みの完了画面設定と有効な通知チャネルが回答送信時に使用されます。
         </div>
 
         <div className="space-y-5 border-t pt-5">

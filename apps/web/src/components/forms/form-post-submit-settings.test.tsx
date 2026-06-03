@@ -249,7 +249,9 @@ describe("FormPostSubmitSettings", () => {
     const root = renderSettings(container);
 
     expect(container.textContent).toContain("送信後");
-    expect(container.textContent).toContain("公開後の送信完了画面への表示反映");
+    expect(container.textContent).toContain(
+      "有効な通知チャネルが回答送信時に使用されます",
+    );
     expect(container.textContent).toContain("保存済み URL は表示されません");
     expect(container.textContent).toContain("保存済み secret は表示されません");
     expect(

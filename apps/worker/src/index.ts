@@ -12,6 +12,7 @@ import type { Worker } from "bullmq";
 import { UnrecoverableError } from "bullmq";
 import Redis from "ioredis";
 import { z } from "zod";
+import { handleFormSubmitNotifications } from "./handlers/form-submit-notifications";
 import { handleGenericValidation } from "./handlers/generic-validation";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
@@ -33,6 +34,7 @@ import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { abortWorkerShutdown } from "./lib/shutdown-signal";
 import { createWorker } from "./lib/worker-factory";
 import {
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
   GOOGLE_SHEETS_SYNC_QUEUE,
   selectWorkerQueues,
   validateWorkerQueuesEnv,
@@ -210,6 +212,15 @@ async function main() {
 
   if (selectedQueues.includeSheetsSync) {
     workers.push(createWorker(GOOGLE_SHEETS_SYNC_QUEUE, handleSheetsSync));
+  }
+
+  if (selectedQueues.includeFormSubmitNotifications) {
+    workers.push(
+      createWorker(
+        FORM_SUBMIT_NOTIFICATION_QUEUE,
+        handleFormSubmitNotifications,
+      ),
+    );
   }
 
   if (workers.length === 0) {

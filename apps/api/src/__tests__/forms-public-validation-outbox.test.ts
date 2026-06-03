@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     addSheetsSyncJob: vi.fn(),
+    addNotificationJob: vi.fn(),
     addValidationJob: vi.fn(),
     consumeTokensOrThrow: vi.fn(),
     db: {
@@ -97,6 +98,9 @@ vi.mock("../lib/sessions/jwt", () => ({
 }));
 
 vi.mock("../lib/queues", () => ({
+  getFormSubmitNotificationQueue: vi.fn(() => ({
+    add: mocks.addNotificationJob,
+  })),
   getSheetsSyncQueue: vi.fn(() => ({
     add: mocks.addSheetsSyncJob,
   })),
@@ -504,6 +508,10 @@ function resetPublicSubmitMocks(
     mocks.providerRegistryGet.mockReturnValue(undefined);
   }
   if (options.trackQueueSequence) {
+    mocks.addNotificationJob.mockImplementation(async () => {
+      mocks.sequence.push("notification:add");
+      return { id: "notification-job-1" };
+    });
     mocks.addValidationJob.mockImplementation(async () => {
       mocks.sequence.push("queue:add");
       return { id: "validation-job-1" };
@@ -513,6 +521,7 @@ function resetPublicSubmitMocks(
       return { id: "sheets-job" };
     });
   } else {
+    mocks.addNotificationJob.mockResolvedValue({ id: "notification-job-1" });
     mocks.addValidationJob.mockResolvedValue({ id: "validation-job-1" });
     mocks.addSheetsSyncJob.mockResolvedValue({ id: "sheets-job" });
   }
@@ -691,6 +700,140 @@ describe("R11-C2-a public validation outbox", () => {
     });
     const jobId = mocks.addSheetsSyncJob.mock.calls[0]?.[2]?.jobId;
     expect(jobId).not.toContain(":");
+  });
+
+  it("queues only enabled submit notification channels after a successful response", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            email: {
+              enabled: false,
+              recipients: ["owner@example.com"],
+            },
+            discord: {
+              enabled: true,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+              message_template: "new response {{response_id}}",
+            },
+            webhook: {
+              enabled: false,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).toHaveBeenCalledWith(
+        "form-submit",
+        expect.objectContaining({
+          formId: "form-1",
+          responseId: expect.any(String),
+          snapshotVersion: 7,
+          submittedAt: expect.any(String),
+        }),
+        expect.objectContaining({
+          jobId: expect.stringMatching(
+            /^form-submit-notification\.[^.]+\.[^.]+$/,
+          ),
+        }),
+      );
+    });
+    expect(mocks.addNotificationJob.mock.calls[0]?.[2]?.jobId).not.toContain(
+      ":",
+    );
+    const jobDataJson = JSON.stringify(
+      mocks.addNotificationJob.mock.calls[0]?.[1],
+    );
+    expect(jobDataJson).not.toContain("discord-token");
+    expect(jobDataJson).not.toContain("current-secret");
+  });
+
+  it("does not queue submit notifications when every channel is off", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            email: {
+              enabled: false,
+              recipients: ["owner@example.com"],
+            },
+            discord: {
+              enabled: false,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+            },
+            webhook: {
+              enabled: false,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+  });
+
+  it("keeps submit success fail-open when notification enqueue fails", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            webhook: {
+              enabled: true,
+              url: "https://zapier.com/hooks/catch/current",
+              secret: "current-secret-current-secret-123456",
+              timeout_seconds: 30,
+              retry_attempts: 1,
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.addNotificationJob.mockRejectedValueOnce(
+      new Error("Redis unavailable"),
+    );
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("returns the published confirmation snapshot with the created response", async () => {
