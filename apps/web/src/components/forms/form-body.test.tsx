@@ -24,6 +24,9 @@ import { FormBody } from "./form-body";
 const plateViewerValues = vi.hoisted(() => [] as string[]);
 
 vi.mock("@/components/editor/plate-viewer", async () => {
+  const { useFormResponseOptional } = await import(
+    "@/contexts/form-response-context"
+  );
   const { DateInput } = await import(
     "@/components/ui/form-question-nodes/form-date-node"
   );
@@ -33,6 +36,55 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { ChoiceGridInput } = await import(
     "@/components/ui/form-question-nodes/form-choice-grid-node"
   );
+  type OptionLike = { id: string; label: string };
+
+  function ShortTextInput({ element }: { element: TElement }) {
+    const ctx = useFormResponseOptional();
+    if (!ctx) return null;
+    const blockId = element.blockId as string;
+    const answer = ctx.getAnswer(blockId);
+    return (
+      <input
+        aria-label={blockId}
+        value={(answer?.value as string) ?? ""}
+        onChange={(event) =>
+          ctx.setAnswer(blockId, { value: event.currentTarget.value })
+        }
+      />
+    );
+  }
+
+  function NativeRadioInput({ element }: { element: TElement }) {
+    const ctx = useFormResponseOptional();
+    if (!ctx) return null;
+    const blockId = element.blockId as string;
+    const answer = ctx.getAnswer(blockId);
+    const validation = element.validation as
+      | { options?: OptionLike[] }
+      | undefined;
+
+    return (
+      <div>
+        {(validation?.options ?? []).map((option) => (
+          <label key={option.id}>
+            <input
+              aria-label={option.label}
+              checked={answer?.value === option.id}
+              name={blockId}
+              type="radio"
+              value={option.id}
+              onChange={(event) => {
+                if (event.currentTarget.checked) {
+                  ctx.setAnswer(blockId, { value: option.id });
+                }
+              }}
+            />
+            {option.label}
+          </label>
+        ))}
+      </div>
+    );
+  }
 
   return {
     PlateViewer: ({ value }: { value: string }) => {
@@ -55,6 +107,20 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               typeof node === "object" && node !== null
                 ? ((node as { blockId?: unknown }).blockId?.toString() ?? index)
                 : index;
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_radio"
+            ) {
+              return <NativeRadioInput key={key} element={node as TElement} />;
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_short_text"
+            ) {
+              return <ShortTextInput key={key} element={node as TElement} />;
+            }
             if (
               typeof node === "object" &&
               node !== null &&
@@ -210,6 +276,90 @@ function publicQuestionFixturePlateContent(): string {
       required: true,
       minTime: "09:00",
       maxTime: "17:00",
+    }),
+  ]);
+}
+
+function sectionBranchingPlateContent(
+  overrides: { conditionValue?: string; targetId?: string } = {},
+): string {
+  return JSON.stringify([
+    questionNode("radio", "q-entity-type", "契約種別", {
+      required: true,
+      options: [
+        { id: "individual", label: "個人" },
+        { id: "corporate", label: "法人" },
+      ],
+    }),
+    questionNode("section_separator", "section-corporate", "法人追加情報", {
+      navigation_rules: [
+        {
+          id: "rule-corporate-branch",
+          name: "法人の場合は追加情報へ",
+          conditions: [
+            {
+              question_id: "q-entity-type",
+              operator: "equals",
+              value: overrides.conditionValue ?? "corporate",
+            },
+          ],
+          condition_match: "all",
+          action: {
+            type: "jump_to_section",
+            target_id: overrides.targetId ?? "section-corporate",
+          },
+          enabled: true,
+          priority: 1,
+        },
+      ],
+      default_action: { type: "submit" },
+    }),
+    questionNode("short_text", "q-company-name", "法人名", {
+      required: true,
+    }),
+  ]);
+}
+
+function sectionBranchingPlateContentWithIntermediateTarget(
+  targetId: string,
+): string {
+  return JSON.stringify([
+    questionNode("radio", "q-entity-type", "契約種別", {
+      required: true,
+      options: [
+        { id: "individual", label: "個人" },
+        { id: "corporate", label: "法人" },
+      ],
+    }),
+    questionNode("section_separator", "section-unrelated", "確認ページ", {
+      navigation_rules: [
+        {
+          id: "rule-corporate-branch",
+          name: "法人の場合は追加情報へ",
+          conditions: [
+            {
+              question_id: "q-entity-type",
+              operator: "equals",
+              value: "corporate",
+            },
+          ],
+          condition_match: "all",
+          action: {
+            type: "jump_to_section",
+            target_id: targetId,
+          },
+          enabled: true,
+          priority: 1,
+        },
+      ],
+      default_action: { type: "submit" },
+    }),
+    questionNode("short_text", "q-review-code", "確認コード", {
+      required: true,
+    }),
+    questionNode("section_separator", "section-corporate", "法人追加情報"),
+    questionNode("short_text", "q-company-name", "法人名", {
+      required: true,
     }),
   ]);
 }
@@ -764,6 +914,236 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).not.toContain("Next page");
+
+    act(() => root.unmount());
+  });
+
+  it("routes corporate respondents to the section branch and blocks submit until corporate required fields are answered", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(container, sectionBranchingPlateContent(), {
+      captchaReady: true,
+      onSubmitRequest,
+    });
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "法人" }));
+    });
+
+    const nextButton = getByRole(container, "button", { name: /次へ/ });
+    await act(async () => {
+      nextButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("法人追加情報");
+    expect(container.textContent).toContain("2 / 2");
+
+    expect(
+      getByRole(container, "button", { name: "回答を送信" }),
+    ).not.toBeNull();
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+
+    const companyInput = getByRole(container, "textbox", {
+      name: "q-company-name",
+    });
+    await act(async () => {
+      fireEvent.change(companyInput, { target: { value: "Nexus 株式会社" } });
+    });
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      visitedQuestionIds: ["q-entity-type", "q-company-name"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-entity-type",
+          question_title: "契約種別",
+          question_type: "radio",
+          value: "corporate",
+        }),
+        expect.objectContaining({
+          question_id: "q-company-name",
+          question_title: "法人名",
+          question_type: "short_text",
+          value: "Nexus 株式会社",
+        }),
+      ],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("jumps to a non-adjacent corporate section when the rule target matches the section id", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      sectionBranchingPlateContentWithIntermediateTarget("section-corporate"),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "法人" }));
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("法人追加情報");
+    expect(container.textContent).toContain("3 / 3");
+    expect(container.textContent).not.toContain("確認ページ");
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+  });
+
+  it("submits the individual branch without visiting or serializing empty corporate answers", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(container, sectionBranchingPlateContent(), {
+      captchaReady: true,
+      onSubmitRequest,
+    });
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "個人" }));
+    });
+
+    expect(
+      getByRole(container, "button", { name: "回答を送信" }),
+    ).not.toBeNull();
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      visitedQuestionIds: ["q-entity-type"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-entity-type",
+          question_title: "契約種別",
+          question_type: "radio",
+          value: "individual",
+        }),
+      ],
+    });
+    expect(onSubmitRequest.mock.calls[0]?.[0].responses).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ question_id: "q-company-name" }),
+      ]),
+    );
+    expect(container.textContent).not.toContain("法人追加情報");
+
+    act(() => root.unmount());
+  });
+
+  it("does not branch when a condition compares the choice label instead of the saved option value", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      sectionBranchingPlateContent({ conditionValue: "法人" }),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "法人" }));
+    });
+
+    expect(container.textContent).not.toContain("法人追加情報");
+    expect(
+      getByRole(container, "button", { name: "回答を送信" }),
+    ).not.toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      visitedQuestionIds: ["q-entity-type"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-entity-type",
+          value: "corporate",
+        }),
+      ],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("falls back to the next physical page when a matching branch targets an unknown section id", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      sectionBranchingPlateContentWithIntermediateTarget("section-missing"),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "法人" }));
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("確認ページ");
+    expect(container.textContent).not.toContain("法人追加情報");
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("必須項目が未入力です: 確認コード");
+    expect(onSubmitRequest).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });

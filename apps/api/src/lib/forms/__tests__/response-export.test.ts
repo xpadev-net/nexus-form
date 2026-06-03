@@ -206,6 +206,132 @@ describe("response export", () => {
     );
   });
 
+  it("keeps unvisited section-branch answers blank in creator export records and CSV", () => {
+    const branchBlocks = [
+      {
+        blockId: "q-entity-type",
+        category: "question",
+        type: "radio",
+        content: {
+          title: "契約種別",
+          validation: {
+            options: [
+              { id: "individual", label: "個人" },
+              { id: "corporate", label: "法人" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "section-corporate",
+        category: "system",
+        type: "section_separator",
+        content: { title: "法人追加情報", validation: {} },
+      },
+      {
+        blockId: "q-company-name",
+        category: "question",
+        type: "short_text",
+        content: { title: "法人名", validation: { required: true } },
+      },
+    ];
+    const branchTitleMap = new Map([
+      ["q-entity-type", "契約種別"],
+      ["q-company-name", "法人名"],
+    ]);
+
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      "form-branch",
+      [
+        {
+          id: "response-individual",
+          formId: "form-branch",
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "q-entity-type",
+              question_type: "radio",
+              question_title: "契約種別",
+              value: "individual",
+            },
+          ]),
+          respondentUuid: "respondent-individual",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [],
+        },
+        {
+          id: "response-corporate",
+          formId: "form-branch",
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "q-entity-type",
+              question_type: "radio",
+              question_title: "契約種別",
+              value: "corporate",
+            },
+            {
+              question_id: "q-company-name",
+              question_type: "short_text",
+              question_title: "法人名",
+              value: "Nexus 株式会社",
+            },
+          ]),
+          respondentUuid: "respondent-corporate",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [],
+        },
+      ],
+      branchBlocks,
+    );
+
+    expect(records[0]?.component_columns).toEqual([
+      expect.objectContaining({
+        block_id: "q-entity-type",
+        value: "individual",
+        display_value: "個人",
+      }),
+      expect.objectContaining({
+        block_id: "q-company-name",
+        value: null,
+      }),
+    ]);
+    expect(records[1]?.component_columns).toEqual([
+      expect.objectContaining({
+        block_id: "q-entity-type",
+        value: "corporate",
+        display_value: "法人",
+      }),
+      expect.objectContaining({
+        block_id: "q-company-name",
+        value: "Nexus 株式会社",
+      }),
+    ]);
+
+    const csv = formatRecordsToCsv(
+      records,
+      fingerprintComponents,
+      branchTitleMap,
+    );
+
+    expect(csv.split("\n")[0]).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","契約種別","法人名"',
+    );
+    expect(csv.split("\n")[1]).toContain(
+      '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","","1.0000","個人",""',
+    );
+    expect(csv.split("\n")[2]).toContain(
+      '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","","1.0000","法人","Nexus 株式会社"',
+    );
+    expect(csv).not.toContain("法人追加情報");
+  });
+
   it("prefers display labels when mapping records to sheet rows", () => {
     const record: ResponseExportRecord = {
       metadata: {
