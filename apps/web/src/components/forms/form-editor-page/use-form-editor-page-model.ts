@@ -32,6 +32,13 @@ const updateFormsCacheStatus = (
   };
 };
 
+class DuplicateTitleSaveError extends Error {
+  constructor() {
+    super("Duplicate title save failed");
+    this.name = "DuplicateTitleSaveError";
+  }
+}
+
 export function useFormEditorPageModel(formId: string) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -43,6 +50,9 @@ export function useFormEditorPageModel(formId: string) {
   );
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleSavePromiseRef = useRef<Promise<unknown> | null>(null);
+  const titleSaveValueRef = useRef<string | null>(null);
 
   const formQuery = useQuery({
     queryKey: ["formDetail", formId],
@@ -112,6 +122,39 @@ export function useFormEditorPageModel(formId: string) {
     },
   });
 
+  const saveTitle = async (title: string) => {
+    const promise = updateTitleMutation.mutateAsync(title);
+    titleSavePromiseRef.current = promise;
+    titleSaveValueRef.current = title;
+    try {
+      await promise;
+    } finally {
+      if (titleSavePromiseRef.current === promise) {
+        titleSavePromiseRef.current = null;
+        titleSaveValueRef.current = null;
+      }
+    }
+  };
+
+  const saveTitleBeforeDuplicate = async () => {
+    try {
+      const pendingTitleSave = titleSavePromiseRef.current;
+      const pendingTitle = titleSaveValueRef.current?.trim() ?? "";
+      if (pendingTitleSave) {
+        await pendingTitleSave;
+      }
+
+      const savedTitle =
+        pendingTitle || formQuery.data?.form?.title?.trim() || "";
+      const draftTitle = titleDraft.trim();
+      if (!draftTitle || draftTitle === savedTitle) return;
+
+      await saveTitle(draftTitle);
+    } catch {
+      throw new DuplicateTitleSaveError();
+    }
+  };
+
   const deleteMutation = useMutation({
     mutationFn: () =>
       rpc(client.api.forms[":id"].$delete({ param: { id: formId } })),
@@ -126,8 +169,12 @@ export function useFormEditorPageModel(formId: string) {
   });
 
   const duplicateMutation = useMutation({
-    mutationFn: () =>
-      rpc(client.api.forms[":id"].duplicate.$post({ param: { id: formId } })),
+    mutationFn: async () => {
+      await saveTitleBeforeDuplicate();
+      return rpc(
+        client.api.forms[":id"].duplicate.$post({ param: { id: formId } }),
+      );
+    },
     onSuccess: (data) => {
       setShowDuplicateModal(false);
       toast.success(
@@ -144,6 +191,7 @@ export function useFormEditorPageModel(formId: string) {
       }
     },
     onError: (err) => {
+      if (err instanceof DuplicateTitleSaveError) return;
       toast.error(err instanceof Error ? err.message : "複製に失敗しました");
     },
   });
@@ -308,7 +356,13 @@ export function useFormEditorPageModel(formId: string) {
     showDeleteModal,
     showDuplicateModal,
     titleSaveFailureCount: updateTitleMutation.failureCount,
+    titleDraft,
     unarchiveForm: () => unarchiveMutation.mutate(),
-    updateTitle: (title: string) => updateTitleMutation.mutate(title),
+    updateTitle: (title: string) => {
+      void saveTitle(title).catch(() => {
+        // The mutation onError already reports the failure for blur-triggered saves.
+      });
+    },
+    updateTitleDraft: setTitleDraft,
   };
 }

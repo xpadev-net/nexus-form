@@ -23,6 +23,7 @@ export interface EditorHeaderSectionProps {
   publicId?: string | null;
   titleSaveFailureCount: number;
   onTitleBlur?: (title: string) => void;
+  onTitleDraftChange?: (title: string) => void;
   onPublishStatusChange: () => void;
   onResetSuccess: () => void;
 }
@@ -37,6 +38,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
   publicId,
   titleSaveFailureCount,
   onTitleBlur,
+  onTitleDraftChange,
   onPublishStatusChange,
   onResetSuccess,
 }) => {
@@ -45,6 +47,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       <FormHeader
         title={formTitle}
         onTitleBlur={onTitleBlur}
+        onTitleDraftChange={onTitleDraftChange}
         isTitleSaving={isTitleSaving}
         titleSaveFailureCount={titleSaveFailureCount}
         action={

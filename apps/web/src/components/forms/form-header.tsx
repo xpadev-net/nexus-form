@@ -19,6 +19,7 @@ interface FormHeaderProps {
   description?: string;
   action?: ReactNode;
   onTitleBlur?: (newTitle: string) => void;
+  onTitleDraftChange?: (newTitle: string) => void;
   isTitleSaving?: boolean;
   titleSaveFailureCount?: number;
 }
@@ -28,6 +29,7 @@ export function FormHeader({
   description,
   action,
   onTitleBlur,
+  onTitleDraftChange,
   isTitleSaving,
   titleSaveFailureCount,
 }: FormHeaderProps) {
@@ -42,6 +44,8 @@ export function FormHeader({
   localTitleRef.current = localTitle;
   const onTitleBlurRef = useRef(onTitleBlur);
   onTitleBlurRef.current = onTitleBlur;
+  const onTitleDraftChangeRef = useRef(onTitleDraftChange);
+  onTitleDraftChangeRef.current = onTitleDraftChange;
   const isTitleSavingRef = useRef(isTitleSaving);
   isTitleSavingRef.current = isTitleSaving;
   // Escape でキャンセルした場合に saveTitleOnBlur での保存をスキップするフラグ
@@ -51,6 +55,7 @@ export function FormHeader({
   useEffect(() => {
     if (!isFocusedRef.current) {
       setLocalTitle(title);
+      onTitleDraftChangeRef.current?.(title);
     }
   }, [title]);
 
@@ -64,6 +69,7 @@ export function FormHeader({
       !isFocusedRef.current
     ) {
       setLocalTitle(titleRef.current);
+      onTitleDraftChangeRef.current?.(titleRef.current);
     }
   }, [titleSaveFailureCount]);
 
@@ -76,7 +82,9 @@ export function FormHeader({
   }, []);
 
   const updateLocalTitle = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    setLocalTitle(e.target.value);
+    const nextTitle = e.target.value;
+    setLocalTitle(nextTitle);
+    onTitleDraftChangeRef.current?.(nextTitle);
   }, []);
 
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLInputElement>) => {
@@ -89,6 +97,7 @@ export function FormHeader({
       // キャンセル: 元の値に戻してフォーカスを外す（saveTitleOnBlur で保存しないよう cancelRef を立てる）
       cancelRef.current = true;
       setLocalTitle(titleRef.current);
+      onTitleDraftChangeRef.current?.(titleRef.current);
       e.currentTarget.blur();
     }
   }, []);
@@ -105,16 +114,19 @@ export function FormHeader({
     if (!trimmed) {
       // 空文字は保存せず元の値に戻す（API バリデーション: min(1)）
       setLocalTitle(titleRef.current.trim());
+      onTitleDraftChangeRef.current?.(titleRef.current.trim());
       return;
     }
     // 変更がない場合: 余分な空白を取り除いて表示を正規化してから終了
     if (trimmed === titleRef.current.trim()) {
       setLocalTitle(trimmed);
+      onTitleDraftChangeRef.current?.(trimmed);
       return;
     }
     // 保存中はリクエストを送らない
     if (isTitleSavingRef.current) {
       setLocalTitle(titleRef.current);
+      onTitleDraftChangeRef.current?.(titleRef.current);
       return;
     }
     onTitleBlurRef.current(trimmed);

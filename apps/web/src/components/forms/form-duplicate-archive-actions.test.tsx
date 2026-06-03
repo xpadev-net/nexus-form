@@ -85,6 +85,7 @@ describe("duplicate and archive form actions", () => {
     );
 
     expect(document.body.textContent).toContain("応募フォーム のコピー");
+    expect(document.body.textContent).toContain("コピー後のフォーム名");
     expect(document.body.textContent).toContain("コピーせず下書きで作成");
     expect(document.body.textContent).toContain("回答");
     expect(document.body.textContent).toContain("コピーしない");

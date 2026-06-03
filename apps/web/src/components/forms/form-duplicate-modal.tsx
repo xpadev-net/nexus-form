@@ -37,8 +37,9 @@ export function FormDuplicateModal({
   onClose,
   sourceTitle,
 }: FormDuplicateModalProps): JSX.Element {
-  const duplicateTitle = sourceTitle
-    ? `${sourceTitle} のコピー`
+  const normalizedSourceTitle = sourceTitle?.trim();
+  const duplicateTitle = normalizedSourceTitle
+    ? `${normalizedSourceTitle} のコピー`
     : "元フォーム名 のコピー";
 
   return (
@@ -55,12 +56,18 @@ export function FormDuplicateModal({
             フォーム複製
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {sourceTitle
+            {normalizedSourceTitle
               ? `このフォームを複製して「${duplicateTitle}」を作成します。`
               : "このフォームを複製して新しいフォームを作成します。"}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <dl className="grid gap-2 rounded border bg-muted/30 p-3 text-sm">
+          <div className="grid gap-1">
+            <dt className="text-muted-foreground">コピー後のフォーム名</dt>
+            <dd className="rounded border bg-background px-3 py-2 font-medium">
+              {duplicateTitle}
+            </dd>
+          </div>
           <div className="flex justify-between gap-3">
             <dt className="text-muted-foreground">公開状態</dt>
             <dd className="text-right font-medium">コピーせず下書きで作成</dd>
