@@ -41,6 +41,7 @@ interface PostSubmitDraft {
   contactLabel: string;
   contactEmail: string;
   contactUrl: string;
+  showResponseId: boolean;
   emailEnabled: boolean;
   emailRecipients: string;
   emailSubject: string;
@@ -114,6 +115,7 @@ function draftFromSettings(
     contactLabel: confirmation.contact?.label ?? "",
     contactEmail: confirmation.contact?.email ?? "",
     contactUrl: confirmation.contact?.url ?? "",
+    showResponseId: confirmation.show_response_id,
     emailEnabled: email?.enabled ?? false,
     emailRecipients: email?.recipients?.join("\n") ?? "",
     emailSubject: email?.subject ?? "",
@@ -152,6 +154,7 @@ function buildPostSubmitPayload(draft: PostSubmitDraft): PostSubmitPayload {
       contactEmail || contactUrl
         ? { label: contactLabel, email: contactEmail, url: contactUrl }
         : null,
+    show_response_id: draft.showResponseId,
   });
 
   const notifications = FormNotificationsTransportSchema.parse({
@@ -397,11 +400,26 @@ export const FormPostSubmitSettings: FC<FormPostSubmitSettingsProps> = ({
               />
             </div>
           </div>
+          <div className="flex items-center gap-2 md:col-span-2">
+            <Switch
+              id="post-submit-response-id-visible"
+              aria-labelledby="post-submit-response-id-heading"
+              checked={draft.showResponseId}
+              onCheckedChange={(checked) =>
+                updateDraft("showResponseId", checked)
+              }
+            />
+            <Label
+              id="post-submit-response-id-heading"
+              htmlFor="post-submit-response-id-visible"
+            >
+              完了画面に回答 ID を表示する
+            </Label>
+          </div>
         </div>
 
         <div className="rounded-md bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-          公開後の送信完了画面への表示反映と通知送信処理への接続は、別 slice
-          で対応します。
+          完了画面の表示設定は公開後の回答者画面に反映されます。通知送信は有効化された設定に基づいて処理されます。
         </div>
 
         <div className="space-y-5 border-t pt-5">

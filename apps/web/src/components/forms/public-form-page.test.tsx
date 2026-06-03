@@ -42,6 +42,7 @@ type PublicFormData = {
       contact?: { label?: string; email?: string; url?: string };
       redirect_url?: string;
       show_response_summary?: boolean;
+      show_response_id?: boolean;
       allow_edit_link?: boolean;
     };
     settings?: { require_fingerprint?: boolean };
@@ -644,6 +645,7 @@ describe("PublicFormPage password protection", () => {
           contact: { label: "問い合わせ", email: "help@example.com" },
           redirect_url: "https://example.com/done",
           show_response_summary: true,
+          show_response_id: false,
           allow_edit_link: true,
         },
         settings: { require_fingerprint: false },
@@ -687,7 +689,8 @@ describe("PublicFormPage password protection", () => {
     expect(container.textContent).toContain("送信完了");
     expect(container.textContent).toContain("送信ありがとうございます");
     expect(container.textContent).toContain("受付が完了しました。");
-    expect(container.textContent).toContain("response-123");
+    expect(container.textContent).not.toContain("回答 ID");
+    expect(container.textContent).not.toContain("response-123");
     expect(container.textContent).toContain("回答サマリー");
     expect(container.textContent).toContain("Name");
     expect(container.textContent).toContain("Alice");

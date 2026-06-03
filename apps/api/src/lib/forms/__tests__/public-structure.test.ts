@@ -17,7 +17,11 @@ describe("buildPublicFormStructure", () => {
     },
     logic: [{ id: "rule-1", conditions: [], actions: [] }],
     appearance: { theme: { primary_color: "#000" }, layout: {} },
-    confirmation: { title: "Thanks", message: "Submitted" },
+    confirmation: {
+      title: "Thanks",
+      message: "Submitted",
+      show_response_id: false,
+    },
     notifications: {
       on_submit: {
         email: { enabled: true, recipients: ["admin@example.com"] },
