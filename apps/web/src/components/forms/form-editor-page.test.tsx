@@ -48,6 +48,7 @@ function readMockOperation(value: unknown): string | undefined {
 
 let formQueryState: QueryState;
 let contentQueryState: QueryState;
+let pendingTitleSaveResolver: (() => void) | undefined;
 const retryByQueryKey = new Map<string, RetryFn>();
 const optionsByQueryKey = new Map<string, QueryOptions>();
 
@@ -67,6 +68,19 @@ function rerenderPage(root: Root) {
   act(() => {
     root.render(<FormEditorPage />);
   });
+}
+
+function updateMockFormTitle(title: string | undefined) {
+  formQueryState = {
+    ...formQueryState,
+    data: {
+      form: {
+        ...(formQueryState.data as { form: Record<string, unknown> }).form,
+        title,
+      },
+    },
+  };
+  return { form: (formQueryState.data as { form: unknown }).form };
 }
 
 vi.mock("@tanstack/react-router", () => ({
@@ -329,16 +343,14 @@ vi.mock("@/lib/api", () => ({
       if (request.title === "保存失敗タイトル") {
         throw new Error("Title save failed");
       }
-      formQueryState = {
-        ...formQueryState,
-        data: {
-          form: {
-            ...(formQueryState.data as { form: Record<string, unknown> }).form,
-            title: request.title,
-          },
-        },
-      };
-      return { form: (formQueryState.data as { form: unknown }).form };
+      if (request.title === "保存中タイトル") {
+        return new Promise((resolve) => {
+          pendingTitleSaveResolver = () => {
+            resolve(updateMockFormTitle(request.title));
+          };
+        });
+      }
+      return updateMockFormTitle(request.title);
     }
     if (request.operation === "duplicate") {
       return {
@@ -384,6 +396,7 @@ describe("FormEditorPage tab synchronization", () => {
     snapshotEditorToDraftMock.mockClear();
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
+    pendingTitleSaveResolver = undefined;
     vi.mocked(usePageTitle).mockClear();
     optionsByQueryKey.clear();
     retryByQueryKey.clear();
@@ -579,6 +592,85 @@ describe("FormEditorPage tab synchronization", () => {
       );
     expect(updateTitleCallIndex).toBeGreaterThanOrEqual(0);
     expect(duplicateCallIndex).toBeGreaterThan(updateTitleCallIndex);
+
+    act(() => root.unmount());
+  });
+
+  it("saves a newer title draft after an earlier pending title save before duplicating", async () => {
+    searchTab = "settings";
+    const { client, rpc } = await import("@/lib/api");
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "保存中タイトル");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+      titleInput.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(pendingTitleSaveResolver).toBeDefined();
+
+    act(() => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "最新タイトル");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const duplicateButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("複製"));
+    await act(async () => {
+      duplicateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("最新タイトル のコピー");
+
+    const confirmButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("複製確定"),
+    );
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(client.api.forms[":id"].duplicate.$post).not.toHaveBeenCalled();
+
+    await act(async () => {
+      pendingTitleSaveResolver?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const titleUpdates = vi
+      .mocked(rpc)
+      .mock.calls.filter(
+        ([request]) => readMockOperation(request) === "update-title",
+      )
+      .map(([request]) =>
+        typeof request === "object" && request != null && "title" in request
+          ? request.title
+          : undefined,
+      );
+    expect(titleUpdates).toEqual(["保存中タイトル", "最新タイトル"]);
+    expect(client.api.forms[":id"].duplicate.$post).toHaveBeenCalledWith({
+      param: { id: "form-1" },
+    });
 
     act(() => root.unmount());
   });

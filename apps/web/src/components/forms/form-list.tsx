@@ -46,10 +46,6 @@ export const FormList = () => {
   const [restoringFormId, setRestoringFormId] = useState<string | null>(null);
   const forms = formsQuery.data?.forms ?? [];
 
-  const hasArchivedForms = useMemo(
-    () => forms.some((item) => normalizeFormStatus(item.status) === "archived"),
-    [forms],
-  );
   const archivedCount = useMemo(
     () =>
       forms.filter((item) => normalizeFormStatus(item.status) === "archived")
@@ -57,7 +53,7 @@ export const FormList = () => {
     [forms],
   );
   const shouldShowArchiveFilterHint =
-    status === "all" && searchTerm === "" && hasArchivedForms;
+    status === "all" && searchTerm === "" && archivedCount > 0;
 
   const unarchiveMutation = useMutation({
     mutationFn: (formId: string) =>

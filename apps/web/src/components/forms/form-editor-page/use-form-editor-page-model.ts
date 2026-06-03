@@ -52,6 +52,7 @@ export function useFormEditorPageModel(formId: string) {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const titleSavePromiseRef = useRef<Promise<unknown> | null>(null);
+  const titleSaveValueRef = useRef<string | null>(null);
 
   const formQuery = useQuery({
     queryKey: ["formDetail", formId],
@@ -124,11 +125,13 @@ export function useFormEditorPageModel(formId: string) {
   const saveTitle = async (title: string) => {
     const promise = updateTitleMutation.mutateAsync(title);
     titleSavePromiseRef.current = promise;
+    titleSaveValueRef.current = title;
     try {
       await promise;
     } finally {
       if (titleSavePromiseRef.current === promise) {
         titleSavePromiseRef.current = null;
+        titleSaveValueRef.current = null;
       }
     }
   };
@@ -136,12 +139,13 @@ export function useFormEditorPageModel(formId: string) {
   const saveTitleBeforeDuplicate = async () => {
     try {
       const pendingTitleSave = titleSavePromiseRef.current;
+      const pendingTitle = titleSaveValueRef.current?.trim() ?? "";
       if (pendingTitleSave) {
         await pendingTitleSave;
-        return;
       }
 
-      const savedTitle = formQuery.data?.form?.title?.trim() ?? "";
+      const savedTitle =
+        pendingTitle || formQuery.data?.form?.title?.trim() || "";
       const draftTitle = titleDraft.trim();
       if (!draftTitle || draftTitle === savedTitle) return;
 
