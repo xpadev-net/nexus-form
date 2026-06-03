@@ -219,6 +219,23 @@ export {
   FormStatus,
   StoredLogicRuleSchema,
 } from "./validation/shared";
+export type {
+  StoryFixture,
+  StoryFixtureBlock,
+  StoryFixtureSet,
+  StoryFixtureStructure,
+} from "./validation/story-fixture";
+export {
+  isAnswerableFixtureBlockType,
+  parseStoryFixtureSet,
+  STORY_FIXTURE_PREFIX,
+  STORY_FIXTURE_STORY_COUNT,
+  StoryFixtureBlockSchema,
+  StoryFixtureSchema,
+  StoryFixtureSetSchema,
+  StoryFixtureStructureSchema,
+  ValidatedStoryFixtureSetSchema,
+} from "./validation/story-fixture";
 export type { ValidationResultIdentity } from "./validation-results";
 export {
   getValidationResultId,
