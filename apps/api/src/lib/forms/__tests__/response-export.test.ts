@@ -323,10 +323,10 @@ describe("response export", () => {
     expect(csv.split("\n")[0]).toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","契約種別","法人名"',
     );
-    expect(csv.split("\n")[1]).toContain(
+    expect(csv.split("\n")[1]).toBe(
       '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","","1.0000","個人",""',
     );
-    expect(csv.split("\n")[2]).toContain(
+    expect(csv.split("\n")[2]).toBe(
       '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","","1.0000","法人","Nexus 株式会社"',
     );
     expect(csv).not.toContain("法人追加情報");

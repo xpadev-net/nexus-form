@@ -333,7 +333,7 @@ vi.mock("@/lib/forms/find-unanswered-required", () => ({
   findUnansweredRequired: requiredValidationMock.findUnansweredRequired,
 }));
 
-describe("PublicFormPage password protection", () => {
+describe("PublicFormPage", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     publicFormData = lockedFormData;
