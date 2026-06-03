@@ -226,6 +226,11 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
   });
 
   const warnings = colorWarnings(draftAppearance);
+  const publishStatusMessage = !structureQuery.data
+    ? "保存済みの外観を読み込み中です。"
+    : isDirty
+      ? "未保存の変更はライブプレビューだけに反映中です。公開フォームへ反映するには保存後に公開 snapshot を更新してください。"
+      : "保存済みの外観がライブプレビューに反映されています。次回公開時に公開 snapshot へ含まれます。";
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     saveMutation.mutate(draftAppearance);
@@ -241,6 +246,8 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             質問番号、テーマ、ブランド、余白とレイアウトをまとめて調整します。
+            未保存の変更は右側のライブプレビューに即時反映され、保存済みの外観は
+            次回公開時に回答者向け snapshot へ反映されます。
           </p>
         </div>
         <Button
@@ -260,6 +267,28 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
           className="space-y-5"
           onSubmit={handleSubmit}
         >
+          <div className="grid gap-3 rounded-md bg-muted/30 p-4 text-sm sm:grid-cols-2">
+            <div>
+              <p className="font-medium">テーマとブランド</p>
+              <p className="mt-1 text-muted-foreground">
+                テーマ色、アクセント色、背景色、ブランド名、ロゴ、カバー画像を設定します。
+              </p>
+            </div>
+            <div>
+              <p className="font-medium">レイアウトと質問番号</p>
+              <p className="mt-1 text-muted-foreground">
+                フォーム幅、配置、余白、Q1/Q2 の質問番号表示を設定します。
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-md bg-muted/30 p-4 text-sm">
+            <p className="font-medium">反映ステータス</p>
+            <p className="mt-1 text-muted-foreground" aria-live="polite">
+              {publishStatusMessage}
+            </p>
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
             <ColorField
               id="appearance-primary-color"
@@ -289,6 +318,9 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
                 {warnings.map((warning) => (
                   <p key={warning}>{warning}</p>
                 ))}
+                <p>
+                  回答者に読みづらくなる可能性があるため、公開前に背景色との差を広げてください。
+                </p>
               </AlertDescription>
             </Alert>
           ) : null}
@@ -435,8 +467,8 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
 
           <div className="rounded-lg border bg-muted/30 p-4 text-sm text-muted-foreground">
             保存済みの外観は次回公開時に `structure.appearance` として公開
-            snapshot に含まれます。未保存の入力と右側の表示幅切替は snapshot
-            には含まれません。
+            snapshot に含まれます。未保存の入力、プレビューの mobile / desktop
+            表示幅切替は snapshot には含まれません。
           </div>
         </form>
 
