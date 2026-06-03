@@ -835,7 +835,7 @@ function normalizeStableValue(value: unknown): unknown {
   return Object.fromEntries(
     Object.keys(record)
       .filter((key) => record[key] !== undefined)
-    .sort()
+      .sort()
       .map((key) => [key, normalizeStableValue(record[key])]),
   );
 }
