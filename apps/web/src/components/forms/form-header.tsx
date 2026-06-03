@@ -69,6 +69,7 @@ export function FormHeader({
       !isFocusedRef.current
     ) {
       setLocalTitle(titleRef.current);
+      onTitleDraftChangeRef.current?.(titleRef.current);
     }
   }, [titleSaveFailureCount]);
 
