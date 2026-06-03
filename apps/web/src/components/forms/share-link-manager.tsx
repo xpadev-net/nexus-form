@@ -79,10 +79,15 @@ function formatShareLinkFailureMessage(error: unknown): string {
   ) {
     return "権限不足: 共有リンクを管理する権限がありません。";
   }
-  if (message.includes("expired") || message.includes("期限切れ")) {
+  if (
+    apiError.code === "SHARE_LINK_EXPIRED" ||
+    message.includes("expired") ||
+    message.includes("期限切れ")
+  ) {
     return "期限切れ: この共有リンクは有効期限が切れています。";
   }
   if (
+    apiError.code === "SHARE_LINK_NOT_FOUND" ||
     message.includes("not found") ||
     message.includes("inactive") ||
     message.includes("deleted") ||
