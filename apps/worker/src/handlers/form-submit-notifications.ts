@@ -28,6 +28,8 @@ type NotificationSummary = {
   failed: NotificationChannel[];
 };
 
+class NotificationSoftFailure extends Error {}
+
 const DEFAULT_DISCORD_MESSAGE =
   "新しいフォーム回答が届きました\nForm ID: {{form_id}}\nResponse ID: {{response_id}}";
 
@@ -41,14 +43,19 @@ function withNotificationContext(
 
 function recordChannelFailure(error: unknown, context: NotificationContext) {
   const contextualError = withNotificationContext(error, context);
-  console.error("[notification] channel delivery failed", {
+  const logPayload = {
     channel: context.channel,
     formId: context.formId,
     responseId: context.responseId,
     snapshotVersion: context.snapshotVersion,
     errorName: contextualError.name,
     errorMessage: contextualError.message,
-  });
+  };
+  if (contextualError instanceof NotificationSoftFailure) {
+    console.warn("[notification] channel delivery skipped", logPayload);
+    return;
+  }
+  console.error("[notification] channel delivery failed", logPayload);
   captureError(contextualError);
 }
 
@@ -143,6 +150,14 @@ async function fetchWithTimeout(
   }
 }
 
+function backoffDelayMs(attempt: number): number {
+  return Math.min(1000 * 2 ** Math.max(0, attempt - 2), 8000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function postJsonWithRetries(params: {
   url: string;
   body: string;
@@ -155,6 +170,9 @@ async function postJsonWithRetries(params: {
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(backoffDelayMs(attempt));
+    }
     try {
       const response = await fetchWithTimeout(
         params.url,
@@ -194,7 +212,9 @@ async function sendEmailNotification(
     return;
   }
 
-  throw new Error("Email notification provider is not configured");
+  throw new NotificationSoftFailure(
+    "Email notification provider is not configured",
+  );
 }
 
 async function sendDiscordNotification(

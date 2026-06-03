@@ -184,4 +184,38 @@ describe("handleFormSubmitNotifications", () => {
     expect(logged).not.toContain(WEBHOOK_SECRET);
     expect(job.updateProgress).toHaveBeenCalledWith(result);
   });
+
+  it("records production email provider gaps without sending Sentry events", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    setupSnapshotNotifications({
+      on_submit: {
+        email: {
+          enabled: true,
+          recipients: ["owner@example.com"],
+        },
+      },
+    });
+    const job = makeJob(baseJobData());
+
+    const result = await handleFormSubmitNotifications(job);
+
+    expect(result).toEqual({
+      delivered: [],
+      failed: ["email"],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "[notification] channel delivery skipped",
+      expect.objectContaining({
+        channel: "email",
+        formId: "form-1",
+        responseId: "response-1",
+        errorMessage: "Email notification provider is not configured",
+      }),
+    );
+    expect(mocks.captureError).not.toHaveBeenCalled();
+  });
 });

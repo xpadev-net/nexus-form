@@ -261,12 +261,14 @@ function PublicSubmitCompletion({
           <p className="whitespace-pre-wrap text-sm text-muted-foreground">
             {confirmation.message}
           </p>
-          <dl className="rounded-md bg-muted/40 px-4 py-3 text-sm">
-            <dt className="font-medium">回答 ID</dt>
-            <dd className="mt-1 font-mono text-muted-foreground">
-              {responseId}
-            </dd>
-          </dl>
+          {confirmation.show_response_id !== false ? (
+            <dl className="rounded-md bg-muted/40 px-4 py-3 text-sm">
+              <dt className="font-medium">回答 ID</dt>
+              <dd className="mt-1 font-mono text-muted-foreground">
+                {responseId}
+              </dd>
+            </dl>
+          ) : null}
           {confirmation.show_response_summary ? (
             <section
               aria-label="回答サマリー"

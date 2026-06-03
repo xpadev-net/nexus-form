@@ -210,6 +210,7 @@ describe("FormPostSubmitSettings", () => {
             label: "Support",
             email: "support@example.com",
           },
+          show_response_id: true,
         },
         notifications: {
           on_submit: {
@@ -250,8 +251,10 @@ describe("FormPostSubmitSettings", () => {
 
     expect(container.textContent).toContain("送信後");
     expect(container.textContent).toContain(
-      "有効な通知チャネルが回答送信時に使用されます",
+      "完了画面の表示設定は公開後の回答者画面に反映されます",
     );
+    expect(container.textContent).not.toContain("slice");
+    expect(container.textContent).toContain("完了画面に回答 ID を表示する");
     expect(container.textContent).toContain("保存済み URL は表示されません");
     expect(container.textContent).toContain("保存済み secret は表示されません");
     expect(
@@ -269,6 +272,11 @@ describe("FormPostSubmitSettings", () => {
         .querySelector("#post-submit-webhook-enabled")
         ?.getAttribute("aria-labelledby"),
     ).toBe("post-submit-webhook-heading");
+    expect(
+      container
+        .querySelector("#post-submit-response-id-visible")
+        ?.getAttribute("aria-labelledby"),
+    ).toBe("post-submit-response-id-heading");
 
     act(() => root.unmount());
   });
@@ -375,6 +383,7 @@ describe("FormPostSubmitSettings", () => {
       container.querySelector<HTMLInputElement>("#post-submit-contact-email"),
       "",
     );
+    click(container.querySelector("#post-submit-response-id-visible"));
     click(container.querySelector("#post-submit-email-enabled"));
     setInputValue(
       container.querySelector<HTMLTextAreaElement>(
@@ -452,6 +461,15 @@ describe("FormPostSubmitSettings", () => {
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "送信後設定を保存しました",
     );
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formStructure", "postSubmit", "form-1"],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formDiff", "form-1"],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["unpublishedChanges", "form-1"],
+    });
 
     act(() => root.unmount());
   });

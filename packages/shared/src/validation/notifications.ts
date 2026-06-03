@@ -288,6 +288,7 @@ export const FormConfirmationSchema = z.object({
     })
     .optional(),
   show_response_summary: z.boolean().default(false),
+  show_response_id: z.boolean().default(true),
   allow_edit_link: z.boolean().default(false),
 });
 

@@ -889,6 +889,7 @@ describe("R11-C2-a public validation outbox", () => {
         contact: { label: "問い合わせ", email: "help@example.com" },
         redirect_url: "https://example.com/done",
         show_response_summary: false,
+        show_response_id: true,
         allow_edit_link: false,
       },
       responseId: expect.any(String),
