@@ -90,10 +90,7 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
         <table className="w-full border-collapse">
           <thead>
             <tr>
-              <th
-                className="border px-3 py-2 text-left text-sm font-medium"
-                scope="col"
-              />
+              <th className="border px-3 py-2 text-left text-sm font-medium" />
               {columns.map((col, columnIndex) => (
                 <th
                   key={col.id}
@@ -142,7 +139,6 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
                             disabled={disabled}
                             onChange={() => toggleCell(row.id, col.id)}
                             aria-label={getGridCellAccessibleName(row, col)}
-                            aria-describedby={`${inputIdPrefix}-row-${rowIndex} ${inputIdPrefix}-column-${columnIndex}`}
                             className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                           />
                           <span

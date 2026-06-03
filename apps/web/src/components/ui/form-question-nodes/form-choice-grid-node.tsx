@@ -75,10 +75,7 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            <th
-              className="border px-3 py-2 text-left text-sm font-medium"
-              scope="col"
-            />
+            <th className="border px-3 py-2 text-left text-sm font-medium" />
             {columns.map((col, columnIndex) => (
               <th
                 key={col.id}
@@ -113,11 +110,10 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
                       <input
                         id={inputId}
                         type="radio"
-                        name={`${inputIdPrefix}-row-choice-${rowIndex}`}
+                        name={`${inputIdPrefix}-row-choice-${row.id}`}
                         checked={checked}
                         onChange={() => handleSelect(row.id, col.id)}
                         aria-label={getGridCellAccessibleName(row, col)}
-                        aria-describedby={`${inputIdPrefix}-row-${rowIndex} ${inputIdPrefix}-column-${columnIndex}`}
                         className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
                       />
                       <span
