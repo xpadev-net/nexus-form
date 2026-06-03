@@ -111,9 +111,12 @@ function parseArgs(argv: string[]): CliOptions {
     if (!arg.startsWith("--")) {
       throw new Error(`Unknown positional argument: ${arg}`);
     }
-    const [key, value] = arg.slice(2).split("=", 2);
+    const rawArg = arg.slice(2);
+    const eqIndex = rawArg.indexOf("=");
+    const key = eqIndex === -1 ? rawArg : rawArg.slice(0, eqIndex);
+    const value = eqIndex === -1 ? true : rawArg.slice(eqIndex + 1);
     if (!key) throw new Error(`Invalid argument: ${arg}`);
-    flags.set(key, value ?? true);
+    flags.set(key, value);
   }
 
   const action = flags.has("cleanup") ? "cleanup" : "generate";
