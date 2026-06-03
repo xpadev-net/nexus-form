@@ -190,6 +190,66 @@ describe("FormPrefillGenerator", () => {
     vi.useRealTimers();
   });
 
+  it("clears copy feedback when the generated URL is removed and recreated", async () => {
+    vi.useFakeTimers();
+    mocks.writeText.mockResolvedValueOnce(undefined);
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    expect(nameInput).not.toBeNull();
+
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("URLをコピー"),
+    );
+    expect(copyButton).toBeDefined();
+
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(copyButton?.textContent).toContain("コピー済み");
+
+    const clearButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("クリア"),
+    );
+    act(() => {
+      clearButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(
+      container.querySelector('[data-testid="prefill-url-preview"]'),
+    ).toBeNull();
+
+    const recreatedNameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    act(() => {
+      if (recreatedNameInput) {
+        fireEvent.input(recreatedNameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const recreatedCopyButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("URLをコピー"));
+    expect(recreatedCopyButton?.textContent).toContain("URLをコピー");
+    expect(
+      container
+        .querySelector('[data-testid="prefill-url-preview"] [data-copied]')
+        ?.getAttribute("data-copied"),
+    ).toBe("false");
+
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
   it("copies concrete guidance for unsupported grid alternatives", async () => {
     mocks.writeText.mockResolvedValueOnce(undefined);
     const container = document.createElement("div");

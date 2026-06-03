@@ -136,6 +136,11 @@ export function FormPrefillGenerator({
   const copiedUrl = generatedUrl !== "" && copiedUrlValue === generatedUrl;
 
   useEffect(() => {
+    if (copiedUrlValue === null || generatedUrl === copiedUrlValue) return;
+    setCopiedUrlValue(null);
+  }, [copiedUrlValue, generatedUrl]);
+
+  useEffect(() => {
     if (!copiedUrl) return;
     const timeoutId = window.setTimeout(() => {
       setCopiedUrlValue(null);
