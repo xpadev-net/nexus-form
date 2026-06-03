@@ -4,13 +4,22 @@ import {
 } from "@nexus-form/shared";
 import {
   AlertTriangle,
+  CheckCircle2,
   CircleHelp,
   Copy,
   Eraser,
+  ExternalLink,
   Link2,
   Wand2,
 } from "lucide-react";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +62,12 @@ interface OptionLike {
   label: string;
 }
 
+interface CopyFeedback {
+  url: string;
+}
+
 const MAX_SAFE_URL_LENGTH = 1900;
+const COPY_FEEDBACK_TIMEOUT_MS = 2200;
 
 function buildPrefillUrl(publicId: string, data: PrefillData): string {
   const encoded = encodePrefillData(data);
@@ -65,6 +79,8 @@ export function FormPrefillGenerator({
   publicId,
 }: FormPrefillGeneratorProps) {
   const [prefillValues, setPrefillValues] = useState<PrefillData>({});
+  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
+  const copyFeedbackTimeoutRef = useRef<number | null>(null);
 
   const questions = useMemo(() => {
     try {
@@ -101,12 +117,12 @@ export function FormPrefillGenerator({
     () => getPrefilledQuestions(questions, supportedPrefillValues),
     [questions, supportedPrefillValues],
   );
-  const unsupportedQuestions = useMemo(
+  const notPrefilledQuestions = useMemo(
     () =>
       questions.filter(
-        (question) => !getPrefillQuestionTypeInfo(question.type).supported,
+        (question) => supportedPrefillValues[question.blockId] === undefined,
       ),
-    [questions],
+    [questions, supportedPrefillValues],
   );
   const hasPrefillValues = Object.keys(supportedPrefillValues).length > 0;
 
@@ -116,11 +132,34 @@ export function FormPrefillGenerator({
   }, [supportedPrefillValues, publicId]);
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;
+  const copiedUrl = generatedUrl !== "" && copyFeedback?.url === generatedUrl;
+
+  const clearCopyFeedbackTimer = useCallback(() => {
+    if (copyFeedbackTimeoutRef.current === null) return;
+    window.clearTimeout(copyFeedbackTimeoutRef.current);
+    copyFeedbackTimeoutRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (copyFeedback === null || generatedUrl === copyFeedback.url) return;
+    clearCopyFeedbackTimer();
+    setCopyFeedback(null);
+  }, [clearCopyFeedbackTimer, copyFeedback, generatedUrl]);
+
+  useEffect(() => {
+    return clearCopyFeedbackTimer;
+  }, [clearCopyFeedbackTimer]);
 
   const handleCopyUrl = useCallback(async () => {
     if (!generatedUrl) return;
     try {
       await navigator.clipboard.writeText(generatedUrl);
+      clearCopyFeedbackTimer();
+      setCopyFeedback({ url: generatedUrl });
+      copyFeedbackTimeoutRef.current = window.setTimeout(() => {
+        copyFeedbackTimeoutRef.current = null;
+        setCopyFeedback(null);
+      }, COPY_FEEDBACK_TIMEOUT_MS);
       toast.success("プリフィルURLをコピーしました");
       if (isUrlTooLong) {
         toast.warning("URLが長いため一部の環境で開けない可能性があります");
@@ -128,7 +167,7 @@ export function FormPrefillGenerator({
     } catch {
       toast.error("URLをコピーできませんでした");
     }
-  }, [generatedUrl, isUrlTooLong]);
+  }, [clearCopyFeedbackTimer, generatedUrl, isUrlTooLong]);
 
   if (questions.length === 0) {
     return (
@@ -156,9 +195,16 @@ export function FormPrefillGenerator({
             size="sm"
             onClick={handleCopyUrl}
             disabled={!hasPrefillValues}
+            className={
+              copiedUrl ? "bg-emerald-600 hover:bg-emerald-600" : undefined
+            }
           >
-            <Copy className="mr-1 h-3.5 w-3.5" />
-            URLをコピー
+            {copiedUrl ? (
+              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+            ) : (
+              <Copy className="mr-1 h-3.5 w-3.5" />
+            )}
+            {copiedUrl ? "コピー済み" : "URLをコピー"}
           </Button>
         </div>
       </div>
@@ -171,10 +217,17 @@ export function FormPrefillGenerator({
 
       {generatedUrl && (
         <div className="space-y-2" data-testid="prefill-url-preview">
-          <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-2">
+          <div
+            className={`flex flex-wrap items-center gap-2 rounded-md border p-2 transition-colors ${
+              copiedUrl
+                ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
+                : "bg-muted/30"
+            }`}
+            data-copied={copiedUrl ? "true" : "false"}
+          >
             <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
             <input
-              className="min-w-0 flex-1 bg-transparent text-xs"
+              className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
               readOnly
               value={generatedUrl}
               onFocus={(e) => e.currentTarget.select()}
@@ -185,8 +238,23 @@ export function FormPrefillGenerator({
               className="h-6 shrink-0 px-2 text-xs"
               onClick={handleCopyUrl}
             >
-              <Copy className="mr-1 h-3 w-3" />
-              コピー
+              {copiedUrl ? (
+                <CheckCircle2 className="mr-1 h-3 w-3" />
+              ) : (
+                <Copy className="mr-1 h-3 w-3" />
+              )}
+              {copiedUrl ? "コピー済み" : "コピー"}
+            </Button>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-6 shrink-0 px-2 text-xs"
+            >
+              <a href={generatedUrl} target="_blank" rel="noreferrer noopener">
+                <ExternalLink className="mr-1 h-3 w-3" />
+                別タブで確認
+              </a>
             </Button>
           </div>
           {isUrlTooLong && (
@@ -196,25 +264,44 @@ export function FormPrefillGenerator({
             </p>
           )}
           <div
-            className="rounded-md border border-dashed bg-muted/20 p-2 text-xs"
+            className="grid gap-3 rounded-md border border-dashed bg-muted/20 p-2 text-xs sm:grid-cols-2"
             data-testid="prefill-preview-filled-questions"
           >
-            <p className="font-medium text-foreground">
-              以下の設問だけに初期値が入ります
-            </p>
-            <ul className="mt-1 space-y-1 text-muted-foreground">
-              {prefilledQuestions.map((question) => (
-                <li key={question.blockId}>
-                  {question.title || "無題の質問"} (
-                  {getPrefillQuestionTypeLabel(question.type)})
-                </li>
-              ))}
-            </ul>
-            {unsupportedQuestions.length > 0 && (
-              <p className="mt-2 text-muted-foreground">
-                未対応設問はURLに含まれず、回答者がフォーム上で入力します。
-              </p>
-            )}
+            <div>
+              <p className="font-medium text-foreground">反映される設問</p>
+              <ul className="mt-1 space-y-1 text-muted-foreground">
+                {prefilledQuestions.map((question) => (
+                  <li key={question.blockId}>
+                    {question.title || "無題の質問"} (
+                    {getPrefillQuestionTypeLabel(question.type)})
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <p className="font-medium text-foreground">反映されない設問</p>
+              {notPrefilledQuestions.length > 0 ? (
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {notPrefilledQuestions.map((question) => {
+                    const typeInfo = getPrefillQuestionTypeInfo(question.type);
+                    return (
+                      <li key={question.blockId}>
+                        {question.title || "無題の質問"} ({typeInfo.label})
+                        <span className="block">
+                          {typeInfo.supported
+                            ? "初期値が入力されていません。"
+                            : "未対応のためURLに含まれません。"}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="mt-1 text-muted-foreground">
+                  すべての設問に初期値が入ります。
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -326,6 +413,15 @@ function QuestionPrefillField({
     (v: string) => onChange({ value: v ? Number(v) : undefined }),
     [onChange],
   );
+
+  const copyUnsupportedGuidance = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(unsupportedGuidance);
+      toast.success("代替案をコピーしました");
+    } catch {
+      toast.error("代替案をコピーできませんでした");
+    }
+  }, [unsupportedGuidance]);
 
   const field = useMemo(() => {
     switch (question.type) {
@@ -446,6 +542,16 @@ function QuestionPrefillField({
                   理由と代替案を確認
                 </button>
               </UnsupportedTypeTooltip>
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                className="mt-1"
+                onClick={copyUnsupportedGuidance}
+              >
+                <Copy className="mr-1 h-3 w-3" />
+                代替案をコピー
+              </Button>
             </div>
           </div>
         );
@@ -458,6 +564,7 @@ function QuestionPrefillField({
     setNumber,
     typeInfo,
     unsupportedGuidance,
+    copyUnsupportedGuidance,
   ]);
 
   return (
