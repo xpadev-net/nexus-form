@@ -831,6 +831,19 @@ describe("PublicFormPage password protection", () => {
     expect(container.textContent).toContain("次の手順");
     expect(container.textContent).toContain("問い合わせ");
     expect(container.textContent).not.toContain("回答を送信");
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        responses: [
+          {
+            question_id: "q1",
+            question_type: "form_short_text",
+            question_title: "Name",
+            value: "Alice",
+          },
+        ],
+      }),
+    });
 
     await act(async () => {
       root.unmount();
