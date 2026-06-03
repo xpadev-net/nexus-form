@@ -252,9 +252,12 @@ function buildWebhookHeaders(
   };
 
   if (channel.secret) {
-    headers["x-nexus-form-signature"] = createHmac("sha256", channel.secret)
+    headers["x-nexus-form-signature"] = `sha256=${createHmac(
+      "sha256",
+      channel.secret,
+    )
       .update(body)
-      .digest("hex");
+      .digest("hex")}`;
   }
 
   return headers;

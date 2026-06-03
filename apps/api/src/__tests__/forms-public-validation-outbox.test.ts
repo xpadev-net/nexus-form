@@ -366,8 +366,8 @@ function useSuccessfulSubmitSelects(
         dueScheduleId: null,
       },
     ],
-    options?.responseRows ?? [],
     options?.finalResponseRows ?? [],
+    options?.responseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
@@ -549,7 +549,21 @@ describe("R11-C2-a public validation outbox", () => {
 
   it("inserts PENDING validation rows in the same transaction as the response before enqueue", async () => {
     const snapshot = activeSnapshot();
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     const { getInsertedValidationRows, txInsert } =
       useTransactionWithInsertCapture();
 
@@ -610,7 +624,21 @@ describe("R11-C2-a public validation outbox", () => {
         orderIndex: 1,
       },
     ]);
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -645,7 +673,21 @@ describe("R11-C2-a public validation outbox", () => {
 
   it("persists the enqueue jobId only while the validation row has no jobId", async () => {
     const snapshot = activeSnapshot();
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -731,7 +773,21 @@ describe("R11-C2-a public validation outbox", () => {
         },
       }),
     };
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -744,7 +800,7 @@ describe("R11-C2-a public validation outbox", () => {
           formId: "form-1",
           responseId: expect.any(String),
           snapshotVersion: 7,
-          submittedAt: expect.any(String),
+          submittedAt: "2026-06-03T12:34:56.000Z",
         }),
         expect.objectContaining({
           jobId: expect.stringMatching(
@@ -1046,14 +1102,8 @@ describe("R11-C2-a public validation outbox", () => {
         },
       ],
       [
-        {
-          structureJson: JSON.stringify({
-            settings: {
-              allow_edit_responses: false,
-              require_fingerprint: true,
-            },
-          }),
-        },
+        // Created response lookup. Empty rows keep the response body nullable
+        // while still allowing fail-open background jobs to run.
       ],
       [],
     ]);

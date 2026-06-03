@@ -143,7 +143,7 @@ describe("handleFormSubmitNotifications", () => {
           "content-type": "application/json",
           "x-nexus-form-delivery-id": "form-1:response-1:webhook",
           "x-nexus-form-event": "form.response_submitted",
-          "x-nexus-form-signature": expect.any(String),
+          "x-nexus-form-signature": expect.stringMatching(/^sha256=[a-f0-9]+$/),
         }),
       }),
     );

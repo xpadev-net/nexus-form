@@ -249,6 +249,21 @@ function buildSubmitConfirmation(parsed: ParsedStructure) {
   return FormConfirmationSchema.parse(parsed.confirmation ?? {});
 }
 
+function formatResponseSubmittedAt(
+  submittedAt: Date | string | null | undefined,
+): string {
+  if (submittedAt instanceof Date) {
+    return submittedAt.toISOString();
+  }
+  if (typeof submittedAt === "string") {
+    const parsed = new Date(submittedAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return new Date().toISOString();
+}
+
 function getEnabledSubmitNotificationChannels(
   notifications: ParsedStructure["notifications"],
 ): FormNotifications["on_submit"] | null {
@@ -710,7 +725,15 @@ export const formsPublicRouter = createHonoApp()
       // Set session cookie only after a successful submission
       setSessionCookie(c, newJwt);
 
-      // 11. Queue external validation jobs (non-blocking)
+      // 11. Load the created response so background jobs can reuse the
+      // database-side submittedAt timestamp.
+      const [createdResponse] = await db
+        .select()
+        .from(formResponse)
+        .where(eq(formResponse.id, responseId))
+        .limit(1);
+
+      // 12. Queue external validation jobs (non-blocking)
       if (
         !insertResult.limitReached &&
         insertResult.validationOutbox &&
@@ -729,12 +752,13 @@ export const formsPublicRouter = createHonoApp()
         });
       }
 
-      // 12. Queue creator notifications (non-blocking)
+      // 13. Queue creator notifications (non-blocking)
       queueSubmitNotificationsIfNeeded(
         target.id,
         responseId,
         activeSnapshot,
         parsedStructure,
+        formatResponseSubmittedAt(createdResponse?.submittedAt),
       ).catch((error) => {
         logError("Failed to queue submit notifications", "api", {
           error,
@@ -745,7 +769,7 @@ export const formsPublicRouter = createHonoApp()
         captureError(error);
       });
 
-      // 13. Queue Google Sheets sync (non-blocking)
+      // 14. Queue Google Sheets sync (non-blocking)
       queueSheetsSyncIfNeeded(target.id, responseId, activeSnapshot).catch(
         (error) => {
           logError("Failed to queue Google Sheets sync", "api", {
@@ -758,13 +782,7 @@ export const formsPublicRouter = createHonoApp()
         },
       );
 
-      // 14. Return the created response
-      const [createdResponse] = await db
-        .select()
-        .from(formResponse)
-        .where(eq(formResponse.id, responseId))
-        .limit(1);
-
+      // 15. Return the created response
       const submitResponse = PublicSubmitResponseSchema.parse({
         responseId,
         response: createdResponse ?? null,
@@ -1123,6 +1141,7 @@ async function queueSubmitNotificationsIfNeeded(
   responseId: string,
   activeSnapshot: FormSnapshot | null,
   parsedStructure: ParsedStructure,
+  submittedAt: string,
 ): Promise<void> {
   if (!activeSnapshot) return;
   const notifications = getEnabledSubmitNotificationChannels(
@@ -1134,7 +1153,7 @@ async function queueSubmitNotificationsIfNeeded(
     formId,
     responseId,
     snapshotVersion: activeSnapshot.version,
-    submittedAt: new Date().toISOString(),
+    submittedAt,
   });
 
   await getFormSubmitNotificationQueue().add("form-submit", jobData, {
