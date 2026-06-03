@@ -10,15 +10,15 @@ type StreamLike = {
 };
 
 const streamMock: {
-  onAbort: ReturnType<typeof vi.fn>;
-  abort: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  writeSSE: ReturnType<typeof vi.fn>;
+  onAbort: ReturnType<typeof vi.fn<StreamLike["onAbort"]>>;
+  abort: ReturnType<typeof vi.fn<StreamLike["abort"]>>;
+  close: ReturnType<typeof vi.fn<StreamLike["close"]>>;
+  writeSSE: ReturnType<typeof vi.fn<StreamLike["writeSSE"]>>;
 } = {
-  onAbort: vi.fn(),
-  abort: vi.fn(),
-  close: vi.fn(),
-  writeSSE: vi.fn(),
+  onAbort: vi.fn<StreamLike["onAbort"]>(),
+  abort: vi.fn<StreamLike["abort"]>(),
+  close: vi.fn<StreamLike["close"]>(),
+  writeSSE: vi.fn<StreamLike["writeSSE"]>(),
 };
 
 vi.mock("hono/streaming", async () => {
