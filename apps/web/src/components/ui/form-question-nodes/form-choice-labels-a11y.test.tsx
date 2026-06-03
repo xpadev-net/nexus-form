@@ -83,6 +83,26 @@ function testElement(
   };
 }
 
+function getAssociatedLabel(
+  container: HTMLElement,
+  input: HTMLInputElement,
+): HTMLLabelElement {
+  const label = container.querySelector<HTMLLabelElement>(
+    `label[for="${input.id}"]`,
+  );
+  if (!label) {
+    throw new Error(`Expected label for ${input.id}`);
+  }
+  return label;
+}
+
+function requireInput(element: HTMLElement): HTMLInputElement {
+  if (!(element instanceof HTMLInputElement)) {
+    throw new Error("Expected a native input element");
+  }
+  return element;
+}
+
 describe("public choice controls accessible labels", () => {
   it("exposes radio options by visible label and keeps saving option IDs", async () => {
     const onAnswer = vi.fn();
@@ -146,14 +166,17 @@ describe("public choice controls accessible labels", () => {
     act(() => root.unmount());
   });
 
-  it("exposes choice grid cells as radios by row and column labels", async () => {
+  it("exposes choice grid cells as native radios with label-backed cell clicks", async () => {
     const onAnswer = vi.fn();
     const element = testElement(
       "form_choice_grid",
       "contract-grid",
       {
         rows: [{ id: "contract-type", label: "契約種別" }],
-        columns: [{ id: "corp", label: "法人" }],
+        columns: [
+          { id: "corp", label: "法人" },
+          { id: "individual", label: "個人" },
+        ],
       },
     );
     const { container, root } = renderWithAnswers(
@@ -161,7 +184,16 @@ describe("public choice controls accessible labels", () => {
       { blockId: "contract-grid", onAnswer },
     );
 
-    const cell = getByRole(container, "radio", { name: "契約種別: 法人" });
+    const cell = requireInput(
+      getByRole(container, "radio", { name: "契約種別: 法人" }),
+    );
+    const secondCell = requireInput(
+      getByRole(container, "radio", { name: "契約種別: 個人" }),
+    );
+    expect(cell.id).not.toBe("");
+    expect(cell.name).toBe(secondCell.name);
+    expect(getAssociatedLabel(container, cell).htmlFor).toBe(cell.id);
+
     await act(async () => {
       fireEvent.click(cell);
     });
@@ -169,18 +201,32 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": "corp" },
     });
+    expect(cell.checked).toBe(true);
+
+    await act(async () => {
+      getAssociatedLabel(container, secondCell).click();
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      responses: { "contract-type": "individual" },
+    });
+    expect(cell.checked).toBe(false);
+    expect(secondCell.checked).toBe(true);
 
     act(() => root.unmount());
   });
 
-  it("exposes checkbox grid cells as checkboxes by row and column labels", async () => {
+  it("exposes checkbox grid cells as native checkboxes with label-backed cell clicks", async () => {
     const onAnswer = vi.fn();
     const element = testElement(
       "form_checkbox_grid",
       "contract-checkbox-grid",
       {
         rows: [{ id: "contract-type", label: "契約種別" }],
-        columns: [{ id: "corp", label: "法人" }],
+        columns: [
+          { id: "corp", label: "法人" },
+          { id: "individual", label: "個人" },
+        ],
       },
     );
     const { container, root } = renderWithAnswers(
@@ -188,9 +234,19 @@ describe("public choice controls accessible labels", () => {
       { blockId: "contract-checkbox-grid", onAnswer },
     );
 
-    const cell = getByRole(container, "checkbox", {
-      name: "契約種別: 法人",
-    });
+    const cell = requireInput(
+      getByRole(container, "checkbox", {
+        name: "契約種別: 法人",
+      }),
+    );
+    const secondCell = requireInput(
+      getByRole(container, "checkbox", {
+        name: "契約種別: 個人",
+      }),
+    );
+    expect(cell.id).not.toBe("");
+    expect(getAssociatedLabel(container, cell).htmlFor).toBe(cell.id);
+
     await act(async () => {
       fireEvent.click(cell);
     });
@@ -198,6 +254,27 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": ["corp"] },
     });
+    expect(cell.checked).toBe(true);
+
+    await act(async () => {
+      getAssociatedLabel(container, secondCell).click();
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      responses: { "contract-type": ["corp", "individual"] },
+    });
+    expect(cell.checked).toBe(true);
+    expect(secondCell.checked).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(cell);
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      responses: { "contract-type": ["individual"] },
+    });
+    expect(cell.checked).toBe(false);
+    expect(secondCell.checked).toBe(true);
 
     act(() => root.unmount());
   });

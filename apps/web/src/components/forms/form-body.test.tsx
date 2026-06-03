@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent } from "@testing-library/dom";
+import { fireEvent, getByRole } from "@testing-library/dom";
 import type { TElement } from "platejs";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -23,6 +23,12 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { DateInput } = await import(
     "@/components/ui/form-question-nodes/form-date-node"
   );
+  const { CheckboxGridInput } = await import(
+    "@/components/ui/form-question-nodes/form-checkbox-grid-node"
+  );
+  const { ChoiceGridInput } = await import(
+    "@/components/ui/form-question-nodes/form-choice-grid-node"
+  );
 
   return {
     PlateViewer: ({ value }: { value: string }) => {
@@ -41,19 +47,30 @@ vi.mock("@/components/editor/plate-viewer", async () => {
         <div data-testid="plate-viewer">
           {value}
           {nodes.map((node, index) => {
+            const key =
+              typeof node === "object" && node !== null
+                ? ((node as { blockId?: unknown }).blockId?.toString() ?? index)
+                : index;
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_date"
             ) {
-              return (
-                <DateInput
-                  key={
-                    (node as { blockId?: unknown }).blockId?.toString() ?? index
-                  }
-                  element={node as TElement}
-                />
-              );
+              return <DateInput key={key} element={node as TElement} />;
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_choice_grid"
+            ) {
+              return <ChoiceGridInput key={key} element={node as TElement} />;
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_checkbox_grid"
+            ) {
+              return <CheckboxGridInput key={key} element={node as TElement} />;
             }
             return null;
           })}
@@ -212,6 +229,23 @@ function appearanceWithQuestionNumbers(
       show_question_numbers: showQuestionNumbers,
     },
   };
+}
+
+function clickAssociatedLabel(container: HTMLElement, input: HTMLInputElement) {
+  const label = container.querySelector<HTMLLabelElement>(
+    `label[for="${input.id}"]`,
+  );
+  if (!label) {
+    throw new Error(`Expected label for ${input.id}`);
+  }
+  label.click();
+}
+
+function requireInput(element: HTMLElement): HTMLInputElement {
+  if (!(element instanceof HTMLInputElement)) {
+    throw new Error("Expected a native input element");
+  }
+  return element;
 }
 
 describe("FormBody", () => {
@@ -528,6 +562,114 @@ describe("FormBody", () => {
         value: "10:30",
       }),
     ]);
+
+    act(() => root.unmount());
+  });
+
+  it.each([
+    ["mobile", 375],
+    ["desktop", 1024],
+  ])("submits required grid answers after ordinary cell label clicks at %s width", async (_viewportName, width) => {
+    const onSubmitRequest = vi.fn();
+    const rows = [
+      { id: "row-a", label: "Row A" },
+      { id: "row-b", label: "Row B" },
+    ];
+    const columns = [
+      { id: "col-1", label: "Column 1" },
+      { id: "col-2", label: "Column 2" },
+    ];
+    const plateContent = JSON.stringify([
+      questionNode("choice_grid", "q-choice-grid", "Choice grid", {
+        required: true,
+        rows,
+        columns,
+      }),
+      questionNode("checkbox_grid", "q-checkbox-grid", "Checkbox grid", {
+        required: true,
+        rows,
+        columns,
+        minSelectionsPerRow: 1,
+        maxSelectionsPerRow: 2,
+      }),
+    ]);
+
+    const container = document.createElement("div");
+    container.style.width = `${width}px`;
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      onSubmitRequest,
+    });
+
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "必須項目が未入力です: Choice grid、Checkbox grid",
+    );
+
+    const choiceRowAColumn1 = requireInput(
+      getByRole(container, "radio", { name: "Row A: Column 1" }),
+    );
+    const choiceRowAColumn2 = requireInput(
+      getByRole(container, "radio", { name: "Row A: Column 2" }),
+    );
+    const choiceRowBColumn2 = requireInput(
+      getByRole(container, "radio", { name: "Row B: Column 2" }),
+    );
+    const checkboxRowAColumn1 = requireInput(
+      getByRole(container, "checkbox", { name: "Row A: Column 1" }),
+    );
+    const checkboxRowBColumn1 = requireInput(
+      getByRole(container, "checkbox", { name: "Row B: Column 1" }),
+    );
+    const checkboxRowBColumn2 = requireInput(
+      getByRole(container, "checkbox", { name: "Row B: Column 2" }),
+    );
+
+    await act(async () => {
+      clickAssociatedLabel(container, choiceRowAColumn1);
+      clickAssociatedLabel(container, choiceRowAColumn2);
+      clickAssociatedLabel(container, choiceRowBColumn2);
+      clickAssociatedLabel(container, checkboxRowAColumn1);
+      clickAssociatedLabel(container, checkboxRowBColumn1);
+      clickAssociatedLabel(container, checkboxRowBColumn2);
+    });
+
+    expect(choiceRowAColumn1.checked).toBe(false);
+    expect(choiceRowAColumn2.checked).toBe(true);
+    expect(choiceRowBColumn2.checked).toBe(true);
+    expect(checkboxRowAColumn1.checked).toBe(true);
+    expect(checkboxRowBColumn1.checked).toBe(true);
+    expect(checkboxRowBColumn2.checked).toBe(true);
+
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0].responses).toEqual([
+      expect.objectContaining({
+        question_id: "q-choice-grid",
+        question_title: "Choice grid",
+        question_type: "choice_grid",
+        responses: { "row-a": "col-2", "row-b": "col-2" },
+      }),
+      expect.objectContaining({
+        question_id: "q-checkbox-grid",
+        question_title: "Checkbox grid",
+        question_type: "checkbox_grid",
+        responses: { "row-a": ["col-1"], "row-b": ["col-1", "col-2"] },
+      }),
+    ]);
+    expect(container.textContent).not.toContain("必須項目が未入力です");
 
     act(() => root.unmount());
   });
