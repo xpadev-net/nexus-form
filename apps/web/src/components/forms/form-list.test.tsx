@@ -13,7 +13,11 @@ const mocks = vi.hoisted(() => ({
     { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
   ],
   invalidateQueries: vi.fn(),
+  mutationIsPending: false,
   setQueryData: vi.fn(),
+  unarchiveDeferred: undefined as
+    | { promise: Promise<unknown>; resolve: (value: unknown) => void }
+    | undefined,
   unarchivePost: vi.fn(),
 }));
 
@@ -34,15 +38,30 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@tanstack/react-query", () => ({
   useMutation: ({
     mutationFn,
+    onError,
+    onMutate,
+    onSettled,
     onSuccess,
   }: {
     mutationFn: (formId: string) => Promise<unknown>;
+    onError?: (err: unknown) => void;
+    onMutate?: (formId: string) => void;
+    onSettled?: () => void;
     onSuccess?: (data: unknown, formId: string) => void;
   }) => ({
-    isPending: false,
+    isPending: mocks.mutationIsPending,
     mutate: vi.fn(async (formId: string) => {
-      const data = await mutationFn(formId);
-      onSuccess?.(data, formId);
+      mocks.mutationIsPending = true;
+      onMutate?.(formId);
+      try {
+        const data = await mutationFn(formId);
+        onSuccess?.(data, formId);
+      } catch (err) {
+        onError?.(err);
+      } finally {
+        mocks.mutationIsPending = false;
+        onSettled?.();
+      }
     }),
   }),
   useQueryClient: () => ({
@@ -85,7 +104,12 @@ vi.mock("@/lib/api", () => ({
       },
     },
   },
-  rpc: vi.fn(async () => ({ ok: true })),
+  rpc: vi.fn(async (request: { operation?: string }) => {
+    if (request.operation === "unarchive" && mocks.unarchiveDeferred) {
+      return mocks.unarchiveDeferred.promise;
+    }
+    return { ok: true };
+  }),
 }));
 
 vi.mock("sonner", () => ({
@@ -98,6 +122,14 @@ vi.mock("sonner", () => ({
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+function createDeferred() {
+  let resolve: (value: unknown) => void = () => {};
+  const promise = new Promise<unknown>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
 
 function renderList(): Root {
   const container = document.createElement("div");
@@ -147,7 +179,9 @@ describe("FormList archive filtering", () => {
       { id: "archived-form", status: "ARCHIVED", title: "古いフォーム" },
     ];
     mocks.invalidateQueries.mockClear();
+    mocks.mutationIsPending = false;
     mocks.setQueryData.mockClear();
+    mocks.unarchiveDeferred = undefined;
     mocks.unarchivePost.mockClear();
     mocks.unarchivePost.mockReturnValue({ operation: "unarchive" });
     vi.mocked(toast.success).mockClear();
@@ -243,6 +277,44 @@ describe("FormList archive filtering", () => {
       queryKey: ["forms"],
     });
     expect(toast.success).toHaveBeenCalledWith("アーカイブを解除しました");
+
+    act(() => root.unmount());
+  });
+
+  it("shows restore loading state while unarchive is pending", async () => {
+    mocks.unarchiveDeferred = createDeferred();
+    const root = renderList();
+
+    selectStatus("archived");
+    const restoreButton = Array.from(document.querySelectorAll("button")).find(
+      (item) => item.textContent?.includes("復元"),
+    );
+    expect(restoreButton).toBeDefined();
+
+    await act(async () => {
+      restoreButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const pendingRestoreButton = Array.from(
+      document.querySelectorAll("button"),
+    ).find((item) => item.textContent?.includes("復元"));
+    expect(pendingRestoreButton).toBeInstanceOf(HTMLButtonElement);
+    expect(pendingRestoreButton).toHaveProperty("disabled", true);
+    expect(pendingRestoreButton?.querySelector(".animate-spin")).not.toBeNull();
+
+    await act(async () => {
+      mocks.unarchiveDeferred?.resolve({ ok: true });
+      await mocks.unarchiveDeferred?.promise;
+      await Promise.resolve();
+    });
+
+    const settledRestoreButton = Array.from(
+      document.querySelectorAll("button"),
+    ).find((item) => item.textContent?.includes("復元"));
+    expect(settledRestoreButton).toBeInstanceOf(HTMLButtonElement);
+    expect(settledRestoreButton).toHaveProperty("disabled", false);
+    expect(settledRestoreButton?.querySelector(".animate-spin")).toBeNull();
 
     act(() => root.unmount());
   });
