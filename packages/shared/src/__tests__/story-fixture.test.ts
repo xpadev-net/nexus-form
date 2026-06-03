@@ -192,6 +192,101 @@ describe("parseStoryFixtureSet", () => {
     );
   });
 
+  it("rejects sample responses outside numeric, date, or time constraints", () => {
+    const fixture = fixtureSet();
+    const firstStory = fixture.stories[0];
+    if (!firstStory) throw new Error("Expected fixture story");
+
+    firstStory.blocks = [
+      {
+        blockId: "s01-scale",
+        type: "linear_scale",
+        title: "Scale answer",
+        validation: {
+          type: "linear_scale",
+          required: true,
+          min: 1,
+          max: 5,
+          step: 1,
+        },
+      },
+      {
+        blockId: "s01-rating",
+        type: "rating",
+        title: "Rating answer",
+        validation: {
+          type: "rating",
+          required: true,
+          maxRating: 3,
+          icon: "star",
+        },
+      },
+      {
+        blockId: "s01-date",
+        type: "date",
+        title: "Date answer",
+        validation: {
+          type: "date",
+          required: true,
+          minDate: "2026-06-10",
+          maxDate: "2026-06-20",
+          format: "YYYY-MM-DD",
+        },
+      },
+      {
+        blockId: "s01-time",
+        type: "time",
+        title: "Time answer",
+        validation: {
+          type: "time",
+          required: true,
+          minTime: "09:00",
+          maxTime: "18:00",
+          format: "24h",
+        },
+      },
+    ];
+    firstStory.sampleResponses = [
+      {
+        question_id: "s01-scale",
+        question_type: "linear_scale",
+        question_title: "Scale answer",
+        value: 6,
+      },
+      {
+        question_id: "s01-rating",
+        question_type: "rating",
+        question_title: "Rating answer",
+        value: 4,
+      },
+      {
+        question_id: "s01-date",
+        question_type: "date",
+        question_title: "Date answer",
+        value: "2026-06-01",
+      },
+      {
+        question_id: "s01-time",
+        question_type: "time",
+        question_title: "Time answer",
+        value: "08:30",
+      },
+    ];
+
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response value 6 exceeds max 5/,
+    );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response value 4 exceeds maxRating 3/,
+    );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response value 2026-06-01 is before minDate 2026-06-10/,
+    );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response value 08:30 is before minTime 09:00/,
+    );
+  });
+
   it("rejects logic references that do not point at fixture blocks", () => {
     const fixture = fixtureSet();
     const firstStory = fixture.stories[0];

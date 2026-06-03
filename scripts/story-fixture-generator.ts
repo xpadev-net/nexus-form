@@ -4,8 +4,8 @@ import {
   toPlateQuestionType,
 } from "../packages/shared/src/forms/form-block";
 import {
-  responsePayloadItemSchema,
   type ResponseDataItem,
+  responsePayloadItemSchema,
 } from "../packages/shared/src/response-data";
 import {
   NO_CHANGES_TO_PUBLISH_CODE,
@@ -257,11 +257,12 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
     case "checkbox":
       return { ...base, values: [firstOptionId(blockItem)] };
     case "linear_scale":
-      return { ...base, value: 4 };
+      return { ...base, value: constrainedLinearScaleValue(blockItem) };
     case "rating":
-      return { ...base, value: 5 };
+      return { ...base, value: constrainedRatingValue(blockItem) };
     case "choice_grid": {
-      const rows = "rows" in blockItem.validation ? blockItem.validation.rows : [];
+      const rows =
+        "rows" in blockItem.validation ? blockItem.validation.rows : [];
       const columnId =
         "columns" in blockItem.validation
           ? blockItem.validation.columns[0]?.id
@@ -269,13 +270,12 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
       if (!columnId) return null;
       return {
         ...base,
-        responses: Object.fromEntries(
-          rows.map((row) => [row.id, columnId]),
-        ),
+        responses: Object.fromEntries(rows.map((row) => [row.id, columnId])),
       };
     }
     case "checkbox_grid": {
-      const rows = "rows" in blockItem.validation ? blockItem.validation.rows : [];
+      const rows =
+        "rows" in blockItem.validation ? blockItem.validation.rows : [];
       const columnId =
         "columns" in blockItem.validation
           ? blockItem.validation.columns[0]?.id
@@ -283,15 +283,13 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
       if (!columnId) return null;
       return {
         ...base,
-        responses: Object.fromEntries(
-          rows.map((row) => [row.id, [columnId]]),
-        ),
+        responses: Object.fromEntries(rows.map((row) => [row.id, [columnId]])),
       };
     }
     case "date":
-      return { ...base, value: "2026-06-04" };
+      return { ...base, value: constrainedDateValue(blockItem) };
     case "time":
-      return { ...base, value: "10:30" };
+      return { ...base, value: constrainedTimeValue(blockItem) };
     case "section_separator":
       return null;
   }
@@ -301,6 +299,54 @@ function firstOptionId(blockItem: StoryFixtureBlock): string {
   return "options" in blockItem.validation
     ? (blockItem.validation.options[0]?.id ?? "opt_yes")
     : "opt_yes";
+}
+
+function constrainedLinearScaleValue(blockItem: StoryFixtureBlock): number {
+  const validation = blockItem.validation;
+  const min =
+    "min" in validation && typeof validation.min === "number"
+      ? validation.min
+      : 1;
+  const max =
+    "max" in validation && typeof validation.max === "number"
+      ? validation.max
+      : min;
+
+  return Math.min(max, Math.max(min, 4));
+}
+
+function constrainedRatingValue(blockItem: StoryFixtureBlock): number {
+  const validation = blockItem.validation;
+  const maxRating =
+    "maxRating" in validation && typeof validation.maxRating === "number"
+      ? validation.maxRating
+      : 5;
+
+  return Math.min(maxRating, 5);
+}
+
+function constrainedDateValue(blockItem: StoryFixtureBlock): string {
+  const validation = blockItem.validation;
+  if ("minDate" in validation && typeof validation.minDate === "string") {
+    return validation.minDate;
+  }
+  if ("maxDate" in validation && typeof validation.maxDate === "string") {
+    return validation.maxDate;
+  }
+
+  return "2026-06-04";
+}
+
+function constrainedTimeValue(blockItem: StoryFixtureBlock): string {
+  const validation = blockItem.validation;
+  if ("minTime" in validation && typeof validation.minTime === "string") {
+    return validation.minTime;
+  }
+  if ("maxTime" in validation && typeof validation.maxTime === "string") {
+    return validation.maxTime;
+  }
+
+  return "10:30";
 }
 
 function story(
@@ -724,7 +770,9 @@ async function saveContent(
     plateContentVersion: number;
   }>(`/api/forms/${formId}/content`);
 
-  if (stableJsonString(current.plateContent) === stableJsonString(plateContent)) {
+  if (
+    stableJsonString(current.plateContent) === stableJsonString(plateContent)
+  ) {
     return;
   }
 

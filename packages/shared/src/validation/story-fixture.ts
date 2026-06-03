@@ -244,6 +244,22 @@ function checkSampleResponseValues(
   }
   if (block.type === "choice_grid" || block.type === "checkbox_grid") {
     checkGridValues(storyIndex, responseIndex, block, response, ctx);
+    return;
+  }
+  if (block.type === "linear_scale") {
+    checkLinearScaleValue(storyIndex, responseIndex, block, response, ctx);
+    return;
+  }
+  if (block.type === "rating") {
+    checkRatingValue(storyIndex, responseIndex, block, response, ctx);
+    return;
+  }
+  if (block.type === "date") {
+    checkDateValue(storyIndex, responseIndex, block, response, ctx);
+    return;
+  }
+  if (block.type === "time") {
+    checkTimeValue(storyIndex, responseIndex, block, response, ctx);
   }
 }
 
@@ -341,6 +357,149 @@ function checkGridValues(
         );
       }
     });
+  }
+}
+
+function checkLinearScaleValue(
+  storyIndex: number,
+  responseIndex: number,
+  block: StoryFixtureBlock,
+  response: z.infer<typeof responsePayloadItemSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (typeof response.value !== "number") {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response for ${block.blockId} must use a numeric linear scale value`,
+    );
+    return;
+  }
+  if ("min" in block.validation && response.value < block.validation.min) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is below min ${block.validation.min} for ${block.blockId}`,
+    );
+  }
+  if ("max" in block.validation && response.value > block.validation.max) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} exceeds max ${block.validation.max} for ${block.blockId}`,
+    );
+  }
+}
+
+function checkRatingValue(
+  storyIndex: number,
+  responseIndex: number,
+  block: StoryFixtureBlock,
+  response: z.infer<typeof responsePayloadItemSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (typeof response.value !== "number") {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response for ${block.blockId} must use a numeric rating value`,
+    );
+    return;
+  }
+  if (response.value < 1) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is below rating minimum 1 for ${block.blockId}`,
+    );
+  }
+  if (
+    "maxRating" in block.validation &&
+    response.value > block.validation.maxRating
+  ) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} exceeds maxRating ${block.validation.maxRating} for ${block.blockId}`,
+    );
+  }
+}
+
+function checkDateValue(
+  storyIndex: number,
+  responseIndex: number,
+  block: StoryFixtureBlock,
+  response: z.infer<typeof responsePayloadItemSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (typeof response.value !== "string") {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response for ${block.blockId} must use a date string`,
+    );
+    return;
+  }
+  if (
+    "minDate" in block.validation &&
+    typeof block.validation.minDate === "string" &&
+    response.value < block.validation.minDate
+  ) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is before minDate ${block.validation.minDate} for ${block.blockId}`,
+    );
+  }
+  if (
+    "maxDate" in block.validation &&
+    typeof block.validation.maxDate === "string" &&
+    response.value > block.validation.maxDate
+  ) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is after maxDate ${block.validation.maxDate} for ${block.blockId}`,
+    );
+  }
+}
+
+function checkTimeValue(
+  storyIndex: number,
+  responseIndex: number,
+  block: StoryFixtureBlock,
+  response: z.infer<typeof responsePayloadItemSchema>,
+  ctx: z.RefinementCtx,
+) {
+  if (typeof response.value !== "string") {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response for ${block.blockId} must use a time string`,
+    );
+    return;
+  }
+  if (
+    "minTime" in block.validation &&
+    typeof block.validation.minTime === "string" &&
+    response.value < block.validation.minTime
+  ) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is before minTime ${block.validation.minTime} for ${block.blockId}`,
+    );
+  }
+  if (
+    "maxTime" in block.validation &&
+    typeof block.validation.maxTime === "string" &&
+    response.value > block.validation.maxTime
+  ) {
+    addIssue(
+      ctx,
+      ["stories", storyIndex, "sampleResponses", responseIndex, "value"],
+      `Sample response value ${response.value} is after maxTime ${block.validation.maxTime} for ${block.blockId}`,
+    );
   }
 }
 
