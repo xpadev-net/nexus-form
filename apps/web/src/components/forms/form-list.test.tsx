@@ -3,6 +3,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FormList } from "./form-list";
 
@@ -90,6 +91,7 @@ vi.mock("@/lib/api", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: vi.fn(),
+    success: vi.fn(),
   },
 }));
 
@@ -148,6 +150,7 @@ describe("FormList archive filtering", () => {
     mocks.setQueryData.mockClear();
     mocks.unarchivePost.mockClear();
     mocks.unarchivePost.mockReturnValue({ operation: "unarchive" });
+    vi.mocked(toast.success).mockClear();
   });
 
   it("hides archived forms from the default all filter and shows them in the archived filter", () => {
@@ -178,6 +181,22 @@ describe("FormList archive filtering", () => {
       "アーカイブ済みフォームが 1 件あります",
     );
     expect(document.body.textContent).not.toContain("アーカイブを表示");
+
+    act(() => root.unmount());
+  });
+
+  it("hides the archived forms banner outside the all filter", () => {
+    const root = renderList();
+
+    selectStatus("published");
+
+    expect(document.body.textContent).not.toContain(
+      "アーカイブ済みフォームが 1 件あります",
+    );
+    expect(document.body.textContent).not.toContain("アーカイブを表示");
+    expect(document.body.textContent).toContain(
+      "条件に一致するフォームがありません",
+    );
 
     act(() => root.unmount());
   });
@@ -223,6 +242,7 @@ describe("FormList archive filtering", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["forms"],
     });
+    expect(toast.success).toHaveBeenCalledWith("アーカイブを解除しました");
 
     act(() => root.unmount());
   });

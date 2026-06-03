@@ -65,6 +65,7 @@ export const FormList = () => {
       setRestoringFormId(null);
     },
     onSuccess: (_data, formId) => {
+      toast.success("アーカイブを解除しました");
       queryClient.setQueryData<FormsQueryCache>(["forms"], (current) => {
         if (!current?.forms) return current;
         return {
@@ -121,7 +122,7 @@ export const FormList = () => {
         onSearchTermChange={setSearchTerm}
         onStatusChange={setStatus}
       />
-      {archivedCount > 0 && status !== "archived" && searchTerm === "" ? (
+      {shouldShowArchiveFilterHint ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded border bg-muted/30 px-3 py-2 text-sm">
           <span className="text-muted-foreground">
             アーカイブ済みフォームが {archivedCount} 件あります

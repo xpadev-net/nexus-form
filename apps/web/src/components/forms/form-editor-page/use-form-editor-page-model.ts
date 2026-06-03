@@ -259,9 +259,7 @@ export function useFormEditorPageModel(formId: string) {
   const formStatus = formStatusResult.success ? formStatusResult.data : "DRAFT";
 
   useEffect(() => {
-    if (formData?.title) {
-      setTitleDraft(formData.title);
-    }
+    setTitleDraft(formData?.title ?? "");
   }, [formData?.title]);
 
   useEffect(() => {
