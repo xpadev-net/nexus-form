@@ -69,6 +69,7 @@ function renderFormBody(
   options: {
     appearance?: FormAppearance;
     captchaReady?: boolean;
+    description?: string;
     initialAnswers?: ReadonlyMap<string, AnswerEntry>;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
   } = {},
@@ -84,6 +85,7 @@ function renderFormBody(
           mode="public"
           appearance={options.appearance}
           captchaReady={options.captchaReady}
+          description={options.description}
           error={error}
           onErrorChange={setError}
           onSubmitRequest={options.onSubmitRequest}
@@ -350,6 +352,49 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("フォームの内容が空です。");
     expect(plateViewerValues).toEqual([]);
+
+    act(() => root.unmount());
+  });
+
+  it("renders a long multipage grid form without leaving loading text in the body", () => {
+    const longDescription = Array.from(
+      { length: 10 },
+      (_, index) => `説明テキスト ${index + 1}`,
+    ).join("。");
+    const plateContent = JSON.stringify([
+      questionNode("long_text", "q-long", "Long answer", {
+        required: true,
+      }),
+      questionNode("section_separator", "section-details", "Details"),
+      questionNode("choice_grid", "q-choice-grid", "Choice grid", {
+        required: true,
+        rows: [
+          { id: "row-a", label: "Row A" },
+          { id: "row-b", label: "Row B" },
+        ],
+        columns: [
+          { id: "col-1", label: "Column 1" },
+          { id: "col-2", label: "Column 2" },
+        ],
+      }),
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      description: longDescription,
+    });
+
+    expect(container.textContent).toContain("公開フォーム");
+    expect(container.textContent).toContain(longDescription);
+    expect(container.textContent).toContain("Long answer");
+    expect(container.textContent).toContain("次へ");
+    expect(container.textContent).not.toContain("読み込み中...");
+    expect(
+      container.querySelector("[data-testid='plate-viewer']"),
+    ).not.toBeNull();
+    expect(plateViewerValues.at(-1)).toContain("q-long");
+    expect(plateViewerValues.at(-1)).not.toContain("q-choice-grid");
 
     act(() => root.unmount());
   });
