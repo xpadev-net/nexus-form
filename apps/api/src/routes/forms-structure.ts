@@ -99,6 +99,7 @@ const postSubmitConfirmationUpdateSchema = z.object({
     .optional(),
   contact: postSubmitContactUpdateSchema.nullable().optional(),
   show_response_summary: z.boolean().optional(),
+  show_response_id: z.boolean().optional(),
   allow_edit_link: z.boolean().optional(),
 });
 

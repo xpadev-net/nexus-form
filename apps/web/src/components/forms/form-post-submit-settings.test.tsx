@@ -210,6 +210,7 @@ describe("FormPostSubmitSettings", () => {
             label: "Support",
             email: "support@example.com",
           },
+          show_response_id: true,
         },
         notifications: {
           on_submit: {
@@ -249,7 +250,11 @@ describe("FormPostSubmitSettings", () => {
     const root = renderSettings(container);
 
     expect(container.textContent).toContain("送信後");
-    expect(container.textContent).toContain("公開後の送信完了画面への表示反映");
+    expect(container.textContent).toContain(
+      "完了画面の表示設定は公開後の回答者画面に反映されます",
+    );
+    expect(container.textContent).not.toContain("slice");
+    expect(container.textContent).toContain("完了画面に回答 ID を表示する");
     expect(container.textContent).toContain("保存済み URL は表示されません");
     expect(container.textContent).toContain("保存済み secret は表示されません");
     expect(
@@ -267,6 +272,11 @@ describe("FormPostSubmitSettings", () => {
         .querySelector("#post-submit-webhook-enabled")
         ?.getAttribute("aria-labelledby"),
     ).toBe("post-submit-webhook-heading");
+    expect(
+      container
+        .querySelector("#post-submit-response-id-visible")
+        ?.getAttribute("aria-labelledby"),
+    ).toBe("post-submit-response-id-heading");
 
     act(() => root.unmount());
   });
@@ -373,6 +383,7 @@ describe("FormPostSubmitSettings", () => {
       container.querySelector<HTMLInputElement>("#post-submit-contact-email"),
       "",
     );
+    click(container.querySelector("#post-submit-response-id-visible"));
     click(container.querySelector("#post-submit-email-enabled"));
     setInputValue(
       container.querySelector<HTMLTextAreaElement>(
@@ -396,6 +407,7 @@ describe("FormPostSubmitSettings", () => {
         confirmation: {
           title: "送信ありがとうございました",
           message: "担当者から連絡します。",
+          show_response_id: false,
           supplemental_link: {
             label: "次のステップ",
             url: "https://example.com/next",
@@ -450,6 +462,15 @@ describe("FormPostSubmitSettings", () => {
     expect(mocks.toast.success).toHaveBeenCalledWith(
       "送信後設定を保存しました",
     );
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formStructure", "postSubmit", "form-1"],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formDiff", "form-1"],
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["unpublishedChanges", "form-1"],
+    });
 
     act(() => root.unmount());
   });

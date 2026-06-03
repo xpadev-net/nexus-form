@@ -310,6 +310,7 @@ describe("forms structure post-submit settings", () => {
               email: "support@example.com",
               url: "https://example.com/support",
             },
+            show_response_id: false,
           },
           notifications: {
             on_submit: {
@@ -370,6 +371,7 @@ describe("forms structure post-submit settings", () => {
           },
           redirect_url: "https://example.com/after",
           show_response_summary: true,
+          show_response_id: false,
           allow_edit_link: true,
         },
         notifications: {
