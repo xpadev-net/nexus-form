@@ -9,11 +9,13 @@ import { GitHubProviderError } from "../utils";
 
 const { createAppAuthMock, octokitConstructorMock } = vi.hoisted(() => ({
   createAppAuthMock: vi.fn(),
-  octokitConstructorMock: vi.fn(() => ({
-    users: {
-      getByUsername: vi.fn(),
-    },
-  })),
+  octokitConstructorMock: vi.fn(function createMockOctokit() {
+    return {
+      users: {
+        getByUsername: vi.fn(),
+      },
+    };
+  }),
 }));
 
 vi.mock("@octokit/auth-app", () => ({
