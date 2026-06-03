@@ -1,6 +1,7 @@
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
 import { formSnapshot } from "@nexus-form/database/schema";
+import { NO_CHANGES_TO_PUBLISH_CODE } from "@nexus-form/shared";
 import { and, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -34,8 +35,6 @@ import {
   formVersionDiffQuerySchema,
   routePaginationSchema,
 } from "./form-route-schemas";
-
-const NO_CHANGES_TO_PUBLISH_CODE = "NO_CHANGES_TO_PUBLISH";
 
 const SnapshotListItemResponseSchema = z.object({
   id: z.string(),

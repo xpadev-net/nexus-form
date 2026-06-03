@@ -9,6 +9,7 @@ import {
 } from "../packages/shared/src/response-data";
 import {
   isAnswerableFixtureBlockType,
+  NO_CHANGES_TO_PUBLISH_CODE,
   parseStoryFixtureSet,
   STORY_FIXTURE_PREFIX,
   STORY_FIXTURE_PREFIX_MIN_LENGTH,
@@ -22,7 +23,6 @@ type Action = "generate" | "cleanup";
 type FixtureEnvironment = "local" | "staging";
 
 const NO_CHANGES_TO_PUBLISH_FRAGMENT = "No changes to publish";
-const NO_CHANGES_TO_PUBLISH_CODE = "NO_CHANGES_TO_PUBLISH";
 
 interface CliOptions {
   action: Action;

@@ -24,6 +24,9 @@ export const STORY_FIXTURE_PREFIX_MIN_LENGTH = STORY_FIXTURE_PREFIX.length + 11;
 /** Exact number of R26 story fixtures expected in one generated set. */
 export const STORY_FIXTURE_STORY_COUNT = 30;
 
+/** Stable API error code returned when publishing has no content changes. */
+export const NO_CHANGES_TO_PUBLISH_CODE = "NO_CHANGES_TO_PUBLISH";
+
 const storyIdSchema = z
   .string()
   .regex(/^S(?:0[1-9]|[12][0-9]|30)$/, "Story id must be S01-S30");
