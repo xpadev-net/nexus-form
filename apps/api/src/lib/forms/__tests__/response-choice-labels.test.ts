@@ -26,6 +26,20 @@ describe("response choice display labels", () => {
           columns: [{ id: "corp", label: "法人" }],
         },
       },
+      {
+        id: "availability-grid",
+        type: "checkbox_grid",
+        validation: {
+          rows: [
+            { id: "monday", label: "月曜" },
+            { id: "tuesday", label: "火曜" },
+          ],
+          columns: [
+            { id: "morning", label: "午前" },
+            { id: "evening", label: "夜" },
+          ],
+        },
+      },
     ];
 
     const responseDataJson = JSON.stringify([
@@ -48,6 +62,11 @@ describe("response choice display labels", () => {
         question_id: "company-grid",
         question_type: "choice_grid",
         responses: { contract: "corp" },
+      },
+      {
+        question_id: "availability-grid",
+        question_type: "checkbox_grid",
+        responses: { monday: ["morning", "evening"], tuesday: [] },
       },
     ]);
 
@@ -79,6 +98,12 @@ describe("response choice display labels", () => {
         question_type: "choice_grid",
         responses: { contract: "corp" },
         display_value: "契約種別: 法人",
+      },
+      {
+        question_id: "availability-grid",
+        question_type: "checkbox_grid",
+        responses: { monday: ["morning", "evening"], tuesday: [] },
+        display_value: "月曜: 午前, 夜\n火曜: 未回答",
       },
     ]);
   });

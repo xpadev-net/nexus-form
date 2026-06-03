@@ -44,7 +44,7 @@ function setDocumentHidden(hidden: boolean) {
   });
 }
 
-function renderEditorSSE(onMergeNeeded: ReturnType<typeof vi.fn>) {
+function renderEditorSSE(onMergeNeeded: () => void) {
   const queryClient = new QueryClient();
   const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
   const container = document.createElement("div");
@@ -83,7 +83,7 @@ describe("R12-P5 editor SSE visibility restore", () => {
   });
 
   it("calls merge instead of invalidating caches when pending edits exist on tab restore", () => {
-    const onMergeNeeded = vi.fn();
+    const onMergeNeeded = vi.fn<() => void>();
     const { invalidateSpy } = renderEditorSSE(onMergeNeeded);
 
     invalidateSpy.mockClear();
