@@ -56,13 +56,13 @@ RUN if [ -d ci-prebuilt/packages ]; then \
     fi
 
 # Create a flat node_modules for the Drizzle migration script
-RUN pnpm --filter @nexus-form/database deploy --prod /tmp/db-deploy
+RUN pnpm --filter @nexus-form/database deploy --prod --legacy /tmp/db-deploy
 RUN mkdir -p /app/plugins/validation
 
 # ── Hono API server ──
 FROM builder AS runtime-deps
 
-RUN pnpm --filter @nexus-form/api deploy --prod /tmp/api-deploy
+RUN pnpm --filter @nexus-form/api deploy --prod --legacy /tmp/api-deploy
 
 # gcr.io/distroless/nodejs24-debian12, pinned by digest for reproducible builds.
 FROM gcr.io/distroless/nodejs24-debian12@sha256:61f4f4341db81820c24ce771b83d202eb6452076f58628cd536cc7d94a10978b AS runner
