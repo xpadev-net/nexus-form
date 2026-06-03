@@ -784,11 +784,7 @@ describe("R23-T3 share and permission routes", () => {
         undefined,
       );
       expect(ownerOnlyMutation.status).toBe(403);
-      expect(mocks.updatePermissionRole).not.toHaveBeenCalledWith(
-        "form-1",
-        r25Users.viewer.id,
-        "EDITOR",
-      );
+      expect(mocks.updatePermissionRole).not.toHaveBeenCalled();
     });
 
     it("accepts an invitation as a different user session and grants the invited VIEWER role", async () => {
