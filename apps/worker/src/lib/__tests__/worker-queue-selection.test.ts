@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
   GOOGLE_SHEETS_SYNC_QUEUE,
   selectWorkerQueues,
   validateWorkerQueuesEnv,
@@ -16,6 +17,7 @@ describe("selectWorkerQueues", () => {
         "twitter-validation",
       ],
       includeSheetsSync: true,
+      includeFormSubmitNotifications: true,
       unknownQueues: [],
     });
   });
@@ -24,11 +26,12 @@ describe("selectWorkerQueues", () => {
     expect(
       selectWorkerQueues(
         providers,
-        `github-validation, ${GOOGLE_SHEETS_SYNC_QUEUE}`,
+        `github-validation, ${GOOGLE_SHEETS_SYNC_QUEUE}, ${FORM_SUBMIT_NOTIFICATION_QUEUE}`,
       ),
     ).toEqual({
       validationQueues: ["github-validation"],
       includeSheetsSync: true,
+      includeFormSubmitNotifications: true,
       unknownQueues: [],
     });
   });
@@ -38,6 +41,7 @@ describe("selectWorkerQueues", () => {
       {
         validationQueues: ["discord-validation"],
         includeSheetsSync: false,
+        includeFormSubmitNotifications: false,
         unknownQueues: ["missing"],
       },
     );
@@ -63,6 +67,7 @@ describe("selectWorkerQueues", () => {
     expect(selectWorkerQueues(providers, workerQueuesEnv)).toEqual({
       validationQueues: [],
       includeSheetsSync: false,
+      includeFormSubmitNotifications: false,
       unknownQueues: [],
     });
   });

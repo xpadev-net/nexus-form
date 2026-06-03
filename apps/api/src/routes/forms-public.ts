@@ -12,8 +12,11 @@ import {
 import { providerRegistry } from "@nexus-form/integrations";
 import {
   buildAutoSheetsSyncJobId,
+  buildFormSubmitNotificationJobId,
   extractQuestionsFromPlateContent,
   FormConfirmationSchema,
+  type FormNotifications,
+  FormSubmitNotificationJobDataSchema,
   genericValidationJobDataSchema,
   getValidationResultId,
   MAX_RESPONSE_BODY_BYTES,
@@ -42,6 +45,7 @@ import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { logError, logWarn } from "../lib/logger";
 import {
+  getFormSubmitNotificationQueue,
   getSheetsSyncQueue,
   getValidationQueue,
   isValidServiceName,
@@ -243,6 +247,50 @@ function getPasswordProtection(
 
 function buildSubmitConfirmation(parsed: ParsedStructure) {
   return FormConfirmationSchema.parse(parsed.confirmation ?? {});
+}
+
+function formatResponseSubmittedAt(
+  submittedAt: Date | string | null | undefined,
+): string | null {
+  if (submittedAt instanceof Date) {
+    return submittedAt.toISOString();
+  }
+  if (typeof submittedAt === "string") {
+    const parsed = new Date(submittedAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString();
+    }
+  }
+  return null;
+}
+
+function getEnabledSubmitNotificationChannels(
+  notifications: ParsedStructure["notifications"],
+): FormNotifications["on_submit"] | null {
+  const onSubmit = notifications?.on_submit;
+  if (!onSubmit) return null;
+
+  const enabledChannels: FormNotifications["on_submit"] = {};
+  const email = onSubmit.email;
+  if (email?.enabled && email.recipients.length > 0) {
+    enabledChannels.email = email;
+  }
+
+  const discord = onSubmit.discord;
+  if (discord?.enabled && discord.webhook_url) {
+    enabledChannels.discord = discord;
+  }
+
+  const webhook = onSubmit.webhook;
+  if (webhook?.enabled && webhook.url) {
+    enabledChannels.webhook = webhook;
+  }
+
+  return enabledChannels.email ||
+    enabledChannels.discord ||
+    enabledChannels.webhook
+    ? enabledChannels
+    : null;
 }
 
 function isPasswordVerified(c: Context, formId: string): boolean {
@@ -677,7 +725,15 @@ export const formsPublicRouter = createHonoApp()
       // Set session cookie only after a successful submission
       setSessionCookie(c, newJwt);
 
-      // 11. Queue external validation jobs (non-blocking)
+      // 11. Load the created response so background jobs can reuse the
+      // database-side submittedAt timestamp.
+      const [createdResponse] = await db
+        .select()
+        .from(formResponse)
+        .where(eq(formResponse.id, responseId))
+        .limit(1);
+
+      // 12. Queue external validation jobs (non-blocking)
       if (
         !insertResult.limitReached &&
         insertResult.validationOutbox &&
@@ -696,7 +752,24 @@ export const formsPublicRouter = createHonoApp()
         });
       }
 
-      // 12. Queue Google Sheets sync (non-blocking)
+      // 13. Queue creator notifications (non-blocking)
+      queueSubmitNotificationsIfNeeded(
+        target.id,
+        responseId,
+        activeSnapshot,
+        parsedStructure,
+        formatResponseSubmittedAt(createdResponse?.submittedAt),
+      ).catch((error) => {
+        logError("Failed to queue submit notifications", "api", {
+          error,
+          responseId,
+          formId: target.id,
+          snapshotVersion: activeSnapshot?.version,
+        });
+        captureError(error);
+      });
+
+      // 14. Queue Google Sheets sync (non-blocking)
       queueSheetsSyncIfNeeded(target.id, responseId, activeSnapshot).catch(
         (error) => {
           logError("Failed to queue Google Sheets sync", "api", {
@@ -709,13 +782,7 @@ export const formsPublicRouter = createHonoApp()
         },
       );
 
-      // 13. Return the created response
-      const [createdResponse] = await db
-        .select()
-        .from(formResponse)
-        .where(eq(formResponse.id, responseId))
-        .limit(1);
-
+      // 15. Return the created response
       const submitResponse = PublicSubmitResponseSchema.parse({
         responseId,
         response: createdResponse ?? null,
@@ -1067,6 +1134,39 @@ async function enqueueExternalValidationJobs(
       }
     }),
   );
+}
+
+async function queueSubmitNotificationsIfNeeded(
+  formId: string,
+  responseId: string,
+  activeSnapshot: FormSnapshot | null,
+  parsedStructure: ParsedStructure,
+  submittedAt: string | null,
+): Promise<void> {
+  if (!activeSnapshot) return;
+  const notifications = getEnabledSubmitNotificationChannels(
+    parsedStructure.notifications,
+  );
+  if (!notifications) return;
+  if (!submittedAt) {
+    logError("Skipped submit notification enqueue without submittedAt", "api", {
+      formId,
+      responseId,
+      snapshotVersion: activeSnapshot.version,
+    });
+    return;
+  }
+
+  const jobData = FormSubmitNotificationJobDataSchema.parse({
+    formId,
+    responseId,
+    snapshotVersion: activeSnapshot.version,
+    submittedAt,
+  });
+
+  await getFormSubmitNotificationQueue().add("form-submit", jobData, {
+    jobId: buildFormSubmitNotificationJobId(formId, responseId),
+  });
 }
 
 async function queueSheetsSyncIfNeeded(

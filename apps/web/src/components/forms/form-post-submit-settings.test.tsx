@@ -407,7 +407,6 @@ describe("FormPostSubmitSettings", () => {
         confirmation: {
           title: "送信ありがとうございました",
           message: "担当者から連絡します。",
-          show_response_id: false,
           supplemental_link: {
             label: "次のステップ",
             url: "https://example.com/next",

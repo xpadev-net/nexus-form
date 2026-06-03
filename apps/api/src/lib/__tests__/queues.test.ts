@@ -2,6 +2,7 @@ import type { DefaultJobOptions } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeQueues,
+  getFormSubmitNotificationQueue,
   getSheetsSyncQueue,
   getValidationQueue,
   SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
@@ -68,6 +69,21 @@ describe("queues", () => {
 
   it("limits retained sheets sync jobs by default", () => {
     getSheetsSyncQueue();
+
+    expect(mocks.queueInstances[0]?.options.defaultJobOptions).toMatchObject({
+      removeOnComplete: 100,
+      removeOnFail: 100,
+    });
+    expect(
+      mocks.queueInstances[0]?.options.defaultJobOptions,
+    ).not.toHaveProperty("attempts");
+    expect(
+      mocks.queueInstances[0]?.options.defaultJobOptions,
+    ).not.toHaveProperty("backoff");
+  });
+
+  it("limits retained form submit notification jobs by default", () => {
+    getFormSubmitNotificationQueue();
 
     expect(mocks.queueInstances[0]?.options.defaultJobOptions).toMatchObject({
       removeOnComplete: 100,
