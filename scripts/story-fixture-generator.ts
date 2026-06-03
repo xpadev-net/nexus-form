@@ -253,22 +253,32 @@ function sampleResponse(blockItem: StoryFixtureBlock): ResponseDataItem | null {
       return { ...base, value: 4 };
     case "rating":
       return { ...base, value: 5 };
-    case "choice_grid":
+    case "choice_grid": {
+      const rows = "rows" in blockItem.validation ? blockItem.validation.rows : [];
+      const columnId =
+        "columns" in blockItem.validation
+          ? blockItem.validation.columns[0]?.id
+          : undefined;
       return {
         ...base,
-        responses: {
-          row_a: "col_good",
-          row_b: "col_ok",
-        },
+        responses: Object.fromEntries(
+          rows.map((row) => [row.id, columnId ?? ""]),
+        ),
       };
-    case "checkbox_grid":
+    }
+    case "checkbox_grid": {
+      const rows = "rows" in blockItem.validation ? blockItem.validation.rows : [];
+      const columnId =
+        "columns" in blockItem.validation
+          ? blockItem.validation.columns[0]?.id
+          : undefined;
       return {
         ...base,
-        responses: {
-          row_a: ["col_good"],
-          row_b: ["col_ok"],
-        },
+        responses: Object.fromEntries(
+          rows.map((row) => [row.id, columnId ? [columnId] : []]),
+        ),
       };
+    }
     case "date":
       return { ...base, value: "2026-06-04" };
     case "time":
