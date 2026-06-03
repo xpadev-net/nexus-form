@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getFormStructure: vi.fn(),
+  getLatestSnapshot: vi.fn().mockResolvedValue(null),
   saveFormStructure: vi.fn(),
   formAuthRoles: [] as Array<unknown>,
 }));
@@ -30,6 +31,10 @@ vi.mock("../lib/forms/form-structure-service", () => ({
   getFormStructureHistory: vi.fn(),
   restoreFormStructure: vi.fn(),
   saveFormStructure: mocks.saveFormStructure,
+}));
+
+vi.mock("../lib/forms/snapshot-repository", () => ({
+  getLatestSnapshot: mocks.getLatestSnapshot,
 }));
 
 vi.mock("../lib/forms/structure-mutation-lock", () => ({

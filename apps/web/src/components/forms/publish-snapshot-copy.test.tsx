@@ -126,6 +126,7 @@ describe("publish snapshot target copy", () => {
           actionState: "idle",
           activeSnapshotVersion: null,
           hasChangesFromActive: false,
+          hasPasswordProtectionChanges: false,
           nextSnapshotVersion: 1,
           publishState: "unpublished",
           totalChanges: 2,

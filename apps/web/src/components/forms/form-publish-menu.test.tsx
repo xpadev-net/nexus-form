@@ -12,6 +12,12 @@ type PasswordProtectionState = {
   password_hint?: string;
 };
 
+type PasswordProtectionPublicationState = {
+  current: PasswordProtectionState;
+  published: PasswordProtectionState | null;
+  isSynced: boolean;
+};
+
 type UpdatePasswordProtectionParams = {
   enabled: boolean;
   password?: string;
@@ -29,6 +35,17 @@ const mocks = vi.hoisted(() => ({
     enabled: false,
     hasPassword: false,
   } as PasswordProtectionState,
+  passwordProtectionPublication: {
+    current: {
+      enabled: false,
+      hasPassword: false,
+    },
+    published: {
+      enabled: false,
+      hasPassword: false,
+    },
+    isSynced: true,
+  } as PasswordProtectionPublicationState,
   shouldFailPasswordUpdate: false,
   toast: {
     error: vi.fn(),
@@ -45,6 +62,7 @@ vi.mock("@/hooks/forms/use-form-access-control", () => ({
     isLoading: false,
     isUpdating: false,
     passwordProtection: mocks.passwordProtection,
+    passwordProtectionPublication: mocks.passwordProtectionPublication,
     updatePasswordProtection: {
       mutate: mocks.mutatePasswordProtection,
     },
@@ -251,6 +269,17 @@ describe("FormPublishMenu password protection", () => {
       enabled: false,
       hasPassword: false,
     };
+    mocks.passwordProtectionPublication = {
+      current: {
+        enabled: false,
+        hasPassword: false,
+      },
+      published: {
+        enabled: false,
+        hasPassword: false,
+      },
+      isSynced: true,
+    };
     mocks.shouldFailPasswordUpdate = false;
     mocks.toast.error.mockReset();
     mocks.toast.success.mockReset();
@@ -379,6 +408,39 @@ describe("FormPublishMenu password protection", () => {
     );
     expect(passwordSwitch(container)?.getAttribute("aria-checked")).toBe(
       "true",
+    );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("separates current password settings from the published snapshot state", () => {
+    mocks.passwordProtection = {
+      enabled: true,
+      hasPassword: true,
+      password_hint: "new hint",
+    };
+    mocks.passwordProtectionPublication = {
+      current: {
+        enabled: true,
+        hasPassword: true,
+        password_hint: "new hint",
+      },
+      published: {
+        enabled: false,
+        hasPassword: true,
+        password_hint: "old hint",
+      },
+      isSynced: false,
+    };
+    const container = document.createElement("div");
+    const root = renderMenu(container);
+
+    expect(container.textContent).toContain("現在設定: 有効");
+    expect(container.textContent).toContain("公開版設定: 無効");
+    expect(container.textContent).toContain(
+      "保存済みの変更は公開して反映するまで回答者には適用されません",
     );
 
     act(() => {

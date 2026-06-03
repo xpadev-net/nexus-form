@@ -69,6 +69,14 @@ export {
   isPlateQuestionType,
   toPlateQuestionType,
 } from "./forms/form-block";
+export type {
+  PasswordProtectionPublicationSnapshot,
+  PasswordProtectionPublicationState,
+} from "./forms/password-protection-publication";
+export {
+  PasswordProtectionPublicationSnapshotSchema,
+  PasswordProtectionPublicationStateSchema,
+} from "./forms/password-protection-publication";
 export type { ExtractedQuestion, PlatePage } from "./plate-content-utils";
 export {
   ensureNodeIds,

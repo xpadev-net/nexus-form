@@ -1,3 +1,5 @@
+import type { PasswordProtectionPublicationSnapshot } from "../password-protection-publication";
+
 export type PublishState = "published" | "unpublished";
 export type PublishProcessState = "idle" | "processing";
 export type SnapshotAvailability = "available" | "missing";
@@ -63,13 +65,19 @@ export interface UnpublishedChangesSectionState {
   actionState: PublishProcessState;
   totalChanges: number;
   hasChangesFromActive: boolean;
+  hasPasswordProtectionChanges: boolean;
   activeSnapshotVersion: number | null;
   nextSnapshotVersion: number;
 }
 
+export type { PasswordProtectionPublicationSnapshot };
+
 export interface PasswordProtectionSectionState {
   isEnabled: boolean;
   hasPassword: boolean;
+  current: PasswordProtectionPublicationSnapshot;
+  published: PasswordProtectionPublicationSnapshot | null;
+  hasUnpublishedChanges: boolean;
   updateState: PublishProcessState;
   publishActionState: PublishProcessState;
 }
