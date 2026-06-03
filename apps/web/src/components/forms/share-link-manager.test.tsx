@@ -34,7 +34,7 @@ const mocks = vi.hoisted(
     copyShareLinkUrl: ReturnType<typeof vi.fn>;
     createShareLinkMutate: ReturnType<typeof vi.fn>;
     deleteShareLinkMutate: ReturnType<typeof vi.fn>;
-    shareLinksRefetch: ReturnType<typeof vi.fn>;
+    shareLinksRefetch: ReturnType<typeof vi.fn<ShareLinksQueryMock["refetch"]>>;
     shareLinksQuery: ShareLinksQueryMock;
     toastError: ReturnType<typeof vi.fn>;
     toastSuccess: ReturnType<typeof vi.fn>;
@@ -43,7 +43,7 @@ const mocks = vi.hoisted(
     copyShareLinkUrl: vi.fn(),
     createShareLinkMutate: vi.fn(),
     deleteShareLinkMutate: vi.fn(),
-    shareLinksRefetch: vi.fn(),
+    shareLinksRefetch: vi.fn<ShareLinksQueryMock["refetch"]>(),
     shareLinksQuery: {
       data: {
         share_links: [
@@ -59,7 +59,7 @@ const mocks = vi.hoisted(
       error: null,
       isError: false,
       isLoading: false,
-      refetch: vi.fn(),
+      refetch: vi.fn<ShareLinksQueryMock["refetch"]>(),
     },
     toastError: vi.fn(),
     toastSuccess: vi.fn(),

@@ -1,7 +1,7 @@
 import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
-import { Button } from "@/components/ui/button";
+import { useId } from "react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import {
   getGridCellAccessibleName,
@@ -45,6 +45,7 @@ export const FormChoiceGridElement = withRef<typeof PlateElement>(
 
 export function ChoiceGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
+  const inputIdPrefix = useId();
   if (!ctx) return null;
   const blockId = element.blockId as string;
   const answer = ctx.getAnswer(blockId);
@@ -79,6 +80,7 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
               <th
                 key={col.id}
                 className="border px-3 py-2 text-center text-sm font-medium"
+                scope="col"
               >
                 {getGridItemDisplayLabel(col)}
               </th>
@@ -86,33 +88,49 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, rowIndex) => (
             <tr key={row.id}>
-              <td className="border px-3 py-2 text-sm font-medium">
+              <th
+                className="border px-3 py-2 text-left text-sm font-medium"
+                scope="row"
+              >
                 {getGridItemDisplayLabel(row)}
-              </td>
-              {columns.map((col) => (
-                <td key={col.id} className="border px-3 py-2 text-center">
-                  <Button
-                    type="button"
-                    role="radio"
-                    aria-checked={responses[row.id] === col.id}
-                    variant="ghost"
-                    onClick={() => handleSelect(row.id, col.id)}
-                    className={cn(
-                      "inline-flex h-4 w-4 items-center justify-center rounded-full border p-0 transition-colors",
-                      responses[row.id] === col.id
-                        ? "border-primary bg-primary hover:bg-primary hover:text-primary-foreground dark:hover:bg-primary"
-                        : "border-input hover:border-primary/50 hover:bg-transparent dark:hover:bg-transparent",
-                    )}
-                    aria-label={getGridCellAccessibleName(row, col)}
-                  >
-                    {responses[row.id] === col.id && (
-                      <span className="h-2 w-2 rounded-full bg-primary-foreground" />
-                    )}
-                  </Button>
-                </td>
-              ))}
+              </th>
+              {columns.map((col, columnIndex) => {
+                const checked = responses[row.id] === col.id;
+                const inputId = `${inputIdPrefix}-cell-${rowIndex}-${columnIndex}`;
+                return (
+                  <td key={col.id} className="border p-0 text-center">
+                    <label
+                      htmlFor={inputId}
+                      className="relative flex min-h-10 w-full min-w-12 cursor-pointer items-center justify-center px-3 py-2"
+                    >
+                      <input
+                        id={inputId}
+                        type="radio"
+                        name={`${inputIdPrefix}-row-choice-${row.id}`}
+                        checked={checked}
+                        onChange={() => handleSelect(row.id, col.id)}
+                        aria-label={getGridCellAccessibleName(row, col)}
+                        className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      />
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          "inline-flex h-4 w-4 items-center justify-center rounded-full border transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-2",
+                          checked
+                            ? "border-primary bg-primary"
+                            : "border-input peer-hover:border-primary/50",
+                        )}
+                      >
+                        {checked && (
+                          <span className="h-2 w-2 rounded-full bg-primary-foreground" />
+                        )}
+                      </span>
+                    </label>
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
