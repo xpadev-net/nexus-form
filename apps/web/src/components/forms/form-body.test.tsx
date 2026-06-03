@@ -1011,16 +1011,43 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("3 / 3");
     expect(container.textContent).not.toContain("確認ページ");
 
+    const form = container.querySelector("form");
+    expect(form).not.toBeNull();
     await act(async () => {
-      container
-        .querySelector("form")
-        ?.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
     });
 
     expect(container.textContent).toContain("必須項目が未入力です: 法人名");
     expect(onSubmitRequest).not.toHaveBeenCalled();
+
+    const companyInput = getByRole(container, "textbox", {
+      name: "q-company-name",
+    });
+    await act(async () => {
+      fireEvent.change(companyInput, { target: { value: "Nexus 株式会社" } });
+    });
+    await act(async () => {
+      form?.dispatchEvent(
+        new Event("submit", { bubbles: true, cancelable: true }),
+      );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      visitedQuestionIds: ["q-entity-type", "q-company-name"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-entity-type",
+          value: "corporate",
+        }),
+        expect.objectContaining({
+          question_id: "q-company-name",
+          value: "Nexus 株式会社",
+        }),
+      ],
+    });
 
     act(() => root.unmount());
   });
