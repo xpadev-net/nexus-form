@@ -136,6 +136,62 @@ describe("parseStoryFixtureSet", () => {
     );
   });
 
+  it("rejects duplicate block ids inside a story", () => {
+    const fixture = fixtureSet();
+    const firstStory = fixture.stories[0];
+    const firstBlock = firstStory?.blocks[0];
+    if (!firstStory || !firstBlock) {
+      throw new Error("Expected fixture story and block");
+    }
+    firstStory.blocks.push({
+      ...firstBlock,
+      title: "Duplicate block id",
+    });
+
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Duplicate block id in story fixture/,
+    );
+  });
+
+  it("rejects grid sample responses whose row or column ids are not in the fixture", () => {
+    const fixture = fixtureSet();
+    const firstStory = fixture.stories[0];
+    if (!firstStory?.blocks[0] || !firstStory.sampleResponses?.[0]) {
+      throw new Error("Expected fixture block and response");
+    }
+    const blockId = firstStory.blocks[0].blockId;
+    firstStory.blocks[0] = {
+      blockId,
+      type: "choice_grid",
+      title: "Grid answer",
+      validation: {
+        type: "choice_grid",
+        required: true,
+        rows: [{ id: "row_a", label: "Row A" }],
+        columns: [
+          { id: "col_a", label: "Column A" },
+          { id: "col_b", label: "Column B" },
+        ],
+      },
+    };
+    firstStory.sampleResponses[0] = {
+      question_id: blockId,
+      question_type: "choice_grid",
+      question_title: "Grid answer",
+      responses: {
+        missing_row: "col_a",
+        row_a: "missing_col",
+      },
+    };
+
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response row missing_row is not in row ids/,
+    );
+    expect(() => parseStoryFixtureSet(fixture)).toThrow(
+      /Sample response column missing_col is not in column ids/,
+    );
+  });
+
   it("rejects logic references that do not point at fixture blocks", () => {
     const fixture = fixtureSet();
     const firstStory = fixture.stories[0];
