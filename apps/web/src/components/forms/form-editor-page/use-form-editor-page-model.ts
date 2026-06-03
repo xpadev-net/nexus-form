@@ -32,6 +32,13 @@ const updateFormsCacheStatus = (
   };
 };
 
+class DuplicateTitleSaveError extends Error {
+  constructor() {
+    super("Duplicate title save failed");
+    this.name = "DuplicateTitleSaveError";
+  }
+}
+
 export function useFormEditorPageModel(formId: string) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -127,17 +134,21 @@ export function useFormEditorPageModel(formId: string) {
   };
 
   const saveTitleBeforeDuplicate = async () => {
-    const pendingTitleSave = titleSavePromiseRef.current;
-    if (pendingTitleSave) {
-      await pendingTitleSave;
-      return;
+    try {
+      const pendingTitleSave = titleSavePromiseRef.current;
+      if (pendingTitleSave) {
+        await pendingTitleSave;
+        return;
+      }
+
+      const savedTitle = formQuery.data?.form?.title?.trim() ?? "";
+      const draftTitle = titleDraft.trim();
+      if (!draftTitle || draftTitle === savedTitle) return;
+
+      await saveTitle(draftTitle);
+    } catch {
+      throw new DuplicateTitleSaveError();
     }
-
-    const savedTitle = formQuery.data?.form?.title?.trim() ?? "";
-    const draftTitle = titleDraft.trim();
-    if (!draftTitle || draftTitle === savedTitle) return;
-
-    await saveTitle(draftTitle);
   };
 
   const deleteMutation = useMutation({
@@ -176,6 +187,7 @@ export function useFormEditorPageModel(formId: string) {
       }
     },
     onError: (err) => {
+      if (err instanceof DuplicateTitleSaveError) return;
       toast.error(err instanceof Error ? err.message : "複製に失敗しました");
     },
   });

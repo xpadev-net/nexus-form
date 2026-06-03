@@ -9,9 +9,12 @@ import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
 import { FormEditorPage } from "./form-editor-page";
 
-const { hasUnsavedLocalEditsMock } = vi.hoisted(() => ({
-  hasUnsavedLocalEditsMock: vi.fn(() => false),
-}));
+const { hasUnsavedLocalEditsMock, toastErrorMock, toastSuccessMock } =
+  vi.hoisted(() => ({
+    hasUnsavedLocalEditsMock: vi.fn(() => false),
+    toastErrorMock: vi.fn(),
+    toastSuccessMock: vi.fn(),
+  }));
 
 let searchTab: string | undefined;
 const navigateMock = vi.fn();
@@ -83,9 +86,14 @@ vi.mock("@tanstack/react-query", () => ({
         .catch((error) => options.onError?.(error));
     }),
     mutateAsync: vi.fn(async (variables?: unknown) => {
-      const data = await options.mutationFn(variables);
-      options.onSuccess?.(data, variables);
-      return data;
+      try {
+        const data = await options.mutationFn(variables);
+        options.onSuccess?.(data, variables);
+        return data;
+      } catch (error) {
+        options.onError?.(error);
+        throw error;
+      }
     }),
   }),
   useQuery: (options: QueryOptions) => {
@@ -272,6 +280,12 @@ vi.mock("@/components/ui/button", () => ({
 vi.mock("@/hooks/use-page-title", () => ({
   usePageTitle: vi.fn(),
 }));
+vi.mock("sonner", () => ({
+  toast: {
+    error: toastErrorMock,
+    success: toastSuccessMock,
+  },
+}));
 vi.mock("@/lib/api", () => ({
   client: {
     api: {
@@ -311,6 +325,9 @@ vi.mock("@/lib/api", () => ({
   },
   rpc: vi.fn(async (request: { operation?: string; title?: string }) => {
     if (request.operation === "update-title") {
+      if (request.title === "保存失敗タイトル") {
+        throw new Error("Title save failed");
+      }
       formQueryState = {
         ...formQueryState,
         data: {
@@ -341,6 +358,7 @@ vi.mock("@/lib/logger", () => ({
 
 describe("FormEditorPage tab synchronization", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     searchTab = undefined;
     formQueryState = {
       data: {
@@ -363,6 +381,8 @@ describe("FormEditorPage tab synchronization", () => {
     hasUnsavedLocalEditsMock.mockReset();
     hasUnsavedLocalEditsMock.mockReturnValue(false);
     snapshotEditorToDraftMock.mockClear();
+    toastErrorMock.mockReset();
+    toastSuccessMock.mockReset();
     vi.mocked(usePageTitle).mockClear();
     optionsByQueryKey.clear();
     retryByQueryKey.clear();
@@ -579,6 +599,60 @@ describe("FormEditorPage tab synchronization", () => {
 
     expect(container.textContent).toContain("Test form のコピー");
     expect(container.textContent).not.toContain("    のコピー");
+
+    act(() => root.unmount());
+  });
+
+  it("does not show a duplicate failure toast when title save fails before duplication", async () => {
+    searchTab = "settings";
+    const { client } = await import("@/lib/api");
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    act(() => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "保存失敗タイトル");
+      titleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const duplicateButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("複製"));
+    await act(async () => {
+      duplicateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const confirmButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("複製確定"),
+    );
+    await act(async () => {
+      confirmButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const formsClient = client.api.forms[":id"];
+    expect(formsClient.$put).toHaveBeenCalledWith({
+      json: { title: "保存失敗タイトル" },
+      param: { id: "form-1" },
+    });
+    expect(formsClient.duplicate.$post).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "フォーム名の保存に失敗しました",
+    );
+    expect(toastErrorMock).not.toHaveBeenCalledWith("Title save failed");
+    expect(toastErrorMock).not.toHaveBeenCalledWith("複製に失敗しました");
 
     act(() => root.unmount());
   });
