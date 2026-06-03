@@ -66,7 +66,7 @@ ENV GIT_HASH=${GIT_HASH}
 
 FROM prod AS runtime-deps
 
-RUN pnpm --filter @nexus-form/worker deploy --prod /tmp/worker-deploy
+RUN pnpm --filter @nexus-form/worker deploy --prod --legacy /tmp/worker-deploy
 
 # gcr.io/distroless/nodejs24-debian12, pinned by digest for reproducible builds.
 FROM gcr.io/distroless/nodejs24-debian12@sha256:61f4f4341db81820c24ce771b83d202eb6452076f58628cd536cc7d94a10978b AS runner
