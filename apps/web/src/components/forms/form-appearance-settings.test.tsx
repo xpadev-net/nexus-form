@@ -91,6 +91,7 @@ vi.mock("./form-body", () => ({
     <div
       data-testid="appearance-preview"
       data-primary={appearance.theme.primary_color}
+      data-brand={appearance.theme.brand_name ?? ""}
       data-question-numbers={
         appearance.layout.show_question_numbers ? "shown" : "hidden"
       }
@@ -218,10 +219,15 @@ describe("FormAppearanceSettings", () => {
     mocks.toast.success.mockReset();
   });
 
-  it("shows snapshot scope guidance and mobile desktop preview controls", () => {
+  it("shows setting scope, publish timing, and mobile desktop preview controls", () => {
     const container = document.createElement("div");
     const root = renderSettings(container);
 
+    expect(container.textContent).toContain("テーマとブランド");
+    expect(container.textContent).toContain("レイアウトと質問番号");
+    expect(container.textContent).toContain(
+      "保存済みの外観がライブプレビューに反映されています。",
+    );
     expect(container.textContent).toContain("structure.appearance");
     expect(
       container.querySelector("[data-preview-viewport='desktop']"),
@@ -241,6 +247,7 @@ describe("FormAppearanceSettings", () => {
     const root = renderSettings(container);
 
     expect(container.textContent).toContain("配色の警告");
+    expect(container.textContent).toContain("回答者に読みづらくなる可能性");
     setInputValue(
       container.querySelector<HTMLInputElement>("#appearance-primary-color"),
       "#111111",
@@ -251,6 +258,21 @@ describe("FormAppearanceSettings", () => {
         .querySelector("[data-testid='appearance-preview']")
         ?.getAttribute("data-primary"),
     ).toBe("#111111");
+    expect(container.textContent).toContain(
+      "未保存の変更はライブプレビューだけに反映中です。",
+    );
+
+    setInputValue(
+      container.querySelector<HTMLInputElement>("#appearance-brand-name"),
+      "R25 Brand",
+    );
+    click(container.querySelector("[role='switch']"));
+
+    const preview = container.querySelector(
+      "[data-testid='appearance-preview']",
+    );
+    expect(preview?.getAttribute("data-brand")).toBe("R25 Brand");
+    expect(preview?.getAttribute("data-question-numbers")).toBe("hidden");
 
     act(() => root.unmount());
   });
