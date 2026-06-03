@@ -25,10 +25,13 @@ type NotificationContext = {
 
 type NotificationSummary = {
   delivered: NotificationChannel[];
+  skipped: NotificationChannel[];
   failed: NotificationChannel[];
 };
 
 class NotificationSoftFailure extends Error {}
+
+type DeliveryResult = "delivered" | "skipped" | "disabled";
 
 const DEFAULT_DISCORD_MESSAGE =
   "新しいフォーム回答が届きました\nForm ID: {{form_id}}\nResponse ID: {{response_id}}";
@@ -200,7 +203,7 @@ async function postJsonWithRetries(params: {
 async function sendEmailNotification(
   channel: EmailNotificationChannel,
   data: FormSubmitNotificationJobData,
-): Promise<void> {
+): Promise<Exclude<DeliveryResult, "disabled">> {
   const subject = channel.subject?.trim() || "新しいフォーム回答";
   if (process.env.NODE_ENV !== "production") {
     console.info("[notification:email] dev notification generated", {
@@ -209,7 +212,7 @@ async function sendEmailNotification(
       recipientCount: channel.recipients.length,
       subject,
     });
-    return;
+    return "skipped";
   }
 
   throw new NotificationSoftFailure(
@@ -287,25 +290,24 @@ async function deliverChannel(
   channel: NotificationChannel,
   data: FormSubmitNotificationJobData,
   notifications: FormNotifications["on_submit"],
-): Promise<void> {
+): Promise<DeliveryResult> {
   switch (channel) {
     case "email": {
       const email = notifications.email;
-      if (!email?.enabled) return;
-      await sendEmailNotification(email, data);
-      return;
+      if (!email?.enabled) return "disabled";
+      return sendEmailNotification(email, data);
     }
     case "discord": {
       const discord = notifications.discord;
-      if (!discord?.enabled) return;
+      if (!discord?.enabled) return "disabled";
       await sendDiscordNotification(discord, data);
-      return;
+      return "delivered";
     }
     case "webhook": {
       const webhook = notifications.webhook;
-      if (!webhook?.enabled) return;
+      if (!webhook?.enabled) return "disabled";
       await sendWebhookNotification(webhook, data);
-      return;
+      return "delivered";
     }
   }
 }
@@ -315,7 +317,11 @@ export async function handleFormSubmitNotifications(
 ): Promise<NotificationSummary> {
   const data = FormSubmitNotificationJobDataSchema.parse(job.data);
   const notifications = await loadPublishedSubmitNotifications(data);
-  const summary: NotificationSummary = { delivered: [], failed: [] };
+  const summary: NotificationSummary = {
+    delivered: [],
+    skipped: [],
+    failed: [],
+  };
 
   for (const channel of ["email", "discord", "webhook"] as const) {
     const context: NotificationContext = {
@@ -325,9 +331,11 @@ export async function handleFormSubmitNotifications(
       snapshotVersion: data.snapshotVersion,
     };
     try {
-      await deliverChannel(channel, data, notifications);
-      if (notifications[channel]?.enabled) {
+      const result = await deliverChannel(channel, data, notifications);
+      if (result === "delivered") {
         summary.delivered.push(channel);
+      } else if (result === "skipped") {
+        summary.skipped.push(channel);
       }
     } catch (error) {
       summary.failed.push(channel);

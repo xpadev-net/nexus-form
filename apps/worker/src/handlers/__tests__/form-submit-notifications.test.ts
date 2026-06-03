@@ -118,6 +118,7 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: ["discord", "webhook"],
+      skipped: [],
       failed: [],
     });
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -175,6 +176,7 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: [],
+      skipped: [],
       failed: ["webhook"],
     });
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -204,6 +206,7 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: [],
+      skipped: [],
       failed: ["email"],
     });
     expect(fetch).not.toHaveBeenCalled();
@@ -217,5 +220,38 @@ describe("handleFormSubmitNotifications", () => {
       }),
     );
     expect(mocks.captureError).not.toHaveBeenCalled();
+  });
+
+  it("marks dev email notifications as skipped instead of delivered", async () => {
+    const consoleInfo = vi
+      .spyOn(console, "info")
+      .mockImplementation(() => undefined);
+    setupSnapshotNotifications({
+      on_submit: {
+        email: {
+          enabled: true,
+          recipients: ["owner@example.com"],
+        },
+      },
+    });
+    const job = makeJob(baseJobData());
+
+    const result = await handleFormSubmitNotifications(job);
+
+    expect(result).toEqual({
+      delivered: [],
+      skipped: ["email"],
+      failed: [],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(consoleInfo).toHaveBeenCalledWith(
+      "[notification:email] dev notification generated",
+      expect.objectContaining({
+        formId: "form-1",
+        responseId: "response-1",
+        recipientCount: 1,
+      }),
+    );
+    expect(job.updateProgress).toHaveBeenCalledWith(result);
   });
 });

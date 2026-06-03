@@ -251,7 +251,7 @@ function buildSubmitConfirmation(parsed: ParsedStructure) {
 
 function formatResponseSubmittedAt(
   submittedAt: Date | string | null | undefined,
-): string {
+): string | null {
   if (submittedAt instanceof Date) {
     return submittedAt.toISOString();
   }
@@ -261,7 +261,7 @@ function formatResponseSubmittedAt(
       return parsed.toISOString();
     }
   }
-  return new Date().toISOString();
+  return null;
 }
 
 function getEnabledSubmitNotificationChannels(
@@ -1141,13 +1141,21 @@ async function queueSubmitNotificationsIfNeeded(
   responseId: string,
   activeSnapshot: FormSnapshot | null,
   parsedStructure: ParsedStructure,
-  submittedAt: string,
+  submittedAt: string | null,
 ): Promise<void> {
   if (!activeSnapshot) return;
   const notifications = getEnabledSubmitNotificationChannels(
     parsedStructure.notifications,
   );
   if (!notifications) return;
+  if (!submittedAt) {
+    logError("Skipped submit notification enqueue without submittedAt", "api", {
+      formId,
+      responseId,
+      snapshotVersion: activeSnapshot.version,
+    });
+    return;
+  }
 
   const jobData = FormSubmitNotificationJobDataSchema.parse({
     formId,

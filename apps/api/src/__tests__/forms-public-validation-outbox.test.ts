@@ -549,21 +549,7 @@ describe("R11-C2-a public validation outbox", () => {
 
   it("inserts PENDING validation rows in the same transaction as the response before enqueue", async () => {
     const snapshot = activeSnapshot();
-    useSuccessfulSubmitSelects(snapshot, {
-      finalResponseRows: [
-        {
-          id: "response-1",
-          formId: "form-1",
-          responseDataJson: "[]",
-          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
-          updatedAt: null,
-          respondentUuid: "respondent-1",
-          userAgent: null,
-          sessionId: "session-1",
-          countryCode: null,
-        },
-      ],
-    });
+    useSuccessfulSubmitSelects(snapshot);
     const { getInsertedValidationRows, txInsert } =
       useTransactionWithInsertCapture();
 
@@ -819,6 +805,36 @@ describe("R11-C2-a public validation outbox", () => {
     expect(jobDataJson).not.toContain("current-secret");
   });
 
+  it("skips submit notification enqueue when the created response timestamp is unavailable", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+        notifications: {
+          on_submit: {
+            discord: {
+              enabled: true,
+              webhook_url: "https://discord.com/api/webhooks/123/discord-token",
+            },
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot, { finalResponseRows: [] });
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+    });
+  });
+
   it("does not queue submit notifications when every channel is off", async () => {
     const snapshot = {
       ...activeSnapshot([]),
@@ -847,7 +863,21 @@ describe("R11-C2-a public validation outbox", () => {
         },
       }),
     };
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -878,7 +908,21 @@ describe("R11-C2-a public validation outbox", () => {
         },
       }),
     };
-    useSuccessfulSubmitSelects(snapshot);
+    useSuccessfulSubmitSelects(snapshot, {
+      finalResponseRows: [
+        {
+          id: "response-1",
+          formId: "form-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-06-03T12:34:56.000Z"),
+          updatedAt: null,
+          respondentUuid: "respondent-1",
+          userAgent: null,
+          sessionId: "session-1",
+          countryCode: null,
+        },
+      ],
+    });
     useTransactionWithInsertCapture();
     mocks.addNotificationJob.mockRejectedValueOnce(
       new Error("Redis unavailable"),
