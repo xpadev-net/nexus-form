@@ -206,6 +206,90 @@ describe("response export", () => {
     );
   });
 
+  it("keeps R26-M1 S16 CSV headers and values for date, time, submitted datetime, rating, and slider fields", () => {
+    const s16Blocks = [
+      {
+        blockId: "s16-date",
+        category: "question",
+        type: "date",
+        content: { title: "予約日", validation: {} },
+      },
+      {
+        blockId: "s16-time",
+        category: "question",
+        type: "time",
+        content: { title: "予約時刻", validation: {} },
+      },
+      {
+        blockId: "s16-rating",
+        category: "question",
+        type: "rating",
+        content: { title: "満足度", validation: { maxRating: 5 } },
+      },
+      {
+        blockId: "s16-slider",
+        category: "question",
+        type: "linear_scale",
+        content: { title: "スライダー", validation: { min: 1, max: 10 } },
+      },
+    ];
+    const s16TitleMap = new Map([
+      ["s16-date", "予約日"],
+      ["s16-time", "予約時刻"],
+      ["s16-rating", "満足度"],
+      ["s16-slider", "スライダー"],
+    ]);
+
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      "form-s16",
+      [
+        {
+          id: "response-s16",
+          formId: "form-s16",
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "s16-date",
+              question_type: "date",
+              value: "2026-06-16",
+            },
+            {
+              question_id: "s16-time",
+              question_type: "time",
+              value: "10:30",
+            },
+            {
+              question_id: "s16-rating",
+              question_type: "rating",
+              value: 4,
+            },
+            {
+              question_id: "s16-slider",
+              question_type: "linear_scale",
+              value: 7,
+            },
+          ]),
+          respondentUuid: "respondent-s16",
+          submittedAt,
+          updatedAt: new Date("2026-05-17T02:30:00.000Z"),
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [],
+        },
+      ],
+      s16Blocks,
+    );
+
+    const csv = formatRecordsToCsv(records, fingerprintComponents, s16TitleMap);
+
+    expect(csv.split("\n")[0]).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","予約日","予約時刻","満足度","スライダー"',
+    );
+    expect(csv.split("\n")[1]).toBe(
+      '"response-s16","respondent-s16","2026-05-17T01:00:00.000Z","2026-05-17T02:30:00.000Z","JP","","1.0000","2026-06-16","10:30","4","7"',
+    );
+  });
+
   it("keeps unvisited section-branch answers blank in creator export records and CSV", () => {
     const branchBlocks = [
       {

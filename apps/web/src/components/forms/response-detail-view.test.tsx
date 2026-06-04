@@ -134,6 +134,46 @@ describe("ResponseDetailView", () => {
     act(() => root.unmount());
   });
 
+  it("keeps R26-M1 S28 branch detail limited to submitted conditional answers", () => {
+    useValidationResultsMock.mockReturnValue({
+      validationResultsQuery: {
+        data: {
+          response: {
+            responseDataJson: JSON.stringify([
+              {
+                question_id: "q-entity-type",
+                question_type: "radio",
+                question_title: "契約種別",
+                value: "individual",
+                display_value: "個人",
+              },
+              {
+                question_id: "q-individual-name",
+                question_type: "short_text",
+                question_title: "氏名",
+                value: "山田 太郎",
+              },
+            ]),
+          },
+        },
+        isError: false,
+        isLoading: false,
+      },
+    });
+    const container = document.createElement("div");
+
+    const root = renderResponseDetail(container);
+
+    expect(container.textContent).toContain("契約種別 (q-entity-type)");
+    expect(container.textContent).toContain("個人");
+    expect(container.textContent).toContain("氏名 (q-individual-name)");
+    expect(container.textContent).toContain("山田 太郎");
+    expect(container.textContent).not.toContain("法人名");
+    expect(container.textContent).not.toContain("q-company-name");
+
+    act(() => root.unmount());
+  });
+
   it("keeps valid answers visible when one responseDataJson item is malformed", () => {
     useValidationResultsMock.mockReturnValue({
       validationResultsQuery: {
