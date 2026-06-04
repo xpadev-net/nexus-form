@@ -800,6 +800,150 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  type R26M3ResolvedSmokeCase = {
+    formId: string;
+    jobId: string;
+    providerResult: unknown;
+    expectedResult: { ok: boolean; provider: "mock_external" };
+    expectedWrite: Record<string, unknown>;
+  };
+
+  const runR26M3ResolvedSmokeCase = async (
+    smokeCase: R26M3ResolvedSmokeCase,
+  ) => {
+    mockGetValidationContext.mockResolvedValue({
+      ...baseContext,
+      response: {
+        id: "r-1",
+        formId: smokeCase.formId,
+      },
+    } as Awaited<ReturnType<typeof getValidationContext>>);
+    const { baseJobData, validateFn } = setupMockExternalProvider();
+    validateFn.mockResolvedValueOnce(smokeCase.providerResult);
+
+    const result = await handleGenericValidation(
+      makeJob({
+        ...baseJobData,
+        jobId: smokeCase.jobId,
+      }),
+    );
+
+    expect(result).toEqual(smokeCase.expectedResult);
+    expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: smokeCase.formId,
+        jobId: smokeCase.jobId,
+        service: "mock_external",
+      }),
+    );
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ...smokeCase.expectedWrite,
+        service: "mock_external",
+      }),
+    );
+  };
+
+  it("R26-M3 S04専用フォーム方式で外部検証の成功をmock smokeできる", async () => {
+    await runR26M3ResolvedSmokeCase({
+      formId: "codex-story-qa-s04-form",
+      jobId: "r26-m3-s04-success",
+      providerResult: {
+        isValid: true,
+        metadata: { story: "S04", fixtureCase: "success" },
+      },
+      expectedResult: { ok: true, provider: "mock_external" },
+      expectedWrite: {
+        formId: "codex-story-qa-s04-form",
+        jobId: "r26-m3-s04-success",
+        success: true,
+        metadata: { story: "S04", fixtureCase: "success" },
+      },
+    });
+  });
+
+  it("R26-M3 S05専用フォーム方式で外部検証の失敗をmock smokeできる", async () => {
+    await runR26M3ResolvedSmokeCase({
+      formId: "codex-story-qa-s05-form",
+      jobId: "r26-m3-s05-failure",
+      providerResult: {
+        isValid: false,
+        errorCode: "MOCK_PERMISSION_DENIED",
+        errorMessage: "Mock provider permission denied",
+        retryable: false,
+      },
+      expectedResult: { ok: false, provider: "mock_external" },
+      expectedWrite: {
+        formId: "codex-story-qa-s05-form",
+        jobId: "r26-m3-s05-failure",
+        success: false,
+        errorCode: "MOCK_PERMISSION_DENIED",
+        errorMessage: "Mock provider permission denied",
+      },
+    });
+  });
+
+  it("R26-M3 S17専用フォーム方式で外部検証の再検証をmock smokeできる", async () => {
+    await runR26M3ResolvedSmokeCase({
+      formId: "codex-story-qa-s17-form",
+      jobId: "validation-retry-r26-m3-s17-result-rerun",
+      providerResult: {
+        isValid: true,
+        metadata: { story: "S17", fixtureCase: "revalidation" },
+      },
+      expectedResult: { ok: true, provider: "mock_external" },
+      expectedWrite: {
+        formId: "codex-story-qa-s17-form",
+        jobId: "validation-retry-r26-m3-s17-result-rerun",
+        success: true,
+        metadata: { story: "S17", fixtureCase: "revalidation" },
+      },
+    });
+  });
+
+  it("R26-M3 S06専用フォーム方式で外部検証の保留をmock smokeできる", async () => {
+    mockGetValidationContext.mockResolvedValue({
+      ...baseContext,
+      response: {
+        id: "r-1",
+        formId: "codex-story-qa-s06-form",
+      },
+    } as Awaited<ReturnType<typeof getValidationContext>>);
+    const { baseJobData, validateFn } = setupMockExternalProvider();
+    validateFn.mockResolvedValueOnce({
+      isValid: false,
+      errorCode: "MOCK_RATE_LIMIT",
+      errorMessage: "Mock provider is temporarily rate limited",
+      retryAfter: 45,
+      retryable: true,
+    });
+    const pendingJob = makeJob({
+      ...baseJobData,
+      jobId: "r26-m3-s06-pending",
+    });
+
+    await expect(
+      handleGenericValidation(pendingJob, "lock-token"),
+    ).rejects.toBeInstanceOf(DelayedError);
+    expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: "codex-story-qa-s06-form",
+        jobId: "r26-m3-s06-pending",
+        service: "mock_external",
+      }),
+    );
+    expect(pendingJob.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({
+        retryAfterCount: 1,
+      }),
+    );
+    expect(pendingJob.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("Discord validation は Redis lock 内で実行して複数レプリカ間の同時実行を抑止する", async () => {
     const validateFn = vi.fn().mockResolvedValue({ isValid: true });
     const rule = makeRule({ validate: validateFn });
