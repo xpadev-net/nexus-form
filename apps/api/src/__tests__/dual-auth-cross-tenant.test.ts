@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
+
+const tokenMocks = vi.hoisted(() => ({
+  validateApiToken: vi.fn(),
+  validateApiTokenForForm: vi.fn(),
+  validateApiTokenWithScopes: vi.fn(),
+}));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -63,13 +69,49 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn(),
 }));
 
+vi.mock("../lib/tokens", () => {
+  class SuspendedTokenOwnerError extends Error {
+    static readonly MESSAGE = "Your account has been suspended";
+  }
+
+  class NonAdminTokenOwnerError extends Error {
+    static readonly MESSAGE = "Admin scope requires an active admin owner";
+  }
+
+  return {
+    validateApiToken: tokenMocks.validateApiToken,
+    validateApiTokenForForm: tokenMocks.validateApiTokenForForm,
+    validateApiTokenWithScopes: tokenMocks.validateApiTokenWithScopes,
+    SuspendedTokenOwnerError,
+    NonAdminTokenOwnerError,
+  };
+});
+
 import type { DualAuthContext } from "../lib/dual-auth";
-import { checkFormAccess, checkFormPermissionLevel } from "../lib/dual-auth";
+import {
+  authenticateDualForForm,
+  checkFormAccess,
+  checkFormPermissionLevel,
+} from "../lib/dual-auth";
 import { FormNotFoundError } from "../lib/errors/form-errors";
 
 const FORM_ID = "form-xyz";
 const OWNER_ID = "owner-user-id";
 const OTHER_USER_ID = "other-user-id";
+
+function createBearerContext(token: string) {
+  return {
+    req: {
+      header: (name: string) =>
+        name.toLowerCase() === "authorization" ? `Bearer ${token}` : undefined,
+    },
+    json: (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+        status,
+      }),
+  };
+}
 
 function mockDbCall(dbRaw: unknown, results: unknown[][]) {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
@@ -88,6 +130,10 @@ function mockDbCall(dbRaw: unknown, results: unknown[][]) {
 }
 
 describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLevel", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("throws when user-scoped token user has no permission on the form", async () => {
     const { db } = await import("@nexus-form/database");
     // form lookup → OWNER_ID owns it; formPermission → empty
@@ -193,6 +239,84 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
 
     await expect(
       checkFormPermissionLevel(ctx, FORM_ID, "VIEWER"),
+    ).rejects.toThrow();
+  });
+
+  it("R26-M3 S15 authenticates a read API token only for its scoped response form", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbCall(db, [[{ id: FORM_ID, creatorId: OTHER_USER_ID }]]);
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce({
+      user_id: OTHER_USER_ID,
+      token_id: "r26-m3-read-token",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    });
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("ct_r26_m3_read") as never,
+      FORM_ID,
+      ["read"],
+    );
+
+    expect(tokenMocks.validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_r26_m3_read",
+      FORM_ID,
+      expect.objectContaining({ rejectAdminOwnerMismatch: false }),
+    );
+    expect(authResult).toMatchObject({
+      context: {
+        auth_type: "api_token",
+        form_ids: [FORM_ID],
+        scopes: ["read"],
+        user_id: OTHER_USER_ID,
+      },
+    });
+
+    const ctx: DualAuthContext = {
+      user_id: OTHER_USER_ID,
+      auth_type: "api_token",
+      token_id: "r26-m3-read-token",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    };
+
+    await expect(
+      checkFormPermissionLevel(ctx, FORM_ID, "EDITOR"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("R26-M3 S15 rejects an out-of-scope read API token before response form permission checks", async () => {
+    const { db } = await import("@nexus-form/database");
+    const outOfScopeFormId = "out-of-scope-form";
+    mockDbCall(db, [[{ id: outOfScopeFormId, creatorId: OTHER_USER_ID }]]);
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("ct_r26_m3_read") as never,
+      outOfScopeFormId,
+      ["read"],
+    );
+
+    expect(tokenMocks.validateApiTokenForForm).toHaveBeenCalledWith(
+      "ct_r26_m3_read",
+      outOfScopeFormId,
+      expect.objectContaining({ rejectAdminOwnerMismatch: false }),
+    );
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(401);
+    }
+
+    const ctx: DualAuthContext = {
+      user_id: OTHER_USER_ID,
+      auth_type: "api_token",
+      token_id: "r26-m3-read-token",
+      scopes: ["read"],
+      form_ids: [FORM_ID],
+    };
+
+    await expect(
+      checkFormPermissionLevel(ctx, outOfScopeFormId, "EDITOR"),
     ).rejects.toThrow();
   });
 
