@@ -588,6 +588,129 @@ describe("aggregateAllBlocksInBatches", () => {
     );
   });
 
+  it("keeps R26-M1 S19/S20 grid analytics renderable for choice and checkbox grids", async () => {
+    const fixtureBlocks = [
+      {
+        blockId: "s19-choice-grid",
+        type: "choice_grid",
+        content: {
+          title: "S19 choice grid",
+          validation: {
+            rows: [
+              { id: "row-a", label: "初日" },
+              { id: "row-b", label: "二日目" },
+            ],
+            columns: [
+              { id: "available", label: "参加可" },
+              { id: "unavailable", label: "不可" },
+            ],
+          },
+        },
+      },
+      {
+        blockId: "s20-checkbox-grid",
+        type: "checkbox_grid",
+        content: {
+          title: "S20 checkbox grid",
+          validation: {
+            rows: [
+              { id: "row-a", label: "午前" },
+              { id: "row-b", label: "午後" },
+            ],
+            columns: [
+              { id: "remote", label: "リモート" },
+              { id: "onsite", label: "会場" },
+            ],
+          },
+        },
+      },
+    ];
+    const responses = [
+      {
+        id: "response-s19-s20",
+        submittedAt: new Date("2026-06-04T01:00:00.000Z"),
+        responseDataJson: JSON.stringify([
+          {
+            question_id: "s19-choice-grid",
+            question_type: "choice_grid",
+            responses: {
+              "row-a": "available",
+              "row-b": "unavailable",
+            },
+          },
+          {
+            question_id: "s20-checkbox-grid",
+            question_type: "checkbox_grid",
+            responses: {
+              "row-a": ["remote", "onsite"],
+              "row-b": ["remote"],
+            },
+          },
+        ]),
+      },
+    ];
+
+    const actual = await aggregateAllBlocksInBatches(
+      "form-r26-grid",
+      fixtureBlocks,
+      loadByCursor(responses),
+      { batchSize: 1 },
+    );
+
+    expect(actual).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          block_id: "s19-choice-grid",
+          block_type: "choice_grid",
+          total_responses: 1,
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "初日",
+                column_counts: [
+                  { column_id: "available", count: 1 },
+                  { column_id: "unavailable", count: 0 },
+                ],
+              },
+              {
+                row_label: "二日目",
+                column_counts: [
+                  { column_id: "available", count: 0 },
+                  { column_id: "unavailable", count: 1 },
+                ],
+              },
+            ],
+            invalid_responses: [],
+          }),
+        }),
+        expect.objectContaining({
+          block_id: "s20-checkbox-grid",
+          block_type: "checkbox_grid",
+          total_responses: 1,
+          analytics_data: expect.objectContaining({
+            row_analytics: [
+              {
+                row_label: "午前",
+                column_counts: [
+                  { column_id: "remote", count: 1 },
+                  { column_id: "onsite", count: 1 },
+                ],
+              },
+              {
+                row_label: "午後",
+                column_counts: [
+                  { column_id: "remote", count: 1 },
+                  { column_id: "onsite", count: 0 },
+                ],
+              },
+            ],
+            invalid_responses: [],
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("returns empty analytics for configured blocks when there are no responses", async () => {
     const actual = await aggregateAllBlocksInBatches(
       "form-1",
