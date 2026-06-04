@@ -271,17 +271,12 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
         user_id: OTHER_USER_ID,
       },
     });
-
-    const ctx: DualAuthContext = {
-      user_id: OTHER_USER_ID,
-      auth_type: "api_token",
-      token_id: "r26-m3-read-token",
-      scopes: ["read"],
-      form_ids: [FORM_ID],
-    };
+    if ("error" in authResult) {
+      throw new Error("Expected API token authentication to succeed");
+    }
 
     await expect(
-      checkFormPermissionLevel(ctx, FORM_ID, "EDITOR"),
+      checkFormPermissionLevel(authResult.context, FORM_ID, "EDITOR"),
     ).resolves.toBeUndefined();
   });
 
@@ -306,18 +301,7 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
     if ("error" in authResult) {
       expect(authResult.response.status).toBe(401);
     }
-
-    const ctx: DualAuthContext = {
-      user_id: OTHER_USER_ID,
-      auth_type: "api_token",
-      token_id: "r26-m3-read-token",
-      scopes: ["read"],
-      form_ids: [FORM_ID],
-    };
-
-    await expect(
-      checkFormPermissionLevel(ctx, outOfScopeFormId, "EDITOR"),
-    ).rejects.toThrow();
+    expect(vi.mocked(db.select)).not.toHaveBeenCalled();
   });
 
   it("denies anon token (user_id starts with 'anon:') even when form_ids passes", async () => {

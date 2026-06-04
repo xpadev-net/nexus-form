@@ -926,6 +926,10 @@ describe("handleGenericValidation", () => {
         retryAfterCount: 1,
       }),
     );
+    expect(pendingJob.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
