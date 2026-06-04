@@ -263,6 +263,9 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
       FORM_ID,
       expect.objectContaining({ rejectAdminOwnerMismatch: false }),
     );
+    if ("error" in authResult) {
+      throw new Error("Expected API token authentication to succeed");
+    }
     expect(authResult).toMatchObject({
       context: {
         auth_type: "api_token",
@@ -271,9 +274,6 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
         user_id: OTHER_USER_ID,
       },
     });
-    if ("error" in authResult) {
-      throw new Error("Expected API token authentication to succeed");
-    }
 
     await expect(
       checkFormPermissionLevel(authResult.context, FORM_ID, "EDITOR"),
