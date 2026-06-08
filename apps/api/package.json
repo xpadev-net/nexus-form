@@ -14,8 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1061.0",
-    "@aws-sdk/s3-request-presigner": "^3.1061.0",
+    "@aws-sdk/client-s3": "^3.1063.0",
+    "@aws-sdk/s3-request-presigner": "^3.1063.0",
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.8.0",
     "@nexus-form/database": "workspace:*",
@@ -36,7 +36,7 @@
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.23",
     "hono-rate-limiter": "^0.5.3",
-    "ioredis": "^5.11.0",
+    "ioredis": "^5.11.1",
     "jsonwebtoken": "^9.0.3",
     "p-limit": "^7.3.0",
     "pino": "^10.3.1",
@@ -55,7 +55,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
     "glob": "^11.1.0",
-    "mysql2": "^3.22.4",
+    "mysql2": "^3.22.5",
     "rollup": "^4.61.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
