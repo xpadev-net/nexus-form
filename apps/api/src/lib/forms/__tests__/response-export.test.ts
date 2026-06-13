@@ -248,6 +248,11 @@ describe("response export", () => {
           value: "\nlong text",
         },
         {
+          block_id: "minus-block",
+          block_type: "short_text",
+          value: "-1",
+        },
+        {
           block_id: "normal-block",
           block_type: "short_text",
           value: "plain value",
@@ -255,11 +260,12 @@ describe("response export", () => {
       ],
     };
     const formulaTitleMap = new Map([
-      ["text-block", "Text"],
+      ["text-block", "=Text"],
       ["date-block", "Date"],
       ["radio-block", "Radio"],
       ["checkbox-block", "Checkbox"],
       ["long-text-block", "Long text"],
+      ["minus-block", "-Minus"],
       ["normal-block", "Normal"],
     ]);
 
@@ -269,6 +275,8 @@ describe("response export", () => {
       formulaTitleMap,
     );
 
+    expect(csv.split("\n")[0]).toContain('"\'=Text"');
+    expect(csv.split("\n")[0]).toContain('"\'-Minus"');
     for (const expectedCell of [
       '"\'=response-1"',
       '"\'\t2026-05-17T02:30:00.000Z"',
@@ -279,6 +287,7 @@ describe("response export", () => {
       '"\'+choice"',
       '"\'@danger, normal"',
       '"\'\nlong text"',
+      '"\'-1"',
       '"plain value"',
     ]) {
       expect(csv).toContain(expectedCell);
@@ -548,5 +557,85 @@ describe("response export", () => {
       "TypeScript, React",
       "月曜: 午前",
     ]);
+  });
+
+  it("neutralizes formula triggers in sheet rows and headers", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "=response-1",
+        form_id: "form-1",
+        respondent_uuid: "-respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        updated_at: "\t2026-05-17T02:30:00.000Z",
+        country_code: "JP",
+        fingerprint_uuids: {
+          canvas: "+fingerprint",
+        },
+        ua_uuid: " @ua",
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "=text-block",
+          block_type: "short_text",
+          question_title: "=Text",
+          value: " =cmd",
+        },
+        {
+          block_id: "-minus-block",
+          block_type: "short_text",
+          question_title: "-Minus",
+          value: "-1",
+        },
+        {
+          block_id: "normal-block",
+          block_type: "short_text",
+          question_title: "Normal",
+          value: "plain value",
+        },
+      ],
+    };
+    const sheetTitleMap = new Map([
+      ["=text-block", "=Text"],
+      ["-minus-block", "-Minus"],
+      ["normal-block", "Normal"],
+    ]);
+
+    const newLayoutRow = mapRecordToSheetRow(
+      record,
+      [],
+      sheetTitleMap,
+      new Set(["canvas"]),
+    );
+
+    expect(newLayoutRow.idRow).toContain("'=text-block");
+    expect(newLayoutRow.idRow).toContain("'-minus-block");
+    expect(newLayoutRow.titleRow).toContain("'=Text");
+    expect(newLayoutRow.titleRow).toContain("'-Minus");
+    for (const expectedCell of [
+      "'=response-1",
+      "'-respondent-1",
+      "'\t2026-05-17T02:30:00.000Z",
+      "' @ua",
+      "'+fingerprint",
+      "' =cmd",
+      "'-1",
+      "plain value",
+    ]) {
+      expect(newLayoutRow.row).toContain(expectedCell);
+    }
+    expect(newLayoutRow.row).not.toContain("'plain value");
+
+    const existingLayoutRow = mapRecordToSheetRow(
+      record,
+      newLayoutRow.idRow,
+      sheetTitleMap,
+      new Set(["canvas"]),
+      newLayoutRow.titleRow,
+    );
+
+    expect(existingLayoutRow.idRow).toEqual(newLayoutRow.idRow);
+    expect(existingLayoutRow.titleRow).toEqual(newLayoutRow.titleRow);
+    expect(existingLayoutRow.row).toEqual(newLayoutRow.row);
   });
 });

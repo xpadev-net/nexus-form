@@ -71,7 +71,7 @@ const escapeCSV = (str: string): string => {
 const FORMULA_OPERATOR_PATTERN = /^[=+\-@]/;
 const LEADING_FORMULA_CONTROL_PATTERN = /^\s*[\t\r\n]/;
 
-function neutralizeCsvFormulaValue(value: string): string {
+function neutralizeSpreadsheetFormulaValue(value: string): string {
   if (!value) return value;
 
   const startsWithFormulaOperator = FORMULA_OPERATOR_PATTERN.test(
@@ -82,6 +82,10 @@ function neutralizeCsvFormulaValue(value: string): string {
   return startsWithFormulaOperator || startsWithFormulaControl
     ? `'${value}`
     : value;
+}
+
+function neutralizeSpreadsheetFormulaValues(values: string[]): string[] {
+  return values.map(neutralizeSpreadsheetFormulaValue);
 }
 
 /**
@@ -377,7 +381,9 @@ export function formatRecordsToCsv(
       ...metadataHeaders,
       ...Array.from(componentHeaders.values()),
     ];
-    const csvRows = [csvHeaders.map(escapeCSV).join(",")];
+    const csvRows = [
+      neutralizeSpreadsheetFormulaValues(csvHeaders).map(escapeCSV).join(","),
+    ];
 
     records.forEach((record) => {
       // メタデータの値を共通関数から取得
@@ -399,9 +405,10 @@ export function formatRecordsToCsv(
         );
       });
 
-      const row = [...metadataValues, ...componentValues].map(
-        neutralizeCsvFormulaValue,
-      );
+      const row = neutralizeSpreadsheetFormulaValues([
+        ...metadataValues,
+        ...componentValues,
+      ]);
       csvRows.push(row.map(escapeCSV).join(","));
     });
 
@@ -474,6 +481,15 @@ export function mapRecordToSheetRow(
     const m = name.match(suffixRegex);
     return m?.[1] ?? name;
   };
+  const getTitleCountKey = (name: string): string => {
+    const base = getBase(name);
+    if (!base.startsWith("'")) return base;
+
+    const possibleOriginal = base.slice(1);
+    return neutralizeSpreadsheetFormulaValue(possibleOriginal) === base
+      ? possibleOriginal
+      : base;
+  };
 
   // 既存のID行に新レイアウトの要件を満たすIDが含まれているかを判定
   const hasIdRow =
@@ -495,7 +511,7 @@ export function mapRecordToSheetRow(
         col.question_title?.trim() ||
         blockTitleMap.get(col.block_id) ||
         col.block_id;
-      const base = getBase(rawTitle);
+      const base = getTitleCountKey(rawTitle);
       usedTitleCount[base] = (usedTitleCount[base] ?? 0) + 1;
       const titleCount = usedTitleCount[base];
       const title = titleCount === 1 ? base : `${base} (${titleCount})`;
@@ -528,9 +544,9 @@ export function mapRecordToSheetRow(
     const row = [...rowValues, ...componentValues];
 
     return {
-      idRow,
-      titleRow,
-      row,
+      idRow: neutralizeSpreadsheetFormulaValues(idRow),
+      titleRow: neutralizeSpreadsheetFormulaValues(titleRow),
+      row: neutralizeSpreadsheetFormulaValues(row),
       isNewLayout: true,
     };
   }
@@ -550,7 +566,7 @@ export function mapRecordToSheetRow(
   const usedTitleCount: Record<string, number> = {};
   for (const title of titleRow) {
     if (!title) continue;
-    const base = getBase(title);
+    const base = getTitleCountKey(title);
     const current = usedTitleCount[base] ?? 0;
     const maybeNumber = title.match(suffixRegex)?.[2];
     const n = maybeNumber ? Number(maybeNumber) : 1;
@@ -595,10 +611,12 @@ export function mapRecordToSheetRow(
   });
 
   const ensureColumnForBlock = (blockId: string, title: string): number => {
-    const existing = idIndexByBlockId.get(blockId);
+    const existing =
+      idIndexByBlockId.get(blockId) ??
+      idIndexByBlockId.get(neutralizeSpreadsheetFormulaValue(blockId));
     if (existing != null) return existing;
 
-    const base = getBase(title);
+    const base = getTitleCountKey(title);
     usedTitleCount[base] = (usedTitleCount[base] ?? 0) + 1;
     const titleCount = usedTitleCount[base];
     const finalTitle = titleCount === 1 ? base : `${base} (${titleCount})`;
@@ -636,9 +654,9 @@ export function mapRecordToSheetRow(
   }
 
   return {
-    idRow,
-    titleRow,
-    row,
+    idRow: neutralizeSpreadsheetFormulaValues(idRow),
+    titleRow: neutralizeSpreadsheetFormulaValues(titleRow),
+    row: neutralizeSpreadsheetFormulaValues(row),
     isNewLayout: false,
   };
 }
