@@ -147,7 +147,11 @@ async function fetchWithTimeout(
     Math.max(1, timeoutSeconds) * 1000,
   );
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(url, {
+      ...init,
+      redirect: "manual",
+      signal: controller.signal,
+    });
   } finally {
     clearTimeout(timeout);
   }
@@ -187,6 +191,12 @@ async function postJsonWithRetries(params: {
         params.timeoutSeconds,
       );
       if (response.ok) return;
+      if (response.status >= 300 && response.status < 400) {
+        lastError = new Error(
+          `${params.failureLabel} notification rejected redirect with status ${response.status}`,
+        );
+        break;
+      }
       lastError = new Error(
         `${params.failureLabel} notification failed with status ${response.status}`,
       );
