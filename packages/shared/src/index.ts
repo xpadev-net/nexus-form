@@ -175,7 +175,9 @@ export type {
 export {
   createFormAppearanceSchema,
   createFormThemeSchema,
+  FormAppearanceImageUrlSchema,
   FormLayoutSchema,
+  isSafeFormAppearanceImageUrl,
 } from "./validation/appearance";
 export type {
   DiscordNotificationChannel,
