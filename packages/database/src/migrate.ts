@@ -10,8 +10,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
-const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
-const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
+export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
+export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
 
 type CountRow = RowDataPacket & {
   count: number | string;
