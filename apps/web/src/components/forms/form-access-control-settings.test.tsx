@@ -293,14 +293,14 @@ describe("FormAccessControlSettings", () => {
     const root = renderSettings(container);
 
     setInputValue(passwordInput(container), " secret123 ");
-    setInputValue(confirmInput(container), "secret123");
+    setInputValue(confirmInput(container), " secret123 ");
     setInputValue(hintInput(container), "pet name");
     submit(container);
 
     expect(mocks.mutatePasswordProtection).toHaveBeenCalledWith(
       {
         enabled: true,
-        password: "secret123",
+        password: " secret123 ",
         password_hint: "pet name",
       },
       expect.objectContaining({
@@ -315,6 +315,63 @@ describe("FormAccessControlSettings", () => {
     expect(container.textContent).toContain(
       "回答者に反映するには、公開 snapshot",
     );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("compares password and confirmation as raw strings", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    click(passwordSwitch(container));
+    setInputValue(passwordInput(container), " secret123 ");
+    setInputValue(confirmInput(container), "secret123");
+    submit(container);
+
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      "確認用パスワードが一致しません",
+    );
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("rejects confirmation text that only matches after trimming", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    click(passwordSwitch(container));
+    setInputValue(passwordInput(container), "secret123");
+    setInputValue(confirmInput(container), " secret123 ");
+    submit(container);
+
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      "確認用パスワードが一致しません",
+    );
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("rejects passwords whose non-whitespace content is shorter than the minimum", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    click(passwordSwitch(container));
+    setInputValue(passwordInput(container), "       1");
+    setInputValue(confirmInput(container), "       1");
+    submit(container);
+
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      "パスワードは8文字以上で入力してください",
+    );
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
 
     act(() => {
       root.unmount();

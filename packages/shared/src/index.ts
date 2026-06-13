@@ -206,6 +206,8 @@ export {
   FormNotificationsSchema,
   FormNotificationsTransportSchema,
   FormSubmitNotificationJobDataSchema,
+  isSafeConfirmationUrl,
+  SafeConfirmationUrlSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,
   WebhookNotificationChannelTransportSchema,

@@ -882,6 +882,15 @@ describe("PublicFormPage", () => {
     expect(container.textContent).toContain("次の手順");
     expect(container.textContent).toContain("問い合わせ");
     expect(container.textContent).not.toContain("回答を送信");
+    expect(
+      Array.from(container.querySelectorAll("a")).map((link) =>
+        link.getAttribute("href"),
+      ),
+    ).toEqual([
+      "https://example.com/next",
+      "https://example.com/done",
+      "mailto:help@example.com",
+    ]);
     expect(apiMocks.submitPost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
@@ -899,6 +908,81 @@ describe("PublicFormPage", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+
+  it("does not render or follow unsafe confirmation URLs after success", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q1",
+          question_type: "form_short_text",
+          question_title: "Name",
+          value: "Alice",
+        },
+      ],
+      visitedQuestionIds: ["q1"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "送信ありがとうございます",
+              message: "受付が完了しました。",
+              supplemental_link: {
+                label: "危険な補足リンク",
+                url: "javascript:alert(1)",
+              },
+              contact: {
+                label: "危険な問い合わせリンク",
+                url: "data:text/html,<script>alert(1)</script>",
+              },
+              redirect_url: "ftp://example.com/done",
+            },
+            response: null,
+            responseId: "response-unsafe",
+          },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("送信ありがとうございます");
+    expect(container.textContent).not.toContain("危険な補足リンク");
+    expect(container.textContent).not.toContain("今すぐ移動");
+    expect(container.textContent).not.toContain("危険な問い合わせリンク");
+    expect(container.querySelectorAll("a")).toHaveLength(0);
+    expect(setTimeoutSpy).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+    setTimeoutSpy.mockRestore();
   });
 
   it("submits only visited branch answers from a section-branching public form", async () => {

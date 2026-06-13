@@ -408,8 +408,9 @@ export function useFormPublishMenuModel({
   const handlePasswordDialogConfirm = () => {
     const action = passwordDialogMode ?? "change";
     const enabled = action === "enable" ? true : passwordProtection.enabled;
-    const passwordText = passwordInput.trim();
-    const hasNewPassword = passwordText.length > 0;
+    const passwordText = passwordInput;
+    const hasNewPassword = /\S/.test(passwordText);
+    const nonWhitespacePasswordLength = passwordText.replace(/\s/g, "").length;
     const currentHint = passwordProtection.password_hint ?? "";
     const hintUpdated = passwordHintInput !== currentHint;
     const payload = {
@@ -425,7 +426,7 @@ export function useFormPublishMenuModel({
       return;
     }
 
-    if (hasNewPassword && passwordText.length < 8) {
+    if (hasNewPassword && nonWhitespacePasswordLength < 8) {
       const message = "パスワードは8文字以上で入力してください";
       dispatch({ type: "set-password-dialog-error", error: message });
       toast.error(message);

@@ -25,6 +25,7 @@ import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import {
   FormAppearanceSchema,
   type FormConfirmation,
+  SafeConfirmationUrlSchema,
 } from "@/types/validation/form";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
@@ -232,6 +233,11 @@ function PublicFormLoadingStatus({ message }: { message: string }) {
   );
 }
 
+function safeConfirmationUrl(value: string | undefined): string | undefined {
+  const result = SafeConfirmationUrlSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
 function PublicSubmitCompletion({
   responseId,
   confirmation,
@@ -241,8 +247,13 @@ function PublicSubmitCompletion({
   confirmation: FormConfirmation;
   responseSummary: ResponseSummaryItem[];
 }) {
+  const redirectUrl = safeConfirmationUrl(confirmation.redirect_url);
+  const supplementalLinkUrl = safeConfirmationUrl(
+    confirmation.supplemental_link?.url,
+  );
+  const contactUrl = safeConfirmationUrl(confirmation.contact?.url);
+
   useEffect(() => {
-    const redirectUrl = confirmation.redirect_url;
     if (!redirectUrl) return;
 
     const redirectTimeout = window.setTimeout(() => {
@@ -250,15 +261,13 @@ function PublicSubmitCompletion({
     }, 1500);
 
     return () => window.clearTimeout(redirectTimeout);
-  }, [confirmation.redirect_url]);
+  }, [redirectUrl]);
 
   const contactHref = confirmation.contact?.email
     ? `mailto:${confirmation.contact.email}`
-    : confirmation.contact?.url;
+    : contactUrl;
   const contactLabel =
-    confirmation.contact?.label ??
-    confirmation.contact?.email ??
-    confirmation.contact?.url;
+    confirmation.contact?.label ?? confirmation.contact?.email ?? contactUrl;
 
   return (
     <section className="mx-auto max-w-2xl space-y-4 p-6">
@@ -303,20 +312,20 @@ function PublicSubmitCompletion({
           ) : null}
           {/* TODO: render an edit URL here when public response editing is available. */}
           <div className="flex flex-wrap gap-3">
-            {confirmation.supplemental_link ? (
+            {confirmation.supplemental_link && supplementalLinkUrl ? (
               <a
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                href={confirmation.supplemental_link.url}
+                href={supplementalLinkUrl}
                 rel="noreferrer"
                 target="_blank"
               >
                 {confirmation.supplemental_link.label}
               </a>
             ) : null}
-            {confirmation.redirect_url ? (
+            {redirectUrl ? (
               <a
                 className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                href={confirmation.redirect_url}
+                href={redirectUrl}
               >
                 今すぐ移動
               </a>

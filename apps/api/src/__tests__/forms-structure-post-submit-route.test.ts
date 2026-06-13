@@ -406,6 +406,50 @@ describe("forms structure post-submit settings", () => {
     );
   });
 
+  it("rejects unsafe post-submit confirmation URL schemes", async () => {
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const unsafeConfirmationPayloads = [
+      { redirect_url: "javascript:alert(1)" },
+      {
+        supplemental_link: {
+          label: "Guide",
+          url: "data:text/html,<script>alert(1)</script>",
+        },
+      },
+      {
+        contact: {
+          label: "Support",
+          url: "ftp://example.com/support",
+        },
+      },
+    ];
+
+    for (const confirmationFields of unsafeConfirmationPayloads) {
+      const res = await formsStructureRouter.request(
+        "/form-1/structure/post-submit",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            confirmation: {
+              title: "送信ありがとうございました",
+              message: "担当者から連絡します。",
+              ...confirmationFields,
+            },
+            notifications: {
+              on_submit: {},
+            },
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(JSON.stringify(body)).toMatch(/http:\/\/ または https:\/\//);
+    }
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
+  });
+
   it("preserves omitted notification channels on partial post-submit PATCH", async () => {
     const { formsStructureRouter } = await import("../routes/forms-structure");
 
