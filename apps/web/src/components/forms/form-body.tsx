@@ -63,10 +63,6 @@ type FormBodyStyle = CSSProperties & {
   "--ring": string;
 };
 
-type BackgroundImageStyle = CSSProperties & {
-  backgroundImage: string;
-};
-
 function contrastTextColor(hexColor: string): string {
   const expanded =
     hexColor.length === 4
@@ -107,11 +103,6 @@ function formBodyStyle(appearance: FormAppearance): FormBodyStyle {
     color: contrastTextColor(theme.background_color),
     fontFamily: theme.font_family,
   };
-}
-
-function backgroundImageStyle(url: string): BackgroundImageStyle {
-  const escapedUrl = url.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return { backgroundImage: `url("${escapedUrl}")` };
 }
 
 function formWidthClass(width: FormAppearance["layout"]["width"]): string {
@@ -361,19 +352,29 @@ export function FormBody({
       }
     >
       {appearance.theme.cover_image_url ? (
-        <div
+        // biome-ignore lint/performance/noImgElement: Public appearance images need referrerPolicy, which CSS backgrounds cannot provide.
+        <img
+          alt=""
           aria-hidden="true"
-          className="h-40 w-full rounded-lg bg-cover bg-center"
-          style={backgroundImageStyle(appearance.theme.cover_image_url)}
+          className="h-40 w-full rounded-lg object-cover"
+          decoding="async"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          src={appearance.theme.cover_image_url}
         />
       ) : null}
       {(appearance.theme.logo_url || appearance.theme.brand_name) && (
         <div className="flex items-center gap-3">
           {appearance.theme.logo_url ? (
-            <div
+            // biome-ignore lint/performance/noImgElement: Public appearance images need referrerPolicy, which CSS backgrounds cannot provide.
+            <img
+              alt=""
               aria-hidden="true"
-              className="h-10 w-10 rounded-md bg-contain bg-center bg-no-repeat"
-              style={backgroundImageStyle(appearance.theme.logo_url)}
+              className="h-10 w-10 rounded-md object-contain"
+              decoding="async"
+              loading="lazy"
+              referrerPolicy="no-referrer"
+              src={appearance.theme.logo_url}
             />
           ) : null}
           {appearance.theme.brand_name ? (

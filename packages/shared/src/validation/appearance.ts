@@ -19,6 +19,23 @@ export interface AppearanceBrandDefaults {
   accentColor: string;
 }
 
+export function isSafeFormAppearanceImageUrl(url: string): boolean {
+  try {
+    const parsedUrl = new URL(url);
+    return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export const FormAppearanceImageUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    isSafeFormAppearanceImageUrl,
+    "画像URLは http(s) URL を指定してください",
+  );
+
 export const FormLayoutSchema = z.object({
   width: z.enum(["full", "medium", "compact"]).default("medium"),
   alignment: z.enum(["left", "center"]).default("center"),
@@ -37,8 +54,8 @@ export function createFormThemeSchema(defaults: AppearanceBrandDefaults) {
     background_color: HexColorSchema.default("#ffffff"),
     font_family: z.string().min(1).max(100).default("Inter"),
     brand_name: z.string().max(120).optional(),
-    logo_url: z.string().url().optional(),
-    cover_image_url: z.string().url().optional(),
+    logo_url: FormAppearanceImageUrlSchema.optional(),
+    cover_image_url: FormAppearanceImageUrlSchema.optional(),
   });
 }
 
