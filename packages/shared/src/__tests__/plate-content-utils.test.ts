@@ -6,6 +6,19 @@ import {
   validatePlateContent,
 } from "../plate-content-utils";
 
+function wrapNode(node: Record<string, unknown>, wrapperCount: number) {
+  let current = node;
+
+  for (let index = 0; index < wrapperCount; index += 1) {
+    current = {
+      type: "container",
+      children: [current],
+    };
+  }
+
+  return current;
+}
+
 describe("extractTitleFromChildren", () => {
   it("uses heading text before paragraph fallback", () => {
     expect(
@@ -36,6 +49,21 @@ describe("extractQuestionsFromPlateContent", () => {
     ]);
 
     expect(questions[0]?.title).toBe("氏名");
+  });
+
+  it("stops walking unsupported depth without extracting hidden questions", () => {
+    const questions = extractQuestionsFromPlateContent([
+      wrapNode(
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [{ type: "p", children: [{ text: "氏名" }] }],
+        },
+        101,
+      ),
+    ]);
+
+    expect(questions).toEqual([]);
   });
 });
 
@@ -98,6 +126,57 @@ describe("validatePlateContent", () => {
                 },
               ],
             },
+          ],
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("rejects a nested form question hidden past the max validation depth", () => {
+    expect(
+      validatePlateContent([
+        {
+          type: "form_short_text",
+          blockId: "question-1",
+          children: [
+            wrapNode(
+              {
+                type: "form_long_text",
+                blockId: "question-2",
+                children: [{ type: "p", children: [{ text: "混入質問" }] }],
+              },
+              101,
+            ),
+          ],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("allows content up to the supported validation depth", () => {
+    expect(
+      validatePlateContent([
+        wrapNode(
+          {
+            type: "form_short_text",
+            blockId: "question-1",
+            children: [{ type: "p", children: [{ text: "氏名" }] }],
+          },
+          98,
+        ),
+      ]),
+    ).toBe(true);
+  });
+
+  it("keeps existing malformed child handling inside valid top-level nodes", () => {
+    expect(
+      validatePlateContent([
+        {
+          type: "p",
+          children: [
+            "plain text child",
+            null,
+            { type: "span-without-children" },
           ],
         },
       ]),
