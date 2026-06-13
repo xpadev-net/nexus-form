@@ -205,6 +205,18 @@ function countQuery(total: number) {
   };
 }
 
+function findOrderBySqlTemplateStrings(
+  calls: Array<unknown[]>,
+  sortField: string,
+): string[] | undefined {
+  const orderByCall = calls.find(
+    (call) => call[1] === sortField && call[2] === "formResponse.id",
+  );
+  const templateStrings = orderByCall?.[0];
+  if (!Array.isArray(templateStrings)) return undefined;
+  return [...templateStrings];
+}
+
 interface ValidationTargetQuery {
   from: Mock<() => ValidationTargetQuery>;
   innerJoin: Mock<() => ValidationTargetQuery>;
@@ -635,6 +647,31 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
         [expect.anything(), "formResponse.updatedAt", "formResponse.id"],
       ]),
     );
+  });
+
+  it("keeps descending response list sorts aligned with the id tiebreaker", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(limitedQuery([]))
+      .mockReturnValueOnce(limitedQuery([]));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const submittedAtRes = await formsResponsesRouter.request(
+      "/form-1/responses?order=desc",
+    );
+    const updatedAtRes = await formsResponsesRouter.request(
+      "/form-1/responses?sort=updatedAt&order=desc",
+    );
+
+    expect(submittedAtRes.status).toBe(200);
+    expect(updatedAtRes.status).toBe(200);
+    const sqlCalls = vi.mocked(sql).mock.calls;
+    expect(
+      findOrderBySqlTemplateStrings(sqlCalls, "formResponse.submittedAt"),
+    ).toEqual(["", " desc, ", " desc"]);
+    expect(
+      findOrderBySqlTemplateStrings(sqlCalls, "formResponse.updatedAt"),
+    ).toEqual(["", " desc, ", " desc"]);
   });
 
   it("bounds candidate scans for sparse response body searches", async () => {
