@@ -335,8 +335,8 @@ function buildResponseListOrderBy(
       ? sql`${formResponse.updatedAt} asc, ${formResponse.id} asc`
       : sql`${formResponse.submittedAt} asc, ${formResponse.id} asc`
     : sortField === "updatedAt"
-      ? sql`${formResponse.updatedAt} desc, ${formResponse.id} asc`
-      : sql`${formResponse.submittedAt} desc, ${formResponse.id} asc`;
+      ? sql`${formResponse.updatedAt} desc, ${formResponse.id} desc`
+      : sql`${formResponse.submittedAt} desc, ${formResponse.id} desc`;
 }
 
 function buildResponseSearchCondition(
