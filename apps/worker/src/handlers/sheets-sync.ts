@@ -118,10 +118,6 @@ function sleepForPendingIdempotency(ms: number): Promise<void> {
   });
 }
 
-/**
- * Exported public API: Redis lock TTL in ms; sized for one pending
- * idempotency wait plus one critical section.
- */
 const SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION;
 const SHEETS_SYNC_CRITICAL_SECTION_TTL_MS =
@@ -131,6 +127,10 @@ export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
   (SHEETS_SYNC_CRITICAL_SECTION_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) /
     1000,
 );
+/**
+ * Exported public API: Redis lock TTL in ms; sized for one pending
+ * idempotency wait plus one critical section.
+ */
 export const SHEETS_SYNC_LOCK_TTL_MS =
   SHEETS_SYNC_CRITICAL_SECTION_TTL_MS + PENDING_IDEMPOTENCY_TTL_SECONDS * 1000;
 /** Exported public API: Redis lock wait timeout in ms; covers one held lock. */

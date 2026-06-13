@@ -87,6 +87,7 @@ export type GoogleSheetsSyncStartRequest = z.infer<
  */
 export const GoogleSheetsSyncStartResponseSchema = z.object({
   jobId: z.string().min(1),
+  requeued: z.boolean(),
   status: z.literal("queued"),
 });
 /** Inferred TypeScript type for `GoogleSheetsSyncStartResponseSchema`. */
@@ -240,6 +241,7 @@ export const formsIntegrationsRouter = createHonoApp()
             integration.id,
             firstResponse.responseId,
           ),
+          requeued: jobsToQueue.length > 0,
           status: "queued",
         }),
         200,

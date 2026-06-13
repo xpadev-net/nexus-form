@@ -188,6 +188,7 @@ describe("Google Sheets sync job status authorization", () => {
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
+      requeued: true,
       status: "queued",
     });
     expect(mocks.addBulk).toHaveBeenCalledTimes(1);
@@ -279,10 +280,12 @@ describe("Google Sheets sync job status authorization", () => {
     expect(retryResponse.status).toBe(200);
     expect(firstBody).toMatchObject({
       jobId: expect.stringMatching(/^sheets-manual\./),
+      requeued: true,
       status: "queued",
     });
     expect(retryBody).toMatchObject({
       jobId: expect.stringMatching(/^sheets-manual\./),
+      requeued: true,
       status: "queued",
     });
     expect(retryBody.jobId).toBe(firstBody.jobId);
@@ -321,6 +324,7 @@ describe("Google Sheets sync job status authorization", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       jobId: expect.stringMatching(/^sheets-manual\./),
+      requeued: true,
       status: "queued",
     });
     expect(remove).toHaveBeenCalledTimes(1);
@@ -354,6 +358,7 @@ describe("Google Sheets sync job status authorization", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       jobId: expect.stringMatching(/^sheets-manual\./),
+      requeued: false,
       status: "queued",
     });
     expect(remove).not.toHaveBeenCalled();
@@ -383,6 +388,10 @@ describe("Google Sheets sync job status authorization", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      requeued: false,
+      status: "queued",
+    });
     expect(remove).not.toHaveBeenCalled();
     expect(mocks.addBulk).not.toHaveBeenCalled();
   });
@@ -415,6 +424,10 @@ describe("Google Sheets sync job status authorization", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      requeued: false,
+      status: "queued",
+    });
     expect(remove).toHaveBeenCalledTimes(1);
     expect(mocks.addBulk).not.toHaveBeenCalled();
   });
