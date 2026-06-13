@@ -216,7 +216,7 @@ describe("response export", () => {
         updated_at: "\t2026-05-17T02:30:00.000Z",
         country_code: "JP",
         fingerprint_uuids: {
-          canvas: "+fingerprint",
+          "=canvas": "+fingerprint",
         },
         ua_uuid: " @ua",
         uniqueness_score: 1,
@@ -271,12 +271,13 @@ describe("response export", () => {
 
     const csv = formatRecordsToCsv(
       [record],
-      new Set(["canvas"]),
+      new Set(["=canvas"]),
       formulaTitleMap,
     );
 
     expect(csv.split("\n")[0]).toContain('"\'=Text"');
     expect(csv.split("\n")[0]).toContain('"\'-Minus"');
+    expect(csv.split("\n")[0]).toContain('"\'=canvas UUID"');
     for (const expectedCell of [
       '"\'=response-1"',
       '"\'\t2026-05-17T02:30:00.000Z"',
@@ -569,7 +570,7 @@ describe("response export", () => {
         updated_at: "\t2026-05-17T02:30:00.000Z",
         country_code: "JP",
         fingerprint_uuids: {
-          canvas: "+fingerprint",
+          "=canvas": "+fingerprint",
         },
         ua_uuid: " @ua",
         uniqueness_score: 1,
@@ -605,9 +606,10 @@ describe("response export", () => {
       record,
       [],
       sheetTitleMap,
-      new Set(["canvas"]),
+      new Set(["=canvas"]),
     );
 
+    expect(newLayoutRow.idRow).toContain("'=canvas UUID");
     expect(newLayoutRow.idRow).toContain("'=text-block");
     expect(newLayoutRow.idRow).toContain("'-minus-block");
     expect(newLayoutRow.titleRow).toContain("'=Text");
@@ -630,7 +632,7 @@ describe("response export", () => {
       record,
       newLayoutRow.idRow,
       sheetTitleMap,
-      new Set(["canvas"]),
+      new Set(["=canvas"]),
       newLayoutRow.titleRow,
     );
 

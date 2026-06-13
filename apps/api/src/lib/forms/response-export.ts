@@ -574,10 +574,15 @@ export function mapRecordToSheetRow(
   }
 
   // メタデータ列
+  const findIdColumnIndex = (header: string): number =>
+    idRow.indexOf(header) !== -1
+      ? idRow.indexOf(header)
+      : idRow.indexOf(neutralizeSpreadsheetFormulaValue(header));
+
   if (fingerprintComponents) {
     const metadataValues = buildMetadataValues(record, fingerprintComponents);
     metadataIdHeaders.forEach((header, idx) => {
-      let colIndex = idRow.indexOf(header);
+      let colIndex = findIdColumnIndex(header);
       if (colIndex === -1) {
         colIndex = idRow.length;
         idRow.push(header);
@@ -590,7 +595,7 @@ export function mapRecordToSheetRow(
       }
     });
   } else {
-    let colIndex = idRow.indexOf(RESPONSE_ID_HEADER);
+    let colIndex = findIdColumnIndex(RESPONSE_ID_HEADER);
     if (colIndex === -1) {
       colIndex = idRow.length;
       idRow.push(RESPONSE_ID_HEADER);
