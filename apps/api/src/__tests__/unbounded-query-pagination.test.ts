@@ -674,6 +674,26 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     ).toEqual(["", " desc, ", " desc"]);
   });
 
+  it("keeps descending response search sorts aligned with the id tiebreaker", async () => {
+    mocks.db.select
+      .mockReturnValueOnce(orderedQuery([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(limitedQuery([]));
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+    const { sql } = await import("drizzle-orm");
+
+    const res = await formsResponsesRouter.request(
+      "/form-1/responses?q=alpha&order=desc",
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      findOrderBySqlTemplateStrings(
+        vi.mocked(sql).mock.calls,
+        "formResponse.submittedAt",
+      ),
+    ).toEqual(["", " desc, ", " desc"]);
+  });
+
   it("bounds candidate scans for sparse response body searches", async () => {
     const submittedAt = new Date("2026-01-01T00:00:00.000Z");
     const falsePositiveRows = Array.from({ length: 200 }, (_, index) => ({
