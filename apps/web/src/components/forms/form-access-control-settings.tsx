@@ -54,6 +54,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
     event.preventDefault();
     const passwordText = password;
     const hasNewPassword = /\S/.test(passwordText);
+    const nonWhitespacePasswordLength = passwordText.replace(/\s/g, "").length;
     const shouldSendPassword = enabled && hasNewPassword;
     const hintUpdated =
       passwordHint !== (passwordProtection.password_hint ?? "");
@@ -63,7 +64,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
       return;
     }
 
-    if (shouldSendPassword && passwordText.length < 8) {
+    if (shouldSendPassword && nonWhitespacePasswordLength < 8) {
       setError("パスワードは8文字以上で入力してください");
       return;
     }

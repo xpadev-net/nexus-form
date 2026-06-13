@@ -371,6 +371,32 @@ describe("FormPublishMenu password protection", () => {
     });
   });
 
+  it("rejects passwords whose non-whitespace content is shorter than the minimum", () => {
+    const container = document.createElement("div");
+    const root = renderMenu(container);
+
+    click(passwordSwitch(container));
+    setInputValue(
+      container.querySelector<HTMLInputElement>(
+        "#password-protection-password",
+      ),
+      "       1",
+    );
+    submitPasswordDialog(container);
+
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      "パスワードは8文字以上で入力してください",
+    );
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      "パスワードは8文字以上で入力してください",
+    );
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("saves the password only after dialog confirmation and keeps it after a reload-equivalent rerender", () => {
     const container = document.createElement("div");
     const root = renderMenu(container);

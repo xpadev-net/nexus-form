@@ -359,6 +359,25 @@ describe("FormAccessControlSettings", () => {
     });
   });
 
+  it("rejects passwords whose non-whitespace content is shorter than the minimum", () => {
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    click(passwordSwitch(container));
+    setInputValue(passwordInput(container), "       1");
+    setInputValue(confirmInput(container), "       1");
+    submit(container);
+
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      "パスワードは8文字以上で入力してください",
+    );
+    expect(mocks.mutatePasswordProtection).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("can disable protection without sending the existing password back", () => {
     mocks.passwordProtection = {
       enabled: true,
