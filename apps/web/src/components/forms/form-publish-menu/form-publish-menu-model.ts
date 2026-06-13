@@ -408,8 +408,8 @@ export function useFormPublishMenuModel({
   const handlePasswordDialogConfirm = () => {
     const action = passwordDialogMode ?? "change";
     const enabled = action === "enable" ? true : passwordProtection.enabled;
-    const passwordText = passwordInput.trim();
-    const hasNewPassword = passwordText.length > 0;
+    const passwordText = passwordInput;
+    const hasNewPassword = /\S/.test(passwordText);
     const currentHint = passwordProtection.password_hint ?? "";
     const hintUpdated = passwordHintInput !== currentHint;
     const payload = {

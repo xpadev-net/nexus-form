@@ -52,8 +52,8 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const passwordText = password.trim();
-    const hasNewPassword = passwordText.length > 0;
+    const passwordText = password;
+    const hasNewPassword = /\S/.test(passwordText);
     const shouldSendPassword = enabled && hasNewPassword;
     const hintUpdated =
       passwordHint !== (passwordProtection.password_hint ?? "");
@@ -68,7 +68,7 @@ export const FormAccessControlSettings: FC<FormAccessControlSettingsProps> = ({
       return;
     }
 
-    if (shouldSendPassword && passwordText !== confirmPassword.trim()) {
+    if (shouldSendPassword && passwordText !== confirmPassword) {
       setError("確認用パスワードが一致しません");
       return;
     }

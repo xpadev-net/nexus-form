@@ -448,7 +448,7 @@ describe("FormPublishMenu password protection", () => {
     });
   });
 
-  it("trims leading and trailing spaces before saving a password", () => {
+  it("preserves leading and trailing spaces before saving a password", () => {
     const container = document.createElement("div");
     const root = renderMenu(container);
 
@@ -464,7 +464,7 @@ describe("FormPublishMenu password protection", () => {
     expect(mocks.mutatePasswordProtection).toHaveBeenCalledWith(
       {
         enabled: true,
-        password: "secret123",
+        password: "  secret123  ",
       },
       expect.objectContaining({
         onError: expect.any(Function),
