@@ -1,34 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError, NetworkError } from "@/lib/fetch-json";
 import { shouldRetryQuery } from "@/lib/query-retry";
+import {
+  captureRejection,
+  stubFetchFailure,
+  stubFetchResponse,
+} from "@/lib/test-utils/fetch-helpers";
 import { fetchValidationProviders } from "./validation-providers";
-
-async function captureRejection(
-  action: () => Promise<unknown>,
-): Promise<unknown> {
-  try {
-    await action();
-  } catch (error) {
-    return error;
-  }
-  throw new Error("Expected action to reject");
-}
-
-function stubFetchFailure(error: unknown) {
-  vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockRejectedValue(error));
-}
-
-function stubFetchResponse(status: number) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ message: "Upstream failed" }), {
-        status,
-        headers: { "content-type": "application/json" },
-      }),
-    ),
-  );
-}
 
 describe("fetchValidationProviders", () => {
   afterEach(() => {
