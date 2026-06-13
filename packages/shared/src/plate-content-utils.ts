@@ -366,7 +366,7 @@ function validatePlateNodeTree(
   insideQuestion: boolean,
   depth = 0,
 ): boolean {
-  if (depth > MAX_DEPTH) return true;
+  if (depth > MAX_DEPTH) return false;
   const isQuestion = isPlateQuestionType(node.type);
   if (insideQuestion && isQuestion) return false;
 
