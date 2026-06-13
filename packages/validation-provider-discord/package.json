@@ -28,10 +28,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
-    "@types/node": "^24.12.4",
+    "@types/node": "^24.13.1",
     "@typescript/native-preview": "7.0.0-dev.20260527.2",
-    "tsdown": "^0.22.1",
+    "tsdown": "^0.22.2",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.0"
+    "vitest": "^4.1.8"
   }
 }
