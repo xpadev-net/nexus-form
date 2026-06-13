@@ -118,21 +118,24 @@ function sleepForPendingIdempotency(ms: number): Promise<void> {
   });
 }
 
-/** Exported public API: Redis lock TTL in ms; sized for critical section API calls
- * plus timeout headroom.
- */
 const SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS =
   SHEETS_API_TIMEOUT_MS * SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION;
-export const SHEETS_SYNC_LOCK_TTL_MS =
+const SHEETS_SYNC_CRITICAL_SECTION_TTL_MS =
   SHEETS_SYNC_API_CRITICAL_TIMEOUT_MS + SHEETS_SYNC_LOCK_BUFFER_MS;
+/** Exported public API: pending idempotency TTL in seconds; must exceed one critical section by an extra retry margin. */
+export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
+  (SHEETS_SYNC_CRITICAL_SECTION_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) /
+    1000,
+);
+/**
+ * Exported public API: Redis lock TTL in ms; sized for one pending
+ * idempotency wait plus one critical section.
+ */
+export const SHEETS_SYNC_LOCK_TTL_MS =
+  SHEETS_SYNC_CRITICAL_SECTION_TTL_MS + PENDING_IDEMPOTENCY_TTL_SECONDS * 1000;
 /** Exported public API: Redis lock wait timeout in ms; covers one held lock. */
 export const SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS = SHEETS_SYNC_LOCK_TTL_MS + 5_000;
-/** Exported public API: pending idempotency TTL in seconds; must exceed lock TTL by an extra retry margin. */
-export const PENDING_IDEMPOTENCY_TTL_SECONDS = Math.ceil(
-  (SHEETS_SYNC_LOCK_TTL_MS + PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS) / 1000,
-);
 export const DONE_IDEMPOTENCY_TTL_SECONDS = 7 * 24 * 60 * 60;
-const PENDING_IDEMPOTENCY_STILL_LIVE = Symbol("PENDING_IDEMPOTENCY_STILL_LIVE");
 
 const GoogleSheetsIntegrationSettingSchema = z.object({
   spreadsheetId: z.string().min(1),
@@ -299,10 +302,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
   // (jobId dedup only applies while the job is still in the queue).
-  while (true) {
-    const lockResult = await withRedisLock(
-      lockKey,
-      async () => {
+  return await withRedisLock(
+    lockKey,
+    async () => {
+      while (true) {
         const keyValue = await getIdempotencyKeyValue(idempotencyKey);
 
         if (keyValue === "done") {
@@ -326,9 +329,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         if (keyValue === "pending") {
           // The lock TTL expired while another job's critical section is still in
           // progress, or the prior attempt crashed before the row was written.
-          // Release the lock before waiting so pending guard settling does not
-          // consume the lock TTL needed for the actual Sheets critical section.
-          return PENDING_IDEMPOTENCY_STILL_LIVE;
+          // Keep the integration lock while waiting so no other response can
+          // update headers or append rows for this integration in between.
+          const pendingResult =
+            await waitForPendingIdempotencyToResolve(idempotencyKey);
+          if (pendingResult === "done") {
+            return duplicateSkippedResult();
+          }
+          continue;
         }
 
         // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
@@ -348,7 +356,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
         // Mark as "pending" before any Sheets API call in this critical section.
         // If Redis is unavailable, throw so the job retries rather than writing
-        // without the duplicate guard. The TTL exceeds the lock TTL.
+        // without the duplicate guard.
         await setIdempotencyKey(
           idempotencyKey,
           PENDING_IDEMPOTENCY_TTL_SECONDS,
@@ -428,28 +436,16 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           updatedRange: appendResult.data.updatedRange,
           updatedRows: appendResult.data.updatedRows,
         };
-      },
-      // Critical section contains up to 4 sequential Sheets API calls
-      // (2 reads + 1 conditional header update + 1 append) plus timeout headroom.
-      // Pending idempotency waits happen outside the lock so slow successful
-      // calls cannot expire the lock mid-write.
-      {
-        ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
-        waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
-        signal: workerShutdownSignal,
-      },
-    );
-
-    if (lockResult !== PENDING_IDEMPOTENCY_STILL_LIVE) {
-      return lockResult;
-    }
-
-    const pendingResult =
-      await waitForPendingIdempotencyToResolve(idempotencyKey);
-    if (pendingResult === "done") {
-      return duplicateSkippedResult();
-    }
-  }
+      }
+    },
+    // Lock TTL covers a full pending-idempotency wait followed by the Sheets
+    // critical section (2 reads + 1 conditional header update + 1 append).
+    {
+      ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
+      waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
+      signal: workerShutdownSignal,
+    },
+  );
 };
 
 /**
