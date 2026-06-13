@@ -191,44 +191,46 @@ export const formsIntegrationsRouter = createHonoApp()
       }));
       const queue = getSheetsSyncQueue();
 
-      await Promise.all(
-        jobs.map(async (job) => {
-          const existingJob = await queue.getJob(job.id);
-          if (!existingJob) {
-            return;
-          }
+      const jobsToQueue = (
+        await Promise.all(
+          jobs.map(async (job) => {
+            const existingJob = await queue.getJob(job.id);
+            if (!existingJob) {
+              return job;
+            }
 
-          const state = await existingJob.getState();
-          if (
-            state === "failed" ||
-            state === "completed" ||
-            state === "delayed"
-          ) {
-            try {
-              await existingJob.remove();
-            } catch (error) {
-              if ((await existingJob.getState()) !== "active") {
-                throw error;
+            const state = await existingJob.getState();
+            if (state === "failed" || state === "completed") {
+              try {
+                await existingJob.remove();
+                return job;
+              } catch (error) {
+                if ((await existingJob.getState()) !== "active") {
+                  throw error;
+                }
               }
             }
-          }
-        }),
-      );
-
-      await queue.addBulk(
-        jobs.map((job) => ({
-          name: "manual-sync",
-          data: sheetsSyncJobDataSchema.parse({
-            formId,
-            integrationId: integration.id,
-            responseId: job.responseId,
+            return null;
           }),
-          opts: {
-            ...SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
-            jobId: job.id,
-          },
-        })),
-      );
+        )
+      ).filter((job): job is (typeof jobs)[number] => job !== null);
+
+      if (jobsToQueue.length > 0) {
+        await queue.addBulk(
+          jobsToQueue.map((job) => ({
+            name: "manual-sync",
+            data: sheetsSyncJobDataSchema.parse({
+              formId,
+              integrationId: integration.id,
+              responseId: job.responseId,
+            }),
+            opts: {
+              ...SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
+              jobId: job.id,
+            },
+          })),
+        );
+      }
 
       const firstResponse = responses[0];
 

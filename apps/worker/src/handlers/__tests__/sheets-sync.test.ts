@@ -334,8 +334,14 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
-  it('waits out a stale "pending" idempotency key and writes without BullMQ retry', async () => {
+  it('waits out a stale "pending" idempotency key under the integration lock and writes without BullMQ retry', async () => {
     setupHappyPathMocks();
+    let lockReleased = false;
+    mockWithRedisLock.mockImplementationOnce(async (_key, fn) => {
+      const result = await fn();
+      lockReleased = true;
+      return result;
+    });
     mockGetIdempotencyKeyValue
       .mockResolvedValueOnce("pending")
       .mockResolvedValueOnce(null);
@@ -343,6 +349,13 @@ describe("handleSheetsSync — idempotency states", () => {
       ok: true,
       data: { values: [["Response ID", "block-1"]] },
     } as never);
+    mockAppendRows.mockImplementationOnce(async () => {
+      expect(lockReleased).toBe(false);
+      return {
+        ok: true,
+        data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+      } as never;
+    });
 
     const result = await handleSheetsSync(makeJob());
 
@@ -357,7 +370,8 @@ describe("handleSheetsSync — idempotency states", () => {
       PENDING_IDEMPOTENCY_TTL_SECONDS,
       "pending",
     );
-    expect(mockWithRedisLock).toHaveBeenCalledTimes(2);
+    expect(mockWithRedisLock).toHaveBeenCalledTimes(1);
+    expect(lockReleased).toBe(true);
   });
 
   it('does not poll Google Sheets while the "pending" idempotency key is still live', async () => {
@@ -380,7 +394,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledTimes(2);
     expect(mockReadRange).toHaveBeenCalledTimes(2);
     expect(mockAppendRows).toHaveBeenCalledOnce();
-    expect(mockWithRedisLock).toHaveBeenCalledTimes(2);
+    expect(mockWithRedisLock).toHaveBeenCalledTimes(1);
   });
 
   it('returns duplicate without reading Sheets when a live "pending" key becomes "done"', async () => {
@@ -660,11 +674,15 @@ describe("handleSheetsSync — write path", () => {
 
     await handleSheetsSync(makeJob());
 
-    // SHEETS_API_TIMEOUT_MS=30000 × 4 (2 reads + 1 header update + 1 append) + SHEETS_SYNC_LOCK_BUFFER_MS=30000
-    expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(150_000);
-    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(155_000);
+    // Lock TTL covers a pending-idempotency wait plus one Sheets critical section.
+    expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBe(180);
+    expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(330_000);
+    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(335_000);
     expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
-      Math.ceil(SHEETS_SYNC_LOCK_TTL_MS / 1000),
+      Math.ceil(
+        (SHEETS_SYNC_LOCK_TTL_MS - PENDING_IDEMPOTENCY_TTL_SECONDS * 1000) /
+          1000,
+      ),
     );
     expect(mockWithRedisLock).toHaveBeenCalledWith(
       "sheets-sync:integration-1",
