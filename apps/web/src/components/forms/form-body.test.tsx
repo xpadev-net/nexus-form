@@ -460,6 +460,46 @@ describe("FormBody", () => {
     act(() => root.unmount());
   });
 
+  it("renders appearance images with no-referrer privacy controls", () => {
+    const container = document.createElement("div");
+    const appearance = appearanceWithQuestionNumbers(false);
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "question-1", "氏名", {
+          required: false,
+        }),
+      ]),
+      {
+        appearance: {
+          ...appearance,
+          theme: {
+            ...appearance.theme,
+            logo_url: "https://cdn.example.com/logo.png",
+            cover_image_url: "https://cdn.example.com/cover.jpg",
+          },
+        },
+      },
+    );
+
+    const images = Array.from(container.querySelectorAll("img"));
+    expect(images).toHaveLength(2);
+    expect(images.map((image) => image.getAttribute("src"))).toEqual([
+      "https://cdn.example.com/cover.jpg",
+      "https://cdn.example.com/logo.png",
+    ]);
+    expect(
+      images.every(
+        (image) => image.getAttribute("referrerpolicy") === "no-referrer",
+      ),
+    ).toBe(true);
+    expect(images.every((image) => image.style.backgroundImage === "")).toBe(
+      true,
+    );
+
+    act(() => root.unmount());
+  });
+
   it("adds global question numbers to nested public questions", () => {
     const container = document.createElement("div");
     const root = renderFormBody(
