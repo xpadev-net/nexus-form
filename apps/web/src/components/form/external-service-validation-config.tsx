@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiUrl, baseUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/fetch-json";
 import { getValidationProviderRule } from "@/lib/validation/validation-providers";
 
 type ProviderConfig = Record<string, unknown>;
@@ -132,7 +133,7 @@ function clearDependentValues(
   return next;
 }
 
-const fetchOptions = async (
+export const fetchOptions = async (
   field: ValidationProviderConfigField,
   endpoint: string,
   formId: string | undefined,
@@ -142,14 +143,10 @@ const fetchOptions = async (
     url.searchParams.set("formId", formId);
   }
   const shouldIncludeCredentials = url.origin === new URL(baseUrl).origin;
-  const response = await fetch(url, {
+  const json = await fetchJson<unknown>(url, {
     credentials: shouldIncludeCredentials ? "include" : "omit",
   });
-  if (!response.ok) {
-    throw new Error(`Failed to fetch field options: ${response.status}`);
-  }
 
-  const json: unknown = await response.json();
   const collection = field.optionSource
     ? getPathValue(json, field.optionSource.collectionPath)
     : undefined;
