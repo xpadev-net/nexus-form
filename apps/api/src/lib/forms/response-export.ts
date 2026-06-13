@@ -68,6 +68,22 @@ const escapeCSV = (str: string): string => {
   return `"${escaped}"`;
 };
 
+const FORMULA_OPERATOR_PATTERN = /^[=+\-@]/;
+const LEADING_FORMULA_CONTROL_PATTERN = /^\s*[\t\r\n]/;
+
+function neutralizeCsvFormulaValue(value: string): string {
+  if (!value) return value;
+
+  const startsWithFormulaOperator = FORMULA_OPERATOR_PATTERN.test(
+    value.trimStart(),
+  );
+  const startsWithFormulaControl = LEADING_FORMULA_CONTROL_PATTERN.test(value);
+
+  return startsWithFormulaOperator || startsWithFormulaControl
+    ? `'${value}`
+    : value;
+}
+
 /**
  * メタデータのヘッダーを生成する（CSVとスプレッドシート共通）
  */
@@ -383,7 +399,9 @@ export function formatRecordsToCsv(
         );
       });
 
-      const row = [...metadataValues, ...componentValues];
+      const row = [...metadataValues, ...componentValues].map(
+        neutralizeCsvFormulaValue,
+      );
       csvRows.push(row.map(escapeCSV).join(","));
     });
 

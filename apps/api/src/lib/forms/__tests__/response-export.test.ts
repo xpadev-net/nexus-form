@@ -206,6 +206,86 @@ describe("response export", () => {
     );
   });
 
+  it("neutralizes spreadsheet formula triggers in CSV cell values", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "=response-1",
+        form_id: "form-1",
+        respondent_uuid: "respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        updated_at: "\t2026-05-17T02:30:00.000Z",
+        country_code: "JP",
+        fingerprint_uuids: {
+          canvas: "+fingerprint",
+        },
+        ua_uuid: " @ua",
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "text-block",
+          block_type: "short_text",
+          value: " =cmd",
+        },
+        {
+          block_id: "date-block",
+          block_type: "date",
+          value: "\r2026-06-13",
+        },
+        {
+          block_id: "radio-block",
+          block_type: "radio",
+          value: "+choice",
+        },
+        {
+          block_id: "checkbox-block",
+          block_type: "checkbox",
+          value: ["@danger", "normal"],
+        },
+        {
+          block_id: "long-text-block",
+          block_type: "long_text",
+          value: "\nlong text",
+        },
+        {
+          block_id: "normal-block",
+          block_type: "short_text",
+          value: "plain value",
+        },
+      ],
+    };
+    const formulaTitleMap = new Map([
+      ["text-block", "Text"],
+      ["date-block", "Date"],
+      ["radio-block", "Radio"],
+      ["checkbox-block", "Checkbox"],
+      ["long-text-block", "Long text"],
+      ["normal-block", "Normal"],
+    ]);
+
+    const csv = formatRecordsToCsv(
+      [record],
+      new Set(["canvas"]),
+      formulaTitleMap,
+    );
+
+    for (const expectedCell of [
+      '"\'=response-1"',
+      '"\'\t2026-05-17T02:30:00.000Z"',
+      '"\' @ua"',
+      '"\'+fingerprint"',
+      '"\' =cmd"',
+      '"\'\r2026-06-13"',
+      '"\'+choice"',
+      '"\'@danger, normal"',
+      '"\'\nlong text"',
+      '"plain value"',
+    ]) {
+      expect(csv).toContain(expectedCell);
+    }
+    expect(csv).not.toContain('"\'plain value"');
+  });
+
   it("keeps R26-M1 S16 CSV headers and values for date, time, submitted datetime, rating, and slider fields", () => {
     const s16Blocks = [
       {
