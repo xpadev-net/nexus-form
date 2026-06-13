@@ -6,6 +6,25 @@
 
 import { z } from "zod";
 
+// --- Confirmation URL ---
+
+const SAFE_CONFIRMATION_URL_PROTOCOLS = new Set(["http:", "https:"]);
+
+export function isSafeConfirmationUrl(value: string): boolean {
+  try {
+    return SAFE_CONFIRMATION_URL_PROTOCOLS.has(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
+export const SafeConfirmationUrlSchema = z
+  .string()
+  .url()
+  .refine(isSafeConfirmationUrl, {
+    message: "URLは http:// または https:// で始まる必要があります",
+  });
+
 // --- Discord Webhook URL ---
 
 const ALLOWED_DISCORD_HOSTS = new Set([
@@ -270,18 +289,18 @@ export const FormConfirmationSchema = z.object({
     .string()
     .max(2000)
     .default("回答を受け付けました。ご協力ありがとうございました。"),
-  redirect_url: z.string().url().optional(),
+  redirect_url: SafeConfirmationUrlSchema.optional(),
   supplemental_link: z
     .object({
       label: z.string().min(1).max(80),
-      url: z.string().url(),
+      url: SafeConfirmationUrlSchema,
     })
     .optional(),
   contact: z
     .object({
       label: z.string().min(1).max(80).optional(),
       email: z.string().email().optional(),
-      url: z.string().url().optional(),
+      url: SafeConfirmationUrlSchema.optional(),
     })
     .refine((data) => !!data.email || !!data.url, {
       message: "問い合わせ先には email または url が必要です",
