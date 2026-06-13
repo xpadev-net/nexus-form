@@ -5,6 +5,12 @@ export default defineConfig({
   resolve: {
     alias: [
       {
+        find: "@nexus-form/database/migrate",
+        replacement: fileURLToPath(
+          new URL("../../packages/database/src/migrate.ts", import.meta.url),
+        ),
+      },
+      {
         find: "@nexus-form/shared/forms/form-block",
         replacement: fileURLToPath(
           new URL(

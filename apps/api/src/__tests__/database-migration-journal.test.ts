@@ -1,5 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import {
+  CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+  shouldNormalizeConfigJsonMigrationTimestamp,
+} from "@nexus-form/database/migrate";
 import { describe, expect, it } from "vitest";
 
 type Journal = {
@@ -62,5 +66,48 @@ describe("database migration journal", () => {
       throw new Error("Required migrations are missing");
     }
     expect(configJsonColumn.when).toBeGreaterThan(snapshotStructure.when);
+    expect(configJsonColumn.when).toBe(CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP);
+  });
+
+  it("normalizes the legacy 0012 timestamp only after the configJson rename already ran", () => {
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: false,
+        hasCurrentConfigJsonColumn: true,
+        hasLegacyConfigJsonMigrationTimestamp: true,
+        hasCurrentConfigJsonMigrationTimestamp: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: true,
+        hasCurrentConfigJsonColumn: false,
+        hasLegacyConfigJsonMigrationTimestamp: false,
+        hasCurrentConfigJsonMigrationTimestamp: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: false,
+        hasCurrentConfigJsonColumn: true,
+        hasLegacyConfigJsonMigrationTimestamp: true,
+        hasCurrentConfigJsonMigrationTimestamp: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: false,
+        hasLegacyConfigJsonColumn: false,
+        hasCurrentConfigJsonColumn: true,
+        hasLegacyConfigJsonMigrationTimestamp: true,
+        hasCurrentConfigJsonMigrationTimestamp: false,
+      }),
+    ).toBe(false);
   });
 });
