@@ -1,6 +1,6 @@
 import { cn, withRef } from "@udecode/cn";
 import { isPlateQuestionType } from "@nexus-form/shared";
-import type { TElement, TText } from "platejs";
+import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import type { ReactNode } from "react";
@@ -8,12 +8,24 @@ import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
 
-function collectText(node: TElement | TText): string {
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+export function collectText(node: unknown): string {
+  if (!isObjectRecord(node)) {
+    return "";
+  }
+
   if (ElementApi.isElement(node)) {
-    const children = node.children as (TElement | TText)[];
+    const { children } = node;
+    if (!Array.isArray(children)) {
+      return "";
+    }
     return children.map(collectText).join("");
   }
-  return String(node.text ?? "");
+
+  return typeof node.text === "string" ? node.text : "";
 }
 
 function isElementEmpty(element: TElement): boolean {
