@@ -358,7 +358,6 @@ export function FormBody({
           aria-hidden="true"
           className="h-40 w-full rounded-lg object-cover"
           decoding="async"
-          loading="lazy"
           referrerPolicy="no-referrer"
           src={appearance.theme.cover_image_url}
         />

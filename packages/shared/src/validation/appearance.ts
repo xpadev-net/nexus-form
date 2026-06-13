@@ -30,6 +30,8 @@ export function isSafeFormAppearanceImageUrl(url: string): boolean {
 
 export const FormAppearanceImageUrlSchema = z
   .string()
+  // Keep schema validation stricter than the sanitizer: Zod checks URL shape,
+  // while the shared helper enforces the security boundary used by legacy data.
   .url()
   .refine(
     isSafeFormAppearanceImageUrl,
