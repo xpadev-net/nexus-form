@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { shouldNormalizeConfigJsonMigrationTimestamp } from "../../../../packages/database/src/migrate";
 
 type Journal = {
   entries: Array<{
@@ -62,5 +63,37 @@ describe("database migration journal", () => {
       throw new Error("Required migrations are missing");
     }
     expect(configJsonColumn.when).toBeGreaterThan(snapshotStructure.when);
+  });
+
+  it("normalizes the legacy 0012 timestamp only after the configJson rename already ran", () => {
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: false,
+        hasCurrentConfigJsonColumn: true,
+        hasLegacyConfigJsonMigrationTimestamp: true,
+        hasCurrentConfigJsonMigrationTimestamp: false,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: true,
+        hasCurrentConfigJsonColumn: false,
+        hasLegacyConfigJsonMigrationTimestamp: false,
+        hasCurrentConfigJsonMigrationTimestamp: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldNormalizeConfigJsonMigrationTimestamp({
+        hasDrizzleMigrationsTable: true,
+        hasLegacyConfigJsonColumn: false,
+        hasCurrentConfigJsonColumn: true,
+        hasLegacyConfigJsonMigrationTimestamp: true,
+        hasCurrentConfigJsonMigrationTimestamp: true,
+      }),
+    ).toBe(false);
   });
 });
