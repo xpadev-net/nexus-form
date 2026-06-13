@@ -572,6 +572,24 @@ describe("FormStructure schema", () => {
     expect(result.success).toBe(true);
   });
 
+  it.each([
+    ["logo_url", "data:image/svg+xml,<svg></svg>"],
+    ["cover_image_url", "javascript:alert(1)"],
+    ["logo_url", "ftp://cdn.example.com/logo.png"],
+  ])("appearance の %s で http(s) 以外の画像 URL を拒否する", (key, url) => {
+    const result = FormStructure.safeParse({
+      version: 1,
+      settings: validSettings,
+      appearance: {
+        theme: {
+          [key]: url,
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("無効な HEX カラーコードを拒否する", () => {
     const result = FormStructure.safeParse({
       version: 1,

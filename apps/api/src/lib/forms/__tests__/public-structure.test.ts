@@ -69,6 +69,44 @@ describe("buildPublicFormStructure", () => {
     expect(result.confirmation).toEqual(fullStructure.confirmation);
   });
 
+  it("keeps safe public appearance image URLs", () => {
+    const result = buildPublicFormStructure({
+      appearance: {
+        theme: {
+          logo_url: "https://cdn.example.com/logo.png",
+          cover_image_url: "http://assets.example.test/cover.jpg",
+        },
+      },
+    });
+
+    expect(result.appearance).toEqual({
+      theme: {
+        logo_url: "https://cdn.example.com/logo.png",
+        cover_image_url: "http://assets.example.test/cover.jpg",
+      },
+    });
+  });
+
+  it("removes unsafe public appearance image URLs", () => {
+    const result = buildPublicFormStructure({
+      appearance: {
+        theme: {
+          logo_url: "data:image/svg+xml,<svg></svg>",
+          cover_image_url: "javascript:alert(1)",
+          brand_name: "Nexus",
+        },
+        layout: { width: "medium" },
+      },
+    });
+
+    expect(result.appearance).toEqual({
+      theme: {
+        brand_name: "Nexus",
+      },
+      layout: { width: "medium" },
+    });
+  });
+
   it("excludes notifications", () => {
     const result = buildPublicFormStructure(fullStructure);
 

@@ -1,8 +1,14 @@
+import { isSafeFormAppearanceImageUrl } from "@nexus-form/shared";
 import {
   FormStructure,
   type FormStructure as FormStructureType,
 } from "../../types/domain/form";
 import { logWarn } from "../logger";
+
+const LEGACY_APPEARANCE_IMAGE_URL_KEYS = [
+  "logo_url",
+  "cover_image_url",
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -10,39 +16,81 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Drop legacy empty logic rules that predate StoredLogicRuleSchema strictness. */
 function normalizeLegacyStructure(raw: unknown): unknown {
-  if (!isRecord(raw) || !Array.isArray(raw.logic)) {
+  if (!isRecord(raw)) {
     return raw;
   }
 
-  const normalizedLogic = raw.logic.filter((rule) => {
-    if (!isRecord(rule)) return false;
-    const condition = rule.condition;
-    const action = rule.action;
-    if (!isRecord(condition) || !isRecord(action)) return false;
-    if (typeof condition.field !== "string" || condition.field.length === 0) {
-      return false;
-    }
-    if (
-      typeof condition.operator !== "string" ||
-      condition.operator.length === 0
-    ) {
-      return false;
-    }
-    if (typeof action.type !== "string" || action.type.length === 0) {
-      return false;
-    }
-    return true;
-  });
+  let normalized = raw;
 
-  if (normalizedLogic.length === raw.logic.length) {
-    return raw;
+  if (Array.isArray(raw.logic)) {
+    const normalizedLogic = raw.logic.filter((rule) => {
+      if (!isRecord(rule)) return false;
+      const condition = rule.condition;
+      const action = rule.action;
+      if (!isRecord(condition) || !isRecord(action)) return false;
+      if (typeof condition.field !== "string" || condition.field.length === 0) {
+        return false;
+      }
+      if (
+        typeof condition.operator !== "string" ||
+        condition.operator.length === 0
+      ) {
+        return false;
+      }
+      if (typeof action.type !== "string" || action.type.length === 0) {
+        return false;
+      }
+      return true;
+    });
+
+    if (normalizedLogic.length !== raw.logic.length) {
+      logWarn(
+        `parseStoredStructure: dropped ${raw.logic.length - normalizedLogic.length} legacy logic rule(s)`,
+        "general",
+      );
+      normalized = { ...normalized, logic: normalizedLogic };
+    }
+  }
+
+  const appearance = normalized.appearance;
+  if (!isRecord(appearance)) {
+    return normalized;
+  }
+
+  const theme = appearance.theme;
+  if (!isRecord(theme)) {
+    return normalized;
+  }
+
+  let normalizedTheme = theme;
+  let droppedImageUrlCount = 0;
+  for (const key of LEGACY_APPEARANCE_IMAGE_URL_KEYS) {
+    const value = theme[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !isSafeFormAppearanceImageUrl(value)) {
+      if (normalizedTheme === theme) {
+        normalizedTheme = { ...theme };
+      }
+      delete normalizedTheme[key];
+      droppedImageUrlCount += 1;
+    }
+  }
+
+  if (droppedImageUrlCount === 0) {
+    return normalized;
   }
 
   logWarn(
-    `parseStoredStructure: dropped ${raw.logic.length - normalizedLogic.length} legacy logic rule(s)`,
+    `parseStoredStructure: dropped ${droppedImageUrlCount} legacy appearance image URL(s)`,
     "general",
   );
-  return { ...raw, logic: normalizedLogic };
+  return {
+    ...normalized,
+    appearance: {
+      ...appearance,
+      theme: normalizedTheme,
+    },
+  };
 }
 
 /**
