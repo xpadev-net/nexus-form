@@ -11,18 +11,13 @@ import {
   VALIDATION_PATTERN_TEMPLATES,
   type ValidationPatternTemplate,
 } from "@/lib/constants/validation-patterns";
+import { fetchJson } from "@/lib/fetch-json";
 
-const fetchValidationProviders =
+export const fetchValidationProviders =
   async (): Promise<ListValidationProvidersResponse> => {
-    const response = await fetch(apiUrl("/api/validation-providers"), {
+    const json = await fetchJson<unknown>(apiUrl("/api/validation-providers"), {
       credentials: "include",
     });
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch validation providers: ${response.status}`,
-      );
-    }
-    const json: unknown = await response.json();
     return listValidationProvidersResponseSchema.parse(json);
   };
 
