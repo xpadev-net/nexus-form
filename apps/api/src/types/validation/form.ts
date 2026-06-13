@@ -27,6 +27,7 @@ export {
   FormConfirmationSchema,
   FormNotificationsSchema,
   FormNotificationsTransportSchema,
+  SafeConfirmationUrlSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,
   WebhookNotificationChannelTransportSchema,

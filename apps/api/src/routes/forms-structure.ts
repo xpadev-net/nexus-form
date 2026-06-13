@@ -36,6 +36,7 @@ import {
   FormNotificationsSchema,
   type FormNotificationsTransport,
   FormNotificationsTransportSchema,
+  SafeConfirmationUrlSchema,
   StoredLogicRuleSchema,
   WebhookNotificationChannelTransportSchema,
 } from "../types/validation/form";
@@ -77,14 +78,14 @@ const appearanceUpdateSchema = z.object({
 
 const postSubmitSupplementalLinkUpdateSchema = z.object({
   label: z.string().min(1).max(80),
-  url: z.string().url(),
+  url: SafeConfirmationUrlSchema,
 });
 
 const postSubmitContactUpdateSchema = z
   .object({
     label: z.string().min(1).max(80).optional(),
     email: z.string().email().optional(),
-    url: z.string().url().optional(),
+    url: SafeConfirmationUrlSchema.optional(),
   })
   .refine((data) => !!data.email || !!data.url, {
     message: "問い合わせ先には email または url が必要です",
@@ -93,7 +94,7 @@ const postSubmitContactUpdateSchema = z
 const postSubmitConfirmationUpdateSchema = z.object({
   title: z.string().min(1).max(120),
   message: z.string().max(2000),
-  redirect_url: z.string().url().optional(),
+  redirect_url: SafeConfirmationUrlSchema.optional(),
   supplemental_link: postSubmitSupplementalLinkUpdateSchema
     .nullable()
     .optional(),
