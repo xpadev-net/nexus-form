@@ -205,6 +205,7 @@ describe("handleFormSubmitNotifications", () => {
     const logged = JSON.stringify(consoleError.mock.calls);
     expect(logged).toContain("rejected redirect with status 302");
     expect(logged).not.toContain("example.com");
+    expect(logged).not.toContain(DISCORD_URL);
     expect(job.updateProgress).toHaveBeenCalledWith(result);
   });
 
