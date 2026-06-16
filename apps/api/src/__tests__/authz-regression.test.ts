@@ -60,6 +60,18 @@ vi.mock("../lib/security/hcaptcha", () => ({
   verifyHCaptcha: vi.fn().mockResolvedValue(true),
 }));
 
+vi.mock("../lib/ip-address", () => ({
+  extractClientIP: vi.fn(
+    (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+      if (options.strategy === "telemetry") {
+        return { ip: "203.0.113.10", source: "x-nginx-forwarded-for" };
+      }
+
+      return { ip: "127.0.0.1", source: "socket" };
+    },
+  ),
+}));
+
 vi.mock("../lib/security/password", () => ({
   verifyPassword: vi.fn().mockResolvedValue(false),
 }));

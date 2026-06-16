@@ -24,7 +24,10 @@ describe("extractClientIP", () => {
         },
       });
 
-      const result = extractClientIP(request, { strategy: "telemetry" });
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 2,
+      });
       expect(result.ip).toBe("192.168.1.1");
       expect(result.source).toBe("x-nginx-forwarded-for");
     });
@@ -45,7 +48,10 @@ describe("extractClientIP", () => {
         },
       });
 
-      const result = extractClientIP(request, { strategy: "telemetry" });
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 1,
+      });
       expect(result.ip).toBe("10.0.0.1");
       expect(result.source).toBe("x-nginx-forwarded-for");
     });
@@ -57,8 +63,66 @@ describe("extractClientIP", () => {
         },
       });
 
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 1,
+      });
+      expect(result.ip).toBe("192.168.1.1");
+    });
+
+    it("should ignore x-nginx-forwarded-for when no trusted proxy is configured", () => {
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-nginx-forwarded-for": "192.168.1.1",
+        },
+      });
+
+      const result = extractClientIP(request, { strategy: "telemetry" });
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
+    });
+
+    it("should use TRUSTED_PROXY_COUNT for telemetry headers", () => {
+      process.env.TRUSTED_PROXY_COUNT = "2";
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-nginx-forwarded-for": "192.168.1.1, 10.0.0.1",
+        },
+      });
+
       const result = extractClientIP(request, { strategy: "telemetry" });
       expect(result.ip).toBe("192.168.1.1");
+      expect(result.source).toBe("x-nginx-forwarded-for");
+    });
+
+    it("should reject invalid telemetry forwarded IP values", () => {
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-nginx-forwarded-for": "not-an-ip, 10.0.0.1",
+        },
+      });
+
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 2,
+      });
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
+    });
+
+    it("should reject telemetry headers shorter than the trusted proxy boundary", () => {
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-nginx-forwarded-for": "192.168.1.1",
+        },
+      });
+
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 2,
+      });
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
     });
   });
 

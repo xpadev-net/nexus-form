@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => {
       update: vi.fn(),
       transaction: vi.fn(),
     },
+    extractClientIP: vi.fn(),
     getLatestSnapshot: vi.fn(),
     processFormSchedule: vi.fn(),
     providerRegistryGet: vi.fn(),
@@ -111,7 +112,7 @@ vi.mock("../lib/queues", () => ({
 }));
 
 vi.mock("../lib/ip-address", () => ({
-  extractClientIP: vi.fn(() => ({ ip: "127.0.0.1" })),
+  extractClientIP: mocks.extractClientIP,
 }));
 
 vi.mock("../lib/rate-limit", () => ({
@@ -493,6 +494,15 @@ function resetPublicSubmitMocks(
   mocks.sequence.length = 0;
   mocks.updateSetValues.length = 0;
   mocks.updateWhereValues.length = 0;
+  mocks.extractClientIP.mockImplementation(
+    (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+      if (options.strategy === "telemetry") {
+        return { ip: "203.0.113.10", source: "x-nginx-forwarded-for" };
+      }
+
+      return { ip: "127.0.0.1", source: "socket" };
+    },
+  );
   mocks.verifyHCaptcha.mockResolvedValue(true);
   mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
   mocks.processFormSchedule.mockResolvedValue(null);
@@ -1175,9 +1185,10 @@ describe("R23-T1 public form input validation submit slice", () => {
     const response = await submitPublicForm(responses);
 
     expect(response.status).toBe(201);
-    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith([
-      "telemetry-token",
-    ]);
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["telemetry-token"],
+      "203.0.113.10",
+    );
     expect(getInsertedResponseRow()).toEqual(
       expect.objectContaining({
         formId: "form-1",
@@ -1188,6 +1199,83 @@ describe("R23-T1 public form input validation submit slice", () => {
       JSON.parse(getStoredResponseDataJson(getInsertedResponseRow())),
     ).toEqual(responses);
     expect(mocks.addValidationJob).not.toHaveBeenCalled();
+  });
+
+  it("rejects a public submission when telemetry token IP binding fails", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.consumeTokensOrThrow.mockRejectedValueOnce(
+      new Error("Invalid, expired, or IP-mismatched telemetry tokens"),
+    );
+
+    const response = await submitPublicForm(responses);
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid or expired telemetry tokens",
+    });
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["telemetry-token"],
+      "203.0.113.10",
+    );
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("uses the telemetry IP boundary for token consumption instead of the general submit IP", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.extractClientIP.mockImplementation(
+      (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+        if (options.strategy === "telemetry") {
+          return { ip: "203.0.113.10", source: "x-nginx-forwarded-for" };
+        }
+
+        return { ip: "198.51.100.250", source: "x-forwarded-for" };
+      },
+    );
+
+    const response = await submitPublicForm(responses);
+
+    expect(response.status).toBe(201);
+    expect(mocks.extractClientIP).toHaveBeenCalledWith(expect.any(Request), {
+      strategy: "general",
+    });
+    expect(mocks.extractClientIP).toHaveBeenCalledWith(expect.any(Request), {
+      strategy: "telemetry",
+    });
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["telemetry-token"],
+      "203.0.113.10",
+    );
+  });
+
+  it("rejects telemetry tokens before consumption when the trusted boundary cannot determine the current IP", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.extractClientIP.mockImplementation(
+      (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+        if (options.strategy === "telemetry") {
+          return { ip: "unknown", source: "none" };
+        }
+
+        return { ip: "127.0.0.1", source: "socket" };
+      },
+    );
+
+    const response = await submitPublicForm(responses);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unable to determine client IP",
+    });
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
   it.each([
