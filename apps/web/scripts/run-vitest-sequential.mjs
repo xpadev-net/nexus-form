@@ -24,6 +24,11 @@ const files = [];
 collectTestFiles(join(webRoot, "src"), files);
 files.sort();
 
+if (files.length === 0) {
+  console.error("No test files found under src.");
+  process.exit(1);
+}
+
 const extraArgs = process.argv.slice(2);
 
 let failed = false;
