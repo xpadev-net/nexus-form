@@ -170,7 +170,9 @@ function mapApiError(e: unknown): GoogleApiError {
   const errObj: GoogleApiError = { code: "unknown", message };
   // AbortSignal.timeout() による中断は DOMException("TimeoutError")、
   // 手動中断は "AbortError" を投げる。どちらも一過性の障害として
-  // 再試行可能な "internal" に分類する。
+  // 再試行可能な "internal" に分類する。shutdown が fetch 中に届いた
+  // 場合も、Sheets 側で書き込み済みかもしれないため、pending
+  // idempotency key の復旧パスに任せて安全に再試行させる。
   if (
     e instanceof Error &&
     (e.name === "TimeoutError" || e.name === "AbortError")

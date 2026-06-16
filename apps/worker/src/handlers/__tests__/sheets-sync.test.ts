@@ -1,50 +1,11 @@
 import { type Job, UnrecoverableError } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const shutdownSignalMock = vi.hoisted(() => {
-  let controller = new AbortController();
-  const signal = {
-    get aborted(): boolean {
-      return controller.signal.aborted;
-    },
-    get onabort(): AbortSignal["onabort"] {
-      return controller.signal.onabort;
-    },
-    set onabort(value: AbortSignal["onabort"]) {
-      controller.signal.onabort = value;
-    },
-    get reason(): unknown {
-      return controller.signal.reason;
-    },
-    addEventListener(
-      ...args: Parameters<AbortSignal["addEventListener"]>
-    ): void {
-      controller.signal.addEventListener(...args);
-    },
-    dispatchEvent(...args: Parameters<AbortSignal["dispatchEvent"]>): boolean {
-      return controller.signal.dispatchEvent(...args);
-    },
-    removeEventListener(
-      ...args: Parameters<AbortSignal["removeEventListener"]>
-    ): void {
-      controller.signal.removeEventListener(...args);
-    },
-    throwIfAborted(): void {
-      controller.signal.throwIfAborted();
-    },
-  };
-
-  return {
-    signal,
-    abort(reason?: unknown): void {
-      controller.abort(
-        reason ?? new DOMException("Worker shutdown", "AbortError"),
-      );
-    },
-    reset(): void {
-      controller = new AbortController();
-    },
-  };
+const shutdownSignalMock = await vi.hoisted(async () => {
+  const { createShutdownSignalMock } = await import(
+    "../../lib/__tests__/test-helpers/shutdown-signal-mock"
+  );
+  return createShutdownSignalMock();
 });
 
 vi.mock("@nexus-form/database", () => ({

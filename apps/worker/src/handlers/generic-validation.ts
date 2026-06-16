@@ -337,6 +337,9 @@ export const handleGenericValidation = async (
     }
   } catch (error) {
     if (isShutdownAbortError(error) && !isFinalBullMqAttempt(job)) {
+      // Retry re-enters markValidationProcessing against the same PROCESSING
+      // row/jobId. mysql2 counts matched rows via CLIENT_FOUND_ROWS by default,
+      // so the idempotent PROCESSING -> PROCESSING update is accepted.
       throw error;
     }
     if (isAbortError(error) && isFinalBullMqAttempt(job)) {
