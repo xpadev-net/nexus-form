@@ -168,6 +168,15 @@ export const FormValidationRulesPage: FC<Props> = ({
 
   const providers = providersQuery.data?.data ?? [];
   const rules = rulesQuery.data ?? [];
+  const hasQueryError = providersQuery.isError || rulesQuery.isError;
+  const providersErrorMessage =
+    providersQuery.error instanceof Error
+      ? providersQuery.error.message
+      : "検証プロバイダー一覧を読み込めませんでした。";
+  const rulesErrorMessage =
+    rulesQuery.error instanceof Error
+      ? rulesQuery.error.message
+      : "検証ルール一覧を読み込めませんでした。";
 
   const handleCreate = () => {
     const firstProvider = providers[0];
@@ -219,28 +228,65 @@ export const FormValidationRulesPage: FC<Props> = ({
         </p>
       </header>
 
-      {rules.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-          検証ルールはまだありません。「ルール追加」から作成してください。
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {rules.map((rule) => (
-            <ValidationRuleCard
-              key={rule.id}
-              rule={rule}
-              providers={providers}
-              blocks={blocks}
-              formId={formId}
-              onUpdate={(payload) =>
-                updateMutation.mutate({ ruleId: rule.id, payload })
-              }
-              onDelete={() => deleteMutation.mutate(rule.id)}
-              busy={updateMutation.isPending || deleteMutation.isPending}
-            />
-          ))}
+      {providersQuery.isError && (
+        <div
+          className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3"
+          role="alert"
+        >
+          <p className="text-sm text-destructive">{providersErrorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="validation-providers-query-retry"
+            onClick={() => void providersQuery.refetch()}
+          >
+            再読み込み
+          </Button>
         </div>
       )}
+
+      {rulesQuery.isError && (
+        <div
+          className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3"
+          role="alert"
+        >
+          <p className="text-sm text-destructive">{rulesErrorMessage}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="validation-rules-query-retry"
+            onClick={() => void rulesQuery.refetch()}
+          >
+            再読み込み
+          </Button>
+        </div>
+      )}
+
+      {!hasQueryError &&
+        (rules.length === 0 ? (
+          <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+            検証ルールはまだありません。「ルール追加」から作成してください。
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {rules.map((rule) => (
+              <ValidationRuleCard
+                key={rule.id}
+                rule={rule}
+                providers={providers}
+                blocks={blocks}
+                formId={formId}
+                onUpdate={(payload) =>
+                  updateMutation.mutate({ ruleId: rule.id, payload })
+                }
+                onDelete={() => deleteMutation.mutate(rule.id)}
+                busy={updateMutation.isPending || deleteMutation.isPending}
+              />
+            ))}
+          </div>
+        ))}
     </div>
   );
 };
@@ -437,6 +483,7 @@ const ValidationRuleCard: FC<RuleCardProps> = ({
             config={rule.configJson}
             disabled={busy}
             formId={formId}
+            idPrefix={`rule-${rule.id}-config`}
             onChange={(nextConfig) => onUpdate({ configJson: nextConfig })}
           />
         </div>
