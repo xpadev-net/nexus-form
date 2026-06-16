@@ -6,6 +6,10 @@ import type {
 import { z } from "zod";
 import { DiscordErrorCode } from "./error-codes";
 import {
+  hasAdministratorPermission,
+  ZDiscordPermissionString,
+} from "./permissions";
+import {
   discordApiFetch,
   getGuildRoles as fetchGuildRoles,
   findGuildMemberByUsername,
@@ -84,14 +88,12 @@ const DiscordUserGuildSchema = z.object({
   id: z.string(),
   name: z.string(),
   icon: z.string().nullable(),
-  permissions: z.string(),
+  permissions: ZDiscordPermissionString,
 });
 
 const DiscordRolesQuerySchema = z.object({
   guildId: z.string(),
 });
-
-const ADMINISTRATOR_PERMISSION = BigInt(0x8);
 
 function normalizeDiscordUsername(username: string): string {
   let normalized = username.trim();
@@ -194,7 +196,13 @@ async function fetchUserGuilds(accessToken: string) {
     );
   }
 
-  return z.array(DiscordUserGuildSchema).parse(await response.json());
+  const guilds = z
+    .array(DiscordUserGuildSchema)
+    .safeParse(await response.json());
+  if (!guilds.success) {
+    throw new Error("Failed to parse Discord guilds");
+  }
+  return guilds.data;
 }
 
 async function getConfiguredGuildRoles(
@@ -486,12 +494,9 @@ export const discordProvider: ValidationProvider = {
       ]);
 
       const botGuildIds = new Set(botGuilds.map((g) => g.id as string));
-      const adminGuilds = userGuilds.filter((guild) => {
-        const permissions = BigInt(guild.permissions);
-        return (
-          (permissions & ADMINISTRATOR_PERMISSION) === ADMINISTRATOR_PERMISSION
-        );
-      });
+      const adminGuilds = userGuilds.filter((guild) =>
+        hasAdministratorPermission(guild.permissions),
+      );
 
       return {
         guilds: adminGuilds
@@ -518,10 +523,7 @@ export const discordProvider: ValidationProvider = {
       const guilds = await fetchUserGuilds(linkedAccount.accessToken);
       const hasAdministratorAccess = guilds.some((guild) => {
         if (guild.id !== guildId) return false;
-        const permissions = BigInt(guild.permissions);
-        return (
-          (permissions & ADMINISTRATOR_PERMISSION) === ADMINISTRATOR_PERMISSION
-        );
+        return hasAdministratorPermission(guild.permissions);
       });
       if (!hasAdministratorAccess) {
         throw new Error("Access denied to this guild");
