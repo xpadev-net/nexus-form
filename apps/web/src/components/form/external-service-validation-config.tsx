@@ -25,11 +25,13 @@ import { getValidationProviderRule } from "@/lib/validation/validation-providers
 type ProviderConfig = Record<string, unknown>;
 
 const EMPTY_PROVIDER_CONFIG: ProviderConfig = {};
+const CONFIG_OPTION_ID_SEPARATOR = "::";
 
 interface ExternalServiceValidationConfigProps {
   providerName: string;
   ruleType: string;
   providers: ValidationProviderItem[];
+  idPrefix: string;
   config?: ProviderConfig;
   disabled?: boolean;
   formId?: string;
@@ -218,8 +220,18 @@ const DynamicConfigField: FC<{
   config: ProviderConfig;
   disabled: boolean;
   formId: string | undefined;
+  idPrefix: string;
   onConfigChange: (config: ProviderConfig | undefined) => void;
-}> = ({ service, field, fields, config, disabled, formId, onConfigChange }) => {
+}> = ({
+  service,
+  field,
+  fields,
+  config,
+  disabled,
+  formId,
+  idPrefix,
+  onConfigChange,
+}) => {
   const queryClient = useQueryClient();
   const optionQuery = useFieldOptions(service, field, config, formId);
   const sourceOptions = optionQuery.data ?? [];
@@ -255,17 +267,18 @@ const DynamicConfigField: FC<{
   const description = field.description ? (
     <p className="text-xs text-muted-foreground">{field.description}</p>
   ) : null;
+  const fieldId = `${idPrefix}-${field.name}`;
 
   if (field.kind === "text") {
     const value = getStringValue(config, field.name) ?? "";
     return (
       <div className="space-y-2">
-        <Label htmlFor={field.name}>
+        <Label htmlFor={fieldId}>
           {field.label}
           {field.required ? " *" : ""}
         </Label>
         <CompositionAwareInput
-          id={field.name}
+          id={fieldId}
           value={value}
           onChange={(event) => setFieldValue(event.target.value)}
           placeholder={field.placeholder}
@@ -281,7 +294,7 @@ const DynamicConfigField: FC<{
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={field.name}>
+          <Label htmlFor={fieldId}>
             {field.label}
             {field.required ? " *" : ""}
           </Label>
@@ -316,7 +329,7 @@ const DynamicConfigField: FC<{
             onValueChange={(nextValue) => setFieldValue(nextValue)}
             disabled={disabled || isLoading}
           >
-            <SelectTrigger id={field.name}>
+            <SelectTrigger id={fieldId}>
               <SelectValue
                 placeholder={field.placeholder ?? "選択してください"}
               />
@@ -385,10 +398,11 @@ const DynamicConfigField: FC<{
               options.map((option) => {
                 const checked = selectedValues.includes(option.value);
                 const color = formatColor(option.color);
+                const optionId = `${fieldId}${CONFIG_OPTION_ID_SEPARATOR}${option.value}`;
                 return (
                   <div key={option.value} className="flex items-center gap-2">
                     <Checkbox
-                      id={`${field.name}-${option.value}`}
+                      id={optionId}
                       checked={checked}
                       onCheckedChange={(nextChecked) => {
                         const nextValues = nextChecked
@@ -399,7 +413,7 @@ const DynamicConfigField: FC<{
                       disabled={disabled}
                     />
                     <label
-                      htmlFor={`${field.name}-${option.value}`}
+                      htmlFor={optionId}
                       className="flex flex-1 cursor-pointer items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
                     >
                       {color && (
@@ -436,20 +450,20 @@ const DynamicConfigField: FC<{
           onValueChange={(nextValue) => setFieldValue(nextValue)}
           disabled={disabled}
         >
-          {options.map((option) => (
-            <div key={option.value} className="flex items-center gap-2">
-              <RadioGroupItem
-                value={option.value}
-                id={`${field.name}-${option.value}`}
-              />
-              <Label
-                htmlFor={`${field.name}-${option.value}`}
-                className="cursor-pointer font-normal"
-              >
-                {option.label}
-              </Label>
-            </div>
-          ))}
+          {options.map((option) => {
+            const optionId = `${fieldId}${CONFIG_OPTION_ID_SEPARATOR}${option.value}`;
+            return (
+              <div key={option.value} className="flex items-center gap-2">
+                <RadioGroupItem value={option.value} id={optionId} />
+                <Label
+                  htmlFor={optionId}
+                  className="cursor-pointer font-normal"
+                >
+                  {option.label}
+                </Label>
+              </div>
+            );
+          })}
         </RadioGroup>
         {description}
       </div>
@@ -465,6 +479,7 @@ export const ExternalServiceValidationConfig: FC<
   providerName,
   ruleType,
   providers,
+  idPrefix,
   config = EMPTY_PROVIDER_CONFIG,
   disabled = false,
   formId,
@@ -497,6 +512,7 @@ export const ExternalServiceValidationConfig: FC<
           config={config}
           disabled={disabled}
           formId={formId}
+          idPrefix={idPrefix}
           onConfigChange={(nextConfig) => onChange(nextConfig ?? {})}
         />
       ))}
