@@ -41,4 +41,3 @@ jobs:
 
       - name: Forbid hardcoded colors (full repo)
         run: pnpm ci:forbid-colors:all
-        continue-on-error: true
