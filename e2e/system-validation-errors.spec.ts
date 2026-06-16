@@ -438,31 +438,15 @@ test.describe("System External Service E2E - エラーケース", () => {
     await pageA.close();
   });
 
-  test("タイムアウトエラーの処理", async ({ context }) => {
-    const pageA = await createAuthenticatedContext(context, TEST_USERS.userA);
-
-    // 注: 検証は非同期ジョブとして実行されるため、モックは不要
-
-    // フォーム作成とテスト
-    const form = await createTestForm(pageA);
-    await goToFormEditor(pageA, form.id);
-
-    // （フォーム設定は上記と同様）
-
-    await pageA.close();
+  test.fixme("タイムアウトエラーの処理", () => {
+    throw new Error(
+      "R27-H9でE2E harnessが接続されたら、タイムアウトエラーの実assertionへ置き換える。",
+    );
   });
 
-  test("複数のエラーが同時に発生した場合の処理", async ({ context }) => {
-    const pageA = await createAuthenticatedContext(context, TEST_USERS.userA);
-
-    // 注: 検証は非同期ジョブとして実行されるため、モックは不要
-
-    // 3サービスのフォームを作成し、全てエラーになることを確認
-    const form = await createTestForm(pageA);
-    await goToFormEditor(pageA, form.id);
-
-    // （3サービス設定と回答送信は上記パターンと同様）
-
-    await pageA.close();
+  test.fixme("複数のエラーが同時に発生した場合の処理", () => {
+    throw new Error(
+      "R27-H9でE2E harnessが接続されたら、複数エラー同時発生の実assertionへ置き換える。",
+    );
   });
 });
