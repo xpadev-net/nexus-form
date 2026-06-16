@@ -1,4 +1,5 @@
 import type { Job } from "bullmq";
+import { UnrecoverableError } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -36,10 +37,11 @@ const DISCORD_URL = "https://discord.com/api/webhooks/123/discord-token";
 const WEBHOOK_URL = "https://zapier.com/hooks/catch/current";
 const WEBHOOK_SECRET = "current-secret-current-secret-123456";
 
-function makeJob(data: unknown): Job<unknown> {
+function makeJob(data: unknown, progress?: unknown): Job<unknown> {
   return {
     id: "job-1",
     data,
+    progress,
     updateProgress: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job<unknown>;
 }
@@ -92,7 +94,7 @@ describe("handleFormSubmitNotifications", () => {
   it("rejects invalid job data before any delivery attempt", async () => {
     await expect(
       handleFormSubmitNotifications(makeJob({ formId: "form-1" })),
-    ).rejects.toThrow();
+    ).rejects.toThrow(UnrecoverableError);
 
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -172,8 +174,8 @@ describe("handleFormSubmitNotifications", () => {
           }),
       ),
     );
-    const consoleError = vi
-      .spyOn(console, "error")
+    const consoleWarn = vi
+      .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     setupSnapshotNotifications({
       on_submit: {
@@ -190,8 +192,8 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: [],
-      skipped: [],
-      failed: ["discord"],
+      skipped: ["discord"],
+      failed: [],
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
@@ -201,8 +203,8 @@ describe("handleFormSubmitNotifications", () => {
         redirect: "manual",
       }),
     );
-    expect(mocks.captureError).toHaveBeenCalledTimes(1);
-    const logged = JSON.stringify(consoleError.mock.calls);
+    expect(mocks.captureError).not.toHaveBeenCalled();
+    const logged = JSON.stringify(consoleWarn.mock.calls);
     expect(logged).toContain("rejected redirect with status 302");
     expect(logged).not.toContain("example.com");
     expect(logged).not.toContain(DISCORD_URL);
@@ -220,8 +222,8 @@ describe("handleFormSubmitNotifications", () => {
           }),
       ),
     );
-    const consoleError = vi
-      .spyOn(console, "error")
+    const consoleWarn = vi
+      .spyOn(console, "warn")
       .mockImplementation(() => undefined);
     setupSnapshotNotifications({
       on_submit: {
@@ -240,8 +242,8 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: [],
-      skipped: [],
-      failed: ["webhook"],
+      skipped: ["webhook"],
+      failed: [],
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(
@@ -251,8 +253,8 @@ describe("handleFormSubmitNotifications", () => {
         redirect: "manual",
       }),
     );
-    expect(mocks.captureError).toHaveBeenCalledTimes(1);
-    const logged = JSON.stringify(consoleError.mock.calls);
+    expect(mocks.captureError).not.toHaveBeenCalled();
+    const logged = JSON.stringify(consoleWarn.mock.calls);
     expect(logged).toContain("rejected redirect with status 307");
     expect(logged).not.toContain("example.com");
     expect(logged).not.toContain(WEBHOOK_URL);
@@ -298,14 +300,15 @@ describe("handleFormSubmitNotifications", () => {
 
     try {
       const resultPromise = handleFormSubmitNotifications(job);
+      const rejection = expect(resultPromise).rejects.toThrow("Aborted");
       await vi.advanceTimersByTimeAsync(1000);
-      const result = await resultPromise;
+      await rejection;
 
-      expect(result).toEqual({
+      const expectedProgress = {
         delivered: [],
         skipped: [],
         failed: ["webhook"],
-      });
+      };
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith(
         WEBHOOK_URL,
@@ -314,7 +317,7 @@ describe("handleFormSubmitNotifications", () => {
           redirect: "manual",
         }),
       );
-      expect(mocks.captureError).toHaveBeenCalledTimes(1);
+      expect(mocks.captureError).not.toHaveBeenCalled();
       expect(consoleError).toHaveBeenCalledWith(
         "[notification] channel delivery failed",
         expect.objectContaining({
@@ -322,13 +325,13 @@ describe("handleFormSubmitNotifications", () => {
           errorName: "AbortError",
         }),
       );
-      expect(job.updateProgress).toHaveBeenCalledWith(result);
+      expect(job.updateProgress).toHaveBeenCalledWith(expectedProgress);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("records channel failure without throwing or logging raw secrets", async () => {
+  it("throws retryable channel failure after recording progress without logging raw secrets", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(null, { status: 500 })),
@@ -349,18 +352,104 @@ describe("handleFormSubmitNotifications", () => {
     });
     const job = makeJob(baseJobData());
 
-    const result = await handleFormSubmitNotifications(job);
+    await expect(handleFormSubmitNotifications(job)).rejects.toThrow(
+      "Webhook notification failed with status 500",
+    );
 
-    expect(result).toEqual({
+    const expectedProgress = {
       delivered: [],
       skipped: [],
       failed: ["webhook"],
-    });
+    };
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(mocks.captureError).toHaveBeenCalledTimes(1);
+    expect(mocks.captureError).not.toHaveBeenCalled();
     const logged = JSON.stringify(consoleError.mock.calls);
     expect(logged).not.toContain(WEBHOOK_URL);
     expect(logged).not.toContain(WEBHOOK_SECRET);
+    expect(job.updateProgress).toHaveBeenCalledWith(expectedProgress);
+  });
+
+  it("persists delivered channels before a later retryable channel failure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 204 }))
+        .mockResolvedValueOnce(new Response(null, { status: 500 })),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    setupSnapshotNotifications({
+      on_submit: {
+        discord: {
+          enabled: true,
+          webhook_url: DISCORD_URL,
+          message_template: "response {{response_id}}",
+        },
+        webhook: {
+          enabled: true,
+          url: WEBHOOK_URL,
+          secret: WEBHOOK_SECRET,
+          timeout_seconds: 30,
+          retry_attempts: 0,
+        },
+      },
+    });
+    const job = makeJob(baseJobData());
+
+    await expect(handleFormSubmitNotifications(job)).rejects.toThrow(
+      "Webhook notification failed with status 500",
+    );
+
+    expect(job.updateProgress).toHaveBeenNthCalledWith(1, {
+      delivered: ["discord"],
+      skipped: [],
+      failed: [],
+    });
+    expect(job.updateProgress).toHaveBeenLastCalledWith({
+      delivered: ["discord"],
+      skipped: [],
+      failed: ["webhook"],
+    });
+  });
+
+  it("does not redeliver channels already marked delivered in job progress", async () => {
+    setupSnapshotNotifications({
+      on_submit: {
+        discord: {
+          enabled: true,
+          webhook_url: DISCORD_URL,
+          message_template: "response {{response_id}}",
+        },
+        webhook: {
+          enabled: true,
+          url: WEBHOOK_URL,
+          secret: WEBHOOK_SECRET,
+          timeout_seconds: 30,
+          retry_attempts: 0,
+        },
+      },
+    });
+    const job = makeJob(baseJobData(), {
+      delivered: ["discord"],
+      skipped: [],
+      failed: ["webhook"],
+    });
+
+    const result = await handleFormSubmitNotifications(job);
+
+    expect(result).toEqual({
+      delivered: ["discord", "webhook"],
+      skipped: [],
+      failed: [],
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledWith(
+      WEBHOOK_URL,
+      expect.objectContaining({
+        method: "POST",
+        redirect: "manual",
+      }),
+    );
     expect(job.updateProgress).toHaveBeenCalledWith(result);
   });
 
@@ -383,8 +472,8 @@ describe("handleFormSubmitNotifications", () => {
 
     expect(result).toEqual({
       delivered: [],
-      skipped: [],
-      failed: ["email"],
+      skipped: ["email"],
+      failed: [],
     });
     expect(fetch).not.toHaveBeenCalled();
     expect(consoleWarn).toHaveBeenCalledWith(
@@ -427,6 +516,39 @@ describe("handleFormSubmitNotifications", () => {
         formId: "form-1",
         responseId: "response-1",
         recipientCount: 1,
+      }),
+    );
+    expect(job.updateProgress).toHaveBeenCalledWith(result);
+  });
+
+  it("skips invalid stored notification config without retrying the job", async () => {
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+    setupSnapshotNotifications({
+      on_submit: {
+        discord: {
+          enabled: true,
+          webhook_url: "https://example.com/not-a-discord-webhook",
+        },
+      },
+    });
+    const job = makeJob(baseJobData());
+
+    const result = await handleFormSubmitNotifications(job);
+
+    expect(result).toEqual({
+      delivered: [],
+      skipped: [],
+      failed: [],
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(consoleWarn).toHaveBeenCalledWith(
+      "[notification] stored notification config skipped",
+      expect.objectContaining({
+        formId: "form-1",
+        responseId: "response-1",
+        snapshotVersion: 7,
       }),
     );
     expect(job.updateProgress).toHaveBeenCalledWith(result);

@@ -81,19 +81,18 @@ describe("queues", () => {
     });
   });
 
-  it("limits retained form submit notification jobs by default", () => {
+  it("retries and limits retained form submit notification jobs by default", () => {
     getFormSubmitNotificationQueue();
 
     expect(mocks.queueInstances[0]?.options.defaultJobOptions).toMatchObject({
+      attempts: 3,
+      backoff: {
+        type: "exponential",
+        delay: 30_000,
+      },
       removeOnComplete: 100,
       removeOnFail: 100,
     });
-    expect(
-      mocks.queueInstances[0]?.options.defaultJobOptions,
-    ).not.toHaveProperty("attempts");
-    expect(
-      mocks.queueInstances[0]?.options.defaultJobOptions,
-    ).not.toHaveProperty("backoff");
   });
 
   it("exposes retry options for manual sheets sync jobs", () => {
