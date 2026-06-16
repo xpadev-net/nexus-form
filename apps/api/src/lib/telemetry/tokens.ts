@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
+import type { InferSelectModel } from "drizzle-orm";
 import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+
+type TelemetryTokenRow = InferSelectModel<typeof telemetryToken>;
 
 function resolveTelemetryIpSalt(): string {
   const telemetrySalt = process.env.TELEMETRY_IP_SALT;
@@ -19,6 +22,12 @@ function resolveTelemetryIpSalt(): string {
     .digest("hex");
 }
 
+/**
+ * Hashes a client IP address with the configured telemetry salt.
+ *
+ * @param ip - Normalized client IP address to hash.
+ * @returns Stable salted hash used for telemetry token binding.
+ */
 export function hashIPAddress(ip: string): string {
   const salt = resolveTelemetryIpSalt();
   return createHash("sha256")
@@ -26,6 +35,14 @@ export function hashIPAddress(ip: string): string {
     .digest("hex");
 }
 
+/**
+ * Atomically consumes unused telemetry tokens bound to the current client IP.
+ *
+ * @param tokens - Telemetry token values submitted by the public form.
+ * @param currentIp - Normalized client IP address observed during submission.
+ * @returns Resolves when every unique token is valid, unused, unexpired, and IP-bound to currentIp.
+ * @throws When no tokens are provided or any token is invalid, expired, already used, or IP-mismatched.
+ */
 export async function consumeTokensOrThrow(
   tokens: string[],
   currentIp: string,
@@ -57,7 +74,17 @@ export async function consumeTokensOrThrow(
   }
 }
 
-export async function findTelemetryTokens(tokens: string[], currentIp: string) {
+/**
+ * Finds unused telemetry tokens that are still valid for the current client IP.
+ *
+ * @param tokens - Telemetry token values to look up.
+ * @param currentIp - Normalized client IP address that must match the issued token binding.
+ * @returns Matching unused and unexpired telemetry token rows for the supplied IP.
+ */
+export async function findTelemetryTokens(
+  tokens: string[],
+  currentIp: string,
+): Promise<TelemetryTokenRow[]> {
   return db
     .select()
     .from(telemetryToken)
