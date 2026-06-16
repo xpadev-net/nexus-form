@@ -123,8 +123,8 @@ export async function fillFormResponse(
   values: string[],
 ): Promise<void> {
   const inputs = page.locator('input[type="text"]');
-  for (let i = 0; i < values.length; i++) {
-    await inputs.nth(i).fill(values[i]);
+  for (const [i, value] of values.entries()) {
+    await inputs.nth(i).fill(value);
     await page.waitForTimeout(300);
   }
 }

@@ -236,9 +236,13 @@ test.describe("アクセシビリティ - 見出し構造", () => {
     expect(h1Count).toBeGreaterThan(0);
 
     // 見出しレベルがスキップされていないことを確認
-    for (let i = 1; i < headingStructure.length; i++) {
-      const currentLevel = headingStructure[i].level;
-      const previousLevel = headingStructure[i - 1].level;
+    for (const [i, heading] of headingStructure.entries()) {
+      if (i === 0) continue;
+      const previousHeading = headingStructure[i - 1];
+      if (!previousHeading) continue;
+
+      const currentLevel = heading.level;
+      const previousLevel = previousHeading.level;
       const levelDiff = currentLevel - previousLevel;
 
       // レベルが2以上上がっていないことを確認

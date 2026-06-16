@@ -57,7 +57,7 @@
 
 1. Playwrightのブラウザがインストールされていること（初回のみ）:
 ```bash
-pnpm playwright install chromium
+pnpm exec playwright install chromium
 ```
 
 2. テスト用のデータベースがセットアップされていること
@@ -82,12 +82,17 @@ pnpm test:e2e:headed
 
 #### 特定のテストファイルのみ実行
 ```bash
-pnpm playwright test e2e/realtime-collaboration.spec.ts
+pnpm test:e2e -- e2e/realtime-collaboration.spec.ts
 ```
 
 #### 特定のテストケースのみ実行
 ```bash
-pnpm playwright test --grep "シナリオ1"
+pnpm test:e2e -- --grep "シナリオ1"
+```
+
+#### CI と同じ harness 検証
+```bash
+pnpm test:e2e:ci
 ```
 
 ## テストヘルパー
@@ -180,7 +185,7 @@ pnpm test:e2e:headed
 
 3. **特定のテストのみ実行**
 ```bash
-pnpm playwright test --grep "シナリオ1" --headed
+pnpm test:e2e -- --grep "シナリオ1" --headed
 ```
 
 4. **スクリーンショットを確認**

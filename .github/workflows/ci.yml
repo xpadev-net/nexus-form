@@ -154,6 +154,135 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+  e2e-harness:
+    name: E2E Harness
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root
+          MYSQL_DATABASE: nexus_form_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci_root"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: mysql://root:ci_root@127.0.0.1:3306/nexus_form_ci
+      REDIS_URL: redis://127.0.0.1:6379
+      AUTH_SECRET: ci-test-auth-secret-must-be-at-least-32-characters
+      BETTER_AUTH_SECRET: ci-test-auth-secret-must-be-at-least-32-characters
+      GOOGLE_OAUTH_ENC_KEY: ci-google-oauth-encryption-key
+      SERVICE_MONITORING_INTERVAL: "0"
+      VALIDATION_PLUGINS_DIR: plugins/validation
+      VITE_API_URL: http://127.0.0.1:3001
+      VITE_BASE_URL: http://127.0.0.1:3000
+      VITE_HCAPTCHA_SITE_KEY: ci-hcaptcha-site-key
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-store-${{ runner.os }}-
+          path: |
+            ${{ env.STORE_PATH }}
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Apply database migrations
+        run: |
+          set -euo pipefail
+          mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=0;"
+          trap 'mysql -h 127.0.0.1 -P 3306 -uroot -pci_root -e "SET GLOBAL foreign_key_checks=1;"' EXIT
+          pnpm --filter @nexus-form/database exec drizzle-kit migrate
+
+      - name: Build E2E server artifacts
+        run: pnpm build
+
+      - name: Start API server
+        run: |
+          set -euo pipefail
+          node apps/api/dist/index.mjs > /tmp/nexus-form-api.log 2>&1 &
+          echo "$!" > /tmp/nexus-form-api.pid
+
+      - name: Wait for API server
+        run: |
+          set -euo pipefail
+          for _ in {1..60}; do
+            if curl -fsS http://127.0.0.1:3001/api/healthz; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/nexus-form-api.log
+          exit 1
+
+      - name: Start web server
+        run: |
+          set -euo pipefail
+          apps/web/node_modules/.bin/vite preview --host 127.0.0.1 --port 3000 > /tmp/nexus-form-web.log 2>&1 &
+          echo "$!" > /tmp/nexus-form-web.pid
+
+      - name: Wait for web server
+        run: |
+          set -euo pipefail
+          for _ in {1..60}; do
+            if curl -fsS http://127.0.0.1:3000/ > /dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/nexus-form-web.log
+          exit 1
+
+      - name: Validate Playwright E2E collection
+        run: pnpm test:e2e:ci
+        env:
+          BASE_URL: http://127.0.0.1:3000
+          PLAYWRIGHT_SKIP_WEB_SERVER: "1"
+
+      - name: Stop E2E servers
+        if: always()
+        run: |
+          if [ -f /tmp/nexus-form-web.pid ]; then
+            kill "$(cat /tmp/nexus-form-web.pid)" || true
+          fi
+          if [ -f /tmp/nexus-form-api.pid ]; then
+            kill "$(cat /tmp/nexus-form-api.pid)" || true
+          fi
+
   build:
     name: Build (production)
     runs-on: ubuntu-latest
