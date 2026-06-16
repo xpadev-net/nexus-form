@@ -46,21 +46,7 @@ jobs:
       - name: Calculate new version
         id: version
         run: |
-          git checkout master
-          current_version=$(node -p "require('./package.json').version")
-          echo "Current version: $current_version"
-          
-          # Calculate new version based on release type
-          if [ "${{ github.event.inputs.release_type }}" = "major" ]; then
-            new_version=$(node -p "const [major, minor, patch] = '${current_version}'.split('.'); \`\${Number(major) + 1}.0.0\`")
-          elif [ "${{ github.event.inputs.release_type }}" = "minor" ]; then
-            new_version=$(node -p "const [major, minor, patch] = '${current_version}'.split('.'); \`\${major}.\${Number(minor) + 1}.0\`")
-          else
-            new_version=$(node -p "const [major, minor, patch] = '${current_version}'.split('.'); \`\${major}.\${minor}.\${Number(patch) + 1}\`")
-          fi
-          
-          echo "New version: $new_version"
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT
+          node scripts/validate-release-version.mjs "${{ github.event.inputs.release_type }}" --github-output "$GITHUB_OUTPUT"
 
       - name: Update package.json version
         run: |

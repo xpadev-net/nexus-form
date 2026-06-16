@@ -1,6 +1,13 @@
 import { type Job, UnrecoverableError } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const shutdownSignalMock = await vi.hoisted(async () => {
+  const { createShutdownSignalMock } = await import(
+    "../../lib/__tests__/test-helpers/shutdown-signal-mock"
+  );
+  return createShutdownSignalMock();
+});
+
 vi.mock("@nexus-form/database", () => ({
   db: { select: vi.fn() },
   formIntegration: {
@@ -56,6 +63,10 @@ vi.mock("../../lib/redis-lock", () => ({
 
 vi.mock("../../lib/response-data-extractor", () => ({
   safeParseResponseData: vi.fn(),
+}));
+
+vi.mock("../../lib/shutdown-signal", () => ({
+  workerShutdownSignal: shutdownSignalMock.signal,
 }));
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
@@ -196,6 +207,7 @@ function getInvocationCallOrder(
 }
 
 beforeEach(() => {
+  shutdownSignalMock.reset();
   vi.clearAllMocks();
   mockExtractQuestionsFromPlateContent.mockReturnValue([]);
 });
@@ -585,6 +597,28 @@ describe("handleSheetsSync — idempotency states", () => {
       PENDING_IDEMPOTENCY_TTL_SECONDS,
       "pending",
     );
+  });
+
+  it("pending idempotency key 設定後の shutdown AbortError は Sheets を読まずに再スローする", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockImplementationOnce(async () => {
+      shutdownSignalMock.abort(
+        new DOMException("Worker shutdown", "AbortError"),
+      );
+    });
+
+    await expect(handleSheetsSync(makeJob())).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
   it("fails closed when the idempotency column read fails after header succeeds", async () => {
