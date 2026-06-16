@@ -103,6 +103,28 @@ export class PermissionRemovalError extends Error {
   }
 }
 
+export type InvitationAcceptErrorCode =
+  | "INVITATION_NOT_FOUND"
+  | "INVITATION_NOT_PENDING"
+  | "INVITATION_EXPIRED"
+  | "INVITER_PERMISSION_REVOKED"
+  | "USER_NOT_FOUND"
+  | "EMAIL_MISMATCH"
+  | "PERMISSION_ALREADY_EXISTS"
+  | "OWNER_INVITATION_FORBIDDEN"
+  | "INVITATION_ACCEPT_CONFLICT";
+
+export class InvitationAcceptError extends Error {
+  constructor(
+    readonly code: InvitationAcceptErrorCode,
+    readonly statusCode: 403 | 404 | 409 | 410,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InvitationAcceptError";
+  }
+}
+
 // ── Implementation ──
 
 /**
@@ -110,6 +132,34 @@ export class PermissionRemovalError extends Error {
  */
 function generateSecureToken(length: number = 32): string {
   return randomBytes(length).toString("base64url");
+}
+
+function formatPermissionWithUser(permission: {
+  id: string;
+  formId: string;
+  userId: string;
+  role: string;
+  createdAt: Date;
+  updatedAt: Date;
+  userName: string | null;
+  userEmail: string;
+}): FormPermissionWithUser {
+  return {
+    id: permission.id,
+    form_id: permission.formId,
+    user_id: permission.userId,
+    role: permission.role as FormPermissionType,
+    created_at: permission.createdAt.toISOString(),
+    updated_at: permission.updatedAt.toISOString(),
+    user: {
+      id: permission.userId,
+      name: permission.userName,
+      email: permission.userEmail,
+      discord_id: null,
+      created_at: "",
+      updated_at: "",
+    },
+  };
 }
 
 /**
@@ -305,123 +355,265 @@ export async function acceptInvitation(
   token: string,
   userId: string,
 ): Promise<FormPermissionWithUser> {
-  return await db.transaction(async (tx) => {
-    // 招待を検索
-    const [invitation] = await tx
-      .select()
-      .from(formInvitation)
-      .where(eq(formInvitation.token, token))
-      .limit(1);
+  const result = await db.transaction(
+    async (
+      tx,
+    ): Promise<FormPermissionWithUser | { expiredInvitationId: string }> => {
+      // 招待行をロックして、同じトークンの二重承諾を直列化する
+      const [invitation] = await tx
+        .select()
+        .from(formInvitation)
+        .where(eq(formInvitation.token, token))
+        .for("update")
+        .limit(1);
 
-    if (!invitation) {
-      throw new Error("Invitation not found");
-    }
+      if (!invitation) {
+        throw new InvitationAcceptError(
+          "INVITATION_NOT_FOUND",
+          404,
+          "Invitation not found",
+        );
+      }
 
-    // 招待の有効性をチェック
-    if (invitation.status !== "PENDING") {
-      throw new Error("Invitation is not pending");
-    }
+      // ユーザーが存在するかチェック
+      const [foundUser] = await tx
+        .select()
+        .from(user)
+        .where(eq(user.id, userId))
+        .limit(1);
 
-    if (invitation.expiresAt < new Date()) {
-      throw new Error("Invitation has expired");
-    }
+      if (!foundUser) {
+        throw new InvitationAcceptError(
+          "USER_NOT_FOUND",
+          404,
+          "User not found",
+        );
+      }
 
-    // ユーザーが存在するかチェック
-    const [foundUser] = await tx
-      .select()
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
+      const selectExistingPermission = () =>
+        tx
+          .select({
+            id: formPermission.id,
+            formId: formPermission.formId,
+            userId: formPermission.userId,
+            role: formPermission.role,
+            createdAt: formPermission.createdAt,
+            updatedAt: formPermission.updatedAt,
+            userName: user.name,
+            userEmail: user.email,
+          })
+          .from(formPermission)
+          .innerJoin(user, eq(formPermission.userId, user.id))
+          .where(
+            and(
+              eq(formPermission.formId, invitation.formId),
+              eq(formPermission.userId, userId),
+            ),
+          )
+          .limit(1);
 
-    if (!foundUser) {
-      throw new Error("User not found");
-    }
+      if (invitation.status === "ACCEPTED") {
+        if (foundUser.email !== invitation.email) {
+          throw new InvitationAcceptError(
+            "EMAIL_MISMATCH",
+            403,
+            "Invitation email does not match user email",
+          );
+        }
+        const [existingPermission] = await selectExistingPermission();
+        if (existingPermission) {
+          return formatPermissionWithUser(existingPermission);
+        }
+        throw new InvitationAcceptError(
+          "INVITATION_ACCEPT_CONFLICT",
+          409,
+          "Invitation has already been accepted",
+        );
+      }
 
-    // 招待先メールアドレスとユーザーのメールアドレスが一致するかチェック
-    if (foundUser.email !== invitation.email) {
-      throw new Error("Invitation email does not match user email");
-    }
+      if (
+        invitation.status === "CANCELLED" ||
+        invitation.status === "EXPIRED"
+      ) {
+        throw new InvitationAcceptError(
+          invitation.status === "CANCELLED"
+            ? "INVITATION_NOT_PENDING"
+            : "INVITATION_EXPIRED",
+          410,
+          invitation.status === "CANCELLED"
+            ? "Invitation has been cancelled"
+            : "Invitation has expired",
+        );
+      }
 
-    // 既に権限が存在するかチェック
-    const [existingPermission] = await tx
-      .select()
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, invitation.formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .limit(1);
+      if (invitation.status !== "PENDING") {
+        throw new InvitationAcceptError(
+          "INVITATION_NOT_PENDING",
+          409,
+          "Invitation is not pending",
+        );
+      }
 
-    if (existingPermission) {
-      throw new Error("User already has permission for this form");
-    }
+      // 招待先メールアドレスとユーザーのメールアドレスが一致するかチェック
+      if (foundUser.email !== invitation.email) {
+        throw new InvitationAcceptError(
+          "EMAIL_MISMATCH",
+          403,
+          "Invitation email does not match user email",
+        );
+      }
 
-    // OWNER招待を禁止
-    if (invitation.role === "OWNER") {
-      throw new Error(
-        "Owner invitations are not allowed. Use transfer ownership instead.",
-      );
-    }
+      if (invitation.expiresAt < new Date()) {
+        return { expiredInvitationId: invitation.id };
+      }
 
-    // 権限を作成
-    await tx.insert(formPermission).values({
-      id: randomUUID(),
-      formId: invitation.formId,
-      userId,
-      role: invitation.role,
-    });
+      const [foundForm] = await tx
+        .select({ creatorId: form.creatorId })
+        .from(form)
+        .where(eq(form.id, invitation.formId))
+        .limit(1);
 
-    // 作成した権限を取得
-    const [permission] = await tx
-      .select({
-        id: formPermission.id,
-        formId: formPermission.formId,
-        userId: formPermission.userId,
-        role: formPermission.role,
-        createdAt: formPermission.createdAt,
-        updatedAt: formPermission.updatedAt,
-        userName: user.name,
-        userEmail: user.email,
-      })
-      .from(formPermission)
-      .innerJoin(user, eq(formPermission.userId, user.id))
-      .where(
-        and(
-          eq(formPermission.formId, invitation.formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .limit(1);
+      if (!foundForm) {
+        throw new InvitationAcceptError(
+          "INVITATION_NOT_FOUND",
+          404,
+          "Invitation not found",
+        );
+      }
 
-    if (!permission) {
-      throw new Error("Failed to create permission");
-    }
+      if (foundForm.creatorId !== invitation.invitedBy) {
+        const [inviterPermission] = await tx
+          .select({ role: formPermission.role })
+          .from(formPermission)
+          .where(
+            and(
+              eq(formPermission.formId, invitation.formId),
+              eq(formPermission.userId, invitation.invitedBy),
+            ),
+          )
+          .for("update")
+          .limit(1);
 
-    // 招待を承諾済みに更新
-    await tx
+        if (
+          !inviterPermission ||
+          (inviterPermission.role !== "OWNER" &&
+            inviterPermission.role !== "EDITOR")
+        ) {
+          throw new InvitationAcceptError(
+            "INVITER_PERMISSION_REVOKED",
+            403,
+            "Inviter no longer has permission to invite users",
+          );
+        }
+      }
+
+      // 既に権限が存在するかチェック
+      const [existingPermission] = await tx
+        .select()
+        .from(formPermission)
+        .where(
+          and(
+            eq(formPermission.formId, invitation.formId),
+            eq(formPermission.userId, userId),
+          ),
+        )
+        .limit(1);
+
+      if (existingPermission) {
+        throw new InvitationAcceptError(
+          "PERMISSION_ALREADY_EXISTS",
+          409,
+          "User already has permission for this form",
+        );
+      }
+
+      // OWNER招待を禁止
+      if (invitation.role === "OWNER") {
+        throw new InvitationAcceptError(
+          "OWNER_INVITATION_FORBIDDEN",
+          409,
+          "Owner invitations are not allowed. Use transfer ownership instead.",
+        );
+      }
+
+      const acceptResult = await tx
+        .update(formInvitation)
+        .set({ status: "ACCEPTED" })
+        .where(
+          and(
+            eq(formInvitation.id, invitation.id),
+            eq(formInvitation.status, "PENDING"),
+          ),
+        );
+
+      if ((acceptResult[0]?.affectedRows ?? 0) === 0) {
+        const [currentPermission] = await selectExistingPermission();
+        if (currentPermission) {
+          return formatPermissionWithUser(currentPermission);
+        }
+        throw new InvitationAcceptError(
+          "INVITATION_ACCEPT_CONFLICT",
+          409,
+          "Invitation could not be accepted",
+        );
+      }
+
+      // 権限を作成
+      await tx.insert(formPermission).values({
+        id: randomUUID(),
+        formId: invitation.formId,
+        userId,
+        role: invitation.role,
+      });
+
+      // 作成した権限を取得
+      const [permission] = await tx
+        .select({
+          id: formPermission.id,
+          formId: formPermission.formId,
+          userId: formPermission.userId,
+          role: formPermission.role,
+          createdAt: formPermission.createdAt,
+          updatedAt: formPermission.updatedAt,
+          userName: user.name,
+          userEmail: user.email,
+        })
+        .from(formPermission)
+        .innerJoin(user, eq(formPermission.userId, user.id))
+        .where(
+          and(
+            eq(formPermission.formId, invitation.formId),
+            eq(formPermission.userId, userId),
+          ),
+        )
+        .limit(1);
+
+      if (!permission) {
+        throw new Error("Failed to create permission");
+      }
+
+      return formatPermissionWithUser(permission);
+    },
+  );
+
+  if ("expiredInvitationId" in result) {
+    await db
       .update(formInvitation)
-      .set({ status: "ACCEPTED" })
-      .where(eq(formInvitation.id, invitation.id));
+      .set({ status: "EXPIRED" })
+      .where(
+        and(
+          eq(formInvitation.id, result.expiredInvitationId),
+          eq(formInvitation.status, "PENDING"),
+        ),
+      );
+    throw new InvitationAcceptError(
+      "INVITATION_EXPIRED",
+      410,
+      "Invitation has expired",
+    );
+  }
 
-    return {
-      id: permission.id,
-      form_id: permission.formId,
-      user_id: permission.userId,
-      role: permission.role as FormPermissionType,
-      created_at: permission.createdAt.toISOString(),
-      updated_at: permission.updatedAt.toISOString(),
-      user: {
-        id: permission.userId,
-        name: permission.userName,
-        email: permission.userEmail,
-        discord_id: null,
-        created_at: "",
-        updated_at: "",
-      },
-    };
-  });
+  return result;
 }
 
 /**
@@ -560,6 +752,18 @@ export async function removePermission(
       throw new PermissionRemovalError("FORM_NOT_FOUND", "Form not found");
     }
 
+    const pendingInvitationRows = await tx
+      .select({ id: formInvitation.id })
+      .from(formInvitation)
+      .where(
+        and(
+          eq(formInvitation.formId, formId),
+          eq(formInvitation.invitedBy, userId),
+          eq(formInvitation.status, "PENDING"),
+        ),
+      )
+      .for("update");
+
     // 削除対象の権限を取得
     const [targetPermission] = await tx
       .select()
@@ -570,6 +774,7 @@ export async function removePermission(
           eq(formPermission.userId, userId),
         ),
       )
+      .for("update")
       .limit(1);
 
     if (!targetPermission) {
@@ -607,6 +812,18 @@ export async function removePermission(
           eq(formShareLink.isActive, true),
         ),
       );
+
+    if (pendingInvitationRows.length > 0) {
+      await tx
+        .update(formInvitation)
+        .set({ status: "CANCELLED" })
+        .where(
+          inArray(
+            formInvitation.id,
+            pendingInvitationRows.map((invitation) => invitation.id),
+          ),
+        );
+    }
   });
 
   const { publishSseAccessRevoked } = await import("../redis-publisher");
@@ -748,6 +965,18 @@ export async function updatePermissionRole(
         throw new Error("Form not found");
       }
 
+      const pendingInvitationRows = await tx
+        .select({ id: formInvitation.id })
+        .from(formInvitation)
+        .where(
+          and(
+            eq(formInvitation.formId, formId),
+            eq(formInvitation.invitedBy, userId),
+            eq(formInvitation.status, "PENDING"),
+          ),
+        )
+        .for("update");
+
       // 現在の権限を取得
       const [currentPermission] = await tx
         .select()
@@ -758,6 +987,7 @@ export async function updatePermissionRole(
             eq(formPermission.userId, userId),
           ),
         )
+        .for("update")
         .limit(1);
 
       if (!currentPermission) {
@@ -802,6 +1032,18 @@ export async function updatePermissionRole(
               eq(formShareLink.role, "EDITOR"),
             ),
           );
+
+        if (shouldRevokeEditorAccess && pendingInvitationRows.length > 0) {
+          await tx
+            .update(formInvitation)
+            .set({ status: "CANCELLED" })
+            .where(
+              inArray(
+                formInvitation.id,
+                pendingInvitationRows.map((invitation) => invitation.id),
+              ),
+            );
+        }
       }
 
       // 更新した権限を取得
