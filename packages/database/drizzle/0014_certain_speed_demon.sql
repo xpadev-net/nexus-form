@@ -66,6 +66,25 @@ INNER JOIN `FormStructureActiveNormalization` AS `RankedActive`
   ON `RankedActive`.`id` = `Target`.`id`
 SET `Target`.`isActive` = false;--> statement-breakpoint
 DROP TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
-ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128) GENERATED ALWAYS AS (case when `isActive` then `formId` else null end) STORED;--> statement-breakpoint
+ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128);--> statement-breakpoint
+CREATE TRIGGER `FormStructure_activeFormId_before_insert`
+BEFORE INSERT ON `FormStructure`
+FOR EACH ROW
+SET NEW.`activeFormId` = CASE
+  WHEN NEW.`isActive` = true THEN NEW.`formId`
+  ELSE NULL
+END;--> statement-breakpoint
+CREATE TRIGGER `FormStructure_activeFormId_before_update`
+BEFORE UPDATE ON `FormStructure`
+FOR EACH ROW
+SET NEW.`activeFormId` = CASE
+  WHEN NEW.`isActive` = true THEN NEW.`formId`
+  ELSE NULL
+END;--> statement-breakpoint
+UPDATE `FormStructure`
+SET `activeFormId` = CASE
+  WHEN `isActive` = true THEN `formId`
+  ELSE NULL
+END;--> statement-breakpoint
 CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`);--> statement-breakpoint
 CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`);

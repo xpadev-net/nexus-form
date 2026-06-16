@@ -1932,11 +1932,7 @@
           "type": "varchar(128)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "generated": {
-            "as": "case when `isActive` then `formId` else null end",
-            "type": "stored"
-          }
+          "autoincrement": false
         },
         "changeLog": {
           "name": "changeLog",

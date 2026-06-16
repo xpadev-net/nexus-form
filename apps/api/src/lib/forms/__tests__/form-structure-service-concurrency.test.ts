@@ -16,6 +16,7 @@ const schemaMocks = vi.hoisted(() => ({
     createdBy: { name: "FormStructure.createdBy" },
     createdAt: { name: "FormStructure.createdAt" },
     isActive: { name: "FormStructure.isActive" },
+    activeFormId: { name: "FormStructure.activeFormId" },
     changeLog: { name: "FormStructure.changeLog" },
     parentVersion: { name: "FormStructure.parentVersion" },
   },
@@ -51,6 +52,7 @@ type StructureRow = {
   createdBy: string | null;
   createdAt: Date;
   isActive: boolean;
+  activeFormId: string | null;
   changeLog: string | null;
   parentVersion: number | null;
 };
@@ -174,6 +176,7 @@ describe("saveFormStructure concurrency", () => {
         createdBy: "user-1",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         isActive: true,
+        activeFormId: "form-1",
         changeLog: "Initial",
         parentVersion: null,
       },
@@ -284,6 +287,7 @@ describe("saveFormStructure concurrency", () => {
                         row.isActive
                       ) {
                         row.isActive = false;
+                        row.activeFormId = null;
                       }
                     }
                   }
@@ -300,6 +304,7 @@ describe("saveFormStructure concurrency", () => {
               }
               rows.push({
                 ...values,
+                activeFormId: values.formId,
                 createdAt: new Date(`2026-01-01T00:00:0${values.version}.000Z`),
                 isActive: true,
               });
@@ -350,6 +355,7 @@ describe("saveFormStructure concurrency", () => {
     expect(
       rows.filter((row) => row.isActive).map((row) => row.version),
     ).toEqual([3]);
+    expect(rows.find((row) => row.version === 3)?.activeFormId).toBe("form-1");
   });
 
   it("serializes restore version allocation and active switching with the Form row lock", async () => {
@@ -366,6 +372,7 @@ describe("saveFormStructure concurrency", () => {
         createdBy: "user-1",
         createdAt: new Date("2026-01-01T00:00:00.000Z"),
         isActive: true,
+        activeFormId: "form-1",
         changeLog: "Initial",
         parentVersion: null,
       },
@@ -482,6 +489,7 @@ describe("saveFormStructure concurrency", () => {
                         row.isActive
                       ) {
                         row.isActive = false;
+                        row.activeFormId = null;
                       }
                     }
                   }
@@ -498,6 +506,7 @@ describe("saveFormStructure concurrency", () => {
               }
               rows.push({
                 ...values,
+                activeFormId: values.formId,
                 createdAt: new Date(`2026-01-01T00:00:0${values.version}.000Z`),
                 isActive: true,
               });
@@ -544,5 +553,6 @@ describe("saveFormStructure concurrency", () => {
     expect(
       rows.filter((row) => row.isActive).map((row) => row.version),
     ).toEqual([3]);
+    expect(rows.find((row) => row.version === 3)?.activeFormId).toBe("form-1");
   });
 });
