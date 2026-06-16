@@ -1,6 +1,5 @@
 import { discordProvider } from "@nexus-form/validation-provider-discord";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { z } from "zod";
 
 const getSession = vi.fn();
 const logError = vi.fn();
@@ -81,9 +80,6 @@ const FORM_ID = "form-id";
 const OWNER_ID = "owner-user-id";
 const EDITOR_ID = "editor-user-id";
 const CO_OWNER_ID = "co-owner-user-id";
-const linkedAccountProbeResponseSchema = z.object({
-  accountId: z.string().nullable(),
-});
 
 function getDiscordApiResponseSchemas() {
   const schemas = discordProvider.apiResponseSchemas;
@@ -129,9 +125,9 @@ describe("external service form OAuth authorization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     guildsHandler = vi.fn(async (context) => {
-      const linkedAccount = await context.getLinkedAccount("discord");
+      await context.getLinkedAccount("discord");
       return {
-        accountId: linkedAccount?.accountId ?? null,
+        guilds: [],
       };
     });
     providerGet.mockReturnValue({
@@ -139,7 +135,7 @@ describe("external service form OAuth authorization", () => {
         guilds: guildsHandler,
       },
       apiResponseSchemas: {
-        guilds: linkedAccountProbeResponseSchema,
+        guilds: getDiscordApiResponseSchemas().guilds,
       },
     });
   });
@@ -419,7 +415,7 @@ describe("external service form OAuth authorization", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({
-      accountId: "discord-account-id",
+      guilds: [],
     });
     expect(eq).toHaveBeenCalledWith("account.userId", OWNER_ID);
   });
@@ -488,6 +484,16 @@ describe("external service form OAuth authorization", () => {
       error: "External service API failed",
       details: "External service error",
     });
+    expect(logError).toHaveBeenCalledWith(
+      "External service API response schema missing",
+      "api",
+      expect.objectContaining({
+        provider: "discord",
+        api: "guilds",
+        formId: FORM_ID,
+        userId: OWNER_ID,
+      }),
+    );
     expect(guildsHandler).not.toHaveBeenCalled();
   });
 

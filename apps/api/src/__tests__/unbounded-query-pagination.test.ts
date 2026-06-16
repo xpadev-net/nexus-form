@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   limitCalls: [] as number[],
   listValidationRules: vi.fn(),
   countValidationRules: vi.fn(),
+  getValidationRule: vi.fn(),
+  ValidationRuleConfigError: class ValidationRuleConfigError extends Error {},
   formAuthRoles: [] as Array<unknown>,
 }));
 
@@ -84,10 +86,10 @@ vi.mock("../lib/forms/validation-rule-repository", () => ({
   countValidationRules: mocks.countValidationRules,
   createValidationRule: vi.fn(),
   deleteValidationRule: vi.fn(),
-  getValidationRule: vi.fn(),
+  getValidationRule: mocks.getValidationRule,
   reorderValidationRules: vi.fn(),
   updateValidationRule: vi.fn(),
-  ValidationRuleConfigError: class ValidationRuleConfigError extends Error {},
+  ValidationRuleConfigError: mocks.ValidationRuleConfigError,
   ValidationRuleNotFoundError: class ValidationRuleNotFoundError extends Error {},
 }));
 
@@ -1214,6 +1216,47 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.listValidationRules).toHaveBeenCalledWith("form-1", {
       limit: 4,
       offset: 8,
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 on listing", async () => {
+    mocks.listValidationRules.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    mocks.countValidationRules.mockResolvedValue(1);
+    const { formsValidationRulesRouter } = await import(
+      "../routes/forms-validation-rules"
+    );
+
+    const res = await formsValidationRulesRouter.request(
+      "/form-1/validation-rules",
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 on single rule reads", async () => {
+    mocks.getValidationRule.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    const { formsValidationRulesRouter } = await import(
+      "../routes/forms-validation-rules"
+    );
+
+    const res = await formsValidationRulesRouter.request(
+      "/form-1/validation-rules/rule-1",
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
     });
   });
 });

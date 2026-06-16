@@ -100,16 +100,22 @@ export const formsValidationRulesRouter = createHonoApp()
       const formId = c.req.param("id");
       const { page, pageSize } = c.req.valid("query");
       const offset = (page - 1) * pageSize;
-      const [rules, total] = await Promise.all([
-        listValidationRules(formId, { limit: pageSize, offset }),
-        countValidationRules(formId),
-      ]);
-      return c.json(
-        PaginatedFormValidationRulesResponseSchema.parse({
-          rules,
-          pagination: paginationMetadata(page, pageSize, total),
-        }),
-      );
+      try {
+        const [rules, total] = await Promise.all([
+          listValidationRules(formId, { limit: pageSize, offset }),
+          countValidationRules(formId),
+        ]);
+        return c.json(
+          PaginatedFormValidationRulesResponseSchema.parse({
+            rules,
+            pagination: paginationMetadata(page, pageSize, total),
+          }),
+        );
+      } catch (error) {
+        const response = configErrorResponse(error);
+        if (response) return c.json(response, 400);
+        throw error;
+      }
     },
   )
   .post(
@@ -148,11 +154,20 @@ export const formsValidationRulesRouter = createHonoApp()
   .get("/:id/validation-rules/:ruleId", async (c) => {
     const formId = c.req.param("id");
     const ruleId = c.req.param("ruleId");
-    const rule = await getValidationRule(formId, ruleId);
-    if (!rule) {
-      return c.json(formValidationRuleError("Validation rule not found"), 404);
+    try {
+      const rule = await getValidationRule(formId, ruleId);
+      if (!rule) {
+        return c.json(
+          formValidationRuleError("Validation rule not found"),
+          404,
+        );
+      }
+      return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
+    } catch (error) {
+      const response = configErrorResponse(error);
+      if (response) return c.json(response, 400);
+      throw error;
     }
-    return c.json(FormValidationRuleWireResponseSchema.parse({ rule }));
   })
   .put(
     "/:id/validation-rules/:ruleId",

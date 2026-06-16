@@ -198,6 +198,15 @@ export const externalServiceRouter = createHonoApp()
       return c.json(errorResponse("External service API not found"), 404);
     }
     const responseSchema = provider?.apiResponseSchemas?.[apiName.data];
+    if (!responseSchema) {
+      logError("External service API response schema missing", "api", {
+        provider: providerName.data,
+        api: apiName.data,
+        formId,
+        userId: auth.user_id,
+      });
+      return c.json(externalServiceFailureResponse(), 502);
+    }
 
     let effectiveUserId: string;
     try {
@@ -221,11 +230,6 @@ export const externalServiceRouter = createHonoApp()
     );
 
     try {
-      if (!responseSchema) {
-        throw new Error(
-          "External service API response schema is not registered",
-        );
-      }
       const result = await handler({
         userId: auth.user_id,
         query,
