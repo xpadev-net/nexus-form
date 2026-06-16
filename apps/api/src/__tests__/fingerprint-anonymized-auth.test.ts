@@ -119,7 +119,10 @@ describe("GET /anonymized fingerprint authorization", () => {
 
     expect(response.status).toBe(404);
     expect(mocks.checkFormPermissionLevel).toHaveBeenCalledWith(
-      mocks.authContext(),
+      expect.objectContaining({
+        auth_type: "session",
+        user_id: "user-1",
+      }),
       "form-a",
       "EDITOR",
     );
@@ -136,7 +139,10 @@ describe("GET /anonymized fingerprint authorization", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.checkFormPermissionLevel).toHaveBeenCalledWith(
-      mocks.authContext(),
+      expect.objectContaining({
+        auth_type: "session",
+        user_id: "user-1",
+      }),
       "form-a",
       "EDITOR",
     );
@@ -289,7 +295,10 @@ describe("GET /get fingerprint authorization", () => {
 
     expect(response.status).toBe(404);
     expect(mocks.checkFormPermissionLevel).toHaveBeenCalledWith(
-      mocks.authContext(),
+      expect.objectContaining({
+        auth_type: "session",
+        user_id: "user-1",
+      }),
       "form-a",
       "OWNER",
     );
@@ -312,7 +321,10 @@ describe("GET /get fingerprint authorization", () => {
 
     expect(response.status).toBe(200);
     expect(mocks.checkFormPermissionLevel).toHaveBeenCalledWith(
-      mocks.authContext(),
+      expect.objectContaining({
+        auth_type: "session",
+        user_id: "user-1",
+      }),
       "form-a",
       "OWNER",
     );
