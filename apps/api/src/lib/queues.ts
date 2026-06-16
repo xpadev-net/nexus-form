@@ -20,7 +20,7 @@ const VALIDATION_JOB_DEFAULTS: DefaultJobOptions = {
   },
 };
 
-const SHEETS_SYNC_RETRY_JOB_OPTIONS = {
+const STANDARD_QUEUE_RETRY_JOB_OPTIONS = {
   attempts: 3,
   backoff: {
     type: "exponential",
@@ -30,24 +30,16 @@ const SHEETS_SYNC_RETRY_JOB_OPTIONS = {
 
 const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
-  ...SHEETS_SYNC_RETRY_JOB_OPTIONS,
+  ...STANDARD_QUEUE_RETRY_JOB_OPTIONS,
 };
-
-const NOTIFICATION_RETRY_JOB_OPTIONS = {
-  attempts: 3,
-  backoff: {
-    type: "exponential",
-    delay: 30_000,
-  },
-} satisfies Pick<DefaultJobOptions, "attempts" | "backoff">;
 
 const NOTIFICATION_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
-  ...NOTIFICATION_RETRY_JOB_OPTIONS,
+  ...STANDARD_QUEUE_RETRY_JOB_OPTIONS,
 };
 
 export const SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS =
-  SHEETS_SYNC_RETRY_JOB_OPTIONS;
+  STANDARD_QUEUE_RETRY_JOB_OPTIONS;
 
 let _sheetsSyncQueue: Queue | null = null;
 let _formSubmitNotificationQueue: Queue | null = null;

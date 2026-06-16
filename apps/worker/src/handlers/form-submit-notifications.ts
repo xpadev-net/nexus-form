@@ -110,6 +110,8 @@ function recordChannelFailure(error: unknown, context: NotificationContext) {
     console.warn("[notification] channel delivery skipped", logPayload);
     return;
   }
+  // Retryable failures are thrown for BullMQ retry; exhausted attempts are
+  // captured by the worker-level failed handler.
   console.error("[notification] channel delivery failed", logPayload);
 }
 
