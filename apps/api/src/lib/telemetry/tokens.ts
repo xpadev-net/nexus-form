@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
-import { and, gt, inArray, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 
 function resolveTelemetryIpSalt(): string {
   const telemetrySalt = process.env.TELEMETRY_IP_SALT;
@@ -26,7 +26,10 @@ export function hashIPAddress(ip: string): string {
     .digest("hex");
 }
 
-export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
+export async function consumeTokensOrThrow(
+  tokens: string[],
+  currentIp: string,
+): Promise<void> {
   const unique = [...new Set(tokens)];
   if (unique.length === 0) {
     throw new Error("No telemetry tokens provided");
@@ -41,6 +44,7 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
     .where(
       and(
         inArray(telemetryToken.token, unique),
+        eq(telemetryToken.ip, hashIPAddress(currentIp)),
         isNull(telemetryToken.usedAt),
         gt(telemetryToken.expiresAt, now),
       ),
@@ -49,7 +53,7 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
   // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
   const header = result[0] as { affectedRows: number };
   if (header.affectedRows !== unique.length) {
-    throw new Error("Invalid or expired telemetry tokens");
+    throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
   }
 }
 

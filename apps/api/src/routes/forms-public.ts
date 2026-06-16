@@ -593,8 +593,11 @@ export const formsPublicRouter = createHonoApp()
       ].filter((t): t is string => !!t);
 
       if (!formSecurityBypassEnabled) {
+        const { ip: telemetryIp } = extractClientIP(c.req.raw, {
+          strategy: "telemetry",
+        });
         try {
-          await consumeTokensOrThrow(telemetryTokens);
+          await consumeTokensOrThrow(telemetryTokens, telemetryIp);
         } catch {
           return c.json(
             errorResponse("Invalid or expired telemetry tokens"),
