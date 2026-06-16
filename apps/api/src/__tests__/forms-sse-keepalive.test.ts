@@ -21,6 +21,8 @@ const streamMock: {
   writeSSE: vi.fn<StreamLike["writeSSE"]>(),
 };
 
+const checkFormPermissionLevel = vi.hoisted(() => vi.fn(async () => undefined));
+
 vi.mock("hono/streaming", async () => {
   const actual =
     await vi.importActual<typeof import("hono/streaming")>("hono/streaming");
@@ -57,6 +59,7 @@ vi.mock("hono/streaming", async () => {
 });
 
 vi.mock("../lib/dual-auth", () => ({
+  checkFormPermissionLevel,
   withDualFormAuth:
     () =>
     async (
@@ -77,6 +80,7 @@ describe("SSE keepalive handling", () => {
     streamMock.abort.mockReset();
     streamMock.close.mockReset();
     streamMock.writeSSE.mockReset();
+    checkFormPermissionLevel.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -91,6 +95,7 @@ describe("SSE keepalive handling", () => {
     const channelRegistry = {
       ensureSubscribed: vi.fn(async () => undefined),
       attach: vi.fn(async () => detach),
+      closeAccessRevoked: vi.fn(async () => 0),
       closeAll: vi.fn(async () => undefined),
     };
     const connectionLimiter = {
@@ -117,5 +122,49 @@ describe("SSE keepalive handling", () => {
       event: "keepalive",
       data: "",
     });
+  });
+
+  it("releases permit and closes client when post-subscribe permission recheck fails", async () => {
+    const release = vi.fn();
+    const detach = vi.fn(async () => undefined);
+    const channelRegistry = {
+      ensureSubscribed: vi.fn(async () => undefined),
+      attach: vi.fn(async () => detach),
+      closeAccessRevoked: vi.fn(async () => 0),
+      closeAll: vi.fn(async () => undefined),
+    };
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({
+        release,
+      })),
+    };
+    checkFormPermissionLevel.mockRejectedValueOnce(
+      new Error("permission revoked"),
+    );
+
+    const response = await createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    }).request("http://localhost/form-1/responses/events");
+
+    expect(response.status).toBe(200);
+    expect(channelRegistry.attach).toHaveBeenCalledWith(
+      "form:validation:form-1",
+      expect.any(Object),
+      expect.objectContaining({
+        activation: expect.any(Promise),
+        preflighted: true,
+        userId: "user-1",
+      }),
+    );
+    expect(checkFormPermissionLevel).toHaveBeenCalledWith(
+      { user_id: "user-1" },
+      "form-1",
+      "EDITOR",
+    );
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(detach).toHaveBeenCalledTimes(1);
+    expect(streamMock.close).toHaveBeenCalledTimes(1);
+    expect(streamMock.writeSSE).not.toHaveBeenCalled();
   });
 });

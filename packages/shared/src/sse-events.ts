@@ -44,11 +44,44 @@ export type EditorSSEEvent = z.infer<typeof EditorSSEEventSchema>;
 
 // --- SSE 接続制御（権限剥奪時の切断） ---
 
-export const SseAccessRevokedEventSchema = z.object({
+const SseAccessRevokedBaseSchema = z.object({
   type: z.literal("sse_access_revoked"),
   formId: z.string(),
-  userId: z.string(),
   timestamp: z.string(),
+});
+
+export const SseAccessRevokeTargetSchema = z.discriminatedUnion("targetType", [
+  z.object({
+    targetType: z.literal("user"),
+    userId: z.string(),
+  }),
+  z.object({
+    targetType: z.literal("share_link"),
+    shareLinkId: z.string(),
+  }),
+  z.object({
+    targetType: z.literal("form"),
+  }),
+]);
+
+export type SseAccessRevokeTarget = z.infer<typeof SseAccessRevokeTargetSchema>;
+
+export const SseAccessRevokedEventSchema = z.discriminatedUnion("targetType", [
+  SseAccessRevokedBaseSchema.extend({
+    targetType: z.literal("user"),
+    userId: z.string(),
+  }),
+  SseAccessRevokedBaseSchema.extend({
+    targetType: z.literal("share_link"),
+    shareLinkId: z.string(),
+  }),
+  SseAccessRevokedBaseSchema.extend({
+    targetType: z.literal("form"),
+  }),
+]);
+
+const LegacySseAccessRevokedEventSchema = SseAccessRevokedBaseSchema.extend({
+  userId: z.string(),
 });
 
 export type SseAccessRevokedEvent = z.infer<typeof SseAccessRevokedEventSchema>;
@@ -62,7 +95,18 @@ export function parseSseAccessRevokedEvent(
   try {
     const parsed: unknown = JSON.parse(message);
     const result = SseAccessRevokedEventSchema.safeParse(parsed);
-    return result.success ? result.data : null;
+    if (result.success) return result.data;
+
+    const legacyResult = LegacySseAccessRevokedEventSchema.safeParse(parsed);
+    if (!legacyResult.success) return null;
+
+    return {
+      type: legacyResult.data.type,
+      formId: legacyResult.data.formId,
+      targetType: "user",
+      userId: legacyResult.data.userId,
+      timestamp: legacyResult.data.timestamp,
+    };
   } catch {
     return null;
   }

@@ -6,9 +6,14 @@
 
 import type { RedisPublisherClient } from "@nexus-form/integrations";
 import { createRedisPublisher } from "@nexus-form/integrations";
-import type { EditorSSEEvent, SseAccessRevokedEvent } from "@nexus-form/shared";
+import type {
+  EditorSSEEvent,
+  SseAccessRevokedEvent,
+  SseAccessRevokeTarget,
+} from "@nexus-form/shared";
 import { getEditorChannel, getValidationChannel } from "@nexus-form/shared";
 import Redis from "ioredis";
+import { closeLocalSseConnectionsForAccessRevoked } from "../routes/forms-sse";
 import { logError, logInfo } from "./logger";
 import { getRedisConnection } from "./redis";
 
@@ -68,6 +73,38 @@ export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
   await editorEventPublisher.publish(event);
 }
 
+function normalizeAccessRevokeTarget(
+  target: SseAccessRevokeTarget | string,
+): SseAccessRevokeTarget {
+  if (typeof target === "string") {
+    return { targetType: "user", userId: target };
+  }
+  return target;
+}
+
+function describeAccessRevokeTarget(
+  target: SseAccessRevokeTarget,
+): Record<string, string> {
+  if (target.targetType === "user") {
+    return { targetType: target.targetType, userId: target.userId };
+  }
+  if (target.targetType === "share_link") {
+    return {
+      targetType: target.targetType,
+      shareLinkId: target.shareLinkId,
+    };
+  }
+  return { targetType: target.targetType };
+}
+
+function serializeAccessRevokedEvent(event: SseAccessRevokedEvent): string {
+  const wireEvent =
+    event.targetType === "share_link"
+      ? { ...event, userId: `share-link:${event.shareLinkId}` }
+      : event;
+  return JSON.stringify(wireEvent);
+}
+
 /**
  * Notifies active SSE subscribers that a user's form access was revoked.
  *
@@ -75,16 +112,43 @@ export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
  */
 export async function publishSseAccessRevoked(
   formId: string,
-  userId: string,
+  targetOrUserId: SseAccessRevokeTarget | string,
 ): Promise<void> {
+  const target = normalizeAccessRevokeTarget(targetOrUserId);
   const event: SseAccessRevokedEvent = {
     type: "sse_access_revoked",
     formId,
-    userId,
+    ...target,
     timestamp: new Date().toISOString(),
   };
-  const payload = JSON.stringify(event);
-  const client = createPublisherClient();
+  const targetLogFields = describeAccessRevokeTarget(target);
+  let closedLocalConnections = 0;
+
+  try {
+    closedLocalConnections =
+      await closeLocalSseConnectionsForAccessRevoked(event);
+  } catch (error) {
+    logError("Failed to close local SSE access revoke clients", "service", {
+      error: error instanceof Error ? error.message : String(error),
+      formId,
+      ...targetLogFields,
+    });
+  }
+
+  const payload = serializeAccessRevokedEvent(event);
+  let client: RedisPublisherClient | null = null;
+  try {
+    client = createPublisherClient();
+  } catch (error) {
+    logError("Failed to initialize SSE access revoke publisher", "service", {
+      error: error instanceof Error ? error.message : String(error),
+      formId,
+      closedLocalConnections,
+      ...targetLogFields,
+    });
+    return;
+  }
+
   if (!client) return;
 
   const channels = [getEditorChannel(formId), getValidationChannel(formId)];
@@ -96,7 +160,8 @@ export async function publishSseAccessRevoked(
     logError("Failed to publish SSE access revoke event", "service", {
       error: error instanceof Error ? error.message : String(error),
       formId,
-      userId,
+      closedLocalConnections,
+      ...targetLogFields,
     });
   } finally {
     await client.quit().catch(() => undefined);

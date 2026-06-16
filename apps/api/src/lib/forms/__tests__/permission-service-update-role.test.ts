@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   formLimit: vi.fn(),
   invitationLock: vi.fn(),
   permissionLimit: vi.fn(),
+  shareLinkLock: vi.fn(),
   updatedPermissionLimit: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
@@ -33,6 +34,14 @@ vi.mock("@nexus-form/database", () => ({
               where: vi.fn(() => ({
                 for: vi.fn(() => ({ limit: mocks.permissionLimit })),
               })),
+            })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              innerJoin: vi.fn(() => ({
+                where: vi.fn(() => ({ limit: mocks.updatedPermissionLimit })),
+              })),
+              where: vi.fn(() => ({ for: mocks.shareLinkLock })),
             })),
           })
           .mockReturnValueOnce({
@@ -77,6 +86,7 @@ vi.mock("@nexus-form/database/schema", () => ({
   formShareLink: {
     createdBy: "formShareLink.createdBy",
     formId: "formShareLink.formId",
+    id: "formShareLink.id",
     isActive: "formShareLink.isActive",
     role: "formShareLink.role",
   },
@@ -108,6 +118,7 @@ describe("updatePermissionRole share-link revocation", () => {
     mocks.formLimit.mockResolvedValue([{ creatorId: "owner-1", id: "form-1" }]);
     mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
+    mocks.shareLinkLock.mockResolvedValue([{ id: "link-1" }]);
     mocks.updatedPermissionLimit.mockResolvedValue([
       {
         createdAt: new Date("2026-05-21T00:00:00.000Z"),
@@ -156,7 +167,14 @@ describe("updatePermissionRole share-link revocation", () => {
   it("publishes an SSE access revoke event when an EDITOR is downgraded to VIEWER", async () => {
     await updatePermissionRole("form-1", "editor-1", "VIEWER");
 
-    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", {
+      targetType: "user",
+      userId: "editor-1",
+    });
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", {
+      targetType: "share_link",
+      shareLinkId: "link-1",
+    });
   });
 
   it("does not publish an SSE access revoke event when the role change is not a downgrade", async () => {

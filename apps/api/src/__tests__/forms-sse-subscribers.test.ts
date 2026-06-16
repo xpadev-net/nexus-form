@@ -6,6 +6,7 @@ import {
 } from "../routes/forms-sse";
 
 vi.mock("../lib/dual-auth", () => ({
+  checkFormPermissionLevel: vi.fn(async () => undefined),
   withDualFormAuth:
     () =>
     async (
@@ -236,6 +237,7 @@ describe("SSE channel subscriber registry", () => {
         throw new Error("Redis subscribe failed");
       }),
       attach: vi.fn(),
+      closeAccessRevoked: vi.fn(async () => 0),
       closeAll: vi.fn(async () => undefined),
     };
     const connectionLimiter = {
@@ -451,6 +453,7 @@ describe("SSE channel subscriber registry", () => {
       JSON.stringify({
         type: "sse_access_revoked",
         formId: "form-1",
+        targetType: "user",
         userId: "user-1",
         timestamp: new Date().toISOString(),
       }),
@@ -461,6 +464,140 @@ describe("SSE channel subscriber registry", () => {
     });
     expect(otherClient.close).not.toHaveBeenCalled();
     expect(targetClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("closes only the SSE client whose shareLinkId matches an access-revoke event", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const targetClient = createClient();
+    const otherShareLinkClient = createClient();
+    const sessionClient = createClient();
+
+    await registry.attach("form:validation:form-1", targetClient, {
+      userId: "share-link:link-1",
+      shareLinkId: "link-1",
+    });
+    await registry.attach("form:validation:form-1", otherShareLinkClient, {
+      userId: "share-link:link-2",
+      shareLinkId: "link-2",
+    });
+    await registry.attach("form:validation:form-1", sessionClient, {
+      userId: "user-1",
+    });
+
+    subscribers[0]?.emitMessage(
+      "form:validation:form-1",
+      JSON.stringify({
+        type: "sse_access_revoked",
+        formId: "form-1",
+        targetType: "share_link",
+        shareLinkId: "link-1",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(targetClient.close).toHaveBeenCalledTimes(1);
+    });
+    expect(otherShareLinkClient.close).not.toHaveBeenCalled();
+    expect(sessionClient.close).not.toHaveBeenCalled();
+    expect(targetClient.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("directly closes local clients for a form-wide access revoke", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const validationClient = createClient();
+    const editorClient = createClient();
+    const otherFormClient = createClient();
+
+    await registry.attach("form:validation:form-1", validationClient, {
+      userId: "user-1",
+    });
+    await registry.attach("form:editor:form-1", editorClient, {
+      userId: "user-2",
+    });
+    await registry.attach("form:validation:form-2", otherFormClient, {
+      userId: "user-3",
+    });
+
+    await expect(
+      registry.closeAccessRevoked({
+        type: "sse_access_revoked",
+        formId: "form-1",
+        targetType: "form",
+        timestamp: new Date().toISOString(),
+      }),
+    ).resolves.toBe(2);
+
+    expect(validationClient.close).toHaveBeenCalledTimes(1);
+    expect(editorClient.close).toHaveBeenCalledTimes(1);
+    expect(otherFormClient.close).not.toHaveBeenCalled();
+  });
+
+  it("holds normal messages until the SSE client activation check passes", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const activation = createDeferred();
+    const client = createClient();
+
+    const detach = await registry.attach("form:validation:form-1", client, {
+      activation: activation.promise,
+      userId: "share-link:link-1",
+      shareLinkId: "link-1",
+    });
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "before-activation");
+    expect(client.sendMessage).not.toHaveBeenCalled();
+
+    activation.resolve();
+    await Promise.resolve();
+    subscribers[0]?.emitMessage("form:validation:form-1", "after-activation");
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledWith("1", "after-activation");
+    });
+
+    await detach();
+  });
+
+  it("closes a client when its SSE activation check fails", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const activation = createDeferred();
+    const client = createClient();
+
+    const detach = await registry.attach("form:validation:form-1", client, {
+      activation: activation.promise,
+      userId: "share-link:link-1",
+      shareLinkId: "link-1",
+    });
+
+    activation.reject(new Error("permission revoked"));
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+    });
+
+    await detach();
   });
 });
 

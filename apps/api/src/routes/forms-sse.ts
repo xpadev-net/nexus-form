@@ -10,11 +10,12 @@ import {
   getEditorChannel,
   getValidationChannel,
   parseSseAccessRevokedEvent,
+  type SseAccessRevokedEvent,
 } from "@nexus-form/shared";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import Redis from "ioredis";
-import { withDualFormAuth } from "../lib/dual-auth";
+import { checkFormPermissionLevel, withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp, type Env } from "../lib/hono";
 import { logWarn } from "../lib/logger";
 import { getRedisConnection } from "../lib/redis";
@@ -169,7 +170,9 @@ interface SseClientEntry {
   sendChain: Promise<void>;
   pendingMessages: number;
   closed: boolean;
+  activated: boolean;
   userId?: string;
+  shareLinkId?: string;
 }
 
 interface ChannelSubscription {
@@ -184,8 +187,14 @@ interface SseChannelRegistry {
   attach: (
     channel: string,
     client: SseMessageClient,
-    options?: { preflighted?: boolean; userId?: string },
+    options?: {
+      preflighted?: boolean;
+      userId?: string;
+      shareLinkId?: string;
+      activation?: Promise<void>;
+    },
   ) => Promise<() => Promise<void>>;
+  closeAccessRevoked: (event: SseAccessRevokedEvent) => Promise<number>;
   closeAll: () => Promise<void>;
 }
 
@@ -248,6 +257,47 @@ export function createSseChannelRegistry(
     await subscription.closingPromise;
   }
 
+  function shouldCloseForRevokeEvent(
+    entry: SseClientEntry,
+    event: SseAccessRevokedEvent,
+  ): boolean {
+    if (event.targetType === "form") return true;
+    if (event.targetType === "user") return entry.userId === event.userId;
+    return entry.shareLinkId === event.shareLinkId;
+  }
+
+  function closeClientEntry(
+    channel: string,
+    subscription: ChannelSubscription,
+    clientId: symbol,
+    entry: SseClientEntry,
+  ): void {
+    if (entry.closed) return;
+    entry.closed = true;
+    subscription.clients.delete(clientId);
+    entry.client.close();
+    // Safety net for races where the stream detach path already ran while
+    // sibling clients still existed; this may be the last remaining client.
+    if (subscription.clients.size === 0) {
+      void closeSubscription(channel, subscription);
+    }
+  }
+
+  function closeRevokedClientEntries(
+    channel: string,
+    subscription: ChannelSubscription,
+    event: SseAccessRevokedEvent,
+  ): number {
+    let closedCount = 0;
+    for (const [clientId, entry] of subscription.clients.entries()) {
+      if (entry.closed) continue;
+      if (!shouldCloseForRevokeEvent(entry, event)) continue;
+      closeClientEntry(channel, subscription, clientId, entry);
+      closedCount++;
+    }
+    return closedCount;
+  }
+
   function getSubscription(channel: string): ChannelSubscription {
     const existing = subscriptions.get(channel);
     if (existing) return existing;
@@ -263,32 +313,18 @@ export function createSseChannelRegistry(
     subscriber.on("message", (receivedChannel: string, message: string) => {
       if (receivedChannel !== channel) return;
 
-      function closeClientEntry(clientId: symbol, entry: SseClientEntry): void {
-        if (entry.closed) return;
-        entry.closed = true;
-        subscription.clients.delete(clientId);
-        entry.client.close();
-        // Safety net for races where the stream detach path already ran while
-        // sibling clients still existed; this may be the last remaining client.
-        if (subscription.clients.size === 0) {
-          void closeSubscription(channel, subscription);
-        }
-      }
-
       const revokeEvent = parseSseAccessRevokedEvent(message);
+      if (revokeEvent) {
+        closeRevokedClientEntries(channel, subscription, revokeEvent);
+        return;
+      }
 
       for (const [clientId, entry] of subscription.clients.entries()) {
         if (entry.closed) continue;
-
-        if (revokeEvent) {
-          if (entry.userId === revokeEvent.userId) {
-            closeClientEntry(clientId, entry);
-          }
-          continue;
-        }
+        if (!entry.activated) continue;
 
         if (entry.pendingMessages >= MAX_SSE_PENDING_MESSAGES_PER_CLIENT) {
-          closeClientEntry(clientId, entry);
+          closeClientEntry(channel, subscription, clientId, entry);
           continue;
         }
 
@@ -305,7 +341,7 @@ export function createSseChannelRegistry(
             }
           })
           .catch(() => {
-            closeClientEntry(clientId, entry);
+            closeClientEntry(channel, subscription, clientId, entry);
           });
       }
     });
@@ -335,7 +371,12 @@ export function createSseChannelRegistry(
     async attach(
       channel: string,
       client: SseMessageClient,
-      options: { preflighted?: boolean; userId?: string } = {},
+      options: {
+        preflighted?: boolean;
+        userId?: string;
+        shareLinkId?: string;
+        activation?: Promise<void>;
+      } = {},
     ): Promise<() => Promise<void>> {
       if (!acceptingClients) {
         client.close();
@@ -350,9 +391,18 @@ export function createSseChannelRegistry(
         sendChain: Promise.resolve(),
         pendingMessages: 0,
         closed: false,
+        activated: options.activation === undefined,
         userId: options.userId,
+        shareLinkId: options.shareLinkId,
       };
       subscription.clients.set(clientId, entry);
+      options.activation
+        ?.then(() => {
+          if (!entry.closed) entry.activated = true;
+        })
+        .catch(() => {
+          closeClientEntry(channel, subscription, clientId, entry);
+        });
 
       try {
         if (!options.preflighted) {
@@ -378,6 +428,19 @@ export function createSseChannelRegistry(
         }
       };
     },
+    async closeAccessRevoked(event: SseAccessRevokedEvent): Promise<number> {
+      const channels = [
+        getEditorChannel(event.formId),
+        getValidationChannel(event.formId),
+      ];
+      let closedCount = 0;
+      for (const channel of channels) {
+        const subscription = subscriptions.get(channel);
+        if (!subscription) continue;
+        closedCount += closeRevokedClientEntries(channel, subscription, event);
+      }
+      return closedCount;
+    },
     async closeAll(): Promise<void> {
       acceptingClients = false;
       await Promise.all(
@@ -391,8 +454,29 @@ export function createSseChannelRegistry(
 
 const sseChannelRegistry = createSseChannelRegistry();
 
+export async function closeLocalSseConnectionsForAccessRevoked(
+  event: SseAccessRevokedEvent,
+): Promise<number> {
+  return await sseChannelRegistry.closeAccessRevoked(event);
+}
+
 export async function closeSseSubscribers(): Promise<void> {
   await sseChannelRegistry.closeAll();
+}
+
+function createActivationGate(): {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  promise.catch(() => undefined);
+  return { promise, resolve, reject };
 }
 
 /**
@@ -487,6 +571,7 @@ async function createSSEStream(
           resolveStream = resolve;
           stream.onAbort(closeStream);
         });
+        const activation = createActivationGate();
         detachClient = await options.channelRegistry.attach(
           channel,
           {
@@ -498,8 +583,21 @@ async function createSSEStream(
               }),
             close: closeStream,
           },
-          { preflighted: true, userId: auth.user_id },
+          {
+            preflighted: true,
+            userId: auth.user_id,
+            shareLinkId: auth.share_link_id,
+            activation: activation.promise,
+          },
         );
+        try {
+          await checkFormPermissionLevel(auth, formId, "EDITOR");
+          activation.resolve();
+        } catch (error) {
+          activation.reject(error);
+          closeStream();
+          return;
+        }
         if (closeRequested) return;
 
         // Keepalive: 30秒ごとにコメントを送信して接続を維持

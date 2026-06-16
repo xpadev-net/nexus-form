@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   formLimit: vi.fn(),
   invitationLock: vi.fn(),
   permissionLimit: vi.fn(),
+  shareLinkLock: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
 }));
@@ -37,6 +38,11 @@ vi.mock("@nexus-form/database", () => ({
                 for: vi.fn(() => ({ limit: mocks.permissionLimit })),
               })),
             })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({ for: mocks.shareLinkLock })),
+            })),
           }),
         update: vi.fn(() => ({
           set: mocks.updateSet,
@@ -65,6 +71,7 @@ vi.mock("@nexus-form/database/schema", () => ({
   formShareLink: {
     createdBy: "formShareLink.createdBy",
     formId: "formShareLink.formId",
+    id: "formShareLink.id",
     isActive: "formShareLink.isActive",
   },
 }));
@@ -95,6 +102,7 @@ describe("removePermission share-link revocation", () => {
     mocks.formLimit.mockResolvedValue([{ creatorId: "owner-1", id: "form-1" }]);
     mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
+    mocks.shareLinkLock.mockResolvedValue([{ id: "link-1" }]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
     mocks.deleteWhere.mockResolvedValue([{ affectedRows: 1 }]);
     mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
@@ -132,7 +140,14 @@ describe("removePermission share-link revocation", () => {
   it("publishes an SSE access revoke event after permission removal", async () => {
     await removePermission("form-1", "editor-1");
 
-    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", {
+      targetType: "user",
+      userId: "editor-1",
+    });
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", {
+      targetType: "share_link",
+      shareLinkId: "link-1",
+    });
   });
 
   it("rejects a stale delete when the locked role no longer matches the delete predicate", async () => {
