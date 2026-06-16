@@ -2,7 +2,7 @@ import {
   FORM_STATUS_VALUES,
   VALIDATION_STATUS_VALUES,
 } from "@nexus-form/shared";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   boolean,
   float,
@@ -358,10 +358,19 @@ export const formStructure = mysqlTable(
     }),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     isActive: boolean("isActive").default(true).notNull(),
+    activeFormId: varchar("activeFormId", { length: 128 }).generatedAlwaysAs(
+      () => sql`case when isActive then formId else null end`,
+      { mode: "stored" },
+    ),
     changeLog: text("changeLog"),
     parentVersion: int("parentVersion"),
   },
   (table) => [
+    uniqueIndex("FormStructure_formId_version_key").on(
+      table.formId,
+      table.version,
+    ),
+    uniqueIndex("FormStructure_activeFormId_key").on(table.activeFormId),
     index("FormStructure_formId_version_idx").on(table.formId, table.version),
     index("FormStructure_isActive_idx").on(table.isActive),
     index("FormStructure_formId_isActive_version_idx").on(
