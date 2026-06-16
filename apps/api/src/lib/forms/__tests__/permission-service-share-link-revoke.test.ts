@@ -109,6 +109,24 @@ describe("share-link SSE revocation", () => {
     });
   });
 
+  it("revokes share-link token SSE connections when a link is updated to an expired timestamp", async () => {
+    const expiredAt = new Date("2026-05-20T00:00:00.000Z");
+    mocks.updatedLimit.mockResolvedValueOnce([
+      shareLinkRow({
+        expiresAt: expiredAt,
+        updatedAt: new Date("2026-05-21T02:00:00.000Z"),
+      }),
+    ]);
+
+    await updateShareLink("link-1", "form-1", { expiresAt: expiredAt });
+
+    expect(mocks.updateSet).toHaveBeenCalledWith({ expiresAt: expiredAt });
+    expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", {
+      targetType: "share_link",
+      shareLinkId: "link-1",
+    });
+  });
+
   it("does not revoke share-link token SSE connections when a link stays active", async () => {
     mocks.updatedLimit.mockResolvedValueOnce([
       shareLinkRow({

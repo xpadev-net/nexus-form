@@ -466,6 +466,34 @@ describe("SSE channel subscriber registry", () => {
     expect(targetClient.sendMessage).not.toHaveBeenCalled();
   });
 
+  it("ignores access-revoke events whose formId does not match the Redis channel", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const targetClient = createClient();
+
+    await registry.attach("form:validation:form-1", targetClient, {
+      userId: "user-1",
+    });
+
+    subscribers[0]?.emitMessage(
+      "form:validation:form-1",
+      JSON.stringify({
+        type: "sse_access_revoked",
+        formId: "form-2",
+        targetType: "user",
+        userId: "user-1",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+    await Promise.resolve();
+
+    expect(targetClient.close).not.toHaveBeenCalled();
+  });
+
   it("closes only the SSE client whose shareLinkId matches an access-revoke event", async () => {
     const subscribers: FakeSubscriber[] = [];
     const registry = createSseChannelRegistry(() => {

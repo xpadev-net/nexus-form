@@ -309,9 +309,9 @@ async function publishSseAccessRevokes(
 ): Promise<void> {
   if (targets.length === 0) return;
   const { publishSseAccessRevoked } = await import("../redis-publisher");
-  await Promise.all(
-    targets.map((target) => publishSseAccessRevoked(formId, target)),
-  );
+  for (const target of targets) {
+    await publishSseAccessRevoked(formId, target);
+  }
 }
 
 /**

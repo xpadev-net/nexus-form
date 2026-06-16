@@ -97,6 +97,14 @@ export function parseSseAccessRevokedEvent(
     const result = SseAccessRevokedEventSchema.safeParse(parsed);
     if (result.success) return result.data;
 
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "targetType" in parsed
+    ) {
+      return null;
+    }
+
     const legacyResult = LegacySseAccessRevokedEventSchema.safeParse(parsed);
     if (!legacyResult.success) return null;
 

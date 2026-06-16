@@ -93,6 +93,20 @@ describe("parseSseAccessRevokedEvent", () => {
     });
   });
 
+  it("rejects malformed new access-revoke payloads without falling back to legacy parsing", () => {
+    expect(
+      parseSseAccessRevokedEvent(
+        JSON.stringify({
+          type: "sse_access_revoked",
+          formId: "form-1",
+          targetType: "unknown",
+          userId: "user-1",
+          timestamp: "2026-05-23T00:00:00.000Z",
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("returns null for unrelated SSE payloads", () => {
     expect(
       parseSseAccessRevokedEvent(

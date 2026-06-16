@@ -7,10 +7,12 @@
  */
 
 import {
+  EDITOR_CHANNEL_PREFIX,
   getEditorChannel,
   getValidationChannel,
   parseSseAccessRevokedEvent,
   type SseAccessRevokedEvent,
+  VALIDATION_CHANNEL_PREFIX,
 } from "@nexus-form/shared";
 import type { Context } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -266,6 +268,16 @@ export function createSseChannelRegistry(
     return entry.shareLinkId === event.shareLinkId;
   }
 
+  function getFormIdForSseChannel(channel: string): string | null {
+    if (channel.startsWith(VALIDATION_CHANNEL_PREFIX)) {
+      return channel.slice(VALIDATION_CHANNEL_PREFIX.length);
+    }
+    if (channel.startsWith(EDITOR_CHANNEL_PREFIX)) {
+      return channel.slice(EDITOR_CHANNEL_PREFIX.length);
+    }
+    return null;
+  }
+
   function closeClientEntry(
     channel: string,
     subscription: ChannelSubscription,
@@ -315,7 +327,9 @@ export function createSseChannelRegistry(
 
       const revokeEvent = parseSseAccessRevokedEvent(message);
       if (revokeEvent) {
-        closeRevokedClientEntries(channel, subscription, revokeEvent);
+        if (getFormIdForSseChannel(channel) === revokeEvent.formId) {
+          closeRevokedClientEntries(channel, subscription, revokeEvent);
+        }
         return;
       }
 
@@ -594,6 +608,8 @@ async function createSSEStream(
           await checkFormPermissionLevel(auth, formId, "EDITOR");
           activation.resolve();
         } catch (error) {
+          // Rejecting the activation gate closes the registry entry; this
+          // synchronous close also tears down the HTTP stream immediately.
           activation.reject(error);
           closeStream();
           return;

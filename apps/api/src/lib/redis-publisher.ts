@@ -73,15 +73,6 @@ export async function publishEditorEvent(event: EditorSSEEvent): Promise<void> {
   await editorEventPublisher.publish(event);
 }
 
-function normalizeAccessRevokeTarget(
-  target: SseAccessRevokeTarget | string,
-): SseAccessRevokeTarget {
-  if (typeof target === "string") {
-    return { targetType: "user", userId: target };
-  }
-  return target;
-}
-
 function describeAccessRevokeTarget(
   target: SseAccessRevokeTarget,
 ): Record<string, string> {
@@ -112,9 +103,8 @@ function serializeAccessRevokedEvent(event: SseAccessRevokedEvent): string {
  */
 export async function publishSseAccessRevoked(
   formId: string,
-  targetOrUserId: SseAccessRevokeTarget | string,
+  target: SseAccessRevokeTarget,
 ): Promise<void> {
-  const target = normalizeAccessRevokeTarget(targetOrUserId);
   const event: SseAccessRevokedEvent = {
     type: "sse_access_revoked",
     formId,
