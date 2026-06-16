@@ -150,7 +150,7 @@ describe("acceptInvitation authority and race handling", () => {
     tx.selectQueue.push(
       createSelectQuery([pendingInvitation()], { lock: true }),
       createSelectQuery([{ email: "invitee@example.com", id: "invitee-1" }]),
-      createSelectQuery([{ creatorId: "owner-1" }], { lock: true }),
+      createSelectQuery([{ creatorId: "owner-1" }]),
       createSelectQuery([{ role: "EDITOR" }], { lock: true }),
       createSelectQuery([]),
       createSelectQuery([permissionRow()], { join: true }),
@@ -176,7 +176,7 @@ describe("acceptInvitation authority and race handling", () => {
     tx.selectQueue.push(
       createSelectQuery([pendingInvitation()], { lock: true }),
       createSelectQuery([{ email: "invitee@example.com", id: "invitee-1" }]),
-      createSelectQuery([{ creatorId: "owner-1" }], { lock: true }),
+      createSelectQuery([{ creatorId: "owner-1" }]),
       createSelectQuery([{ role: "VIEWER" }], { lock: true }),
     );
     txQueue.push(tx);
@@ -224,7 +224,7 @@ describe("acceptInvitation authority and race handling", () => {
     firstTx.selectQueue.push(
       createSelectQuery([pendingInvitation()], { lock: true }),
       createSelectQuery([{ email: "invitee@example.com", id: "invitee-1" }]),
-      createSelectQuery([{ creatorId: "owner-1" }], { lock: true }),
+      createSelectQuery([{ creatorId: "owner-1" }]),
       createSelectQuery([{ role: "EDITOR" }], { lock: true }),
       createSelectQuery([]),
       createSelectQuery([permissionRow()], { join: true }),

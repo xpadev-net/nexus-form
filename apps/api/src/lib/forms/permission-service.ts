@@ -383,15 +383,6 @@ export async function acceptInvitation(
       throw new InvitationAcceptError("USER_NOT_FOUND", 404, "User not found");
     }
 
-    // 招待先メールアドレスとユーザーのメールアドレスが一致するかチェック
-    if (foundUser.email !== invitation.email) {
-      throw new InvitationAcceptError(
-        "EMAIL_MISMATCH",
-        403,
-        "Invitation email does not match user email",
-      );
-    }
-
     const selectExistingPermission = () =>
       tx
         .select({
@@ -415,6 +406,13 @@ export async function acceptInvitation(
         .limit(1);
 
     if (invitation.status === "ACCEPTED") {
+      if (foundUser.email !== invitation.email) {
+        throw new InvitationAcceptError(
+          "EMAIL_MISMATCH",
+          403,
+          "Invitation email does not match user email",
+        );
+      }
       const [existingPermission] = await selectExistingPermission();
       if (existingPermission) {
         return formatPermissionWithUser(existingPermission);
@@ -446,6 +444,15 @@ export async function acceptInvitation(
       );
     }
 
+    // 招待先メールアドレスとユーザーのメールアドレスが一致するかチェック
+    if (foundUser.email !== invitation.email) {
+      throw new InvitationAcceptError(
+        "EMAIL_MISMATCH",
+        403,
+        "Invitation email does not match user email",
+      );
+    }
+
     if (invitation.expiresAt < new Date()) {
       await tx
         .update(formInvitation)
@@ -467,7 +474,6 @@ export async function acceptInvitation(
       .select({ creatorId: form.creatorId })
       .from(form)
       .where(eq(form.id, invitation.formId))
-      .for("update")
       .limit(1);
 
     if (!foundForm) {
