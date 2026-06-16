@@ -1,14 +1,34 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const baseURL = process.env.BASE_URL || "http://localhost:3000";
+const skipWebServer =
+  process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "1" ||
+  process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
+
+const isLocalWebServerURL = (value: string) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname) &&
+      url.port === "3000"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const shouldStartWebServer = !skipWebServer && isLocalWebServerURL(baseURL);
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : 1,
-  reporter: "html",
+  reporter: process.env.CI ? "github" : "html",
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:3000",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [
@@ -17,10 +37,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    command: "pnpm dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120000,
-  },
+  webServer: shouldStartWebServer
+    ? {
+        command: "pnpm dev",
+        url: baseURL,
+        reuseExistingServer: !process.env.CI,
+        timeout: 120000,
+      }
+    : undefined,
 });

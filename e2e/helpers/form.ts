@@ -98,14 +98,14 @@ export async function editBlockOptions(
   options: string[],
 ): Promise<void> {
   // 既存の選択肢をクリアして新しい選択肢を設定
-  for (let i = 0; i < options.length; i++) {
+  for (const [i, option] of options.entries()) {
     const optionInput = page
       .locator(`[data-block-id="${blockId}"]`)
       .locator(`input[placeholder*="選択肢"]`)
       .nth(i);
 
     if (await optionInput.count()) {
-      await optionInput.fill(options[i]);
+      await optionInput.fill(option);
     } else {
       // 新しい選択肢を追加
       const addButton = page
@@ -116,7 +116,7 @@ export async function editBlockOptions(
         .locator(`[data-block-id="${blockId}"]`)
         .locator(`input[placeholder*="選択肢"]`)
         .nth(i)
-        .fill(options[i]);
+        .fill(option);
     }
   }
 
