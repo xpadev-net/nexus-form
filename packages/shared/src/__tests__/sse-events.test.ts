@@ -34,6 +34,7 @@ describe("parseSseAccessRevokedEvent", () => {
     const payload = {
       type: "sse_access_revoked" as const,
       formId: "form-1",
+      targetType: "user" as const,
       userId: "user-1",
       timestamp: "2026-05-23T00:00:00.000Z",
     };
@@ -41,6 +42,69 @@ describe("parseSseAccessRevokedEvent", () => {
     expect(parseSseAccessRevokedEvent(JSON.stringify(payload))).toEqual(
       payload,
     );
+  });
+
+  it("parses share-link and form-wide access-revoke payloads", () => {
+    const shareLinkPayload = {
+      type: "sse_access_revoked" as const,
+      formId: "form-1",
+      targetType: "share_link" as const,
+      shareLinkId: "link-1",
+      userId: "share-link:link-1",
+      timestamp: "2026-05-23T00:00:00.000Z",
+    };
+    const formPayload = {
+      type: "sse_access_revoked" as const,
+      formId: "form-1",
+      targetType: "form" as const,
+      timestamp: "2026-05-23T00:00:00.000Z",
+    };
+
+    expect(
+      parseSseAccessRevokedEvent(JSON.stringify(shareLinkPayload)),
+    ).toEqual({
+      type: "sse_access_revoked",
+      formId: "form-1",
+      targetType: "share_link",
+      shareLinkId: "link-1",
+      timestamp: "2026-05-23T00:00:00.000Z",
+    });
+    expect(parseSseAccessRevokedEvent(JSON.stringify(formPayload))).toEqual(
+      formPayload,
+    );
+  });
+
+  it("normalizes legacy userId-only access-revoke payloads", () => {
+    expect(
+      parseSseAccessRevokedEvent(
+        JSON.stringify({
+          type: "sse_access_revoked",
+          formId: "form-1",
+          userId: "user-1",
+          timestamp: "2026-05-23T00:00:00.000Z",
+        }),
+      ),
+    ).toEqual({
+      type: "sse_access_revoked",
+      formId: "form-1",
+      targetType: "user",
+      userId: "user-1",
+      timestamp: "2026-05-23T00:00:00.000Z",
+    });
+  });
+
+  it("rejects malformed new access-revoke payloads without falling back to legacy parsing", () => {
+    expect(
+      parseSseAccessRevokedEvent(
+        JSON.stringify({
+          type: "sse_access_revoked",
+          formId: "form-1",
+          targetType: "unknown",
+          userId: "user-1",
+          timestamp: "2026-05-23T00:00:00.000Z",
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("returns null for unrelated SSE payloads", () => {

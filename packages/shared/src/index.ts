@@ -132,6 +132,7 @@ export {
 export type {
   EditorSSEEvent,
   SseAccessRevokedEvent,
+  SseAccessRevokeTarget,
   ValidationSSEEvent,
 } from "./sse-events";
 export {
@@ -141,6 +142,7 @@ export {
   getValidationChannel,
   parseSseAccessRevokedEvent,
   SseAccessRevokedEventSchema,
+  SseAccessRevokeTargetSchema,
   VALIDATION_CHANNEL_PREFIX,
   ValidationSSEEventSchema,
 } from "./sse-events";

@@ -7,6 +7,7 @@ import {
   formPermission,
   formShareLink,
 } from "@nexus-form/database/schema";
+import type { SseAccessRevokeTarget } from "@nexus-form/shared";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { InsufficientFormPermissionError } from "../errors/form-errors";
 import { resolveFormPermission } from "../permissions/form-access";
@@ -220,6 +221,29 @@ async function lockPendingInvitationsByInviter(
     .for("update");
 }
 
+async function lockActiveShareLinksByCreator(
+  tx: PermissionMutationTransaction,
+  formId: string,
+  creatorId: string,
+  role?: FormShareRole,
+): Promise<Array<{ id: string }>> {
+  const conditions = [
+    eq(formShareLink.formId, formId),
+    eq(formShareLink.createdBy, creatorId),
+    eq(formShareLink.isActive, true),
+  ];
+
+  if (role) {
+    conditions.push(eq(formShareLink.role, role));
+  }
+
+  return await tx
+    .select({ id: formShareLink.id })
+    .from(formShareLink)
+    .where(and(...conditions))
+    .for("update");
+}
+
 async function lockFormAndPermissionsForMutation(
   tx: PermissionMutationTransaction,
   formId: string,
@@ -268,6 +292,26 @@ async function lockFormAndPermissionsForMutation(
   }
 
   return { form: lockedForm, permissions };
+}
+
+function buildShareLinkRevokeTargets(
+  shareLinkIds: string[],
+): SseAccessRevokeTarget[] {
+  return shareLinkIds.map((shareLinkId) => ({
+    targetType: "share_link",
+    shareLinkId,
+  }));
+}
+
+async function publishSseAccessRevokes(
+  formId: string,
+  targets: SseAccessRevokeTarget[],
+): Promise<void> {
+  if (targets.length === 0) return;
+  const { publishSseAccessRevoked } = await import("../redis-publisher");
+  for (const target of targets) {
+    await publishSseAccessRevoked(formId, target);
+  }
 }
 
 /**
@@ -848,7 +892,7 @@ export async function removePermission(
   formId: string,
   userId: string,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
+  const revokedShareLinkIds = await db.transaction(async (tx) => {
     const pendingInvitationRows = await lockPendingInvitationsByInviter(
       tx,
       formId,
@@ -892,6 +936,12 @@ export async function removePermission(
       "Permission changed before it could be removed",
     );
 
+    const revokedShareLinks = await lockActiveShareLinksByCreator(
+      tx,
+      formId,
+      userId,
+    );
+
     await tx
       .update(formShareLink)
       .set({ isActive: false })
@@ -914,10 +964,14 @@ export async function removePermission(
           ),
         );
     }
+
+    return revokedShareLinks.map((link) => link.id);
   });
 
-  const { publishSseAccessRevoked } = await import("../redis-publisher");
-  await publishSseAccessRevoked(formId, userId);
+  await publishSseAccessRevokes(formId, [
+    { targetType: "user", userId },
+    ...buildShareLinkRevokeTargets(revokedShareLinkIds),
+  ]);
 }
 
 /**
@@ -1041,8 +1095,8 @@ export async function updatePermissionRole(
   userId: string,
   newRole: FormPermissionType,
 ): Promise<FormPermissionWithUser> {
-  const { permission, shouldRevokeEditorAccess } = await db.transaction(
-    async (tx) => {
+  const { permission, revokedShareLinkIds, shouldRevokeEditorAccess } =
+    await db.transaction(async (tx) => {
       const pendingInvitationRows = await lockPendingInvitationsByInviter(
         tx,
         formId,
@@ -1092,7 +1146,16 @@ export async function updatePermissionRole(
         "Permission role changed before it could be updated",
       );
 
+      let revokedShareLinkIds: string[] = [];
       if (newRole === "VIEWER") {
+        const revokedShareLinks = await lockActiveShareLinksByCreator(
+          tx,
+          formId,
+          userId,
+          "EDITOR",
+        );
+        revokedShareLinkIds = revokedShareLinks.map((link) => link.id);
+
         await tx
           .update(formShareLink)
           .set({ isActive: false })
@@ -1162,14 +1225,17 @@ export async function updatePermissionRole(
           },
         },
         shouldRevokeEditorAccess,
+        revokedShareLinkIds,
       };
-    },
-  );
+    });
 
-  if (shouldRevokeEditorAccess) {
-    const { publishSseAccessRevoked } = await import("../redis-publisher");
-    await publishSseAccessRevoked(formId, userId);
-  }
+  const userRevokeTargets: SseAccessRevokeTarget[] = shouldRevokeEditorAccess
+    ? [{ targetType: "user", userId }]
+    : [];
+  await publishSseAccessRevokes(formId, [
+    ...userRevokeTargets,
+    ...buildShareLinkRevokeTargets(revokedShareLinkIds),
+  ]);
 
   return permission;
 }
@@ -1404,64 +1470,78 @@ export async function updateShareLink(
     expiresAt?: Date;
   },
 ): Promise<FormShareLinkResult> {
-  return await db.transaction(async (tx) => {
-    // 共有リンクの存在確認（フォームIDも含めて検証）
-    const [existingLink] = await tx
-      .select()
-      .from(formShareLink)
-      .where(eq(formShareLink.id, shareLinkId))
-      .limit(1);
+  const { shareLink, shouldRevokeShareLink } = await db.transaction(
+    async (tx) => {
+      // 共有リンクの存在確認（フォームIDも含めて検証）
+      const [existingLink] = await tx
+        .select()
+        .from(formShareLink)
+        .where(eq(formShareLink.id, shareLinkId))
+        .limit(1);
 
-    if (!existingLink) {
-      throw new Error("Share link not found");
-    }
+      if (!existingLink) {
+        throw new Error("Share link not found");
+      }
 
-    // フォームIDの照合
-    if (existingLink.formId !== formId) {
-      throw new Error("Share link not found");
-    }
+      // フォームIDの照合
+      if (existingLink.formId !== formId) {
+        throw new Error("Share link not found");
+      }
 
-    // 更新データを構築
-    const updateData: Partial<{
-      isActive: boolean;
-      expiresAt: Date;
-    }> = {};
-    if (updates.isActive !== undefined) {
-      updateData.isActive = updates.isActive;
-    }
-    if (updates.expiresAt !== undefined) {
-      updateData.expiresAt = updates.expiresAt;
-    }
+      // 更新データを構築
+      const updateData: Partial<{
+        isActive: boolean;
+        expiresAt: Date;
+      }> = {};
+      if (updates.isActive !== undefined) {
+        updateData.isActive = updates.isActive;
+      }
+      if (updates.expiresAt !== undefined) {
+        updateData.expiresAt = updates.expiresAt;
+      }
+      const shouldRevokeShareLink =
+        updates.isActive === false ||
+        (updates.expiresAt !== undefined && updates.expiresAt <= new Date());
 
-    // 共有リンクを更新
-    await tx
-      .update(formShareLink)
-      .set(updateData)
-      .where(eq(formShareLink.id, shareLinkId));
+      // 共有リンクを更新
+      await tx
+        .update(formShareLink)
+        .set(updateData)
+        .where(eq(formShareLink.id, shareLinkId));
 
-    // 更新後のリンクを取得
-    const [updatedLink] = await tx
-      .select()
-      .from(formShareLink)
-      .where(eq(formShareLink.id, shareLinkId))
-      .limit(1);
+      // 更新後のリンクを取得
+      const [updatedLink] = await tx
+        .select()
+        .from(formShareLink)
+        .where(eq(formShareLink.id, shareLinkId))
+        .limit(1);
 
-    if (!updatedLink) {
-      throw new Error("Failed to update share link");
-    }
+      if (!updatedLink) {
+        throw new Error("Failed to update share link");
+      }
 
-    return {
-      id: updatedLink.id,
-      form_id: updatedLink.formId,
-      token: updatedLink.token,
-      role: updatedLink.role as FormShareRole,
-      is_active: updatedLink.isActive,
-      expires_at: updatedLink.expiresAt?.toISOString(),
-      created_at: updatedLink.createdAt.toISOString(),
-      updated_at: updatedLink.updatedAt.toISOString(),
-      created_by: updatedLink.createdBy,
-    };
-  });
+      const shareLink: FormShareLinkResult = {
+        id: updatedLink.id,
+        form_id: updatedLink.formId,
+        token: updatedLink.token,
+        role: updatedLink.role as FormShareRole,
+        is_active: updatedLink.isActive,
+        expires_at: updatedLink.expiresAt?.toISOString(),
+        created_at: updatedLink.createdAt.toISOString(),
+        updated_at: updatedLink.updatedAt.toISOString(),
+        created_by: updatedLink.createdBy,
+      };
+      return { shareLink, shouldRevokeShareLink };
+    },
+  );
+
+  if (shouldRevokeShareLink) {
+    await publishSseAccessRevokes(formId, [
+      { targetType: "share_link", shareLinkId },
+    ]);
+  }
+
+  return shareLink;
 }
 
 /**
@@ -1491,6 +1571,10 @@ export async function deleteShareLink(
     // 共有リンクを削除
     await tx.delete(formShareLink).where(eq(formShareLink.id, shareLinkId));
   });
+
+  await publishSseAccessRevokes(formId, [
+    { targetType: "share_link", shareLinkId },
+  ]);
 }
 
 /**
