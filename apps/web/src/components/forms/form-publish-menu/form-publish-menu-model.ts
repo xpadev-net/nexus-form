@@ -64,6 +64,9 @@ const initialPublishMenuState: PublishMenuState = {
   passwordDialogError: null,
 };
 
+const isPartialSnapshotPublishError = (message: string) =>
+  message.startsWith("スナップショット(v");
+
 const publishMenuReducer = (
   state: PublishMenuState,
   action: PublishMenuAction,
@@ -284,7 +287,9 @@ export function useFormPublishMenuModel({
         const message =
           error instanceof Error ? error.message : "Unknown error";
         dispatch({ type: "set-snapshot-save-error", error: message });
-        toast.error(message);
+        if (isPartialSnapshotPublishError(message)) {
+          toast.error(message);
+        }
       }
     },
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],

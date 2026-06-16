@@ -377,6 +377,37 @@ describe("FormPublishMenu password protection", () => {
     });
   });
 
+  it("keeps the snapshot dialog open without duplicating the mutation toast when the initial save fails", async () => {
+    const saveFailure = "スナップショット保存に失敗しました";
+    mocks.hasUnpublishedChanges = true;
+    mocks.saveAndPublish.mockRejectedValue(new Error(saveFailure));
+    const container = document.createElement("div");
+    const root = renderMenu(container, "UNPUBLISHED");
+
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("保存して公開"),
+      ) ?? null,
+    );
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("confirm snapshot"),
+      ) ?? null,
+    );
+    await flushPromises();
+
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      saveFailure,
+    );
+    expect(mocks.saveAndPublish).toHaveBeenCalledWith("release");
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("keeps the snapshot dialog open and shows recovery guidance when activation fails after saving", async () => {
     const partialFailure =
       "スナップショット(v8)は保存されましたが、公開版の更新に失敗しました。バージョン履歴から手動で公開版を選択してください。";
