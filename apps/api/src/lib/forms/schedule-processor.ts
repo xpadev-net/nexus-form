@@ -1,14 +1,10 @@
 import { db } from "@nexus-form/database";
 import { form, formSchedule } from "@nexus-form/database/schema";
+import type { FormStatusValue } from "@nexus-form/shared";
 import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import { SnapshotNotFoundError } from "../errors/form-errors";
 import { logError } from "../logger";
 import { activateSnapshot } from "./snapshot-repository";
-
-/**
- * Form status type (matches schema enum)
- */
-type FormStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "ARCHIVED";
 
 /**
  * スケジュール処理結果の型定義
@@ -16,8 +12,16 @@ type FormStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "ARCHIVED";
 export interface ScheduleProcessResult {
   processed: boolean;
   statusChanged: boolean;
-  newStatus: FormStatus;
+  newStatus: FormStatusValue;
   message: string;
+}
+
+function getAffectedRows(updateResult: unknown): number {
+  if (!Array.isArray(updateResult)) return 0;
+  const [header] = updateResult;
+  if (typeof header !== "object" || header === null) return 0;
+  if (!("affectedRows" in header)) return 0;
+  return typeof header.affectedRows === "number" ? header.affectedRows : 0;
 }
 
 /**
@@ -32,109 +36,192 @@ export async function processFormSchedule(
   currentTime: Date = new Date(),
 ): Promise<ScheduleProcessResult> {
   try {
-    // フォームの現在の状態を取得
-    const [foundForm] = await db
-      .select({
-        id: form.id,
-        status: form.status,
-        publishedAt: form.publishedAt,
-        unpublishedAt: form.unpublishedAt,
-        creatorId: form.creatorId,
-      })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
+    const snapshotSchedules: Array<{
+      id: string;
+      snapshotVersion: number;
+    }> = [];
 
-    if (!foundForm) {
-      throw new Error("Form not found");
-    }
+    const result = await db.transaction(async (tx) => {
+      // フォームと due schedule を同一 TX でロックして stale read を避ける。
+      const [foundForm] = await tx
+        .select({
+          id: form.id,
+          status: form.status,
+          publishedAt: form.publishedAt,
+          unpublishedAt: form.unpublishedAt,
+          creatorId: form.creatorId,
+        })
+        .from(form)
+        .where(eq(form.id, formId))
+        .for("update")
+        .limit(1);
 
-    // 未処理のスケジュールを取得（トリガー時刻が現在時刻以前のもの）
-    const pendingSchedules = await db
-      .select()
-      .from(formSchedule)
-      .where(
-        and(
-          eq(formSchedule.formId, formId),
-          isNull(formSchedule.processedAt),
-          lte(formSchedule.triggerAt, currentTime),
-        ),
-      )
-      .orderBy(asc(formSchedule.triggerAt));
+      if (!foundForm) {
+        throw new Error("Form not found");
+      }
 
-    if (pendingSchedules.length === 0) {
-      return {
-        processed: false,
-        statusChanged: false,
-        newStatus: foundForm.status as FormStatus,
-        message: "No pending schedules to process",
-      };
-    }
+      // 未処理のスケジュールを取得（トリガー時刻が現在時刻以前のもの）
+      const pendingSchedules = await tx
+        .select()
+        .from(formSchedule)
+        .where(
+          and(
+            eq(formSchedule.formId, formId),
+            isNull(formSchedule.processedAt),
+            lte(formSchedule.triggerAt, currentTime),
+          ),
+        )
+        .orderBy(
+          asc(formSchedule.triggerAt),
+          asc(formSchedule.createdAt),
+          asc(formSchedule.id),
+        )
+        .for("update");
 
-    let statusChanged = false;
-    let newStatus = foundForm.status as FormStatus;
-    let message = "No schedule changes needed";
+      if (pendingSchedules.length === 0) {
+        return {
+          processed: false,
+          statusChanged: false,
+          newStatus: foundForm.status,
+          message: "No pending schedules to process",
+        };
+      }
 
-    // 各スケジュールを処理
-    for (const schedule of pendingSchedules) {
-      if (schedule.action === "PUBLISH" && foundForm.status !== "PUBLISHED") {
-        await db
-          .update(form)
-          .set({ status: "PUBLISHED", publishedAt: schedule.triggerAt })
-          .where(eq(form.id, formId));
-        statusChanged = true;
-        newStatus = "PUBLISHED";
-        message = "Form automatically published based on schedule";
-      } else if (
-        schedule.action === "UNPUBLISH" &&
-        foundForm.status !== "UNPUBLISHED"
-      ) {
-        await db
-          .update(form)
-          .set({ status: "UNPUBLISHED", unpublishedAt: schedule.triggerAt })
-          .where(eq(form.id, formId));
-        statusChanged = true;
-        newStatus = "UNPUBLISHED";
-        message = "Form automatically unpublished based on schedule";
-      } else if (schedule.action === "SWITCH_SNAPSHOT") {
-        const targetVersion = schedule.snapshotVersion;
-        if (targetVersion == null) {
-          logError("SWITCH_SNAPSHOT schedule has no snapshotVersion", "api", {
-            formId,
-            scheduleId: schedule.id,
-          });
-          message = `SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped`;
-        } else {
-          try {
-            await activateSnapshot(formId, targetVersion);
-            message = `Snapshot switched to version ${targetVersion} based on schedule`;
-          } catch (err) {
-            if (err instanceof SnapshotNotFoundError) {
-              logError("SWITCH_SNAPSHOT skipped: snapshot not found", "api", {
-                formId,
-                targetVersion,
-              });
-              message = `Snapshot version ${targetVersion} not found; schedule skipped`;
-            } else {
-              throw err;
-            }
+      let statusChanged = false;
+      let currentStatus = foundForm.status;
+      let newStatus = foundForm.status;
+      let message = "No schedule changes needed";
+
+      // 各スケジュールを処理
+      for (const schedule of pendingSchedules) {
+        if (schedule.action === "SWITCH_SNAPSHOT") {
+          const targetVersion = schedule.snapshotVersion;
+          if (targetVersion == null) {
+            logError("SWITCH_SNAPSHOT schedule has no snapshotVersion", "api", {
+              formId,
+              scheduleId: schedule.id,
+            });
+            message =
+              "SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped";
+          } else {
+            snapshotSchedules.push({
+              id: schedule.id,
+              snapshotVersion: targetVersion,
+            });
+            continue;
           }
+        }
+
+        const processedResult = await tx
+          .update(formSchedule)
+          .set({ processedAt: currentTime })
+          .where(
+            and(
+              eq(formSchedule.id, schedule.id),
+              isNull(formSchedule.processedAt),
+            ),
+          );
+        if (getAffectedRows(processedResult) === 0) {
+          message = "Schedule was already processed by another worker; skipped";
+          continue;
+        }
+
+        if (schedule.action === "PUBLISH" && currentStatus !== "PUBLISHED") {
+          await tx
+            .update(form)
+            .set({ status: "PUBLISHED", publishedAt: schedule.triggerAt })
+            .where(eq(form.id, formId));
+          statusChanged = true;
+          currentStatus = "PUBLISHED";
+          newStatus = "PUBLISHED";
+          message = "Form automatically published based on schedule";
+        } else if (
+          schedule.action === "UNPUBLISH" &&
+          currentStatus !== "UNPUBLISHED"
+        ) {
+          await tx
+            .update(form)
+            .set({ status: "UNPUBLISHED", unpublishedAt: schedule.triggerAt })
+            .where(eq(form.id, formId));
+          statusChanged = true;
+          currentStatus = "UNPUBLISHED";
+          newStatus = "UNPUBLISHED";
+          message = "Form automatically unpublished based on schedule";
         }
       }
 
-      // スケジュールを処理済みとしてマーク
-      await db
+      return {
+        processed: true,
+        statusChanged,
+        newStatus,
+        message,
+      };
+    });
+
+    let finalResult = result;
+
+    for (const schedule of snapshotSchedules) {
+      const processedResult = await db
         .update(formSchedule)
         .set({ processedAt: currentTime })
-        .where(eq(formSchedule.id, schedule.id));
+        .where(
+          and(
+            eq(formSchedule.id, schedule.id),
+            isNull(formSchedule.processedAt),
+          ),
+        );
+      if (getAffectedRows(processedResult) === 0) {
+        finalResult = {
+          ...finalResult,
+          processed: true,
+          message: "Schedule was already processed by another worker; skipped",
+        };
+        continue;
+      }
+
+      let snapshotMessage: string;
+      try {
+        await activateSnapshot(formId, schedule.snapshotVersion);
+        snapshotMessage = `Snapshot switched to version ${schedule.snapshotVersion} based on schedule`;
+      } catch (err) {
+        if (err instanceof SnapshotNotFoundError) {
+          logError("SWITCH_SNAPSHOT skipped: snapshot not found", "api", {
+            formId,
+            targetVersion: schedule.snapshotVersion,
+          });
+          snapshotMessage = `Snapshot version ${schedule.snapshotVersion} not found; schedule skipped`;
+        } else {
+          try {
+            await db
+              .update(formSchedule)
+              .set({ processedAt: null })
+              .where(eq(formSchedule.id, schedule.id));
+          } catch (rollbackError) {
+            logError(
+              "Failed to release SWITCH_SNAPSHOT schedule claim",
+              "api",
+              {
+                error:
+                  rollbackError instanceof Error
+                    ? rollbackError.message
+                    : String(rollbackError),
+                formId,
+                scheduleId: schedule.id,
+              },
+            );
+          }
+          throw err;
+        }
+      }
+
+      finalResult = {
+        ...finalResult,
+        processed: true,
+        message: snapshotMessage,
+      };
     }
 
-    return {
-      processed: true,
-      statusChanged,
-      newStatus,
-      message,
-    };
+    return finalResult;
   } catch (error) {
     logError("Schedule processing error", "api", {
       error: error instanceof Error ? error.message : String(error),
