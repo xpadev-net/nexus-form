@@ -1,3 +1,4 @@
+import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../load-env", () => ({}));
@@ -166,6 +167,21 @@ describe("detectAnomalies (T-WORKER-TEST: queue-metrics anomaly detection)", () 
 });
 
 describe("closeMetricsQueues", () => {
+  it("collects metrics for static notification queue", async () => {
+    const metrics = await collectQueueMetrics();
+
+    expect(metrics.map((metric) => metric.name)).toEqual(
+      expect.arrayContaining([
+        "google-sheets-sync",
+        FORM_SUBMIT_NOTIFICATION_QUEUE,
+      ]),
+    );
+    expect(vi.mocked(Queue)).toHaveBeenCalledWith(
+      FORM_SUBMIT_NOTIFICATION_QUEUE,
+      expect.any(Object),
+    );
+  });
+
   it("waits for in-flight collection and prevents new queues during shutdown", async () => {
     vi.mocked(providerRegistry.getNames).mockReturnValue(["first", "second"]);
     const waitingCount = createDeferred<number>();

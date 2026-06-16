@@ -3,6 +3,7 @@
  * BullMQ キューの状態を監視し、異常を検知する
  */
 import { providerRegistry } from "@nexus-form/integrations";
+import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
 import { Queue } from "bullmq";
 import { redisConnection } from "./redis";
 
@@ -21,7 +22,10 @@ export interface QueueMetrics {
   avgProcessingTime?: number;
 }
 
-const STATIC_QUEUE_NAMES = ["google-sheets-sync"] as const;
+const STATIC_QUEUE_NAMES = [
+  "google-sheets-sync",
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
+] as const;
 
 function collectQueueNames(): string[] {
   const validationQueues = providerRegistry

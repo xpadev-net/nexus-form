@@ -9,12 +9,13 @@ import {
   FormSubmitNotificationJobDataSchema,
   type WebhookNotificationChannel,
 } from "@nexus-form/shared";
-import type { Job } from "bullmq";
+import { type Job, UnrecoverableError } from "bullmq";
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "../lib/db";
-import { captureError } from "../lib/sentry";
 
 type NotificationChannel = "email" | "discord" | "webhook";
+const NOTIFICATION_CHANNELS = ["email", "discord", "webhook"] as const;
 
 type NotificationContext = {
   channel: NotificationChannel;
@@ -30,11 +31,50 @@ type NotificationSummary = {
 };
 
 class NotificationSoftFailure extends Error {}
+class NotificationPermanentFailure extends Error {}
+class NotificationRetryableFailure extends Error {}
 
 type DeliveryResult = "delivered" | "skipped" | "disabled";
 
 const DEFAULT_DISCORD_MESSAGE =
   "新しいフォーム回答が届きました\nForm ID: {{form_id}}\nResponse ID: {{response_id}}";
+const NotificationChannelSchema = z.enum(NOTIFICATION_CHANNELS);
+const NotificationProgressSchema = z.object({
+  delivered: z.array(NotificationChannelSchema).optional(),
+  skipped: z.array(NotificationChannelSchema).optional(),
+});
+
+function uniqueChannels(
+  channels: readonly NotificationChannel[] | undefined,
+): NotificationChannel[] {
+  if (!channels) return [];
+  return NOTIFICATION_CHANNELS.filter((channel) => channels.includes(channel));
+}
+
+function createInitialSummary(job: Job<unknown>): NotificationSummary {
+  const progress = NotificationProgressSchema.safeParse(job.progress);
+  if (!progress.success) {
+    return {
+      delivered: [],
+      skipped: [],
+      failed: [],
+    };
+  }
+
+  return {
+    delivered: uniqueChannels(progress.data.delivered),
+    skipped: uniqueChannels(progress.data.skipped),
+    failed: [],
+  };
+}
+
+function snapshotSummary(summary: NotificationSummary): NotificationSummary {
+  return {
+    delivered: [...summary.delivered],
+    skipped: [...summary.skipped],
+    failed: [...summary.failed],
+  };
+}
 
 function withNotificationContext(
   error: unknown,
@@ -42,6 +82,18 @@ function withNotificationContext(
 ): Error & { notificationContext: NotificationContext } {
   const base = error instanceof Error ? error : new Error(String(error));
   return Object.assign(base, { notificationContext: context });
+}
+
+function classifyNotificationFailure(
+  error: unknown,
+): "permanent" | "retryable" {
+  if (
+    error instanceof NotificationSoftFailure ||
+    error instanceof NotificationPermanentFailure
+  ) {
+    return "permanent";
+  }
+  return "retryable";
 }
 
 function recordChannelFailure(error: unknown, context: NotificationContext) {
@@ -54,12 +106,11 @@ function recordChannelFailure(error: unknown, context: NotificationContext) {
     errorName: contextualError.name,
     errorMessage: contextualError.message,
   };
-  if (contextualError instanceof NotificationSoftFailure) {
+  if (classifyNotificationFailure(contextualError) === "permanent") {
     console.warn("[notification] channel delivery skipped", logPayload);
     return;
   }
   console.error("[notification] channel delivery failed", logPayload);
-  captureError(contextualError);
 }
 
 function buildNotificationPayload(data: FormSubmitNotificationJobData) {
@@ -121,6 +172,24 @@ async function loadPublishedSubmitNotifications(
       : {};
   const notifications = FormNotificationsSchema.parse(rawNotifications ?? {});
   return getEnabledSubmitNotificationChannels(notifications.on_submit);
+}
+
+function isStoredNotificationConfigError(error: unknown): boolean {
+  return error instanceof SyntaxError || error instanceof z.ZodError;
+}
+
+function logStoredNotificationConfigSkip(
+  error: unknown,
+  data: FormSubmitNotificationJobData,
+) {
+  const configError = error instanceof Error ? error : new Error(String(error));
+  console.warn("[notification] stored notification config skipped", {
+    formId: data.formId,
+    responseId: data.responseId,
+    snapshotVersion: data.snapshotVersion,
+    errorName: configError.name,
+    errorMessage: configError.message,
+  });
 }
 
 function renderDiscordMessage(
@@ -191,23 +260,45 @@ async function postJsonWithRetries(params: {
         params.timeoutSeconds,
       );
       if (response.ok) return;
-      if (response.status >= 300 && response.status < 400) {
-        lastError = new Error(
-          `${params.failureLabel} notification rejected redirect with status ${response.status}`,
-        );
+      lastError = createNotificationHttpFailure(
+        params.failureLabel,
+        response.status,
+      );
+      if (classifyNotificationFailure(lastError) === "permanent") {
         break;
       }
-      lastError = new Error(
-        `${params.failureLabel} notification failed with status ${response.status}`,
-      );
     } catch (error) {
       lastError = error;
+      if (classifyNotificationFailure(lastError) === "permanent") {
+        break;
+      }
     }
   }
 
   throw lastError instanceof Error
     ? lastError
     : new Error(`${params.failureLabel} notification failed`);
+}
+
+function isRetryableNotificationStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function createNotificationHttpFailure(
+  failureLabel: string,
+  status: number,
+): Error {
+  if (status >= 300 && status < 400) {
+    return new NotificationPermanentFailure(
+      `${failureLabel} notification rejected redirect with status ${status}`,
+    );
+  }
+
+  const message = `${failureLabel} notification failed with status ${status}`;
+  if (isRetryableNotificationStatus(status)) {
+    return new NotificationRetryableFailure(message);
+  }
+  return new NotificationPermanentFailure(message);
 }
 
 async function sendEmailNotification(
@@ -325,34 +416,68 @@ async function deliverChannel(
 export async function handleFormSubmitNotifications(
   job: Job<unknown>,
 ): Promise<NotificationSummary> {
-  const data = FormSubmitNotificationJobDataSchema.parse(job.data);
-  const notifications = await loadPublishedSubmitNotifications(data);
-  const summary: NotificationSummary = {
-    delivered: [],
-    skipped: [],
-    failed: [],
-  };
+  const dataResult = FormSubmitNotificationJobDataSchema.safeParse(job.data);
+  if (!dataResult.success) {
+    throw new UnrecoverableError("Invalid form submit notification job data");
+  }
 
-  for (const channel of ["email", "discord", "webhook"] as const) {
+  const data = dataResult.data;
+  const summary = createInitialSummary(job);
+  let notifications: FormNotifications["on_submit"];
+  try {
+    notifications = await loadPublishedSubmitNotifications(data);
+  } catch (error) {
+    if (!isStoredNotificationConfigError(error)) {
+      throw error;
+    }
+    logStoredNotificationConfigSkip(error, data);
+    await job.updateProgress(snapshotSummary(summary));
+    return summary;
+  }
+
+  let retryableFailure: Error | null = null;
+
+  const terminalChannels = new Set([...summary.delivered, ...summary.skipped]);
+
+  for (const channel of NOTIFICATION_CHANNELS) {
+    if (terminalChannels.has(channel)) continue;
+
     const context: NotificationContext = {
       channel,
       formId: data.formId,
       responseId: data.responseId,
       snapshotVersion: data.snapshotVersion,
     };
+    let result: DeliveryResult;
     try {
-      const result = await deliverChannel(channel, data, notifications);
-      if (result === "delivered") {
-        summary.delivered.push(channel);
-      } else if (result === "skipped") {
-        summary.skipped.push(channel);
-      }
+      result = await deliverChannel(channel, data, notifications);
     } catch (error) {
-      summary.failed.push(channel);
       recordChannelFailure(error, context);
+      if (classifyNotificationFailure(error) === "permanent") {
+        summary.skipped.push(channel);
+        terminalChannels.add(channel);
+        await job.updateProgress(snapshotSummary(summary));
+        continue;
+      }
+      summary.failed.push(channel);
+      retryableFailure ??= withNotificationContext(error, context);
+      continue;
+    }
+
+    if (result === "delivered") {
+      summary.delivered.push(channel);
+      terminalChannels.add(channel);
+      await job.updateProgress(snapshotSummary(summary));
+    } else if (result === "skipped") {
+      summary.skipped.push(channel);
+      terminalChannels.add(channel);
+      await job.updateProgress(snapshotSummary(summary));
     }
   }
 
-  await job.updateProgress(summary);
+  await job.updateProgress(snapshotSummary(summary));
+  if (retryableFailure) {
+    throw retryableFailure;
+  }
   return summary;
 }
