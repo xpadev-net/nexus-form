@@ -51,6 +51,10 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
     success: vi.fn(),
   },
+  hasUnpublishedChanges: false,
+  saveAndActivate: vi.fn(),
+  saveAndPublish: vi.fn(),
+  saveSnapshot: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -74,15 +78,15 @@ vi.mock("@/hooks/forms/use-form-publish-actions", () => ({
     activeSnapshotVersion: 1,
     hasActiveSnapshot: true,
     hasChangesFromActive: false,
-    hasUnpublishedChanges: false,
+    hasUnpublishedChanges: mocks.hasUnpublishedChanges,
     isProcessing: false,
     lastPublishedVersion: 1,
     publishForm: vi.fn(),
     publishSnapshotMutation: { isPending: false },
     resetToActiveSnapshot: vi.fn(),
-    saveAndActivate: vi.fn(),
-    saveAndPublish: vi.fn(),
-    saveSnapshot: vi.fn(),
+    saveAndActivate: mocks.saveAndActivate,
+    saveAndPublish: mocks.saveAndPublish,
+    saveSnapshot: mocks.saveSnapshot,
     totalChanges: 0,
     unpublishForm: vi.fn(),
   }),
@@ -205,7 +209,23 @@ vi.mock("@/components/ui/switch", () => ({
 }));
 
 vi.mock("./snapshot-save-dialog", () => ({
-  SnapshotSaveDialog: () => null,
+  SnapshotSaveDialog: ({
+    error,
+    onConfirm,
+    open,
+  }: {
+    error: string | null;
+    onConfirm: (changeLog: string) => void;
+    open: boolean;
+  }) =>
+    open ? (
+      <div role="dialog">
+        {error ? <div role="alert">{error}</div> : null}
+        <button type="button" onClick={() => onConfirm("release")}>
+          confirm snapshot
+        </button>
+      </div>
+    ) : null,
 }));
 
 vi.mock("./form-publish-menu/reset-snapshot-dialog", () => ({
@@ -220,10 +240,15 @@ vi.mock("./snapshot-graph", () => ({
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-function renderMenu(container: HTMLElement): Root {
+function renderMenu(
+  container: HTMLElement,
+  formStatus: ComponentProps<
+    typeof FormPublishMenu
+  >["formStatus"] = "PUBLISHED",
+): Root {
   const root = createRoot(container);
   act(() => {
-    root.render(<FormPublishMenu formId="form-1" formStatus="PUBLISHED" />);
+    root.render(<FormPublishMenu formId="form-1" formStatus={formStatus} />);
   });
   return root;
 }
@@ -232,6 +257,12 @@ function click(element: Element | null) {
   expect(element).not.toBeNull();
   act(() => {
     element?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+async function flushPromises() {
+  await act(async () => {
+    await Promise.resolve();
   });
 }
 
@@ -281,9 +312,13 @@ describe("FormPublishMenu password protection", () => {
       isSynced: true,
     };
     mocks.shouldFailPasswordUpdate = false;
+    mocks.hasUnpublishedChanges = false;
     mocks.toast.error.mockReset();
     mocks.toast.success.mockReset();
     mocks.mutatePasswordProtection.mockReset();
+    mocks.saveAndActivate.mockReset();
+    mocks.saveAndPublish.mockReset();
+    mocks.saveSnapshot.mockReset();
     mocks.mutatePasswordProtection.mockImplementation(
       (
         params: UpdatePasswordProtectionParams,
@@ -305,6 +340,76 @@ describe("FormPublishMenu password protection", () => {
         options?.onSuccess?.();
       },
     );
+  });
+
+  it("keeps the snapshot dialog open and shows recovery guidance when publish fails after saving", async () => {
+    const partialFailure =
+      "スナップショット(v7)は公開版に設定されましたが、フォームの公開に失敗しました。公開メニューから手動でフォームを公開してください。";
+    mocks.hasUnpublishedChanges = true;
+    mocks.saveAndPublish.mockRejectedValue(new Error(partialFailure));
+    const container = document.createElement("div");
+    const root = renderMenu(container, "UNPUBLISHED");
+
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("保存して公開"),
+      ) ?? null,
+    );
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("confirm snapshot"),
+      ) ?? null,
+    );
+    await flushPromises();
+
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      partialFailure,
+    );
+    expect(mocks.saveAndPublish).toHaveBeenCalledWith("release");
+    expect(mocks.toast.error).toHaveBeenCalledWith(partialFailure);
+    expect(mocks.toast.success).not.toHaveBeenCalledWith(
+      "スナップショットを保存し、フォームを公開しました",
+    );
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps the snapshot dialog open and shows recovery guidance when activation fails after saving", async () => {
+    const partialFailure =
+      "スナップショット(v8)は保存されましたが、公開版の更新に失敗しました。バージョン履歴から手動で公開版を選択してください。";
+    mocks.hasUnpublishedChanges = true;
+    mocks.saveAndActivate.mockRejectedValue(new Error(partialFailure));
+    const container = document.createElement("div");
+    const root = renderMenu(container);
+
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("変更を公開"),
+      ) ?? null,
+    );
+    click(
+      Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent?.includes("confirm snapshot"),
+      ) ?? null,
+    );
+    await flushPromises();
+
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    expect(container.querySelector("[role='alert']")?.textContent).toContain(
+      partialFailure,
+    );
+    expect(mocks.saveAndActivate).toHaveBeenCalledWith("release");
+    expect(mocks.toast.error).toHaveBeenCalledWith(partialFailure);
+    expect(mocks.toast.success).not.toHaveBeenCalledWith(
+      "スナップショットを保存し、公開版を更新しました",
+    );
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("opens the password dialog when toggled on without saving immediately", () => {

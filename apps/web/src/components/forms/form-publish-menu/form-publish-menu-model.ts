@@ -283,9 +283,8 @@ export function useFormPublishMenuModel({
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown error";
-        if (dialogMode === "saveOnly") {
-          dispatch({ type: "set-snapshot-save-error", error: message });
-        }
+        dispatch({ type: "set-snapshot-save-error", error: message });
+        toast.error(message);
       }
     },
     [dialogMode, onStatusChange, saveAndActivate, saveAndPublish, saveSnapshot],
