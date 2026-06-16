@@ -48,18 +48,20 @@ function getTrustedForwardedIp(
 }
 
 /**
- * テレメトリ戦略: x-nginx-forwarded-for → unknown
+ * テレメトリ戦略: trusted x-nginx-forwarded-for → unknown
  * 用途: テレメトリトークン発行
  */
 function extractTelemetryIP(
   request: Request | IPAddressRequestLike,
+  trustedProxyCount: number = parseTrustedProxyCount(),
 ): IPExtractionResult {
-  const forwarded = request.headers.get("x-nginx-forwarded-for");
-
-  if (forwarded) {
-    const firstIp = forwarded.split(",")[0]?.trim() ?? "unknown";
+  const forwardedIp = getTrustedForwardedIp(
+    request.headers.get("x-nginx-forwarded-for"),
+    trustedProxyCount,
+  );
+  if (forwardedIp) {
     return {
-      ip: firstIp,
+      ip: forwardedIp,
       source: "x-nginx-forwarded-for",
     };
   }
@@ -113,7 +115,7 @@ export function extractIPByStrategy(
 ): IPExtractionResult {
   switch (strategy) {
     case "telemetry": {
-      return extractTelemetryIP(request);
+      return extractTelemetryIP(request, trustedProxyCount);
     }
     case "general": {
       return extractGeneralIP(request, trustedProxyCount);

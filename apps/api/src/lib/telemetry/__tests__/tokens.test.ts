@@ -1,13 +1,50 @@
 import { createHash } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { hashIPAddress } from "../tokens";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  consumeTokensOrThrow,
+  findTelemetryTokens,
+  hashIPAddress,
+} from "../tokens";
+
+const mocks = vi.hoisted(() => ({
+  and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
+  db: {
+    select: vi.fn(),
+    update: vi.fn(),
+  },
+  eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
+  gt: vi.fn((left: unknown, right: unknown) => ({ type: "gt", left, right })),
+  inArray: vi.fn((left: unknown, right: unknown) => ({
+    type: "inArray",
+    left,
+    right,
+  })),
+  isNull: vi.fn((value: unknown) => ({ type: "isNull", value })),
+  selectFrom: vi.fn(),
+  selectWhere: vi.fn(),
+  updateSet: vi.fn(),
+  updateWhere: vi.fn(),
+}));
 
 vi.mock("@nexus-form/database", () => ({
-  db: {},
+  db: mocks.db,
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
-  telemetryToken: {},
+  telemetryToken: {
+    expiresAt: "telemetryToken.expiresAt",
+    ip: "telemetryToken.ip",
+    token: "telemetryToken.token",
+    usedAt: "telemetryToken.usedAt",
+  },
+}));
+
+vi.mock("drizzle-orm", () => ({
+  and: mocks.and,
+  eq: mocks.eq,
+  gt: mocks.gt,
+  inArray: mocks.inArray,
+  isNull: mocks.isNull,
 }));
 
 const originalTelemetryIpSalt = process.env.TELEMETRY_IP_SALT;
@@ -32,6 +69,16 @@ function authSecretDerivedSalt(authSecret: string): string {
     .update(`telemetry-ip-salt:${authSecret}`)
     .digest("hex");
 }
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.db.select.mockReturnValue({ from: mocks.selectFrom });
+  mocks.selectFrom.mockReturnValue({ where: mocks.selectWhere });
+  mocks.selectWhere.mockResolvedValue([{ token: "token-a" }]);
+  mocks.db.update.mockReturnValue({ set: mocks.updateSet });
+  mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
+  mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
+});
 
 afterEach(() => {
   setEnv("TELEMETRY_IP_SALT", originalTelemetryIpSalt);
@@ -91,6 +138,75 @@ describe("hashIPAddress", () => {
 
     expect(() => hashIPAddress("203.0.113.10")).toThrow(
       "TELEMETRY_IP_SALT or AUTH_SECRET must be set for telemetry IP hashing",
+    );
+  });
+});
+
+describe("consumeTokensOrThrow", () => {
+  it("consumes unused tokens only when the current IP hash matches", async () => {
+    setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 2 }]);
+
+    await consumeTokensOrThrow(
+      ["token-a", "token-a", "token-b"],
+      "203.0.113.10",
+    );
+
+    expect(mocks.inArray).toHaveBeenCalledWith("telemetryToken.token", [
+      "token-a",
+      "token-b",
+    ]);
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "telemetryToken.ip",
+      expectedHash("203.0.113.10", "telemetry-salt"),
+    );
+    const ipCondition = mocks.eq.mock.results[0]?.value;
+    expect(mocks.and).toHaveBeenCalledWith(
+      expect.anything(),
+      ipCondition,
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(mocks.updateWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
+    expect(mocks.updateSet).toHaveBeenCalledWith({
+      usedAt: expect.any(Date),
+    });
+  });
+
+  it("rejects tokens when no row matches the current IP hash", async () => {
+    setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 0 }]);
+
+    await expect(
+      consumeTokensOrThrow(["token-a"], "198.51.100.23"),
+    ).rejects.toThrow("Invalid, expired, or IP-mismatched telemetry tokens");
+  });
+});
+
+describe("findTelemetryTokens", () => {
+  it("finds only unused tokens that match the current IP hash", async () => {
+    setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+
+    await expect(
+      findTelemetryTokens(["token-a"], "203.0.113.10"),
+    ).resolves.toEqual([{ token: "token-a" }]);
+
+    expect(mocks.inArray).toHaveBeenCalledWith("telemetryToken.token", [
+      "token-a",
+    ]);
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "telemetryToken.ip",
+      expectedHash("203.0.113.10", "telemetry-salt"),
+    );
+    const ipCondition = mocks.eq.mock.results[0]?.value;
+    expect(mocks.selectWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
     );
   });
 });

@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { telemetryToken } from "@nexus-form/database/schema";
-import { and, gt, inArray, isNull } from "drizzle-orm";
+import type { InferSelectModel } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
+
+type TelemetryTokenRow = InferSelectModel<typeof telemetryToken>;
 
 function resolveTelemetryIpSalt(): string {
   const telemetrySalt = process.env.TELEMETRY_IP_SALT;
@@ -19,6 +22,12 @@ function resolveTelemetryIpSalt(): string {
     .digest("hex");
 }
 
+/**
+ * Hashes a client IP address with the configured telemetry salt.
+ *
+ * @param ip - Normalized client IP address to hash.
+ * @returns Stable salted hash used for telemetry token binding.
+ */
 export function hashIPAddress(ip: string): string {
   const salt = resolveTelemetryIpSalt();
   return createHash("sha256")
@@ -26,7 +35,18 @@ export function hashIPAddress(ip: string): string {
     .digest("hex");
 }
 
-export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
+/**
+ * Atomically consumes unused telemetry tokens bound to the current client IP.
+ *
+ * @param tokens - Telemetry token values submitted by the public form.
+ * @param currentIp - Normalized client IP address observed during submission.
+ * @returns Resolves when every unique token is valid, unused, unexpired, and IP-bound to currentIp.
+ * @throws When no tokens are provided or any token is invalid, expired, already used, or IP-mismatched.
+ */
+export async function consumeTokensOrThrow(
+  tokens: string[],
+  currentIp: string,
+): Promise<void> {
   const unique = [...new Set(tokens)];
   if (unique.length === 0) {
     throw new Error("No telemetry tokens provided");
@@ -41,6 +61,7 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
     .where(
       and(
         inArray(telemetryToken.token, unique),
+        eq(telemetryToken.ip, hashIPAddress(currentIp)),
         isNull(telemetryToken.usedAt),
         gt(telemetryToken.expiresAt, now),
       ),
@@ -49,17 +70,28 @@ export async function consumeTokensOrThrow(tokens: string[]): Promise<void> {
   // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
   const header = result[0] as { affectedRows: number };
   if (header.affectedRows !== unique.length) {
-    throw new Error("Invalid or expired telemetry tokens");
+    throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
   }
 }
 
-export async function findTelemetryTokens(tokens: string[]) {
+/**
+ * Finds unused telemetry tokens that are still valid for the current client IP.
+ *
+ * @param tokens - Telemetry token values to look up.
+ * @param currentIp - Normalized client IP address that must match the issued token binding.
+ * @returns Matching unused and unexpired telemetry token rows for the supplied IP.
+ */
+export async function findTelemetryTokens(
+  tokens: string[],
+  currentIp: string,
+): Promise<TelemetryTokenRow[]> {
   return db
     .select()
     .from(telemetryToken)
     .where(
       and(
         inArray(telemetryToken.token, tokens),
+        eq(telemetryToken.ip, hashIPAddress(currentIp)),
         isNull(telemetryToken.usedAt),
         gt(telemetryToken.expiresAt, new Date()),
       ),
