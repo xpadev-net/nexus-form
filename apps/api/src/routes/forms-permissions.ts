@@ -21,6 +21,7 @@ import {
   getFormPermissions,
   getShareLinks,
   getUserFormPermission,
+  PermissionMutationConflictError,
   PermissionRemovalError,
   removePermission,
   transferOwnership,
@@ -123,9 +124,8 @@ function isSyntheticShareLinkPrincipal(auth: DualAuthContext): boolean {
 
 function isPermissionMutationConflict(
   error: unknown,
-): error is Error & { statusCode: 409 } {
-  if (!(error instanceof Error)) return false;
-  return Reflect.get(error, "statusCode") === 409;
+): error is PermissionMutationConflictError {
+  return error instanceof PermissionMutationConflictError;
 }
 
 const rejectSyntheticShareLinkManagementAuth = createMiddleware<Env>(

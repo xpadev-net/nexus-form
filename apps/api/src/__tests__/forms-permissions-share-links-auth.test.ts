@@ -34,6 +34,17 @@ const mocks = vi.hoisted(() => ({
       this.code = code;
     }
   },
+  PermissionMutationConflictError: class PermissionMutationConflictError extends Error {
+    statusCode = 409 as const;
+
+    constructor(
+      readonly code: string,
+      message: string,
+    ) {
+      super(message);
+      this.name = "PermissionMutationConflictError";
+    }
+  },
   removePermission: vi.fn(),
   transferOwnership: vi.fn(),
   txInsert: vi.fn(),
@@ -105,6 +116,7 @@ vi.mock("../lib/forms/permission-service", () => ({
   getFormPermissions: mocks.getFormPermissions,
   getShareLinks: mocks.getShareLinks,
   getUserFormPermission: mocks.getUserFormPermission,
+  PermissionMutationConflictError: mocks.PermissionMutationConflictError,
   PermissionRemovalError: mocks.PermissionRemovalError,
   removePermission: mocks.removePermission,
   transferOwnership: mocks.transferOwnership,
@@ -626,7 +638,10 @@ describe("permission mutation stale conflict responses", () => {
   });
 
   const staleConflict = (message: string) =>
-    Object.assign(new Error(message), { statusCode: 409 });
+    new mocks.PermissionMutationConflictError(
+      "PERMISSION_STALE_MUTATION",
+      message,
+    );
 
   it("maps stale role updates to conflict responses", async () => {
     mocks.updatePermissionRole.mockRejectedValue(

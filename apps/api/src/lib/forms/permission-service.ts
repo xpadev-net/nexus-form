@@ -1013,7 +1013,7 @@ export async function transferOwnership(
       "Current owner permission changed before ownership could be transferred",
     );
 
-    // フォームの作成者を更新
+    // フォーム行は上で FOR UPDATE 済み。creatorId 条件は防御的な一貫性確認として残す。
     const formUpdateResult = await tx
       .update(form)
       .set({ creatorId: newOwnerId })
