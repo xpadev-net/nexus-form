@@ -56,7 +56,14 @@ const provider = {
           options: [
             { value: "member", label: "Member" },
             { value: "admin", label: "Admin" },
+            { value: "member-admin", label: "Member Admin" },
           ],
+        },
+        {
+          name: "roles-member",
+          label: "Role member",
+          kind: "multiselect",
+          options: [{ value: "admin", label: "Admin" }],
         },
         {
           name: "mode",
@@ -349,6 +356,36 @@ describe("FormValidationRulesPage", () => {
     act(() => root.unmount());
   });
 
+  it("shows both retryable errors when providers and rules fail together", () => {
+    const container = document.createElement("div");
+    mocks.providersData = undefined;
+    mocks.providersError = new Error("providers failed");
+    mocks.providersIsError = true;
+    mocks.rulesData = undefined;
+    mocks.rulesError = new Error("rules failed");
+    mocks.rulesIsError = true;
+
+    const root = renderPage(container);
+
+    const alerts = Array.from(container.querySelectorAll('[role="alert"]'));
+    expect(alerts).toHaveLength(2);
+    expect(alerts.map((alert) => alert.textContent)).toEqual([
+      expect.stringContaining("providers failed"),
+      expect.stringContaining("rules failed"),
+    ]);
+    expect(container.textContent).not.toContain("検証ルールはまだありません");
+    expect(
+      container.querySelector(
+        '[data-testid="validation-providers-query-retry"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="validation-rules-query-retry"]'),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
   it("keeps config control ids unique and labels scoped to each rule card", () => {
     const container = document.createElement("div");
     mocks.rulesData = [ruleFixture("rule-a"), ruleFixture("rule-b")];
@@ -364,12 +401,16 @@ describe("FormValidationRulesPage", () => {
       expect.arrayContaining([
         "rule-rule-a-config-guildId",
         "rule-rule-a-config-level",
-        "rule-rule-a-config-roles-member",
-        "rule-rule-a-config-mode-any",
+        "rule-rule-a-config-roles::member",
+        "rule-rule-a-config-roles::member-admin",
+        "rule-rule-a-config-roles-member::admin",
+        "rule-rule-a-config-mode::any",
         "rule-rule-b-config-guildId",
         "rule-rule-b-config-level",
-        "rule-rule-b-config-roles-member",
-        "rule-rule-b-config-mode-any",
+        "rule-rule-b-config-roles::member",
+        "rule-rule-b-config-roles::member-admin",
+        "rule-rule-b-config-roles-member::admin",
+        "rule-rule-b-config-mode::any",
       ]),
     );
 

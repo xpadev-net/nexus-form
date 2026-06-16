@@ -25,6 +25,7 @@ import { getValidationProviderRule } from "@/lib/validation/validation-providers
 type ProviderConfig = Record<string, unknown>;
 
 const EMPTY_PROVIDER_CONFIG: ProviderConfig = {};
+const CONFIG_OPTION_ID_SEPARATOR = "::";
 
 interface ExternalServiceValidationConfigProps {
   providerName: string;
@@ -397,7 +398,7 @@ const DynamicConfigField: FC<{
               options.map((option) => {
                 const checked = selectedValues.includes(option.value);
                 const color = formatColor(option.color);
-                const optionId = `${fieldId}-${option.value}`;
+                const optionId = `${fieldId}${CONFIG_OPTION_ID_SEPARATOR}${option.value}`;
                 return (
                   <div key={option.value} className="flex items-center gap-2">
                     <Checkbox
@@ -450,7 +451,7 @@ const DynamicConfigField: FC<{
           disabled={disabled}
         >
           {options.map((option) => {
-            const optionId = `${fieldId}-${option.value}`;
+            const optionId = `${fieldId}${CONFIG_OPTION_ID_SEPARATOR}${option.value}`;
             return (
               <div key={option.value} className="flex items-center gap-2">
                 <RadioGroupItem value={option.value} id={optionId} />

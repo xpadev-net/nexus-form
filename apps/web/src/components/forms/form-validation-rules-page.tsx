@@ -168,6 +168,7 @@ export const FormValidationRulesPage: FC<Props> = ({
 
   const providers = providersQuery.data?.data ?? [];
   const rules = rulesQuery.data ?? [];
+  const hasQueryError = providersQuery.isError || rulesQuery.isError;
   const providersErrorMessage =
     providersQuery.error instanceof Error
       ? providersQuery.error.message
@@ -227,7 +228,7 @@ export const FormValidationRulesPage: FC<Props> = ({
         </p>
       </header>
 
-      {providersQuery.isError ? (
+      {providersQuery.isError && (
         <div
           className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3"
           role="alert"
@@ -243,7 +244,9 @@ export const FormValidationRulesPage: FC<Props> = ({
             再読み込み
           </Button>
         </div>
-      ) : rulesQuery.isError ? (
+      )}
+
+      {rulesQuery.isError && (
         <div
           className="space-y-2 rounded border border-destructive/30 bg-destructive/5 p-3"
           role="alert"
@@ -259,28 +262,31 @@ export const FormValidationRulesPage: FC<Props> = ({
             再読み込み
           </Button>
         </div>
-      ) : rules.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
-          検証ルールはまだありません。「ルール追加」から作成してください。
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {rules.map((rule) => (
-            <ValidationRuleCard
-              key={rule.id}
-              rule={rule}
-              providers={providers}
-              blocks={blocks}
-              formId={formId}
-              onUpdate={(payload) =>
-                updateMutation.mutate({ ruleId: rule.id, payload })
-              }
-              onDelete={() => deleteMutation.mutate(rule.id)}
-              busy={updateMutation.isPending || deleteMutation.isPending}
-            />
-          ))}
-        </div>
       )}
+
+      {!hasQueryError &&
+        (rules.length === 0 ? (
+          <div className="rounded-lg border border-dashed bg-muted/30 p-8 text-center text-sm text-muted-foreground">
+            検証ルールはまだありません。「ルール追加」から作成してください。
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {rules.map((rule) => (
+              <ValidationRuleCard
+                key={rule.id}
+                rule={rule}
+                providers={providers}
+                blocks={blocks}
+                formId={formId}
+                onUpdate={(payload) =>
+                  updateMutation.mutate({ ruleId: rule.id, payload })
+                }
+                onDelete={() => deleteMutation.mutate(rule.id)}
+                busy={updateMutation.isPending || deleteMutation.isPending}
+              />
+            ))}
+          </div>
+        ))}
     </div>
   );
 };
