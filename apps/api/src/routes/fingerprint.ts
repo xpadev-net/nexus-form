@@ -5,13 +5,16 @@ import { fingerprintDetail, formResponse } from "@nexus-form/database/schema";
 import { and, eq, inArray, lt, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import {
-  checkFormAccess,
+  checkFormPermissionLevel,
+  type DualAuthContext,
   hasEditPermission,
   withDualAuth,
 } from "../lib/dual-auth";
+import { FormPermissionError } from "../lib/errors/form-errors";
 import { getFingerprintAnonymizer } from "../lib/fingerprint/anonymizer";
 import { getDataRetentionManager } from "../lib/fingerprint/data-retention";
 import { createHonoApp } from "../lib/hono";
+import type { FormPermissionRole } from "../lib/permissions/constants";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { errorResponse } from "../types/domain/common";
 import {
@@ -108,6 +111,34 @@ async function responseBelongsToForm(
   return (await getResponseFormId(responseId)) === formId;
 }
 
+type FingerprintPermissionFailure = {
+  message: string;
+  status: 403;
+};
+
+async function requireFingerprintPermission(
+  context: DualAuthContext,
+  formId: string,
+  requiredRole: FormPermissionRole,
+): Promise<FingerprintPermissionFailure | null> {
+  try {
+    await checkFormPermissionLevel(context, formId, requiredRole);
+    return null;
+  } catch (error) {
+    if (error instanceof FormPermissionError) {
+      return {
+        message: "Access denied to this form",
+        status: 403,
+      };
+    }
+    throw error;
+  }
+}
+
+const ANONYMIZED_FINGERPRINT_ROLE: FormPermissionRole = "EDITOR";
+// Raw fingerprint hashes are stable linkable identifiers, so keep them owner-only.
+const RAW_FINGERPRINT_ROLE: FormPermissionRole = "OWNER";
+
 export const fingerprintRouter = createHonoApp()
   .post(
     "/save",
@@ -177,9 +208,16 @@ export const fingerprintRouter = createHonoApp()
       let fingerprintWhere: SQL;
       // フォームアクセス権チェック
       if (formId) {
-        const hasAccess = await checkFormAccess(context, formId);
-        if (!hasAccess) {
-          return c.json(errorResponse("Access denied to this form"), 403);
+        const permissionFailure = await requireFingerprintPermission(
+          context,
+          formId,
+          RAW_FINGERPRINT_ROLE,
+        );
+        if (permissionFailure) {
+          return c.json(
+            errorResponse(permissionFailure.message),
+            permissionFailure.status,
+          );
         }
         if (responseId && !(await responseBelongsToForm(responseId, formId))) {
           return c.json(errorResponse("Response not found"), 404);
@@ -194,9 +232,16 @@ export const fingerprintRouter = createHonoApp()
         if (!responseFormId) {
           return c.json(errorResponse("Response not found"), 404);
         }
-        const hasAccess = await checkFormAccess(context, responseFormId);
-        if (!hasAccess) {
-          return c.json(errorResponse("Access denied to this form"), 403);
+        const permissionFailure = await requireFingerprintPermission(
+          context,
+          responseFormId,
+          RAW_FINGERPRINT_ROLE,
+        );
+        if (permissionFailure) {
+          return c.json(
+            errorResponse(permissionFailure.message),
+            permissionFailure.status,
+          );
         }
         fingerprintWhere = eq(fingerprintDetail.responseId, responseId);
       } else {
@@ -237,9 +282,16 @@ export const fingerprintRouter = createHonoApp()
 
       // フォームアクセス権チェック
       if (formId) {
-        const hasAccess = await checkFormAccess(context, formId);
-        if (!hasAccess) {
-          return c.json(errorResponse("Access denied to this form"), 403);
+        const permissionFailure = await requireFingerprintPermission(
+          context,
+          formId,
+          ANONYMIZED_FINGERPRINT_ROLE,
+        );
+        if (permissionFailure) {
+          return c.json(
+            errorResponse(permissionFailure.message),
+            permissionFailure.status,
+          );
         }
         if (responseId && !(await responseBelongsToForm(responseId, formId))) {
           return c.json(errorResponse("Response not found"), 404);
@@ -249,9 +301,16 @@ export const fingerprintRouter = createHonoApp()
         if (!responseFormId) {
           return c.json(errorResponse("Response not found"), 404);
         }
-        const hasAccess = await checkFormAccess(context, responseFormId);
-        if (!hasAccess) {
-          return c.json(errorResponse("Access denied to this form"), 403);
+        const permissionFailure = await requireFingerprintPermission(
+          context,
+          responseFormId,
+          ANONYMIZED_FINGERPRINT_ROLE,
+        );
+        if (permissionFailure) {
+          return c.json(
+            errorResponse(permissionFailure.message),
+            permissionFailure.status,
+          );
         }
       }
 
