@@ -336,10 +336,10 @@ export const handleGenericValidation = async (
       rawResult = await runValidation();
     }
   } catch (error) {
-    if (
-      isShutdownAbortError(error) ||
-      (isAbortError(error) && isFinalBullMqAttempt(job))
-    ) {
+    if (isShutdownAbortError(error) && !isFinalBullMqAttempt(job)) {
+      throw error;
+    }
+    if (isAbortError(error) && isFinalBullMqAttempt(job)) {
       await writeValidationResult({
         responseId,
         formId,

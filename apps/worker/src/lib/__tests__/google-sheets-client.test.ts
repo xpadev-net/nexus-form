@@ -2,6 +2,56 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendRows, readRange, updateRange } from "../google-sheets-client";
 import type { OAuthToken } from "../oauth-token-store";
 
+const shutdownSignalMock = vi.hoisted(() => {
+  let controller = new AbortController();
+  const signal = {
+    get aborted(): boolean {
+      return controller.signal.aborted;
+    },
+    get onabort(): AbortSignal["onabort"] {
+      return controller.signal.onabort;
+    },
+    set onabort(value: AbortSignal["onabort"]) {
+      controller.signal.onabort = value;
+    },
+    get reason(): unknown {
+      return controller.signal.reason;
+    },
+    addEventListener(
+      ...args: Parameters<AbortSignal["addEventListener"]>
+    ): void {
+      controller.signal.addEventListener(...args);
+    },
+    dispatchEvent(...args: Parameters<AbortSignal["dispatchEvent"]>): boolean {
+      return controller.signal.dispatchEvent(...args);
+    },
+    removeEventListener(
+      ...args: Parameters<AbortSignal["removeEventListener"]>
+    ): void {
+      controller.signal.removeEventListener(...args);
+    },
+    throwIfAborted(): void {
+      controller.signal.throwIfAborted();
+    },
+  };
+
+  return {
+    signal,
+    abort(reason?: unknown): void {
+      controller.abort(
+        reason ?? new DOMException("Worker shutdown", "AbortError"),
+      );
+    },
+    reset(): void {
+      controller = new AbortController();
+    },
+  };
+});
+
+vi.mock("../shutdown-signal", () => ({
+  workerShutdownSignal: shutdownSignalMock.signal,
+}));
+
 const token: OAuthToken = {
   userId: "user-1",
   accessToken: "access-token",
@@ -29,6 +79,7 @@ describe("google-sheets-client", () => {
   const fetchMock = vi.fn<typeof fetch>();
 
   beforeEach(() => {
+    shutdownSignalMock.reset();
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
   });
@@ -53,6 +104,49 @@ describe("google-sheets-client", () => {
     expect(getRequestedUrl(fetchMock)).toBe(
       "https://sheets.googleapis.com/v4/spreadsheets/sheet%2Fid%20with%20space/values/Sheet%201:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",
     );
+  });
+
+  it("passes a fetch signal that aborts when worker shutdown starts", async () => {
+    fetchMock.mockImplementationOnce(async (_url, init) => {
+      const signal = init?.signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal?.aborted).toBe(false);
+
+      shutdownSignalMock.abort(
+        new DOMException("Worker shutdown", "AbortError"),
+      );
+
+      expect(signal?.aborted).toBe(true);
+      expect(signal?.reason).toMatchObject({ name: "AbortError" });
+      return createJsonResponse({
+        majorDimension: "ROWS",
+        range: "Sheet 1!A1:B1",
+        values: [["a", "b"]],
+      });
+    });
+
+    const result = await readRange(token, {
+      spreadsheetId: "sheet-id",
+      rangeA1: "Sheet 1!A1:B1",
+    });
+
+    expect(result).toMatchObject({ ok: true });
+  });
+
+  it("does not start fetch when worker shutdown already aborted", async () => {
+    shutdownSignalMock.abort(new DOMException("Worker shutdown", "AbortError"));
+
+    const result = await appendRows(token, {
+      spreadsheetId: "sheet-id",
+      sheetName: "Sheet 1",
+      rows: [["a", "b"]],
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "internal" },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns an error when append success response is malformed", async () => {
