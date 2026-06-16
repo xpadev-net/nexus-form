@@ -21,6 +21,7 @@ import {
   getFormPermissions,
   getShareLinks,
   getUserFormPermission,
+  PermissionMutationConflictError,
   PermissionRemovalError,
   removePermission,
   transferOwnership,
@@ -119,6 +120,12 @@ function isSyntheticShareLinkPrincipal(auth: DualAuthContext): boolean {
       auth.user_id.startsWith("share-link:") ||
       auth.user_id.startsWith("anon:"))
   );
+}
+
+function isPermissionMutationConflict(
+  error: unknown,
+): error is PermissionMutationConflictError {
+  return error instanceof PermissionMutationConflictError;
 }
 
 const rejectSyntheticShareLinkManagementAuth = createMiddleware<Env>(
@@ -284,11 +291,15 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const userId = c.req.param("userId");
       const payload = c.req.valid("json");
-      const permission = await updatePermissionRole(
-        formId,
-        userId,
-        payload.role,
-      );
+      let permission: Awaited<ReturnType<typeof updatePermissionRole>>;
+      try {
+        permission = await updatePermissionRole(formId, userId, payload.role);
+      } catch (error) {
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
+        }
+        throw error;
+      }
       return c.json(FormPermissionResponseSchema.parse({ permission }));
     },
   )
@@ -314,6 +325,9 @@ export const formsPermissionsRouter = createHonoApp()
             return c.json(errorResponse(error.message), 409);
           }
         }
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
+        }
         throw error;
       }
 
@@ -338,6 +352,9 @@ export const formsPermissionsRouter = createHonoApp()
           (error as { code?: string }).code === "NEW_OWNER_NOT_FOUND"
         ) {
           return c.json(errorResponse("New owner user not found"), 404);
+        }
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
         }
         throw error;
       }
