@@ -1,14 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  and: vi.fn((...conditions: unknown[]) => ({ op: "and", conditions })),
-  eq: vi.fn((left: unknown, right: unknown) => ({ op: "eq", left, right })),
-  transaction: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const outsideUpdateResults: Array<Array<{ affectedRows: number }>> = [];
+  const outsideUpdateSets: unknown[] = [];
+  return {
+    and: vi.fn((...conditions: unknown[]) => ({ op: "and", conditions })),
+    eq: vi.fn((left: unknown, right: unknown) => ({ op: "eq", left, right })),
+    outsideUpdateResults,
+    outsideUpdateSets,
+    transaction: vi.fn(),
+    update: vi.fn(() => ({
+      set: vi.fn((value: unknown) => {
+        outsideUpdateSets.push(value);
+        return {
+          where: vi.fn(
+            async () => outsideUpdateResults.shift() ?? [{ affectedRows: 1 }],
+          ),
+        };
+      }),
+    })),
+  };
+});
 
 vi.mock("@nexus-form/database", () => ({
   db: {
     transaction: mocks.transaction,
+    update: mocks.update,
   },
   user: {
     email: "user.email",
@@ -133,6 +150,8 @@ import { acceptInvitation } from "../permission-service";
 describe("acceptInvitation authority and race handling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.outsideUpdateResults.length = 0;
+    mocks.outsideUpdateSets.length = 0;
     txQueue.length = 0;
     mocks.transaction.mockImplementation(async (callback) => {
       const nextTx = txQueue.shift();
@@ -217,6 +236,38 @@ describe("acceptInvitation authority and race handling", () => {
       code: "INVITATION_NOT_PENDING",
       statusCode: 410,
     });
+  });
+
+  it("persists an expired pending invitation outside the rolled-back accept transaction", async () => {
+    const tx = createTx();
+    tx.selectQueue.push(
+      createSelectQuery(
+        [
+          {
+            ...pendingInvitation(),
+            expiresAt: new Date("2020-01-01T00:00:00.000Z"),
+          },
+        ],
+        { lock: true },
+      ),
+      createSelectQuery([{ email: "invitee@example.com", id: "invitee-1" }]),
+    );
+    txQueue.push(tx);
+
+    await expect(
+      acceptInvitation(
+        "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-",
+        "invitee-1",
+      ),
+    ).rejects.toMatchObject({
+      code: "INVITATION_EXPIRED",
+      statusCode: 410,
+    });
+
+    expect(tx.updateSets).not.toContainEqual({ status: "EXPIRED" });
+    expect(mocks.outsideUpdateSets).toContainEqual({ status: "EXPIRED" });
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.id", "invitation-1");
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.status", "PENDING");
   });
 
   it("treats double-click or two-tab accepts as idempotent success after the first acceptance wins", async () => {
