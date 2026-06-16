@@ -6,6 +6,16 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   acceptInvitation: vi.fn(),
   authContext: null as { auth_type: "session"; user_id: string } | null,
+  InvitationAcceptError: class InvitationAcceptError extends Error {
+    constructor(
+      readonly code: string,
+      readonly statusCode: 403 | 404 | 409 | 410,
+      message: string,
+    ) {
+      super(message);
+      this.name = "InvitationAcceptError";
+    }
+  },
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -32,6 +42,7 @@ vi.mock("@nexus-form/database/schema", () => ({
 
 vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: mocks.acceptInvitation,
+  InvitationAcceptError: mocks.InvitationAcceptError,
 }));
 
 vi.mock("../lib/rate-limit", () => {
@@ -201,6 +212,69 @@ describe("GET /api/forms/invites/:token", () => {
       },
     });
     expect(mocks.acceptInvitation).toHaveBeenCalledWith(token, "user-1");
+  });
+
+  it("maps cancelled invitations to 410 when an inviter lost authority before acceptance", async () => {
+    const app = createApp();
+    const token = "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-";
+    mocks.acceptInvitation.mockRejectedValueOnce(
+      new mocks.InvitationAcceptError(
+        "INVITATION_NOT_PENDING",
+        410,
+        "Invitation has been cancelled",
+      ),
+    );
+
+    const response = await app.request(`/api/forms/invites/${token}/accept`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invitation has been cancelled",
+    });
+  });
+
+  it("maps revoked inviter authority to 403 during invitation acceptance", async () => {
+    const app = createApp();
+    const token = "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-";
+    mocks.acceptInvitation.mockRejectedValueOnce(
+      new mocks.InvitationAcceptError(
+        "INVITER_PERMISSION_REVOKED",
+        403,
+        "Inviter no longer has permission to invite users",
+      ),
+    );
+
+    const response = await app.request(`/api/forms/invites/${token}/accept`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Inviter no longer has permission to invite users",
+    });
+  });
+
+  it("maps conflicting concurrent invitation acceptance to 409", async () => {
+    const app = createApp();
+    const token = "abcdefghijklmnopqrstuvwxyzABCDEFG0123456789_-";
+    mocks.acceptInvitation.mockRejectedValueOnce(
+      new mocks.InvitationAcceptError(
+        "INVITATION_ACCEPT_CONFLICT",
+        409,
+        "Invitation could not be accepted",
+      ),
+    );
+
+    const response = await app.request(`/api/forms/invites/${token}/accept`, {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invitation could not be accepted",
+    });
   });
 
   it("rejects unauthenticated callers before accepting canonical invite tokens", async () => {

@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   deleteWhere: vi.fn(),
   eq: vi.fn((left: unknown, right: unknown) => ({ op: "eq", left, right })),
   formLimit: vi.fn(),
+  invitationLock: vi.fn(),
   permissionLimit: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
@@ -25,7 +26,14 @@ vi.mock("@nexus-form/database", () => ({
           })
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.permissionLimit })),
+              where: vi.fn(() => ({ for: mocks.invitationLock })),
+            })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: mocks.permissionLimit })),
+              })),
             })),
           }),
         update: vi.fn(() => ({
@@ -40,7 +48,12 @@ vi.mock("@nexus-form/database/schema", () => ({
   form: {
     id: "form.id",
   },
-  formInvitation: {},
+  formInvitation: {
+    formId: "formInvitation.formId",
+    id: "formInvitation.id",
+    invitedBy: "formInvitation.invitedBy",
+    status: "formInvitation.status",
+  },
   formPermission: {
     formId: "formPermission.formId",
     userId: "formPermission.userId",
@@ -57,7 +70,11 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(),
   desc: vi.fn(),
   eq: mocks.eq,
-  inArray: vi.fn(),
+  inArray: vi.fn((left: unknown, values: unknown[]) => ({
+    op: "inArray",
+    left,
+    values,
+  })),
 }));
 
 const publishSseAccessRevoked = vi.hoisted(() => vi.fn(async () => undefined));
@@ -72,6 +89,7 @@ describe("removePermission share-link revocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
+    mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
     mocks.deleteWhere.mockResolvedValue(undefined);
@@ -90,6 +108,13 @@ describe("removePermission share-link revocation", () => {
       "editor-1",
     );
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.isActive", true);
+    expect(mocks.updateSet).toHaveBeenCalledWith({ status: "CANCELLED" });
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.formId", "form-1");
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "formInvitation.invitedBy",
+      "editor-1",
+    );
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.status", "PENDING");
   });
 
   it("publishes an SSE access revoke event after permission removal", async () => {

@@ -3,7 +3,10 @@ import { form, formInvitation } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualAuth } from "../lib/dual-auth";
-import { acceptInvitation } from "../lib/forms/permission-service";
+import {
+  acceptInvitation,
+  InvitationAcceptError,
+} from "../lib/forms/permission-service";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { FormPermissionWithUser } from "../types/domain/form-permission";
@@ -95,7 +98,24 @@ export const formsInvitesRouter = createHonoApp()
       if (auth.auth_type !== "session") {
         return c.json(inviteError("Session authentication required"), 403);
       }
-      const permission = await acceptInvitation(token.data, auth.user_id);
+      let permission: Awaited<ReturnType<typeof acceptInvitation>>;
+      try {
+        permission = await acceptInvitation(token.data, auth.user_id);
+      } catch (error) {
+        if (error instanceof InvitationAcceptError) {
+          if (error.statusCode === 403) {
+            return c.json(inviteError(error.message), 403);
+          }
+          if (error.statusCode === 404) {
+            return c.json(inviteError(error.message), 404);
+          }
+          if (error.statusCode === 409) {
+            return c.json(inviteError(error.message), 409);
+          }
+          return c.json(inviteError(error.message), 410);
+        }
+        throw error;
+      }
       return c.json(InviteAcceptResponseSchema.parse({ permission }));
     },
   );
