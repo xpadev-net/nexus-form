@@ -13,21 +13,37 @@ type MutationOptions = {
 
 type MutationHandler = (variables: unknown) => Promise<unknown> | unknown;
 
+type MutationDescriptor = {
+  name: string;
+  options: MutationOptions;
+};
+
+type MutationOverride = {
+  handler: MutationHandler;
+  matches: (mutation: MutationDescriptor) => boolean;
+};
+
 const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
-  mutationHandlers: [] as Array<MutationHandler | undefined>,
   mutationOptions: [] as MutationOptions[],
+  mutationOverrides: [] as MutationOverride[],
+  mutationRecords: [] as MutationDescriptor[],
   publishSnapshotMutateAsync: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: MutationOptions) => {
-    const index = mocks.mutationOptions.length;
+    const name =
+      options.mutationFn?.name ?? `mutation-${mocks.mutationOptions.length}`;
+    const mutation = { name, options };
     mocks.mutationOptions.push(options);
+    mocks.mutationRecords.push(mutation);
     return {
       isPending: false,
       mutateAsync: vi.fn(async (variables: unknown) => {
-        const handler = mocks.mutationHandlers[index];
+        const handler = mocks.mutationOverrides.find(({ matches }) =>
+          matches(mutation),
+        )?.handler;
         const result = handler
           ? await handler(variables)
           : await options.mutationFn?.(variables);
@@ -117,12 +133,28 @@ function renderProbe(container: HTMLElement): Root {
   return root;
 }
 
+function silentMutationNamed(name: string) {
+  return (mutation: MutationDescriptor) =>
+    mutation.name === name && mutation.options.onError === undefined;
+}
+
+function mutationOption(
+  matches: (mutation: MutationDescriptor) => boolean,
+): MutationOptions {
+  const mutation = mocks.mutationRecords.find(matches);
+  if (!mutation) {
+    throw new Error("expected mutation was not registered");
+  }
+  return mutation.options;
+}
+
 describe("useFormPublishActions", () => {
   beforeEach(() => {
     mocks.invalidateQueries.mockReset();
     mocks.invalidateQueries.mockResolvedValue(undefined);
-    mocks.mutationHandlers = [];
     mocks.mutationOptions = [];
+    mocks.mutationOverrides = [];
+    mocks.mutationRecords = [];
     mocks.publishSnapshotMutateAsync.mockReset();
     latestActions = null;
   });
@@ -132,7 +164,11 @@ describe("useFormPublishActions", () => {
     const root = renderProbe(container);
 
     await act(async () => {
-      await mocks.mutationOptions[0]?.onSuccess?.();
+      await mutationOption(
+        (mutation) =>
+          mutation.name === "activateSnapshot" &&
+          mutation.options.onError !== undefined,
+      ).onSuccess?.();
     });
 
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
@@ -153,8 +189,16 @@ describe("useFormPublishActions", () => {
     const publishMutation = vi
       .fn()
       .mockRejectedValue(new Error("公開 API が失敗しました"));
-    mocks.mutationHandlers[1] = activateMutation;
-    mocks.mutationHandlers[3] = publishMutation;
+    mocks.mutationOverrides.push(
+      {
+        handler: activateMutation,
+        matches: silentMutationNamed("activateSnapshot"),
+      },
+      {
+        handler: publishMutation,
+        matches: silentMutationNamed("publishCurrentForm"),
+      },
+    );
 
     if (latestActions === null) {
       throw new Error("publish actions were not rendered");
@@ -166,8 +210,12 @@ describe("useFormPublishActions", () => {
     expect(mocks.publishSnapshotMutateAsync).toHaveBeenCalledWith({
       changeLog: "release",
     });
-    expect(mocks.mutationOptions[1]?.onError).toBeUndefined();
-    expect(mocks.mutationOptions[3]?.onError).toBeUndefined();
+    expect(
+      mutationOption(silentMutationNamed("activateSnapshot")).onError,
+    ).toBeUndefined();
+    expect(
+      mutationOption(silentMutationNamed("publishCurrentForm")).onError,
+    ).toBeUndefined();
     expect(activateMutation).toHaveBeenCalledWith(7);
     expect(publishMutation).toHaveBeenCalledWith(undefined);
     expect(activateMutation.mock.invocationCallOrder[0]).toBeLessThan(
@@ -187,7 +235,10 @@ describe("useFormPublishActions", () => {
     const activateMutation = vi
       .fn()
       .mockRejectedValue(new Error("activate API が失敗しました"));
-    mocks.mutationHandlers[1] = activateMutation;
+    mocks.mutationOverrides.push({
+      handler: activateMutation,
+      matches: silentMutationNamed("activateSnapshot"),
+    });
 
     if (latestActions === null) {
       throw new Error("publish actions were not rendered");
@@ -199,7 +250,9 @@ describe("useFormPublishActions", () => {
     expect(mocks.publishSnapshotMutateAsync).toHaveBeenCalledWith({
       changeLog: "activate",
     });
-    expect(mocks.mutationOptions[1]?.onError).toBeUndefined();
+    expect(
+      mutationOption(silentMutationNamed("activateSnapshot")).onError,
+    ).toBeUndefined();
     expect(activateMutation).toHaveBeenCalledWith(8);
 
     act(() => {
