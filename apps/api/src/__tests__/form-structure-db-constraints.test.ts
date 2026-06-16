@@ -50,15 +50,17 @@ describe("FormStructure database constraints", () => {
 
     expect(sql).toContain("ROW_NUMBER() OVER");
     expect(sql).toContain(
-      "CREATE TEMPORARY TABLE `FormStructureVersionRenumbering`",
+      "DROP TABLE IF EXISTS `FormStructureVersionRenumbering`",
     );
+    expect(sql).toContain("CREATE TABLE `FormStructureVersionRenumbering`");
     expect(sql).toContain("PARTITION BY `formId`, `version`");
     expect(sql).toContain(
       "SET `Target`.`version` = `Renumbered`.`nextVersion`",
     );
     expect(sql).toContain(
-      "CREATE TEMPORARY TABLE `FormStructureActiveNormalization`",
+      "DROP TABLE IF EXISTS `FormStructureActiveNormalization`",
     );
+    expect(sql).toContain("CREATE TABLE `FormStructureActiveNormalization`");
     expect(sql).toContain("PARTITION BY `formId`");
     expect(sql).toContain("SET `Target`.`isActive` = false");
     expect(sql).toContain(

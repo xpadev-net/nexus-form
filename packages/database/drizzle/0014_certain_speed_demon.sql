@@ -1,4 +1,5 @@
-CREATE TEMPORARY TABLE `FormStructureVersionRenumbering` (
+DROP TABLE IF EXISTS `FormStructureVersionRenumbering`;--> statement-breakpoint
+CREATE TABLE `FormStructureVersionRenumbering` (
   `id` varchar(128) NOT NULL,
   `nextVersion` int NOT NULL,
   PRIMARY KEY (`id`)
@@ -41,8 +42,9 @@ UPDATE `FormStructure` AS `Target`
 INNER JOIN `FormStructureVersionRenumbering` AS `Renumbered`
   ON `Renumbered`.`id` = `Target`.`id`
 SET `Target`.`version` = `Renumbered`.`nextVersion`;--> statement-breakpoint
-DROP TEMPORARY TABLE `FormStructureVersionRenumbering`;--> statement-breakpoint
-CREATE TEMPORARY TABLE `FormStructureActiveNormalization` (
+DROP TABLE `FormStructureVersionRenumbering`;--> statement-breakpoint
+DROP TABLE IF EXISTS `FormStructureActiveNormalization`;--> statement-breakpoint
+CREATE TABLE `FormStructureActiveNormalization` (
   `id` varchar(128) NOT NULL,
   PRIMARY KEY (`id`)
 );--> statement-breakpoint
@@ -63,7 +65,7 @@ UPDATE `FormStructure` AS `Target`
 INNER JOIN `FormStructureActiveNormalization` AS `RankedActive`
   ON `RankedActive`.`id` = `Target`.`id`
 SET `Target`.`isActive` = false;--> statement-breakpoint
-DROP TEMPORARY TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
+DROP TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
 ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128) GENERATED ALWAYS AS (case when `isActive` then `formId` else null end) STORED;--> statement-breakpoint
 CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`);--> statement-breakpoint
 CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`);

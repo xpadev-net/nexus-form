@@ -279,7 +279,7 @@ export async function restoreFormStructure(
         .limit(1);
 
       if (!targetStructure) {
-        throw new Error(`Form structure version ${version} not found`);
+        throw new FormStructureNotFoundError(formId);
       }
 
       const currentVersion = await getCurrentStructureVersionForTransaction(
