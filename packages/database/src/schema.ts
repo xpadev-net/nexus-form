@@ -359,7 +359,7 @@ export const formStructure = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     isActive: boolean("isActive").default(true).notNull(),
     activeFormId: varchar("activeFormId", { length: 128 }).generatedAlwaysAs(
-      () => sql`case when isActive then formId else null end`,
+      () => sql.raw("case when `isActive` then `formId` else null end"),
       { mode: "stored" },
     ),
     changeLog: text("changeLog"),

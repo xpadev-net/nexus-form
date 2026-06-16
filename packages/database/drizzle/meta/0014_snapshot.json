@@ -1934,7 +1934,7 @@
           "notNull": false,
           "autoincrement": false,
           "generated": {
-            "as": "case when isActive then formId else null end",
+            "as": "case when `isActive` then `formId` else null end",
             "type": "stored"
           }
         },

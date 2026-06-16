@@ -62,10 +62,10 @@ describe("FormStructure database constraints", () => {
     expect(sql).toContain("PARTITION BY `formId`");
     expect(sql).toContain("SET `Target`.`isActive` = false");
     expect(sql).toContain(
-      "ADD CONSTRAINT `FormStructure_formId_version_key` UNIQUE(`formId`,`version`)",
+      "CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)",
     );
     expect(sql).toContain(
-      "ADD CONSTRAINT `FormStructure_activeFormId_key` UNIQUE(`activeFormId`)",
+      "CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)",
     );
   });
 });

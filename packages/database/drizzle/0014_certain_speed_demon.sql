@@ -64,6 +64,6 @@ INNER JOIN `FormStructureActiveNormalization` AS `RankedActive`
   ON `RankedActive`.`id` = `Target`.`id`
 SET `Target`.`isActive` = false;--> statement-breakpoint
 DROP TEMPORARY TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
-ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128) GENERATED ALWAYS AS (case when isActive then formId else null end) STORED;--> statement-breakpoint
-ALTER TABLE `FormStructure` ADD CONSTRAINT `FormStructure_formId_version_key` UNIQUE(`formId`,`version`);--> statement-breakpoint
-ALTER TABLE `FormStructure` ADD CONSTRAINT `FormStructure_activeFormId_key` UNIQUE(`activeFormId`);
+ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128) GENERATED ALWAYS AS (case when `isActive` then `formId` else null end) STORED;--> statement-breakpoint
+CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`);--> statement-breakpoint
+CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`);
