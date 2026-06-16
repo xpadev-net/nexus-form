@@ -121,6 +121,13 @@ function isSyntheticShareLinkPrincipal(auth: DualAuthContext): boolean {
   );
 }
 
+function isPermissionMutationConflict(
+  error: unknown,
+): error is Error & { statusCode: 409 } {
+  if (!(error instanceof Error)) return false;
+  return Reflect.get(error, "statusCode") === 409;
+}
+
 const rejectSyntheticShareLinkManagementAuth = createMiddleware<Env>(
   async (c, next) => {
     const auth = c.get("dualAuthContext");
@@ -284,11 +291,15 @@ export const formsPermissionsRouter = createHonoApp()
       const formId = c.req.param("id");
       const userId = c.req.param("userId");
       const payload = c.req.valid("json");
-      const permission = await updatePermissionRole(
-        formId,
-        userId,
-        payload.role,
-      );
+      let permission: Awaited<ReturnType<typeof updatePermissionRole>>;
+      try {
+        permission = await updatePermissionRole(formId, userId, payload.role);
+      } catch (error) {
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
+        }
+        throw error;
+      }
       return c.json(FormPermissionResponseSchema.parse({ permission }));
     },
   )
@@ -314,6 +325,9 @@ export const formsPermissionsRouter = createHonoApp()
             return c.json(errorResponse(error.message), 409);
           }
         }
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
+        }
         throw error;
       }
 
@@ -338,6 +352,9 @@ export const formsPermissionsRouter = createHonoApp()
           (error as { code?: string }).code === "NEW_OWNER_NOT_FOUND"
         ) {
           return c.json(errorResponse("New owner user not found"), 404);
+        }
+        if (isPermissionMutationConflict(error)) {
+          return c.json(errorResponse(error.message), 409);
         }
         throw error;
       }

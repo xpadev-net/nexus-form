@@ -103,6 +103,22 @@ export class PermissionRemovalError extends Error {
   }
 }
 
+export type PermissionMutationConflictErrorCode =
+  | "PERMISSION_STALE_MUTATION"
+  | "OWNER_PERMISSION_INCONSISTENT";
+
+export class PermissionMutationConflictError extends Error {
+  readonly statusCode = 409;
+
+  constructor(
+    readonly code: PermissionMutationConflictErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PermissionMutationConflictError";
+  }
+}
+
 export type InvitationAcceptErrorCode =
   | "INVITATION_NOT_FOUND"
   | "INVITATION_NOT_PENDING"
@@ -160,6 +176,98 @@ function formatPermissionWithUser(permission: {
       updated_at: "",
     },
   };
+}
+
+type PermissionMutationTransaction = Parameters<
+  Parameters<typeof db.transaction>[0]
+>[0];
+
+function ensurePermissionMutationAffectedRows(
+  result: unknown,
+  message: string,
+): void {
+  if (permissionMutationAffectedRows(result) === 0) {
+    throw new PermissionMutationConflictError(
+      "PERMISSION_STALE_MUTATION",
+      message,
+    );
+  }
+}
+
+function permissionMutationAffectedRows(result: unknown): number {
+  if (!Array.isArray(result)) return 0;
+  const [header] = result;
+  if (typeof header !== "object" || header === null) return 0;
+  const affectedRows = Reflect.get(header, "affectedRows");
+  return typeof affectedRows === "number" ? affectedRows : 0;
+}
+
+async function lockPendingInvitationsByInviter(
+  tx: PermissionMutationTransaction,
+  formId: string,
+  inviterId: string,
+): Promise<Array<{ id: string }>> {
+  return await tx
+    .select({ id: formInvitation.id })
+    .from(formInvitation)
+    .where(
+      and(
+        eq(formInvitation.formId, formId),
+        eq(formInvitation.invitedBy, inviterId),
+        eq(formInvitation.status, "PENDING"),
+      ),
+    )
+    .for("update");
+}
+
+async function lockFormAndPermissionsForMutation(
+  tx: PermissionMutationTransaction,
+  formId: string,
+  userIds: string[],
+) {
+  const [lockedForm] = await tx
+    .select({ id: form.id, creatorId: form.creatorId })
+    .from(form)
+    .where(eq(form.id, formId))
+    .for("update")
+    .limit(1);
+
+  const permissions = new Map<
+    string,
+    {
+      id: string;
+      formId: string;
+      userId: string;
+      role: FormPermissionType;
+      createdAt: Date;
+      updatedAt: Date;
+    }
+  >();
+
+  if (!lockedForm) {
+    return { form: lockedForm, permissions };
+  }
+
+  const lockUserIds = [...new Set(userIds)].sort();
+  for (const permissionUserId of lockUserIds) {
+    const [permission] = await tx
+      .select()
+      .from(formPermission)
+      .where(
+        and(
+          eq(formPermission.formId, formId),
+          eq(formPermission.userId, permissionUserId),
+        ),
+      )
+      .for("update")
+      .limit(1);
+
+    if (permission) {
+      permissions.set(permissionUserId, permission);
+    }
+  }
+
+  return { form: lockedForm, permissions };
 }
 
 /**
@@ -741,42 +849,19 @@ export async function removePermission(
   userId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    // フォームの存在確認
-    const [foundForm] = await tx
-      .select({ id: form.id })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
+    const pendingInvitationRows = await lockPendingInvitationsByInviter(
+      tx,
+      formId,
+      userId,
+    );
+    const { form: foundForm, permissions } =
+      await lockFormAndPermissionsForMutation(tx, formId, [userId]);
 
     if (!foundForm) {
       throw new PermissionRemovalError("FORM_NOT_FOUND", "Form not found");
     }
 
-    const pendingInvitationRows = await tx
-      .select({ id: formInvitation.id })
-      .from(formInvitation)
-      .where(
-        and(
-          eq(formInvitation.formId, formId),
-          eq(formInvitation.invitedBy, userId),
-          eq(formInvitation.status, "PENDING"),
-        ),
-      )
-      .for("update");
-
-    // 削除対象の権限を取得
-    const [targetPermission] = await tx
-      .select()
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, userId),
-        ),
-      )
-      .for("update")
-      .limit(1);
-
+    const targetPermission = permissions.get(userId);
     if (!targetPermission) {
       throw new PermissionRemovalError(
         "PERMISSION_NOT_FOUND",
@@ -793,14 +878,19 @@ export async function removePermission(
     }
 
     // 権限を削除
-    await tx
+    const deleteResult = await tx
       .delete(formPermission)
       .where(
         and(
           eq(formPermission.formId, formId),
           eq(formPermission.userId, userId),
+          eq(formPermission.role, targetPermission.role),
         ),
       );
+    ensurePermissionMutationAffectedRows(
+      deleteResult,
+      "Permission changed before it could be removed",
+    );
 
     await tx
       .update(formShareLink)
@@ -839,13 +929,11 @@ export async function transferOwnership(
   currentOwnerId: string,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    // フォームの存在確認
-    const [foundForm] = await tx
-      .select({ id: form.id })
-      .from(form)
-      .where(eq(form.id, formId))
-      .for("update")
-      .limit(1);
+    const { form: foundForm, permissions } =
+      await lockFormAndPermissionsForMutation(tx, formId, [
+        currentOwnerId,
+        newOwnerId,
+      ]);
 
     if (!foundForm) {
       throw new Error("Form not found");
@@ -857,19 +945,15 @@ export async function transferOwnership(
     }
 
     // 現在の所有者の権限を確認
-    const [currentOwnerPermission] = await tx
-      .select()
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, currentOwnerId),
-        ),
-      )
-      .limit(1);
-
-    if (currentOwnerPermission?.role !== "OWNER") {
-      throw new Error("Current user is not the owner");
+    const currentOwnerPermission = permissions.get(currentOwnerId);
+    if (
+      foundForm.creatorId !== currentOwnerId ||
+      currentOwnerPermission?.role !== "OWNER"
+    ) {
+      throw new PermissionMutationConflictError(
+        "OWNER_PERMISSION_INCONSISTENT",
+        "Current owner state changed. Please retry.",
+      );
     }
 
     // 新しい所有者のユーザー存在確認
@@ -885,16 +969,7 @@ export async function transferOwnership(
     }
 
     // 新しい所有者の権限を確認
-    const [newOwnerPermission] = await tx
-      .select()
-      .from(formPermission)
-      .where(
-        and(
-          eq(formPermission.formId, formId),
-          eq(formPermission.userId, newOwnerId),
-        ),
-      )
-      .limit(1);
+    const newOwnerPermission = permissions.get(newOwnerId);
 
     // 新しい所有者に権限がない場合は作成
     if (!newOwnerPermission) {
@@ -906,33 +981,47 @@ export async function transferOwnership(
       });
     } else {
       // 既存の権限をOWNERに更新
-      await tx
+      const promoteResult = await tx
         .update(formPermission)
         .set({ role: "OWNER" })
         .where(
           and(
             eq(formPermission.formId, formId),
             eq(formPermission.userId, newOwnerId),
+            eq(formPermission.role, newOwnerPermission.role),
           ),
         );
+      ensurePermissionMutationAffectedRows(
+        promoteResult,
+        "New owner permission changed before ownership could be transferred",
+      );
     }
 
     // 元の所有者をEDITORに降格
-    await tx
+    const demoteResult = await tx
       .update(formPermission)
       .set({ role: "EDITOR" })
       .where(
         and(
           eq(formPermission.formId, formId),
           eq(formPermission.userId, currentOwnerId),
+          eq(formPermission.role, "OWNER"),
         ),
       );
+    ensurePermissionMutationAffectedRows(
+      demoteResult,
+      "Current owner permission changed before ownership could be transferred",
+    );
 
     // フォームの作成者を更新
-    await tx
+    const formUpdateResult = await tx
       .update(form)
       .set({ creatorId: newOwnerId })
-      .where(eq(form.id, formId));
+      .where(and(eq(form.id, formId), eq(form.creatorId, currentOwnerId)));
+    ensurePermissionMutationAffectedRows(
+      formUpdateResult,
+      "Form owner changed before ownership could be transferred",
+    );
 
     await tx
       .update(formIntegration)
@@ -954,42 +1043,20 @@ export async function updatePermissionRole(
 ): Promise<FormPermissionWithUser> {
   const { permission, shouldRevokeEditorAccess } = await db.transaction(
     async (tx) => {
-      // フォームの存在確認
-      const [foundForm] = await tx
-        .select({ id: form.id })
-        .from(form)
-        .where(eq(form.id, formId))
-        .limit(1);
+      const pendingInvitationRows = await lockPendingInvitationsByInviter(
+        tx,
+        formId,
+        userId,
+      );
+      const { form: foundForm, permissions } =
+        await lockFormAndPermissionsForMutation(tx, formId, [userId]);
 
       if (!foundForm) {
         throw new Error("Form not found");
       }
 
-      const pendingInvitationRows = await tx
-        .select({ id: formInvitation.id })
-        .from(formInvitation)
-        .where(
-          and(
-            eq(formInvitation.formId, formId),
-            eq(formInvitation.invitedBy, userId),
-            eq(formInvitation.status, "PENDING"),
-          ),
-        )
-        .for("update");
-
       // 現在の権限を取得
-      const [currentPermission] = await tx
-        .select()
-        .from(formPermission)
-        .where(
-          and(
-            eq(formPermission.formId, formId),
-            eq(formPermission.userId, userId),
-          ),
-        )
-        .for("update")
-        .limit(1);
-
+      const currentPermission = permissions.get(userId);
       if (!currentPermission) {
         throw new Error("Permission not found");
       }
@@ -1010,15 +1077,20 @@ export async function updatePermissionRole(
         currentPermission.role === "EDITOR" && newRole === "VIEWER";
 
       // 権限を更新
-      await tx
+      const updateResult = await tx
         .update(formPermission)
         .set({ role: newRole })
         .where(
           and(
             eq(formPermission.formId, formId),
             eq(formPermission.userId, userId),
+            eq(formPermission.role, currentPermission.role),
           ),
         );
+      ensurePermissionMutationAffectedRows(
+        updateResult,
+        "Permission role changed before it could be updated",
+      );
 
       if (newRole === "VIEWER") {
         await tx

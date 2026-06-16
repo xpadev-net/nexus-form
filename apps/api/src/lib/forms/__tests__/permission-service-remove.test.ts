@@ -21,12 +21,14 @@ vi.mock("@nexus-form/database", () => ({
           .fn()
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.formLimit })),
+              where: vi.fn(() => ({ for: mocks.invitationLock })),
             })),
           })
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ for: mocks.invitationLock })),
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: mocks.formLimit })),
+              })),
             })),
           })
           .mockReturnValueOnce({
@@ -46,6 +48,7 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   form: {
+    creatorId: "form.creatorId",
     id: "form.id",
   },
   formInvitation: {
@@ -56,6 +59,7 @@ vi.mock("@nexus-form/database/schema", () => ({
   },
   formPermission: {
     formId: "formPermission.formId",
+    role: "formPermission.role",
     userId: "formPermission.userId",
   },
   formShareLink: {
@@ -88,18 +92,26 @@ import { removePermission } from "../permission-service";
 describe("removePermission share-link revocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
+    mocks.formLimit.mockResolvedValue([{ creatorId: "owner-1", id: "form-1" }]);
     mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
-    mocks.deleteWhere.mockResolvedValue(undefined);
-    mocks.updateWhere.mockResolvedValue(undefined);
+    mocks.deleteWhere.mockResolvedValue([{ affectedRows: 1 }]);
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
   });
 
   it("deactivates active share links created by the removed user in the same permission removal transaction", async () => {
     await removePermission("form-1", "editor-1");
 
+    const invitationLockOrder =
+      mocks.invitationLock.mock.invocationCallOrder[0] ?? 0;
+    const formLockOrder = mocks.formLimit.mock.invocationCallOrder[0] ?? 0;
+    const permissionLockOrder =
+      mocks.permissionLimit.mock.invocationCallOrder[0] ?? 0;
+    expect(invitationLockOrder).toBeLessThan(formLockOrder);
+    expect(formLockOrder).toBeLessThan(permissionLockOrder);
     expect(mocks.deleteWhere).toHaveBeenCalled();
+    expect(mocks.eq).toHaveBeenCalledWith("formPermission.role", "EDITOR");
     expect(mocks.updateSet).toHaveBeenCalledWith({ isActive: false });
     expect(mocks.updateWhere).toHaveBeenCalled();
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.formId", "form-1");
@@ -121,5 +133,18 @@ describe("removePermission share-link revocation", () => {
     await removePermission("form-1", "editor-1");
 
     expect(publishSseAccessRevoked).toHaveBeenCalledWith("form-1", "editor-1");
+  });
+
+  it("rejects a stale delete when the locked role no longer matches the delete predicate", async () => {
+    mocks.deleteWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    await expect(removePermission("form-1", "editor-1")).rejects.toMatchObject({
+      code: "PERMISSION_STALE_MUTATION",
+      statusCode: 409,
+    });
+
+    expect(mocks.eq).toHaveBeenCalledWith("formPermission.role", "EDITOR");
+    expect(mocks.updateSet).not.toHaveBeenCalledWith({ isActive: false });
+    expect(publishSseAccessRevoked).not.toHaveBeenCalled();
   });
 });

@@ -35,8 +35,10 @@ const mocks = vi.hoisted(() => ({
     }
   },
   removePermission: vi.fn(),
+  transferOwnership: vi.fn(),
   txInsert: vi.fn(),
   txInsertValues: vi.fn(),
+  updatePermissionRole: vi.fn(),
   updateShareLink: vi.fn(),
   userTable: {
     id: "user.id",
@@ -105,8 +107,8 @@ vi.mock("../lib/forms/permission-service", () => ({
   getUserFormPermission: mocks.getUserFormPermission,
   PermissionRemovalError: mocks.PermissionRemovalError,
   removePermission: mocks.removePermission,
-  transferOwnership: vi.fn(),
-  updatePermissionRole: vi.fn(),
+  transferOwnership: mocks.transferOwnership,
+  updatePermissionRole: mocks.updatePermissionRole,
   updateShareLink: mocks.updateShareLink,
   validateShareLinkRole: mocks.validateShareLinkRole,
 }));
@@ -610,6 +612,85 @@ describe("R10-C2 permission deletion invariants", () => {
       "missing-form",
       "editor-1",
     );
+  });
+});
+
+describe("permission mutation stale conflict responses", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "owner-1",
+    };
+  });
+
+  const staleConflict = (message: string) =>
+    Object.assign(new Error(message), { statusCode: 409 });
+
+  it("maps stale role updates to conflict responses", async () => {
+    mocks.updatePermissionRole.mockRejectedValue(
+      staleConflict("Permission role changed before it could be updated"),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions/editor-1",
+      {
+        body: JSON.stringify({ role: "VIEWER" }),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Permission role changed before it could be updated",
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("maps stale permission deletes to conflict responses", async () => {
+    mocks.removePermission.mockRejectedValue(
+      staleConflict("Permission changed before it could be removed"),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions/editor-1",
+      { method: "DELETE" },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Permission changed before it could be removed",
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("maps stale ownership transfers to conflict responses", async () => {
+    mocks.transferOwnership.mockRejectedValue(
+      staleConflict("Form owner changed before ownership could be transferred"),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions/transfer-owner",
+      {
+        body: JSON.stringify({ newOwnerUserId: "owner-2" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      error: "Form owner changed before ownership could be transferred",
+    });
+    expect(response.status).toBe(409);
   });
 });
 

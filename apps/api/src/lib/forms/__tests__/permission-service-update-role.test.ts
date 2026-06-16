@@ -18,12 +18,14 @@ vi.mock("@nexus-form/database", () => ({
           .fn()
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.formLimit })),
+              where: vi.fn(() => ({ for: mocks.invitationLock })),
             })),
           })
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ for: mocks.invitationLock })),
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: mocks.formLimit })),
+              })),
             })),
           })
           .mockReturnValueOnce({
@@ -55,6 +57,7 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   form: {
+    creatorId: "form.creatorId",
     id: "form.id",
   },
   formInvitation: {
@@ -102,7 +105,7 @@ import { updatePermissionRole } from "../permission-service";
 describe("updatePermissionRole share-link revocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
+    mocks.formLimit.mockResolvedValue([{ creatorId: "owner-1", id: "form-1" }]);
     mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
     mocks.updatedPermissionLimit.mockResolvedValue([
@@ -118,13 +121,21 @@ describe("updatePermissionRole share-link revocation", () => {
       },
     ]);
     mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
-    mocks.updateWhere.mockResolvedValue(undefined);
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
   });
 
   it("deactivates active EDITOR share links created by a user downgraded to VIEWER", async () => {
     await updatePermissionRole("form-1", "editor-1", "VIEWER");
 
+    const invitationLockOrder =
+      mocks.invitationLock.mock.invocationCallOrder[0] ?? 0;
+    const formLockOrder = mocks.formLimit.mock.invocationCallOrder[0] ?? 0;
+    const permissionLockOrder =
+      mocks.permissionLimit.mock.invocationCallOrder[0] ?? 0;
+    expect(invitationLockOrder).toBeLessThan(formLockOrder);
+    expect(formLockOrder).toBeLessThan(permissionLockOrder);
     expect(mocks.updateSet).toHaveBeenCalledWith({ role: "VIEWER" });
+    expect(mocks.eq).toHaveBeenCalledWith("formPermission.role", "EDITOR");
     expect(mocks.updateSet).toHaveBeenCalledWith({ isActive: false });
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.formId", "form-1");
     expect(mocks.eq).toHaveBeenCalledWith(
@@ -165,6 +176,21 @@ describe("updatePermissionRole share-link revocation", () => {
 
     await updatePermissionRole("form-1", "editor-1", "EDITOR");
 
+    expect(publishSseAccessRevoked).not.toHaveBeenCalled();
+  });
+
+  it("rejects a stale role update when the locked role no longer matches the update predicate", async () => {
+    mocks.updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+
+    await expect(
+      updatePermissionRole("form-1", "editor-1", "VIEWER"),
+    ).rejects.toMatchObject({
+      code: "PERMISSION_STALE_MUTATION",
+      statusCode: 409,
+    });
+
+    expect(mocks.eq).toHaveBeenCalledWith("formPermission.role", "EDITOR");
+    expect(mocks.updatedPermissionLimit).not.toHaveBeenCalled();
     expect(publishSseAccessRevoked).not.toHaveBeenCalled();
   });
 });
