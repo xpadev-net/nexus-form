@@ -1,5 +1,6 @@
 {
   "name": "nexus-form-monorepo",
+  "version": "0.0.1",
   "private": true,
   "packageManager": "pnpm@11.2.2",
   "scripts": {
@@ -8,13 +9,14 @@
     "lint": "turbo lint",
     "lint:fix": "turbo lint:fix",
     "type-check": "turbo type-check",
-    "test": "turbo test",
+    "test": "node scripts/run-turbo-test.mjs",
     "db:generate": "turbo db:generate",
     "db:schema:check-staged": "bash scripts/check-drizzle-staged.sh",
     "db:migrate": "turbo db:migrate",
     "clean": "turbo clean",
     "ci:forbid-colors": "node scripts/forbid-colors.mjs",
-    "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all"
+    "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all",
+    "release:dry-run": "node scripts/validate-release-version.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
