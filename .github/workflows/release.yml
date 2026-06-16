@@ -45,11 +45,8 @@ jobs:
 
       - name: Calculate new version
         id: version
-        env:
-          RELEASE_TYPE: ${{ github.event.inputs.release_type }}
         run: |
-          git checkout master
-          node scripts/validate-release-version.mjs "$RELEASE_TYPE" --github-output "$GITHUB_OUTPUT"
+          node scripts/validate-release-version.mjs "${{ github.event.inputs.release_type }}" --github-output "$GITHUB_OUTPUT"
 
       - name: Update package.json version
         run: |

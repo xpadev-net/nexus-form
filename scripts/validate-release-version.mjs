@@ -107,8 +107,13 @@ console.log(`New version: ${nextVersion}`);
 
 const githubOutputPath = getOptionValue(args, "--github-output");
 if (githubOutputPath) {
-  appendFileSync(
-    githubOutputPath,
-    `current_version=${currentVersion}\nnew_version=${nextVersion}\n`,
-  );
+  try {
+    appendFileSync(
+      githubOutputPath,
+      `current_version=${currentVersion}\nnew_version=${nextVersion}\n`,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fail(`failed to write GitHub output: ${message}`);
+  }
 }
