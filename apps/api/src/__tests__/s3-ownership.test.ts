@@ -1202,6 +1202,39 @@ describe("R27-M13: S3 health response hardening", () => {
       "S3 health check failed",
     );
   });
+
+  it("does not expose raw S3 errors when the production bucket check fails", async () => {
+    s3ClientMocks.send
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(
+        new Error("AccessDenied for prod-bucket using raw upstream detail"),
+      );
+
+    const res = await app.request("/api/s3/health");
+
+    expect(res.status).toBe(503);
+    expect(s3ClientMocks.send).toHaveBeenCalledTimes(2);
+
+    const body = await res.json();
+    expect(body).toMatchObject({ status: "unhealthy" });
+    expect(body).toHaveProperty("timestamp");
+    expect(body).not.toHaveProperty("buckets");
+    expect(body).not.toHaveProperty("error");
+
+    const responseText = JSON.stringify(body);
+    expect(responseText).not.toContain("tmp-bucket");
+    expect(responseText).not.toContain("prod-bucket");
+    expect(responseText).not.toContain("AccessDenied");
+
+    expect(loggerMocks.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: "AccessDenied for prod-bucket using raw upstream detail",
+        }),
+      }),
+      "S3 health check failed",
+    );
+  });
 });
 
 describe("C-2: S3 proxy route requires authentication and ownership (regression)", () => {

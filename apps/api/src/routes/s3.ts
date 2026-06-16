@@ -848,6 +848,7 @@ export const s3Router = createHonoApp()
         status: "unhealthy",
         timestamp: new Date().toISOString(),
       };
-      return c.json(UnhealthyResponseSchema.parse(response), 503);
+      const parsed = UnhealthyResponseSchema.safeParse(response);
+      return c.json(parsed.success ? parsed.data : response, 503);
     }
   });
