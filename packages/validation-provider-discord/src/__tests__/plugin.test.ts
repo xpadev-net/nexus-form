@@ -533,6 +533,86 @@ describe("discordProvider.rules.guild_member.inputSchema", () => {
   });
 });
 
+describe("discordProvider.apiHandlers permissions validation", () => {
+  const guildId = "123456789012345678";
+  const discordGuildsUrl = "https://discord.com/api/v10/users/@me/guilds";
+
+  function mockDiscordGuildResponses(userPermissions: unknown) {
+    return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("Authorization");
+      if (url === discordGuildsUrl && authorization === "Bearer user-token") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              id: guildId,
+              name: "User Guild",
+              icon: null,
+              permissions: userPermissions,
+            },
+          ]),
+        });
+      }
+      if (url === discordGuildsUrl && authorization === "Bot bot-token") {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              id: guildId,
+              name: "Bot Guild",
+              icon: null,
+            },
+          ]),
+        });
+      }
+      return Promise.resolve({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+        json: vi.fn().mockResolvedValue({ message: "not found" }),
+      });
+    });
+  }
+
+  it("rejects malformed guild permissions in guilds options safely", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal("fetch", mockDiscordGuildResponses("not-a-number"));
+    const guildsHandler = discordProvider.apiHandlers?.guilds;
+    if (!guildsHandler) throw new Error("guilds handler is not registered");
+
+    await expect(
+      guildsHandler({
+        userId: "user-id",
+        query: {},
+        getLinkedAccount: vi.fn().mockResolvedValue({
+          accountId: "discord-account",
+          accessToken: "user-token",
+        }),
+      }),
+    ).rejects.toThrow("Failed to parse Discord guilds");
+  });
+
+  it("rejects malformed guild permissions in roles options safely", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal("fetch", mockDiscordGuildResponses("8n"));
+    const rolesHandler = discordProvider.apiHandlers?.roles;
+    if (!rolesHandler) throw new Error("roles handler is not registered");
+
+    await expect(
+      rolesHandler({
+        userId: "user-id",
+        query: { guildId },
+        getLinkedAccount: vi.fn().mockResolvedValue({
+          accountId: "discord-account",
+          accessToken: "user-token",
+        }),
+      }),
+    ).rejects.toThrow("Failed to parse Discord guilds");
+  });
+});
+
 describe("Discord API timeout", () => {
   it("uses DISCORD_API_TIMEOUT_MS when it is a positive integer", () => {
     process.env.DISCORD_API_TIMEOUT_MS = "2500";
