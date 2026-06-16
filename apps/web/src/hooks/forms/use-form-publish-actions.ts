@@ -28,51 +28,69 @@ export const useFormPublishActions = (formId: string) => {
   const hasActiveSnapshot =
     latestSnapshotQuery.data?.hasActiveSnapshot ?? false;
 
+  const activateSnapshot = (version: number) =>
+    rpc(
+      client.api.forms[":id"].snapshots[":version"].activate.$post({
+        param: { id: formId, version: String(version) },
+      }),
+    );
+
+  const invalidateAfterActivation = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
+      queryClient.invalidateQueries({
+        queryKey: ["latestSnapshot", formId],
+      }),
+      queryClient.invalidateQueries({
+        queryKey: formAccessControlStructureQueryKey(formId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: unpublishedChangesQueryKey(formId),
+      }),
+      queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
+      queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
+    ]);
+  };
+
+  const publishCurrentForm = () =>
+    rpc(client.api.forms[":id"].publish.$post({ param: { id: formId } }));
+
+  const invalidateAfterPublish = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["formDetail", formId],
+    });
+  };
+
   // activate mutation (inline, to avoid pulling full useSnapshots)
   const activateSnapshotMutation = useMutation({
-    mutationFn: (version: number) =>
-      rpc(
-        client.api.forms[":id"].snapshots[":version"].activate.$post({
-          param: { id: formId, version: String(version) },
-        }),
-      ),
+    mutationFn: activateSnapshot,
     onError: (error: unknown) => {
       toast.error(
         error instanceof Error ? error.message : "公開版の更新に失敗しました",
       );
     },
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["snapshots", formId] }),
-        queryClient.invalidateQueries({
-          queryKey: ["latestSnapshot", formId],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: formAccessControlStructureQueryKey(formId),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: unpublishedChangesQueryKey(formId),
-        }),
-        queryClient.invalidateQueries({ queryKey: ["formDetail", formId] }),
-        queryClient.invalidateQueries({ queryKey: formDiffQueryKey(formId) }),
-      ]);
-    },
+    onSuccess: invalidateAfterActivation,
+  });
+
+  const activateSnapshotSilentlyMutation = useMutation({
+    mutationFn: activateSnapshot,
+    onSuccess: invalidateAfterActivation,
   });
 
   // form publish mutation
   const publishFormMutation = useMutation({
-    mutationFn: () =>
-      rpc(client.api.forms[":id"].publish.$post({ param: { id: formId } })),
+    mutationFn: publishCurrentForm,
     onError: (error: unknown) => {
       toast.error(
         error instanceof Error ? error.message : "フォームの公開に失敗しました",
       );
     },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({
-        queryKey: ["formDetail", formId],
-      });
-    },
+    onSuccess: invalidateAfterPublish,
+  });
+
+  const publishFormSilentlyMutation = useMutation({
+    mutationFn: publishCurrentForm,
+    onSuccess: invalidateAfterPublish,
   });
 
   // form unpublish mutation
@@ -97,7 +115,9 @@ export const useFormPublishActions = (formId: string) => {
     isSnapshotSaving ||
     isResetting ||
     activateSnapshotMutation.isPending ||
+    activateSnapshotSilentlyMutation.isPending ||
     publishFormMutation.isPending ||
+    publishFormSilentlyMutation.isPending ||
     unpublishFormMutation.isPending;
 
   /** スナップショット保存のみ */
@@ -116,17 +136,17 @@ export const useFormPublishActions = (formId: string) => {
     if (result.version == null)
       throw new Error("バージョン情報の取得に失敗しました");
     try {
-      await activateSnapshotMutation.mutateAsync(result.version);
+      await activateSnapshotSilentlyMutation.mutateAsync(result.version);
     } catch (_error) {
       throw new Error(
         `スナップショット(v${result.version})は保存されましたが、公開版の設定に失敗しました。バージョン履歴から手動で公開版を選択してください。`,
       );
     }
     try {
-      await publishFormMutation.mutateAsync();
+      await publishFormSilentlyMutation.mutateAsync();
     } catch (_error) {
       throw new Error(
-        `スナップショット(v${result.version})は公開版に設定されましたが、フォームの公開に失敗しました。ヘッダーから再度公開を試みてください。`,
+        `スナップショット(v${result.version})は公開版に設定されましたが、フォームの公開に失敗しました。公開メニューから手動でフォームを公開してください。`,
       );
     }
   };
@@ -137,7 +157,7 @@ export const useFormPublishActions = (formId: string) => {
     if (result.version == null)
       throw new Error("バージョン情報の取得に失敗しました");
     try {
-      await activateSnapshotMutation.mutateAsync(result.version);
+      await activateSnapshotSilentlyMutation.mutateAsync(result.version);
     } catch (_error) {
       throw new Error(
         `スナップショット(v${result.version})は保存されましたが、公開版の更新に失敗しました。バージョン履歴から手動で公開版を選択してください。`,
