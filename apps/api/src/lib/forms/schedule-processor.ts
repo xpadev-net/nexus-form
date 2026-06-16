@@ -36,12 +36,12 @@ export async function processFormSchedule(
   currentTime: Date = new Date(),
 ): Promise<ScheduleProcessResult> {
   try {
-    const snapshotSchedules: Array<{
-      id: string;
-      snapshotVersion: number;
-    }> = [];
-
     const result = await db.transaction(async (tx) => {
+      const snapshotSchedules: Array<{
+        id: string;
+        snapshotVersion: number;
+      }> = [];
+
       // フォームと due schedule を同一 TX でロックして stale read を避ける。
       const [foundForm] = await tx
         .select({
@@ -80,6 +80,7 @@ export async function processFormSchedule(
 
       if (pendingSchedules.length === 0) {
         return {
+          snapshotSchedules,
           processed: false,
           statusChanged: false,
           newStatus: foundForm.status,
@@ -151,6 +152,7 @@ export async function processFormSchedule(
       }
 
       return {
+        snapshotSchedules,
         processed: true,
         statusChanged,
         newStatus,
@@ -158,7 +160,8 @@ export async function processFormSchedule(
       };
     });
 
-    let finalResult = result;
+    const { snapshotSchedules, ...scheduleResult } = result;
+    let finalResult = scheduleResult;
 
     for (const schedule of snapshotSchedules) {
       const processedResult = await db
@@ -195,7 +198,12 @@ export async function processFormSchedule(
             await db
               .update(formSchedule)
               .set({ processedAt: null })
-              .where(eq(formSchedule.id, schedule.id));
+              .where(
+                and(
+                  eq(formSchedule.id, schedule.id),
+                  eq(formSchedule.processedAt, currentTime),
+                ),
+              );
           } catch (rollbackError) {
             logError(
               "Failed to release SWITCH_SNAPSHOT schedule claim",
