@@ -81,16 +81,19 @@ pnpm test:e2e:headed
 ```
 
 #### 特定のテストファイルのみ実行
+
 ```bash
 pnpm test:e2e -- e2e/realtime-collaboration.spec.ts
 ```
 
 #### 特定のテストケースのみ実行
+
 ```bash
 pnpm test:e2e -- --grep "シナリオ1"
 ```
 
 #### CI と同じ harness 検証
+
 ```bash
 pnpm test:e2e:ci
 ```

@@ -5,6 +5,21 @@ const skipWebServer =
   process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "1" ||
   process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 
+const isLocalWebServerURL = (value: string) => {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname) &&
+      url.port === "3000"
+    );
+  } catch {
+    return false;
+  }
+};
+
+const shouldStartWebServer = !skipWebServer && isLocalWebServerURL(baseURL);
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -22,12 +37,12 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: skipWebServer
-    ? undefined
-    : {
+  webServer: shouldStartWebServer
+    ? {
         command: "pnpm dev",
-        url: "http://localhost:3000",
+        url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 120000,
-      },
+      }
+    : undefined,
 });
