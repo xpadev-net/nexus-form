@@ -596,6 +596,10 @@ export const formsPublicRouter = createHonoApp()
         const { ip: telemetryIp } = extractClientIP(c.req.raw, {
           strategy: "telemetry",
         });
+        if (telemetryIp === "unknown") {
+          return c.json(errorResponse("Unable to determine client IP"), 400);
+        }
+
         try {
           await consumeTokensOrThrow(telemetryTokens, telemetryIp);
         } catch {

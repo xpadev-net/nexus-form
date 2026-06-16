@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { consumeTokensOrThrow, hashIPAddress } from "../tokens";
+import {
+  consumeTokensOrThrow,
+  findTelemetryTokens,
+  hashIPAddress,
+} from "../tokens";
 
 const mocks = vi.hoisted(() => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   db: {
+    select: vi.fn(),
     update: vi.fn(),
   },
   eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
@@ -15,6 +20,8 @@ const mocks = vi.hoisted(() => ({
     right,
   })),
   isNull: vi.fn((value: unknown) => ({ type: "isNull", value })),
+  selectFrom: vi.fn(),
+  selectWhere: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
 }));
@@ -65,6 +72,9 @@ function authSecretDerivedSalt(authSecret: string): string {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.db.select.mockReturnValue({ from: mocks.selectFrom });
+  mocks.selectFrom.mockReturnValue({ where: mocks.selectWhere });
+  mocks.selectWhere.mockResolvedValue([{ token: "token-a" }]);
   mocks.db.update.mockReturnValue({ set: mocks.updateSet });
   mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
   mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
@@ -174,5 +184,29 @@ describe("consumeTokensOrThrow", () => {
     await expect(
       consumeTokensOrThrow(["token-a"], "198.51.100.23"),
     ).rejects.toThrow("Invalid, expired, or IP-mismatched telemetry tokens");
+  });
+});
+
+describe("findTelemetryTokens", () => {
+  it("finds only unused tokens that match the current IP hash", async () => {
+    setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+
+    await expect(
+      findTelemetryTokens(["token-a"], "203.0.113.10"),
+    ).resolves.toEqual([{ token: "token-a" }]);
+
+    expect(mocks.inArray).toHaveBeenCalledWith("telemetryToken.token", [
+      "token-a",
+    ]);
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "telemetryToken.ip",
+      expectedHash("203.0.113.10", "telemetry-salt"),
+    );
+    const ipCondition = mocks.eq.mock.results[0]?.value;
+    expect(mocks.selectWhere).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
   });
 });

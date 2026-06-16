@@ -1253,6 +1253,31 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
+  it("rejects telemetry tokens before consumption when the trusted boundary cannot determine the current IP", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.extractClientIP.mockImplementation(
+      (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+        if (options.strategy === "telemetry") {
+          return { ip: "unknown", source: "none" };
+        }
+
+        return { ip: "127.0.0.1", source: "socket" };
+      },
+    );
+
+    const response = await submitPublicForm(responses);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unable to determine client IP",
+    });
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       name: "required text",

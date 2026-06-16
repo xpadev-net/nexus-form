@@ -57,13 +57,14 @@ export async function consumeTokensOrThrow(
   }
 }
 
-export async function findTelemetryTokens(tokens: string[]) {
+export async function findTelemetryTokens(tokens: string[], currentIp: string) {
   return db
     .select()
     .from(telemetryToken)
     .where(
       and(
         inArray(telemetryToken.token, tokens),
+        eq(telemetryToken.ip, hashIPAddress(currentIp)),
         isNull(telemetryToken.usedAt),
         gt(telemetryToken.expiresAt, new Date()),
       ),
