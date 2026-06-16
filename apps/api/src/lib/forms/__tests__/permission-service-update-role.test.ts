@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   eq: vi.fn((left: unknown, right: unknown) => ({ op: "eq", left, right })),
   formLimit: vi.fn(),
+  invitationLock: vi.fn(),
   permissionLimit: vi.fn(),
   updatedPermissionLimit: vi.fn(),
   updateSet: vi.fn(),
@@ -22,7 +23,14 @@ vi.mock("@nexus-form/database", () => ({
           })
           .mockReturnValueOnce({
             from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: mocks.permissionLimit })),
+              where: vi.fn(() => ({ for: mocks.invitationLock })),
+            })),
+          })
+          .mockReturnValueOnce({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({ limit: mocks.permissionLimit })),
+              })),
             })),
           })
           .mockReturnValueOnce({
@@ -49,7 +57,12 @@ vi.mock("@nexus-form/database/schema", () => ({
   form: {
     id: "form.id",
   },
-  formInvitation: {},
+  formInvitation: {
+    formId: "formInvitation.formId",
+    id: "formInvitation.id",
+    invitedBy: "formInvitation.invitedBy",
+    status: "formInvitation.status",
+  },
   formPermission: {
     createdAt: "formPermission.createdAt",
     formId: "formPermission.formId",
@@ -71,7 +84,11 @@ vi.mock("drizzle-orm", () => ({
   count: vi.fn(),
   desc: vi.fn(),
   eq: mocks.eq,
-  inArray: vi.fn(),
+  inArray: vi.fn((left: unknown, values: unknown[]) => ({
+    op: "inArray",
+    left,
+    values,
+  })),
 }));
 
 const publishSseAccessRevoked = vi.hoisted(() => vi.fn(async () => undefined));
@@ -86,6 +103,7 @@ describe("updatePermissionRole share-link revocation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.formLimit.mockResolvedValue([{ id: "form-1" }]);
+    mocks.invitationLock.mockResolvedValue([{ id: "invitation-1" }]);
     mocks.permissionLimit.mockResolvedValue([{ role: "EDITOR" }]);
     mocks.updatedPermissionLimit.mockResolvedValue([
       {
@@ -115,6 +133,13 @@ describe("updatePermissionRole share-link revocation", () => {
     );
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.isActive", true);
     expect(mocks.eq).toHaveBeenCalledWith("formShareLink.role", "EDITOR");
+    expect(mocks.updateSet).toHaveBeenCalledWith({ status: "CANCELLED" });
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.formId", "form-1");
+    expect(mocks.eq).toHaveBeenCalledWith(
+      "formInvitation.invitedBy",
+      "editor-1",
+    );
+    expect(mocks.eq).toHaveBeenCalledWith("formInvitation.status", "PENDING");
   });
 
   it("publishes an SSE access revoke event when an EDITOR is downgraded to VIEWER", async () => {

@@ -8,6 +8,16 @@ const mocks = vi.hoisted(() => ({
     | { auth_type: "session"; user_id: string }
     | { auth_type: "api_token"; user_id: string; scopes: string[] }
     | null,
+  InvitationAcceptError: class InvitationAcceptError extends Error {
+    constructor(
+      readonly code: string,
+      readonly statusCode: 403 | 404 | 409 | 410,
+      message: string,
+    ) {
+      super(message);
+      this.name = "InvitationAcceptError";
+    }
+  },
 }));
 
 vi.mock("@nexus-form/database", () => ({
@@ -21,6 +31,7 @@ vi.mock("@nexus-form/database/schema", () => ({
 
 vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: mocks.acceptInvitation,
+  InvitationAcceptError: mocks.InvitationAcceptError,
 }));
 
 vi.mock("../lib/rate-limit", () => {
