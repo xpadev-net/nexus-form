@@ -1,5 +1,13 @@
-UPDATE `FormStructure` AS `Target`
-INNER JOIN (
+CREATE TEMPORARY TABLE `FormStructureVersionRenumbering` (
+  `id` varchar(128) NOT NULL,
+  `nextVersion` int NOT NULL,
+  PRIMARY KEY (`id`)
+);--> statement-breakpoint
+INSERT INTO `FormStructureVersionRenumbering` (`id`, `nextVersion`)
+SELECT
+  `Renumbered`.`id`,
+  `Renumbered`.`nextVersion`
+FROM (
   SELECT
     `DuplicateRows`.`id`,
     `MaxVersions`.`maxVersion` + ROW_NUMBER() OVER (
@@ -28,11 +36,19 @@ INNER JOIN (
   ) AS `MaxVersions`
     ON `MaxVersions`.`formId` = `DuplicateRows`.`formId`
   WHERE `DuplicateRows`.`duplicateRank` > 1
-) AS `Renumbered`
+) AS `Renumbered`;--> statement-breakpoint
+UPDATE `FormStructure` AS `Target`
+INNER JOIN `FormStructureVersionRenumbering` AS `Renumbered`
   ON `Renumbered`.`id` = `Target`.`id`
 SET `Target`.`version` = `Renumbered`.`nextVersion`;--> statement-breakpoint
-UPDATE `FormStructure` AS `Target`
-INNER JOIN (
+DROP TEMPORARY TABLE `FormStructureVersionRenumbering`;--> statement-breakpoint
+CREATE TEMPORARY TABLE `FormStructureActiveNormalization` (
+  `id` varchar(128) NOT NULL,
+  PRIMARY KEY (`id`)
+);--> statement-breakpoint
+INSERT INTO `FormStructureActiveNormalization` (`id`)
+SELECT `RankedActive`.`id`
+FROM (
   SELECT
     `id`,
     ROW_NUMBER() OVER (
@@ -42,9 +58,12 @@ INNER JOIN (
   FROM `FormStructure`
   WHERE `isActive` = true
 ) AS `RankedActive`
-  ON `RankedActive`.`id` = `Target`.`id`
-SET `Target`.`isActive` = false
 WHERE `RankedActive`.`activeRank` > 1;--> statement-breakpoint
+UPDATE `FormStructure` AS `Target`
+INNER JOIN `FormStructureActiveNormalization` AS `RankedActive`
+  ON `RankedActive`.`id` = `Target`.`id`
+SET `Target`.`isActive` = false;--> statement-breakpoint
+DROP TEMPORARY TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
 ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128) GENERATED ALWAYS AS (case when isActive then formId else null end) STORED;--> statement-breakpoint
 ALTER TABLE `FormStructure` ADD CONSTRAINT `FormStructure_formId_version_key` UNIQUE(`formId`,`version`);--> statement-breakpoint
 ALTER TABLE `FormStructure` ADD CONSTRAINT `FormStructure_activeFormId_key` UNIQUE(`activeFormId`);

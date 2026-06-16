@@ -49,9 +49,15 @@ describe("FormStructure database constraints", () => {
     const sql = readFormStructureConstraintMigration();
 
     expect(sql).toContain("ROW_NUMBER() OVER");
+    expect(sql).toContain(
+      "CREATE TEMPORARY TABLE `FormStructureVersionRenumbering`",
+    );
     expect(sql).toContain("PARTITION BY `formId`, `version`");
     expect(sql).toContain(
       "SET `Target`.`version` = `Renumbered`.`nextVersion`",
+    );
+    expect(sql).toContain(
+      "CREATE TEMPORARY TABLE `FormStructureActiveNormalization`",
     );
     expect(sql).toContain("PARTITION BY `formId`");
     expect(sql).toContain("SET `Target`.`isActive` = false");
