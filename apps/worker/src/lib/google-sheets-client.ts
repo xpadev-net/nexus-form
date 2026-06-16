@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { MAX_TIMER_MS, parsePositiveIntEnv } from "./env";
 import type { OAuthToken } from "./oauth-token-store";
+import { workerShutdownSignal } from "./shutdown-signal";
 
 /** Google Sheets API 呼び出しのタイムアウト (ms)。 */
 export const SHEETS_API_TIMEOUT_MS = parsePositiveIntEnv(
@@ -71,36 +72,97 @@ function invalidSuccessResponseError(operation: string, cause: unknown) {
   } satisfies GoogleApiError;
 }
 
+function throwIfShuttingDown(): void {
+  if (workerShutdownSignal.aborted) {
+    throw (
+      workerShutdownSignal.reason ??
+      new DOMException("Worker shutting down", "AbortError")
+    );
+  }
+}
+
+function getSheetsFetchSignal(): { signal: AbortSignal; cleanup: () => void } {
+  const timeoutSignal = AbortSignal.timeout(SHEETS_API_TIMEOUT_MS);
+  const controller = new AbortController();
+  const cleanupCallbacks: Array<() => void> = [];
+
+  const abortFrom = (signal: AbortSignal): void => {
+    if (!controller.signal.aborted) {
+      controller.abort(signal.reason);
+    }
+  };
+
+  if (workerShutdownSignal.aborted) {
+    abortFrom(workerShutdownSignal);
+  } else {
+    const onShutdownAbort = () => abortFrom(workerShutdownSignal);
+    workerShutdownSignal.addEventListener("abort", onShutdownAbort, {
+      once: true,
+    });
+    cleanupCallbacks.push(() =>
+      workerShutdownSignal.removeEventListener("abort", onShutdownAbort),
+    );
+  }
+
+  if (timeoutSignal.aborted) {
+    abortFrom(timeoutSignal);
+  } else {
+    const onTimeoutAbort = () => abortFrom(timeoutSignal);
+    timeoutSignal.addEventListener("abort", onTimeoutAbort, {
+      once: true,
+    });
+    cleanupCallbacks.push(() =>
+      timeoutSignal.removeEventListener("abort", onTimeoutAbort),
+    );
+  }
+
+  return {
+    cleanup: () => {
+      for (const cleanup of cleanupCallbacks) {
+        cleanup();
+      }
+    },
+    signal: controller.signal,
+  };
+}
+
 async function fetchGoogleSheetsAPI<T = unknown>(opts: {
   accessToken: string;
   endpoint: string;
   method: "GET" | "POST" | "PUT";
   body?: unknown;
 }): Promise<T> {
+  throwIfShuttingDown();
+  const { signal, cleanup } = getSheetsFetchSignal();
   const headers: Record<string, string> = {
     Authorization: `Bearer ${opts.accessToken}`,
     "Content-Type": "application/json",
   };
-  const res = await fetch(opts.endpoint, {
-    method: opts.method,
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    // 接続〜レスポンスボディ受信までを含めてタイムアウトさせ、
-    // Google 無応答時にワーカーが無期限ブロックするのを防ぐ。
-    signal: AbortSignal.timeout(SHEETS_API_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    const retryAfter = res.headers.get("retry-after");
-    const err = Object.assign(
-      new Error(`Google Sheets API error: ${res.status}`),
-      {
-        status: res.status,
-        ...(retryAfter ? { retryAfterSeconds: Number(retryAfter) } : {}),
-      },
-    );
-    throw err;
+  try {
+    const res = await fetch(opts.endpoint, {
+      method: opts.method,
+      headers,
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      // 接続〜レスポンスボディ受信までを含めてタイムアウトさせ、
+      // Google 無応答時にワーカーが無期限ブロックするのを防ぐ。
+      // worker shutdown とも合成し、drain 開始時に外部 I/O を中断する。
+      signal,
+    });
+    if (!res.ok) {
+      const retryAfter = res.headers.get("retry-after");
+      const err = Object.assign(
+        new Error(`Google Sheets API error: ${res.status}`),
+        {
+          status: res.status,
+          ...(retryAfter ? { retryAfterSeconds: Number(retryAfter) } : {}),
+        },
+      );
+      throw err;
+    }
+    return (await res.json()) as T;
+  } finally {
+    cleanup();
   }
-  return res.json() as Promise<T>;
 }
 
 function mapApiError(e: unknown): GoogleApiError {
@@ -108,7 +170,9 @@ function mapApiError(e: unknown): GoogleApiError {
   const errObj: GoogleApiError = { code: "unknown", message };
   // AbortSignal.timeout() による中断は DOMException("TimeoutError")、
   // 手動中断は "AbortError" を投げる。どちらも一過性の障害として
-  // 再試行可能な "internal" に分類する。
+  // 再試行可能な "internal" に分類する。shutdown が fetch 中に届いた
+  // 場合も、Sheets 側で書き込み済みかもしれないため、pending
+  // idempotency key の復旧パスに任せて安全に再試行させる。
   if (
     e instanceof Error &&
     (e.name === "TimeoutError" || e.name === "AbortError")
