@@ -95,6 +95,26 @@ const DiscordRolesQuerySchema = z.object({
   guildId: z.string(),
 });
 
+const DiscordGuildsApiResponseSchema = z.object({
+  guilds: z.array(
+    z.object({
+      guildId: ZDiscordGuildId,
+      name: z.string(),
+      iconUrl: z.string().url().nullable(),
+    }),
+  ),
+});
+
+const DiscordRolesApiResponseSchema = z.object({
+  roles: z.array(
+    z.object({
+      id: ZDiscordGuildRoleId,
+      name: z.string(),
+      color: z.number().int(),
+    }),
+  ),
+});
+
 function normalizeDiscordUsername(username: string): string {
   let normalized = username.trim();
   if (normalized.startsWith("@")) {
@@ -532,6 +552,10 @@ export const discordProvider: ValidationProvider = {
       const roles = await getConfiguredGuildRoles(guildId);
       return { roles };
     },
+  },
+  apiResponseSchemas: {
+    guilds: DiscordGuildsApiResponseSchema,
+    roles: DiscordRolesApiResponseSchema,
   },
 
   async healthCheck(): Promise<boolean> {

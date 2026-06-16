@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -26,14 +27,52 @@ vi.mock("@nexus-form/integrations", async (importOriginal) => {
   };
 });
 
+import { db } from "@nexus-form/database";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
+  getValidationRule,
+  listValidationRules,
   parseValidationRuleSnapshot,
+  updateValidationRule,
   ValidationRuleConfigError,
   validateProviderRuleConfig,
 } from "../validation-rule-repository";
 
 const mockRegistryGet = vi.mocked(providerRegistry.get);
+const mockDbSelect = vi.mocked(db.select);
+
+function makePaginatedQuery(result: unknown[]) {
+  return {
+    offset: vi.fn(() => ({
+      limit: vi.fn(() => Promise.resolve(result)),
+    })),
+    limit: vi.fn(() => Promise.resolve(result)),
+  };
+}
+
+function mockSelectResults(resultSets: unknown[][]): void {
+  let callIndex = 0;
+  mockDbSelect.mockImplementation(
+    () =>
+      ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => {
+            const selectIndex = callIndex;
+            const result = resultSets[callIndex] ?? [];
+            callIndex += 1;
+            return {
+              orderBy: vi.fn(() =>
+                selectIndex === 0 && resultSets.length > 1
+                  ? makePaginatedQuery(result)
+                  : Promise.resolve(result),
+              ),
+              limit: vi.fn(() => Promise.resolve(result)),
+            };
+          }),
+        })),
+      }) as unknown as ReturnType<typeof db.select>,
+  );
+}
 
 function makeEntry(overrides: Record<string, unknown> = {}) {
   return {
@@ -43,6 +82,31 @@ function makeEntry(overrides: Record<string, unknown> = {}) {
     ruleType: "guild_member",
     referencedBlockIds: ["block-1"],
     configJson: { guildId: "123456789012345678" },
+    orderIndex: 0,
+    ...overrides,
+  };
+}
+
+function makeRuleRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "rule-1",
+    formId: "form-1",
+    name: "Test Rule",
+    providerName: "discord",
+    ruleType: "guild_member",
+    configJson: { guildId: "123456789012345678" },
+    orderIndex: 0,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    ...overrides,
+  };
+}
+
+function makeRuleBlockRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "rule-block-1",
+    ruleId: "rule-1",
+    referencedBlockId: "block-1",
     orderIndex: 0,
     ...overrides,
   };
@@ -194,5 +258,87 @@ describe("validateProviderRuleConfig", () => {
     });
 
     expect(result).toEqual(sanitized);
+  });
+});
+
+describe("validation rule read mapping", () => {
+  const strictConfigSchema = z.object({
+    guildId: z.string().regex(/^\d{17,20}$/),
+  });
+  const fakeProvider = {
+    name: "discord",
+    rules: {
+      guild_member: {
+        name: "guild_member",
+        configSchema: strictConfigSchema,
+      },
+    },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRegistryGet.mockReturnValue(
+      fakeProvider as unknown as ReturnType<typeof mockRegistryGet>,
+    );
+  });
+
+  it("listValidationRulesはDB読み出し境界でprovider configSchemaを再検証する", async () => {
+    mockSelectResults([
+      [
+        makeRuleRow({
+          configJson: {
+            guildId: "123456789012345678",
+            extra: "dropped",
+          },
+        }),
+      ],
+      [makeRuleBlockRow()],
+    ]);
+
+    await expect(
+      listValidationRules("form-1", { limit: 20, offset: 0 }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        id: "rule-1",
+        configJson: { guildId: "123456789012345678" },
+      }),
+    ]);
+  });
+
+  it("listValidationRulesは壊れたconfigJsonを空objectに置き換えずValidationRuleConfigErrorを投げる", async () => {
+    mockSelectResults([
+      [makeRuleRow({ configJson: { guildId: "not-a-snowflake" } })],
+      [makeRuleBlockRow()],
+    ]);
+
+    await expect(
+      listValidationRules("form-1", { limit: 20, offset: 0 }),
+    ).rejects.toThrow(ValidationRuleConfigError);
+  });
+
+  it("getValidationRuleはDB読み出し境界でprovider configSchemaを再検証する", async () => {
+    mockSelectResults([
+      [makeRuleRow({ configJson: { guildId: "not-a-snowflake" } })],
+      [makeRuleBlockRow()],
+    ]);
+
+    await expect(getValidationRule("form-1", "rule-1")).rejects.toThrow(
+      ValidationRuleConfigError,
+    );
+  });
+
+  it("updateValidationRuleは既存configJsonを再利用する場合もprovider configSchemaで検証する", async () => {
+    mockSelectResults([
+      [makeRuleRow({ configJson: { guildId: "not-a-snowflake" } })],
+      [makeRuleBlockRow()],
+    ]);
+
+    await expect(
+      updateValidationRule({
+        formId: "form-1",
+        ruleId: "rule-1",
+        payload: { name: "Updated Rule" },
+      }),
+    ).rejects.toThrow(ValidationRuleConfigError);
   });
 });

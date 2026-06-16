@@ -12,6 +12,11 @@ const mocks = vi.hoisted(() => ({
   limitCalls: [] as number[],
   listValidationRules: vi.fn(),
   countValidationRules: vi.fn(),
+  getValidationRule: vi.fn(),
+  ValidationRuleConfigError: class ValidationRuleConfigError extends Error {},
+  publishSnapshot: vi.fn(),
+  calculateFormDiff: vi.fn(),
+  checkUnpublishedChanges: vi.fn(),
   formAuthRoles: [] as Array<unknown>,
 }));
 
@@ -73,7 +78,11 @@ vi.mock("@nexus-form/database/schema", () => ({
 vi.mock("../lib/dual-auth", () => ({
   withDualFormAuth: (requiredRole?: unknown) => {
     mocks.formAuthRoles.push(requiredRole);
-    return async (_c: unknown, next: () => Promise<void>) => {
+    return async (
+      c: { set?: (key: string, value: unknown) => void },
+      next: () => Promise<void>,
+    ) => {
+      c.set?.("dualAuthContext", { user_id: "user-1" });
       await next();
     };
   },
@@ -84,10 +93,10 @@ vi.mock("../lib/forms/validation-rule-repository", () => ({
   countValidationRules: mocks.countValidationRules,
   createValidationRule: vi.fn(),
   deleteValidationRule: vi.fn(),
-  getValidationRule: vi.fn(),
+  getValidationRule: mocks.getValidationRule,
   reorderValidationRules: vi.fn(),
   updateValidationRule: vi.fn(),
-  ValidationRuleConfigError: class ValidationRuleConfigError extends Error {},
+  ValidationRuleConfigError: mocks.ValidationRuleConfigError,
   ValidationRuleNotFoundError: class ValidationRuleNotFoundError extends Error {},
 }));
 
@@ -118,7 +127,14 @@ vi.mock("../lib/forms/response-validator", () => ({
 }));
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
+  activateSnapshot: vi.fn(),
+  calculateFormDiff: mocks.calculateFormDiff,
+  checkUnpublishedChanges: mocks.checkUnpublishedChanges,
   getLatestSnapshotByVersion: vi.fn(),
+  getLatestSnapshot: vi.fn(),
+  publishSnapshot: mocks.publishSnapshot,
+  restoreFromSnapshot: vi.fn(),
+  restoreFromSnapshotVersion: vi.fn(),
 }));
 
 vi.mock("../lib/forms/validation-results", () => ({
@@ -1214,6 +1230,101 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.listValidationRules).toHaveBeenCalledWith("form-1", {
       limit: 4,
       offset: 8,
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 on listing", async () => {
+    mocks.listValidationRules.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    mocks.countValidationRules.mockResolvedValue(1);
+    const { formsValidationRulesRouter } = await import(
+      "../routes/forms-validation-rules"
+    );
+
+    const res = await formsValidationRulesRouter.request(
+      "/form-1/validation-rules",
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 on single rule reads", async () => {
+    mocks.getValidationRule.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    const { formsValidationRulesRouter } = await import(
+      "../routes/forms-validation-rules"
+    );
+
+    const res = await formsValidationRulesRouter.request(
+      "/form-1/validation-rules/rule-1",
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 when publishing snapshots", async () => {
+    mocks.publishSnapshot.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
+
+    const res = await formsSnapshotsRouter.request("/form-1/snapshots", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 when calculating diffs", async () => {
+    mocks.calculateFormDiff.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
+
+    const res = await formsSnapshotsRouter.request("/form-1/diff");
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
+    });
+  });
+
+  it("maps invalid stored validation rule configs to 400 when checking unpublished changes", async () => {
+    mocks.checkUnpublishedChanges.mockRejectedValue(
+      new mocks.ValidationRuleConfigError(
+        "Invalid discord.guild_member config",
+      ),
+    );
+    const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
+
+    const res = await formsSnapshotsRouter.request(
+      "/form-1/unpublished-changes",
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({
+      error: "Invalid discord.guild_member config",
     });
   });
 });

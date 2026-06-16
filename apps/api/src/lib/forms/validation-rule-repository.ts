@@ -48,7 +48,7 @@ function formatZodIssues(error: z.ZodError): string {
 export function validateProviderRuleConfig(input: {
   providerName: string;
   ruleType: string;
-  configJson: Record<string, unknown>;
+  configJson: unknown;
 }): Record<string, unknown> {
   const provider = providerRegistry.get(input.providerName);
   if (!provider) {
@@ -164,6 +164,12 @@ async function loadRuleWithBlocks(
 }
 
 function toFormValidationRule(loaded: RuleWithBlocks): FormValidationRule {
+  const configJson = validateProviderRuleConfig({
+    providerName: loaded.rule.providerName,
+    ruleType: loaded.rule.ruleType,
+    configJson: loaded.rule.configJson,
+  });
+
   return {
     id: loaded.rule.id,
     formId: loaded.rule.formId,
@@ -171,7 +177,7 @@ function toFormValidationRule(loaded: RuleWithBlocks): FormValidationRule {
     providerName: loaded.rule.providerName,
     ruleType: loaded.rule.ruleType,
     referencedBlockIds: loaded.ruleBlocks.map((rb) => rb.referencedBlockId),
-    configJson: loaded.rule.configJson as Record<string, unknown>,
+    configJson,
     orderIndex: loaded.rule.orderIndex,
     createdAt: loaded.rule.createdAt,
     updatedAt: loaded.rule.updatedAt,
@@ -306,8 +312,7 @@ export async function updateValidationRule(input: {
   const nextProviderName =
     input.payload.providerName ?? existing.rule.providerName;
   const nextRuleType = input.payload.ruleType ?? existing.rule.ruleType;
-  const nextConfigJson = (input.payload.configJson ??
-    existing.rule.configJson) as Record<string, unknown>;
+  const nextConfigJson = input.payload.configJson ?? existing.rule.configJson;
   const nextReferencedBlockIds =
     input.payload.referencedBlockIds ??
     existing.ruleBlocks.map((rb) => rb.referencedBlockId);

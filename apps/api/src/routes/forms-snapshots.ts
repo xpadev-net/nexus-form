@@ -25,6 +25,7 @@ import {
   restoreFromSnapshotVersion,
 } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
+import { ValidationRuleConfigError } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
@@ -158,6 +159,13 @@ const FormDiffResponseSchema = z.object({
   }),
 });
 export type FormDiffResponse = z.infer<typeof FormDiffResponseSchema>;
+
+function validationRuleConfigErrorResponse(error: unknown) {
+  if (error instanceof ValidationRuleConfigError) {
+    return errorResponse(error.message);
+  }
+  return null;
+}
 
 export const formsSnapshotsRouter = createHonoApp()
   .use("/:id/snapshots*", withDualFormAuth("VIEWER"))
@@ -372,6 +380,8 @@ export const formsSnapshotsRouter = createHonoApp()
             400,
           );
         }
+        const response = validationRuleConfigErrorResponse(error);
+        if (response) return c.json(response, 400);
         throw error;
       }
     },
@@ -434,17 +444,29 @@ export const formsSnapshotsRouter = createHonoApp()
 
   .get("/:id/diff", async (c) => {
     const formId = c.req.param("id");
-    const result = await calculateFormDiff(formId);
-    const response = FormDiffResponseSchema.parse({
-      success: true,
-      data: result,
-    });
-    return c.json(response);
+    try {
+      const result = await calculateFormDiff(formId);
+      const response = FormDiffResponseSchema.parse({
+        success: true,
+        data: result,
+      });
+      return c.json(response);
+    } catch (error) {
+      const response = validationRuleConfigErrorResponse(error);
+      if (response) return c.json(response, 400);
+      throw error;
+    }
   })
 
   .get("/:id/unpublished-changes", async (c) => {
     const formId = c.req.param("id");
-    const changes = await checkUnpublishedChanges(formId);
-    const response = UnpublishedChangesInfoResponseSchema.parse(changes);
-    return c.json(response);
+    try {
+      const changes = await checkUnpublishedChanges(formId);
+      const response = UnpublishedChangesInfoResponseSchema.parse(changes);
+      return c.json(response);
+    } catch (error) {
+      const response = validationRuleConfigErrorResponse(error);
+      if (response) return c.json(response, 400);
+      throw error;
+    }
   });
