@@ -12,11 +12,7 @@ export function parseDiscordPermissionBits(permissions: unknown): bigint {
     throw new Error("Invalid Discord permissions payload");
   }
 
-  try {
-    return BigInt(parsed.data);
-  } catch {
-    throw new Error("Invalid Discord permissions payload");
-  }
+  return BigInt(parsed.data);
 }
 
 export function hasAdministratorPermission(

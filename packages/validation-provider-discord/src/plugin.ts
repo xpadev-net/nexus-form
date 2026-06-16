@@ -200,7 +200,7 @@ async function fetchUserGuilds(accessToken: string) {
     .array(DiscordUserGuildSchema)
     .safeParse(await response.json());
   if (!guilds.success) {
-    throw new Error("Failed to parse Discord guilds");
+    throw new Error("Failed to parse Discord guilds", { cause: guilds.error });
   }
   return guilds.data;
 }
