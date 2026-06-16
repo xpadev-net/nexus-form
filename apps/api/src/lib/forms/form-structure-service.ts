@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
-import { formStructure } from "@nexus-form/database/schema";
+import { form, formStructure } from "@nexus-form/database/schema";
 import { and, asc, count, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   FormStructure,
   type FormStructure as FormStructureType,
 } from "../../types/domain/form";
-import { FormStructureNotFoundError } from "../errors/form-errors";
+import {
+  FormNotFoundError,
+  FormStructureNotFoundError,
+} from "../errors/form-errors";
 import { logError } from "../logger";
 import type { PaginatedResult, PaginationOptions } from "./pagination";
 import { calculatePagination, validatePaginationOptions } from "./pagination";
@@ -22,6 +25,38 @@ interface FormStructureHistory {
   changeLog: string | null;
   isActive: boolean;
   parentVersion: number | null;
+}
+
+type TransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function lockFormForStructureMutation(
+  tx: TransactionClient,
+  formId: string,
+): Promise<void> {
+  const [lockedForm] = await tx
+    .select({ id: form.id })
+    .from(form)
+    .where(eq(form.id, formId))
+    .for("update")
+    .limit(1);
+
+  if (!lockedForm) {
+    throw new FormNotFoundError(formId);
+  }
+}
+
+async function getCurrentStructureVersionForTransaction(
+  tx: TransactionClient,
+  formId: string,
+): Promise<number> {
+  const [latestStructure] = await tx
+    .select({ version: formStructure.version })
+    .from(formStructure)
+    .where(eq(formStructure.formId, formId))
+    .orderBy(desc(formStructure.version))
+    .limit(1);
+
+  return latestStructure?.version || 0;
 }
 
 /**
@@ -44,12 +79,16 @@ export async function saveFormStructure(
   }
   const validatedStructure = parsed.data;
 
-  // 現在のバージョンを取得
-  const currentVersion = await getCurrentStructureVersion(formId);
-  const newVersion = currentVersion + 1;
-
   return await db.transaction(async (tx) => {
     try {
+      await lockFormForStructureMutation(tx, formId);
+
+      const currentVersion = await getCurrentStructureVersionForTransaction(
+        tx,
+        formId,
+      );
+      const newVersion = currentVersion + 1;
+
       // 既存の構造を非アクティブにする
       await tx
         .update(formStructure)
@@ -97,6 +136,12 @@ export async function saveFormStructure(
         parentVersion: newStructure.parentVersion,
       };
     } catch (error) {
+      if (
+        error instanceof FormNotFoundError ||
+        error instanceof FormStructureNotFoundError
+      ) {
+        throw error;
+      }
       // トランザクション内でエラーが発生した場合、自動的にロールバックされる
       logError("Transaction failed in saveFormStructure:", "api", {
         error: error,
@@ -218,76 +263,97 @@ export async function restoreFormStructure(
   userId: string | null,
   changeLog?: string,
 ) {
-  // 指定されたバージョンの存在確認と現在のバージョン取得を並列実行
-  const [[targetStructure], currentVersion] = await Promise.all([
-    db
-      .select()
-      .from(formStructure)
-      .where(
-        and(
-          eq(formStructure.formId, formId),
-          eq(formStructure.version, version),
-        ),
-      )
-      .limit(1),
-    getCurrentStructureVersion(formId),
-  ]);
-
-  if (!targetStructure) {
-    throw new Error(`Form structure version ${version} not found`);
-  }
-
-  // 歴史的な正確性を保つため、raw structureJson をそのまま保存する。
-  const newVersion = currentVersion + 1;
-  const rawJson = targetStructure.structureJson;
-
-  // Validate readability only — result discarded intentionally.
-  parseStoredStructure(rawJson);
-
   return await db.transaction(async (tx) => {
-    // 既存の構造を非アクティブにする
-    await tx
-      .update(formStructure)
-      .set({ isActive: false })
-      .where(
-        and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    try {
+      await lockFormForStructureMutation(tx, formId);
+
+      const [targetStructure] = await tx
+        .select()
+        .from(formStructure)
+        .where(
+          and(
+            eq(formStructure.formId, formId),
+            eq(formStructure.version, version),
+          ),
+        )
+        .limit(1);
+
+      if (!targetStructure) {
+        throw new FormStructureNotFoundError(formId);
+      }
+
+      const currentVersion = await getCurrentStructureVersionForTransaction(
+        tx,
+        formId,
       );
 
-    // 指定されたバージョンの構造を新しいバージョンとして保存（raw データを維持）
-    await tx.insert(formStructure).values({
-      id: randomUUID(),
-      formId,
-      structureJson: rawJson,
-      version: newVersion,
-      createdBy: userId,
-      changeLog: changeLog || `Restored from version ${version}`,
-      parentVersion: version,
-    });
+      // 歴史的な正確性を保つため、raw structureJson をそのまま保存する。
+      const newVersion = currentVersion + 1;
+      const rawJson = targetStructure.structureJson;
 
-    // 作成した構造を取得
-    const [restoredStructure] = await tx
-      .select()
-      .from(formStructure)
-      .where(
-        and(
-          eq(formStructure.formId, formId),
-          eq(formStructure.version, newVersion),
-        ),
-      )
-      .limit(1);
+      // Validate readability only — result discarded intentionally.
+      parseStoredStructure(rawJson);
 
-    if (!restoredStructure) {
-      throw new Error("Failed to restore form structure");
+      // 既存の構造を非アクティブにする
+      await tx
+        .update(formStructure)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(formStructure.formId, formId),
+            eq(formStructure.isActive, true),
+          ),
+        );
+
+      // 指定されたバージョンの構造を新しいバージョンとして保存（raw データを維持）
+      await tx.insert(formStructure).values({
+        id: randomUUID(),
+        formId,
+        structureJson: rawJson,
+        version: newVersion,
+        createdBy: userId,
+        changeLog: changeLog || `Restored from version ${version}`,
+        parentVersion: version,
+      });
+
+      // 作成した構造を取得
+      const [restoredStructure] = await tx
+        .select()
+        .from(formStructure)
+        .where(
+          and(
+            eq(formStructure.formId, formId),
+            eq(formStructure.version, newVersion),
+          ),
+        )
+        .limit(1);
+
+      if (!restoredStructure) {
+        throw new Error("Failed to restore form structure");
+      }
+
+      return {
+        id: restoredStructure.id,
+        formId: restoredStructure.formId,
+        version: restoredStructure.version,
+        createdAt: restoredStructure.createdAt,
+        changeLog: restoredStructure.changeLog,
+        parentVersion: restoredStructure.parentVersion,
+      };
+    } catch (error) {
+      if (
+        error instanceof FormNotFoundError ||
+        error instanceof FormStructureNotFoundError
+      ) {
+        throw error;
+      }
+      logError("Transaction failed in restoreFormStructure:", "api", {
+        error: error,
+      });
+      throw new Error(
+        `Failed to restore form structure: ${error instanceof Error ? error.message : "Unknown error"}`,
+      );
     }
-
-    return {
-      id: restoredStructure.id,
-      formId: restoredStructure.formId,
-      version: restoredStructure.version,
-      createdAt: restoredStructure.createdAt,
-      changeLog: restoredStructure.changeLog,
-      parentVersion: restoredStructure.parentVersion,
-    };
   });
 }
 
@@ -324,20 +390,6 @@ export async function deleteFormStructureVersion(
   await db.delete(formStructure).where(eq(formStructure.id, structure.id));
 
   return { success: true };
-}
-
-/**
- * 現在の構造バージョンを取得
- */
-async function getCurrentStructureVersion(formId: string): Promise<number> {
-  const [latestStructure] = await db
-    .select({ version: formStructure.version })
-    .from(formStructure)
-    .where(eq(formStructure.formId, formId))
-    .orderBy(desc(formStructure.version))
-    .limit(1);
-
-  return latestStructure?.version || 0;
 }
 
 /**
