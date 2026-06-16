@@ -189,6 +189,8 @@ jobs:
       GOOGLE_OAUTH_ENC_KEY: ci-google-oauth-encryption-key
       SERVICE_MONITORING_INTERVAL: "0"
       VALIDATION_PLUGINS_DIR: plugins/validation
+      BASE_URL: http://127.0.0.1:3000
+      PLAYWRIGHT_SKIP_WEB_SERVER: "1"
       VITE_API_URL: http://127.0.0.1:3001
       VITE_BASE_URL: http://127.0.0.1:3000
       VITE_HCAPTCHA_SITE_KEY: ci-hcaptcha-site-key
@@ -221,6 +223,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Validate Playwright E2E collection
+        run: pnpm test:e2e:ci
+
       - name: Apply database migrations
         run: |
           set -euo pipefail
@@ -252,7 +257,8 @@ jobs:
       - name: Start web server
         run: |
           set -euo pipefail
-          apps/web/node_modules/.bin/vite preview --host 127.0.0.1 --port 3000 > /tmp/nexus-form-web.log 2>&1 &
+          cd apps/web
+          node_modules/.bin/vite preview --host 127.0.0.1 --port 3000 > /tmp/nexus-form-web.log 2>&1 &
           echo "$!" > /tmp/nexus-form-web.pid
 
       - name: Wait for web server
@@ -267,11 +273,11 @@ jobs:
           cat /tmp/nexus-form-web.log
           exit 1
 
-      - name: Validate Playwright E2E collection
-        run: pnpm test:e2e:ci
-        env:
-          BASE_URL: http://127.0.0.1:3000
-          PLAYWRIGHT_SKIP_WEB_SERVER: "1"
+      - name: Validate E2E service endpoints
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:3001/api/healthz
+          curl -fsS "$BASE_URL/" > /dev/null
 
       - name: Stop E2E servers
         if: always()
