@@ -67,6 +67,10 @@ export type ValidationProviderApiHandler = (
   context: ValidationProviderApiContext,
 ) => Promise<Record<string, unknown>> | Record<string, unknown>;
 
+export type ValidationProviderApiResponseSchemas = Readonly<
+  Record<string, z.ZodType<Record<string, unknown>>>
+>;
+
 export const validationProviderResultSchema = z.object({
   isValid: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -103,6 +107,7 @@ export interface ValidationProvider {
   readonly description: string;
   readonly rules: Readonly<Record<string, ValidationProviderRule>>;
   readonly apiHandlers?: Readonly<Record<string, ValidationProviderApiHandler>>;
+  readonly apiResponseSchemas?: ValidationProviderApiResponseSchemas;
 
   /**
    * Optional upstream-API health check. When implemented, the host can

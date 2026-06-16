@@ -1,4 +1,6 @@
+import { discordProvider } from "@nexus-form/validation-provider-discord";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 const getSession = vi.fn();
 const logError = vi.fn();
@@ -79,6 +81,17 @@ const FORM_ID = "form-id";
 const OWNER_ID = "owner-user-id";
 const EDITOR_ID = "editor-user-id";
 const CO_OWNER_ID = "co-owner-user-id";
+const linkedAccountProbeResponseSchema = z.object({
+  accountId: z.string().nullable(),
+});
+
+function getDiscordApiResponseSchemas() {
+  const schemas = discordProvider.apiResponseSchemas;
+  if (!schemas?.guilds || !schemas.roles) {
+    throw new Error("Discord API response schemas are not registered");
+  }
+  return schemas;
+}
 
 function mockDbSelectResults(resultSets: unknown[][]): void {
   let callIndex = 0;
@@ -124,6 +137,9 @@ describe("external service form OAuth authorization", () => {
     providerGet.mockReturnValue({
       apiHandlers: {
         guilds: guildsHandler,
+      },
+      apiResponseSchemas: {
+        guilds: linkedAccountProbeResponseSchema,
       },
     });
   });
@@ -408,6 +424,73 @@ describe("external service form OAuth authorization", () => {
     expect(eq).toHaveBeenCalledWith("account.userId", OWNER_ID);
   });
 
+  it("validates Discord guild handler results with the registered provider schema", async () => {
+    const schemas = getDiscordApiResponseSchemas();
+    mockSession(OWNER_ID);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+    guildsHandler.mockResolvedValueOnce({
+      guilds: [
+        {
+          guildId: "123456789012345678",
+          name: "Guild",
+          iconUrl: null,
+        },
+      ],
+    });
+    providerGet.mockReturnValueOnce({
+      apiHandlers: {
+        guilds: guildsHandler,
+      },
+      apiResponseSchemas: {
+        guilds: schemas.guilds,
+      },
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      guilds: [
+        {
+          guildId: "123456789012345678",
+          name: "Guild",
+          iconUrl: null,
+        },
+      ],
+    });
+  });
+
+  it("rejects service handlers without a registered response schema", async () => {
+    mockSession(OWNER_ID);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+    providerGet.mockReturnValueOnce({
+      apiHandlers: {
+        guilds: guildsHandler,
+      },
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: "External service API failed",
+      details: "External service error",
+    });
+    expect(guildsHandler).not.toHaveBeenCalled();
+  });
+
   it("does not expose provider handler exception messages", async () => {
     mockSession(OWNER_ID);
     mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
@@ -444,6 +527,95 @@ describe("external service form OAuth authorization", () => {
     );
     expect(JSON.stringify(logError.mock.calls)).not.toContain(
       "internal.example",
+    );
+  });
+
+  it("rejects malformed Discord guild handler results at the API boundary", async () => {
+    const schemas = getDiscordApiResponseSchemas();
+    mockSession(OWNER_ID);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+    guildsHandler.mockResolvedValueOnce({
+      guilds: [{ guildId: "guild-1", name: 123, iconUrl: null }],
+    });
+    providerGet.mockReturnValueOnce({
+      apiHandlers: {
+        guilds: guildsHandler,
+      },
+      apiResponseSchemas: {
+        guilds: schemas.guilds,
+      },
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/guilds?formId=${FORM_ID}`,
+    );
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: "External service API failed",
+      details: "External service error",
+    });
+    expect(logError).toHaveBeenCalledWith(
+      "External service API handler failed",
+      "api",
+      expect.objectContaining({
+        errorName: "ZodError",
+        provider: "discord",
+        api: "guilds",
+        formId: FORM_ID,
+        userId: OWNER_ID,
+      }),
+    );
+  });
+
+  it("rejects malformed Discord role handler results at the API boundary", async () => {
+    const schemas = getDiscordApiResponseSchemas();
+    const rolesHandler = vi.fn().mockResolvedValue({
+      roles: [{ id: "role-1", name: "Admin", color: "blue" }],
+    });
+    mockSession(OWNER_ID);
+    mockDbSelectResults([[{ id: FORM_ID, creatorId: OWNER_ID }]]);
+    providerGet.mockReturnValueOnce({
+      apiHandlers: {
+        roles: rolesHandler,
+      },
+      apiResponseSchemas: {
+        roles: schemas.roles,
+      },
+    });
+
+    const { externalServiceRouter } = await import(
+      "../routes/external-service"
+    );
+
+    const res = await externalServiceRouter.request(
+      `/discord/roles?formId=${FORM_ID}&guildId=123456789012345678`,
+    );
+
+    expect(res.status).toBe(502);
+    await expect(res.json()).resolves.toEqual({
+      error: "External service API failed",
+      details: "External service error",
+    });
+    expect(rolesHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: { guildId: "123456789012345678" },
+      }),
+    );
+    expect(logError).toHaveBeenCalledWith(
+      "External service API handler failed",
+      "api",
+      expect.objectContaining({
+        errorName: "ZodError",
+        provider: "discord",
+        api: "roles",
+        formId: FORM_ID,
+        userId: OWNER_ID,
+      }),
     );
   });
 });

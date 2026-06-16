@@ -7,6 +7,7 @@ export {
   type ValidationProvider,
   type ValidationProviderApiContext,
   type ValidationProviderApiHandler,
+  type ValidationProviderApiResponseSchemas,
   type ValidationProviderConfigField,
   type ValidationProviderConfigOption,
   type ValidationProviderConfigOptionSource,

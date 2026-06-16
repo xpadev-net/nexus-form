@@ -16,7 +16,6 @@ import { errorResponse } from "../types/domain/common";
 
 const providerNameSchema = z.string().regex(/^[a-z][a-z0-9_]*$/);
 const apiNameSchema = z.string().regex(/^[a-z][a-z0-9_-]*$/);
-const externalServiceApiResponseSchema = z.record(z.string(), z.unknown());
 /** 外部サービス API のフォーム権限エラーレスポンス。 */
 export const ExternalServicePermissionErrorResponseSchema = z.object({
   error: z.object({
@@ -198,6 +197,7 @@ export const externalServiceRouter = createHonoApp()
     if (!handler) {
       return c.json(errorResponse("External service API not found"), 404);
     }
+    const responseSchema = provider?.apiResponseSchemas?.[apiName.data];
 
     let effectiveUserId: string;
     try {
@@ -221,13 +221,18 @@ export const externalServiceRouter = createHonoApp()
     );
 
     try {
+      if (!responseSchema) {
+        throw new Error(
+          "External service API response schema is not registered",
+        );
+      }
       const result = await handler({
         userId: auth.user_id,
         query,
         getLinkedAccount: (providerId) =>
           getLinkedAccount(effectiveUserId, providerId),
       });
-      const response = externalServiceApiResponseSchema.parse(result);
+      const response = responseSchema.parse(result);
       return c.json(response);
     } catch (error) {
       logError("External service API handler failed", "api", {
