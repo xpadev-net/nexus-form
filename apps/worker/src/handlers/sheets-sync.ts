@@ -90,25 +90,30 @@ function authRequiredMessage(context: string): string {
   return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}`;
 }
 
+function getWorkerShutdownReason(): unknown {
+  return (
+    workerShutdownSignal.reason ??
+    new DOMException("Worker shutting down", "AbortError")
+  );
+}
+
+function throwIfShuttingDown(): void {
+  if (workerShutdownSignal.aborted) {
+    throw getWorkerShutdownReason();
+  }
+}
+
 function sleepForPendingIdempotency(ms: number): Promise<void> {
   if (ms <= 0) {
     return Promise.resolve();
   }
-  if (workerShutdownSignal.aborted) {
-    throw workerShutdownSignal.reason instanceof Error
-      ? workerShutdownSignal.reason
-      : new Error("Worker shutdown");
-  }
+  throwIfShuttingDown();
 
   return new Promise((resolve, reject) => {
     let timer: ReturnType<typeof setTimeout>;
     const onAbort = () => {
       clearTimeout(timer);
-      reject(
-        workerShutdownSignal.reason instanceof Error
-          ? workerShutdownSignal.reason
-          : new Error("Worker shutdown"),
-      );
+      reject(getWorkerShutdownReason());
     };
     timer = setTimeout(() => {
       workerShutdownSignal.removeEventListener("abort", onAbort);
@@ -390,6 +395,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           existingHeaders.length === 0 ||
           headers.length > existingHeaders.length
         ) {
+          throwIfShuttingDown();
           const headerUpdateResult = await updateRange(token, {
             spreadsheetId,
             rangeA1: `${sheetName}!1:1`,
@@ -402,6 +408,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         await job.updateProgress(80);
 
         // 9. 行を追記
+        throwIfShuttingDown();
         const appendResult = await appendRows(token, {
           spreadsheetId,
           sheetName,
@@ -470,6 +477,7 @@ async function readSheetForIdempotency(
     responseId: string;
   },
 ): Promise<{ ok: true; exists: boolean; headers: string[] }> {
+  throwIfShuttingDown();
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: `${params.sheetName}!1:1`,
@@ -488,6 +496,7 @@ async function readSheetForIdempotency(
   }
 
   const columnLetter = columnIndexToLetter(responseIdIndex);
+  throwIfShuttingDown();
   const entireColumn = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
     rangeA1: `${params.sheetName}!${columnLetter}:${columnLetter}`,
