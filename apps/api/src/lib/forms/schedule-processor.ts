@@ -6,6 +6,10 @@ import { SnapshotNotFoundError } from "../errors/form-errors";
 import { logError } from "../logger";
 import { activateSnapshot } from "./snapshot-repository";
 
+const NO_SCHEDULE_CHANGES_MESSAGE = "No schedule changes needed";
+const ALREADY_PROCESSED_MESSAGE =
+  "Schedule was already processed by another worker; skipped";
+
 /**
  * スケジュール処理結果の型定義
  */
@@ -91,26 +95,25 @@ export async function processFormSchedule(
       let statusChanged = false;
       let currentStatus = foundForm.status;
       let newStatus = foundForm.status;
-      let message = "No schedule changes needed";
+      let message = NO_SCHEDULE_CHANGES_MESSAGE;
 
       // 各スケジュールを処理
       for (const schedule of pendingSchedules) {
         if (schedule.action === "SWITCH_SNAPSHOT") {
           const targetVersion = schedule.snapshotVersion;
-          if (targetVersion == null) {
-            logError("SWITCH_SNAPSHOT schedule has no snapshotVersion", "api", {
-              formId,
-              scheduleId: schedule.id,
-            });
-            message =
-              "SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped";
-          } else {
+          if (targetVersion != null) {
             snapshotSchedules.push({
               id: schedule.id,
               snapshotVersion: targetVersion,
             });
             continue;
           }
+
+          logError("SWITCH_SNAPSHOT schedule has no snapshotVersion", "api", {
+            formId,
+            scheduleId: schedule.id,
+          });
+          message = "SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped";
         }
 
         const processedResult = await tx
@@ -123,7 +126,7 @@ export async function processFormSchedule(
             ),
           );
         if (getAffectedRows(processedResult) === 0) {
-          message = "Schedule was already processed by another worker; skipped";
+          message = ALREADY_PROCESSED_MESSAGE;
           continue;
         }
 
@@ -174,10 +177,14 @@ export async function processFormSchedule(
           ),
         );
       if (getAffectedRows(processedResult) === 0) {
+        const message =
+          finalResult.message === NO_SCHEDULE_CHANGES_MESSAGE
+            ? ALREADY_PROCESSED_MESSAGE
+            : finalResult.message;
         finalResult = {
           ...finalResult,
           processed: true,
-          message: "Schedule was already processed by another worker; skipped",
+          message,
         };
         continue;
       }

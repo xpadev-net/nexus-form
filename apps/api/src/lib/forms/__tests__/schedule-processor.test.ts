@@ -1,3 +1,4 @@
+import type { FormStatusValue } from "@nexus-form/shared";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -77,8 +78,6 @@ vi.mock("../../logger", () => ({
 
 import { processFormSchedule } from "../schedule-processor";
 
-type FormStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "ARCHIVED";
-
 type ScheduleRow = {
   id: string;
   formId: string;
@@ -101,9 +100,9 @@ function scheduleRow(overrides: Partial<ScheduleRow>): ScheduleRow {
 }
 
 function useSelectRows(params: {
-  formStatus: FormStatus;
+  formStatus: FormStatusValue;
   schedules: ScheduleRow[];
-}) {
+}): void {
   mocks.formLimit.mockResolvedValue([
     {
       id: "form-1",
@@ -149,7 +148,7 @@ function useSelectRows(params: {
   });
 }
 
-function useUpdateResults(results: Array<{ affectedRows: number }>) {
+function useUpdateResults(results: Array<{ affectedRows: number }>): void {
   mocks.updateResults = [...results];
   mocks.tx.update.mockImplementation((table: unknown) => ({
     set: vi.fn((values: unknown) => ({
@@ -369,6 +368,69 @@ describe("processFormSchedule", () => {
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
   });
 
+  it("keeps a status-change message when a later SWITCH_SNAPSHOT CAS loses", async () => {
+    const publishAt = new Date("2026-06-01T10:00:00.000Z");
+    const now = new Date("2026-06-01T12:00:00.000Z");
+    useSelectRows({
+      formStatus: "DRAFT",
+      schedules: [
+        scheduleRow({
+          id: "schedule-publish",
+          triggerAt: publishAt,
+          action: "PUBLISH",
+        }),
+        scheduleRow({
+          id: "schedule-switch",
+          action: "SWITCH_SNAPSHOT",
+          snapshotVersion: 2,
+        }),
+      ],
+    });
+    useUpdateResults([
+      { affectedRows: 1 },
+      { affectedRows: 1 },
+      { affectedRows: 0 },
+    ]);
+
+    const result = await processFormSchedule("form-1", now);
+
+    expect(result).toEqual({
+      processed: true,
+      statusChanged: true,
+      newStatus: "PUBLISHED",
+      message: "Form automatically published based on schedule",
+    });
+    expect(mocks.activateSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("marks a SWITCH_SNAPSHOT schedule with no snapshotVersion as processed", async () => {
+    const now = new Date("2026-06-01T12:00:00.000Z");
+    useSelectRows({
+      formStatus: "PUBLISHED",
+      schedules: [
+        scheduleRow({
+          id: "schedule-switch",
+          action: "SWITCH_SNAPSHOT",
+          snapshotVersion: null,
+        }),
+      ],
+    });
+    useUpdateResults([{ affectedRows: 1 }]);
+
+    const result = await processFormSchedule("form-1", now);
+
+    expect(result).toEqual({
+      processed: true,
+      statusChanged: false,
+      newStatus: "PUBLISHED",
+      message: "SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped",
+    });
+    expect(mocks.activateSnapshot).not.toHaveBeenCalled();
+    expect(mocks.updateCalls).toHaveLength(1);
+    expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
+    expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
+  });
+
   it("releases only its SWITCH_SNAPSHOT claim when activation fails", async () => {
     const now = new Date("2026-06-01T12:00:00.000Z");
     useSelectRows({
@@ -389,7 +451,9 @@ describe("processFormSchedule", () => {
     );
 
     expect(mocks.updateCalls).toHaveLength(2);
+    expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
+    expect(mocks.updateCalls[1]?.table).toBe(mocks.schema.formSchedule);
     expect(mocks.updateCalls[1]?.values).toEqual({ processedAt: null });
     expect(mocks.updateCalls[1]?.condition).toEqual({
       type: "and",
