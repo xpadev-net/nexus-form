@@ -9,6 +9,20 @@ const mockGetSession = vi.fn();
 const tokenMocks = vi.hoisted(() => ({
   validateApiToken: vi.fn(),
 }));
+const loggerMocks = vi.hoisted(() => ({
+  logger: {
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+    child: vi.fn(),
+  },
+}));
+const s3ClientMocks = vi.hoisted(() => ({
+  send: vi.fn().mockResolvedValue({ Contents: [], IsTruncated: false }),
+}));
+
+loggerMocks.logger.child.mockReturnValue(loggerMocks.logger);
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -68,14 +82,7 @@ vi.mock("bullmq", () => ({
 }));
 
 vi.mock("pino", () => {
-  const logger = {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-    debug: vi.fn(),
-    child: vi.fn().mockReturnThis(),
-  };
-  return { default: vi.fn(() => logger) };
+  return { default: vi.fn(() => loggerMocks.logger) };
 });
 
 vi.mock("drizzle-orm", () => ({
@@ -171,7 +178,7 @@ vi.mock("../lib/s3/base-service", () => ({
 
 vi.mock("../lib/s3/client", () => ({
   getS3Client: vi.fn().mockReturnValue({
-    send: vi.fn().mockResolvedValue({ Contents: [], IsTruncated: false }),
+    send: s3ClientMocks.send,
   }),
 }));
 
@@ -256,6 +263,14 @@ beforeAll(async () => {
 beforeEach(() => {
   mockGetSession.mockReset();
   tokenMocks.validateApiToken.mockReset();
+  loggerMocks.logger.info.mockClear();
+  loggerMocks.logger.error.mockClear();
+  loggerMocks.logger.warn.mockClear();
+  loggerMocks.logger.debug.mockClear();
+  loggerMocks.logger.child.mockClear();
+  loggerMocks.logger.child.mockReturnValue(loggerMocks.logger);
+  s3ClientMocks.send.mockReset();
+  s3ClientMocks.send.mockResolvedValue({ Contents: [], IsTruncated: false });
   vi.mocked(s3ImageService.deleteObject).mockClear();
   vi.mocked(s3ImageService.generateDownloadUrl).mockClear();
   vi.mocked(s3ImageService.generateUploadUrl).mockClear();
@@ -1132,6 +1147,60 @@ describe("R3-H22: S3 route rejects bucket/key role mismatches", () => {
     await expect(res.json()).resolves.toMatchObject({
       error: "Object key validation failed",
     });
+  });
+});
+
+describe("R27-M13: S3 health response hardening", () => {
+  it("does not expose bucket names to unauthenticated health checks", async () => {
+    const res = await app.request("/api/s3/health");
+
+    expect(res.status).toBe(200);
+    expect(mockGetSession).not.toHaveBeenCalled();
+    expect(s3ClientMocks.send).toHaveBeenCalledTimes(2);
+
+    const body = await res.json();
+    expect(body).toMatchObject({ status: "healthy" });
+    expect(body).toHaveProperty("timestamp");
+    expect(body).not.toHaveProperty("buckets");
+    expect(body).not.toHaveProperty("error");
+  });
+
+  it("does not expose raw S3 errors in unhealthy responses", async () => {
+    s3ClientMocks.send.mockRejectedValueOnce(
+      new Error("AccessDenied for tmp-bucket using raw upstream detail"),
+    );
+
+    const res = await app.request("/api/s3/health");
+
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body).toMatchObject({ status: "unhealthy" });
+    expect(body).toHaveProperty("timestamp");
+    expect(body).not.toHaveProperty("buckets");
+    expect(body).not.toHaveProperty("error");
+
+    const responseText = JSON.stringify(body);
+    expect(responseText).not.toContain("tmp-bucket");
+    expect(responseText).not.toContain("prod-bucket");
+    expect(responseText).not.toContain("AccessDenied");
+
+    expect(loggerMocks.logger.child).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "api",
+        buckets: expect.objectContaining({
+          tmp: expect.any(String),
+          prod: expect.any(String),
+        }),
+      }),
+    );
+    expect(loggerMocks.logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          message: "AccessDenied for tmp-bucket using raw upstream detail",
+        }),
+      }),
+      "S3 health check failed",
+    );
   });
 });
 
