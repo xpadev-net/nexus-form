@@ -449,7 +449,7 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it("shutdown AbortError は最終試行以外でも PROCESSING 状態を FAILED へ更新する", async () => {
+  it("shutdown AbortError は最終試行以外では再キューされるよう再スローする", async () => {
     const rule = makeRule({
       validate: vi.fn().mockImplementation(async () => {
         const shutdownReason = new DOMException(
@@ -468,26 +468,15 @@ describe("handleGenericValidation", () => {
       attemptsMade: 1,
     });
 
-    const result = await handleGenericValidation(job);
-
-    expect(result).toEqual({
-      ok: false,
-      error: "Validation interrupted during shutdown",
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      name: "AbortError",
     });
     expect(mockMarkValidationProcessing).toHaveBeenCalled();
     expect(rule.validate).toHaveBeenCalledWith("test-input", {});
-    expect(mockWriteValidationResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        responseId: "r-1",
-        formId: "form-1",
-        service: "test-provider",
-        success: false,
-        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
-      }),
-    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it("PROCESSING 更新直後の shutdown AbortError は provider 実行前でも FAILED へ更新する", async () => {
+  it("PROCESSING 更新直後の shutdown AbortError は provider 実行前でも再スローする", async () => {
     const rule = makeRule();
     mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
     mockMarkValidationProcessing.mockImplementationOnce(async () => {
@@ -502,22 +491,11 @@ describe("handleGenericValidation", () => {
       attemptsMade: 1,
     });
 
-    const result = await handleGenericValidation(job);
-
-    expect(result).toEqual({
-      ok: false,
-      error: "Validation interrupted during shutdown",
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      name: "AbortError",
     });
     expect(rule.validate).not.toHaveBeenCalled();
-    expect(mockWriteValidationResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        responseId: "r-1",
-        formId: "form-1",
-        service: "test-provider",
-        success: false,
-        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
-      }),
-    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("PROCESSING 更新直後に非 AbortError reason で shutdown しても PROCESSING に残さない", async () => {
@@ -993,7 +971,7 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
-  it("Discord validation の Redis lock 待機中 shutdown AbortError は FAILED へ更新する", async () => {
+  it("Discord validation の Redis lock 待機中 shutdown AbortError は最終試行前に再スローする", async () => {
     mockWithRedisLock.mockImplementationOnce(async () => {
       const shutdownReason = new DOMException("Worker shutdown", "AbortError");
       shutdownSignalMock.abort(shutdownReason);
@@ -1010,21 +988,10 @@ describe("handleGenericValidation", () => {
       attemptsMade: 1,
     });
 
-    const result = await handleGenericValidation(job);
-
-    expect(result).toEqual({
-      ok: false,
-      error: "Validation interrupted during shutdown",
+    await expect(handleGenericValidation(job)).rejects.toMatchObject({
+      name: "AbortError",
     });
-    expect(mockWriteValidationResult).toHaveBeenCalledWith(
-      expect.objectContaining({
-        responseId: "r-1",
-        formId: "form-1",
-        service: "discord",
-        success: false,
-        errorCode: "VALIDATION_ABORTED_DURING_SHUTDOWN",
-      }),
-    );
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("Discord validation の入力形式が不正な場合は validate を呼ばずに INPUT_VALIDATION_ERROR を書き込む", async () => {
