@@ -5,6 +5,7 @@ import { z } from "zod";
 import { DEFAULT_IMAGE_PROCESSING_CONFIG } from "../config/image-processing";
 import { type DualAuthContext, withDualAuth } from "../lib/dual-auth";
 import { createHonoApp } from "../lib/hono";
+import { logError } from "../lib/logger";
 import { createRateLimit } from "../lib/rate-limit";
 import { s3BaseService } from "../lib/s3/base-service";
 import { getS3Client } from "../lib/s3/client";
@@ -176,16 +177,11 @@ export type ListResponse = z.infer<typeof ListResponseSchema>;
 const HealthResponseSchema = z.object({
   status: z.literal("healthy"),
   timestamp: z.string().datetime(),
-  buckets: z.object({
-    tmp: z.string(),
-    prod: z.string(),
-  }),
 });
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 
 const UnhealthyResponseSchema = z.object({
   status: z.literal("unhealthy"),
-  error: z.string(),
   timestamp: z.string().datetime(),
 });
 export type UnhealthyResponse = z.infer<typeof UnhealthyResponseSchema>;
@@ -837,16 +833,19 @@ export const s3Router = createHonoApp()
         HealthResponseSchema.parse({
           status: "healthy",
           timestamp: new Date().toISOString(),
-          buckets: {
-            tmp: S3_BUCKETS.TMP,
-            prod: S3_BUCKETS.PROD,
-          },
         }),
       );
     } catch (error) {
+      logError("S3 health check failed", "api", {
+        error,
+        buckets: {
+          tmp: S3_BUCKETS.TMP,
+          prod: S3_BUCKETS.PROD,
+        },
+      });
+
       const response: z.input<typeof UnhealthyResponseSchema> = {
         status: "unhealthy",
-        error: error instanceof Error ? error.message : "Unknown error",
         timestamp: new Date().toISOString(),
       };
       const parsed = UnhealthyResponseSchema.safeParse(response);
