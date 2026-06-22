@@ -32,7 +32,7 @@
   "dependencies": {
     "@nexus-form/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "mysql2": "^3.22.4"
+    "mysql2": "^3.22.5"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.16",
