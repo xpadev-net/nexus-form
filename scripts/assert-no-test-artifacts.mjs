@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { basename, relative, resolve, sep } from "node:path";
 
 const roots = process.argv.slice(2);
@@ -12,32 +12,46 @@ if (roots.length === 0) {
 
 const testModulePattern = /\.(?:test|spec)\.mjs(?:\.map)?$/;
 const offenders = [];
+const missingRoots = [];
 
 const formatPath = (path) => relative(process.cwd(), path).split(sep).join("/");
 
 const visit = (path) => {
-  const stats = statSync(path);
+  const name = basename(path);
 
-  if (stats.isDirectory()) {
-    if (basename(path) === "__tests__") {
-      offenders.push(path);
-      return;
-    }
-
-    for (const child of readdirSync(path)) {
-      visit(resolve(path, child));
-    }
-
+  if (name === "__tests__" || testModulePattern.test(name)) {
+    offenders.push(path);
     return;
   }
 
-  if (stats.isFile() && testModulePattern.test(basename(path))) {
-    offenders.push(path);
+  const stats = lstatSync(path);
+
+  if (stats.isDirectory()) {
+    for (const child of readdirSync(path)) {
+      visit(resolve(path, child));
+    }
   }
 };
 
 for (const root of roots) {
-  visit(resolve(root));
+  const resolvedRoot = resolve(root);
+
+  if (!existsSync(resolvedRoot)) {
+    missingRoots.push(resolvedRoot);
+    continue;
+  }
+
+  visit(resolvedRoot);
+}
+
+if (missingRoots.length > 0) {
+  console.error("Build artifact path does not exist:");
+
+  for (const missingRoot of missingRoots.sort()) {
+    console.error(` - ${formatPath(missingRoot)}`);
+  }
+
+  process.exit(1);
 }
 
 if (offenders.length > 0) {
