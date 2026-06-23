@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/auth/use-auth";
 import { authClient } from "@/lib/auth-client";
 
 const { FRONTEND_BASE_URL_FOR_TEST } = vi.hoisted(() => ({
-  FRONTEND_BASE_URL_FOR_TEST: "https://frontend.test.example.com",
+  FRONTEND_BASE_URL_FOR_TEST: "https://frontend.test.example.com/app",
 }));
 
 vi.mock("@/lib/runtime-config", () => ({

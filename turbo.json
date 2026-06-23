@@ -3,6 +3,24 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": [
+        "VITE_API_URL",
+        "VITE_BASE_URL",
+        "VITE_FORM_SECURITY_DEV_BYPASS",
+        "VITE_HCAPTCHA_SITE_KEY",
+        "VITE_TELEMETRY_HOST",
+        "VITE_TELEMETRY_V4_HOST",
+        "VITE_TELEMETRY_V6_HOST",
+        "VITE_BRAND_APP_NAME",
+        "VITE_BRAND_PRIMARY_COLOR",
+        "VITE_BRAND_SECONDARY_COLOR",
+        "VITE_BRAND_ACCENT_COLOR",
+        "VITE_BRAND_TERMS_URL",
+        "VITE_BRAND_PRIVACY_URL",
+        "VITE_BRAND_COPYRIGHT",
+        "VITE_BRAND_HOMEPAGE_URL",
+        "VITE_DISABLE_HCAPTCHA"
+      ],
       "outputs": ["dist/**"]
     },
     "dev": {

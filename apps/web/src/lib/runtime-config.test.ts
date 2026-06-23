@@ -12,6 +12,7 @@ describe("getRuntimeConfigValue", () => {
     vi.stubGlobal("window", {
       __NEXUS_FORM_CONFIG__: {
         apiUrl: "https://api.runtime.example",
+        baseUrl: "https://app.runtime.example",
         formSecurityDevBypass: "true",
         hcaptchaSiteKey: "10000000-ffff-ffff-ffff-000000000001",
         telemetryHost: "telemetry.runtime.example",
@@ -27,6 +28,13 @@ describe("getRuntimeConfigValue", () => {
         "http://localhost:3001",
       ),
     ).toBe("https://api.runtime.example");
+    expect(
+      getRuntimeConfigValue(
+        "baseUrl",
+        "https://app.build.example",
+        "http://localhost:3000",
+      ),
+    ).toBe("https://app.runtime.example");
     expect(getRuntimeConfigValue("formSecurityDevBypass", "false")).toBe(
       "true",
     );
@@ -65,6 +73,13 @@ describe("getRuntimeConfigValue", () => {
     expect(getRuntimeConfigValue("hcaptchaSiteKey", "", "fallback")).toBe(
       "fallback",
     );
+    expect(
+      getRuntimeConfigValue(
+        "baseUrl",
+        "https://app.build.example",
+        "http://localhost:3000",
+      ),
+    ).toBe("https://app.build.example");
     expect(
       getRuntimeConfigValue("telemetryHost", "telemetry.build.example"),
     ).toBe("telemetry.build.example");
