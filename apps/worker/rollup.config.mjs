@@ -3,7 +3,12 @@ import typescript from "@rollup/plugin-typescript";
 import { glob } from "glob";
 
 const inputFiles = await glob("src/**/*.ts", {
-  ignore: ["src/**/*.d.ts"],
+  ignore: [
+    "src/**/*.d.ts",
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/__tests__/**",
+  ],
 });
 
 export default {
