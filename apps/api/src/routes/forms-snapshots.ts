@@ -167,6 +167,30 @@ function validationRuleConfigErrorResponse(error: unknown) {
   return null;
 }
 
+const STRUCTURE_MUTATION_CONFLICT_MESSAGE =
+  "Form structure changed concurrently; retry the request";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isFormStructureMutationConflict(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  if (isRecord(error)) {
+    if (error.code === "ER_DUP_ENTRY" || error.errno === 1062) {
+      return true;
+    }
+  }
+
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("duplicate entry") ||
+    normalized.includes("formstructure_formid_version_key") ||
+    normalized.includes("formstructure_activeformid_key") ||
+    normalized.includes("stale")
+  );
+}
+
 export const formsSnapshotsRouter = createHonoApp()
   .use("/:id/snapshots*", withDualFormAuth("VIEWER"))
   .use("/:id/diff", withDualFormAuth("VIEWER"))
@@ -427,13 +451,21 @@ export const formsSnapshotsRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       try {
-        const restored = await restoreFromSnapshot(formId);
+        const restored = await withFormStructureMutationLock(formId, () =>
+          restoreFromSnapshot(formId),
+        );
         const response = RestoreEditResponseSchema.parse({
           ok: true,
           plateContent: restored.plateContent,
         });
         return c.json(response);
       } catch (error) {
+        if (isFormStructureMutationConflict(error)) {
+          return c.json(
+            errorResponse(STRUCTURE_MUTATION_CONFLICT_MESSAGE),
+            409,
+          );
+        }
         if (error instanceof SnapshotNotFoundError) {
           return c.json(errorResponse(error.message), 404);
         }
