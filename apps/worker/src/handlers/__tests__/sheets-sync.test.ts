@@ -318,23 +318,6 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("throws UnrecoverableError when OAuth token refresh fails", async () => {
-    setupDbSelect([INTEGRATION]);
-    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
-    mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
-
-    const job = makeJob();
-    const task = handleSheetsSync(job);
-    await expect(task).rejects.toThrow(UnrecoverableError);
-    await expect(task).rejects.toThrow(
-      "AUTH_REQUIRED: OAuth token refresh failed",
-    );
-    expect(job.discard).not.toHaveBeenCalled();
-
-    expect(mockReadRange).not.toHaveBeenCalled();
-    expect(mockAppendRows).not.toHaveBeenCalled();
-  });
-
   it("throws UnrecoverableError when OAuth token refresh requires reauthorization", async () => {
     setupDbSelect([INTEGRATION]);
     const refreshError = new Error(

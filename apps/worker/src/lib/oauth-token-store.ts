@@ -39,6 +39,7 @@ const GoogleTokenRefreshErrorResponseSchema = z.object({
 
 type OAuthRefreshPermanentAuthReason =
   | "bad_request"
+  | "client_error"
   | "invalid_grant"
   | "unauthorized";
 
@@ -201,7 +202,11 @@ function classifyPermanentAuthFailure(params: {
     });
   }
 
-  return null;
+  return new OAuthRefreshPermanentAuthError({
+    reason: "client_error",
+    status: params.status,
+    ...(errorCode ? { errorCode } : {}),
+  });
 }
 
 /**

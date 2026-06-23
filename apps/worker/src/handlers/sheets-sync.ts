@@ -97,7 +97,7 @@ function getErrorMessage(error: unknown): string {
 
 async function refreshTokenForSheetsSync(
   token: OAuthToken,
-): Promise<OAuthToken | null> {
+): Promise<OAuthToken> {
   try {
     return await refreshTokenIfNeeded(token);
   } catch (error) {
@@ -257,11 +257,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   }
 
   const token = await refreshTokenForSheetsSync(initialToken);
-  if (!token) {
-    return failSheetsSyncWithoutRetry(
-      authRequiredMessage("OAuth token refresh failed"),
-    );
-  }
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得

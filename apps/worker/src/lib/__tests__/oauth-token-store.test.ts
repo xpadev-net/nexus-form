@@ -308,6 +308,40 @@ describe("refreshTokenIfNeeded", () => {
     expect(insertValues).not.toHaveBeenCalled();
   });
 
+  it("classifies other 4xx refresh responses as permanent auth failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        json: async () => ({
+          error: "access_denied",
+        }),
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const {
+      OAuthRefreshPermanentAuthError,
+      refreshTokenIfNeeded,
+      isOAuthRefreshPermanentAuthError,
+    } = await import("../oauth-token-store");
+
+    const task = refreshTokenIfNeeded(expiredTokenInput());
+
+    await expect(task).rejects.toBeInstanceOf(OAuthRefreshPermanentAuthError);
+    await expect(task).rejects.toMatchObject({
+      errorCode: "access_denied",
+      reason: "client_error",
+      status: 403,
+    });
+    await task.catch((error: unknown) => {
+      expect(isOAuthRefreshPermanentAuthError(error)).toBe(true);
+    });
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
   it("keeps 5xx refresh responses retryable", async () => {
     vi.stubGlobal(
       "fetch",
