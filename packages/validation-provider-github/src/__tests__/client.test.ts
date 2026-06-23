@@ -129,6 +129,78 @@ describe("GitHubApiClient.getUserByUsername", () => {
 
     expect(result).toBeNull();
   });
+
+  it("throws retryable provider errors for HTTP 429 responses with Retry-After", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    const rateLimitError = Object.assign(
+      new Error("GitHub API rate limit exceeded"),
+      {
+        status: 429,
+        response: {
+          headers: {
+            "retry-after": "45",
+          },
+          data: {
+            message: "GitHub API rate limit exceeded",
+          },
+        },
+      },
+    );
+    mockGetByUsername.mockRejectedValue(rateLimitError);
+
+    const err = await client.getUserByUsername("octocat").then(
+      (): null => null,
+      (error: unknown) => error,
+    );
+
+    expect(err).toBeInstanceOf(GitHubProviderError);
+    if (!(err instanceof GitHubProviderError)) {
+      throw new Error("Expected GitHubProviderError");
+    }
+    expect(err.code).toBe(GitHubErrorCode.GITHUB_API_RATE_LIMIT);
+    expect(err.status).toBe(429);
+    expect(err.retryAfter).toBe(45_000);
+    expect(err.message).toContain("Retry after 45s");
+  });
+
+  it("throws retryable provider errors for secondary rate limit responses", async () => {
+    const mockGetByUsername = vi.mocked(
+      octokitConstructorMock.mock.results[0]?.value.users.getByUsername,
+    );
+    const secondaryRateLimitError = Object.assign(
+      new Error(
+        "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+      ),
+      {
+        status: 403,
+        response: {
+          headers: {
+            "x-ratelimit-remaining": "42",
+          },
+          data: {
+            message:
+              "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+          },
+        },
+      },
+    );
+    mockGetByUsername.mockRejectedValue(secondaryRateLimitError);
+
+    const err = await client.getUserByUsername("octocat").then(
+      (): null => null,
+      (error: unknown) => error,
+    );
+
+    expect(err).toBeInstanceOf(GitHubProviderError);
+    if (!(err instanceof GitHubProviderError)) {
+      throw new Error("Expected GitHubProviderError");
+    }
+    expect(err.code).toBe(GitHubErrorCode.GITHUB_API_RATE_LIMIT);
+    expect(err.status).toBe(403);
+    expect(err.retryAfter).toBeUndefined();
+  });
 });
 
 describe("GitHubApiClient timeout configuration", () => {

@@ -26,6 +26,76 @@ describe("GitHub error utilities", () => {
     );
   });
 
+  it("detects HTTP 429 rate limit errors and reads Retry-After seconds", () => {
+    const error = {
+      status: 429,
+      response: {
+        headers: {
+          "Retry-After": "120",
+        },
+      },
+    };
+
+    expect(isGitHubRateLimitError(error)).toBe(true);
+    expect(getGitHubErrorCode(error)).toBe(
+      GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+    );
+    expect(getGitHubRateLimitRetryAfter(error)).toBe(120_000);
+  });
+
+  it("detects HTTP 429 rate limit errors without Retry-After headers", () => {
+    const error = {
+      status: 429,
+      response: {
+        headers: {},
+      },
+    };
+
+    expect(isGitHubRateLimitError(error)).toBe(true);
+    expect(getGitHubErrorCode(error)).toBe(
+      GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+    );
+    expect(getGitHubRateLimitRetryAfter(error)).toBeNull();
+  });
+
+  it("detects secondary rate limit errors from GitHub response messages", () => {
+    const error = {
+      status: 403,
+      response: {
+        headers: {
+          "x-ratelimit-remaining": "42",
+        },
+        data: {
+          message:
+            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+        },
+      },
+    };
+
+    expect(isGitHubRateLimitError(error)).toBe(true);
+    expect(getGitHubErrorCode(error)).toBe(
+      GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+    );
+  });
+
+  it("detects secondary rate limit errors from Retry-After headers", () => {
+    const error = {
+      status: 403,
+      response: {
+        headers: {
+          "retry-after": "30",
+          "x-ratelimit-remaining": "42",
+        },
+      },
+    };
+
+    expect(isGitHubRateLimitError(error)).toBe(true);
+    expect(getGitHubErrorCode(error)).toBe(
+      GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+    );
+    expect(getGitHubRateLimitRetryAfter(error)).toBe(30_000);
+  });
+
   it("reads retry-after milliseconds from reset headers", () => {
     vi.useFakeTimers();
     try {
@@ -41,6 +111,28 @@ describe("GitHub error utilities", () => {
       };
 
       expect(getGitHubRateLimitRetryAfter(error)).toBe(90_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prefers Retry-After HTTP dates over reset headers", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-05-19T00:00:00.000Z"));
+      const resetSeconds = Math.floor(Date.now() / 1000) + 90;
+      const retryAt = new Date(Date.now() + 45_000).toUTCString();
+      const error = {
+        status: 429,
+        response: {
+          headers: {
+            "retry-after": retryAt,
+            "x-ratelimit-reset": String(resetSeconds),
+          },
+        },
+      };
+
+      expect(getGitHubRateLimitRetryAfter(error)).toBe(45_000);
     } finally {
       vi.useRealTimers();
     }
