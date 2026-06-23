@@ -6,7 +6,10 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { logWarn } from "../logger";
+import { validateBucketName } from "./bucket-name";
 import { getS3Client } from "./client";
+
+export { validateBucketName } from "./bucket-name";
 
 /**
  * S3バケット設定
@@ -20,34 +23,6 @@ const s3BucketFallbacks = {
 export interface S3BucketConfig {
   TMP: string;
   PROD: string;
-}
-
-export function validateBucketName(bucketName: string): boolean {
-  // S3バケット名の検証ルール
-  // - 3-63文字の長さ
-  // - 小文字、数字、ハイフン、ピリオドのみ
-  // - ハイフンで始まったり終わったりしない
-  // - 連続するピリオドは不可
-  // - ピリオドとハイフンの隣接、IPアドレス形式は不可
-  const bucketNameRegex = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
-
-  if (bucketName.length < 3 || bucketName.length > 63) {
-    return false;
-  }
-
-  if (!bucketNameRegex.test(bucketName)) {
-    return false;
-  }
-
-  if (bucketName.includes("..")) {
-    return false;
-  }
-
-  if (bucketName.includes(".-") || bucketName.includes("-.")) {
-    return false;
-  }
-
-  return !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(bucketName);
 }
 
 function shouldUseLocalBucketFallback(nodeEnv: string | undefined): boolean {

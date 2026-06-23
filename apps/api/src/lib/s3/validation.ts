@@ -47,6 +47,7 @@ export const DEFAULT_VALIDATION_CONFIG: FileValidationConfig = {
   scanForMalware: false, // 本番環境では有効にする
   allowSvg: IMAGE_UPLOAD_LIMITS.ALLOW_SVG,
   svgContentValidation: true, // SVGコンテンツ検証を有効化
+  fileTypeSizeLimits: { ...IMAGE_UPLOAD_LIMITS.FILE_TYPE_SIZE_LIMITS },
 };
 
 /**

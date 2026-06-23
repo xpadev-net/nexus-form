@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import * as ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { resolveS3BucketConfig } from "../lib/s3/utils";
 
@@ -11,12 +12,23 @@ describe("load-env S3 bucket validation", () => {
       resolve(repoRoot, "apps/api/src/load-env.ts"),
       "utf8",
     );
-
-    expect(source).toContain("loadEnvFileSync");
-    expect(source).toContain("assertS3BucketEnvironment();");
-    expect(source.indexOf("loadEnvFileSync({")).toBeLessThan(
-      source.indexOf("assertS3BucketEnvironment();"),
+    const ast = ts.createSourceFile(
+      "load-env.ts",
+      source,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TS,
     );
+    const callExpressions = ast.statements
+      .filter(ts.isExpressionStatement)
+      .map((statement) => statement.expression)
+      .filter(ts.isCallExpression)
+      .map((call) => call.expression.getText(ast));
+
+    expect(callExpressions).toEqual([
+      "loadEnvFileSync",
+      "assertS3BucketEnvironment",
+    ]);
   });
 
   it("documents that local fallback is limited to development and test", () => {

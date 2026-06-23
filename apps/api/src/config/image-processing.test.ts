@@ -59,10 +59,17 @@ describe("image processing environment schema", () => {
     expect(s3Validation.DEFAULT_VALIDATION_CONFIG.allowedExtensions).toEqual(
       imageProcessing.IMAGE_UPLOAD_LIMITS.ALLOWED_EXTENSIONS,
     );
-    expect(s3Validation.DEFAULT_VALIDATION_CONFIG.allowSvg).toBe(false);
+    expect(s3Validation.DEFAULT_VALIDATION_CONFIG.allowSvg).toBe(true);
+    expect(s3Validation.DEFAULT_VALIDATION_CONFIG.fileTypeSizeLimits).toEqual({
+      "image/jpeg": 5 * 1024 * 1024,
+      "image/png": 8 * 1024 * 1024,
+      "image/webp": 4 * 1024 * 1024,
+      "image/gif": 3 * 1024 * 1024,
+      "image/svg+xml": 1024 * 1024,
+    });
     expect(
       imageProcessing.IMAGE_PROCESSING_LIMITS.SUPPORTED_INPUT_FORMATS,
-    ).toEqual(["jpeg", "png", "webp", "gif"]);
+    ).toEqual(["jpeg", "png", "webp", "gif", "svg"]);
   });
 
   it("uses MAX_FILE_SIZE_MB and ALLOWED_IMAGE_TYPES for upload and processing", async () => {
@@ -84,6 +91,10 @@ describe("image processing environment schema", () => {
     expect(s3Validation.DEFAULT_VALIDATION_CONFIG.allowedExtensions).toEqual([
       ".png",
     ]);
+    expect(s3Validation.DEFAULT_VALIDATION_CONFIG.allowSvg).toBe(false);
+    expect(s3Validation.DEFAULT_VALIDATION_CONFIG.fileTypeSizeLimits).toEqual({
+      "image/png": 2 * 1024 * 1024,
+    });
     expect(
       imageProcessing.IMAGE_PROCESSING_LIMITS.SUPPORTED_INPUT_FORMATS,
     ).toEqual(["png"]);

@@ -24,7 +24,16 @@ export const DEFAULT_ALLOWED_IMAGE_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
+  "image/svg+xml",
 ] as const satisfies readonly SupportedImageMimeType[];
+
+const DEFAULT_UPLOAD_FILE_TYPE_SIZE_LIMITS_MB = {
+  "image/jpeg": 5,
+  "image/png": 8,
+  "image/gif": 3,
+  "image/webp": 4,
+  "image/svg+xml": 1,
+} as const satisfies Partial<Record<SupportedImageMimeType, number>>;
 
 const imageMimeTypeSchema = z.enum(SUPPORTED_IMAGE_MIME_TYPES);
 
@@ -123,6 +132,7 @@ export interface ImageEnvironmentConfig {
   allowedImageTypes: SupportedImageMimeType[];
   allowedExtensions: string[];
   allowSvg: boolean;
+  fileTypeSizeLimits: Partial<Record<SupportedImageMimeType, number>>;
   supportedInputFormats: string[];
   maxDimension: number;
   maxPixels: number;
@@ -201,6 +211,20 @@ export function parseImageEnvironment(
   const supportedInputFormats = uniqueValues(
     allowedImageTypes.map((type) => imageTypeMetadata[type].sharpFormat),
   );
+  const fileTypeSizeLimits = Object.fromEntries(
+    allowedImageTypes
+      .filter((type) => DEFAULT_UPLOAD_FILE_TYPE_SIZE_LIMITS_MB[type])
+      .map((type) => [
+        type,
+        Math.min(
+          Math.round(
+            (DEFAULT_UPLOAD_FILE_TYPE_SIZE_LIMITS_MB[type] ?? 0) *
+              BYTES_PER_MEGABYTE,
+          ),
+          Math.round(parsed.MAX_FILE_SIZE_MB * BYTES_PER_MEGABYTE),
+        ),
+      ]),
+  ) as Partial<Record<SupportedImageMimeType, number>>;
 
   return {
     maxFileSizeMb: parsed.MAX_FILE_SIZE_MB,
@@ -208,6 +232,7 @@ export function parseImageEnvironment(
     allowedImageTypes,
     allowedExtensions,
     allowSvg: allowedImageTypes.includes("image/svg+xml"),
+    fileTypeSizeLimits,
     supportedInputFormats,
     maxDimension: parsed.MAX_IMAGE_DIMENSION,
     maxPixels: parsed.MAX_IMAGE_PIXELS,
@@ -232,6 +257,7 @@ export const IMAGE_UPLOAD_LIMITS = {
   ALLOWED_TYPES: IMAGE_ENV_CONFIG.allowedImageTypes,
   ALLOWED_EXTENSIONS: IMAGE_ENV_CONFIG.allowedExtensions,
   ALLOW_SVG: IMAGE_ENV_CONFIG.allowSvg,
+  FILE_TYPE_SIZE_LIMITS: IMAGE_ENV_CONFIG.fileTypeSizeLimits,
 } as const;
 
 export const IMAGE_PROCESSING_LIMITS = {

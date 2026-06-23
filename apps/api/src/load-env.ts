@@ -1,30 +1,9 @@
 import { resolve } from "node:path";
 import { loadEnvFileSync } from "@nexus-form/shared/node/load-env";
+import { validateBucketName } from "./lib/s3/bucket-name";
 
 const localS3BucketFallbackEnvironments = new Set(["development", "test"]);
 const requiredS3BucketEnvNames = ["S3_BUCKET_TMP", "S3_BUCKET_PROD"] as const;
-
-function isValidS3BucketName(bucketName: string): boolean {
-  const bucketNameRegex = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
-
-  if (bucketName.length < 3 || bucketName.length > 63) {
-    return false;
-  }
-
-  if (!bucketNameRegex.test(bucketName)) {
-    return false;
-  }
-
-  if (
-    bucketName.includes("..") ||
-    bucketName.includes(".-") ||
-    bucketName.includes("-.")
-  ) {
-    return false;
-  }
-
-  return !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(bucketName);
-}
 
 function formatNodeEnv(nodeEnv: string | undefined): string {
   return nodeEnv && nodeEnv.length > 0 ? nodeEnv : "unset";
@@ -43,7 +22,7 @@ function assertS3BucketEnvironment(): void {
       );
     }
 
-    if (!isValidS3BucketName(value)) {
+    if (!validateBucketName(value)) {
       throw new Error(`Invalid S3 bucket name in ${envName}: ${value}`);
     }
   }
