@@ -5,16 +5,89 @@
  * 開発環境で必要な環境変数が正しく設定されているかを確認します
  */
 
-import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import dotenv from "dotenv";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
-const envPath = join(scriptDir, "..", ".env.local");
+const defaultEnvPath = join(scriptDir, "..", ".env.local");
+const args = process.argv.slice(2);
+
+function getEnvPath() {
+  const envFileIndex = args.indexOf("--env-file");
+  if (envFileIndex === -1) {
+    return defaultEnvPath;
+  }
+
+  const envFilePath = args[envFileIndex + 1];
+  if (!envFilePath || envFilePath.startsWith("--")) {
+    console.error("--env-file requires a path");
+    process.exit(1);
+  }
+
+  return isAbsolute(envFilePath) ? envFilePath : resolve(envFilePath);
+}
+
+function unquoteEnvValue(value) {
+  const trimmedValue = value.trim();
+  const quote = trimmedValue[0];
+  const lastIndex = trimmedValue.length - 1;
+
+  if ((quote === '"' || quote === "'") && trimmedValue[lastIndex] === quote) {
+    const innerValue = trimmedValue.slice(1, lastIndex);
+    if (quote === '"') {
+      return innerValue
+        .replaceAll("\\n", "\n")
+        .replaceAll("\\r", "\r")
+        .replaceAll("\\t", "\t")
+        .replaceAll('\\"', '"')
+        .replaceAll("\\\\", "\\");
+    }
+
+    return innerValue.replaceAll("\\'", "'");
+  }
+
+  const commentIndex = trimmedValue.search(/\s+#/);
+  return commentIndex === -1
+    ? trimmedValue
+    : trimmedValue.slice(0, commentIndex).trimEnd();
+}
+
+function loadEnvFile(envFilePath) {
+  const envFile = readFileSync(envFilePath, "utf8");
+
+  for (const line of envFile.split(/\r?\n/)) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine || trimmedLine.startsWith("#")) {
+      continue;
+    }
+
+    const normalizedLine = trimmedLine.startsWith("export ")
+      ? trimmedLine.slice("export ".length).trimStart()
+      : trimmedLine;
+    const separatorIndex = normalizedLine.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+
+    const key = normalizedLine.slice(0, separatorIndex).trim();
+    if (
+      !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key) ||
+      Object.hasOwn(process.env, key)
+    ) {
+      continue;
+    }
+
+    process.env[key] = unquoteEnvValue(
+      normalizedLine.slice(separatorIndex + 1),
+    );
+  }
+}
+
+const envPath = getEnvPath();
 
 if (existsSync(envPath)) {
-  dotenv.config({ path: envPath });
+  loadEnvFile(envPath);
 }
 
 const requiredEnvVarGroups = [
@@ -226,7 +299,9 @@ for (const group of optionalEnvVarGroups) {
   for (const envVar of group.vars) {
     if (process.env[envVar]) {
       if (securityBypassEnvVars.has(envVar)) {
-        console.log(`  ⚠️  ${envVar}: 設定済み (開発環境以外では無効化してください)`);
+        console.log(
+          `  ⚠️  ${envVar}: 設定済み (開発環境以外では無効化してください)`,
+        );
       } else {
         console.log(`  ✅ ${envVar}: 設定済み`);
       }
