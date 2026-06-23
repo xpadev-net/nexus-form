@@ -1,17 +1,50 @@
 import {
+  type ExtractedQuestion,
   getTextLengthViolations,
   isBlankResponseValue,
+  isBlockType,
+  parseFiniteResponseNumber,
   textMatchesPattern,
 } from "@nexus-form/shared";
 import { getPatternTemplate } from "@/lib/constants/validation-patterns";
 import { isValidEmail } from "@/lib/validation/email";
 import { getValidationMessage } from "@/lib/validation-messages";
-import type { Block } from "@/types/domain/form-block";
-import type { ResponseData } from "@/types/domain/response";
+import {
+  type Block,
+  QuestionValidation as QuestionValidationSchema,
+} from "@/types/domain/form-block";
 import type {
   ValidationError,
   ValidationResult,
 } from "@/types/domain/validation";
+
+interface AnswerLike {
+  value?: unknown;
+  values?: unknown[];
+  responses?: Record<string, unknown>;
+  other_value?: unknown;
+  other_values?: unknown[];
+}
+
+type ValidatableQuestion = Pick<
+  Block,
+  "blockId" | "type" | "title" | "validation"
+>;
+
+type QuestionResponseData =
+  | { question_type: "short_text"; value?: unknown }
+  | { question_type: "long_text"; value?: unknown }
+  | { question_type: "radio"; value?: string; other_value?: string }
+  | { question_type: "checkbox"; values?: string[]; other_values?: string[] }
+  | { question_type: "dropdown"; value?: string; other_value?: string }
+  | { question_type: "linear_scale"; value?: number }
+  | { question_type: "rating"; value?: number }
+  | { question_type: "choice_grid"; responses?: Record<string, string> }
+  | { question_type: "checkbox_grid"; responses?: Record<string, string[]> }
+  | { question_type: "date"; value?: unknown }
+  | { question_type: "time"; value?: unknown };
+
+type AnswerableQuestionType = Exclude<Block["type"], "section_separator">;
 
 // バリデーションエラーを作成するヘルパー関数
 const createValidationError = (
@@ -95,8 +128,8 @@ const isTimeValidation = (
 
 // 短文入力のバリデーション
 export const validateShortText = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "short_text" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "short_text" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -124,6 +157,18 @@ export const validateShortText = (
   // 空の場合は他のバリデーションをスキップ
   if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
+  }
+
+  if (typeof value !== "string") {
+    errors.push(
+      createValidationError(
+        question.blockId,
+        "入力形式が正しくありません",
+        "INVALID_VALUE_TYPE",
+        value,
+      ),
+    );
+    return { is_valid: false, errors };
   }
 
   for (const violation of getTextLengthViolations(
@@ -196,8 +241,8 @@ export const validateShortText = (
 
 // 長文入力のバリデーション
 export const validateLongText = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "long_text" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "long_text" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -218,6 +263,18 @@ export const validateLongText = (
   // 空の場合は他のバリデーションをスキップ
   if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
+  }
+
+  if (typeof value !== "string") {
+    errors.push(
+      createValidationError(
+        question.blockId,
+        "入力形式が正しくありません",
+        "INVALID_VALUE_TYPE",
+        value,
+      ),
+    );
+    return { is_valid: false, errors };
   }
 
   for (const violation of getTextLengthViolations(
@@ -254,8 +311,8 @@ export const validateLongText = (
 
 // ラジオボタンのバリデーション
 export const validateRadio = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "radio" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "radio" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -318,8 +375,8 @@ export const validateRadio = (
 
 // チェックボックスのバリデーション
 export const validateCheckbox = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "checkbox" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "checkbox" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -408,8 +465,8 @@ export const validateCheckbox = (
 
 // プルダウンのバリデーション
 export const validateDropdown = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "dropdown" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "dropdown" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -472,8 +529,8 @@ export const validateDropdown = (
 
 // 均等目盛のバリデーション
 export const validateLinearScale = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "linear_scale" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "linear_scale" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -531,8 +588,8 @@ export const validateLinearScale = (
 
 // 評価のバリデーション
 export const validateRating = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "rating" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "rating" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -583,8 +640,8 @@ export const validateRating = (
 
 // 選択式グリッドのバリデーション
 export const validateChoiceGrid = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "choice_grid" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "choice_grid" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -667,8 +724,8 @@ export const validateChoiceGrid = (
 
 // チェックボックスグリッドのバリデーション
 export const validateCheckboxGrid = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "checkbox_grid" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "checkbox_grid" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -796,8 +853,8 @@ export const validateCheckboxGrid = (
 
 // 日付のバリデーション
 export const validateDate = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "date" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "date" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -818,6 +875,18 @@ export const validateDate = (
   // 空の場合は他のバリデーションをスキップ
   if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
+  }
+
+  if (typeof value !== "string") {
+    errors.push(
+      createValidationError(
+        question.blockId,
+        "入力形式が正しくありません",
+        "INVALID_VALUE_TYPE",
+        value,
+      ),
+    );
+    return { is_valid: false, errors };
   }
 
   // 日付フォーマット設定のバリデーション
@@ -942,8 +1011,8 @@ export const validateDate = (
 
 // 時刻のバリデーション
 export const validateTime = (
-  question: Block,
-  response: Extract<ResponseData, { question_type: "time" }>,
+  question: ValidatableQuestion,
+  response: Extract<QuestionResponseData, { question_type: "time" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
   const { validation } = question;
@@ -964,6 +1033,18 @@ export const validateTime = (
   // 空の場合は他のバリデーションをスキップ
   if (isBlankResponseValue(value)) {
     return { is_valid: true, errors: [] };
+  }
+
+  if (typeof value !== "string") {
+    errors.push(
+      createValidationError(
+        question.blockId,
+        "入力形式が正しくありません",
+        "INVALID_VALUE_TYPE",
+        value,
+      ),
+    );
+    return { is_valid: false, errors };
   }
 
   // 時刻フォーマット設定のバリデーション
@@ -1089,8 +1170,8 @@ export const questionValidators = {
 
 // 汎用バリデーション関数
 export const validateQuestion = (
-  question: Block,
-  response: ResponseData,
+  question: ValidatableQuestion,
+  response: QuestionResponseData,
 ): ValidationResult => {
   const validator =
     questionValidators[question.type as keyof typeof questionValidators];
@@ -1108,8 +1189,247 @@ export const validateQuestion = (
   }
 
   type GenericValidator = (
-    question: Block,
-    response: ResponseData,
+    question: ValidatableQuestion,
+    response: QuestionResponseData,
   ) => ValidationResult;
   return (validator as GenericValidator)(question, response);
+};
+
+function isAnswerableQuestionType(
+  type: string,
+): type is AnswerableQuestionType {
+  return isBlockType(type) && type !== "section_separator";
+}
+
+function getStringArray(values: unknown[] | undefined): string[] | undefined {
+  if (!values) return undefined;
+  return values.filter((value) => typeof value === "string");
+}
+
+function getStringRecord(
+  responses: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!responses) return undefined;
+
+  const record: Record<string, string> = {};
+  for (const [rowId, value] of Object.entries(responses)) {
+    if (typeof value === "string") {
+      record[rowId] = value;
+    }
+  }
+  return record;
+}
+
+function getStringArrayRecord(
+  responses: Record<string, unknown> | undefined,
+): Record<string, string[]> | undefined {
+  if (!responses) return undefined;
+
+  const record: Record<string, string[]> = {};
+  for (const [rowId, value] of Object.entries(responses)) {
+    if (Array.isArray(value)) {
+      record[rowId] = value.filter((entry) => typeof entry === "string");
+    }
+  }
+  return record;
+}
+
+function getNumberValue(value: unknown): number | undefined {
+  if (isBlankResponseValue(value)) return undefined;
+  return parseFiniteResponseNumber(value) ?? undefined;
+}
+
+function createInvalidResponseValueError(questionId: string): ValidationError {
+  return createValidationError(
+    questionId,
+    "回答データの形式が正しくありません",
+    "INVALID_RESPONSE_VALUE",
+  );
+}
+
+function hasInvalidStringArrayValues(values: unknown[] | undefined): boolean {
+  return values?.some((value) => typeof value !== "string") ?? false;
+}
+
+function hasInvalidChoiceGridResponses(
+  responses: Record<string, unknown> | undefined,
+): boolean {
+  if (!responses) return false;
+  return Object.values(responses).some((value) => typeof value !== "string");
+}
+
+function hasInvalidCheckboxGridResponses(
+  responses: Record<string, unknown> | undefined,
+): boolean {
+  if (!responses) return false;
+  return Object.values(responses).some(
+    (value) =>
+      !Array.isArray(value) || value.some((entry) => typeof entry !== "string"),
+  );
+}
+
+function hasInvalidNumberValue(value: unknown): boolean {
+  return (
+    !isBlankResponseValue(value) && parseFiniteResponseNumber(value) == null
+  );
+}
+
+function getInvalidAnswerShapeErrors(
+  questionType: AnswerableQuestionType,
+  questionId: string,
+  answer: AnswerLike | undefined,
+): ValidationError[] {
+  if (!answer) return [];
+
+  switch (questionType) {
+    case "radio":
+    case "dropdown":
+      if (
+        !isBlankResponseValue(answer.value) &&
+        typeof answer.value !== "string"
+      ) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      if (
+        answer.other_value !== undefined &&
+        typeof answer.other_value !== "string"
+      ) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      return [];
+    case "checkbox":
+      if (
+        hasInvalidStringArrayValues(answer.values) ||
+        hasInvalidStringArrayValues(answer.other_values)
+      ) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      return [];
+    case "linear_scale":
+    case "rating":
+      if (hasInvalidNumberValue(answer.value)) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      return [];
+    case "choice_grid":
+      if (hasInvalidChoiceGridResponses(answer.responses)) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      return [];
+    case "checkbox_grid":
+      if (hasInvalidCheckboxGridResponses(answer.responses)) {
+        return [createInvalidResponseValueError(questionId)];
+      }
+      return [];
+    case "short_text":
+    case "long_text":
+    case "date":
+    case "time":
+      return [];
+  }
+}
+
+function buildQuestionResponse(
+  questionType: AnswerableQuestionType,
+  answer: AnswerLike | undefined,
+): QuestionResponseData {
+  switch (questionType) {
+    case "short_text":
+      return { question_type: "short_text", value: answer?.value };
+    case "long_text":
+      return { question_type: "long_text", value: answer?.value };
+    case "radio":
+      return {
+        question_type: "radio",
+        value: typeof answer?.value === "string" ? answer.value : undefined,
+        other_value:
+          typeof answer?.other_value === "string"
+            ? answer.other_value
+            : undefined,
+      };
+    case "checkbox":
+      return {
+        question_type: "checkbox",
+        values: getStringArray(answer?.values),
+        other_values: getStringArray(answer?.other_values),
+      };
+    case "dropdown":
+      return {
+        question_type: "dropdown",
+        value: typeof answer?.value === "string" ? answer.value : undefined,
+        other_value:
+          typeof answer?.other_value === "string"
+            ? answer.other_value
+            : undefined,
+      };
+    case "linear_scale":
+      return {
+        question_type: "linear_scale",
+        value: getNumberValue(answer?.value),
+      };
+    case "rating":
+      return {
+        question_type: "rating",
+        value: getNumberValue(answer?.value),
+      };
+    case "choice_grid":
+      return {
+        question_type: "choice_grid",
+        responses: getStringRecord(answer?.responses),
+      };
+    case "checkbox_grid":
+      return {
+        question_type: "checkbox_grid",
+        responses: getStringArrayRecord(answer?.responses),
+      };
+    case "date":
+      return { question_type: "date", value: answer?.value };
+    case "time":
+      return { question_type: "time", value: answer?.value };
+  }
+}
+
+export const validateExtractedQuestionAnswer = (
+  question: ExtractedQuestion,
+  answer: AnswerLike | undefined,
+): ValidationResult => {
+  if (!isAnswerableQuestionType(question.type)) {
+    return { is_valid: true, errors: [] };
+  }
+
+  const shapeErrors = getInvalidAnswerShapeErrors(
+    question.type,
+    question.blockId,
+    answer,
+  );
+  if (shapeErrors.length > 0) {
+    return { is_valid: false, errors: shapeErrors };
+  }
+
+  const validationResult = QuestionValidationSchema.safeParse({
+    ...question.validation,
+    type: question.type,
+  });
+  if (!validationResult.success) {
+    return {
+      is_valid: false,
+      errors: [
+        createValidationError(
+          question.blockId,
+          "質問設定が正しくありません",
+          "INVALID_QUESTION_VALIDATION",
+        ),
+      ],
+    };
+  }
+
+  return validateQuestion(
+    {
+      blockId: question.blockId,
+      title: question.title,
+      type: question.type,
+      validation: validationResult.data,
+    },
+    buildQuestionResponse(question.type, answer),
+  );
 };
