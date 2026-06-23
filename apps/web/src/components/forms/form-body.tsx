@@ -198,26 +198,12 @@ function findQuestionControlByPageOrder(
   questionId: string,
 ): HTMLElement | null {
   if (!viewer) return null;
-  const questionIndex = pageQuestionIds.indexOf(questionId);
-  if (questionIndex === -1) return null;
-  const questionCards = Array.from(
-    viewer.querySelectorAll<HTMLElement>("[class]"),
-  ).filter((element) => {
-    const classes = element.classList;
-    return (
-      classes.contains("my-3") &&
-      classes.contains("rounded-lg") &&
-      classes.contains("border") &&
-      classes.contains("bg-card")
-    );
-  });
-  const questionCard = questionCards[questionIndex];
-  if (questionCard) return findFirstFocusableControl(questionCard);
-
-  const controls = Array.from(
-    viewer.querySelectorAll<HTMLElement>("input, textarea, select, button"),
-  ).filter((control) => control.getAttribute("disabled") == null);
-  return controls[questionIndex] ?? null;
+  if (!pageQuestionIds.includes(questionId)) return null;
+  const questionCard =
+    Array.from(
+      viewer.querySelectorAll<HTMLElement>("[data-form-question-id]"),
+    ).find((element) => element.dataset.formQuestionId === questionId) ?? null;
+  return questionCard ? findFirstFocusableControl(questionCard) : null;
 }
 
 function findQuestionErrorElement(
@@ -448,7 +434,10 @@ export function FormBody({
   );
 
   const applyQuestionErrors = useCallback(
-    (errors: QuestionValidationMessage[]): boolean => {
+    (
+      errors: QuestionValidationMessage[],
+      summaryErrors: QuestionValidationMessage[] = errors,
+    ): boolean => {
       setQuestionErrors(errors);
       if (errors.length > 0) {
         const questionId = errors[0]?.questionId ?? null;
@@ -464,7 +453,11 @@ export function FormBody({
         ) {
           pendingFocusQuestionIdRef.current = null;
         }
-        onErrorChange?.(formatQuestionErrorSummary(errors));
+        onErrorChange?.(
+          formatQuestionErrorSummary(
+            summaryErrors.length > 0 ? summaryErrors : errors,
+          ),
+        );
         return false;
       }
       pendingFocusQuestionIdRef.current = null;
@@ -560,12 +553,22 @@ export function FormBody({
       const errors = collectQuestionErrors(reachableQuestions);
       if (errors.length > 0) {
         const firstErrorQuestionId = errors[0]?.questionId;
+        let summaryErrors = errors;
         if (firstErrorQuestionId) {
           const firstErrorPageIndex = findPageIndexForQuestion(
             pages,
             paging.reachablePageIndexes,
             firstErrorQuestionId,
           );
+          const firstErrorPageQuestionIds =
+            firstErrorPageIndex !== undefined
+              ? pages[firstErrorPageIndex]?.questionIds
+              : undefined;
+          if (firstErrorPageQuestionIds) {
+            summaryErrors = errors.filter((error) =>
+              firstErrorPageQuestionIds.includes(error.questionId),
+            );
+          }
           if (
             firstErrorPageIndex !== undefined &&
             firstErrorPageIndex !== paging.currentPageIndex
@@ -573,7 +576,7 @@ export function FormBody({
             paging.goToPage(firstErrorPageIndex);
           }
         }
-        applyQuestionErrors(errors);
+        applyQuestionErrors(errors, summaryErrors);
         return;
       }
       applyQuestionErrors([]);

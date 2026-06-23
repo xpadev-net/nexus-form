@@ -95,13 +95,16 @@ vi.mock("@/components/editor/plate-viewer", async () => {
 
   function QuestionShell({
     children,
-    nodeKey,
+    questionId,
   }: {
     children: ReactNode;
-    nodeKey: string | number;
+    questionId: string;
   }) {
     return (
-      <section className="my-3 rounded-lg border bg-card" key={nodeKey}>
+      <section
+        className="my-3 rounded-lg border bg-card"
+        data-form-question-id={questionId}
+      >
         {children}
       </section>
     );
@@ -134,7 +137,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_radio"
             ) {
               return (
-                <QuestionShell key={key} nodeKey={key}>
+                <QuestionShell key={key} questionId={key.toString()}>
                   <NativeRadioInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -145,7 +148,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_short_text"
             ) {
               return (
-                <QuestionShell key={key} nodeKey={key}>
+                <QuestionShell key={key} questionId={key.toString()}>
                   <ShortTextInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -156,7 +159,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_date"
             ) {
               return (
-                <QuestionShell key={key} nodeKey={key}>
+                <QuestionShell key={key} questionId={key.toString()}>
                   <DateInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -167,7 +170,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_choice_grid"
             ) {
               return (
-                <QuestionShell key={key} nodeKey={key}>
+                <QuestionShell key={key} questionId={key.toString()}>
                   <ChoiceGridInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -178,7 +181,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_checkbox_grid"
             ) {
               return (
-                <QuestionShell key={key} nodeKey={key}>
+                <QuestionShell key={key} questionId={key.toString()}>
                   <CheckboxGridInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -953,7 +956,7 @@ describe("FormBody", () => {
         omitMockQuestionId: true,
       }),
       questionNode("section_separator", "section-next", "Next page"),
-      questionNode("short_text", "q-name", "Name", { required: false }),
+      questionNode("short_text", "q-name", "Name", { required: true }),
     ]);
 
     const container = document.createElement("div");
@@ -1146,6 +1149,8 @@ describe("FormBody", () => {
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
     );
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+    expect(container.textContent).not.toContain("Access code、Name");
     expect(document.activeElement).toBe(focusedCodeInput);
 
     act(() => root.unmount());
