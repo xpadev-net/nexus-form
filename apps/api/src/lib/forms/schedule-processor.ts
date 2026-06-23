@@ -223,10 +223,8 @@ export async function processFormSchedule(
             formId,
             targetVersion: schedule.snapshotVersion,
           });
-          throw err;
-        } else {
-          throw err;
         }
+        throw err;
       }
 
       finalResult = {

@@ -186,8 +186,7 @@ function isFormStructureMutationConflict(error: unknown): boolean {
   return (
     normalized.includes("duplicate entry") ||
     normalized.includes("formstructure_formid_version_key") ||
-    normalized.includes("formstructure_activeformid_key") ||
-    normalized.includes("stale")
+    normalized.includes("formstructure_activeformid_key")
   );
 }
 
