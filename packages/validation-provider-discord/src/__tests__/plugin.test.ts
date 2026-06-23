@@ -8,7 +8,7 @@ import { DiscordErrorCode } from "../error-codes";
 import { discordProvider } from "../plugin";
 import { discordApiFetch, getGuild } from "../requests";
 import { ZDiscordGuildId, ZDiscordToken } from "../types";
-import { getRateLimitRetryAfter } from "../utils";
+import { DiscordHttpError, getRateLimitRetryAfter } from "../utils";
 
 afterEach(() => {
   delete process.env.DISCORD_API_TIMEOUT_MS;
@@ -704,55 +704,45 @@ describe("Discord API timeout", () => {
     });
   });
 
-  it("attaches a fresh timeout signal to each retry attempt", async () => {
+  it("throws retry_after on 429 without provider-side retrying", async () => {
     process.env.DISCORD_API_TIMEOUT_MS = "1500";
     const timeoutSpy = vi
       .spyOn(AbortSignal, "timeout")
       .mockImplementation(() => new AbortController().signal);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        json: vi.fn().mockResolvedValue({
-          message: "rate limited",
-          retry_after: 0,
-          global: false,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        json: vi.fn().mockResolvedValue({
-          message: "rate limited again",
-          retry_after: 0,
-          global: false,
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: vi.fn().mockResolvedValue({
-          id: "123456789012345678",
-          name: "Test Guild",
-          icon: null,
-        }),
-      });
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: vi.fn().mockResolvedValue({
+        message: "rate limited",
+        retry_after: 120,
+        global: false,
+      }),
+    });
     vi.stubGlobal("fetch", fetchMock);
 
-    await getGuild(
-      ZDiscordToken.parse("bot-token"),
-      ZDiscordGuildId.parse("123456789012345678"),
-    );
+    let caughtError: unknown;
+    try {
+      await getGuild(
+        ZDiscordToken.parse("bot-token"),
+        ZDiscordGuildId.parse("123456789012345678"),
+      );
+    } catch (error) {
+      caughtError = error;
+    }
+
+    expect(caughtError).toBeInstanceOf(DiscordHttpError);
+    expect(caughtError).toMatchObject({
+      status: 429,
+      retryAfterSeconds: 120,
+    });
 
     const signals = fetchMock.mock.calls.map(
       (call) => (call[1] as RequestInit).signal,
     );
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(timeoutSpy).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(timeoutSpy).toHaveBeenCalledTimes(1);
     expect(timeoutSpy).toHaveBeenCalledWith(1500);
     expect(signals.every((signal) => signal instanceof AbortSignal)).toBe(true);
-    expect(new Set(signals).size).toBe(3);
   });
 });
 
@@ -778,40 +768,19 @@ describe("discordProvider.rules.guild_member.validate error classification", () 
     });
   });
 
-  it("returns Discord retry_after seconds for repeated 429 responses", async () => {
+  it("returns Discord retry_after seconds for 429 responses", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited again",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "still rate limited",
-            retry_after: 12.2,
-            global: false,
-          }),
-          body: { cancel: vi.fn() },
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: vi.fn().mockResolvedValue({
+          message: "rate limited",
+          retry_after: 12.2,
+          global: false,
         }),
+      }),
     );
 
     const result = await discordProvider.rules.guild_member?.validate("user", {
@@ -825,36 +794,48 @@ describe("discordProvider.rules.guild_member.validate error classification", () 
     });
   });
 
-  it("keeps final malformed 429 responses classified as rate limits", async () => {
+  it.each([
+    ["missing retry_after", { message: "rate limited", global: false }],
+    [
+      "string retry_after",
+      { message: "rate limited", retry_after: "12", global: false },
+    ],
+    [
+      "negative retry_after",
+      { message: "rate limited", retry_after: -1, global: false },
+    ],
+  ])("falls back for malformed 429 bodies with %s", async (_caseName, body) => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited again",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockRejectedValue(new SyntaxError("Invalid JSON")),
-          body: { cancel: vi.fn() },
-        }),
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: vi.fn().mockResolvedValue(body),
+      }),
+    );
+
+    const result = await discordProvider.rules.guild_member?.validate("user", {
+      guildId: "123456789012345678",
+    });
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: DiscordErrorCode.DISCORD_API_RATE_LIMIT,
+      retryAfter: 30,
+      retryable: true,
+    });
+  });
+
+  it("keeps malformed 429 responses classified as rate limits", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        json: vi.fn().mockRejectedValue(new SyntaxError("Invalid JSON")),
+      }),
     );
 
     const result = await discordProvider.rules.guild_member?.validate("user", {

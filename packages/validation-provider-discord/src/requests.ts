@@ -22,10 +22,17 @@ import {
 } from "./types";
 import { DiscordHttpError } from "./utils";
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
 const limit = pLimit(1);
+
+function getRateLimitRetryAfterSeconds(
+  responseBody: unknown,
+): number | undefined {
+  const data = ZDiscordRateLimitResponse.safeParse(responseBody);
+  if (!data.success) return undefined;
+  return Number.isFinite(data.data.retry_after) && data.data.retry_after >= 0
+    ? data.data.retry_after
+    : undefined;
+}
 
 /**
  * Fetches a Discord API URL with the configured timeout applied.
@@ -52,43 +59,26 @@ export const discordApiFetch = (
   });
 };
 
-const discordFetchWithRetry = async (
+const discordFetchWithRateLimitHandling = async (
   url: string,
   init: RequestInit,
 ): Promise<Response> => {
   return limit(async () => {
     const response = await discordApiFetch(url, init);
     if (response.status === 429) {
-      const data = ZDiscordRateLimitResponse.parse(await response.json());
-      await sleep(data.retry_after * 1000 * 1.5);
-      const retryResponse = await discordApiFetch(url, init);
-      if (retryResponse.status === 429) {
-        const retryData = ZDiscordRateLimitResponse.parse(
-          await retryResponse.json(),
+      let retryAfterSeconds: number | undefined;
+      try {
+        retryAfterSeconds = getRateLimitRetryAfterSeconds(
+          await response.json(),
         );
-        await sleep(retryData.retry_after * 1000 * 2);
-        const finalResponse = await discordApiFetch(url, init);
-        if (finalResponse.status === 429) {
-          let retryAfterSeconds: number | undefined;
-          try {
-            const finalData = ZDiscordRateLimitResponse.safeParse(
-              await finalResponse.json(),
-            );
-            retryAfterSeconds = finalData.success
-              ? finalData.data.retry_after
-              : undefined;
-          } catch {
-            retryAfterSeconds = undefined;
-          }
-          throw new DiscordHttpError(
-            429,
-            "Discord rate limit exceeded after 3 attempts",
-            retryAfterSeconds,
-          );
-        }
-        return finalResponse;
+      } catch {
+        retryAfterSeconds = undefined;
       }
-      return retryResponse;
+      throw new DiscordHttpError(
+        429,
+        "Discord rate limit exceeded",
+        retryAfterSeconds,
+      );
     }
     return response;
   });
@@ -98,7 +88,7 @@ const discordRequest = async (
   url: string,
   token: DiscordToken,
 ): Promise<Response> => {
-  return discordFetchWithRetry(url, {
+  return discordFetchWithRateLimitHandling(url, {
     headers: { Authorization: `Bot ${token}` },
   });
 };
@@ -119,7 +109,7 @@ const discordRequestWithMethod = async (
   if (body !== undefined) {
     init.body = JSON.stringify(body);
   }
-  return discordFetchWithRetry(url, init);
+  return discordFetchWithRateLimitHandling(url, init);
 };
 
 export async function getGuild(
