@@ -356,6 +356,44 @@ describe("SSE channel subscriber registry", () => {
     expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
 
+  it("logs when Redis subscriber listener removal is unavailable", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      Object.defineProperty(subscriber, "off", { value: undefined });
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const client = createClient();
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    const subscriberError = new Error("Redis subscriber connection lost");
+    subscribers[0]?.emitError(subscriberError);
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+      expect(mocks.logWarn).toHaveBeenCalledTimes(2);
+    });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      'SSE Redis subscriber has neither off() nor removeListener(); "message" listener not removed',
+      "api",
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      'SSE Redis subscriber has neither off() nor removeListener(); "error" listener not removed',
+      "api",
+    );
+    expect(mocks.captureError).toHaveBeenCalledWith(subscriberError);
+
+    await detach();
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
   it("closes the last subscription when a revoked client close throws", async () => {
     const subscribers: FakeSubscriber[] = [];
     const registry = createSseChannelRegistry(() => {

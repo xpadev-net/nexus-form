@@ -259,7 +259,14 @@ export function createSseChannelRegistry(
       subscriber.off(event, listener);
       return;
     }
-    subscriber.removeListener?.(event, listener);
+    if (subscriber.removeListener) {
+      subscriber.removeListener(event, listener);
+      return;
+    }
+    logWarn(
+      `SSE Redis subscriber has neither off() nor removeListener(); "${event}" listener not removed`,
+      "api",
+    );
   }
 
   function closeClientSafely(channel: string, entry: SseClientEntry): void {
