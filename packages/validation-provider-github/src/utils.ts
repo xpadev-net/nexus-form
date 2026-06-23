@@ -109,6 +109,14 @@ function hasHeaderValue(
   return getHeaderValue(headers, names) !== null;
 }
 
+function getGitHubErrorHeaders(error: unknown): Record<string, unknown> | null {
+  return getRecordProperty(getRecordProperty(error, "response"), "headers");
+}
+
+function getGitHubErrorData(error: unknown): Record<string, unknown> | null {
+  return getRecordProperty(getRecordProperty(error, "response"), "data");
+}
+
 function getGitHubErrorMessages(error: unknown): string[] {
   const messages: string[] = [];
   const message = getStringProperty(error, "message");
@@ -231,14 +239,6 @@ export function parseGitHubError(error: unknown): string {
     if (messages.length > 0) return messages.join("; ");
   }
   return "Unknown GitHub API error";
-}
-
-function getGitHubErrorHeaders(error: unknown): Record<string, unknown> | null {
-  return getRecordProperty(getRecordProperty(error, "response"), "headers");
-}
-
-function getGitHubErrorData(error: unknown): Record<string, unknown> | null {
-  return getRecordProperty(getRecordProperty(error, "response"), "data");
 }
 
 export function isGitHubAuthError(error: unknown): boolean {
