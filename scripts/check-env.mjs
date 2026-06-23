@@ -12,10 +12,11 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultEnvPath = join(scriptDir, "..", ".env.local");
 const args = process.argv.slice(2);
+const envFileIndex = args.indexOf("--env-file");
+const envFileExplicit = envFileIndex !== -1;
 
 function getEnvPath() {
-  const envFileIndex = args.indexOf("--env-file");
-  if (envFileIndex === -1) {
+  if (!envFileExplicit) {
     return defaultEnvPath;
   }
 
@@ -36,12 +37,13 @@ function unquoteEnvValue(value) {
   if ((quote === '"' || quote === "'") && trimmedValue[lastIndex] === quote) {
     const innerValue = trimmedValue.slice(1, lastIndex);
     if (quote === '"') {
-      return innerValue
-        .replaceAll("\\n", "\n")
-        .replaceAll("\\r", "\r")
-        .replaceAll("\\t", "\t")
-        .replaceAll('\\"', '"')
-        .replaceAll("\\\\", "\\");
+      return innerValue.replace(/\\(n|r|t|"|\\)/g, (_match, escaped) => {
+        if (escaped === "n") return "\n";
+        if (escaped === "r") return "\r";
+        if (escaped === "t") return "\t";
+        if (escaped === '"') return '"';
+        return "\\";
+      });
     }
 
     return innerValue.replaceAll("\\'", "'");
@@ -88,6 +90,9 @@ const envPath = getEnvPath();
 
 if (existsSync(envPath)) {
   loadEnvFile(envPath);
+} else if (envFileExplicit) {
+  console.error(`--env-file path does not exist: ${envPath}`);
+  process.exit(1);
 }
 
 const requiredEnvVarGroups = [

@@ -55,14 +55,18 @@ function createEnvFixture(values) {
 }
 
 function runCheckEnv(envPath) {
-  return spawnSync(process.execPath, [checkEnvScript, "--env-file", envPath], {
-    cwd: rootDir,
-    encoding: "utf8",
-    env: {
-      PATH: process.env.PATH,
-      TMPDIR: process.env.TMPDIR,
+  return spawnSync(
+    process.execPath,
+    ["--", checkEnvScript, "--env-file", envPath],
+    {
+      cwd: rootDir,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        TMPDIR: process.env.TMPDIR,
+      },
     },
-  });
+  );
 }
 
 test("check-env succeeds with the minimal required env fixture", () => {
@@ -94,4 +98,28 @@ test("check-env fails when required env vars are missing", () => {
   } finally {
     fixture.remove();
   }
+});
+
+test("check-env preserves escaped backslash sequences in double-quoted values", () => {
+  const fixture = createEnvFixture({
+    ...requiredEnv,
+    DATABASE_URL: String.raw`"mysql://user\\nname:password@localhost:3306/nexus_form"`,
+  });
+
+  try {
+    const result = runCheckEnv(fixture.envPath);
+
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.match(result.stdout, /ユーザー: user%5Cnname/);
+  } finally {
+    fixture.remove();
+  }
+});
+
+test("check-env reports a missing explicit env file path", () => {
+  const missingEnvPath = join(tmpdir(), "check-env-missing", ".env.local");
+  const result = runCheckEnv(missingEnvPath);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--env-file path does not exist:/);
 });
