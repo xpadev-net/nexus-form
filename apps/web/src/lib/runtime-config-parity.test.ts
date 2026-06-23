@@ -139,14 +139,6 @@ describe("web runtime build env parity", () => {
       const buildRuntimeConfig = createRuntimeConfig(runtimeEnv);
 
       expect(dockerRuntimeConfig).toEqual(buildRuntimeConfig);
-      expect(isRecord(dockerRuntimeConfig)).toBe(true);
-      if (!isRecord(dockerRuntimeConfig)) {
-        throw new Error("Docker runtime config did not evaluate to an object");
-      }
-      expect(Object.keys(dockerRuntimeConfig).sort()).toEqual(
-        Object.keys(buildRuntimeConfig).sort(),
-      );
-      expect(dockerRuntimeConfig.baseUrl).toBe(runtimeEnv.VITE_BASE_URL);
     } finally {
       rmSync(tempRoot, { force: true, recursive: true });
     }

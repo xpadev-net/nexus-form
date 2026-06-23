@@ -46,12 +46,26 @@ escape_sed_replacement() {
 sed_in_place() {
   script="$1"
   path="$2"
+  first_error="$(mktemp "${TMPDIR:-/tmp}/nexus-form-sed.XXXXXX")"
+  second_error="$(mktemp "${TMPDIR:-/tmp}/nexus-form-sed.XXXXXX")"
 
-  if sed -i "$script" "$path" 2>/dev/null; then
+  if sed -i "$script" "$path" 2>"$first_error"; then
+    rm -f "$first_error" "$second_error"
     return 0
   fi
 
-  sed -i '' "$script" "$path"
+  if sed -i '' "$script" "$path" 2>"$second_error"; then
+    rm -f "$first_error" "$second_error"
+    return 0
+  fi
+
+  echo "[web] Failed to update $path with sed -i" >&2
+  echo "[web] GNU-style sed stderr:" >&2
+  cat "$first_error" >&2
+  echo "[web] BSD-style sed stderr:" >&2
+  cat "$second_error" >&2
+  rm -f "$first_error" "$second_error"
+  return 1
 }
 
 append_connect_src_from_host_env() {
