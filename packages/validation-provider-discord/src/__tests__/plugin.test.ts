@@ -318,39 +318,16 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
 
   it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "rate limited again",
-            retry_after: 0,
-            global: false,
-          }),
-        })
-        .mockResolvedValueOnce({
-          ok: false,
-          status: 429,
-          json: vi.fn().mockResolvedValue({
-            message: "still rate limited",
-            retry_after: 0,
-            global: false,
-          }),
-          body: { cancel: vi.fn() },
-        }),
-    );
+    const fetchMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: vi.fn().mockResolvedValue({
+        message: "rate limited",
+        retry_after: 0,
+        global: false,
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     const result = await discordProvider.rules.guild_member?.validate("user", {
       guildId: "123456789012345678",
@@ -362,6 +339,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
       retryAfter: 30,
       retryable: true,
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("marks Discord fetch network failures as retryable", async () => {

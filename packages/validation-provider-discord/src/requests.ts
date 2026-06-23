@@ -29,7 +29,7 @@ function getRateLimitRetryAfterSeconds(
 ): number | undefined {
   const data = ZDiscordRateLimitResponse.safeParse(responseBody);
   if (!data.success) return undefined;
-  return Number.isFinite(data.data.retry_after) && data.data.retry_after >= 0
+  return Number.isFinite(data.data.retry_after) && data.data.retry_after > 0
     ? data.data.retry_after
     : undefined;
 }
