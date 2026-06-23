@@ -2,6 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let keepaliveWriteShouldFail = false;
 
+const errorMocks = vi.hoisted(() => ({
+  captureError: vi.fn(),
+  logError: vi.fn(),
+  logWarn: vi.fn(),
+}));
+
 type StreamLike = {
   onAbort: (callback: () => void) => void;
   abort: () => void;
@@ -22,6 +28,15 @@ const streamMock: {
 };
 
 const checkFormPermissionLevel = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock("../lib/logger", () => ({
+  logError: errorMocks.logError,
+  logWarn: errorMocks.logWarn,
+}));
+
+vi.mock("../lib/sentry", () => ({
+  captureError: errorMocks.captureError,
+}));
 
 vi.mock("hono/streaming", async () => {
   const actual =
@@ -71,7 +86,68 @@ vi.mock("../lib/dual-auth", () => ({
     },
 }));
 
-import { createFormsSSERouter } from "../routes/forms-sse";
+import {
+  createFormsSSERouter,
+  createSseChannelRegistry,
+} from "../routes/forms-sse";
+
+function isMessageListener(
+  listener: unknown,
+): listener is (channel: string, message: string) => void {
+  return typeof listener === "function";
+}
+
+function isErrorListener(
+  listener: unknown,
+): listener is (error: Error) => void {
+  return typeof listener === "function";
+}
+
+class FakeSubscriber {
+  readonly messageListeners: Array<(channel: string, message: string) => void> =
+    [];
+  readonly errorListeners: Array<(error: Error) => void> = [];
+  readonly subscribe = vi.fn(async (_channel: string) => undefined);
+  readonly unsubscribe = vi.fn(async (_channel: string) => undefined);
+  readonly quit = vi.fn(async () => undefined);
+
+  on(
+    event: "message",
+    listener: (channel: string, message: string) => void,
+  ): this;
+  on(event: "error", listener: (error: Error) => void): this;
+  on(event: "message" | "error", listener: unknown): this {
+    if (event === "message") {
+      if (!isMessageListener(listener)) {
+        throw new TypeError("Expected message listener");
+      }
+      this.messageListeners.push(listener);
+      return this;
+    }
+
+    if (!isErrorListener(listener)) {
+      throw new TypeError("Expected error listener");
+    }
+    this.errorListeners.push(listener);
+    return this;
+  }
+
+  emitError(error: Error): void {
+    for (const listener of this.errorListeners) {
+      listener(error);
+    }
+  }
+}
+
+function createDeferred<T = void>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 describe("SSE keepalive handling", () => {
   beforeEach(() => {
@@ -93,7 +169,7 @@ describe("SSE keepalive handling", () => {
     const release = vi.fn();
     const detach = vi.fn(async () => undefined);
     const channelRegistry = {
-      ensureSubscribed: vi.fn(async () => undefined),
+      ensureSubscribed: vi.fn(async () => Symbol("preflight")),
       attach: vi.fn(async () => detach),
       closeAccessRevoked: vi.fn(async () => 0),
       closeAll: vi.fn(async () => undefined),
@@ -128,7 +204,7 @@ describe("SSE keepalive handling", () => {
     const release = vi.fn();
     const detach = vi.fn(async () => undefined);
     const channelRegistry = {
-      ensureSubscribed: vi.fn(async () => undefined),
+      ensureSubscribed: vi.fn(async () => Symbol("preflight")),
       attach: vi.fn(async () => detach),
       closeAccessRevoked: vi.fn(async () => 0),
       closeAll: vi.fn(async () => undefined),
@@ -166,5 +242,67 @@ describe("SSE keepalive handling", () => {
     expect(detach).toHaveBeenCalledTimes(1);
     expect(streamMock.close).toHaveBeenCalledTimes(1);
     expect(streamMock.writeSSE).not.toHaveBeenCalled();
+  });
+
+  it("releases permit when a Redis subscriber error closes the stream", async () => {
+    const release = vi.fn();
+    const quitReady = createDeferred();
+    let quitContinued = false;
+    const subscribers: FakeSubscriber[] = [];
+    const channelRegistry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({
+        release,
+      })),
+    };
+    const responsePromise = createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    }).request("http://localhost/form-1/responses/events");
+
+    await vi.waitFor(() => {
+      expect(subscribers).toHaveLength(1);
+      expect(streamMock.onAbort).toHaveBeenCalledTimes(1);
+    });
+
+    subscribers[0]?.quit.mockImplementationOnce(async () => {
+      await quitReady.promise;
+      quitContinued = true;
+    });
+    const error = new Error("Redis subscriber disconnected");
+    subscribers[0]?.emitError(error);
+
+    await vi.waitFor(() => {
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(streamMock.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+    expect(quitContinued).toBe(false);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+      "form:validation:form-1",
+    );
+
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(errorMocks.logError).toHaveBeenCalledWith(
+      "SSE Redis subscriber error; closing SSE clients so EventSource can reconnect",
+      "service",
+      {
+        channel: "form:validation:form-1",
+        clientCount: 1,
+        error,
+      },
+    );
+    expect(errorMocks.captureError).toHaveBeenCalledWith(error);
+
+    quitReady.resolve();
+    await vi.waitFor(() => {
+      expect(quitContinued).toBe(true);
+    });
   });
 });
