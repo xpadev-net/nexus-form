@@ -19,8 +19,9 @@ import { streamSSE } from "hono/streaming";
 import Redis from "ioredis";
 import { checkFormPermissionLevel, withDualFormAuth } from "../lib/dual-auth";
 import { createHonoApp, type Env } from "../lib/hono";
-import { logWarn } from "../lib/logger";
+import { logError, logWarn } from "../lib/logger";
 import { getRedisConnection } from "../lib/redis";
+import { captureError } from "../lib/sentry";
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
@@ -156,10 +157,21 @@ interface SseMessageClient {
   close: () => void;
 }
 
+type RedisMessageListener = (channel: string, message: string) => void;
+type RedisErrorListener = (error: unknown) => void;
+type RedisSubscriberEvent = "message" | "error";
+type RedisSubscriberEventListener = RedisMessageListener | RedisErrorListener;
+
 interface RedisSubscriber {
-  on(
-    event: "message",
-    listener: (channel: string, message: string) => void,
+  on(event: "message", listener: RedisMessageListener): RedisSubscriber;
+  on(event: "error", listener: RedisErrorListener): RedisSubscriber;
+  off?(
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
+  ): RedisSubscriber;
+  removeListener?(
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
   ): RedisSubscriber;
   subscribe(channel: string): Promise<unknown>;
   unsubscribe(channel: string): Promise<unknown>;
@@ -182,6 +194,8 @@ interface ChannelSubscription {
   clients: Map<symbol, SseClientEntry>;
   subscribePromise: Promise<unknown>;
   closingPromise: Promise<void> | null;
+  messageListener: RedisMessageListener;
+  errorListener: RedisErrorListener;
 }
 
 interface SseChannelRegistry {
@@ -236,6 +250,29 @@ export function createSseChannelRegistry(
   const subscriptions = new Map<string, ChannelSubscription>();
   let acceptingClients = true;
 
+  function removeRedisSubscriberListener(
+    subscriber: RedisSubscriber,
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
+  ): void {
+    if (subscriber.off) {
+      subscriber.off(event, listener);
+      return;
+    }
+    subscriber.removeListener?.(event, listener);
+  }
+
+  function closeClientSafely(channel: string, entry: SseClientEntry): void {
+    try {
+      entry.client.close();
+    } catch (error) {
+      logWarn("SSE client close failed during subscription cleanup", "api", {
+        channel,
+        error,
+      });
+    }
+  }
+
   async function closeSubscription(
     channel: string,
     subscription: ChannelSubscription,
@@ -245,18 +282,50 @@ export function createSseChannelRegistry(
       return;
     }
 
-    subscription.closingPromise = (async () => {
+    subscription.closingPromise = Promise.resolve().then(async () => {
       subscriptions.delete(channel);
       const clients = Array.from(subscription.clients.values());
       subscription.clients.clear();
       for (const entry of clients) {
         entry.closed = true;
-        entry.client.close();
+        closeClientSafely(channel, entry);
       }
-      await subscription.subscriber.unsubscribe(channel).catch(() => {});
-      await subscription.subscriber.quit().catch(() => {});
-    })();
+      try {
+        await subscription.subscriber.unsubscribe(channel).catch(() => {});
+        await subscription.subscriber.quit().catch(() => {});
+      } finally {
+        removeRedisSubscriberListener(
+          subscription.subscriber,
+          "message",
+          subscription.messageListener,
+        );
+        removeRedisSubscriberListener(
+          subscription.subscriber,
+          "error",
+          subscription.errorListener,
+        );
+      }
+    });
     await subscription.closingPromise;
+  }
+
+  function handleSubscriberError(
+    channel: string,
+    subscription: ChannelSubscription,
+    error: unknown,
+  ): void {
+    if (subscription.closingPromise) return;
+
+    // Redis subscriber errors invalidate this shared stream source. Close the
+    // current SSE clients so browser EventSource clients retry against a fresh
+    // subscription on reconnect.
+    logError(
+      "SSE Redis subscriber error; closing clients and relying on EventSource retry",
+      "api",
+      { channel, error },
+    );
+    captureError(error);
+    void closeSubscription(channel, subscription);
   }
 
   function shouldCloseForRevokeEvent(
@@ -287,7 +356,7 @@ export function createSseChannelRegistry(
     if (entry.closed) return;
     entry.closed = true;
     subscription.clients.delete(clientId);
-    entry.client.close();
+    closeClientSafely(channel, entry);
     // Safety net for races where the stream detach path already ran while
     // sibling clients still existed; this may be the last remaining client.
     if (subscription.clients.size === 0) {
@@ -318,11 +387,16 @@ export function createSseChannelRegistry(
     const subscription: ChannelSubscription = {
       subscriber,
       clients: new Map(),
-      subscribePromise: subscriber.subscribe(channel),
+      subscribePromise: Promise.resolve(),
       closingPromise: null,
+      messageListener: () => undefined,
+      errorListener: () => undefined,
     };
 
-    subscriber.on("message", (receivedChannel: string, message: string) => {
+    subscription.messageListener = (
+      receivedChannel: string,
+      message: string,
+    ) => {
       if (receivedChannel !== channel) return;
 
       const revokeEvent = parseSseAccessRevokedEvent(message);
@@ -358,9 +432,15 @@ export function createSseChannelRegistry(
             closeClientEntry(channel, subscription, clientId, entry);
           });
       }
-    });
+    };
+    subscription.errorListener = (error: unknown) => {
+      handleSubscriberError(channel, subscription, error);
+    };
 
+    subscriber.on("error", subscription.errorListener);
+    subscriber.on("message", subscription.messageListener);
     subscriptions.set(channel, subscription);
+    subscription.subscribePromise = subscriber.subscribe(channel);
     return subscription;
   }
 
@@ -372,6 +452,12 @@ export function createSseChannelRegistry(
     const subscription = getSubscription(channel);
     try {
       await subscription.subscribePromise;
+      if (
+        subscriptions.get(channel) !== subscription ||
+        subscription.closingPromise
+      ) {
+        throw new Error("SSE subscription closed before becoming ready");
+      }
     } catch (error) {
       if (subscription.clients.size === 0) {
         await closeSubscription(channel, subscription);

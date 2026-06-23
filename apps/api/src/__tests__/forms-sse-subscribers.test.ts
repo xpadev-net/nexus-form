@@ -1,9 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createFormsSSERouter,
   createSseChannelRegistry,
   createSseConnectionLimiter,
 } from "../routes/forms-sse";
+
+const mocks = vi.hoisted(() => ({
+  captureError: vi.fn(),
+  logError: vi.fn(),
+  logWarn: vi.fn(),
+}));
 
 vi.mock("../lib/dual-auth", () => ({
   checkFormPermissionLevel: vi.fn(async () => undefined),
@@ -18,26 +24,73 @@ vi.mock("../lib/dual-auth", () => ({
     },
 }));
 
+vi.mock("../lib/logger", () => ({
+  logError: mocks.logError,
+  logWarn: mocks.logWarn,
+}));
+
+vi.mock("../lib/sentry", () => ({
+  captureError: mocks.captureError,
+}));
+
+type FakeMessageListener = (channel: string, message: string) => void;
+type FakeErrorListener = (error: unknown) => void;
+
+function isFakeMessageListener(
+  event: "message" | "error",
+  _listener: FakeMessageListener | FakeErrorListener,
+): _listener is FakeMessageListener {
+  return event === "message";
+}
+
 class FakeSubscriber {
-  readonly messageListeners: Array<(channel: string, message: string) => void> =
-    [];
+  messageListeners: FakeMessageListener[] = [];
+  errorListeners: FakeErrorListener[] = [];
   readonly subscribe = vi.fn(async (_channel: string) => undefined);
   readonly unsubscribe = vi.fn(async (_channel: string) => undefined);
   readonly quit = vi.fn(async () => undefined);
 
+  on(event: "message", listener: FakeMessageListener): this;
+  on(event: "error", listener: FakeErrorListener): this;
   on(
-    event: "message",
-    listener: (channel: string, message: string) => void,
+    event: "message" | "error",
+    listener: FakeMessageListener | FakeErrorListener,
   ): this {
-    if (event === "message") {
+    if (isFakeMessageListener(event, listener)) {
       this.messageListeners.push(listener);
+      return this;
     }
+    this.errorListeners.push(listener);
+    return this;
+  }
+
+  off(event: "message", listener: FakeMessageListener): this;
+  off(event: "error", listener: FakeErrorListener): this;
+  off(
+    event: "message" | "error",
+    listener: FakeMessageListener | FakeErrorListener,
+  ): this {
+    if (isFakeMessageListener(event, listener)) {
+      this.messageListeners = this.messageListeners.filter(
+        (currentListener) => currentListener !== listener,
+      );
+      return this;
+    }
+    this.errorListeners = this.errorListeners.filter(
+      (currentListener) => currentListener !== listener,
+    );
     return this;
   }
 
   emitMessage(channel: string, message: string): void {
-    for (const listener of this.messageListeners) {
+    for (const listener of [...this.messageListeners]) {
       listener(channel, message);
+    }
+  }
+
+  emitError(error: unknown): void {
+    for (const listener of [...this.errorListeners]) {
+      listener(error);
     }
   }
 }
@@ -60,6 +113,10 @@ function createClient() {
 }
 
 describe("SSE channel subscriber registry", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("reuses one Redis subscriber for multiple clients on the same channel", async () => {
     const subscribers: FakeSubscriber[] = [];
     const registry = createSseChannelRegistry(() => {
@@ -178,6 +235,177 @@ describe("SSE channel subscriber registry", () => {
     expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
 
+  it("does not double close when client close re-enters detach cleanup", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    let detachClient: (() => Promise<void>) | null = null;
+    const client = {
+      sendMessage: vi.fn(async (_id: string, _data: string) => undefined),
+      close: vi.fn(() => {
+        void detachClient?.();
+      }),
+    };
+
+    detachClient = await registry.attach("form:validation:form-1", client);
+
+    await registry.closeAll();
+    await detachClient();
+
+    expect(client.close).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+      "form:validation:form-1",
+    );
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.messageListeners).toHaveLength(0);
+    expect(subscribers[0]?.errorListeners).toHaveLength(0);
+  });
+
+  it("handles Redis subscriber errors by closing clients and cleaning listeners", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const client = createClient();
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    expect(subscribers[0]?.messageListeners).toHaveLength(1);
+    expect(subscribers[0]?.errorListeners).toHaveLength(1);
+
+    const error = new Error("Redis subscriber connection lost");
+    subscribers[0]?.emitError(error);
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.messageListeners).toHaveLength(0);
+      expect(subscribers[0]?.errorListeners).toHaveLength(0);
+    });
+    expect(mocks.logError).toHaveBeenCalledWith(
+      "SSE Redis subscriber error; closing clients and relying on EventSource retry",
+      "api",
+      { channel: "form:validation:form-1", error },
+    );
+    expect(mocks.captureError).toHaveBeenCalledWith(error);
+
+    const nextClient = createClient();
+    const detachNext = await registry.attach(
+      "form:validation:form-1",
+      nextClient,
+    );
+
+    expect(subscribers).toHaveLength(2);
+    expect(subscribers[1]?.subscribe).toHaveBeenCalledWith(
+      "form:validation:form-1",
+    );
+
+    await detach();
+    await detachNext();
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("cleans Redis subscriber listeners when client close throws", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const closeError = new Error("client close failed");
+    const client = {
+      sendMessage: vi.fn(async (_id: string, _data: string) => undefined),
+      close: vi.fn(() => {
+        throw closeError;
+      }),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    const subscriberError = new Error("Redis subscriber connection lost");
+    subscribers[0]?.emitError(subscriberError);
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.messageListeners).toHaveLength(0);
+      expect(subscribers[0]?.errorListeners).toHaveLength(0);
+    });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "SSE client close failed during subscription cleanup",
+      "api",
+      { channel: "form:validation:form-1", error: closeError },
+    );
+    expect(mocks.captureError).toHaveBeenCalledWith(subscriberError);
+
+    await detach();
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes the last subscription when a revoked client close throws", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const closeError = new Error("client close failed");
+    const client = {
+      sendMessage: vi.fn(async (_id: string, _data: string) => undefined),
+      close: vi.fn(() => {
+        throw closeError;
+      }),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client, {
+      userId: "user-1",
+    });
+
+    subscribers[0]?.emitMessage(
+      "form:validation:form-1",
+      JSON.stringify({
+        type: "sse_access_revoked",
+        formId: "form-1",
+        targetType: "user",
+        userId: "user-1",
+        timestamp: new Date().toISOString(),
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.messageListeners).toHaveLength(0);
+      expect(subscribers[0]?.errorListeners).toHaveLength(0);
+    });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "SSE client close failed during subscription cleanup",
+      "api",
+      { channel: "form:validation:form-1", error: closeError },
+    );
+
+    await detach();
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
   it("preserves shutdown close signals while subscribe is still pending", async () => {
     const subscribeReady = createDeferred();
     const subscribers: FakeSubscriber[] = [];
@@ -200,10 +428,12 @@ describe("SSE channel subscriber registry", () => {
 
     const closeAllPromise = registry.closeAll();
 
-    expect(client.close).toHaveBeenCalledTimes(1);
-    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
-      "form:validation:form-1",
-    );
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+    });
 
     subscribeReady.resolve();
     const detach = await attachPromise;
@@ -262,6 +492,57 @@ describe("SSE channel subscriber registry", () => {
     );
     expect(channelRegistry.attach).not.toHaveBeenCalled();
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns HTTP 503 when a subscriber error closes pending preflight subscribe", async () => {
+    const subscribeReady = createDeferred();
+    const release = vi.fn();
+    const subscribers: FakeSubscriber[] = [];
+    const channelRegistry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscriber.subscribe.mockImplementationOnce(async () => {
+        await subscribeReady.promise;
+      });
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({ release })),
+    };
+    const router = createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    });
+
+    const responsePromise = router.request(
+      "http://localhost/form-1/responses/events",
+    );
+    await vi.waitFor(() => {
+      expect(subscribers[0]?.subscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+    });
+
+    const subscriberError = new Error("Redis subscriber connection lost");
+    subscribers[0]?.emitError(subscriberError);
+    await vi.waitFor(() => {
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+    subscribeReady.resolve();
+
+    const response = await responsePromise;
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("content-type") ?? "").not.toContain(
+      "text/event-stream",
+    );
+    await expect(response.text()).resolves.toBe("SSE subscription unavailable");
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(subscribers).toHaveLength(1);
+    expect(mocks.captureError).toHaveBeenCalledWith(subscriberError);
   });
 
   it("does not create a subscriber for router requests after shutdown starts", async () => {
