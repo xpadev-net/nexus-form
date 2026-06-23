@@ -91,16 +91,12 @@ import {
   createSseChannelRegistry,
 } from "../routes/forms-sse";
 
-function isMessageListener(
+function assertFunction(
   listener: unknown,
-): listener is (channel: string, message: string) => void {
-  return typeof listener === "function";
-}
-
-function isErrorListener(
-  listener: unknown,
-): listener is (error: Error) => void {
-  return typeof listener === "function";
+): asserts listener is (...args: unknown[]) => void {
+  if (typeof listener !== "function") {
+    throw new TypeError("Expected listener function");
+  }
 }
 
 class FakeSubscriber {
@@ -117,18 +113,17 @@ class FakeSubscriber {
   ): this;
   on(event: "error", listener: (error: Error) => void): this;
   on(event: "message" | "error", listener: unknown): this {
+    assertFunction(listener);
     if (event === "message") {
-      if (!isMessageListener(listener)) {
-        throw new TypeError("Expected message listener");
-      }
-      this.messageListeners.push(listener);
+      this.messageListeners.push((channel, message) => {
+        listener(channel, message);
+      });
       return this;
     }
 
-    if (!isErrorListener(listener)) {
-      throw new TypeError("Expected error listener");
-    }
-    this.errorListeners.push(listener);
+    this.errorListeners.push((error) => {
+      listener(error);
+    });
     return this;
   }
 
