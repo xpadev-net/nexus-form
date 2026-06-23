@@ -1,3 +1,4 @@
+import { IMAGE_UPLOAD_LIMITS } from "../../config/image-processing";
 import { S3Error } from "../../types/s3";
 
 /**
@@ -39,26 +40,13 @@ function hasUnsafeObjectKeyPathSegment(key: string): boolean {
  * デフォルトの検証設定
  */
 export const DEFAULT_VALIDATION_CONFIG: FileValidationConfig = {
-  maxSize: 10 * 1024 * 1024, // 10MB
-  allowedTypes: [
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "image/svg+xml",
-  ],
-  allowedExtensions: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"],
+  maxSize: IMAGE_UPLOAD_LIMITS.MAX_FILE_SIZE,
+  allowedTypes: [...IMAGE_UPLOAD_LIMITS.ALLOWED_TYPES],
+  allowedExtensions: [...IMAGE_UPLOAD_LIMITS.ALLOWED_EXTENSIONS],
   maxFileNameLength: 255,
   scanForMalware: false, // 本番環境では有効にする
-  allowSvg: true, // デフォルトでSVGを許可（セキュリティ要件に応じて変更可能）
+  allowSvg: IMAGE_UPLOAD_LIMITS.ALLOW_SVG,
   svgContentValidation: true, // SVGコンテンツ検証を有効化
-  fileTypeSizeLimits: {
-    "image/jpeg": 5 * 1024 * 1024, // 5MB for JPEG
-    "image/png": 8 * 1024 * 1024, // 8MB for PNG
-    "image/gif": 3 * 1024 * 1024, // 3MB for GIF
-    "image/webp": 4 * 1024 * 1024, // 4MB for WebP
-    "image/svg+xml": 1 * 1024 * 1024, // 1MB for SVG
-  },
 };
 
 /**
