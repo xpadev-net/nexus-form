@@ -32,6 +32,45 @@ const GoogleTokenRefreshResponseSchema = z.object({
   token_type: z.string().optional(),
 });
 
+const GoogleTokenRefreshErrorResponseSchema = z.object({
+  error: z.string().min(1),
+  error_description: z.string().optional(),
+});
+
+type OAuthRefreshPermanentAuthReason =
+  | "bad_request"
+  | "invalid_grant"
+  | "unauthorized";
+
+export class OAuthRefreshPermanentAuthError extends Error {
+  readonly errorCode: string | undefined;
+  readonly reason: OAuthRefreshPermanentAuthReason;
+  readonly status: number | undefined;
+
+  constructor(params: {
+    errorCode?: string;
+    reason: OAuthRefreshPermanentAuthReason;
+    status?: number;
+  }) {
+    const details = params.errorCode
+      ? `${params.errorCode}${params.status ? `, HTTP ${params.status}` : ""}`
+      : params.status
+        ? `HTTP ${params.status}`
+        : params.reason;
+    super(`Google OAuth refresh requires reauthorization (${details})`);
+    this.name = "OAuthRefreshPermanentAuthError";
+    this.errorCode = params.errorCode;
+    this.reason = params.reason;
+    this.status = params.status;
+  }
+}
+
+export function isOAuthRefreshPermanentAuthError(
+  error: unknown,
+): error is OAuthRefreshPermanentAuthError {
+  return error instanceof OAuthRefreshPermanentAuthError;
+}
+
 export interface OAuthToken {
   userId: string;
   accessToken: string;
@@ -113,6 +152,58 @@ function isTokenExpired(token: OAuthToken): boolean {
   return expiryMs - EXPIRY_SKEW_MS <= Date.now();
 }
 
+async function readTokenRefreshResponseJson(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch (error) {
+    if (res.ok) {
+      throw error;
+    }
+    return undefined;
+  }
+}
+
+function classifyPermanentAuthFailure(params: {
+  body: unknown;
+  status: number;
+}): OAuthRefreshPermanentAuthError | null {
+  const parsedError = GoogleTokenRefreshErrorResponseSchema.safeParse(
+    params.body,
+  );
+  const errorCode = parsedError.success ? parsedError.data.error : undefined;
+  const isClientError = params.status >= 400 && params.status < 500;
+
+  if (!isClientError) {
+    return null;
+  }
+
+  if (errorCode === "invalid_grant") {
+    return new OAuthRefreshPermanentAuthError({
+      errorCode,
+      reason: "invalid_grant",
+      status: params.status,
+    });
+  }
+
+  if (params.status === 400) {
+    return new OAuthRefreshPermanentAuthError({
+      reason: "bad_request",
+      status: params.status,
+      ...(errorCode ? { errorCode } : {}),
+    });
+  }
+
+  if (params.status === 401) {
+    return new OAuthRefreshPermanentAuthError({
+      reason: "unauthorized",
+      status: params.status,
+      ...(errorCode ? { errorCode } : {}),
+    });
+  }
+
+  return null;
+}
+
 /**
  * 実際にトークンリフレッシュ API を呼び、結果を保存して返す。
  */
@@ -139,11 +230,20 @@ async function performTokenRefresh(token: OAuthToken): Promise<OAuthToken> {
     signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
   });
 
+  const responseBody = await readTokenRefreshResponseJson(res);
+
   if (!res.ok) {
+    const authFailure = classifyPermanentAuthFailure({
+      body: responseBody,
+      status: res.status,
+    });
+    if (authFailure) {
+      throw authFailure;
+    }
     throw new Error(`Google token refresh failed: ${res.status}`);
   }
 
-  const json = GoogleTokenRefreshResponseSchema.parse(await res.json());
+  const json = GoogleTokenRefreshResponseSchema.parse(responseBody);
 
   const newExpiry = new Date(Date.now() + json.expires_in * 1000).toISOString();
   const scopes = json.scope ? json.scope.split(" ") : token.scopes;

@@ -41,6 +41,29 @@ vi.mock("../redis-lock", () => ({
   ): Promise<T> => operation(),
 }));
 
+function pushExpiredTokenRow() {
+  selectResults.push([
+    {
+      id: "token-id",
+      userId: "user-1",
+      accessTokenEnc: "old-access-token",
+      refreshTokenEnc: "refresh-token",
+      expiryDate: new Date("2000-01-01T00:00:00.000Z"),
+      scopes: ["old-scope"],
+    },
+  ]);
+}
+
+function expiredTokenInput() {
+  return {
+    userId: "user-1",
+    accessToken: "stale-access-token",
+    refreshToken: "refresh-token",
+    expiryDate: "2000-01-01T00:00:00.000Z",
+    scopes: ["old-scope"],
+  };
+}
+
 describe("getOAuthToken", () => {
   beforeEach(() => {
     selectResults.length = 0;
@@ -181,6 +204,196 @@ describe("refreshTokenIfNeeded", () => {
       }),
     ).rejects.toThrow();
 
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("classifies invalid_grant refresh responses as permanent auth failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({
+          error: "invalid_grant",
+          error_description: "Token has been expired or revoked.",
+        }),
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const {
+      OAuthRefreshPermanentAuthError,
+      refreshTokenIfNeeded,
+      isOAuthRefreshPermanentAuthError,
+    } = await import("../oauth-token-store");
+
+    const task = refreshTokenIfNeeded(expiredTokenInput());
+
+    await expect(task).rejects.toBeInstanceOf(OAuthRefreshPermanentAuthError);
+    await expect(task).rejects.toMatchObject({
+      errorCode: "invalid_grant",
+      reason: "invalid_grant",
+      status: 400,
+    });
+    await task.catch((error: unknown) => {
+      expect(isOAuthRefreshPermanentAuthError(error)).toBe(true);
+    });
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("classifies 400 refresh responses as permanent auth failures even when the body is malformed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 400,
+        json: async () => ({ message: "bad request" }),
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const {
+      OAuthRefreshPermanentAuthError,
+      refreshTokenIfNeeded,
+      isOAuthRefreshPermanentAuthError,
+    } = await import("../oauth-token-store");
+
+    const task = refreshTokenIfNeeded(expiredTokenInput());
+
+    await expect(task).rejects.toBeInstanceOf(OAuthRefreshPermanentAuthError);
+    await expect(task).rejects.toMatchObject({
+      reason: "bad_request",
+      status: 400,
+    });
+    await task.catch((error: unknown) => {
+      expect(isOAuthRefreshPermanentAuthError(error)).toBe(true);
+    });
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("classifies 401 refresh responses as permanent auth failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: "invalid_client",
+        }),
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const {
+      OAuthRefreshPermanentAuthError,
+      refreshTokenIfNeeded,
+      isOAuthRefreshPermanentAuthError,
+    } = await import("../oauth-token-store");
+
+    const task = refreshTokenIfNeeded(expiredTokenInput());
+
+    await expect(task).rejects.toBeInstanceOf(OAuthRefreshPermanentAuthError);
+    await expect(task).rejects.toMatchObject({
+      errorCode: "invalid_client",
+      reason: "unauthorized",
+      status: 401,
+    });
+    await task.catch((error: unknown) => {
+      expect(isOAuthRefreshPermanentAuthError(error)).toBe(true);
+    });
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("keeps 5xx refresh responses retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        json: async () => {
+          throw new SyntaxError("Unexpected token <");
+        },
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const { refreshTokenIfNeeded, isOAuthRefreshPermanentAuthError } =
+      await import("../oauth-token-store");
+
+    let caught: unknown;
+    try {
+      await refreshTokenIfNeeded(expiredTokenInput());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).toMatchObject({
+      message: "Google token refresh failed: 503",
+    });
+    expect(isOAuthRefreshPermanentAuthError(caught)).toBe(false);
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("keeps 5xx refresh responses retryable even when the error body says invalid_grant", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+        json: async () => ({
+          error: "invalid_grant",
+        }),
+      })),
+    );
+    pushExpiredTokenRow();
+
+    const { refreshTokenIfNeeded, isOAuthRefreshPermanentAuthError } =
+      await import("../oauth-token-store");
+
+    let caught: unknown;
+    try {
+      await refreshTokenIfNeeded(expiredTokenInput());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).toMatchObject({
+      message: "Google token refresh failed: 503",
+    });
+    expect(isOAuthRefreshPermanentAuthError(caught)).toBe(false);
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it("keeps token refresh timeouts retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new DOMException("The operation timed out", "TimeoutError");
+      }),
+    );
+    pushExpiredTokenRow();
+
+    const { refreshTokenIfNeeded, isOAuthRefreshPermanentAuthError } =
+      await import("../oauth-token-store");
+
+    let caught: unknown;
+    try {
+      await refreshTokenIfNeeded(expiredTokenInput());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(DOMException);
+    expect(caught).toMatchObject({ name: "TimeoutError" });
+    expect(isOAuthRefreshPermanentAuthError(caught)).toBe(false);
     expect(updateSet).not.toHaveBeenCalled();
     expect(insertValues).not.toHaveBeenCalled();
   });
