@@ -23,6 +23,7 @@ import {
 } from "../lib/google-sheets-client";
 import {
   getOAuthToken,
+  isOAuthRefreshPermanentAuthError,
   type OAuthToken,
   refreshTokenIfNeeded,
 } from "../lib/oauth-token-store";
@@ -88,6 +89,27 @@ function throwSheetsSyncFailure(
 }
 function authRequiredMessage(context: string): string {
   return `${AUTH_REQUIRED_SYNC_ERROR_PREFIX}: ${context}`;
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function refreshTokenForSheetsSync(
+  token: OAuthToken,
+): Promise<OAuthToken> {
+  try {
+    return await refreshTokenIfNeeded(token);
+  } catch (error) {
+    if (isOAuthRefreshPermanentAuthError(error)) {
+      failSheetsSyncWithoutRetry(
+        authRequiredMessage(
+          `OAuth token refresh failed: ${getErrorMessage(error)}`,
+        ),
+      );
+    }
+    throw error;
+  }
 }
 
 function getWorkerShutdownReason(): unknown {
@@ -234,12 +256,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     );
   }
 
-  const token = await refreshTokenIfNeeded(initialToken);
-  if (!token) {
-    return failSheetsSyncWithoutRetry(
-      authRequiredMessage("OAuth token refresh failed"),
-    );
-  }
+  const token = await refreshTokenForSheetsSync(initialToken);
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得

@@ -51,6 +51,7 @@ vi.mock("../../lib/google-sheets-client", () => ({
 
 vi.mock("../../lib/oauth-token-store", () => ({
   getOAuthToken: vi.fn(),
+  isOAuthRefreshPermanentAuthError: vi.fn(),
   refreshTokenIfNeeded: vi.fn(),
 }));
 
@@ -79,6 +80,7 @@ import {
 } from "../../lib/google-sheets-client";
 import {
   getOAuthToken,
+  isOAuthRefreshPermanentAuthError,
   refreshTokenIfNeeded,
 } from "../../lib/oauth-token-store";
 import {
@@ -106,6 +108,9 @@ const mockGetIdempotencyKeyTtlMs = vi.mocked(getIdempotencyKeyTtlMs);
 const mockSetIdempotencyKey = vi.mocked(setIdempotencyKey);
 const mockWithRedisLock = vi.mocked(withRedisLock);
 const mockGetOAuthToken = vi.mocked(getOAuthToken);
+const mockIsOAuthRefreshPermanentAuthError = vi.mocked(
+  isOAuthRefreshPermanentAuthError,
+);
 const mockRefreshTokenIfNeeded = vi.mocked(refreshTokenIfNeeded);
 const mockReadRange = vi.mocked(readRange);
 const mockUpdateRange = vi.mocked(updateRange);
@@ -210,6 +215,7 @@ beforeEach(() => {
   shutdownSignalMock.reset();
   vi.clearAllMocks();
   mockExtractQuestionsFromPlateContent.mockReturnValue([]);
+  mockIsOAuthRefreshPermanentAuthError.mockReturnValue(false);
 });
 
 describe("handleSheetsSync — idempotency states", () => {
@@ -312,19 +318,45 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("throws UnrecoverableError when OAuth token refresh fails", async () => {
+  it("throws UnrecoverableError when OAuth token refresh requires reauthorization", async () => {
     setupDbSelect([INTEGRATION]);
+    const refreshError = new Error(
+      "Google OAuth refresh requires reauthorization (invalid_grant, HTTP 400)",
+    );
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
-    mockRefreshTokenIfNeeded.mockResolvedValue(null as never);
+    mockRefreshTokenIfNeeded.mockRejectedValue(refreshError);
+    mockIsOAuthRefreshPermanentAuthError.mockReturnValue(true);
 
     const job = makeJob();
     const task = handleSheetsSync(job);
     await expect(task).rejects.toThrow(UnrecoverableError);
     await expect(task).rejects.toThrow(
-      "AUTH_REQUIRED: OAuth token refresh failed",
+      "AUTH_REQUIRED: OAuth token refresh failed: Google OAuth refresh requires reauthorization (invalid_grant, HTTP 400)",
     );
     expect(job.discard).not.toHaveBeenCalled();
 
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+  });
+
+  it("keeps retryable OAuth token refresh failures retryable", async () => {
+    setupDbSelect([INTEGRATION]);
+    const refreshError = new Error("Google token refresh failed: 503");
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockRejectedValue(refreshError);
+
+    let caught: unknown;
+    try {
+      await handleSheetsSync(makeJob());
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBe(refreshError);
+    expect(caught).not.toBeInstanceOf(UnrecoverableError);
+    expect(mockIsOAuthRefreshPermanentAuthError).toHaveBeenCalledWith(
+      refreshError,
+    );
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
