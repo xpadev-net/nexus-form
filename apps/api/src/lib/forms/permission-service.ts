@@ -120,6 +120,39 @@ export class PermissionMutationConflictError extends Error {
   }
 }
 
+export type PermissionUpdateErrorCode =
+  | "FORM_NOT_FOUND"
+  | "PERMISSION_NOT_FOUND"
+  | "OWNER_PERMISSION_UPDATE_FORBIDDEN"
+  | "INVALID_PERMISSION_ROLE";
+
+export class PermissionUpdateError extends Error {
+  constructor(
+    readonly code: PermissionUpdateErrorCode,
+    readonly statusCode: 404 | 409,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PermissionUpdateError";
+  }
+}
+
+export type InvitationCreateErrorCode =
+  | "FORM_NOT_FOUND"
+  | "INVITATION_ALREADY_EXISTS"
+  | "INVITER_NOT_FOUND";
+
+export class InvitationCreateError extends Error {
+  constructor(
+    readonly code: InvitationCreateErrorCode,
+    readonly statusCode: 403 | 404 | 409,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InvitationCreateError";
+  }
+}
+
 export type InvitationAcceptErrorCode =
   | "INVITATION_NOT_FOUND"
   | "INVITATION_NOT_PENDING"
@@ -201,6 +234,18 @@ function permissionMutationAffectedRows(result: unknown): number {
   if (typeof header !== "object" || header === null) return 0;
   const affectedRows = Reflect.get(header, "affectedRows");
   return typeof affectedRows === "number" ? affectedRows : 0;
+}
+
+function isDuplicateKeyError(error: unknown, depth: number = 0): boolean {
+  if (depth > 3) return false;
+  if (typeof error !== "object" || error === null) return false;
+  const code = Reflect.get(error, "code");
+  const errno = Reflect.get(error, "errno");
+  if (code === "ER_DUP_ENTRY" || errno === 1062) {
+    return true;
+  }
+
+  return isDuplicateKeyError(Reflect.get(error, "cause"), depth + 1);
 }
 
 async function lockPendingInvitationsByInviter(
@@ -397,107 +442,133 @@ export async function createInvitation(
   const defaultExpiresAt = new Date();
   defaultExpiresAt.setDate(defaultExpiresAt.getDate() + 7);
 
-  return await db.transaction(async (tx) => {
-    // フォームの存在確認
-    const [foundForm] = await tx
-      .select({ id: form.id })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
+  try {
+    return await db.transaction(async (tx) => {
+      // フォームの存在確認
+      const [foundForm] = await tx
+        .select({ id: form.id })
+        .from(form)
+        .where(eq(form.id, formId))
+        .limit(1);
 
-    if (!foundForm) {
-      throw new Error("Form not found");
-    }
-
-    // 既存の招待がないかチェック
-    const [existingInvitation] = await tx
-      .select()
-      .from(formInvitation)
-      .where(
-        and(eq(formInvitation.formId, formId), eq(formInvitation.email, email)),
-      )
-      .limit(1);
-
-    // 既存の招待がある場合は削除（再招待を可能にする）
-    if (existingInvitation) {
-      if (existingInvitation.status === "PENDING") {
-        throw new Error("Invitation already exists for this email");
+      if (!foundForm) {
+        throw new InvitationCreateError(
+          "FORM_NOT_FOUND",
+          404,
+          "Form not found",
+        );
       }
-      // 過去の招待（ACCEPTED/EXPIRED/CANCELLED）を削除
-      await tx
-        .delete(formInvitation)
-        .where(eq(formInvitation.id, existingInvitation.id));
-    }
 
-    // 招待トークンを生成
-    const token = generateSecureToken();
+      // 招待者情報を取得
+      const [inviter] = await tx
+        .select({
+          id: user.id,
+          name: user.name,
+          email: user.email,
+        })
+        .from(user)
+        .where(eq(user.id, invitedBy))
+        .limit(1);
 
-    // 招待を作成
-    await tx.insert(formInvitation).values({
-      id: randomUUID(),
-      formId,
-      email,
-      role,
-      token,
-      message: message || undefined,
-      expiresAt: expiresAt || defaultExpiresAt,
-      invitedBy,
+      if (!inviter) {
+        throw new InvitationCreateError(
+          "INVITER_NOT_FOUND",
+          403,
+          "Inviter is not allowed to create invitations",
+        );
+      }
+
+      // 既存の招待がないかチェック
+      const [existingInvitation] = await tx
+        .select()
+        .from(formInvitation)
+        .where(
+          and(
+            eq(formInvitation.formId, formId),
+            eq(formInvitation.email, email),
+          ),
+        )
+        .limit(1);
+
+      // 既存の招待がある場合は削除（再招待を可能にする）
+      if (existingInvitation) {
+        if (existingInvitation.status === "PENDING") {
+          throw new InvitationCreateError(
+            "INVITATION_ALREADY_EXISTS",
+            409,
+            "Invitation already exists for this email",
+          );
+        }
+        // 過去の招待（ACCEPTED/EXPIRED/CANCELLED）を削除
+        await tx
+          .delete(formInvitation)
+          .where(eq(formInvitation.id, existingInvitation.id));
+      }
+
+      // 招待トークンを生成
+      const token = generateSecureToken();
+
+      // 招待を作成
+      await tx.insert(formInvitation).values({
+        id: randomUUID(),
+        formId,
+        email,
+        role,
+        token,
+        message: message || undefined,
+        expiresAt: expiresAt || defaultExpiresAt,
+        invitedBy,
+      });
+
+      // 作成した招待を取得
+      const [invitation] = await tx
+        .select()
+        .from(formInvitation)
+        .where(
+          and(
+            eq(formInvitation.formId, formId),
+            eq(formInvitation.email, email),
+            eq(formInvitation.token, token),
+          ),
+        )
+        .limit(1);
+
+      if (!invitation) {
+        throw new Error("Failed to create invitation");
+      }
+
+      return {
+        id: invitation.id,
+        form_id: invitation.formId,
+        email: invitation.email,
+        role: invitation.role as FormPermissionType,
+        token: invitation.token,
+        status: invitation.status as FormInvitationStatus,
+        message: invitation.message || undefined,
+        expires_at: invitation.expiresAt.toISOString(),
+        created_at: invitation.createdAt.toISOString(),
+        updated_at: invitation.updatedAt.toISOString(),
+        invited_by: invitation.invitedBy,
+        inviter: {
+          id: inviter.id,
+          name: inviter.name,
+          email: inviter.email,
+          discord_id: null,
+          created_at: "",
+          updated_at: "",
+        },
+      };
     });
-
-    // 作成した招待を取得
-    const [invitation] = await tx
-      .select()
-      .from(formInvitation)
-      .where(
-        and(
-          eq(formInvitation.formId, formId),
-          eq(formInvitation.email, email),
-          eq(formInvitation.token, token),
-        ),
-      )
-      .limit(1);
-
-    if (!invitation) {
-      throw new Error("Failed to create invitation");
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      throw new InvitationCreateError(
+        "INVITATION_ALREADY_EXISTS",
+        409,
+        "Invitation already exists for this email",
+      );
     }
-
-    // 招待者情報を取得
-    const [inviter] = await tx
-      .select({
-        id: user.id,
-        name: user.name,
-        email: user.email,
-      })
-      .from(user)
-      .where(eq(user.id, invitedBy))
-      .limit(1);
-
-    if (!inviter) {
-      throw new Error("Inviter not found");
-    }
-
-    return {
-      id: invitation.id,
-      form_id: invitation.formId,
-      email: invitation.email,
-      role: invitation.role as FormPermissionType,
-      token: invitation.token,
-      status: invitation.status as FormInvitationStatus,
-      message: invitation.message || undefined,
-      expires_at: invitation.expiresAt.toISOString(),
-      created_at: invitation.createdAt.toISOString(),
-      updated_at: invitation.updatedAt.toISOString(),
-      invited_by: invitation.invitedBy,
-      inviter: {
-        id: inviter.id,
-        name: inviter.name,
-        email: inviter.email,
-        discord_id: null,
-        created_at: "",
-        updated_at: "",
-      },
-    };
-  });
+    throw error;
+  }
 }
 
 /**
@@ -1106,25 +1177,39 @@ export async function updatePermissionRole(
         await lockFormAndPermissionsForMutation(tx, formId, [userId]);
 
       if (!foundForm) {
-        throw new Error("Form not found");
+        throw new PermissionUpdateError(
+          "FORM_NOT_FOUND",
+          404,
+          "Form not found",
+        );
       }
 
       // 現在の権限を取得
       const currentPermission = permissions.get(userId);
       if (!currentPermission) {
-        throw new Error("Permission not found");
+        throw new PermissionUpdateError(
+          "PERMISSION_NOT_FOUND",
+          404,
+          "Permission not found",
+        );
       }
 
       // OWNER昇格・降格を禁止
       if (newRole === "OWNER" || currentPermission.role === "OWNER") {
-        throw new Error(
+        throw new PermissionUpdateError(
+          "OWNER_PERMISSION_UPDATE_FORBIDDEN",
+          409,
           "Cannot change owner role. Use transfer ownership instead.",
         );
       }
 
       // VIEWER⇔EDITOR間の変更のみ許可
       if (newRole !== "VIEWER" && newRole !== "EDITOR") {
-        throw new Error("Invalid role. Only VIEWER and EDITOR are allowed.");
+        throw new PermissionUpdateError(
+          "INVALID_PERMISSION_ROLE",
+          409,
+          "Invalid role. Only VIEWER and EDITOR are allowed.",
+        );
       }
 
       const shouldRevokeEditorAccess =

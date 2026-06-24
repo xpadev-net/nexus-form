@@ -128,16 +128,30 @@ function isPermissionMutationConflict(
   return error instanceof PermissionMutationConflictError;
 }
 
-const rejectSyntheticShareLinkManagementAuth = createMiddleware<Env>(
-  async (c, next) => {
-    const auth = c.get("dualAuthContext");
-    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
-    if (isSyntheticShareLinkPrincipal(auth)) {
-      return c.json(errorResponse("Insufficient permissions"), 403);
-    }
-    return next();
-  },
-);
+type PermissionServiceStatusCode = 403 | 404 | 409;
+
+function isPermissionServiceStatusCode(
+  value: unknown,
+): value is PermissionServiceStatusCode {
+  return value === 403 || value === 404 || value === 409;
+}
+
+function isNamedPermissionServiceError(
+  error: unknown,
+  name: "InvitationCreateError" | "PermissionUpdateError",
+): error is Error & { statusCode: PermissionServiceStatusCode } {
+  if (!(error instanceof Error) || error.name !== name) return false;
+  return isPermissionServiceStatusCode(Reflect.get(error, "statusCode"));
+}
+
+const rejectSyntheticManagementAuth = createMiddleware<Env>(async (c, next) => {
+  const auth = c.get("dualAuthContext");
+  if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+  if (isSyntheticShareLinkPrincipal(auth)) {
+    return c.json(errorResponse("Insufficient permissions"), 403);
+  }
+  return next();
+});
 
 export const FormPermissionResponseSchema = z.object({
   permission: FormPermissionWithUser,
@@ -298,6 +312,9 @@ export const formsPermissionsRouter = createHonoApp()
         if (isPermissionMutationConflict(error)) {
           return c.json(errorResponse(error.message), 409);
         }
+        if (isNamedPermissionServiceError(error, "PermissionUpdateError")) {
+          return c.json(errorResponse(error.message), error.statusCode);
+        }
         throw error;
       }
       return c.json(FormPermissionResponseSchema.parse({ permission }));
@@ -364,6 +381,7 @@ export const formsPermissionsRouter = createHonoApp()
   .get(
     "/:id/invitations",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticManagementAuth,
     zValidator("query", invitationsQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -380,6 +398,7 @@ export const formsPermissionsRouter = createHonoApp()
   .post(
     "/:id/invitations",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticManagementAuth,
     formPermissionMutationRateLimit,
     zValidator("json", invitationCreateSchema),
     async (c) => {
@@ -387,20 +406,29 @@ export const formsPermissionsRouter = createHonoApp()
       const auth = c.get("dualAuthContext");
       if (!auth) return c.json(errorResponse("Unauthorized"), 401);
       const payload = c.req.valid("json");
-      const invitation = await createInvitation(
-        formId,
-        payload.email,
-        payload.role,
-        auth.user_id,
-        payload.message,
-        payload.expiresAt ? new Date(payload.expiresAt) : undefined,
-      );
+      let invitation: Awaited<ReturnType<typeof createInvitation>>;
+      try {
+        invitation = await createInvitation(
+          formId,
+          payload.email,
+          payload.role,
+          auth.user_id,
+          payload.message,
+          payload.expiresAt ? new Date(payload.expiresAt) : undefined,
+        );
+      } catch (error) {
+        if (isNamedPermissionServiceError(error, "InvitationCreateError")) {
+          return c.json(errorResponse(error.message), error.statusCode);
+        }
+        throw error;
+      }
       return c.json(FormInvitationResponseSchema.parse({ invitation }), 201);
     },
   )
   .get(
     "/:id/invitations/:invitationId",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticManagementAuth,
     async (c) => {
       const formId = c.req.param("id");
       const invitationId = c.req.param("invitationId");
@@ -461,6 +489,7 @@ export const formsPermissionsRouter = createHonoApp()
   .delete(
     "/:id/invitations/:invitationId",
     withDualFormAuth("EDITOR"),
+    rejectSyntheticManagementAuth,
     formPermissionDestructiveRateLimit,
     async (c) => {
       const formId = c.req.param("id");
@@ -493,7 +522,7 @@ export const formsPermissionsRouter = createHonoApp()
   .get(
     "/:id/share-links",
     withDualFormAuth("EDITOR"),
-    rejectSyntheticShareLinkManagementAuth,
+    rejectSyntheticManagementAuth,
     zValidator("query", shareLinksQuerySchema),
     async (c) => {
       const formId = c.req.param("id");
@@ -510,7 +539,7 @@ export const formsPermissionsRouter = createHonoApp()
   .post(
     "/:id/share-links",
     withDualFormAuth("EDITOR"),
-    rejectSyntheticShareLinkManagementAuth,
+    rejectSyntheticManagementAuth,
     formPermissionMutationRateLimit,
     zValidator("json", shareLinkCreateSchema),
     async (c) => {
@@ -546,7 +575,7 @@ export const formsPermissionsRouter = createHonoApp()
   .get(
     "/:id/share-links/:linkId",
     withDualFormAuth("EDITOR"),
-    rejectSyntheticShareLinkManagementAuth,
+    rejectSyntheticManagementAuth,
     async (c) => {
       const formId = c.req.param("id");
       const linkId = c.req.param("linkId");
@@ -580,7 +609,7 @@ export const formsPermissionsRouter = createHonoApp()
   .put(
     "/:id/share-links/:linkId",
     withDualFormAuth("EDITOR"),
-    rejectSyntheticShareLinkManagementAuth,
+    rejectSyntheticManagementAuth,
     formPermissionMutationRateLimit,
     zValidator("json", shareLinkUpdateSchema),
     async (c) => {
@@ -597,7 +626,7 @@ export const formsPermissionsRouter = createHonoApp()
   .delete(
     "/:id/share-links/:linkId",
     withDualFormAuth("EDITOR"),
-    rejectSyntheticShareLinkManagementAuth,
+    rejectSyntheticManagementAuth,
     formPermissionDestructiveRateLimit,
     async (c) => {
       const formId = c.req.param("id");
