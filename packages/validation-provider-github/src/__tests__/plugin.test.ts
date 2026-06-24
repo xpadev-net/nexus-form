@@ -163,6 +163,30 @@ describe("githubProvider.rules.user_exists.validate", () => {
     });
   });
 
+  it("defaults GitHub rate limit provider errors without retryAfter to a retryable delay", async () => {
+    getUserByUsernameMock.mockRejectedValueOnce(
+      new GitHubProviderError(
+        "You have exceeded a secondary rate limit",
+        GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+        undefined,
+        403,
+      ),
+    );
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.GITHUB_API_RATE_LIMIT,
+      errorMessage: "GitHub API rate limit exceeded",
+      retryAfter: 60,
+      retryable: true,
+    });
+  });
+
   it("marks GitHub 5xx provider errors as retryable", async () => {
     getUserByUsernameMock.mockRejectedValueOnce(
       new GitHubProviderError(
