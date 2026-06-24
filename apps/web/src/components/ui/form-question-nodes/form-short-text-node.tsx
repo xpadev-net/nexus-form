@@ -10,8 +10,8 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionErrorId,
   getFormQuestionTitleId,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 export const FormShortTextElement = withRef<typeof PlateElement>(
@@ -42,8 +42,9 @@ export const FormShortTextElement = withRef<typeof PlateElement>(
 
 export function ShortTextInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { placeholder?: string }
@@ -53,8 +54,8 @@ export function ShortTextInput({ element }: { element: TElement }) {
       value={(answer?.value as string) ?? ""}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder={validation?.placeholder || "回答を入力してください"}
-      aria-describedby={getFormQuestionErrorId(blockId)}
       aria-labelledby={getFormQuestionTitleId(blockId)}
+      {...errorA11y}
     />
   );
 }

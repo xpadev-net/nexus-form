@@ -4,7 +4,7 @@ import { fireEvent, getByLabelText, getByRole } from "@testing-library/dom";
 import type { TElement } from "platejs";
 import { act, type ReactNode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AnswerEntry,
   FormResponseProvider,
@@ -548,6 +548,10 @@ describe("FormBody", () => {
     plateViewerValues.length = 0;
   });
 
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
   it("excludes isolated slash and empty blocks from public viewer content", () => {
     const plateContent = JSON.stringify([
       { type: "p", children: [{ text: "/" }] },
@@ -808,6 +812,7 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -974,6 +979,7 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -1061,6 +1067,10 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+    const nameInput = getByRole(container, "textbox", { name: "Name" });
+    expect(nameInput.getAttribute("aria-describedby")).toBeNull();
+    expect(nameInput.getAttribute("aria-invalid")).toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -1069,6 +1079,10 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("必須項目が未入力です: Name");
+    expect(nameInput.getAttribute("aria-describedby")).toBe(
+      "form-question-q-name-error",
+    );
+    expect(nameInput.getAttribute("aria-invalid")).toBe("true");
 
     act(() => root.unmount());
   });

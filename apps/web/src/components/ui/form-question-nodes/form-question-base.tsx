@@ -3,7 +3,7 @@ import { isPlateQuestionType } from "@nexus-form/shared";
 import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
@@ -47,6 +47,44 @@ export function getFormQuestionErrorId(blockId: string): string {
   return `form-question-${blockId}-error`;
 }
 
+interface FormQuestionA11yState {
+  invalidQuestionIds: ReadonlySet<string>;
+}
+
+const emptyInvalidQuestionIds = new Set<string>();
+
+const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
+  invalidQuestionIds: emptyInvalidQuestionIds,
+});
+
+export function FormQuestionA11yProvider({
+  children,
+  invalidQuestionIds,
+}: {
+  children: ReactNode;
+  invalidQuestionIds: ReadonlySet<string>;
+}) {
+  return (
+    <FormQuestionA11yContext.Provider value={{ invalidQuestionIds }}>
+      {children}
+    </FormQuestionA11yContext.Provider>
+  );
+}
+
+export function useFormQuestionErrorA11y(blockId: string): {
+  "aria-describedby"?: string;
+  "aria-invalid"?: true;
+} {
+  const { invalidQuestionIds } = useContext(FormQuestionA11yContext);
+  if (!invalidQuestionIds.has(blockId)) {
+    return {};
+  }
+  return {
+    "aria-describedby": getFormQuestionErrorId(blockId),
+    "aria-invalid": true,
+  };
+}
+
 /**
  * Shared base component for all form question node elements.
  * Renders a card wrapper with:
@@ -73,6 +111,7 @@ export const FormQuestionElement = withRef<
     const blockId =
       typeof element.blockId === "string" ? element.blockId : undefined;
     const titleId = blockId ? getFormQuestionTitleId(blockId) : undefined;
+    const titleText = collectText(element).trim() || "無題の質問";
 
     return (
       <PlateElement
@@ -101,7 +140,12 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
-        <div className="relative min-w-0" id={titleId}>
+        {titleId ? (
+          <span className="sr-only" contentEditable={false} id={titleId}>
+            {titleText}
+          </span>
+        ) : null}
+        <div className="relative min-w-0">
           {!readOnly && isElementEmpty(element) && (
             <span
               aria-hidden="true"

@@ -18,8 +18,8 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionErrorId,
   getFormQuestionTitleId,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -55,8 +55,9 @@ export const FormDropdownElement = withRef<typeof PlateElement>(
 
 export function DropdownInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { options?: OptionLike[]; allowOther?: boolean; otherLabel?: string }
@@ -67,7 +68,6 @@ export function DropdownInput({ element }: { element: TElement }) {
   const selectedValue = (answer?.value as string) ?? "";
   const isOtherSelected = selectedValue === "other";
   const questionTitleId = getFormQuestionTitleId(blockId);
-  const questionErrorId = getFormQuestionErrorId(blockId);
 
   if (options.length === 0 && !allowOther) {
     return (
@@ -88,8 +88,8 @@ export function DropdownInput({ element }: { element: TElement }) {
       >
         <SelectTrigger
           className="w-full"
-          aria-describedby={questionErrorId}
           aria-labelledby={questionTitleId}
+          {...errorA11y}
         >
           <SelectValue placeholder="選択してください" />
         </SelectTrigger>
@@ -114,8 +114,8 @@ export function DropdownInput({ element }: { element: TElement }) {
             })
           }
           placeholder={`${otherLabel}を入力`}
-          aria-describedby={questionErrorId}
           aria-labelledby={questionTitleId}
+          {...errorA11y}
         />
       )}
     </div>

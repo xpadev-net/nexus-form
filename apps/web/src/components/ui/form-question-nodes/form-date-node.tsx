@@ -7,8 +7,8 @@ import { Input } from "@/components/ui/input";
 import { DateSettingsEditor, EditorControlsWrapper } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionErrorId,
   getFormQuestionTitleId,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 export const FormDateElement = withRef<typeof PlateElement>(
@@ -58,8 +58,9 @@ function isDateValueOutsideValidation(
 
 export function DateInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | {
@@ -79,9 +80,9 @@ export function DateInput({ element }: { element: TElement }) {
       min={validation?.minDate}
       max={validation?.maxDate}
       value={value}
-      aria-invalid={isInvalid ? true : undefined}
-      aria-describedby={getFormQuestionErrorId(blockId)}
+      aria-invalid={isInvalid || errorA11y["aria-invalid"] ? true : undefined}
       aria-labelledby={getFormQuestionTitleId(blockId)}
+      aria-describedby={errorA11y["aria-describedby"]}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
       onBlur={(e) => syncDateValue(e.currentTarget.value)}
     />
