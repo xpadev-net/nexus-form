@@ -62,6 +62,7 @@ let getQuestionControlLabelProps: (blockId: string) => {
   name: string;
   "aria-labelledby": string;
 };
+let getFormQuestionTitleId: (blockId: string) => string;
 let FormQuestionElement: ComponentType<{
   children?: ReactNode;
   viewerControls?: ReactNode;
@@ -75,6 +76,7 @@ beforeAll(async () => {
       element: Record<string, unknown>,
     ) => string;
   getQuestionControlLabelProps = formQuestionBase.getQuestionControlLabelProps;
+  getFormQuestionTitleId = formQuestionBase.getFormQuestionTitleId;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
@@ -189,10 +191,11 @@ describe("FormQuestionElement", () => {
 
     const input = getByRole(container, "textbox", { name: "氏名" });
     expect(input.getAttribute("aria-labelledby")).toBe(
-      "question-1-question-label",
+      getFormQuestionTitleId("question-1"),
     );
     expect(
-      container.querySelector("#question-1-question-label")?.textContent,
+      container.querySelector(`#${getFormQuestionTitleId("question-1")}`)
+        ?.textContent,
     ).toBe("氏名");
   });
 

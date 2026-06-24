@@ -7,6 +7,7 @@ import { EditorControlsWrapper, TimeSettingsEditor } from "./editor-controls";
 import {
   FormQuestionElement,
   getQuestionControlLabelProps,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 export const FormTimeElement = withRef<typeof PlateElement>(
@@ -36,8 +37,9 @@ export const FormTimeElement = withRef<typeof PlateElement>(
 
 export function TimeInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | {
@@ -52,6 +54,7 @@ export function TimeInput({ element }: { element: TElement }) {
       min={validation?.minTime}
       max={validation?.maxTime}
       value={(answer?.value as string) ?? ""}
+      {...errorA11y}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
     />
   );
