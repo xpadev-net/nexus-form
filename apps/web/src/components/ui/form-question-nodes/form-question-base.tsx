@@ -62,6 +62,8 @@ export const FormQuestionElement = withRef<
       | { required?: boolean }
       | undefined;
     const isRequired = validation?.required ?? false;
+    const blockId =
+      typeof element.blockId === "string" ? element.blockId : undefined;
 
     return (
       <PlateElement
@@ -70,6 +72,7 @@ export const FormQuestionElement = withRef<
           "my-3 rounded-lg border border-border bg-card p-4 shadow-sm",
           className,
         )}
+        data-form-question-id={blockId}
         {...props}
       >
         {/* Type badge */}
