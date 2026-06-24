@@ -35,7 +35,7 @@ export class S3ImageService extends S3BaseService {
 
       // 画像メタデータを取得してフォーマットを検証
       const metadata = await sharp(imageData).metadata();
-      const supportedFormats = ["jpeg", "png", "webp"];
+      const supportedFormats = IMAGE_PROCESSING_LIMITS.SUPPORTED_INPUT_FORMATS;
 
       if (!metadata.format || !supportedFormats.includes(metadata.format)) {
         throw new S3Error(
