@@ -1246,26 +1246,29 @@ describe("FormBody", () => {
     expect(colorsError?.textContent).toBe("Colors: この項目は必須です");
     expect(gridError?.textContent).toBe("Grid: この項目は必須です");
 
-    expect(
-      getByRole(container, "textbox", { name: "Name" }).getAttribute(
-        "aria-describedby",
-      ),
-    ).toBe("form-question-q-name-error");
-    expect(
-      getByRole(container, "combobox", { name: "Country" }).getAttribute(
-        "aria-describedby",
-      ),
-    ).toBe("form-question-q-country-error");
-    expect(
-      colorsCard
-        ?.querySelector<HTMLElement>('[role="group"]')
-        ?.getAttribute("aria-describedby"),
-    ).toBe("form-question-q-colors-error");
-    expect(
-      gridCard
-        ?.querySelector<HTMLElement>('[role="group"]')
-        ?.getAttribute("aria-describedby"),
-    ).toBe("form-question-q-grid-error");
+    const nameInput = getByRole(container, "textbox", { name: "Name" });
+    const countryInput = getByRole(container, "combobox", {
+      name: "Country",
+    });
+    const colorsGroup =
+      colorsCard?.querySelector<HTMLElement>('[role="group"]');
+    const gridGroup = gridCard?.querySelector<HTMLElement>('[role="group"]');
+    expect(nameInput.getAttribute("aria-describedby")).toBe(
+      "form-question-q-name-error",
+    );
+    expect(nameInput.getAttribute("aria-invalid")).toBe("true");
+    expect(countryInput.getAttribute("aria-describedby")).toBe(
+      "form-question-q-country-error",
+    );
+    expect(countryInput.getAttribute("aria-invalid")).toBe("true");
+    expect(colorsGroup?.getAttribute("aria-describedby")).toBe(
+      "form-question-q-colors-error",
+    );
+    expect(colorsGroup?.getAttribute("aria-invalid")).toBe("true");
+    expect(gridGroup?.getAttribute("aria-describedby")).toBe(
+      "form-question-q-grid-error",
+    );
+    expect(gridGroup?.getAttribute("aria-invalid")).toBe("true");
 
     const summary = container.querySelector<HTMLElement>('[role="alert"]');
     expect(summary?.textContent).toBe(

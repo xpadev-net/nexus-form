@@ -52,9 +52,9 @@ export const FormRadioElement = withRef<typeof PlateElement>(
 
 export function RadioInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { options?: OptionLike[]; allowOther?: boolean; otherLabel?: string }

@@ -50,9 +50,9 @@ export const FormChoiceGridElement = withRef<typeof PlateElement>(
 export function ChoiceGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const inputIdPrefix = useId();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { rows?: GridItemLike[]; columns?: GridItemLike[] }
