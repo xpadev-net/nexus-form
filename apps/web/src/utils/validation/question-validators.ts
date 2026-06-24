@@ -59,6 +59,14 @@ const createValidationError = (
   value,
 });
 
+function safelyTextMatchesPattern(value: string, pattern: string): boolean {
+  try {
+    return textMatchesPattern(value, pattern);
+  } catch {
+    return true;
+  }
+}
+
 // 型安全な型ガード関数
 const isShortTextValidation = (
   validation: Block["validation"],
@@ -202,7 +210,7 @@ export const validateShortText = (
     shortTextValidation?.pattern &&
     !shortTextValidation.allowPatternMismatch
   ) {
-    if (!textMatchesPattern(value, shortTextValidation.pattern)) {
+    if (!safelyTextMatchesPattern(value, shortTextValidation.pattern)) {
       // テンプレートが設定されている場合は具体的なエラーメッセージを表示
       let errorMessage = "入力形式が正しくありません";
       if (template) {
