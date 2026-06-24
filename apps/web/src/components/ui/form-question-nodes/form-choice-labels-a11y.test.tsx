@@ -324,11 +324,20 @@ describe("public choice controls accessible labels", () => {
       getByRole(container, "radiogroup", { name: "会社種別" }),
     ).toBeTruthy();
     const radio = getByRole(container, "radio", { name: "法人" });
+    const radioLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${radio.id}"]`,
+    );
+    expect(radioLabel).toBeTruthy();
+    if (!radioLabel) throw new Error("Expected radio row label");
+    const radioRow = radioLabel.parentElement;
+    expect(radioRow?.className).toContain("w-full");
+
     await act(async () => {
-      fireEvent.click(radio);
+      fireEvent.click(radioRow ?? radioLabel);
     });
 
     expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
+    expect(document.activeElement).toBe(radio);
 
     act(() => root.unmount());
   });
@@ -365,13 +374,88 @@ describe("public choice controls accessible labels", () => {
     const secondCheckbox = checkboxes[1];
     expect(secondCheckbox).toBeDefined();
     if (!secondCheckbox) throw new Error("Expected second checkbox");
+    const secondCheckboxLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${secondCheckbox.id}"]`,
+    );
+    expect(secondCheckboxLabel).toBeTruthy();
+    if (!secondCheckboxLabel) {
+      throw new Error("Expected checkbox row label");
+    }
+    const secondCheckboxRow = secondCheckboxLabel.parentElement;
+    expect(secondCheckboxRow?.className).toContain("w-full");
 
     await act(async () => {
-      fireEvent.click(secondCheckbox);
+      fireEvent.click(secondCheckboxRow ?? secondCheckboxLabel);
     });
 
     expect(onAnswer).toHaveBeenLastCalledWith({
       values: ["corp-secondary"],
+      other_values: undefined,
+    });
+    expect(document.activeElement).toBe(secondCheckbox);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps selected checkboxes removable when max selections disables the rest", async () => {
+    const onAnswer = vi.fn();
+    const element = testElement(
+      "form_checkbox",
+      "company-tags-limited",
+      {
+        options: [
+          { id: "corp-primary", label: "法人" },
+          { id: "corp-secondary", label: "個人" },
+        ],
+        maxSelections: 1,
+      },
+    );
+    element.children = [
+      { type: "p", children: [{ text: "会社タグ" }] },
+    ];
+    const { container, root } = renderWithAnswers(
+      <CheckboxInput element={element} />,
+      {
+        blockId: "company-tags-limited",
+        initialAnswers: new Map([
+          [
+            "company-tags-limited",
+            { values: ["corp-primary"] },
+          ],
+        ]),
+        labelElement: element,
+        onAnswer,
+      },
+    );
+
+    const selectedCheckbox = getByRole(container, "checkbox", {
+      name: "法人",
+    });
+    const disabledCheckbox = getByRole(container, "checkbox", {
+      name: "個人",
+    }) as HTMLButtonElement;
+    const disabledLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${disabledCheckbox.id}"]`,
+    );
+    expect(disabledCheckbox.disabled).toBe(true);
+    expect(disabledLabel?.className).toContain("cursor-not-allowed");
+
+    await act(async () => {
+      disabledLabel?.click();
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp-primary"],
+    });
+
+    const selectedLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${selectedCheckbox.id}"]`,
+    );
+    expect(selectedLabel?.parentElement?.className).toContain("bg-primary/5");
+    await act(async () => {
+      fireEvent.click(selectedLabel?.parentElement ?? selectedCheckbox);
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: [],
       other_values: undefined,
     });
 
@@ -415,6 +499,9 @@ describe("public choice controls accessible labels", () => {
     expect(cell.id).not.toBe("");
     expect(cell.name).toBe(secondCell.name);
     expect(getAssociatedLabel(container, cell).htmlFor).toBe(cell.id);
+    expect(getAssociatedLabel(container, cell).className).toContain("w-full");
+    cell.focus();
+    expect(document.activeElement).toBe(cell);
 
     await act(async () => {
       fireEvent.click(cell);
@@ -478,6 +565,9 @@ describe("public choice controls accessible labels", () => {
     );
     expect(cell.id).not.toBe("");
     expect(getAssociatedLabel(container, cell).htmlFor).toBe(cell.id);
+    expect(getAssociatedLabel(container, cell).className).toContain("w-full");
+    cell.focus();
+    expect(document.activeElement).toBe(cell);
 
     await act(async () => {
       fireEvent.click(cell);
@@ -507,6 +597,72 @@ describe("public choice controls accessible labels", () => {
     });
     expect(cell.checked).toBe(false);
     expect(secondCell.checked).toBe(true);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps selected checkbox grid cells removable when row max disables the rest", async () => {
+    const onAnswer = vi.fn();
+    const element = testElement(
+      "form_checkbox_grid",
+      "limited-checkbox-grid",
+      {
+        rows: [{ id: "contract-type", label: "契約種別" }],
+        columns: [
+          { id: "corp", label: "法人" },
+          { id: "individual", label: "個人" },
+        ],
+        maxSelectionsPerRow: 1,
+      },
+    );
+    element.children = [
+      { type: "p", children: [{ text: "契約チェック項目" }] },
+    ];
+    const { container, root } = renderWithAnswers(
+      <CheckboxGridInput element={element} />,
+      {
+        blockId: "limited-checkbox-grid",
+        initialAnswers: new Map([
+          [
+            "limited-checkbox-grid",
+            { responses: { "contract-type": ["corp"] } },
+          ],
+        ]),
+        labelElement: element,
+        onAnswer,
+      },
+    );
+
+    const selectedCell = requireInput(
+      getByRole(container, "checkbox", {
+        name: "契約種別: 法人",
+      }),
+    );
+    const disabledCell = requireInput(
+      getByRole(container, "checkbox", {
+        name: "契約種別: 個人",
+      }),
+    );
+    const selectedCellLabel = getAssociatedLabel(container, selectedCell);
+    const disabledCellLabel = getAssociatedLabel(container, disabledCell);
+
+    expect(disabledCell.disabled).toBe(true);
+    expect(disabledCellLabel.className).toContain("cursor-not-allowed");
+    expect(selectedCellLabel.className).toContain("bg-primary/5");
+
+    await act(async () => {
+      disabledCellLabel.click();
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      responses: { "contract-type": ["corp"] },
+    });
+
+    await act(async () => {
+      selectedCellLabel.click();
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      responses: { "contract-type": [] },
+    });
 
     act(() => root.unmount());
   });

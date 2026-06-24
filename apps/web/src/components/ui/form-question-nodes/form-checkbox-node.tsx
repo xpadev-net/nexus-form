@@ -1,4 +1,4 @@
-import { withRef } from "@udecode/cn";
+import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
@@ -93,6 +93,10 @@ export function CheckboxInput({ element }: { element: TElement }) {
     });
   };
 
+  const focusOption = (optionId: string) => {
+    document.getElementById(optionId)?.focus();
+  };
+
   return (
     <div
       className="space-y-2"
@@ -103,25 +107,68 @@ export function CheckboxInput({ element }: { element: TElement }) {
         {options.map((option) => {
           const isChecked = selected.includes(option.id);
           const label = getChoiceDisplayLabel(option);
+          const disabled = !isChecked && atMax;
+          const optionId = `${blockId}-${option.id}`;
           return (
-            <div key={option.id} className="flex items-center gap-2">
+            <div
+              key={option.id}
+              className={cn(
+                "flex min-h-10 w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 font-normal leading-5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+                disabled
+                  ? "cursor-not-allowed bg-muted/30 text-muted-foreground opacity-70"
+                  : "cursor-pointer hover:border-primary/30 hover:bg-muted/50",
+                isChecked &&
+                  "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10",
+              )}
+              onClick={(event) => {
+                if (disabled) {
+                  event.preventDefault();
+                  return;
+                }
+                focusOption(optionId);
+                toggleOption(option.id, !isChecked);
+              }}
+            >
               <Checkbox
-                id={`${blockId}-${option.id}`}
+                id={optionId}
                 checked={isChecked}
-                disabled={!isChecked && atMax}
+                disabled={disabled}
                 aria-label={label}
                 onCheckedChange={(checked) =>
                   toggleOption(option.id, checked === true)
                 }
               />
-              <Label htmlFor={`${blockId}-${option.id}`} className="font-normal">
+              <Label
+                htmlFor={optionId}
+                className={cn(
+                  "flex-1 font-normal leading-5",
+                  disabled ? "cursor-not-allowed" : "cursor-pointer",
+                )}
+              >
                 {label}
               </Label>
             </div>
           );
         })}
         {allowOther && (
-          <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "flex min-h-10 w-full items-center gap-3 rounded-md border border-transparent px-3 py-2 font-normal leading-5 transition-colors focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+              !isOtherSelected && atMax
+                ? "cursor-not-allowed bg-muted/30 text-muted-foreground opacity-70"
+                : "cursor-pointer hover:border-primary/30 hover:bg-muted/50",
+              isOtherSelected &&
+                "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10",
+            )}
+            onClick={(event) => {
+              if (!isOtherSelected && atMax) {
+                event.preventDefault();
+                return;
+              }
+              focusOption(`${blockId}-other`);
+              toggleOption("other", !isOtherSelected);
+            }}
+          >
             <Checkbox
               id={`${blockId}-other`}
               checked={isOtherSelected}
@@ -131,7 +178,15 @@ export function CheckboxInput({ element }: { element: TElement }) {
                 toggleOption("other", checked === true)
               }
             />
-            <Label htmlFor={`${blockId}-other`} className="font-normal">
+            <Label
+              htmlFor={`${blockId}-other`}
+              className={cn(
+                "flex-1 font-normal leading-5",
+                !isOtherSelected && atMax
+                  ? "cursor-not-allowed"
+                  : "cursor-pointer",
+              )}
+            >
               {otherLabel}
             </Label>
           </div>
