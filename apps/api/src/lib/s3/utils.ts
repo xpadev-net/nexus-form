@@ -82,7 +82,14 @@ export function resolveS3BucketConfig(
   };
 }
 
-export const S3_BUCKETS = resolveS3BucketConfig();
+export const S3_BUCKETS: S3BucketConfig = {
+  get TMP() {
+    return resolveS3BucketConfig().TMP;
+  },
+  get PROD() {
+    return resolveS3BucketConfig().PROD;
+  },
+};
 
 /**
  * Checks whether a value is a non-null, non-array object.

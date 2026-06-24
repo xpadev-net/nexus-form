@@ -32,15 +32,20 @@ describe("load-env S3 bucket validation", () => {
   });
 
   it("documents that local fallback is limited to development and test", () => {
-    const source = readFileSync(
+    const loadEnvSource = readFileSync(
       resolve(repoRoot, "apps/api/src/load-env.ts"),
       "utf8",
     );
+    const utilsSource = readFileSync(
+      resolve(repoRoot, "apps/api/src/lib/s3/utils.ts"),
+      "utf8",
+    );
 
-    expect(source).toContain('"development", "test"');
-    expect(source).toContain("S3_BUCKET_TMP");
-    expect(source).toContain("S3_BUCKET_PROD");
-    expect(source).toContain(
+    expect(loadEnvSource).toContain('process.env.NODE_ENV !== "production"');
+    expect(utilsSource).toContain('"development", "test"');
+    expect(utilsSource).toContain("S3_BUCKET_TMP");
+    expect(utilsSource).toContain("S3_BUCKET_PROD");
+    expect(utilsSource).toContain(
       "S3 bucket fallback is limited to development and test",
     );
   });

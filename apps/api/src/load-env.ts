@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import { loadEnvFileSync } from "@nexus-form/shared/node/load-env";
 import { validateBucketName } from "./lib/s3/bucket-name";
 
-const localS3BucketFallbackEnvironments = new Set(["development", "test"]);
 const requiredS3BucketEnvNames = ["S3_BUCKET_TMP", "S3_BUCKET_PROD"] as const;
 
 function formatNodeEnv(nodeEnv: string | undefined): string {
@@ -10,7 +9,7 @@ function formatNodeEnv(nodeEnv: string | undefined): string {
 }
 
 function assertS3BucketEnvironment(): void {
-  if (localS3BucketFallbackEnvironments.has(process.env.NODE_ENV ?? "")) {
+  if (process.env.NODE_ENV !== "production") {
     return;
   }
 
