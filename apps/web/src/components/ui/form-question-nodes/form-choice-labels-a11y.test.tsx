@@ -60,48 +60,13 @@ vi.mock("./editor-controls", () => ({
   SelectionLimitsEditor: () => null,
 }));
 
-vi.mock("./form-question-base", () => {
-  const collectText = (node: unknown): string => {
-    if (typeof node !== "object" || node === null) {
-      return "";
-    }
-    const record = node as { children?: unknown; text?: unknown };
-    if (Array.isArray(record.children)) {
-      return record.children.map(collectText).join("");
-    }
-    return typeof record.text === "string" ? record.text : "";
-  };
-  const getQuestionAccessibleName = (element: TElement): string => {
-    const children = Array.isArray(element.children) ? element.children : [];
-    const texts = children.map((child) =>
-      collectText(child).replace(/\s+/g, " ").trim(),
-    );
-    const prefix = /^Q\d+\.$/.test(texts[0] ?? "") ? `${texts[0]} ` : "";
-    const title = texts.find((text) => text && !/^Q\d+\.$/.test(text));
-    return `${prefix}${title ?? ""}`.trim() || "無題の質問";
-  };
-  const getQuestionLabelId = (blockId: string): string =>
-    `${blockId}-question-label`;
-  const getQuestionControlId = (blockId: string, suffix = "answer"): string =>
-    `${blockId}-${suffix}`;
-
+vi.mock("./form-question-base", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./form-question-base")>();
   return {
-    collectText,
+    ...actual,
     FormQuestionElement: ({ children }: { children: ReactNode }) => (
       <section>{children}</section>
     ),
-    getQuestionAccessibleName,
-    getQuestionControlId,
-    getQuestionControlLabelProps: (blockId: string) => ({
-      id: getQuestionControlId(blockId),
-      name: blockId,
-      "aria-labelledby": getQuestionLabelId(blockId),
-    }),
-    getQuestionLabelId,
-    getQuestionValueAccessibleName: (
-      element: TElement,
-      valueLabel: string,
-    ) => `${getQuestionAccessibleName(element)}: ${valueLabel}`,
   };
 });
 
@@ -321,11 +286,21 @@ describe("public choice controls accessible labels", () => {
         ],
       },
     );
+    element.children = [
+      { type: "p", children: [{ text: "会社種別" }] },
+    ];
     const { container, root } = renderWithAnswers(
       <RadioInput element={element} />,
-      { blockId: "company-type", onAnswer },
+      {
+        blockId: "company-type",
+        labelElement: element,
+        onAnswer,
+      },
     );
 
+    expect(
+      getByRole(container, "radiogroup", { name: "会社種別" }),
+    ).toBeTruthy();
     const radio = getByRole(container, "radio", { name: "法人" });
     await act(async () => {
       fireEvent.click(radio);
@@ -348,11 +323,21 @@ describe("public choice controls accessible labels", () => {
         ],
       },
     );
+    element.children = [
+      { type: "p", children: [{ text: "会社タグ" }] },
+    ];
     const { container, root } = renderWithAnswers(
       <CheckboxInput element={element} />,
-      { blockId: "company-tags", onAnswer },
+      {
+        blockId: "company-tags",
+        labelElement: element,
+        onAnswer,
+      },
     );
 
+    expect(
+      getByRole(container, "group", { name: "会社タグ" }),
+    ).toBeTruthy();
     const checkboxes = getAllByRole(container, "checkbox", { name: "法人" });
     expect(checkboxes).toHaveLength(2);
     const secondCheckbox = checkboxes[1];
@@ -384,11 +369,21 @@ describe("public choice controls accessible labels", () => {
         ],
       },
     );
+    element.children = [
+      { type: "p", children: [{ text: "契約マトリクス" }] },
+    ];
     const { container, root } = renderWithAnswers(
       <ChoiceGridInput element={element} />,
-      { blockId: "contract-grid", onAnswer },
+      {
+        blockId: "contract-grid",
+        labelElement: element,
+        onAnswer,
+      },
     );
 
+    expect(
+      getByRole(container, "group", { name: "契約マトリクス" }),
+    ).toBeTruthy();
     const cell = requireInput(
       getByRole(container, "radio", { name: "契約種別: 法人" }),
     );
@@ -434,11 +429,21 @@ describe("public choice controls accessible labels", () => {
         ],
       },
     );
+    element.children = [
+      { type: "p", children: [{ text: "契約チェック項目" }] },
+    ];
     const { container, root } = renderWithAnswers(
       <CheckboxGridInput element={element} />,
-      { blockId: "contract-checkbox-grid", onAnswer },
+      {
+        blockId: "contract-checkbox-grid",
+        labelElement: element,
+        onAnswer,
+      },
     );
 
+    expect(
+      getByRole(container, "group", { name: "契約チェック項目" }),
+    ).toBeTruthy();
     const cell = requireInput(
       getByRole(container, "checkbox", {
         name: "契約種別: 法人",
