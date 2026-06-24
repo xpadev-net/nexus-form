@@ -19,6 +19,7 @@ import {
   SnapshotNotFoundError,
 } from "../errors/form-errors";
 import { logError } from "../logger";
+import { assertCompletionTargetsForSnapshot } from "./completion-target-validation";
 import { DEFAULT_FORM_STRUCTURE_JSON } from "./default-form-structure";
 import { parseStoredStructure } from "./parse-stored-structure";
 import type { TransactionClient } from "./types";
@@ -238,16 +239,17 @@ export async function publishSnapshot(
     }
 
     const currentPlateContent = formData.plateContent ?? "[]";
+    const currentPlateNodes = parsePlateNodes(currentPlateContent);
     assertSnapshotQuestionTitles(currentPlateContent);
 
-    const questionCount = extractQuestionsFromPlateContent(
-      parsePlateNodes(currentPlateContent),
-    ).length;
+    const questionCount =
+      extractQuestionsFromPlateContent(currentPlateNodes).length;
     if (questionCount === 0) {
       throw new FormValidationError(
         "質問がありません。質問を追加してから保存してください",
       );
     }
+    assertCompletionTargetsForSnapshot(currentPlateNodes);
 
     const currentValidationRulesJson =
       await serializeFormValidationRules(formId);
