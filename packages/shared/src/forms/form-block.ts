@@ -77,7 +77,7 @@ export type AnswerableBlockTypeValue = Exclude<
 
 export const ANSWERABLE_BLOCK_TYPES = BLOCK_TYPES.filter(
   (type): type is AnswerableBlockTypeValue => type !== "section_separator",
-);
+) as readonly AnswerableBlockTypeValue[];
 
 export type PlateQuestionType = `form_${BlockTypeValue}`;
 export type AnswerablePlateQuestionType = `form_${AnswerableBlockTypeValue}`;
