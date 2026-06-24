@@ -10,7 +10,7 @@
     "lint:fix": "turbo lint:fix",
     "type-check": "turbo type-check && pnpm type-check:e2e",
     "type-check:e2e": "tsc --noEmit -p tsconfig.e2e.json",
-    "test": "node scripts/run-turbo-test.mjs",
+    "test": "node scripts/check-env.test.mjs && node scripts/run-turbo-test.mjs",
     "test:e2e": "node scripts/run-playwright.mjs",
     "test:e2e:ci": "node scripts/run-playwright.mjs --list",
     "test:e2e:headed": "node scripts/run-playwright.mjs --headed",
@@ -21,6 +21,7 @@
     "clean": "turbo clean",
     "ci:forbid-colors": "node scripts/forbid-colors.mjs",
     "ci:forbid-colors:all": "node scripts/forbid-colors.mjs --all",
+    "env:check": "node scripts/check-env.mjs",
     "release:dry-run": "node scripts/validate-release-version.mjs"
   },
   "devDependencies": {
