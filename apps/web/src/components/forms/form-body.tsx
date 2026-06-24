@@ -477,7 +477,7 @@ export function FormBody({
         ) {
           pendingFocusQuestionIdRef.current = null;
         }
-        onErrorChange?.(null);
+        onErrorChange?.(FORM_VALIDATION_ALERT_MESSAGE);
         return false;
       }
       pendingFocusQuestionIdRef.current = null;

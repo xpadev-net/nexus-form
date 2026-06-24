@@ -341,6 +341,7 @@ function renderFormBody(
     captchaReady?: boolean;
     description?: string;
     initialAnswers?: ReadonlyMap<string, AnswerEntry>;
+    onErrorChange?: (error: string | null) => void;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
     providerSlot?: ReactNode;
   } = {},
@@ -359,7 +360,10 @@ function renderFormBody(
           captchaReady={options.captchaReady}
           description={options.description}
           error={error}
-          onErrorChange={setError}
+          onErrorChange={(nextError) => {
+            setError(nextError);
+            options.onErrorChange?.(nextError);
+          }}
           onSubmitRequest={options.onSubmitRequest}
         />
       </FormResponseProvider>
@@ -1124,6 +1128,7 @@ describe("FormBody", () => {
 
   it("keeps public required validation blocking submit when answers are missing", async () => {
     const onSubmitRequest = vi.fn();
+    const onErrorChange = vi.fn();
     const container = document.createElement("div");
     const root = renderFormBody(
       container,
@@ -1132,6 +1137,7 @@ describe("FormBody", () => {
       ]),
       {
         captchaReady: true,
+        onErrorChange,
         onSubmitRequest,
       },
     );
@@ -1151,6 +1157,9 @@ describe("FormBody", () => {
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("必須項目が未入力です: Name");
     expect(container.textContent).toContain("Name: この項目は必須です");
+    expect(onErrorChange).toHaveBeenLastCalledWith(
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
+    );
     expect(nameInput.getAttribute("aria-describedby")).toBe(
       "form-question-q-name-error",
     );

@@ -229,6 +229,7 @@ export const FormQuestionElement = withRef<
       typeof element.blockId === "string" ? element.blockId : undefined;
     const titleId = blockId ? getQuestionLabelId(blockId) : undefined;
     const titleText = getQuestionAccessibleName(element);
+    const errorMessage = useFormQuestionErrorMessage(blockId);
 
     return (
       <PlateElement
@@ -282,8 +283,11 @@ export const FormQuestionElement = withRef<
             {editorControls}
           </div>
         )}
-        {readOnly && viewerControls && (
-          <div className="mt-3 border-t pt-3" contentEditable={false}>
+        {readOnly && (viewerControls || errorMessage) && (
+          <div
+            className={cn("mt-3", viewerControls && "border-t pt-3")}
+            contentEditable={false}
+          >
             {viewerControls}
             <FormQuestionErrorMessage questionId={blockId} />
           </div>
