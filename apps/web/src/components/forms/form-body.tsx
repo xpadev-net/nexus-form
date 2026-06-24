@@ -16,6 +16,10 @@ import {
 } from "react";
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
+import {
+  FormQuestionA11yProvider,
+  getFormQuestionErrorId,
+} from "@/components/ui/form-question-nodes/form-question-base";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
@@ -409,6 +413,10 @@ export function FormBody({
       pageQuestionIds.has(error.questionId),
     );
   }, [questionErrors, paging.currentPage.questionIds]);
+  const currentPageInvalidQuestionIds = useMemo(
+    () => new Set(currentPageQuestionErrors.map((error) => error.questionId)),
+    [currentPageQuestionErrors],
+  );
 
   const collectQuestionErrors = useCallback(
     (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
@@ -670,10 +678,14 @@ export function FormBody({
             className={cn("rounded-lg border bg-card", spacingClass.card)}
             ref={viewerRef}
           >
-            <PlateViewer
-              key={paging.currentPageIndex}
-              value={viewerPlateContent}
-            />
+            <FormQuestionA11yProvider
+              invalidQuestionIds={currentPageInvalidQuestionIds}
+            >
+              <PlateViewer
+                key={paging.currentPageIndex}
+                value={viewerPlateContent}
+              />
+            </FormQuestionA11yProvider>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -693,6 +705,7 @@ export function FormBody({
               <p
                 className="text-sm text-destructive outline-none"
                 data-question-error-for={questionError.questionId}
+                id={getFormQuestionErrorId(questionError.questionId)}
                 key={questionError.questionId}
                 tabIndex={-1}
               >
