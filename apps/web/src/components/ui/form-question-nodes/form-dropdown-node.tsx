@@ -16,7 +16,11 @@ import {
   ChoiceOptionsEditor,
   EditorControlsWrapper,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getFormQuestionErrorId,
+  getFormQuestionTitleId,
+} from "./form-question-base";
 
 interface OptionLike {
   id: string;
@@ -49,7 +53,7 @@ export const FormDropdownElement = withRef<typeof PlateElement>(
   },
 );
 
-function DropdownInput({ element }: { element: TElement }) {
+export function DropdownInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -62,6 +66,8 @@ function DropdownInput({ element }: { element: TElement }) {
   const otherLabel = validation?.otherLabel || "その他";
   const selectedValue = (answer?.value as string) ?? "";
   const isOtherSelected = selectedValue === "other";
+  const questionTitleId = getFormQuestionTitleId(blockId);
+  const questionErrorId = getFormQuestionErrorId(blockId);
 
   if (options.length === 0 && !allowOther) {
     return (
@@ -80,7 +86,11 @@ function DropdownInput({ element }: { element: TElement }) {
           })
         }
       >
-        <SelectTrigger className="w-full">
+        <SelectTrigger
+          className="w-full"
+          aria-describedby={questionErrorId}
+          aria-labelledby={questionTitleId}
+        >
           <SelectValue placeholder="選択してください" />
         </SelectTrigger>
         <SelectContent>
@@ -104,6 +114,8 @@ function DropdownInput({ element }: { element: TElement }) {
             })
           }
           placeholder={`${otherLabel}を入力`}
+          aria-describedby={questionErrorId}
+          aria-labelledby={questionTitleId}
         />
       )}
     </div>

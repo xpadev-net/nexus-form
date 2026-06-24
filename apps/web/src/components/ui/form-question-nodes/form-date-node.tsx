@@ -5,7 +5,11 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { DateSettingsEditor, EditorControlsWrapper } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getFormQuestionErrorId,
+  getFormQuestionTitleId,
+} from "./form-question-base";
 
 export const FormDateElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -76,6 +80,8 @@ export function DateInput({ element }: { element: TElement }) {
       max={validation?.maxDate}
       value={value}
       aria-invalid={isInvalid ? true : undefined}
+      aria-describedby={getFormQuestionErrorId(blockId)}
+      aria-labelledby={getFormQuestionTitleId(blockId)}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
       onBlur={(e) => syncDateValue(e.currentTarget.value)}
     />

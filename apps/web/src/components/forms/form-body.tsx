@@ -16,6 +16,7 @@ import {
 } from "react";
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
+import { getFormQuestionErrorId } from "@/components/ui/form-question-nodes/form-question-base";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
@@ -693,6 +694,7 @@ export function FormBody({
               <p
                 className="text-sm text-destructive outline-none"
                 data-question-error-for={questionError.questionId}
+                id={getFormQuestionErrorId(questionError.questionId)}
                 key={questionError.questionId}
                 tabIndex={-1}
               >

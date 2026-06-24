@@ -39,6 +39,14 @@ export interface FormQuestionElementProps {
   viewerControls?: ReactNode;
 }
 
+export function getFormQuestionTitleId(blockId: string): string {
+  return `form-question-${blockId}-title`;
+}
+
+export function getFormQuestionErrorId(blockId: string): string {
+  return `form-question-${blockId}-error`;
+}
+
 /**
  * Shared base component for all form question node elements.
  * Renders a card wrapper with:
@@ -64,6 +72,7 @@ export const FormQuestionElement = withRef<
     const isRequired = validation?.required ?? false;
     const blockId =
       typeof element.blockId === "string" ? element.blockId : undefined;
+    const titleId = blockId ? getFormQuestionTitleId(blockId) : undefined;
 
     return (
       <PlateElement
@@ -92,7 +101,7 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
-        <div className="relative min-w-0">
+        <div className="relative min-w-0" id={titleId}>
           {!readOnly && isElementEmpty(element) && (
             <span
               aria-hidden="true"

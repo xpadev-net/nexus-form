@@ -8,7 +8,11 @@ import {
   ShortTextPatternEditor,
   TextLengthEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getFormQuestionErrorId,
+  getFormQuestionTitleId,
+} from "./form-question-base";
 
 export const FormShortTextElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -36,7 +40,7 @@ export const FormShortTextElement = withRef<typeof PlateElement>(
   },
 );
 
-function ShortTextInput({ element }: { element: TElement }) {
+export function ShortTextInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -49,6 +53,8 @@ function ShortTextInput({ element }: { element: TElement }) {
       value={(answer?.value as string) ?? ""}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder={validation?.placeholder || "回答を入力してください"}
+      aria-describedby={getFormQuestionErrorId(blockId)}
+      aria-labelledby={getFormQuestionTitleId(blockId)}
     />
   );
 }

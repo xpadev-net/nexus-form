@@ -4,7 +4,11 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { EditorControlsWrapper, TimeSettingsEditor } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getFormQuestionErrorId,
+  getFormQuestionTitleId,
+} from "./form-question-base";
 
 export const FormTimeElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -31,7 +35,7 @@ export const FormTimeElement = withRef<typeof PlateElement>(
   },
 );
 
-function TimeInput({ element }: { element: TElement }) {
+export function TimeInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -48,6 +52,8 @@ function TimeInput({ element }: { element: TElement }) {
       min={validation?.minTime}
       max={validation?.maxTime}
       value={(answer?.value as string) ?? ""}
+      aria-describedby={getFormQuestionErrorId(blockId)}
+      aria-labelledby={getFormQuestionTitleId(blockId)}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
     />
   );
