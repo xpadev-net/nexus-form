@@ -178,7 +178,7 @@ export const FormQuestionElement = withRef<
         {blockId && (
           <span
             id={getQuestionLabelId(blockId)}
-            className="sr-only"
+            hidden
             contentEditable={false}
           >
             {getQuestionAccessibleName(element)}

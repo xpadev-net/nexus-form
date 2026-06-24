@@ -61,6 +61,7 @@ vi.mock("./editor-controls", () => ({
 }));
 
 vi.mock("./form-question-base", () => {
+  const headingTypes = ["h1", "h2", "h3", "h4", "h5", "h6"];
   const collectText = (node: unknown): string => {
     if (typeof node !== "object" || node === null) {
       return "";
@@ -73,11 +74,21 @@ vi.mock("./form-question-base", () => {
   };
   const getQuestionAccessibleName = (element: TElement): string => {
     const children = Array.isArray(element.children) ? element.children : [];
+    const headingText = children
+      .filter(
+        (child) =>
+          typeof child === "object" &&
+          child !== null &&
+          headingTypes.includes((child as { type?: unknown }).type as string),
+      )
+      .map((child) => collectText(child).replace(/\s+/g, " ").trim())
+      .find(Boolean);
     const texts = children.map((child) =>
       collectText(child).replace(/\s+/g, " ").trim(),
     );
     const prefix = /^Q\d+\.$/.test(texts[0] ?? "") ? `${texts[0]} ` : "";
-    const title = texts.find((text) => text && !/^Q\d+\.$/.test(text));
+    const title =
+      headingText ?? texts.find((text) => text && !/^Q\d+\.$/.test(text));
     return `${prefix}${title ?? ""}`.trim() || "無題の質問";
   };
   const getQuestionLabelId = (blockId: string): string =>
@@ -257,6 +268,28 @@ describe("public choice controls accessible labels", () => {
     ).toBeTruthy();
 
     act(() => dropdown.root.unmount());
+  });
+
+  it("prefers heading text when naming question controls", () => {
+    const element = testElement("form_short_text", "heading-title", {});
+    element.children = [
+      { type: "p", children: [{ text: "補足説明" }] },
+      { type: "h2", children: [{ text: "見出しタイトル" }] },
+    ];
+
+    const rendered = renderWithAnswers(<ShortTextInput element={element} />, {
+      blockId: "heading-title",
+      labelElement: element,
+      onAnswer: vi.fn(),
+    });
+
+    expect(
+      getByRole(rendered.container, "textbox", {
+        name: "見出しタイトル",
+      }),
+    ).toBeTruthy();
+
+    act(() => rendered.root.unmount());
   });
 
   it("names scale and rating buttons with the question label and value", () => {

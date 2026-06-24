@@ -9,8 +9,8 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
+  getQuestionAccessibleName,
   getQuestionLabelId,
-  getQuestionValueAccessibleName,
 } from "./form-question-base";
 
 export const FormLinearScaleElement = withRef<typeof PlateElement>(
@@ -52,6 +52,7 @@ export function LinearScaleInput({ element }: { element: TElement }) {
   const minLabel = validation?.minLabel;
   const maxLabel = validation?.maxLabel;
   const currentValue = answer?.value as number | undefined;
+  const questionName = getQuestionAccessibleName(element);
 
   const steps: number[] = [];
   for (let i = min; i <= max; i += step) {
@@ -74,10 +75,7 @@ export function LinearScaleInput({ element }: { element: TElement }) {
               key={value}
               type="button"
               variant={currentValue === value ? "default" : "outline"}
-              aria-label={getQuestionValueAccessibleName(
-                element,
-                String(value),
-              )}
+              aria-label={`${questionName}: ${value}`}
               aria-pressed={currentValue === value}
               onClick={() => ctx.setAnswer(blockId, { value })}
               className="size-9 rounded-full p-0 shadow-none"

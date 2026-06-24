@@ -9,8 +9,8 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
+  getQuestionAccessibleName,
   getQuestionLabelId,
-  getQuestionValueAccessibleName,
 } from "./form-question-base";
 
 export const FormRatingElement = withRef<typeof PlateElement>(
@@ -49,6 +49,7 @@ export function RatingInput({ element }: { element: TElement }) {
   const maxRating = validation?.maxRating ?? 5;
   const icon = validation?.icon ?? "star";
   const currentRating = (answer?.value as number) ?? 0;
+  const questionName = getQuestionAccessibleName(element);
 
   const iconChar = icon === "heart" ? "\u2665" : icon === "thumbs" ? "\uD83D\uDC4D" : "\u2605";
 
@@ -66,10 +67,7 @@ export function RatingInput({ element }: { element: TElement }) {
             key={value}
             type="button"
             variant="ghost"
-            aria-label={getQuestionValueAccessibleName(
-              element,
-              String(value),
-            )}
+            aria-label={`${questionName}: ${value}`}
             aria-pressed={currentRating === value}
             onClick={() => ctx.setAnswer(blockId, { value })}
             className={cn(
