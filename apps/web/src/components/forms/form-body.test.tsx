@@ -1597,6 +1597,8 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("法人追加情報");
     expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).not.toContain("法人名: この項目は必須です");
 
     expect(
       getByRole(container, "button", { name: "回答を送信" }),
@@ -1611,6 +1613,7 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).toContain("法人名: この項目は必須です");
 
     const companyInput = getByRole(container, "textbox", {
       name: "法人名",
@@ -1729,6 +1732,8 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("法人追加情報");
     expect(container.textContent).toContain("3 / 3");
     expect(container.textContent).not.toContain("確認ページ");
+    expect(container.textContent).not.toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).not.toContain("法人名: この項目は必須です");
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
@@ -1739,6 +1744,7 @@ describe("FormBody", () => {
     });
 
     expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).toContain("法人名: この項目は必須です");
     expect(onSubmitRequest).not.toHaveBeenCalled();
 
     const companyInput = getByRole(container, "textbox", {
