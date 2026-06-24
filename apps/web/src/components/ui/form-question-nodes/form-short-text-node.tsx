@@ -10,7 +10,7 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionTitleId,
+  getQuestionControlLabelProps,
   useFormQuestionErrorA11y,
 } from "./form-question-base";
 
@@ -51,10 +51,10 @@ export function ShortTextInput({ element }: { element: TElement }) {
     | undefined;
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       value={(answer?.value as string) ?? ""}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder={validation?.placeholder || "回答を入力してください"}
-      aria-labelledby={getFormQuestionTitleId(blockId)}
       {...errorA11y}
     />
   );

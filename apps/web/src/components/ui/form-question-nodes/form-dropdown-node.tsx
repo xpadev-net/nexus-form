@@ -3,6 +3,7 @@ import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -18,7 +19,9 @@ import {
 } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionTitleId,
+  getQuestionControlId,
+  getQuestionLabelId,
+  getQuestionValueAccessibleName,
   useFormQuestionErrorA11y,
 } from "./form-question-base";
 
@@ -67,7 +70,8 @@ export function DropdownInput({ element }: { element: TElement }) {
   const otherLabel = validation?.otherLabel || "その他";
   const selectedValue = (answer?.value as string) ?? "";
   const isOtherSelected = selectedValue === "other";
-  const questionTitleId = getFormQuestionTitleId(blockId);
+  const questionLabelId = getQuestionLabelId(blockId);
+  const otherInputId = getQuestionControlId(blockId, "other-input");
 
   if (options.length === 0 && !allowOther) {
     return (
@@ -87,8 +91,9 @@ export function DropdownInput({ element }: { element: TElement }) {
         }
       >
         <SelectTrigger
+          id={getQuestionControlId(blockId)}
+          aria-labelledby={questionLabelId}
           className="w-full"
-          aria-labelledby={questionTitleId}
           {...errorA11y}
         >
           <SelectValue placeholder="選択してください" />
@@ -105,18 +110,24 @@ export function DropdownInput({ element }: { element: TElement }) {
         </SelectContent>
       </Select>
       {allowOther && isOtherSelected && (
-        <Input
-          value={(answer?.other_value as string) ?? ""}
-          onChange={(e) =>
-            ctx.setAnswer(blockId, {
-              value: "other",
-              other_value: e.target.value,
-            })
-          }
-          placeholder={`${otherLabel}を入力`}
-          aria-labelledby={questionTitleId}
-          {...errorA11y}
-        />
+        <div>
+          <Label htmlFor={otherInputId} className="sr-only">
+            {getQuestionValueAccessibleName(element, `${otherLabel}を入力`)}
+          </Label>
+          <Input
+            id={otherInputId}
+            name={`${blockId}-other`}
+            value={(answer?.other_value as string) ?? ""}
+            onChange={(e) =>
+              ctx.setAnswer(blockId, {
+                value: "other",
+                other_value: e.target.value,
+              })
+            }
+            placeholder={`${otherLabel}を入力`}
+            {...errorA11y}
+          />
+        </div>
       )}
     </div>
   );

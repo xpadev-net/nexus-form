@@ -56,6 +56,12 @@ vi.mock("platejs/react", () => ({
 }));
 
 let collectText: (node: unknown) => string;
+let getQuestionAccessibleName: (element: Record<string, unknown>) => string;
+let getQuestionControlLabelProps: (blockId: string) => {
+  id: string;
+  name: string;
+  "aria-labelledby": string;
+};
 let getFormQuestionTitleId: (blockId: string) => string;
 let FormQuestionElement: ComponentType<{
   children?: ReactNode;
@@ -65,6 +71,11 @@ let FormQuestionElement: ComponentType<{
 beforeAll(async () => {
   const formQuestionBase = await import("./form-question-base");
   collectText = formQuestionBase.collectText;
+  getQuestionAccessibleName =
+    formQuestionBase.getQuestionAccessibleName as unknown as (
+      element: Record<string, unknown>,
+    ) => string;
+  getQuestionControlLabelProps = formQuestionBase.getQuestionControlLabelProps;
   getFormQuestionTitleId = formQuestionBase.getFormQuestionTitleId;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
@@ -73,17 +84,21 @@ beforeAll(async () => {
     }>;
 });
 
-function renderFormQuestionElement(element: Record<string, unknown>): {
+function renderFormQuestionElement(
+  element: Record<string, unknown>,
+  viewerControls?: ReactNode,
+): {
   container: HTMLElement;
   root: Root;
 } {
   plateState.element = element;
   const container = document.createElement("div");
+  document.body.appendChild(container);
   const root = createRoot(container);
 
   act(() => {
     root.render(
-      <FormQuestionElement>
+      <FormQuestionElement viewerControls={viewerControls}>
         <p>Question body</p>
       </FormQuestionElement>,
     );
@@ -134,6 +149,7 @@ describe("FormQuestionElement", () => {
     for (const root of mountedRoots) {
       act(() => root.unmount());
     }
+    document.body.replaceChildren();
   });
 
   it("renders placeholder without crashing when saved children are malformed", () => {
@@ -158,33 +174,42 @@ describe("FormQuestionElement", () => {
     expect(container.textContent).not.toContain("質問タイトルを入力...");
   });
 
-  it("uses the rendered question title as a viewer control accessible name", () => {
-    plateState.element = {
-      type: "form_short_text",
-      blockId: "question-1",
-      children: [{ type: "p", children: [{ text: "Question title" }] }],
-    };
+  it("provides the question title as a stable accessible label for viewer controls", () => {
     plateState.readOnly = true;
-    const container = document.createElement("div");
-    document.body.appendChild(container);
-    const root = createRoot(container);
+    const { container, root } = renderFormQuestionElement(
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          { type: "p", children: [{ text: "氏名" }] },
+          { type: "p", children: [{ text: "補足説明" }] },
+        ],
+      },
+      <input {...getQuestionControlLabelProps("question-1")} />,
+    );
     mountedRoots.push(root);
 
-    act(() => {
-      root.render(
-        <FormQuestionElement
-          viewerControls={
-            <input aria-labelledby={getFormQuestionTitleId("question-1")} />
-          }
-        >
-          <p>Question title</p>
-        </FormQuestionElement>,
-      );
-    });
-
+    const input = getByRole(container, "textbox", { name: "氏名" });
+    expect(input.getAttribute("aria-labelledby")).toBe(
+      getFormQuestionTitleId("question-1"),
+    );
     expect(
-      getByRole(container, "textbox", { name: "Question title" }),
-    ).not.toBeNull();
-    container.remove();
+      container.querySelector(`#${getFormQuestionTitleId("question-1")}`)
+        ?.textContent,
+    ).toBe("氏名");
+  });
+
+  it("keeps generated question numbers with the title but excludes description text", () => {
+    expect(
+      getQuestionAccessibleName({
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          { type: "p", children: [{ bold: true, text: "Q1. " }] },
+          { type: "p", children: [{ text: "氏名" }] },
+          { type: "p", children: [{ text: "補足説明" }] },
+        ],
+      }),
+    ).toBe("Q1. 氏名");
   });
 });

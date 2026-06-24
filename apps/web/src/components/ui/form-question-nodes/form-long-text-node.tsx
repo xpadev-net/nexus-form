@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { EditorControlsWrapper, TextLengthEditor } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionTitleId,
+  getQuestionControlLabelProps,
   useFormQuestionErrorA11y,
 } from "./form-question-base";
 
@@ -43,11 +43,11 @@ export function LongTextInput({ element }: { element: TElement }) {
   const answer = ctx.getAnswer(blockId);
   return (
     <Textarea
+      {...getQuestionControlLabelProps(blockId)}
       value={(answer?.value as string) ?? ""}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder="回答を入力してください"
       rows={4}
-      aria-labelledby={getFormQuestionTitleId(blockId)}
       {...errorA11y}
     />
   );

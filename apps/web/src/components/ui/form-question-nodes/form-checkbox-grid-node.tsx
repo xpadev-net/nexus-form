@@ -12,7 +12,7 @@ import {
   GridItemsEditor,
   GridSelectionLimitsEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import { FormQuestionElement, getQuestionLabelId } from "./form-question-base";
 
 interface GridItemLike {
   id: string;
@@ -85,7 +85,11 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
   };
 
   return (
-    <div className="space-y-1">
+    <div
+      className="space-y-1"
+      role="group"
+      aria-labelledby={getQuestionLabelId(blockId)}
+    >
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>

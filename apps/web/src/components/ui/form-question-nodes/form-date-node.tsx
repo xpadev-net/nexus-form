@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { DateSettingsEditor, EditorControlsWrapper } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionTitleId,
+  getQuestionControlLabelProps,
   useFormQuestionErrorA11y,
 } from "./form-question-base";
 
@@ -76,12 +76,12 @@ export function DateInput({ element }: { element: TElement }) {
 
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       type="date"
       min={validation?.minDate}
       max={validation?.maxDate}
       value={value}
       aria-invalid={isInvalid || errorA11y["aria-invalid"] ? true : undefined}
-      aria-labelledby={getFormQuestionTitleId(blockId)}
       aria-describedby={errorA11y["aria-describedby"]}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
       onBlur={(e) => syncDateValue(e.currentTarget.value)}

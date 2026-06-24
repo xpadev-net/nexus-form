@@ -12,7 +12,12 @@ import {
   EditorControlsWrapper,
   SelectionLimitsEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlId,
+  getQuestionLabelId,
+  getQuestionValueAccessibleName,
+} from "./form-question-base";
 
 interface OptionLike {
   id: string;
@@ -68,6 +73,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
   const selected = (answer?.values as string[]) ?? [];
   const isOtherSelected = selected.includes("other");
   const atMax = maxSelections != null && selected.length >= maxSelections;
+  const otherInputId = getQuestionControlId(blockId, "other-input");
 
   if (options.length === 0 && !allowOther) {
     return (
@@ -88,7 +94,11 @@ export function CheckboxInput({ element }: { element: TElement }) {
   };
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      role="group"
+      aria-labelledby={getQuestionLabelId(blockId)}
+    >
       <div className="grid gap-3">
         {options.map((option) => {
           const isChecked = selected.includes(option.id);
@@ -128,17 +138,23 @@ export function CheckboxInput({ element }: { element: TElement }) {
         )}
       </div>
       {allowOther && isOtherSelected && (
-        <Input
-          value={((answer?.other_values as string[]) ?? [])[0] ?? ""}
-          onChange={(e) =>
-            ctx.setAnswer(blockId, {
-              values: selected,
-              other_values: [e.target.value],
-            })
-          }
-          placeholder={`${otherLabel}を入力`}
-          className="ml-6"
-        />
+        <div className="ml-6">
+          <Label htmlFor={otherInputId} className="sr-only">
+            {getQuestionValueAccessibleName(element, `${otherLabel}を入力`)}
+          </Label>
+          <Input
+            id={otherInputId}
+            name={`${blockId}-other`}
+            value={((answer?.other_values as string[]) ?? [])[0] ?? ""}
+            onChange={(e) =>
+              ctx.setAnswer(blockId, {
+                values: selected,
+                other_values: [e.target.value],
+              })
+            }
+            placeholder={`${otherLabel}を入力`}
+          />
+        </div>
       )}
       {(minSelections != null || maxSelections != null) && (
         <p className="text-xs text-muted-foreground">

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { EditorControlsWrapper, TimeSettingsEditor } from "./editor-controls";
 import {
   FormQuestionElement,
-  getFormQuestionTitleId,
+  getQuestionControlLabelProps,
   useFormQuestionErrorA11y,
 } from "./form-question-base";
 
@@ -49,11 +49,11 @@ export function TimeInput({ element }: { element: TElement }) {
     | undefined;
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       type="time"
       min={validation?.minTime}
       max={validation?.maxTime}
       value={(answer?.value as string) ?? ""}
-      aria-labelledby={getFormQuestionTitleId(blockId)}
       {...errorA11y}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
     />

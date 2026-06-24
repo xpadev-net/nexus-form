@@ -11,7 +11,7 @@ import {
   EditorControlsWrapper,
   GridItemsEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import { FormQuestionElement, getQuestionLabelId } from "./form-question-base";
 
 interface GridItemLike {
   id: string;
@@ -71,7 +71,11 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="overflow-x-auto"
+      role="group"
+      aria-labelledby={getQuestionLabelId(blockId)}
+    >
       <table className="w-full border-collapse">
         <thead>
           <tr>
