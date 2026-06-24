@@ -32,6 +32,7 @@ COPY ./packages/shared/ ./packages/shared/
 COPY ./packages/validation-provider-discord/ ./packages/validation-provider-discord/
 COPY ./packages/validation-provider-github/ ./packages/validation-provider-github/
 COPY ./packages/validation-provider-twitter/ ./packages/validation-provider-twitter/
+COPY ./scripts/assert-no-test-artifacts.mjs ./scripts/assert-no-test-artifacts.mjs
 
 # Build shared packages first, then validation providers (apps/api resolves
 # their `./plugin` exports at runtime via import.meta.resolve), then apps.
