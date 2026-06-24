@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     share_link_id?: string;
   } | null,
   createShareLink: vi.fn(),
+  cancelInvitation: vi.fn(),
   dbSelect: vi.fn(),
   dbTransaction: vi.fn(),
   deleteShareLink: vi.fn(),
@@ -109,7 +110,7 @@ vi.mock("../lib/dual-auth", () => ({
 
 vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: vi.fn(),
-  cancelInvitation: vi.fn(),
+  cancelInvitation: mocks.cancelInvitation,
   checkShareLinkPermission: mocks.checkShareLinkPermission,
   createInvitation: mocks.createInvitation,
   createShareLink: mocks.createShareLink,
@@ -416,6 +417,11 @@ describe("R28-H2 invitation management authorization", () => {
       method: "GET",
       path: "/form-1/invitations/invitation-1",
       service: "dbSelect",
+    },
+    {
+      method: "DELETE",
+      path: "/form-1/invitations/invitation-1",
+      service: "cancelInvitation",
     },
   ] as const)("rejects EDITOR share-link API tokens before $method $path", async ({
     body,

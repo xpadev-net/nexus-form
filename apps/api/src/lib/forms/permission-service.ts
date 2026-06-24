@@ -245,11 +245,6 @@ function isDuplicateKeyError(error: unknown, depth: number = 0): boolean {
     return true;
   }
 
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  if (message.includes("duplicate entry")) {
-    return true;
-  }
-
   return isDuplicateKeyError(Reflect.get(error, "cause"), depth + 1);
 }
 
