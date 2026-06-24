@@ -17,6 +17,7 @@ import {
   getQuestionControlId,
   getQuestionLabelId,
   getQuestionValueAccessibleName,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -53,8 +54,9 @@ export const FormCheckboxElement = withRef<typeof PlateElement>(
 
 export function CheckboxInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | {
@@ -102,6 +104,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
       className="space-y-2"
       role="group"
       aria-labelledby={getQuestionLabelId(blockId)}
+      {...errorA11y}
     >
       <div className="grid gap-3">
         {options.map((option) => {

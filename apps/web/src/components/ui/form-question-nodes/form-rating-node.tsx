@@ -11,6 +11,7 @@ import {
   FormQuestionElement,
   getQuestionAccessibleName,
   getQuestionLabelId,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 export const FormRatingElement = withRef<typeof PlateElement>(
@@ -40,8 +41,9 @@ export const FormRatingElement = withRef<typeof PlateElement>(
 
 export function RatingInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { maxRating?: number; icon?: "star" | "heart" | "thumbs" }
@@ -58,6 +60,7 @@ export function RatingInput({ element }: { element: TElement }) {
       className="flex justify-center gap-1"
       role="group"
       aria-labelledby={getQuestionLabelId(blockId)}
+      {...errorA11y}
     >
       {Array.from({ length: maxRating }, (_, i) => {
         const value = i + 1;
