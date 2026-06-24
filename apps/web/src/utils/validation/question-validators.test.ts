@@ -1,7 +1,10 @@
+import type { ExtractedQuestion } from "@nexus-form/shared";
 import { describe, expect, it } from "vitest";
 import type { Block } from "@/types/domain/form-block";
 import {
+  type AnswerLike,
   validateDate,
+  validateExtractedQuestionAnswer,
   validateShortText,
   validateTime,
 } from "./question-validators";
@@ -69,6 +72,27 @@ function timeQuestion(
   };
 }
 
+function extractedQuestion(
+  type: string,
+  validation: Record<string, unknown>,
+): ExtractedQuestion {
+  return {
+    blockId: `q-${type}`,
+    type,
+    title: `${type} question`,
+    validation,
+  };
+}
+
+function errorCodesFor(
+  question: ExtractedQuestion,
+  answer: AnswerLike | undefined,
+): string[] {
+  return validateExtractedQuestionAnswer(question, answer).errors.map(
+    (error) => error.code,
+  );
+}
+
 describe("question validators", () => {
   it("treats whitespace-only optional short_text as blank before length and pattern checks", () => {
     const result = validateShortText(
@@ -80,6 +104,51 @@ describe("question validators", () => {
         allowPatternMismatch: false,
       }),
       { question_type: "short_text", value: "   " },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("rejects short_text values that do not match a blocking pattern", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^NF-\\d{4}$",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
+  it("allows short_text pattern mismatches when the validation permits them", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^NF-\\d{4}$",
+        allowPatternMismatch: true,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("does not reject or throw when short_text has an invalid regex pattern", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "[",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "anything" },
     );
 
     expect(result).toEqual({ is_valid: true, errors: [] });
@@ -109,5 +178,208 @@ describe("question validators", () => {
     );
 
     expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it.each([
+    [
+      "short_text min length",
+      extractedQuestion("short_text", {
+        required: false,
+        minLength: 3,
+      }),
+      { value: "ab" },
+      ["MIN_LENGTH"],
+    ],
+    [
+      "short_text max length",
+      extractedQuestion("short_text", {
+        required: false,
+        maxLength: 3,
+      }),
+      { value: "abcd" },
+      ["MAX_LENGTH"],
+    ],
+    [
+      "short_text pattern",
+      extractedQuestion("short_text", {
+        required: false,
+        pattern: "^NF-\\d{4}$",
+        allowPatternMismatch: false,
+      }),
+      { value: "draft" },
+      ["PATTERN_MISMATCH"],
+    ],
+    [
+      "long_text min length",
+      extractedQuestion("long_text", {
+        required: false,
+        minLength: 4,
+        maxLength: 8,
+      }),
+      { value: "abc" },
+      ["MIN_LENGTH"],
+    ],
+    [
+      "long_text max length",
+      extractedQuestion("long_text", {
+        required: false,
+        minLength: 4,
+        maxLength: 8,
+      }),
+      { value: "abcdefghi" },
+      ["MAX_LENGTH"],
+    ],
+    [
+      "radio option id",
+      extractedQuestion("radio", {
+        required: false,
+        options: [
+          { id: "yes", label: "Yes" },
+          { id: "no", label: "No" },
+        ],
+      }),
+      { value: "maybe" },
+      ["INVALID_OPTION"],
+    ],
+    [
+      "checkbox option id and minimum selections",
+      extractedQuestion("checkbox", {
+        required: false,
+        minSelections: 2,
+        maxSelections: 3,
+        options: [
+          { id: "red", label: "Red" },
+          { id: "blue", label: "Blue" },
+          { id: "green", label: "Green" },
+        ],
+      }),
+      { values: ["yellow"] },
+      ["INVALID_OPTIONS", "MIN_SELECTIONS"],
+    ],
+    [
+      "checkbox maximum selections",
+      extractedQuestion("checkbox", {
+        required: false,
+        maxSelections: 2,
+        options: [
+          { id: "red", label: "Red" },
+          { id: "blue", label: "Blue" },
+          { id: "green", label: "Green" },
+        ],
+      }),
+      { values: ["red", "blue", "green"] },
+      ["MAX_SELECTIONS"],
+    ],
+    [
+      "dropdown option id",
+      extractedQuestion("dropdown", {
+        required: false,
+        options: [
+          { id: "jp", label: "Japan" },
+          { id: "us", label: "United States" },
+        ],
+      }),
+      { value: "fr" },
+      ["INVALID_OPTION"],
+    ],
+    [
+      "linear_scale range",
+      extractedQuestion("linear_scale", {
+        required: false,
+        min: 1,
+        max: 5,
+      }),
+      { value: 6 },
+      ["OUT_OF_RANGE"],
+    ],
+    [
+      "rating range",
+      extractedQuestion("rating", {
+        required: false,
+        maxRating: 5,
+      }),
+      { value: 6 },
+      ["OUT_OF_RANGE"],
+    ],
+    [
+      "choice_grid row and column ids",
+      extractedQuestion("choice_grid", {
+        required: true,
+        rows: [
+          { id: "row-a", label: "Row A" },
+          { id: "row-b", label: "Row B" },
+        ],
+        columns: [
+          { id: "col-1", label: "Column 1" },
+          { id: "col-2", label: "Column 2" },
+        ],
+      }),
+      { responses: { "row-a": "missing-col", "row-x": "col-1" } },
+      ["MISSING_REQUIRED_ROWS", "INVALID_COLUMN", "INVALID_ROW"],
+    ],
+    [
+      "checkbox_grid row, column, and selection count",
+      extractedQuestion("checkbox_grid", {
+        required: true,
+        rows: [
+          { id: "row-a", label: "Row A" },
+          { id: "row-b", label: "Row B" },
+        ],
+        columns: [
+          { id: "col-1", label: "Column 1" },
+          { id: "col-2", label: "Column 2" },
+        ],
+        minSelectionsPerRow: 1,
+        maxSelectionsPerRow: 1,
+      }),
+      { responses: { "row-a": [], "row-b": ["col-1", "missing-col"] } },
+      ["MIN_SELECTIONS_PER_ROW", "INVALID_COLUMN", "MAX_SELECTIONS_PER_ROW"],
+    ],
+    [
+      "date minimum range",
+      extractedQuestion("date", {
+        required: false,
+        format: "YYYY-MM-DD",
+        minDate: "2026-01-01",
+        maxDate: "2026-12-31",
+      }),
+      { value: "2025-12-31" },
+      ["DATE_TOO_EARLY"],
+    ],
+    [
+      "date maximum range",
+      extractedQuestion("date", {
+        required: false,
+        format: "YYYY-MM-DD",
+        minDate: "2026-01-01",
+        maxDate: "2026-12-31",
+      }),
+      { value: "2027-01-01" },
+      ["DATE_TOO_LATE"],
+    ],
+    [
+      "time minimum range",
+      extractedQuestion("time", {
+        required: false,
+        format: "24h",
+        minTime: "09:00",
+        maxTime: "17:00",
+      }),
+      { value: "08:59" },
+      ["TIME_TOO_EARLY"],
+    ],
+    [
+      "time maximum range",
+      extractedQuestion("time", {
+        required: false,
+        format: "24h",
+        minTime: "09:00",
+        maxTime: "17:00",
+      }),
+      { value: "17:01" },
+      ["TIME_TOO_LATE"],
+    ],
+  ])("validates extracted %s answers before page navigation or submit", (_name, question, answer, expectedCodes) => {
+    expect(errorCodesFor(question, answer)).toEqual(expectedCodes);
   });
 });
