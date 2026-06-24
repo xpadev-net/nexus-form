@@ -15,6 +15,12 @@ interface BlockRef {
   title?: string;
 }
 
+/**
+ * Section candidate for submit completion targets.
+ *
+ * `id` is the section/page ID, `title` is the editor label, and
+ * `isCompletionTarget` is true when the section contains no answerable fields.
+ */
 export interface SectionTargetOption {
   id: string;
   title: string;
@@ -36,21 +42,17 @@ const ACTION_TYPE_LABELS: Record<FormLogicAction["type"], string> = {
   submit: "送信する",
 };
 
-export const LogicActionBuilder: FC<LogicActionBuilderProps> = ({
-  action,
-  availableSections,
-  completionTargetSections = [],
-  onChange,
-  disabled = false,
-}) => {
-  const completionTargetMessageId = useId();
-  const completionTargetErrorId = useId();
+export function getCompletionTargetStatus(
+  action: FormLogicAction,
+  completionTargetSections: SectionTargetOption[],
+) {
   const selectedCompletionTarget = completionTargetSections.find(
     (section) => section.id === action.target_id,
   );
   const hasCompletionTargetChoice = completionTargetSections.some(
     (section) => section.isCompletionTarget,
   );
+  // Submit without target_id remains the legacy confirmation flow.
   const hasMissingCompletionTarget =
     action.type === "submit" &&
     typeof action.target_id === "string" &&
@@ -62,6 +64,31 @@ export const LogicActionBuilder: FC<LogicActionBuilderProps> = ({
     !selectedCompletionTarget.isCompletionTarget;
   const hasCompletionTargetError =
     hasInvalidCompletionTarget || hasMissingCompletionTarget;
+
+  return {
+    selectedCompletionTarget,
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  };
+}
+
+export const LogicActionBuilder: FC<LogicActionBuilderProps> = ({
+  action,
+  availableSections,
+  completionTargetSections = [],
+  onChange,
+  disabled = false,
+}) => {
+  const completionTargetMessageId = useId();
+  const completionTargetErrorId = useId();
+  const {
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  } = getCompletionTargetStatus(action, completionTargetSections);
   const completionTargetDescription = [
     action.type === "submit" && !hasCompletionTargetChoice
       ? completionTargetMessageId

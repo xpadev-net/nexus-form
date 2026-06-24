@@ -166,6 +166,37 @@ describe("LogicActionBuilder", () => {
     act(() => root.unmount());
   });
 
+  it("keeps an existing missing submit target visible with a warning", () => {
+    const container = document.createElement("div");
+    const root = renderBuilder(
+      container,
+      { type: "submit", target_id: "deleted-section" },
+      vi.fn(),
+    );
+
+    const missingOption = container.querySelector<HTMLOptionElement>(
+      'option[value="deleted-section"]',
+    );
+
+    expect(missingOption?.textContent).toBe("不明な完了セクション");
+    expect(container.textContent).toContain(
+      "選択中の完了セクションが見つかりません",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("keeps submit without a target as the legacy confirmation flow", () => {
+    const container = document.createElement("div");
+    const root = renderBuilder(container, { type: "submit" }, vi.fn());
+
+    expect(container.textContent).not.toContain(
+      "選択中の完了セクションが見つかりません",
+    );
+
+    act(() => root.unmount());
+  });
+
   it("does not show completion warnings for ordinary section jumps", () => {
     const container = document.createElement("div");
     const root = renderBuilder(

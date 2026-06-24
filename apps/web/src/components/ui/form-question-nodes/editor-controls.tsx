@@ -18,6 +18,7 @@ import {
   useState,
 } from "react";
 import {
+  getCompletionTargetStatus,
   LogicActionBuilder,
   type SectionTargetOption,
 } from "@/components/forms/logic-action-builder";
@@ -978,6 +979,15 @@ export function getBlockValueOptions(
   return undefined;
 }
 
+function getEditorStructureSignature(children: TElement[]): string {
+  return children
+    .map((child) => {
+      const blockId = typeof child.blockId === "string" ? child.blockId : "";
+      return `${String(child.type)}:${blockId}`;
+    })
+    .join("|");
+}
+
 function getInitialConditionValue(
   block: EditorBlock | undefined,
 ): FormLogicCondition["value"] {
@@ -1055,6 +1065,8 @@ export function SectionTransitionEditor({
     () => validation?.navigation_rules ?? [],
     [validation?.navigation_rules],
   );
+  const editorChildren = editor.children as TElement[];
+  const editorStructureSignature = getEditorStructureSignature(editorChildren);
 
   // Available sections for "jump to" (exclude preceding and current sections)
   const availableSections = useMemo(
@@ -1077,14 +1089,11 @@ export function SectionTransitionEditor({
   );
 
   const completionTargetSections = useMemo<SectionTargetOption[]>(() => {
-    const sourceSectionId = sectionCtx.sections.find(
-      (section) => section.index === sectionCtx.precedingSectionIndex,
-    )?.id;
-    const pages = splitPlateContentIntoPages(editor.children as unknown[]);
+    const pages = splitPlateContentIntoPages(editorChildren);
     const pageById = new Map(pages.map((page) => [page.pageId, page]));
 
     return sectionCtx.sections
-      .filter((section) => section.id !== sourceSectionId)
+      .filter((section) => section.index !== sectionCtx.precedingSectionIndex)
       .map((section) => {
         const page = pageById.get(section.id);
         return {
@@ -1097,7 +1106,11 @@ export function SectionTransitionEditor({
         if (left.isCompletionTarget === right.isCompletionTarget) return 0;
         return left.isCompletionTarget ? -1 : 1;
       });
-  }, [editor.children, sectionCtx.sections, sectionCtx.precedingSectionIndex]);
+  }, [
+    editorStructureSignature,
+    sectionCtx.sections,
+    sectionCtx.precedingSectionIndex,
+  ]);
 
   // If the jump target was deleted or is missing, fall back to "next"
   const resolvedDefaultAction: SectionTransitionAction = useMemo(() => {
@@ -1111,27 +1124,15 @@ export function SectionTransitionEditor({
     return defaultAction;
   }, [defaultAction, availableSections]);
 
-  const selectedCompletionTarget = useMemo(
-    () =>
-      completionTargetSections.find(
-        (section) => section.id === resolvedDefaultAction.target_id,
-      ),
-    [completionTargetSections, resolvedDefaultAction.target_id],
+  const {
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  } = getCompletionTargetStatus(
+    resolvedDefaultAction,
+    completionTargetSections,
   );
-  const hasCompletionTargetChoice = completionTargetSections.some(
-    (section) => section.isCompletionTarget,
-  );
-  const hasMissingCompletionTarget =
-    resolvedDefaultAction.type === "submit" &&
-    typeof resolvedDefaultAction.target_id === "string" &&
-    resolvedDefaultAction.target_id.length > 0 &&
-    !selectedCompletionTarget;
-  const hasInvalidCompletionTarget =
-    resolvedDefaultAction.type === "submit" &&
-    selectedCompletionTarget != null &&
-    !selectedCompletionTarget.isCompletionTarget;
-  const hasCompletionTargetError =
-    hasInvalidCompletionTarget || hasMissingCompletionTarget;
   const completionTargetDescription = [
     resolvedDefaultAction.type === "submit" && !hasCompletionTargetChoice
       ? completionTargetMessageId
