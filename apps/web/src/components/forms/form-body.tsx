@@ -16,10 +16,7 @@ import {
 } from "react";
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
-import {
-  FormQuestionA11yProvider,
-  getFormQuestionErrorId,
-} from "@/components/ui/form-question-nodes/form-question-base";
+import { FormQuestionA11yProvider } from "@/components/ui/form-question-nodes/form-question-base";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
@@ -65,7 +62,6 @@ interface QuestionValidationMessage {
   questionId: string;
   title: string;
   messages: string[];
-  codes: string[];
 }
 
 type FormBodyStyle = CSSProperties & {
@@ -152,17 +148,8 @@ function uniqueMessages(messages: string[]): string[] {
   return Array.from(new Set(messages));
 }
 
-function formatQuestionErrorSummary(
-  errors: QuestionValidationMessage[],
-): string {
-  const names = errors.map((error) => error.title).join("、");
-  const onlyRequiredErrors = errors.every((error) =>
-    error.codes.every((code) => code === "REQUIRED"),
-  );
-  return onlyRequiredErrors
-    ? `必須項目が未入力です: ${names}`
-    : `入力内容を確認してください: ${names}`;
-}
+const FORM_VALIDATION_ALERT_MESSAGE =
+  "入力内容を確認してください。該当する質問の近くにエラーを表示しています。";
 
 function findQuestionControl(
   root: HTMLElement,
@@ -427,6 +414,16 @@ export function FormBody({
     () => new Set(currentPageQuestionErrors.map((error) => error.questionId)),
     [currentPageQuestionErrors],
   );
+  const currentPageErrorMessagesByQuestionId = useMemo(
+    () =>
+      new Map(
+        currentPageQuestionErrors.map((error) => [
+          error.questionId,
+          `${error.title}: ${error.messages.join("、")}`,
+        ]),
+      ),
+    [currentPageQuestionErrors],
+  );
 
   const collectQuestionErrors = useCallback(
     (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
@@ -443,7 +440,6 @@ export function FormBody({
             messages: uniqueMessages(
               result.errors.map((error) => error.message),
             ),
-            codes: result.errors.map((error) => error.code),
           },
         ];
       });
@@ -465,10 +461,7 @@ export function FormBody({
   }, []);
 
   const applyQuestionErrors = useCallback(
-    (
-      errors: QuestionValidationMessage[],
-      summaryErrors: QuestionValidationMessage[] = errors,
-    ): boolean => {
+    (errors: QuestionValidationMessage[]): boolean => {
       setQuestionErrors(errors);
       if (errors.length > 0) {
         const questionId = errors[0]?.questionId ?? null;
@@ -484,11 +477,7 @@ export function FormBody({
         ) {
           pendingFocusQuestionIdRef.current = null;
         }
-        onErrorChange?.(
-          formatQuestionErrorSummary(
-            summaryErrors.length > 0 ? summaryErrors : errors,
-          ),
-        );
+        onErrorChange?.(null);
         return false;
       }
       pendingFocusQuestionIdRef.current = null;
@@ -590,7 +579,6 @@ export function FormBody({
       const errors = collectQuestionErrors(reachableQuestions);
       if (errors.length > 0) {
         const firstErrorQuestionId = errors[0]?.questionId;
-        let summaryErrors = errors;
         let displayPageIndex = paging.currentPageIndex;
         if (firstErrorQuestionId) {
           const firstErrorPageIndex = findPageIndexForQuestion(
@@ -599,15 +587,6 @@ export function FormBody({
             firstErrorQuestionId,
           );
           displayPageIndex = firstErrorPageIndex ?? displayPageIndex;
-          const firstErrorPageQuestionIds =
-            firstErrorPageIndex !== undefined
-              ? pages[firstErrorPageIndex]?.questionIds
-              : undefined;
-          if (firstErrorPageQuestionIds) {
-            summaryErrors = errors.filter((error) =>
-              firstErrorPageQuestionIds.includes(error.questionId),
-            );
-          }
           if (
             firstErrorPageIndex !== undefined &&
             firstErrorPageIndex !== paging.currentPageIndex
@@ -616,7 +595,7 @@ export function FormBody({
           }
         }
         markPageForValidationDisplay(displayPageIndex);
-        applyQuestionErrors(errors, summaryErrors);
+        applyQuestionErrors(errors);
         return;
       }
       applyQuestionErrors([]);
@@ -714,6 +693,7 @@ export function FormBody({
             ref={viewerRef}
           >
             <FormQuestionA11yProvider
+              errorMessagesByQuestionId={currentPageErrorMessagesByQuestionId}
               invalidQuestionIds={currentPageInvalidQuestionIds}
             >
               <PlateViewer
@@ -736,19 +716,9 @@ export function FormBody({
             className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
             role="alert"
           >
-            {currentPageQuestionErrors.map((questionError) => (
-              <p
-                className="text-sm text-destructive outline-none"
-                data-question-error-for={questionError.questionId}
-                id={getFormQuestionErrorId(questionError.questionId)}
-                key={questionError.questionId}
-                tabIndex={-1}
-              >
-                <span className="font-medium">{questionError.title}</span>
-                {": "}
-                {questionError.messages.join("、")}
-              </p>
-            ))}
+            <p className="text-sm text-destructive">
+              {FORM_VALIDATION_ALERT_MESSAGE}
+            </p>
           </div>
         ) : null}
 

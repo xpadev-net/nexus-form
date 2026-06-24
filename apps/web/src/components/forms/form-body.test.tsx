@@ -22,6 +22,12 @@ import { FormBody } from "./form-body";
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
+class ResizeObserverStub implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
 const plateViewerValues = vi.hoisted(() => [] as string[]);
 
 vi.mock("@/components/editor/plate-viewer", async () => {
@@ -37,8 +43,14 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { LongTextInput } = await import(
     "@/components/ui/form-question-nodes/form-long-text-node"
   );
+  const { LinearScaleInput } = await import(
+    "@/components/ui/form-question-nodes/form-linear-scale-node"
+  );
   const { ShortTextInput } = await import(
     "@/components/ui/form-question-nodes/form-short-text-node"
+  );
+  const { RatingInput } = await import(
+    "@/components/ui/form-question-nodes/form-rating-node"
   );
   const { TimeInput } = await import(
     "@/components/ui/form-question-nodes/form-time-node"
@@ -46,10 +58,13 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { CheckboxGridInput } = await import(
     "@/components/ui/form-question-nodes/form-checkbox-grid-node"
   );
+  const { CheckboxInput } = await import(
+    "@/components/ui/form-question-nodes/form-checkbox-node"
+  );
   const { ChoiceGridInput } = await import(
     "@/components/ui/form-question-nodes/form-choice-grid-node"
   );
-  const { getFormQuestionTitleId } = await import(
+  const { FormQuestionErrorMessage, getFormQuestionTitleId } = await import(
     "@/components/ui/form-question-nodes/form-question-base"
   );
   type OptionLike = { id: string; label: string };
@@ -102,6 +117,7 @@ vi.mock("@/components/editor/plate-viewer", async () => {
       >
         <div id={getFormQuestionTitleId(questionId)}>{title}</div>
         {children}
+        <FormQuestionErrorMessage questionId={questionId} />
       </section>
     );
   }
@@ -222,6 +238,21 @@ vi.mock("@/components/editor/plate-viewer", async () => {
             if (
               typeof node === "object" &&
               node !== null &&
+              (node as { type?: unknown }).type === "form_checkbox"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <CheckboxInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
               (node as { type?: unknown }).type === "form_dropdown"
             ) {
               return (
@@ -231,6 +262,36 @@ vi.mock("@/components/editor/plate-viewer", async () => {
                   title={title}
                 >
                   <DropdownInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_linear_scale"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <LinearScaleInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_rating"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <RatingInput element={node as TElement} />
                 </QuestionShell>
               );
             }
@@ -545,6 +606,7 @@ function appearanceWithQuestionNumbers(
 
 describe("FormBody", () => {
   beforeEach(() => {
+    globalThis.ResizeObserver = ResizeObserverStub;
     plateViewerValues.length = 0;
   });
 
@@ -988,7 +1050,13 @@ describe("FormBody", () => {
       });
       expect(onSubmitRequest).not.toHaveBeenCalled();
       expect(container.textContent).toContain(
-        "必須項目が未入力です: Choice grid、Checkbox grid",
+        "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
+      );
+      expect(container.textContent).toContain(
+        "Choice grid: この項目は必須です",
+      );
+      expect(container.textContent).toContain(
+        "Checkbox grid: この項目は必須です",
       );
 
       const choiceRowAColumn1 = requireInput(
@@ -1081,11 +1149,119 @@ describe("FormBody", () => {
     });
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("必須項目が未入力です: Name");
+    expect(container.textContent).not.toContain("必須項目が未入力です: Name");
+    expect(container.textContent).toContain("Name: この項目は必須です");
     expect(nameInput.getAttribute("aria-describedby")).toBe(
       "form-question-q-name-error",
     );
     expect(nameInput.getAttribute("aria-invalid")).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("renders validation messages inside each invalid question card", async () => {
+    const onSubmitRequest = vi.fn();
+    const rows = [{ id: "row-a", label: "Row A" }];
+    const columns = [{ id: "col-1", label: "Column 1" }];
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-name", "Name", { required: true }),
+        questionNode("dropdown", "q-country", "Country", {
+          required: true,
+          options: [
+            { id: "jp", label: "Japan" },
+            { id: "us", label: "United States" },
+          ],
+        }),
+        questionNode("checkbox", "q-colors", "Colors", {
+          required: true,
+          minSelections: 1,
+          options: [{ id: "red", label: "Red" }],
+        }),
+        questionNode("checkbox_grid", "q-grid", "Grid", {
+          required: true,
+          rows,
+          columns,
+          minSelectionsPerRow: 1,
+        }),
+      ]),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+
+    const nameCard = container.querySelector<HTMLElement>(
+      '[data-form-question-id="q-name"]',
+    );
+    const countryCard = container.querySelector<HTMLElement>(
+      '[data-form-question-id="q-country"]',
+    );
+    const colorsCard = container.querySelector<HTMLElement>(
+      '[data-form-question-id="q-colors"]',
+    );
+    const gridCard = container.querySelector<HTMLElement>(
+      '[data-form-question-id="q-grid"]',
+    );
+    expect(nameCard).not.toBeNull();
+    expect(countryCard).not.toBeNull();
+    expect(colorsCard).not.toBeNull();
+    expect(gridCard).not.toBeNull();
+
+    const nameError = nameCard?.querySelector<HTMLElement>(
+      "#form-question-q-name-error",
+    );
+    const countryError = countryCard?.querySelector<HTMLElement>(
+      "#form-question-q-country-error",
+    );
+    const colorsError = colorsCard?.querySelector<HTMLElement>(
+      "#form-question-q-colors-error",
+    );
+    const gridError = gridCard?.querySelector<HTMLElement>(
+      "#form-question-q-grid-error",
+    );
+    expect(nameError?.textContent).toBe("Name: この項目は必須です");
+    expect(countryError?.textContent).toBe("Country: この項目は必須です");
+    expect(colorsError?.textContent).toBe("Colors: この項目は必須です");
+    expect(gridError?.textContent).toBe("Grid: この項目は必須です");
+
+    expect(
+      getByRole(container, "textbox", { name: "Name" }).getAttribute(
+        "aria-describedby",
+      ),
+    ).toBe("form-question-q-name-error");
+    expect(
+      getByRole(container, "combobox", { name: "Country" }).getAttribute(
+        "aria-describedby",
+      ),
+    ).toBe("form-question-q-country-error");
+    expect(
+      colorsCard
+        ?.querySelector<HTMLElement>('[role="group"]')
+        ?.getAttribute("aria-describedby"),
+    ).toBe("form-question-q-colors-error");
+    expect(
+      gridCard
+        ?.querySelector<HTMLElement>('[role="group"]')
+        ?.getAttribute("aria-describedby"),
+    ).toBe("form-question-q-grid-error");
+
+    const summary = container.querySelector<HTMLElement>('[role="alert"]');
+    expect(summary?.textContent).toBe(
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
+    );
 
     act(() => root.unmount());
   });
@@ -1123,7 +1299,7 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).not.toContain("Next page");
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Access code",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
@@ -1185,7 +1361,7 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).not.toContain("Next page");
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Access code",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Access code: 入力形式が正しくありません",
@@ -1247,7 +1423,7 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Access code",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
@@ -1310,7 +1486,7 @@ describe("FormBody", () => {
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Access code",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Access code: 入力形式が正しくありません",
@@ -1352,9 +1528,7 @@ describe("FormBody", () => {
     );
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(errorTarget).not.toBeNull();
-    expect(container.textContent).toContain(
-      "必須項目が未入力です: Empty radio",
-    );
+    expect(container.textContent).toContain("Empty radio: この項目は必須です");
     expect(document.activeElement).toBe(errorTarget);
 
     act(() => root.unmount());
@@ -1411,7 +1585,7 @@ describe("FormBody", () => {
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Access code",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
@@ -1454,7 +1628,7 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain(
-      "入力内容を確認してください: Choices",
+      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
     );
     expect(container.textContent).toContain(
       "Choices: 回答データの形式が正しくありません",
@@ -1493,7 +1667,7 @@ describe("FormBody", () => {
     });
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("必須項目が未入力です: Scale");
+    expect(container.textContent).not.toContain("必須項目が未入力です: Scale");
     expect(container.textContent).toContain("Scale: この項目は必須です");
 
     act(() => root.unmount());
@@ -1612,7 +1786,7 @@ describe("FormBody", () => {
     });
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).not.toContain("必須項目が未入力です: 法人名");
     expect(container.textContent).toContain("法人名: この項目は必須です");
 
     const companyInput = getByRole(container, "textbox", {
@@ -1743,7 +1917,7 @@ describe("FormBody", () => {
       );
     });
 
-    expect(container.textContent).toContain("必須項目が未入力です: 法人名");
+    expect(container.textContent).not.toContain("必須項目が未入力です: 法人名");
     expect(container.textContent).toContain("法人名: この項目は必須です");
     expect(onSubmitRequest).not.toHaveBeenCalled();
 
@@ -1894,7 +2068,10 @@ describe("FormBody", () => {
       );
     });
 
-    expect(container.textContent).toContain("必須項目が未入力です: 確認コード");
+    expect(container.textContent).not.toContain(
+      "必須項目が未入力です: 確認コード",
+    );
+    expect(container.textContent).toContain("確認コード: この項目は必須です");
     expect(onSubmitRequest).not.toHaveBeenCalled();
 
     act(() => root.unmount());

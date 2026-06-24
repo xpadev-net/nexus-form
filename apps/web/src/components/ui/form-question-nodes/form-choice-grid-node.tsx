@@ -11,7 +11,11 @@ import {
   EditorControlsWrapper,
   GridItemsEditor,
 } from "./editor-controls";
-import { FormQuestionElement, getQuestionLabelId } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionLabelId,
+  useFormQuestionErrorA11y,
+} from "./form-question-base";
 
 interface GridItemLike {
   id: string;
@@ -48,6 +52,7 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
   const inputIdPrefix = useId();
   if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { rows?: GridItemLike[]; columns?: GridItemLike[] }
@@ -75,6 +80,7 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
       className="overflow-x-auto"
       role="group"
       aria-labelledby={getQuestionLabelId(blockId)}
+      {...errorA11y}
     >
       <table className="w-full border-collapse">
         <thead>

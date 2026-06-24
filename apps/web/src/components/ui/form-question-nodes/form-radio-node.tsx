@@ -16,6 +16,7 @@ import {
   getQuestionControlId,
   getQuestionLabelId,
   getQuestionValueAccessibleName,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -53,6 +54,7 @@ export function RadioInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { options?: OptionLike[]; allowOther?: boolean; otherLabel?: string }
@@ -87,6 +89,7 @@ export function RadioInput({ element }: { element: TElement }) {
         aria-labelledby={getQuestionLabelId(blockId)}
         value={selectedValue}
         onValueChange={selectOption}
+        {...errorA11y}
       >
         {options.map((option) => {
           const label = getChoiceDisplayLabel(option);
