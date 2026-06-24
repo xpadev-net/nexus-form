@@ -2,12 +2,13 @@
 
 import { fireEvent, getByRole } from "@testing-library/dom";
 import type { TElement } from "platejs";
-import { act, useState } from "react";
+import { act, type ReactNode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AnswerEntry,
   FormResponseProvider,
+  useFormResponse,
 } from "@/contexts/form-response-context";
 import {
   clickAssociatedLabel,
@@ -43,9 +44,15 @@ vi.mock("@/components/editor/plate-viewer", async () => {
     if (!ctx) return null;
     const blockId = element.blockId as string;
     const answer = ctx.getAnswer(blockId);
+    const validation = element.validation as
+      | { omitMockQuestionId?: boolean }
+      | undefined;
+    const labelProps = validation?.omitMockQuestionId
+      ? {}
+      : { "aria-label": blockId };
     return (
       <input
-        aria-label={blockId}
+        {...labelProps}
         value={(answer?.value as string) ?? ""}
         onChange={(event) =>
           ctx.setAnswer(blockId, { value: event.currentTarget.value })
@@ -86,6 +93,23 @@ vi.mock("@/components/editor/plate-viewer", async () => {
     );
   }
 
+  function QuestionShell({
+    children,
+    questionId,
+  }: {
+    children: ReactNode;
+    questionId: string;
+  }) {
+    return (
+      <section
+        className="my-3 rounded-lg border bg-card"
+        data-form-question-id={questionId}
+      >
+        {children}
+      </section>
+    );
+  }
+
   return {
     PlateViewer: ({ value }: { value: string }) => {
       plateViewerValues.push(value);
@@ -112,35 +136,55 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               node !== null &&
               (node as { type?: unknown }).type === "form_radio"
             ) {
-              return <NativeRadioInput key={key} element={node as TElement} />;
+              return (
+                <QuestionShell key={key} questionId={key.toString()}>
+                  <NativeRadioInput element={node as TElement} />
+                </QuestionShell>
+              );
             }
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_short_text"
             ) {
-              return <ShortTextInput key={key} element={node as TElement} />;
+              return (
+                <QuestionShell key={key} questionId={key.toString()}>
+                  <ShortTextInput element={node as TElement} />
+                </QuestionShell>
+              );
             }
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_date"
             ) {
-              return <DateInput key={key} element={node as TElement} />;
+              return (
+                <QuestionShell key={key} questionId={key.toString()}>
+                  <DateInput element={node as TElement} />
+                </QuestionShell>
+              );
             }
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_choice_grid"
             ) {
-              return <ChoiceGridInput key={key} element={node as TElement} />;
+              return (
+                <QuestionShell key={key} questionId={key.toString()}>
+                  <ChoiceGridInput element={node as TElement} />
+                </QuestionShell>
+              );
             }
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_checkbox_grid"
             ) {
-              return <CheckboxGridInput key={key} element={node as TElement} />;
+              return (
+                <QuestionShell key={key} questionId={key.toString()}>
+                  <CheckboxGridInput element={node as TElement} />
+                </QuestionShell>
+              );
             }
             return null;
           })}
@@ -159,6 +203,7 @@ function renderFormBody(
     description?: string;
     initialAnswers?: ReadonlyMap<string, AnswerEntry>;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
+    providerSlot?: ReactNode;
   } = {},
 ): Root {
   function FormBodyHarness() {
@@ -166,6 +211,7 @@ function renderFormBody(
 
     return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
+        {options.providerSlot}
         <FormBody
           title="公開フォーム"
           plateContent={plateContent}
@@ -186,6 +232,27 @@ function renderFormBody(
     root.render(<FormBodyHarness />);
   });
   return root;
+}
+
+function BranchAnswerSwitcher() {
+  const { setAnswer } = useFormResponse();
+  return (
+    <button
+      type="button"
+      onClick={() => setAnswer("q-entity-type", { value: "individual" })}
+    >
+      switch to individual
+    </button>
+  );
+}
+
+function InvalidCodeSwitcher() {
+  const { setAnswer } = useFormResponse();
+  return (
+    <button type="button" onClick={() => setAnswer("q-code", { value: "ab" })}>
+      invalidate code
+    </button>
+  );
 }
 
 function questionNode(
@@ -316,6 +383,7 @@ function sectionBranchingPlateContent(
     }),
     questionNode("short_text", "q-company-name", "法人名", {
       required: true,
+      minLength: 2,
     }),
   ]);
 }
@@ -360,6 +428,7 @@ function sectionBranchingPlateContentWithIntermediateTarget(
     questionNode("section_separator", "section-corporate", "法人追加情報"),
     questionNode("short_text", "q-company-name", "法人名", {
       required: true,
+      minLength: 2,
     }),
   ]);
 }
@@ -879,6 +948,290 @@ describe("FormBody", () => {
     act(() => root.unmount());
   });
 
+  it("keeps the current page open and focuses the invalid question when page validation fails", async () => {
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-code", "Access code", {
+        required: true,
+        minLength: 3,
+        omitMockQuestionId: true,
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: true }),
+    ]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+    });
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    expect(codeInput).not.toBeNull();
+    await act(async () => {
+      if (!codeInput) return;
+      fireEvent.change(codeInput, { target: { value: "ab" } });
+    });
+
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).not.toContain("Next page");
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Access code",
+    );
+    expect(container.textContent).toContain(
+      "Access code: 3文字以上で入力してください",
+    );
+    expect(document.activeElement).toBe(codeInput);
+
+    await act(async () => {
+      if (!codeInput) return;
+      fireEvent.change(codeInput, { target: { value: "abc" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain(
+      "Access code: 3文字以上で入力してください",
+    );
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("blocks submit and focuses the invalid question when submit validation fails", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-code", "Access code", {
+          required: true,
+          minLength: 3,
+          omitMockQuestionId: true,
+        }),
+      ]),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    expect(codeInput).not.toBeNull();
+    await act(async () => {
+      if (!codeInput) return;
+      fireEvent.change(codeInput, { target: { value: "ab" } });
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Access code",
+    );
+    expect(container.textContent).toContain(
+      "Access code: 3文字以上で入力してください",
+    );
+    expect(document.activeElement).toBe(codeInput);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("focuses the question error when the invalid question has no focusable control", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("radio", "q-empty-radio", "Empty radio", {
+          required: true,
+          options: [],
+        }),
+      ]),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    const errorTarget = container.querySelector<HTMLElement>(
+      '[data-question-error-for="q-empty-radio"]',
+    );
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(errorTarget).not.toBeNull();
+    expect(container.textContent).toContain(
+      "必須項目が未入力です: Empty radio",
+    );
+    expect(document.activeElement).toBe(errorTarget);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("returns to the invalid reachable page when submit validation fails outside the current page", async () => {
+    const onSubmitRequest = vi.fn();
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-code", "Access code", {
+        required: true,
+        minLength: 3,
+        omitMockQuestionId: true,
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: false }),
+    ]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      onSubmitRequest,
+      providerSlot: <InvalidCodeSwitcher />,
+    });
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    expect(codeInput).not.toBeNull();
+    await act(async () => {
+      if (!codeInput) return;
+      fireEvent.change(codeInput, { target: { value: "abc" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    await act(async () => {
+      getByRole(container, "button", {
+        name: "invalidate code",
+      }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    const focusedCodeInput = container.querySelector<HTMLInputElement>("input");
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Access code",
+    );
+    expect(container.textContent).toContain(
+      "Access code: 3文字以上で入力してください",
+    );
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+    expect(container.textContent).not.toContain("Access code、Name");
+    expect(document.activeElement).toBe(focusedCodeInput);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("blocks restored invalid choice answer shapes before submit payload serialization", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("checkbox", "q-checkbox", "Choices", {
+          required: false,
+          options: [{ id: "red", label: "Red" }],
+        }),
+      ]),
+      {
+        captchaReady: true,
+        initialAnswers: new Map<string, AnswerEntry>([
+          ["q-checkbox", { values: ["red", 42] }],
+        ]),
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Choices",
+    );
+    expect(container.textContent).toContain(
+      "Choices: 回答データの形式が正しくありません",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("treats blank required numeric answers as missing before submit", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("linear_scale", "q-scale", "Scale", {
+          required: true,
+          min: 0,
+          max: 5,
+        }),
+      ]),
+      {
+        captchaReady: true,
+        initialAnswers: new Map<string, AnswerEntry>([
+          ["q-scale", { value: "" }],
+        ]),
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("必須項目が未入力です: Scale");
+    expect(container.textContent).toContain("Scale: この項目は必須です");
+
+    act(() => root.unmount());
+  });
+
   it("allows moving to the next page after entering a required date", async () => {
     const plateContent = JSON.stringify([
       questionNode("date", "q-date", "Date", {
@@ -1022,6 +1375,66 @@ describe("FormBody", () => {
         }),
       ],
     });
+
+    act(() => root.unmount());
+  });
+
+  it("recomputes reachable branch questions at submit time and omits stale branch answers", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(container, sectionBranchingPlateContent(), {
+      captchaReady: true,
+      onSubmitRequest,
+      providerSlot: <BranchAnswerSwitcher />,
+    });
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "法人" }));
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("法人追加情報");
+    await act(async () => {
+      fireEvent.change(
+        getByRole(container, "textbox", { name: "q-company-name" }),
+        { target: { value: "x" } },
+      );
+    });
+    await act(async () => {
+      getByRole(container, "button", {
+        name: "switch to individual",
+      }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      visitedQuestionIds: ["q-entity-type"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-entity-type",
+          question_title: "契約種別",
+          question_type: "radio",
+          value: "individual",
+        }),
+      ],
+    });
+    expect(onSubmitRequest.mock.calls[0]?.[0].responses).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ question_id: "q-company-name" }),
+      ]),
+    );
 
     act(() => root.unmount());
   });
