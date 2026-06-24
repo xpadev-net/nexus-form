@@ -59,12 +59,21 @@ export {
   evaluateCondition,
   evaluateRule,
 } from "./forms/condition-evaluator";
-export type { BlockTypeValue, PlateQuestionType } from "./forms/form-block";
+export type {
+  AnswerableBlockTypeValue,
+  AnswerablePlateQuestionType,
+  BlockTypeValue,
+  PlateQuestionType,
+} from "./forms/form-block";
 export {
+  ANSWERABLE_BLOCK_TYPES,
   BLOCK_TYPES,
   BlockType,
+  FORM_ANSWERABLE_QUESTION_TYPES,
   FORM_QUESTION_TYPES,
   fromPlateQuestionType,
+  isAnswerableBlockType,
+  isAnswerablePlateQuestionType,
   isBlockType,
   isPlateQuestionType,
   toPlateQuestionType,
@@ -77,16 +86,30 @@ export {
   PasswordProtectionPublicationSnapshotSchema,
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
-export type { ExtractedQuestion, PlatePage } from "./plate-content-utils";
+export type {
+  CompletionTargetActionSource,
+  CompletionTargetHasAnswerableQuestionsIssue,
+  CompletionTargetNotFoundIssue,
+  CompletionTargetReference,
+  CompletionTargetValidationIssue,
+  ExtractedAnswerableQuestion,
+  ExtractedQuestion,
+  PlatePage,
+} from "./plate-content-utils";
 export {
   ensureNodeIds,
+  extractAnswerableQuestionsFromPlateContent,
   extractQuestionsFromPlateContent,
   extractTextFromChildren,
   extractTitleFromChildren,
+  getCompletionTargetReferences,
+  isCompletionTargetPage,
   regenerateBlockIds,
   removeNestedQuestionsFromPlateContent,
   resolvePageIndexByPageId,
   splitPlateContentIntoPages,
+  validateCompletionTargetPages,
+  validateCompletionTargetsInPlateContent,
   validatePlateContent,
 } from "./plate-content-utils";
 export type {

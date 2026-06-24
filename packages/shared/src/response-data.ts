@@ -4,23 +4,16 @@
  */
 
 import { z } from "zod";
-import { BLOCK_TYPES, type BlockTypeValue } from "./forms/form-block";
-
-type AnswerableBlockType = Exclude<BlockTypeValue, "section_separator">;
-
-function isAnswerableBlockType(
-  type: BlockTypeValue,
-): type is AnswerableBlockType {
-  return type !== "section_separator";
-}
+import {
+  ANSWERABLE_BLOCK_TYPES,
+  type AnswerableBlockTypeValue,
+} from "./forms/form-block";
 
 /** ユーザー回答を受け付けるバリデーション対象の質問タイプ。 */
-export const ANSWERABLE_QUESTION_TYPES = BLOCK_TYPES.filter(
-  isAnswerableBlockType,
-);
+export const ANSWERABLE_QUESTION_TYPES = ANSWERABLE_BLOCK_TYPES;
 
 /** バリデーション対象の質問タイプのユニオン型。 */
-export type AnswerableQuestionType = (typeof ANSWERABLE_QUESTION_TYPES)[number];
+export type AnswerableQuestionType = AnswerableBlockTypeValue;
 
 /** Zod スキーマ: 質問に設定されるバリデーションルール。 */
 export const questionValidationSchema = z
