@@ -224,6 +224,28 @@ describe("public choice controls accessible labels", () => {
     act(() => dropdown.root.unmount());
   });
 
+  it("prefers heading text when naming question controls", () => {
+    const element = testElement("form_short_text", "heading-title", {});
+    element.children = [
+      { type: "p", children: [{ text: "補足説明" }] },
+      { type: "h2", children: [{ text: "見出しタイトル" }] },
+    ];
+
+    const rendered = renderWithAnswers(<ShortTextInput element={element} />, {
+      blockId: "heading-title",
+      labelElement: element,
+      onAnswer: vi.fn(),
+    });
+
+    expect(
+      getByRole(rendered.container, "textbox", {
+        name: "見出しタイトル",
+      }),
+    ).toBeTruthy();
+
+    act(() => rendered.root.unmount());
+  });
+
   it("names scale and rating buttons with the question label and value", () => {
     const scaleElement = testElement("form_linear_scale", "satisfaction", {
       min: 1,
