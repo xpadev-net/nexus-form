@@ -138,6 +138,11 @@ const publicFormSelect = {
   baseSnapshotVersion: form.baseSnapshotVersion,
   dueScheduleId: formSchedule.id,
 };
+const publicFormAccessSelect = {
+  id: form.id,
+  status: form.status,
+  dueScheduleId: formSchedule.id,
+};
 
 const publicSubmitSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
@@ -351,7 +356,31 @@ async function resolveScheduledStatus(params: {
         operation: params.operation,
       }),
   );
-  return scheduleResult?.newStatus ?? null;
+  if (!scheduleResult) return null;
+
+  // ScheduleProcessResult always carries the latest locked form status,
+  // including no-op and already-processed schedule paths.
+  return scheduleResult.newStatus;
+}
+
+async function resolvePublishedPublicFormStatus(params: {
+  formId: string;
+  currentStatus: FormStatusValue;
+  dueScheduleId: string | null | undefined;
+  currentTime: Date;
+  publicId: string;
+  operation: string;
+}) {
+  const currentStatus = await resolveScheduledStatus({
+    formId: params.formId,
+    currentStatus: params.currentStatus,
+    dueScheduleId: params.dueScheduleId,
+    currentTime: params.currentTime,
+    publicId: params.publicId,
+    operation: params.operation,
+  });
+
+  return currentStatus === "PUBLISHED" ? currentStatus : null;
 }
 
 async function resolvePublishedPublicForm(params: {
@@ -376,7 +405,43 @@ async function resolvePublishedPublicForm(params: {
 
   if (!target) return null;
 
-  const currentStatus = await resolveScheduledStatus({
+  const currentStatus = await resolvePublishedPublicFormStatus({
+    formId: target.id,
+    currentStatus: target.status,
+    dueScheduleId: target.dueScheduleId,
+    currentTime,
+    publicId,
+    operation,
+  });
+
+  if (currentStatus !== "PUBLISHED") return null;
+
+  return { target, currentStatus };
+}
+
+async function resolvePublishedPublicFormAccess(params: {
+  publicId: string;
+  currentTime: Date;
+  operation: string;
+}) {
+  const { publicId, currentTime, operation } = params;
+  const [target] = await db
+    .select(publicFormAccessSelect)
+    .from(form)
+    .leftJoin(
+      formSchedule,
+      and(
+        eq(formSchedule.formId, form.id),
+        isNull(formSchedule.processedAt),
+        lte(formSchedule.triggerAt, currentTime),
+      ),
+    )
+    .where(eq(form.publicId, publicId))
+    .limit(1);
+
+  if (!target) return null;
+
+  const currentStatus = await resolvePublishedPublicFormStatus({
     formId: target.id,
     currentStatus: target.status,
     dueScheduleId: target.dueScheduleId,
@@ -503,7 +568,7 @@ export const formsPublicRouter = createHonoApp()
 
       // 2. Look up form
       const currentTime = new Date();
-      const resolved = await resolvePublishedPublicForm({
+      const resolved = await resolvePublishedPublicFormAccess({
         currentTime,
         publicId,
         operation: "POST /public/:publicId/submit",
@@ -806,7 +871,7 @@ export const formsPublicRouter = createHonoApp()
       const payload = c.req.valid("json");
 
       const currentTime = new Date();
-      const resolved = await resolvePublishedPublicForm({
+      const resolved = await resolvePublishedPublicFormAccess({
         currentTime,
         publicId,
         operation: "POST /public/:publicId/verify-password",
