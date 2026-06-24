@@ -344,10 +344,14 @@ function renderFormBody(
     onErrorChange?: (error: string | null) => void;
     onSubmitRequest?: (data: FormSubmitRequestData) => void;
     providerSlot?: ReactNode;
+    showCompletionTargetAfterSubmit?: boolean;
   } = {},
 ): Root {
   function FormBodyHarness() {
     const [error, setError] = useState<string | null>(null);
+    const [submittedCompletionPageId, setSubmittedCompletionPageId] = useState<
+      string | undefined
+    >();
 
     return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
@@ -360,11 +364,17 @@ function renderFormBody(
           captchaReady={options.captchaReady}
           description={options.description}
           error={error}
+          submittedCompletionPageId={submittedCompletionPageId}
           onErrorChange={(nextError) => {
             setError(nextError);
             options.onErrorChange?.(nextError);
           }}
-          onSubmitRequest={options.onSubmitRequest}
+          onSubmitRequest={(data) => {
+            options.onSubmitRequest?.(data);
+            if (options.showCompletionTargetAfterSubmit) {
+              setSubmittedCompletionPageId(data.completionTargetPageId);
+            }
+          }}
         />
       </FormResponseProvider>
     );
@@ -584,6 +594,70 @@ function sectionBranchingPlateContentWithIntermediateTarget(
       required: true,
       minLength: 2,
     }),
+  ]);
+}
+
+function completionTargetBranchingPlateContent(
+  options: { includeAnswerableCompletionQuestion?: boolean } = {},
+): string {
+  const vipCompletionNodes = options.includeAnswerableCompletionQuestion
+    ? [
+        questionNode("short_text", "q-completion-note", "完了後の入力欄", {
+          required: true,
+        }),
+      ]
+    : [{ type: "p", children: [{ text: "VIP 向け完了メッセージ" }] }];
+
+  return JSON.stringify([
+    questionNode("radio", "q-plan", "プラン", {
+      required: true,
+      options: [
+        { id: "vip", label: "VIP" },
+        { id: "standard", label: "通常" },
+      ],
+    }),
+    questionNode("section_separator", "section-complete-vip", "VIP 完了", {
+      navigation_rules: [
+        {
+          id: "rule-vip-complete",
+          name: "VIP は専用完了画面",
+          conditions: [
+            {
+              question_id: "q-plan",
+              operator: "equals",
+              value: "vip",
+            },
+          ],
+          condition_match: "all",
+          action: {
+            type: "submit",
+            target_id: "section-complete-vip",
+          },
+          enabled: true,
+          priority: 1,
+        },
+      ],
+      default_action: {
+        type: "submit",
+        target_id: "section-complete-standard",
+      },
+    }),
+    ...vipCompletionNodes,
+    questionNode("section_separator", "section-complete-standard", "通常完了"),
+    { type: "p", children: [{ text: "通常向け完了メッセージ" }] },
+  ]);
+}
+
+function legacySubmitPlateContent(): string {
+  return JSON.stringify([
+    questionNode("radio", "q-plan", "プラン", {
+      required: true,
+      options: [{ id: "standard", label: "通常" }],
+    }),
+    questionNode("section_separator", "section-complete", "完了セクション", {
+      default_action: { type: "submit" },
+    }),
+    { type: "p", children: [{ text: "target なしでは表示しない完了文" }] },
   ]);
 }
 
@@ -2004,6 +2078,152 @@ describe("FormBody", () => {
       ]),
     );
     expect(container.textContent).not.toContain("法人追加情報");
+
+    act(() => root.unmount());
+  });
+
+  it.each([
+    {
+      optionLabel: "VIP",
+      expectedTargetPageId: "section-complete-vip",
+      expectedMessage: "VIP 向け完了メッセージ",
+      unexpectedMessage: "通常向け完了メッセージ",
+    },
+    {
+      optionLabel: "通常",
+      expectedTargetPageId: "section-complete-standard",
+      expectedMessage: "通常向け完了メッセージ",
+      unexpectedMessage: "VIP 向け完了メッセージ",
+    },
+  ])("shows the $optionLabel completion section after submit success", async ({
+    optionLabel,
+    expectedTargetPageId,
+    expectedMessage,
+    unexpectedMessage,
+  }) => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      completionTargetBranchingPlateContent(),
+      {
+        captchaReady: true,
+        onSubmitRequest,
+        showCompletionTargetAfterSubmit: true,
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: optionLabel }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      completionTargetPageId: expectedTargetPageId,
+      visitedQuestionIds: ["q-plan"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-plan",
+          question_title: "プラン",
+          question_type: "radio",
+        }),
+      ],
+    });
+    expect(container.textContent).toContain(expectedMessage);
+    expect(container.textContent).not.toContain(unexpectedMessage);
+    expect(container.textContent).not.toContain("回答を送信");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps submit without target_id on the legacy confirmation flow", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(container, legacySubmitPlateContent(), {
+      captchaReady: true,
+      onSubmitRequest,
+      showCompletionTargetAfterSubmit: true,
+    });
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "通常" }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(onSubmitRequest.mock.calls[0]?.[0].completionTargetPageId).toBe(
+      undefined,
+    );
+    expect(container.textContent).not.toContain(
+      "target なしでは表示しない完了文",
+    );
+    expect(
+      getByRole(container, "button", { name: "回答を送信" }),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("does not validate or serialize questions inside a submit completion target", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      completionTargetBranchingPlateContent({
+        includeAnswerableCompletionQuestion: true,
+      }),
+      {
+        captchaReady: true,
+        initialAnswers: new Map<string, AnswerEntry>([
+          ["q-completion-note", { value: "should stay local" }],
+        ]),
+        onSubmitRequest,
+      },
+    );
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "VIP" }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).toHaveBeenCalledOnce();
+    expect(container.textContent).not.toContain(
+      "完了後の入力欄: この項目は必須です",
+    );
+    expect(onSubmitRequest.mock.calls[0]?.[0]).toEqual({
+      completionTargetPageId: "section-complete-vip",
+      visitedQuestionIds: ["q-plan"],
+      responses: [
+        expect.objectContaining({
+          question_id: "q-plan",
+          value: "vip",
+        }),
+      ],
+    });
+    expect(onSubmitRequest.mock.calls[0]?.[0].responses).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ question_id: "q-completion-note" }),
+      ]),
+    );
 
     act(() => root.unmount());
   });

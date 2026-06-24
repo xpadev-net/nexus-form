@@ -23,6 +23,7 @@ interface UseFormPagingReturn {
   isFirstPage: boolean;
   isLastPage: boolean;
   shouldSubmit: boolean;
+  submitTargetPageId?: string;
   goToNextPage: () => void;
   goToPreviousPage: () => void;
   goToPage: (pageIndex: number) => void;
@@ -125,12 +126,17 @@ export function useFormPaging({
   const isFirstPage = currentPageIndex === 0;
   const isLastPage = currentPageIndex >= totalPages - 1;
 
-  // Derive shouldSubmit from current answers so it auto-updates when
+  // Derive the submit action from current answers so it auto-updates when
   // answers change, rather than relying on a stale flag.
-  const shouldSubmit = useMemo(() => {
-    const action = resolvePageAction(currentPage, answers);
-    return action?.type === "submit";
-  }, [currentPage, answers]);
+  const currentPageAction = useMemo(
+    () => resolvePageAction(currentPage, answers),
+    [currentPage, answers],
+  );
+  const shouldSubmit = currentPageAction?.type === "submit";
+  const submitTargetPageId =
+    shouldSubmit && currentPageAction.target_id
+      ? currentPageAction.target_id
+      : undefined;
 
   const goToNextPage = useCallback(() => {
     const page = pages[currentPageIndex];
@@ -217,6 +223,7 @@ export function useFormPaging({
     isFirstPage,
     isLastPage,
     shouldSubmit,
+    submitTargetPageId,
     goToNextPage,
     goToPreviousPage,
     goToPage,
