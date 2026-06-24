@@ -34,6 +34,7 @@ COPY --chown=node:node ./packages/shared/ ./packages/shared/
 COPY --chown=node:node ./packages/validation-provider-discord/ ./packages/validation-provider-discord/
 COPY --chown=node:node ./packages/validation-provider-github/ ./packages/validation-provider-github/
 COPY --chown=node:node ./packages/validation-provider-twitter/ ./packages/validation-provider-twitter/
+COPY --chown=node:node ./scripts/assert-no-test-artifacts.mjs /app/scripts/assert-no-test-artifacts.mjs
 COPY --chown=node:node ./scripts/worker-health-probe.mjs /app/scripts/worker-health-probe.mjs
 
 # Build workspace packages (exports point to ./dist/ which requires a build step).
