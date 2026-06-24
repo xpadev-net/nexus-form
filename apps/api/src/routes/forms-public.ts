@@ -16,6 +16,7 @@ import {
   extractQuestionsFromPlateContent,
   FormConfirmationSchema,
   type FormNotifications,
+  type FormStatusValue,
   FormSubmitNotificationJobDataSchema,
   genericValidationJobDataSchema,
   getValidationResultId,
@@ -332,12 +333,12 @@ function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
 
 async function resolveScheduledStatus(params: {
   formId: string;
-  currentStatus: "DRAFT" | "PUBLISHED" | "UNPUBLISHED" | "ARCHIVED";
+  currentStatus: FormStatusValue;
   dueScheduleId: string | null | undefined;
   currentTime: Date;
   publicId: string;
   operation: string;
-}) {
+}): Promise<FormStatusValue | null> {
   const { formId, currentStatus, dueScheduleId, currentTime, publicId } =
     params;
   if (!dueScheduleId) return currentStatus;
@@ -350,9 +351,43 @@ async function resolveScheduledStatus(params: {
         operation: params.operation,
       }),
   );
-  return scheduleResult?.statusChanged
-    ? scheduleResult.newStatus
-    : currentStatus;
+  return scheduleResult?.newStatus ?? null;
+}
+
+async function resolvePublishedPublicForm(params: {
+  publicId: string;
+  currentTime: Date;
+  operation: string;
+}) {
+  const { publicId, currentTime, operation } = params;
+  const [target] = await db
+    .select(publicFormSelect)
+    .from(form)
+    .leftJoin(
+      formSchedule,
+      and(
+        eq(formSchedule.formId, form.id),
+        isNull(formSchedule.processedAt),
+        lte(formSchedule.triggerAt, currentTime),
+      ),
+    )
+    .where(eq(form.publicId, publicId))
+    .limit(1);
+
+  if (!target) return null;
+
+  const currentStatus = await resolveScheduledStatus({
+    formId: target.id,
+    currentStatus: target.status,
+    dueScheduleId: target.dueScheduleId,
+    currentTime,
+    publicId,
+    operation,
+  });
+
+  if (currentStatus !== "PUBLISHED") return null;
+
+  return { target, currentStatus };
 }
 
 // ── Router ───────────────────────────────────────────────────────────
@@ -362,33 +397,15 @@ export const formsPublicRouter = createHonoApp()
   .get("/public/:publicId", publicFormGetRateLimit, async (c) => {
     const publicId = c.req.param("publicId");
     const currentTime = new Date();
-    const [target] = await db
-      .select(publicFormSelect)
-      .from(form)
-      .leftJoin(
-        formSchedule,
-        and(
-          eq(formSchedule.formId, form.id),
-          isNull(formSchedule.processedAt),
-          lte(formSchedule.triggerAt, currentTime),
-        ),
-      )
-      .where(eq(form.publicId, publicId))
-      .limit(1);
-
-    if (!target) return c.json(errorResponse("Form not found"), 404);
-
-    const currentStatus = await resolveScheduledStatus({
-      formId: target.id,
-      currentStatus: target.status,
-      dueScheduleId: target.dueScheduleId,
+    const resolved = await resolvePublishedPublicForm({
       currentTime,
       publicId,
       operation: "GET /public/:publicId",
     });
-
-    if (currentStatus !== "PUBLISHED")
+    if (!resolved) {
       return c.json(errorResponse("Form not found"), 404);
+    }
+    const { target, currentStatus } = resolved;
 
     const activeSnapshot = await getLatestSnapshot(target.id);
 
@@ -486,35 +503,15 @@ export const formsPublicRouter = createHonoApp()
 
       // 2. Look up form
       const currentTime = new Date();
-      const [target] = await db
-        .select({
-          id: form.id,
-          status: form.status,
-          dueScheduleId: formSchedule.id,
-        })
-        .from(form)
-        .leftJoin(
-          formSchedule,
-          and(
-            eq(formSchedule.formId, form.id),
-            isNull(formSchedule.processedAt),
-            lte(formSchedule.triggerAt, currentTime),
-          ),
-        )
-        .where(eq(form.publicId, publicId))
-        .limit(1);
-      if (!target) return c.json(errorResponse("Form not found"), 404);
-
-      const submitStatus = await resolveScheduledStatus({
-        formId: target.id,
-        currentStatus: target.status,
-        dueScheduleId: target.dueScheduleId,
+      const resolved = await resolvePublishedPublicForm({
         currentTime,
         publicId,
         operation: "POST /public/:publicId/submit",
       });
-      if (submitStatus !== "PUBLISHED")
+      if (!resolved) {
         return c.json(errorResponse("Form not found"), 404);
+      }
+      const { target } = resolved;
 
       const activeSnapshot = await getLatestSnapshot(target.id);
 
@@ -808,12 +805,16 @@ export const formsPublicRouter = createHonoApp()
       const publicId = c.req.param("publicId");
       const payload = c.req.valid("json");
 
-      const [target] = await db
-        .select({ id: form.id })
-        .from(form)
-        .where(eq(form.publicId, publicId))
-        .limit(1);
-      if (!target) return c.json(errorResponse("Form not found"), 404);
+      const currentTime = new Date();
+      const resolved = await resolvePublishedPublicForm({
+        currentTime,
+        publicId,
+        operation: "POST /public/:publicId/verify-password",
+      });
+      if (!resolved) {
+        return c.json(errorResponse("Form not found"), 404);
+      }
+      const { target } = resolved;
 
       const activeSnapshot = await getLatestSnapshot(target.id);
       const parsed = parsePublishedStructure(activeSnapshot?.structureJson, {
