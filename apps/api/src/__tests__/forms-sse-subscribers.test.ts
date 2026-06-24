@@ -52,6 +52,10 @@ class FakeSubscriber {
   });
   readonly unsubscribe = vi.fn(async (_channel: string) => undefined);
   readonly quit = vi.fn(async () => undefined);
+  removeListener?: {
+    (event: "message", listener: FakeMessageListener): FakeSubscriber;
+    (event: "error", listener: FakeErrorListener): FakeSubscriber;
+  };
 
   on(event: "message", listener: FakeMessageListener): this;
   on(event: "error", listener: FakeErrorListener): this;
@@ -414,6 +418,75 @@ describe("SSE channel subscriber registry", () => {
       'SSE Redis subscriber has neither off() nor removeListener(); "error" listener not removed',
       "api",
     );
+    expect(mocks.captureError).toHaveBeenCalledWith(subscriberError);
+
+    await detach();
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to removeListener when Redis subscriber off is unavailable", async () => {
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      const removeListener = vi.fn(
+        (
+          event: "message" | "error",
+          listener: FakeMessageListener | FakeErrorListener,
+        ) => {
+          if (isFakeMessageListener(event, listener)) {
+            subscriber.messageListeners = subscriber.messageListeners.filter(
+              (currentListener) => currentListener !== listener,
+            );
+            return subscriber;
+          }
+          subscriber.errorListeners = subscriber.errorListeners.filter(
+            (currentListener) => currentListener !== listener,
+          );
+          return subscriber;
+        },
+      );
+      Object.defineProperty(subscriber, "off", { value: undefined });
+      Object.defineProperty(subscriber, "removeListener", {
+        value: removeListener,
+      });
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const client = createClient();
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    const subscriberError = new Error("Redis subscriber connection lost");
+    subscribers[0]?.emitError(subscriberError);
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.messageListeners).toHaveLength(0);
+      expect(subscribers[0]?.errorListeners).toHaveLength(0);
+      expect(subscribers[0]?.removeListener).toHaveBeenCalledWith(
+        "message",
+        expect.any(Function),
+      );
+      expect(subscribers[0]?.removeListener).toHaveBeenCalledWith(
+        "error",
+        expect.any(Function),
+      );
+    });
+    expect(mocks.logError).toHaveBeenCalledWith(
+      "SSE Redis subscriber error; closing SSE clients so EventSource can reconnect",
+      "service",
+      {
+        channel: "form:validation:form-1",
+        clientCount: 1,
+        error: subscriberError,
+      },
+    );
+    expect(mocks.logWarn).not.toHaveBeenCalled();
     expect(mocks.captureError).toHaveBeenCalledWith(subscriberError);
 
     await detach();
