@@ -28,6 +28,29 @@ function getAffectedRows(updateResult: unknown): number {
   return typeof header.affectedRows === "number" ? header.affectedRows : 0;
 }
 
+async function releaseSnapshotScheduleClaim(
+  formId: string,
+  scheduleId: string,
+): Promise<void> {
+  try {
+    await db
+      .update(formSchedule)
+      .set({ processedAt: null })
+      .where(
+        and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
+      );
+  } catch (rollbackError) {
+    logError("Failed to release SWITCH_SNAPSHOT schedule claim", "api", {
+      error:
+        rollbackError instanceof Error
+          ? rollbackError.message
+          : String(rollbackError),
+      formId,
+      scheduleId,
+    });
+  }
+}
+
 /**
  * フォームのスケジュール処理を実行
  *
@@ -194,39 +217,14 @@ export async function processFormSchedule(
         await activateSnapshot(formId, schedule.snapshotVersion);
         snapshotMessage = `Snapshot switched to version ${schedule.snapshotVersion} based on schedule`;
       } catch (err) {
+        await releaseSnapshotScheduleClaim(formId, schedule.id);
         if (err instanceof SnapshotNotFoundError) {
           logError("SWITCH_SNAPSHOT skipped: snapshot not found", "api", {
             formId,
             targetVersion: schedule.snapshotVersion,
           });
-          snapshotMessage = `Snapshot version ${schedule.snapshotVersion} not found; schedule skipped`;
-        } else {
-          try {
-            await db
-              .update(formSchedule)
-              .set({ processedAt: null })
-              .where(
-                and(
-                  eq(formSchedule.id, schedule.id),
-                  eq(formSchedule.processedAt, currentTime),
-                ),
-              );
-          } catch (rollbackError) {
-            logError(
-              "Failed to release SWITCH_SNAPSHOT schedule claim",
-              "api",
-              {
-                error:
-                  rollbackError instanceof Error
-                    ? rollbackError.message
-                    : String(rollbackError),
-                formId,
-                scheduleId: schedule.id,
-              },
-            );
-          }
-          throw err;
         }
+        throw err;
       }
 
       finalResult = {

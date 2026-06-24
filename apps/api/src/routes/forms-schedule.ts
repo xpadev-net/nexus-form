@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db } from "@nexus-form/database";
-import { formSchedule } from "@nexus-form/database/schema";
+import { formSchedule, formSnapshot } from "@nexus-form/database/schema";
 import { and, asc, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -118,6 +118,20 @@ const formsScheduleMutationRateLimit = createRateLimit({
 
 const OkResponseSchema = z.object({ ok: z.literal(true) });
 
+async function snapshotVersionExists(
+  formId: string,
+  version: number,
+): Promise<boolean> {
+  const [snapshot] = await db
+    .select({ id: formSnapshot.id })
+    .from(formSnapshot)
+    .where(
+      and(eq(formSnapshot.formId, formId), eq(formSnapshot.version, version)),
+    )
+    .limit(1);
+  return !!snapshot;
+}
+
 export const formsScheduleRouter = createHonoApp()
   .use("/:id/schedule*", withDualFormAuth("VIEWER"))
   .get(
@@ -157,6 +171,12 @@ export const formsScheduleRouter = createHonoApp()
     async (c) => {
       const formId = c.req.param("id");
       const payload = c.req.valid("json");
+      if (
+        payload.action === "SWITCH_SNAPSHOT" &&
+        !(await snapshotVersionExists(formId, payload.snapshotVersion))
+      ) {
+        return c.json(formScheduleError("Snapshot not found"), 404);
+      }
       const id = randomUUID();
       await db.insert(formSchedule).values({
         id,
@@ -234,16 +254,20 @@ export const formsScheduleRouter = createHonoApp()
             ? payload.snapshotVersion
             : schedule.snapshotVersion;
 
-      if (
-        effectiveAction === "SWITCH_SNAPSHOT" &&
-        effectiveSnapshotVersion == null
-      ) {
-        return c.json(
-          formScheduleError(
-            "snapshotVersion is required for SWITCH_SNAPSHOT action",
-          ),
-          400,
-        );
+      let nextSnapshotVersion: number | null = null;
+      if (effectiveAction === "SWITCH_SNAPSHOT") {
+        if (effectiveSnapshotVersion == null) {
+          return c.json(
+            formScheduleError(
+              "snapshotVersion is required for SWITCH_SNAPSHOT action",
+            ),
+            400,
+          );
+        }
+        if (!(await snapshotVersionExists(formId, effectiveSnapshotVersion))) {
+          return c.json(formScheduleError("Snapshot not found"), 404);
+        }
+        nextSnapshotVersion = effectiveSnapshotVersion;
       }
 
       const updateResult = await db
@@ -253,10 +277,7 @@ export const formsScheduleRouter = createHonoApp()
             ? new Date(payload.triggerAt)
             : undefined,
           action: payload.action,
-          snapshotVersion:
-            effectiveAction === "SWITCH_SNAPSHOT"
-              ? effectiveSnapshotVersion
-              : null,
+          snapshotVersion: nextSnapshotVersion,
           updatedAt: new Date(),
         })
         .where(
