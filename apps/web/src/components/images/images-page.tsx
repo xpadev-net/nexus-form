@@ -224,7 +224,7 @@ export function ImagesPage() {
   const queryError = imagesQuery.error
     ? getErrorMessage(imagesQuery.error)
     : null;
-  const error = actionError ?? queryError;
+  const error = queryError ?? actionError;
   const isUploading = uploadMutation.isPending;
 
   return (
@@ -291,6 +291,7 @@ export function ImagesPage() {
                 variant="outline"
                 size="sm"
                 onClick={() => deleteMutation.mutate(image.key)}
+                disabled={deleteMutation.isPending}
               >
                 削除
               </Button>
