@@ -110,7 +110,10 @@ vi.mock("../../redis-publisher", () => ({
   publishSseAccessRevoked,
 }));
 
-import { updatePermissionRole } from "../permission-service";
+import {
+  PermissionUpdateError,
+  updatePermissionRole,
+} from "../permission-service";
 
 describe("updatePermissionRole share-link revocation", () => {
   beforeEach(() => {
@@ -194,6 +197,44 @@ describe("updatePermissionRole share-link revocation", () => {
 
     await updatePermissionRole("form-1", "editor-1", "EDITOR");
 
+    expect(publishSseAccessRevoked).not.toHaveBeenCalled();
+  });
+
+  it("rejects a role update when the form no longer exists", async () => {
+    mocks.formLimit.mockResolvedValueOnce([]);
+
+    const result = updatePermissionRole("missing-form", "editor-1", "VIEWER");
+
+    await expect(result).rejects.toBeInstanceOf(PermissionUpdateError);
+    await expect(result).rejects.toMatchObject({
+      code: "FORM_NOT_FOUND",
+      statusCode: 404,
+    });
+  });
+
+  it("rejects a role update when the target permission no longer exists", async () => {
+    mocks.permissionLimit.mockResolvedValueOnce([]);
+
+    await expect(
+      updatePermissionRole("form-1", "missing-user", "VIEWER"),
+    ).rejects.toMatchObject({
+      code: "PERMISSION_NOT_FOUND",
+      statusCode: 404,
+    });
+    expect(mocks.updateSet).not.toHaveBeenCalled();
+    expect(publishSseAccessRevoked).not.toHaveBeenCalled();
+  });
+
+  it("rejects OWNER permission role changes as conflicts", async () => {
+    mocks.permissionLimit.mockResolvedValueOnce([{ role: "OWNER" }]);
+
+    await expect(
+      updatePermissionRole("form-1", "owner-1", "VIEWER"),
+    ).rejects.toMatchObject({
+      code: "OWNER_PERMISSION_UPDATE_FORBIDDEN",
+      statusCode: 409,
+    });
+    expect(mocks.updateSet).not.toHaveBeenCalled();
     expect(publishSseAccessRevoked).not.toHaveBeenCalled();
   });
 
