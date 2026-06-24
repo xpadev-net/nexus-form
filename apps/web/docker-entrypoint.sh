@@ -5,6 +5,9 @@ set -e
 
 # Helper: JSON-encode a string value (escape backslashes, double-quotes, and
 # control characters). Falls back to a simple sed pipeline when jq is absent.
+web_root="${WEB_ROOT:-/usr/share/nginx/html}"
+security_headers_path="${SPA_SECURITY_HEADERS_PATH:-/etc/nginx/snippets/spa-security-headers.conf}"
+
 json_encode() {
   if command -v jq >/dev/null 2>&1; then
     # -R: raw input (treat stdin as string, not JSON), -s: slurp into single string
@@ -38,6 +41,31 @@ normalize_csp_origin() {
 
 escape_sed_replacement() {
   printf '%s' "$1" | tr -d '\n' | sed -e 's/[\\&#]/\\&/g'
+}
+
+sed_in_place() {
+  script="$1"
+  path="$2"
+  first_error="$(mktemp "${TMPDIR:-/tmp}/nexus-form-sed.XXXXXX")"
+  second_error="$(mktemp "${TMPDIR:-/tmp}/nexus-form-sed.XXXXXX")"
+
+  if sed -i "$script" "$path" 2>"$first_error"; then
+    rm -f "$first_error" "$second_error"
+    return 0
+  fi
+
+  if sed -i '' "$script" "$path" 2>"$second_error"; then
+    rm -f "$first_error" "$second_error"
+    return 0
+  fi
+
+  echo "[web] Failed to update $path with sed -i" >&2
+  echo "[web] GNU-style sed stderr:" >&2
+  cat "$first_error" >&2
+  echo "[web] BSD-style sed stderr:" >&2
+  cat "$second_error" >&2
+  rm -f "$first_error" "$second_error"
+  return 1
 }
 
 append_connect_src_from_host_env() {
@@ -97,12 +125,13 @@ for extra_origin in ${CSP_IMG_SRC:-}; do
 done
 set +f
 
-sed -i "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" /etc/nginx/snippets/spa-security-headers.conf
-sed -i "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" /etc/nginx/snippets/spa-security-headers.conf
+sed_in_place "s#__CSP_IMG_SRC__#$(escape_sed_replacement "$csp_img_src")#g" "$security_headers_path"
+sed_in_place "s#__CSP_CONNECT_SRC__#$(escape_sed_replacement "$csp_connect_src")#g" "$security_headers_path"
 
-cat <<EOF > /usr/share/nginx/html/env-config.js
+cat <<EOF > "$web_root/env-config.js"
 window.__NEXUS_FORM_CONFIG__ = {
   apiUrl: $(json_encode "${VITE_API_URL:-}"),
+  baseUrl: $(json_encode "${VITE_BASE_URL:-}"),
   formSecurityDevBypass: $(json_encode "${VITE_FORM_SECURITY_DEV_BYPASS:-}"),
   hcaptchaSiteKey: $(json_encode "${VITE_HCAPTCHA_SITE_KEY:-}"),
   telemetryHost: $(json_encode "${VITE_TELEMETRY_HOST:-}"),
