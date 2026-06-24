@@ -7,6 +7,7 @@ import { EditorControlsWrapper, TextLengthEditor } from "./editor-controls";
 import {
   FormQuestionElement,
   getQuestionControlLabelProps,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 export const FormLongTextElement = withRef<typeof PlateElement>(
@@ -36,8 +37,9 @@ export const FormLongTextElement = withRef<typeof PlateElement>(
 
 export function LongTextInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   return (
     <Textarea
@@ -46,6 +48,7 @@ export function LongTextInput({ element }: { element: TElement }) {
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder="回答を入力してください"
       rows={4}
+      {...errorA11y}
     />
   );
 }

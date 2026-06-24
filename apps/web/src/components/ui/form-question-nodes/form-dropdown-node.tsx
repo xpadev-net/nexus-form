@@ -22,6 +22,7 @@ import {
   getQuestionControlId,
   getQuestionLabelId,
   getQuestionValueAccessibleName,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -57,8 +58,9 @@ export const FormDropdownElement = withRef<typeof PlateElement>(
 
 export function DropdownInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { options?: OptionLike[]; allowOther?: boolean; otherLabel?: string }
@@ -92,6 +94,7 @@ export function DropdownInput({ element }: { element: TElement }) {
           id={getQuestionControlId(blockId)}
           aria-labelledby={questionLabelId}
           className="w-full"
+          {...errorA11y}
         >
           <SelectValue placeholder="選択してください" />
         </SelectTrigger>
@@ -122,6 +125,7 @@ export function DropdownInput({ element }: { element: TElement }) {
               })
             }
             placeholder={`${otherLabel}を入力`}
+            {...errorA11y}
           />
         </div>
       )}

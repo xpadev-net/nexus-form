@@ -3,7 +3,7 @@ import { isPlateQuestionType } from "@nexus-form/shared";
 import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
@@ -120,6 +120,52 @@ export interface FormQuestionElementProps {
   editorControls?: ReactNode;
   /** Rendered below the editable children area in viewer mode */
   viewerControls?: ReactNode;
+}
+
+export function getFormQuestionTitleId(blockId: string): string {
+  return getQuestionLabelId(blockId);
+}
+
+export function getFormQuestionErrorId(blockId: string): string {
+  return `form-question-${blockId}-error`;
+}
+
+interface FormQuestionA11yState {
+  invalidQuestionIds: ReadonlySet<string>;
+}
+
+const emptyInvalidQuestionIds = new Set<string>();
+
+const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
+  invalidQuestionIds: emptyInvalidQuestionIds,
+});
+
+export function FormQuestionA11yProvider({
+  children,
+  invalidQuestionIds,
+}: {
+  children: ReactNode;
+  invalidQuestionIds: ReadonlySet<string>;
+}) {
+  return (
+    <FormQuestionA11yContext.Provider value={{ invalidQuestionIds }}>
+      {children}
+    </FormQuestionA11yContext.Provider>
+  );
+}
+
+export function useFormQuestionErrorA11y(blockId: string): {
+  "aria-describedby"?: string;
+  "aria-invalid"?: true;
+} {
+  const { invalidQuestionIds } = useContext(FormQuestionA11yContext);
+  if (!invalidQuestionIds.has(blockId)) {
+    return {};
+  }
+  return {
+    "aria-describedby": getFormQuestionErrorId(blockId),
+    "aria-invalid": true,
+  };
 }
 
 /**

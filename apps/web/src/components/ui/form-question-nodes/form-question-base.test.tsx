@@ -62,6 +62,7 @@ let getQuestionControlLabelProps: (blockId: string) => {
   name: string;
   "aria-labelledby": string;
 };
+let getFormQuestionTitleId: (blockId: string) => string;
 let FormQuestionElement: ComponentType<{
   children?: ReactNode;
   viewerControls?: ReactNode;
@@ -75,6 +76,7 @@ beforeAll(async () => {
       element: Record<string, unknown>,
     ) => string;
   getQuestionControlLabelProps = formQuestionBase.getQuestionControlLabelProps;
+  getFormQuestionTitleId = formQuestionBase.getFormQuestionTitleId;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
@@ -194,6 +196,35 @@ describe("FormQuestionElement", () => {
     expect(
       container.querySelector("#question-1-question-label")?.textContent,
     ).toBe("氏名");
+  });
+
+  it("keeps the legacy title id helper aligned with viewer control labels", () => {
+    plateState.element = {
+      type: "form_short_text",
+      blockId: "question-1",
+      children: [{ type: "p", children: [{ text: "Question title" }] }],
+    };
+    plateState.readOnly = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mountedRoots.push(root);
+
+    act(() => {
+      root.render(
+        <FormQuestionElement
+          viewerControls={
+            <input aria-labelledby={getFormQuestionTitleId("question-1")} />
+          }
+        >
+          <p>Question title</p>
+        </FormQuestionElement>,
+      );
+    });
+
+    expect(
+      getByRole(container, "textbox", { name: "Question title" }),
+    ).not.toBeNull();
   });
 
   it("keeps generated question numbers with the title but excludes description text", () => {
