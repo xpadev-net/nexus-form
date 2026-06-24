@@ -2,17 +2,21 @@ import {
   type CompletionTargetValidationIssue,
   validateCompletionTargetsInPlateContent,
 } from "@nexus-form/shared";
+import { z } from "zod";
 import { FormValidationError } from "../errors/form-errors";
 
 export const COMPLETION_TARGET_VALIDATION_ERROR_MESSAGE =
   "送信後画面の遷移先を確認してください";
 
-export interface CompletionTargetValidationErrorResponse {
-  error: string;
-  details: {
-    blockIds: string[];
-  };
-}
+export const CompletionTargetValidationErrorResponseSchema = z.object({
+  error: z.string(),
+  details: z.object({
+    blockIds: z.array(z.string()),
+  }),
+});
+export type CompletionTargetValidationErrorResponse = z.infer<
+  typeof CompletionTargetValidationErrorResponseSchema
+>;
 
 export function summarizeCompletionTargetIssues(
   issues: CompletionTargetValidationIssue[],

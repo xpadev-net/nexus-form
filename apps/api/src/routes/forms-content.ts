@@ -4,7 +4,10 @@ import { validatePlateContent } from "@nexus-form/shared";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
-import { validateCompletionTargetsForApi } from "../lib/forms/completion-target-validation";
+import {
+  CompletionTargetValidationErrorResponseSchema,
+  validateCompletionTargetsForApi,
+} from "../lib/forms/completion-target-validation";
 import { createHonoApp } from "../lib/hono";
 import { publishEditorEvent } from "../lib/redis-publisher";
 
@@ -55,16 +58,6 @@ export type FormContentInvalidPlateResponse = z.infer<
   typeof FormContentInvalidPlateResponseSchema
 >;
 
-export const FormContentValidationErrorResponseSchema = z.object({
-  error: z.string(),
-  details: z.object({
-    blockIds: z.array(z.string()),
-  }),
-});
-export type FormContentValidationErrorResponse = z.infer<
-  typeof FormContentValidationErrorResponseSchema
->;
-
 export const FormContentInvalidJsonResponseSchema = z.object({
   error: z.literal("Invalid JSON"),
 });
@@ -112,30 +105,31 @@ export const formsContentRouter = createHonoApp()
       const { plateContent, expectedVersion } = c.req.valid("json");
 
       // Validate Plate JSON structure
+      let parsed: unknown;
       try {
-        const parsed = JSON.parse(plateContent);
-        if (!validatePlateContent(parsed)) {
-          return c.json(
-            FormContentInvalidPlateResponseSchema.parse({
-              error: "Invalid Plate content structure",
-            }),
-            400,
-          );
-        }
-        const completionTargetError = validateCompletionTargetsForApi(parsed);
-        if (completionTargetError) {
-          return c.json(
-            FormContentValidationErrorResponseSchema.parse(
-              completionTargetError,
-            ),
-            400,
-          );
-        }
+        parsed = JSON.parse(plateContent);
       } catch {
         return c.json(
           FormContentInvalidJsonResponseSchema.parse({
             error: "Invalid JSON",
           }),
+          400,
+        );
+      }
+      if (!validatePlateContent(parsed)) {
+        return c.json(
+          FormContentInvalidPlateResponseSchema.parse({
+            error: "Invalid Plate content structure",
+          }),
+          400,
+        );
+      }
+      const completionTargetError = validateCompletionTargetsForApi(parsed);
+      if (completionTargetError) {
+        return c.json(
+          CompletionTargetValidationErrorResponseSchema.parse(
+            completionTargetError,
+          ),
           400,
         );
       }

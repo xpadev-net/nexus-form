@@ -23,7 +23,10 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { FormStructureNotFoundError } from "../lib/errors/form-errors";
-import { validateCompletionTargetsForApi } from "../lib/forms/completion-target-validation";
+import {
+  CompletionTargetValidationErrorResponseSchema,
+  validateCompletionTargetsForApi,
+} from "../lib/forms/completion-target-validation";
 import { getFormStructure } from "../lib/forms/form-structure-service";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
@@ -80,13 +83,6 @@ const DuplicateFormResponseSchema = FormCreateResponseSchema.extend({
   }),
 });
 export type DuplicateFormResponse = z.infer<typeof DuplicateFormResponseSchema>;
-
-const PublishCompletionTargetValidationErrorResponseSchema = z.object({
-  error: z.string(),
-  details: z.object({
-    blockIds: z.array(z.string()),
-  }),
-});
 
 const rejectSyntheticDuplicateOwnerAuth = createMiddleware<Env>(
   async (c, next) => {
@@ -389,7 +385,7 @@ export const formsDetailRouter = createHonoApp()
         validateCompletionTargetsForApi(snapshotPlateContent);
       if (completionTargetError) {
         return c.json(
-          PublishCompletionTargetValidationErrorResponseSchema.parse(
+          CompletionTargetValidationErrorResponseSchema.parse(
             completionTargetError,
           ),
           400,
