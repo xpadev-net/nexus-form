@@ -189,7 +189,10 @@ interface SseClientEntry {
   shareLinkId?: string;
 }
 
+type SseSubscriptionPreflightToken = symbol;
+
 interface ChannelSubscription {
+  token: SseSubscriptionPreflightToken;
   subscriber: RedisSubscriber;
   clients: Map<symbol, SseClientEntry>;
   subscribePromise: Promise<unknown>;
@@ -199,12 +202,13 @@ interface ChannelSubscription {
 }
 
 interface SseChannelRegistry {
-  ensureSubscribed: (channel: string) => Promise<void>;
+  ensureSubscribed: (channel: string) => Promise<SseSubscriptionPreflightToken>;
   attach: (
     channel: string,
     client: SseMessageClient,
     options?: {
       preflighted?: boolean;
+      preflightToken?: SseSubscriptionPreflightToken;
       userId?: string;
       shareLinkId?: string;
       activation?: Promise<void>;
@@ -289,7 +293,12 @@ export function createSseChannelRegistry(
       return;
     }
 
-    subscription.closingPromise = Promise.resolve().then(async () => {
+    let resolveClosing!: () => void;
+    subscription.closingPromise = new Promise<void>((resolve) => {
+      resolveClosing = resolve;
+    });
+
+    try {
       subscriptions.delete(channel);
       const clients = Array.from(subscription.clients.values());
       subscription.clients.clear();
@@ -312,27 +321,39 @@ export function createSseChannelRegistry(
           subscription.errorListener,
         );
       }
-    });
-    await subscription.closingPromise;
+    } finally {
+      resolveClosing();
+    }
   }
 
-  function handleSubscriberError(
+  function closeSubscriptionAfterSubscriberError(
     channel: string,
     subscription: ChannelSubscription,
     error: unknown,
   ): void {
     if (subscription.closingPromise) return;
 
-    // Redis subscriber errors invalidate this shared stream source. Close the
-    // current SSE clients so browser EventSource clients retry against a fresh
-    // subscription on reconnect.
     logError(
-      "SSE Redis subscriber error; closing clients and relying on EventSource retry",
-      "api",
-      { channel, error },
+      "SSE Redis subscriber error; closing SSE clients so EventSource can reconnect",
+      "service",
+      {
+        channel,
+        clientCount: subscription.clients.size,
+        error,
+      },
     );
     captureError(error);
-    void closeSubscription(channel, subscription);
+
+    // ioredis may recover the socket, but this subscriber may have missed Pub/Sub
+    // messages while unhealthy. Close active HTTP streams and remove the
+    // subscriber; the browser/EventSource retry path will create a fresh one.
+    void closeSubscription(channel, subscription).catch((cleanupError) => {
+      logError("Failed to close SSE Redis subscriber after error", "service", {
+        channel,
+        error: cleanupError,
+      });
+      captureError(cleanupError);
+    });
   }
 
   function shouldCloseForRevokeEvent(
@@ -392,6 +413,7 @@ export function createSseChannelRegistry(
 
     const subscriber = subscriberFactory();
     const subscription: ChannelSubscription = {
+      token: Symbol(channel),
       subscriber,
       clients: new Map(),
       subscribePromise: Promise.resolve(),
@@ -441,17 +463,23 @@ export function createSseChannelRegistry(
       }
     };
     subscription.errorListener = (error: unknown) => {
-      handleSubscriberError(channel, subscription, error);
+      closeSubscriptionAfterSubscriberError(channel, subscription, error);
     };
 
     subscriber.on("error", subscription.errorListener);
     subscriber.on("message", subscription.messageListener);
     subscriptions.set(channel, subscription);
-    subscription.subscribePromise = subscriber.subscribe(channel);
+    try {
+      subscription.subscribePromise = subscriber.subscribe(channel);
+    } catch (error) {
+      subscription.subscribePromise = Promise.reject(error);
+    }
     return subscription;
   }
 
-  async function ensureSubscribed(channel: string): Promise<void> {
+  async function ensureSubscribed(
+    channel: string,
+  ): Promise<SseSubscriptionPreflightToken> {
     if (!acceptingClients) {
       throw new Error("SSE subscribers are shutting down");
     }
@@ -471,6 +499,10 @@ export function createSseChannelRegistry(
       }
       throw error;
     }
+    if (subscription.closingPromise) {
+      throw new Error("SSE subscriber closed during subscription preflight");
+    }
+    return subscription.token;
   }
 
   return {
@@ -480,6 +512,7 @@ export function createSseChannelRegistry(
       client: SseMessageClient,
       options: {
         preflighted?: boolean;
+        preflightToken?: SseSubscriptionPreflightToken;
         userId?: string;
         shareLinkId?: string;
         activation?: Promise<void>;
@@ -491,6 +524,10 @@ export function createSseChannelRegistry(
       }
 
       const subscription = getSubscription(channel);
+      if (subscription.closingPromise) {
+        client.close();
+        throw new Error("SSE subscriber is closing");
+      }
       const clientId = Symbol(channel);
       const entry: SseClientEntry = {
         eventId: 0,
@@ -512,7 +549,10 @@ export function createSseChannelRegistry(
         });
 
       try {
-        if (!options.preflighted) {
+        const canUsePreflight =
+          options.preflighted === true &&
+          options.preflightToken === subscription.token;
+        if (!canUsePreflight) {
           await subscription.subscribePromise;
         }
       } catch (error) {
@@ -530,6 +570,7 @@ export function createSseChannelRegistry(
 
         entry.closed = true;
         subscription.clients.delete(clientId);
+        if (subscription.closingPromise) return;
         if (subscription.clients.size === 0) {
           await closeSubscription(channel, subscription);
         }
@@ -623,7 +664,8 @@ async function createSSEStream(
   }
 
   try {
-    await options.channelRegistry.ensureSubscribed(channel);
+    const preflightToken =
+      await options.channelRegistry.ensureSubscribed(channel);
 
     if (preflightAborted) {
       permit.release();
@@ -692,6 +734,7 @@ async function createSSEStream(
           },
           {
             preflighted: true,
+            preflightToken,
             userId: auth.user_id,
             shareLinkId: auth.share_link_id,
             activation: activation.promise,
