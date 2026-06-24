@@ -135,13 +135,14 @@ async function restoreStructureFromSnapshot(
 
   await tx
     .update(formStructure)
-    .set({ isActive: false })
+    .set({ activeFormId: null, isActive: false })
     .where(
       and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
     );
   await tx.insert(formStructure).values({
     id: crypto.randomUUID(),
     formId,
+    activeFormId: formId,
     structureJson,
     version: nextVersion,
     createdBy: null,

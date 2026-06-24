@@ -60,7 +60,7 @@ export async function saveFormStructureWithOptimisticLock(
       // 既存の構造を非アクティブにする
       await tx
         .update(formStructure)
-        .set({ isActive: false })
+        .set({ activeFormId: null, isActive: false })
         .where(
           and(
             eq(formStructure.formId, request.formId),
@@ -73,6 +73,7 @@ export async function saveFormStructureWithOptimisticLock(
       await tx.insert(formStructure).values({
         id: newId,
         formId: request.formId,
+        activeFormId: request.formId,
         structureJson: JSON.stringify(request.newStructure),
         version: request.expectedVersion + 1,
         createdBy: request.userId,
