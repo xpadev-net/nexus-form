@@ -128,10 +128,11 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
                         <label
                           htmlFor={inputId}
                           className={cn(
-                            "relative flex min-h-10 w-full min-w-12 items-center justify-center px-3 py-2",
+                            "relative flex min-h-10 w-full min-w-12 items-center justify-center px-3 py-2 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                             disabled
-                              ? "cursor-not-allowed"
-                              : "cursor-pointer",
+                              ? "cursor-not-allowed bg-muted/30 opacity-70"
+                              : "cursor-pointer hover:bg-muted/50",
+                            isChecked && "bg-primary/5 opacity-100 hover:bg-primary/10",
                           )}
                         >
                           <input

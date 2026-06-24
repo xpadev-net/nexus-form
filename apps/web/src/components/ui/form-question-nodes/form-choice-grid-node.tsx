@@ -107,7 +107,10 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
                   <td key={col.id} className="border p-0 text-center">
                     <label
                       htmlFor={inputId}
-                      className="relative flex min-h-10 w-full min-w-12 cursor-pointer items-center justify-center px-3 py-2"
+                      className={cn(
+                        "relative flex min-h-10 w-full min-w-12 cursor-pointer items-center justify-center px-3 py-2 transition-colors hover:bg-muted/50 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
+                        checked && "bg-primary/5 hover:bg-primary/10",
+                      )}
                     >
                       <input
                         id={inputId}
