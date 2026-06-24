@@ -27,4 +27,19 @@ describe("getBlockValueOptions", () => {
       { value: "other", label: "その他" },
     ]);
   });
+
+  it("linear_scale の小数 step は丸めた数値候補にする", () => {
+    expect(
+      getBlockValueOptions("linear_scale", {
+        min: 0,
+        max: 0.3,
+        step: 0.1,
+      }),
+    ).toEqual([
+      { value: 0, label: "0" },
+      { value: 0.1, label: "0.1" },
+      { value: 0.2, label: "0.2" },
+      { value: 0.3, label: "0.3" },
+    ]);
+  });
 });

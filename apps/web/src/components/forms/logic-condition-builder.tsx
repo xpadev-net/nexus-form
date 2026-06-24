@@ -22,7 +22,6 @@ interface BlockValueOption {
 interface BlockRef {
   blockId: string;
   title?: string;
-  questionType?: string;
   valueOptions?: BlockValueOption[];
 }
 
@@ -106,9 +105,15 @@ function addConditionValue(
   optionValue: string | number,
 ): string[] | number[] {
   if (typeof optionValue === "number") {
-    return [...values.filter(isNumberValue), optionValue];
+    const numberValues = values.filter(isNumberValue);
+    return numberValues.includes(optionValue)
+      ? numberValues
+      : [...numberValues, optionValue];
   }
-  return [...values.filter(isStringValue), optionValue];
+  const stringValues = values.filter(isStringValue);
+  return stringValues.includes(optionValue)
+    ? stringValues
+    : [...stringValues, optionValue];
 }
 
 function removeConditionValue(

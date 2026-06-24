@@ -85,7 +85,6 @@ const availableBlocks = [
   {
     blockId: "q-radio",
     title: "色",
-    questionType: "radio",
     valueOptions: [
       { value: "red", label: "赤" },
       { value: "blue", label: "青" },
@@ -94,7 +93,6 @@ const availableBlocks = [
   {
     blockId: "q-dropdown",
     title: "サイズ",
-    questionType: "dropdown",
     valueOptions: [
       { value: "small", label: "小" },
       { value: "large", label: "大" },
@@ -103,7 +101,6 @@ const availableBlocks = [
   {
     blockId: "q-checkbox",
     title: "機能",
-    questionType: "checkbox",
     valueOptions: [
       { value: "export", label: "エクスポート" },
       { value: "share", label: "共有" },

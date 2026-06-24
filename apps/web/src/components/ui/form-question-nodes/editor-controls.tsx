@@ -893,12 +893,32 @@ function buildNumericOptions(
 ): Array<{ value: number; label: string }> | undefined {
   if (max < min || step <= 0) return undefined;
 
+  const decimalPlaces = Math.max(
+    getDecimalPlaces(min),
+    getDecimalPlaces(max),
+    getDecimalPlaces(step),
+  );
+  const scale = 10 ** decimalPlaces;
+  const scaledMin = Math.round(min * scale);
+  const scaledMax = Math.round(max * scale);
+  const scaledStep = Math.round(step * scale);
+  if (scaledStep <= 0) return undefined;
+
   const options: Array<{ value: number; label: string }> = [];
-  for (let value = min; value <= max; value += step) {
+  const optionCount = Math.floor((scaledMax - scaledMin) / scaledStep) + 1;
+  if (optionCount > 200) return undefined;
+
+  for (let index = 0; index < optionCount; index += 1) {
+    const value = (scaledMin + index * scaledStep) / scale;
+    if (value > max) break;
     options.push({ value, label: String(value) });
-    if (options.length > 200) return undefined;
   }
   return options;
+}
+
+function getDecimalPlaces(value: number): number {
+  const [, decimals = ""] = String(value).split(".");
+  return decimals.length;
 }
 
 export function getBlockValueOptions(
