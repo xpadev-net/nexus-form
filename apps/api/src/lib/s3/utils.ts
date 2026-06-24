@@ -6,49 +6,65 @@ import {
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
 import { logWarn } from "../logger";
+import { validateBucketName } from "./bucket-name";
 import { getS3Client } from "./client";
+
+export { validateBucketName } from "./bucket-name";
 
 /**
  * S3バケット設定
  */
-function validateBucketName(bucketName: string): boolean {
-  // S3バケット名の検証ルール
-  // - 3-63文字の長さ
-  // - 小文字、数字、ハイフン、ピリオドのみ
-  // - ハイフンで始まったり終わったりしない
-  // - 連続するピリオドは不可
-  const bucketNameRegex = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/;
+const localS3BucketFallbackEnvironments = new Set(["development", "test"]);
+const s3BucketFallbacks = {
+  TMP: "tmp-bucket",
+  PROD: "prod-bucket",
+} as const;
 
-  if (bucketName.length < 3 || bucketName.length > 63) {
-    return false;
-  }
-
-  if (!bucketNameRegex.test(bucketName)) {
-    return false;
-  }
-
-  if (bucketName.includes("..")) {
-    return false;
-  }
-
-  return true;
+export interface S3BucketConfig {
+  TMP: string;
+  PROD: string;
 }
 
-function getBucketName(envVar: string, fallback: string): string {
-  const value = process.env[envVar];
+function shouldUseLocalBucketFallback(nodeEnv: string | undefined): boolean {
+  return localS3BucketFallbackEnvironments.has(nodeEnv ?? "");
+}
+
+function formatNodeEnv(nodeEnv: string | undefined): string {
+  return nodeEnv && nodeEnv.length > 0 ? nodeEnv : "unset";
+}
+
+function getBucketName(
+  env: NodeJS.ProcessEnv,
+  nodeEnv: string | undefined,
+  envVar: string,
+  fallback: string,
+): string {
+  const value = env[envVar]?.trim();
   if (!value) {
+    if (!shouldUseLocalBucketFallback(nodeEnv)) {
+      throw new Error(
+        `${envVar} is required when NODE_ENV is ${formatNodeEnv(nodeEnv)}. S3 bucket fallback is limited to development and test.`,
+      );
+    }
+
     logWarn("Environment variable not set, using fallback", "storage", {
       envVar,
       fallback,
+      nodeEnv: formatNodeEnv(nodeEnv),
     });
     return fallback;
   }
 
   if (!validateBucketName(value)) {
+    if (!shouldUseLocalBucketFallback(nodeEnv)) {
+      throw new Error(`Invalid S3 bucket name in ${envVar}: ${value}`);
+    }
+
     logWarn("Invalid bucket name format, using fallback", "storage", {
       envVar,
       value,
       fallback,
+      nodeEnv: formatNodeEnv(nodeEnv),
     });
     return fallback;
   }
@@ -56,10 +72,24 @@ function getBucketName(envVar: string, fallback: string): string {
   return value;
 }
 
-export const S3_BUCKETS = {
-  TMP: getBucketName("S3_BUCKET_TMP", "tmp-bucket"),
-  PROD: getBucketName("S3_BUCKET_PROD", "prod-bucket"),
-} as const;
+export function resolveS3BucketConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  nodeEnv: string | undefined = env.NODE_ENV,
+): S3BucketConfig {
+  return {
+    TMP: getBucketName(env, nodeEnv, "S3_BUCKET_TMP", s3BucketFallbacks.TMP),
+    PROD: getBucketName(env, nodeEnv, "S3_BUCKET_PROD", s3BucketFallbacks.PROD),
+  };
+}
+
+export const S3_BUCKETS: S3BucketConfig = {
+  get TMP() {
+    return resolveS3BucketConfig().TMP;
+  },
+  get PROD() {
+    return resolveS3BucketConfig().PROD;
+  },
+};
 
 /**
  * Checks whether a value is a non-null, non-array object.
