@@ -224,7 +224,7 @@ export const FormQuestionElement = withRef<
 
         {/* Editable rich text children (title/description) */}
         {titleId ? (
-          <span className="sr-only" contentEditable={false} id={titleId}>
+          <span contentEditable={false} hidden id={titleId}>
             {titleText}
           </span>
         ) : null}
