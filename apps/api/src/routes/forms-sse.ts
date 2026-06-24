@@ -157,12 +157,22 @@ interface SseMessageClient {
   close: () => void;
 }
 
+type RedisMessageListener = (channel: string, message: string) => void;
+type RedisErrorListener = (error: unknown) => void;
+type RedisSubscriberEvent = "message" | "error";
+type RedisSubscriberEventListener = RedisMessageListener | RedisErrorListener;
+
 interface RedisSubscriber {
-  on(
-    event: "message",
-    listener: (channel: string, message: string) => void,
+  on(event: "message", listener: RedisMessageListener): RedisSubscriber;
+  on(event: "error", listener: RedisErrorListener): RedisSubscriber;
+  off?(
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
   ): RedisSubscriber;
-  on(event: "error", listener: (error: Error) => void): RedisSubscriber;
+  removeListener?(
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
+  ): RedisSubscriber;
   subscribe(channel: string): Promise<unknown>;
   unsubscribe(channel: string): Promise<unknown>;
   quit(): Promise<unknown>;
@@ -187,6 +197,8 @@ interface ChannelSubscription {
   clients: Map<symbol, SseClientEntry>;
   subscribePromise: Promise<unknown>;
   closingPromise: Promise<void> | null;
+  messageListener: RedisMessageListener;
+  errorListener: RedisErrorListener;
 }
 
 interface SseChannelRegistry {
@@ -242,6 +254,36 @@ export function createSseChannelRegistry(
   const subscriptions = new Map<string, ChannelSubscription>();
   let acceptingClients = true;
 
+  function removeRedisSubscriberListener(
+    subscriber: RedisSubscriber,
+    event: RedisSubscriberEvent,
+    listener: RedisSubscriberEventListener,
+  ): void {
+    if (subscriber.off) {
+      subscriber.off(event, listener);
+      return;
+    }
+    if (subscriber.removeListener) {
+      subscriber.removeListener(event, listener);
+      return;
+    }
+    logWarn(
+      `SSE Redis subscriber has neither off() nor removeListener(); "${event}" listener not removed`,
+      "api",
+    );
+  }
+
+  function closeClientSafely(channel: string, entry: SseClientEntry): void {
+    try {
+      entry.client.close();
+    } catch (error) {
+      logWarn("SSE client close failed during subscription cleanup", "api", {
+        channel,
+        error,
+      });
+    }
+  }
+
   async function closeSubscription(
     channel: string,
     subscription: ChannelSubscription,
@@ -262,10 +304,23 @@ export function createSseChannelRegistry(
       subscription.clients.clear();
       for (const entry of clients) {
         entry.closed = true;
-        entry.client.close();
+        closeClientSafely(channel, entry);
       }
-      await subscription.subscriber.unsubscribe(channel).catch(() => {});
-      await subscription.subscriber.quit().catch(() => {});
+      try {
+        await subscription.subscriber.unsubscribe(channel).catch(() => {});
+        await subscription.subscriber.quit().catch(() => {});
+      } finally {
+        removeRedisSubscriberListener(
+          subscription.subscriber,
+          "message",
+          subscription.messageListener,
+        );
+        removeRedisSubscriberListener(
+          subscription.subscriber,
+          "error",
+          subscription.errorListener,
+        );
+      }
     } finally {
       resolveClosing();
     }
@@ -274,7 +329,7 @@ export function createSseChannelRegistry(
   function closeSubscriptionAfterSubscriberError(
     channel: string,
     subscription: ChannelSubscription,
-    error: Error,
+    error: unknown,
   ): void {
     if (subscription.closingPromise) return;
 
@@ -329,7 +384,7 @@ export function createSseChannelRegistry(
     if (entry.closed) return;
     entry.closed = true;
     subscription.clients.delete(clientId);
-    entry.client.close();
+    closeClientSafely(channel, entry);
     // Safety net for races where the stream detach path already ran while
     // sibling clients still existed; this may be the last remaining client.
     if (subscription.clients.size === 0) {
@@ -363,14 +418,14 @@ export function createSseChannelRegistry(
       clients: new Map(),
       subscribePromise: Promise.resolve(),
       closingPromise: null,
+      messageListener: () => undefined,
+      errorListener: () => undefined,
     };
-    subscriptions.set(channel, subscription);
 
-    subscriber.on("error", (error: Error) => {
-      closeSubscriptionAfterSubscriberError(channel, subscription, error);
-    });
-
-    subscriber.on("message", (receivedChannel: string, message: string) => {
+    subscription.messageListener = (
+      receivedChannel: string,
+      message: string,
+    ) => {
       if (receivedChannel !== channel) return;
 
       const revokeEvent = parseSseAccessRevokedEvent(message);
@@ -406,8 +461,14 @@ export function createSseChannelRegistry(
             closeClientEntry(channel, subscription, clientId, entry);
           });
       }
-    });
+    };
+    subscription.errorListener = (error: unknown) => {
+      closeSubscriptionAfterSubscriberError(channel, subscription, error);
+    };
 
+    subscriber.on("error", subscription.errorListener);
+    subscriber.on("message", subscription.messageListener);
+    subscriptions.set(channel, subscription);
     try {
       subscription.subscribePromise = subscriber.subscribe(channel);
     } catch (error) {
@@ -426,6 +487,12 @@ export function createSseChannelRegistry(
     const subscription = getSubscription(channel);
     try {
       await subscription.subscribePromise;
+      if (
+        subscriptions.get(channel) !== subscription ||
+        subscription.closingPromise
+      ) {
+        throw new Error("SSE subscription closed before becoming ready");
+      }
     } catch (error) {
       if (subscription.clients.size === 0) {
         await closeSubscription(channel, subscription);
