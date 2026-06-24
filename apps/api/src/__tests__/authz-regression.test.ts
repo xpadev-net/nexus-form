@@ -6,7 +6,7 @@
  * R2-H2: Response limit is enforced inside an atomic transaction (TOCTOU prevention)
  * R2-H3: VIEWER cannot list permissions or invitations (EDITOR gate)
  */
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
 
@@ -174,6 +174,15 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
     title: "Published form",
     description: null,
     parentVersion: null,
+    ...overrides,
+  };
+}
+
+function publishedPublicFormLookup(overrides: Record<string, unknown> = {}) {
+  return {
+    id: FORM_ID,
+    status: "PUBLISHED",
+    dueScheduleId: null,
     ...overrides,
   };
 }
@@ -1034,7 +1043,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
         }),
       }),
     );
-    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+    mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1051,6 +1060,209 @@ describe("R3-M21: password protected public submit fails closed", () => {
     await expect(res.json()).resolves.toEqual({
       error: "Form password protection is misconfigured",
     });
+  });
+});
+
+// ── R28-H1: Public password verification respects publish status ───────────
+
+describe("R28-H1: public password verification hides unpublished forms", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each([
+    {
+      status: "DRAFT",
+      password: "wrong-password",
+      passwordValid: false,
+    },
+    {
+      status: "DRAFT",
+      password: "correct-password",
+      passwordValid: true,
+    },
+    {
+      status: "UNPUBLISHED",
+      password: "wrong-password",
+      passwordValid: false,
+    },
+    {
+      status: "UNPUBLISHED",
+      password: "correct-password",
+      passwordValid: true,
+    },
+  ] as const)("returns 404 for $status password verification before checking $password", async ({
+    status,
+    password,
+    passwordValid,
+  }) => {
+    const { db } = await import("@nexus-form/database");
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    vi.mocked(verifyPassword).mockResolvedValueOnce(passwordValid);
+    mockDbSelectChain(db, [[publishedPublicFormLookup({ status })]]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form not found",
+    });
+    expect(getLatestSnapshot).not.toHaveBeenCalled();
+    expect(verifyPassword).not.toHaveBeenCalled();
+    expect(signSessionJwt).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when a due schedule unpublishes before password verification", async () => {
+    const now = new Date("2026-06-24T00:00:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    vi.mocked(processFormSchedule).mockResolvedValueOnce({
+      processed: true,
+      statusChanged: true,
+      newStatus: "UNPUBLISHED",
+      message: "Form automatically unpublished based on schedule",
+    });
+    vi.mocked(verifyPassword).mockResolvedValueOnce(true);
+    mockDbSelectChain(db, [
+      [publishedPublicFormLookup({ dueScheduleId: "schedule-deadline" })],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "correct-password" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form not found",
+    });
+    expect(processFormSchedule).toHaveBeenCalledWith(FORM_ID, now);
+    expect(getLatestSnapshot).not.toHaveBeenCalled();
+    expect(verifyPassword).not.toHaveBeenCalled();
+    expect(signSessionJwt).not.toHaveBeenCalled();
+  });
+
+  it("uses the latest scheduled status when another request already unpublished the form", async () => {
+    const now = new Date("2026-06-24T00:01:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    vi.mocked(processFormSchedule).mockResolvedValueOnce({
+      processed: false,
+      statusChanged: false,
+      newStatus: "UNPUBLISHED",
+      message: "No pending schedules to process",
+    });
+    vi.mocked(verifyPassword).mockResolvedValueOnce(true);
+    mockDbSelectChain(db, [
+      [publishedPublicFormLookup({ dueScheduleId: "schedule-deadline" })],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "correct-password" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form not found",
+    });
+    expect(processFormSchedule).toHaveBeenCalledWith(FORM_ID, now);
+    expect(getLatestSnapshot).not.toHaveBeenCalled();
+    expect(verifyPassword).not.toHaveBeenCalled();
+    expect(signSessionJwt).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when due schedule processing fails before password verification", async () => {
+    const now = new Date("2026-06-24T00:02:00.000Z");
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    const { getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const { verifyPassword } = await import("../lib/security/password");
+    const { signSessionJwt } = await import("../lib/sessions/jwt");
+    vi.mocked(processFormSchedule).mockRejectedValueOnce(
+      new Error("schedule processor unavailable"),
+    );
+    vi.mocked(verifyPassword).mockResolvedValueOnce(true);
+    mockDbSelectChain(db, [
+      [publishedPublicFormLookup({ dueScheduleId: "schedule-deadline" })],
+    ]);
+
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const res = await formsPublicRouter.request(
+      "/public/test-public-id/verify-password",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "correct-password" }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form not found",
+    });
+    expect(processFormSchedule).toHaveBeenCalledWith(FORM_ID, now);
+    expect(getLatestSnapshot).not.toHaveBeenCalled();
+    expect(verifyPassword).not.toHaveBeenCalled();
+    expect(signSessionJwt).not.toHaveBeenCalled();
   });
 });
 
@@ -1128,7 +1340,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
 
   it("rejects password verification when the active snapshot is missing", async () => {
     const { db } = await import("@nexus-form/database");
-    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+    mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1327,7 +1539,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
         structureJson: JSON.stringify({ version: 0, settings: {} }),
       }),
     );
-    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+    mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1582,7 +1794,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
         }),
       }),
     );
-    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+    mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1624,7 +1836,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
         }),
       }),
     );
-    mockDbSelectChain(db, [[{ id: FORM_ID }]]);
+    mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
 
