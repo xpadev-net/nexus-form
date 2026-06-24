@@ -2,7 +2,9 @@ import {
   type BlockTypeValue,
   extractTitleFromChildren,
   fromPlateQuestionType,
+  isCompletionTargetPage,
   isPlateQuestionType,
+  splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
 import type { TElement } from "platejs";
@@ -11,10 +13,15 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState,
 } from "react";
-import { LogicActionBuilder } from "@/components/forms/logic-action-builder";
+import {
+  getCompletionTargetStatus,
+  LogicActionBuilder,
+  type SectionTargetOption,
+} from "@/components/forms/logic-action-builder";
 import { LogicConditionBuilder } from "@/components/forms/logic-condition-builder";
 import { Button } from "@/components/ui/button";
 import { CompositionAwareInput } from "@/components/ui/composition-aware-input";
@@ -972,6 +979,15 @@ export function getBlockValueOptions(
   return undefined;
 }
 
+function getEditorStructureSignature(children: TElement[]): string {
+  return children
+    .map((child) => {
+      const blockId = typeof child.blockId === "string" ? child.blockId : "";
+      return `${String(child.type)}:${blockId}`;
+    })
+    .join("|");
+}
+
 function getInitialConditionValue(
   block: EditorBlock | undefined,
 ): FormLogicCondition["value"] {
@@ -1026,6 +1042,9 @@ const DEFAULT_ACTION_LABELS: Record<SectionTransitionAction["type"], string> = {
 export function SectionTransitionEditor({
   sectionCtx,
 }: { sectionCtx: PlateSectionContext }) {
+  const completionTargetMessageId = useId();
+  const completionTargetErrorId = useId();
+  const editor = useEditorRef();
   const element = useElement<TElement>();
   const update = useUpdateValidation();
   const editorBlocks = useEditorBlocks();
@@ -1046,6 +1065,8 @@ export function SectionTransitionEditor({
     () => validation?.navigation_rules ?? [],
     [validation?.navigation_rules],
   );
+  const editorChildren = editor.children as TElement[];
+  const editorStructureSignature = getEditorStructureSignature(editorChildren);
 
   // Available sections for "jump to" (exclude preceding and current sections)
   const availableSections = useMemo(
@@ -1067,6 +1088,30 @@ export function SectionTransitionEditor({
     [sectionCtx.sections, sectionCtx.precedingSectionIndex, sectionCtx.sectionIndex],
   );
 
+  const completionTargetSections = useMemo<SectionTargetOption[]>(() => {
+    const pages = splitPlateContentIntoPages(editorChildren);
+    const pageById = new Map(pages.map((page) => [page.pageId, page]));
+
+    return sectionCtx.sections
+      .filter((section) => section.index !== sectionCtx.precedingSectionIndex)
+      .map((section) => {
+        const page = pageById.get(section.id);
+        return {
+          id: section.id,
+          title: section.title,
+          isCompletionTarget: page != null && isCompletionTargetPage(page),
+        };
+      })
+      .sort((left, right) => {
+        if (left.isCompletionTarget === right.isCompletionTarget) return 0;
+        return left.isCompletionTarget ? -1 : 1;
+      });
+  }, [
+    editorStructureSignature,
+    sectionCtx.sections,
+    sectionCtx.precedingSectionIndex,
+  ]);
+
   // If the jump target was deleted or is missing, fall back to "next"
   const resolvedDefaultAction: SectionTransitionAction = useMemo(() => {
     if (
@@ -1079,6 +1124,24 @@ export function SectionTransitionEditor({
     return defaultAction;
   }, [defaultAction, availableSections]);
 
+  const {
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  } = getCompletionTargetStatus(
+    resolvedDefaultAction,
+    completionTargetSections,
+  );
+  const completionTargetDescription = [
+    resolvedDefaultAction.type === "submit" && !hasCompletionTargetChoice
+      ? completionTargetMessageId
+      : undefined,
+    hasCompletionTargetError ? completionTargetErrorId : undefined,
+  ]
+    .filter((id): id is string => typeof id === "string")
+    .join(" ");
+
   // Default action handlers
   const handleDefaultActionTypeChange = (
     type: SectionTransitionAction["type"],
@@ -1087,6 +1150,15 @@ export function SectionTransitionEditor({
       const firstTarget = availableSections[0]?.id;
       if (!firstTarget) return; // No valid targets – do not switch
       update({ default_action: { type, target_id: firstTarget } });
+    } else if (type === "submit") {
+      const firstTarget = completionTargetSections.find(
+        (section) => section.isCompletionTarget,
+      );
+      update({
+        default_action: firstTarget
+          ? { type, target_id: firstTarget.id }
+          : { type },
+      });
     } else {
       update({ default_action: { type } });
     }
@@ -1169,8 +1241,8 @@ export function SectionTransitionEditor({
                   key={key}
                   value={key}
                   disabled={
-                    key === "jump_to_section" &&
-                    availableSections.length === 0
+                    (key === "jump_to_section" &&
+                      availableSections.length === 0)
                   }
                 >
                   {label}
@@ -1196,7 +1268,65 @@ export function SectionTransitionEditor({
               </SelectContent>
             </Select>
           )}
+
+          {resolvedDefaultAction.type === "submit" && (
+            <Select
+              value={resolvedDefaultAction.target_id ?? ""}
+              onValueChange={handleDefaultActionTargetChange}
+              disabled={
+                !hasCompletionTargetChoice && !resolvedDefaultAction.target_id
+              }
+            >
+              <SelectTrigger
+                aria-describedby={completionTargetDescription || undefined}
+                aria-invalid={hasCompletionTargetError || undefined}
+                className="h-8 text-xs"
+              >
+                <SelectValue placeholder="完了セクションを選択" />
+              </SelectTrigger>
+              <SelectContent>
+                {hasMissingCompletionTarget &&
+                resolvedDefaultAction.target_id ? (
+                  <SelectItem value={resolvedDefaultAction.target_id}>
+                    不明な完了セクション
+                  </SelectItem>
+                ) : null}
+                {completionTargetSections.map((section) => (
+                  <SelectItem
+                    key={section.id}
+                    value={section.id}
+                    disabled={
+                      !section.isCompletionTarget &&
+                      section.id !== resolvedDefaultAction.target_id
+                    }
+                  >
+                    {section.title}
+                    {!section.isCompletionTarget ? "（入力欄あり）" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
+        {resolvedDefaultAction.type === "submit" &&
+          !hasCompletionTargetChoice && (
+            <p
+              id={completionTargetMessageId}
+              className="text-xs text-muted-foreground"
+            >
+              完了セクションに使える入力欄なしセクションがありません
+            </p>
+          )}
+        {hasInvalidCompletionTarget && (
+          <p id={completionTargetErrorId} className="text-xs text-destructive">
+            選択中の完了セクションに入力欄が含まれています
+          </p>
+        )}
+        {hasMissingCompletionTarget && (
+          <p id={completionTargetErrorId} className="text-xs text-destructive">
+            選択中の完了セクションが見つかりません
+          </p>
+        )}
       </div>
 
       {/* Conditional rules (collapsible) */}
@@ -1227,6 +1357,7 @@ export function SectionTransitionEditor({
                 rule={rule}
                 availableBlocks={editorBlocks}
                 availableSections={availableSections}
+                completionTargetSections={completionTargetSections}
                 onChange={(updated) => handleUpdateRule(index, updated)}
                 onDelete={() => handleDeleteRule(index)}
               />
@@ -1257,6 +1388,7 @@ interface NavigationRuleItemProps {
   rule: FormLogicRule;
   availableBlocks: EditorBlock[];
   availableSections: Array<{ id: string; title: string }>;
+  completionTargetSections: SectionTargetOption[];
   onChange: (rule: FormLogicRule) => void;
   onDelete: () => void;
 }
@@ -1265,6 +1397,7 @@ function NavigationRuleItem({
   rule,
   availableBlocks,
   availableSections,
+  completionTargetSections,
   onChange,
   onDelete,
 }: NavigationRuleItemProps) {
@@ -1310,6 +1443,7 @@ function NavigationRuleItem({
         action={rule.action}
         availableBlocks={availableBlocks}
         availableSections={availableSections}
+        completionTargetSections={completionTargetSections}
         onChange={handleActionChange}
       />
     </div>
