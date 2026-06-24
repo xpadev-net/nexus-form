@@ -22,12 +22,12 @@ import { assertS3ObjectKeyPrefix, SecurityValidationError } from "./validation";
  * sharpに依存しない基本機能を提供
  */
 export class S3BaseService {
-  protected readonly tmpBucket: string;
-  protected readonly prodBucket: string;
+  protected get tmpBucket(): string {
+    return S3_BUCKETS.TMP;
+  }
 
-  constructor() {
-    this.tmpBucket = S3_BUCKETS.TMP;
-    this.prodBucket = S3_BUCKETS.PROD;
+  protected get prodBucket(): string {
+    return S3_BUCKETS.PROD;
   }
 
   /**
