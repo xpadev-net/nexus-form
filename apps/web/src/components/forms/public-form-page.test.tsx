@@ -24,6 +24,7 @@ type MockSubmitRequestData = {
     other_values?: string[];
   }[];
   visitedQuestionIds: string[];
+  completionTargetPageId?: string;
 };
 
 type PublicFormData = {
@@ -79,6 +80,7 @@ const formBodyMockState = vi.hoisted(() => ({
     captchaReady?: boolean;
     description?: string;
     plateContent: string;
+    submittedCompletionPageId?: string | null;
     title: string;
   }>,
 }));
@@ -167,6 +169,43 @@ function sectionBranchingPlateContent(): string {
   ]);
 }
 
+function completionTargetPlateContent(
+  options: { answerableTarget?: boolean } = {},
+): string {
+  return JSON.stringify([
+    {
+      type: "form_radio",
+      blockId: "q-plan",
+      validation: {
+        required: true,
+        options: [{ id: "vip", label: "VIP" }],
+      },
+      children: [{ type: "p", children: [{ text: "プラン" }] }],
+    },
+    {
+      type: "form_section_separator",
+      blockId: "section-complete-vip",
+      validation: {
+        default_action: {
+          type: "submit",
+          target_id: "section-complete-vip",
+        },
+      },
+      children: [{ type: "p", children: [{ text: "VIP 完了" }] }],
+    },
+    ...(options.answerableTarget
+      ? [
+          {
+            type: "form_short_text",
+            blockId: "q-completion-note",
+            validation: { required: true },
+            children: [{ type: "p", children: [{ text: "完了後の入力欄" }] }],
+          },
+        ]
+      : [{ type: "p", children: [{ text: "VIP 向け完了メッセージ" }] }]),
+  ]);
+}
+
 function renderPublicForm(container: HTMLElement): Root {
   const root = createRoot(container);
   act(() => {
@@ -221,23 +260,23 @@ vi.mock("@/components/forms/form-body", () => ({
     onSubmitRequest,
     plateContent,
     preSubmitSlot,
+    submittedCompletionPageId,
     title,
   }: {
     captchaReady?: boolean;
     description?: string;
     error?: string | null;
-    onSubmitRequest?: (data: {
-      responses: MockSubmitRequestData["responses"];
-      visitedQuestionIds: string[];
-    }) => void | Promise<void>;
+    onSubmitRequest?: (data: MockSubmitRequestData) => void | Promise<void>;
     plateContent: string;
     preSubmitSlot?: ReactNode;
+    submittedCompletionPageId?: string | null;
     title: string;
   }) => {
     formBodyMockState.renderProps.push({
       captchaReady,
       description,
       plateContent,
+      submittedCompletionPageId,
       title,
     });
     return (
@@ -1082,6 +1121,137 @@ describe("PublicFormPage", () => {
         ],
       }),
     });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("switches to the completion target section after API submit success", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: completionTargetPlateContent(),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      completionTargetPageId: "section-complete-vip",
+      responses: [
+        {
+          question_id: "q-plan",
+          question_type: "radio",
+          question_title: "プラン",
+          value: "vip",
+        },
+      ],
+      visitedQuestionIds: ["q-plan"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "送信ありがとうございます",
+              message: "受付が完了しました。",
+            },
+            response: null,
+            responseId: "response-target",
+          },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain("送信完了");
+    expect(formBodyMockState.renderProps.at(-1)).toEqual(
+      expect.objectContaining({
+        plateContent: publicFormData.plateContent,
+        submittedCompletionPageId: "section-complete-vip",
+        title: "Public form",
+      }),
+    );
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.not.objectContaining({
+        completionTargetPageId: "section-complete-vip",
+      }),
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("falls back to the legacy confirmation screen when the submit target is not inputless", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: completionTargetPlateContent({ answerableTarget: true }),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      completionTargetPageId: "section-complete-vip",
+      responses: [
+        {
+          question_id: "q-plan",
+          question_type: "radio",
+          question_title: "プラン",
+          value: "vip",
+        },
+      ],
+      visitedQuestionIds: ["q-plan"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "送信ありがとうございます",
+              message: "受付が完了しました。",
+            },
+            response: null,
+            responseId: "response-fallback",
+          },
+    );
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(
+      container.querySelector("[data-testid='public-form-body']"),
+    ).toBeNull();
+    expect(container.textContent).toContain("送信完了");
+    expect(container.textContent).toContain("送信ありがとうございます");
+    expect(
+      formBodyMockState.renderProps.some(
+        (props) => props.submittedCompletionPageId === "section-complete-vip",
+      ),
+    ).toBe(false);
 
     await act(async () => {
       root.unmount();

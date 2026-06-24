@@ -1,7 +1,9 @@
 import {
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  isCompletionTargetPage,
   isPlateQuestionType,
+  resolvePageIndexByPageId,
   splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import {
@@ -40,6 +42,7 @@ export interface FormSubmitRequestData {
     other_values?: string[];
   }[];
   visitedQuestionIds: string[];
+  completionTargetPageId?: string;
 }
 
 interface FormBodyProps {
@@ -54,6 +57,7 @@ interface FormBodyProps {
   captchaReady?: boolean;
   error?: string | null;
   success?: string | null;
+  submittedCompletionPageId?: string | null;
   onErrorChange?: (error: string | null) => void;
   appearance?: FormAppearance;
 }
@@ -322,6 +326,7 @@ export function FormBody({
   captchaReady = false,
   error,
   success,
+  submittedCompletionPageId,
   onErrorChange,
   appearance: appearanceProp,
 }: FormBodyProps) {
@@ -376,17 +381,36 @@ export function FormBody({
 
   const isMultiPage = pages.length > 1;
   const paging = useFormPaging({ pages, answers });
+  const submittedCompletionPage = useMemo(() => {
+    if (!submittedCompletionPageId) return undefined;
+    const pageIndex = resolvePageIndexByPageId(
+      pages,
+      submittedCompletionPageId,
+    );
+    const page = pages[pageIndex];
+    return page && isCompletionTargetPage(page) ? page : undefined;
+  }, [pages, submittedCompletionPageId]);
+  const displayedPage = submittedCompletionPage ?? paging.currentPage;
+  const displayedPageIndex = submittedCompletionPage
+    ? resolvePageIndexByPageId(pages, submittedCompletionPage.pageId)
+    : paging.currentPageIndex;
+  const isShowingSubmittedCompletionPage =
+    submittedCompletionPage !== undefined;
 
   const viewerPlateContent = useMemo(() => {
-    const sourceNodes = isMultiPage ? paging.currentPage.nodes : parsedContent;
+    const sourceNodes =
+      isMultiPage || isShowingSubmittedCompletionPage
+        ? displayedPage.nodes
+        : parsedContent;
     const visibleNodes = appearance.layout.show_question_numbers
       ? addQuestionNumbersToPlateContent(sourceNodes, questionNumberByBlockId)
       : sourceNodes;
     return JSON.stringify(visibleNodes);
   }, [
     appearance.layout.show_question_numbers,
+    displayedPage.nodes,
     isMultiPage,
-    paging.currentPage.nodes,
+    isShowingSubmittedCompletionPage,
     parsedContent,
     questionNumberByBlockId,
   ]);
@@ -604,6 +628,9 @@ export function FormBody({
         allQuestions,
         paging.reachableQuestionIds,
       );
+      if (paging.submitTargetPageId) {
+        payload.completionTargetPageId = paging.submitTargetPageId;
+      }
       onSubmitRequest?.(payload);
     },
     [
@@ -614,6 +641,7 @@ export function FormBody({
       allQuestions,
       paging.reachablePageIndexes,
       paging.reachableQuestionIds,
+      paging.submitTargetPageId,
       paging.currentPageIndex,
       paging.goToPage,
       markPageForValidationDisplay,
@@ -679,11 +707,12 @@ export function FormBody({
       )}
 
       {/* Section title for pages after the first */}
-      {isMultiPage && paging.currentPage.title && (
-        <div className="rounded-lg border border-primary/30 bg-muted/20 px-4 py-3">
-          <h2 className="text-lg font-medium">{paging.currentPage.title}</h2>
-        </div>
-      )}
+      {(isMultiPage || isShowingSubmittedCompletionPage) &&
+        displayedPage.title && (
+          <div className="rounded-lg border border-primary/30 bg-muted/20 px-4 py-3">
+            <h2 className="text-lg font-medium">{displayedPage.title}</h2>
+          </div>
+        )}
 
       <form ref={formRef} onSubmit={handleFormSubmit} className="space-y-3">
         {/* Plate ドキュメントによるフォーム描画 (現在ページのみ) */}
@@ -697,7 +726,7 @@ export function FormBody({
               invalidQuestionIds={currentPageInvalidQuestionIds}
             >
               <PlateViewer
-                key={paging.currentPageIndex}
+                key={displayedPageIndex}
                 value={viewerPlateContent}
               />
             </FormQuestionA11yProvider>
@@ -723,7 +752,7 @@ export function FormBody({
         ) : null}
 
         {/* 質問がある場合のみ送信・ナビゲーションを表示 */}
-        {allQuestions.length > 0 && (
+        {allQuestions.length > 0 && !isShowingSubmittedCompletionPage && (
           <>
             {showSubmitArea && preSubmitSlot}
 

@@ -1,7 +1,10 @@
 import {
   extractQuestionsFromPlateContent,
+  isCompletionTargetPage,
   type ResponseDataItem,
+  resolvePageIndexByPageId,
   responsePayloadItemSchema,
+  splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
@@ -115,6 +118,7 @@ interface PublicFormPageState {
     responseId: string;
     confirmation: FormConfirmation;
     responseSummary: ResponseSummaryItem[];
+    completionTargetPageId?: string;
   } | null;
   captchaToken: string | null;
   hasVerifiedPassword: boolean;
@@ -129,6 +133,7 @@ type PublicFormPageAction =
       responseId: string;
       confirmation: FormConfirmation;
       responseSummary: ResponseSummaryItem[];
+      completionTargetPageId?: string;
     }
   | { type: "submit-error"; message: string }
   | { type: "password-verified" }
@@ -164,6 +169,7 @@ function publicFormPageReducer(
           responseId: action.responseId,
           confirmation: action.confirmation,
           responseSummary: action.responseSummary,
+          completionTargetPageId: action.completionTargetPageId,
         },
         captchaToken: null,
         error: null,
@@ -223,6 +229,17 @@ function buildResponseSummary(
     title: item.question_title?.trim() || item.question_id,
     value: formatResponseSummaryValue(item),
   }));
+}
+
+function resolveValidCompletionTargetPageId(
+  plateContent: unknown[],
+  completionTargetPageId: string | undefined,
+): string | undefined {
+  if (!completionTargetPageId) return undefined;
+  const pages = splitPlateContentIntoPages(plateContent);
+  const pageIndex = resolvePageIndexByPageId(pages, completionTargetPageId);
+  const page = pages[pageIndex];
+  return page && isCompletionTargetPage(page) ? page.pageId : undefined;
 }
 
 function PublicFormLoadingStatus({ message }: { message: string }) {
@@ -521,6 +538,10 @@ function PublicFormPageInner() {
           responseId,
           confirmation,
           responseSummary: buildResponseSummary(parsedInput.data),
+          completionTargetPageId: resolveValidCompletionTargetPageId(
+            parsedContent,
+            data.completionTargetPageId,
+          ),
         });
         clearAnswers();
 
@@ -579,6 +600,20 @@ function PublicFormPageInner() {
   }
 
   if (state.submitted) {
+    if (state.submitted.completionTargetPageId) {
+      return (
+        <FormBody
+          title={formData.form.title ?? "公開フォーム"}
+          description={formData.form.description ?? undefined}
+          plateContent={formData.plateContent ?? "[]"}
+          mode="public"
+          appearance={appearance}
+          captchaReady={true}
+          submittedCompletionPageId={state.submitted.completionTargetPageId}
+        />
+      );
+    }
+
     return (
       <PublicSubmitCompletion
         responseId={state.submitted.responseId}
