@@ -150,10 +150,12 @@ describe("GitHubApiClient.getUserByUsername", () => {
     );
     mockGetByUsername.mockRejectedValue(rateLimitError);
 
-    const err = await client.getUserByUsername("octocat").then(
-      (): null => null,
-      (error: unknown) => error,
-    );
+    let err: unknown = null;
+    try {
+      await client.getUserByUsername("octocat");
+    } catch (error) {
+      err = error;
+    }
 
     expect(err).toBeInstanceOf(GitHubProviderError);
     if (!(err instanceof GitHubProviderError)) {
@@ -188,10 +190,12 @@ describe("GitHubApiClient.getUserByUsername", () => {
     );
     mockGetByUsername.mockRejectedValue(secondaryRateLimitError);
 
-    const err = await client.getUserByUsername("octocat").then(
-      (): null => null,
-      (error: unknown) => error,
-    );
+    let err: unknown = null;
+    try {
+      await client.getUserByUsername("octocat");
+    } catch (error) {
+      err = error;
+    }
 
     expect(err).toBeInstanceOf(GitHubProviderError);
     if (!(err instanceof GitHubProviderError)) {

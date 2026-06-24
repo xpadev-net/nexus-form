@@ -187,6 +187,12 @@ function hasSecondaryRateLimitSignal(error: unknown): boolean {
   return hasRetryAfterHeader(error) || hasSecondaryRateLimitMessage(error);
 }
 
+/**
+ * Detects GitHub API rate-limit responses from an unknown upstream error.
+ *
+ * Returns true for HTTP 429, and for HTTP 403 when the response has exhausted
+ * primary rate-limit headers or known secondary rate-limit signals.
+ */
 export function isGitHubRateLimitError(error: unknown): boolean {
   const status = getNumberProperty(error, "status");
   if (status === 429) return true;
@@ -213,6 +219,12 @@ function getGitHubRateLimitResetHeader(error: unknown): string | null {
   );
 }
 
+/**
+ * Extracts the GitHub rate-limit retry delay in milliseconds.
+ *
+ * Reads Retry-After first, then falls back to x-ratelimit-reset. Returns null
+ * when the error does not carry usable retry-after information.
+ */
 export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
   const retryAfterHeader = getGitHubRetryAfterHeader(error);
   if (retryAfterHeader) {
