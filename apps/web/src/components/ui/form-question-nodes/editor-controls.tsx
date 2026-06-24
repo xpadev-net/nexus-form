@@ -1,4 +1,5 @@
 import {
+  type BlockTypeValue,
   extractTitleFromChildren,
   fromPlateQuestionType,
   isPlateQuestionType,
@@ -863,7 +864,118 @@ export function EditorControlsWrapper({
 interface EditorBlock {
   blockId: string;
   title: string;
-  type: string;
+  questionType: BlockTypeValue;
+  valueOptions?: Array<{ value: string | number; label: string }>;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isOptionLike(value: unknown): value is OptionLike {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.label === "string"
+  );
+}
+
+function getNumberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function buildNumericOptions(
+  min: number,
+  max: number,
+  step: number,
+): Array<{ value: number; label: string }> | undefined {
+  if (max < min || step <= 0) return undefined;
+
+  const decimalPlaces = Math.max(
+    getDecimalPlaces(min),
+    getDecimalPlaces(max),
+    getDecimalPlaces(step),
+  );
+  const scale = 10 ** decimalPlaces;
+  const scaledMin = Math.round(min * scale);
+  const scaledMax = Math.round(max * scale);
+  const scaledStep = Math.round(step * scale);
+  if (scaledStep <= 0) return undefined;
+
+  const options: Array<{ value: number; label: string }> = [];
+  const optionCount = Math.floor((scaledMax - scaledMin) / scaledStep) + 1;
+  if (optionCount > 200) return undefined;
+
+  for (let index = 0; index < optionCount; index += 1) {
+    const value = (scaledMin + index * scaledStep) / scale;
+    if (value > max) break;
+    options.push({ value, label: String(value) });
+  }
+  return options;
+}
+
+function getDecimalPlaces(value: number): number {
+  const [, decimals = ""] = String(value).split(".");
+  return decimals.length;
+}
+
+export function getBlockValueOptions(
+  questionType: BlockTypeValue,
+  validation: unknown,
+): Array<{ value: string | number; label: string }> | undefined {
+  if (!isRecord(validation)) return undefined;
+
+  if (
+    questionType === "radio" ||
+    questionType === "dropdown" ||
+    questionType === "checkbox"
+  ) {
+    const options = Array.isArray(validation.options)
+      ? validation.options.filter(isOptionLike)
+      : [];
+    const valueOptions: Array<{ value: string; label: string }> = options.map(
+      (option) => ({
+        value: option.id,
+        label: option.label || option.id,
+      }),
+    );
+    if (
+      validation.allowOther === true &&
+      !valueOptions.some((option) => option.value === "other")
+    ) {
+      valueOptions.push({
+        value: "other",
+        label:
+          typeof validation.otherLabel === "string" &&
+          validation.otherLabel.trim().length > 0
+            ? validation.otherLabel
+            : "その他",
+      });
+    }
+    return valueOptions;
+  }
+
+  if (questionType === "linear_scale") {
+    const min = getNumberValue(validation.min) ?? 1;
+    const max = getNumberValue(validation.max) ?? 5;
+    const step = getNumberValue(validation.step) ?? 1;
+    return buildNumericOptions(min, max, step);
+  }
+
+  if (questionType === "rating") {
+    const maxRating = getNumberValue(validation.maxRating) ?? 5;
+    return buildNumericOptions(1, maxRating, 1);
+  }
+
+  return undefined;
+}
+
+function getInitialConditionValue(
+  block: EditorBlock | undefined,
+): FormLogicCondition["value"] {
+  return block?.valueOptions?.[0]?.value ?? "";
 }
 
 /**
@@ -883,17 +995,22 @@ function useEditorBlocks(): EditorBlock[] {
       if (isPlateQuestionType(type) && type !== "form_section_separator") {
         const blockId =
           typeof child.blockId === "string" ? child.blockId : "";
-        const strippedType = fromPlateQuestionType(type);
+        const questionType = fromPlateQuestionType(type);
         const rawTitle = Array.isArray(child.children)
           ? extractTitleFromChildren(child.children as unknown[])
           : "";
-        const displayName = getBlockTypeDisplayName(strippedType);
+        const displayName = getBlockTypeDisplayName(questionType);
         const title =
           rawTitle ||
           (blockId
             ? `無題の${displayName}(${blockId})`
             : `無題の${displayName}`);
-        blocks.push({ blockId, title, type: strippedType });
+        blocks.push({
+          blockId,
+          title,
+          questionType,
+          valueOptions: getBlockValueOptions(questionType, child.validation),
+        });
       }
     }
     return blocks;
@@ -1001,7 +1118,7 @@ export function SectionTransitionEditor({
               {
                 question_id: editorBlocks[0].blockId,
                 operator: "equals" as const,
-                value: "",
+                value: getInitialConditionValue(editorBlocks[0]),
               },
             ]
           : [],
@@ -1138,7 +1255,7 @@ export function SectionTransitionEditor({
 
 interface NavigationRuleItemProps {
   rule: FormLogicRule;
-  availableBlocks: Array<{ blockId: string; title: string }>;
+  availableBlocks: EditorBlock[];
   availableSections: Array<{ id: string; title: string }>;
   onChange: (rule: FormLogicRule) => void;
   onDelete: () => void;
