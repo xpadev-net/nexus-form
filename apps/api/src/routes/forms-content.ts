@@ -4,6 +4,7 @@ import { validatePlateContent } from "@nexus-form/shared";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
+import { validateCompletionTargetsForApi } from "../lib/forms/completion-target-validation";
 import { createHonoApp } from "../lib/hono";
 import { publishEditorEvent } from "../lib/redis-publisher";
 
@@ -52,6 +53,16 @@ export const FormContentInvalidPlateResponseSchema = z.object({
 });
 export type FormContentInvalidPlateResponse = z.infer<
   typeof FormContentInvalidPlateResponseSchema
+>;
+
+export const FormContentValidationErrorResponseSchema = z.object({
+  error: z.string(),
+  details: z.object({
+    blockIds: z.array(z.string()),
+  }),
+});
+export type FormContentValidationErrorResponse = z.infer<
+  typeof FormContentValidationErrorResponseSchema
 >;
 
 export const FormContentInvalidJsonResponseSchema = z.object({
@@ -108,6 +119,15 @@ export const formsContentRouter = createHonoApp()
             FormContentInvalidPlateResponseSchema.parse({
               error: "Invalid Plate content structure",
             }),
+            400,
+          );
+        }
+        const completionTargetError = validateCompletionTargetsForApi(parsed);
+        if (completionTargetError) {
+          return c.json(
+            FormContentValidationErrorResponseSchema.parse(
+              completionTargetError,
+            ),
             400,
           );
         }

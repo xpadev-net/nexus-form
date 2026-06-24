@@ -100,6 +100,32 @@ function makePlateNodes(
   return JSON.stringify(nodes);
 }
 
+function paragraph(text: string) {
+  return { type: "p", children: [{ text }] };
+}
+
+function questionNode(blockId: string, title: string) {
+  return {
+    type: "form_short_text",
+    blockId,
+    validation: { type: "short_text" },
+    children: [paragraph(title)],
+  };
+}
+
+function sectionNode(
+  blockId: string,
+  title: string,
+  validation?: Record<string, unknown>,
+) {
+  return {
+    type: "form_section_separator",
+    blockId,
+    validation: { type: "section_separator", ...validation },
+    children: [paragraph(title)],
+  };
+}
+
 type SelectBuilder = {
   from: ReturnType<typeof vi.fn>;
   where: ReturnType<typeof vi.fn>;
@@ -249,6 +275,50 @@ describe("publishSnapshot", () => {
       publishedAt: new Date("2025-01-01"),
     });
     expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+  });
+
+  it("completion target が存在しない場合はスナップショット保存を拒否する", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        sectionNode("section-form", "入力"),
+        questionNode("question-1", "氏名"),
+        sectionNode("section-complete", "完了", {
+          default_action: { type: "submit", target_id: "missing-section" },
+        }),
+        paragraph("送信ありがとうございました。"),
+      ]),
+    );
+
+    const result = publishSnapshot("form-1", "user-1");
+
+    await expect(result).rejects.toThrow(FormValidationError);
+    await expect(result).rejects.toMatchObject({
+      message: "送信後画面の遷移先を確認してください",
+      details: { blockIds: ["missing-section"] },
+    });
+    expect(mockSerializeRules).not.toHaveBeenCalled();
+  });
+
+  it("completion target に回答可能な質問がある場合はスナップショット保存を拒否する", async () => {
+    makeSnapshotPublishTransaction(
+      JSON.stringify([
+        sectionNode("section-form", "入力"),
+        questionNode("question-1", "氏名"),
+        sectionNode("section-complete", "完了", {
+          default_action: { type: "submit", target_id: "section-complete" },
+        }),
+        questionNode("question-2", "完了画面に混ざった質問"),
+      ]),
+    );
+
+    const result = publishSnapshot("form-1", "user-1");
+
+    await expect(result).rejects.toThrow(FormValidationError);
+    await expect(result).rejects.toMatchObject({
+      message: "送信後画面の遷移先を確認してください",
+      details: { blockIds: ["question-2"] },
+    });
+    expect(mockSerializeRules).not.toHaveBeenCalled();
   });
 
   it("編集中の Plate content 構造バリデーションでは空の質問タイトルを許容する", async () => {
