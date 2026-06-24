@@ -2,19 +2,12 @@ import type { ExtractedQuestion } from "@nexus-form/shared";
 import { describe, expect, it } from "vitest";
 import type { Block } from "@/types/domain/form-block";
 import {
+  type AnswerLike,
   validateDate,
   validateExtractedQuestionAnswer,
   validateShortText,
   validateTime,
 } from "./question-validators";
-
-interface AnswerLike {
-  value?: unknown;
-  values?: unknown[];
-  responses?: Record<string, unknown>;
-  other_value?: unknown;
-  other_values?: unknown[];
-}
 
 function shortTextQuestion(
   validation: Extract<Block, { type: "short_text" }>["validation"],

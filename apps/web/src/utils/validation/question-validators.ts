@@ -7,6 +7,7 @@ import {
   textMatchesPattern,
 } from "@nexus-form/shared";
 import { getPatternTemplate } from "@/lib/constants/validation-patterns";
+import { logWarn } from "@/lib/logger";
 import { isValidEmail } from "@/lib/validation/email";
 import { getValidationMessage } from "@/lib/validation-messages";
 import {
@@ -18,7 +19,7 @@ import type {
   ValidationResult,
 } from "@/types/domain/validation";
 
-interface AnswerLike {
+export interface AnswerLike {
   value?: unknown;
   values?: unknown[];
   responses?: Record<string, unknown>;
@@ -62,7 +63,15 @@ const createValidationError = (
 function safelyTextMatchesPattern(value: string, pattern: string): boolean {
   try {
     return textMatchesPattern(value, pattern);
-  } catch {
+  } catch (error) {
+    logWarn(
+      "Invalid short text validation regex; skipping pattern check",
+      "form-validation",
+      {
+        pattern,
+        error,
+      },
+    );
     return true;
   }
 }
