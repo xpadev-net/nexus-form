@@ -82,9 +82,7 @@ describe("FormStructure database constraints", () => {
       sql.indexOf("SET `activeFormId` = CASE"),
     );
     expect(sql.indexOf("SET `activeFormId` = CASE")).toBeLessThan(
-      sql.indexOf(
-        "CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)",
-      ),
+      sql.indexOf("EXECUTE nf_create_active_form_id_index_stmt"),
     );
   });
 });

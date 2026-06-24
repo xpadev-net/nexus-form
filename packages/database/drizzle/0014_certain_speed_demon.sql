@@ -81,6 +81,7 @@ SET @nf_add_active_form_id_column = IF(
 PREPARE nf_add_active_form_id_column_stmt FROM @nf_add_active_form_id_column;--> statement-breakpoint
 EXECUTE nf_add_active_form_id_column_stmt;--> statement-breakpoint
 DEALLOCATE PREPARE nf_add_active_form_id_column_stmt;--> statement-breakpoint
+-- Always resync activeFormId so a retry after a partial DDL failure repairs existing rows.
 UPDATE `FormStructure`
 SET `activeFormId` = CASE
   WHEN `isActive` = true THEN `formId`
