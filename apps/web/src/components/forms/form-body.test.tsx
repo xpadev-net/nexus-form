@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import { fireEvent, getByRole } from "@testing-library/dom";
+import { fireEvent, getByLabelText, getByRole } from "@testing-library/dom";
 import type { TElement } from "platejs";
 import { act, type ReactNode, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   type AnswerEntry,
   FormResponseProvider,
@@ -31,35 +31,28 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { DateInput } = await import(
     "@/components/ui/form-question-nodes/form-date-node"
   );
+  const { DropdownInput } = await import(
+    "@/components/ui/form-question-nodes/form-dropdown-node"
+  );
+  const { LongTextInput } = await import(
+    "@/components/ui/form-question-nodes/form-long-text-node"
+  );
+  const { ShortTextInput } = await import(
+    "@/components/ui/form-question-nodes/form-short-text-node"
+  );
+  const { TimeInput } = await import(
+    "@/components/ui/form-question-nodes/form-time-node"
+  );
   const { CheckboxGridInput } = await import(
     "@/components/ui/form-question-nodes/form-checkbox-grid-node"
   );
   const { ChoiceGridInput } = await import(
     "@/components/ui/form-question-nodes/form-choice-grid-node"
   );
+  const { getFormQuestionTitleId } = await import(
+    "@/components/ui/form-question-nodes/form-question-base"
+  );
   type OptionLike = { id: string; label: string };
-
-  function ShortTextInput({ element }: { element: TElement }) {
-    const ctx = useFormResponseOptional();
-    if (!ctx) return null;
-    const blockId = element.blockId as string;
-    const answer = ctx.getAnswer(blockId);
-    const validation = element.validation as
-      | { omitMockQuestionId?: boolean }
-      | undefined;
-    const labelProps = validation?.omitMockQuestionId
-      ? {}
-      : { "aria-label": blockId };
-    return (
-      <input
-        {...labelProps}
-        value={(answer?.value as string) ?? ""}
-        onChange={(event) =>
-          ctx.setAnswer(blockId, { value: event.currentTarget.value })
-        }
-      />
-    );
-  }
 
   function NativeRadioInput({ element }: { element: TElement }) {
     const ctx = useFormResponseOptional();
@@ -96,18 +89,37 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   function QuestionShell({
     children,
     questionId,
+    title,
   }: {
     children: ReactNode;
     questionId: string;
+    title: string;
   }) {
     return (
       <section
         className="my-3 rounded-lg border bg-card"
         data-form-question-id={questionId}
       >
+        <div id={getFormQuestionTitleId(questionId)}>{title}</div>
         {children}
       </section>
     );
+  }
+
+  function textFromNode(node: unknown): string {
+    if (typeof node !== "object" || node === null) return "";
+    if ("text" in node) {
+      return typeof node.text === "string" ? node.text : "";
+    }
+    if (!("children" in node) || !Array.isArray(node.children)) {
+      return "";
+    }
+    return node.children.map(textFromNode).join("");
+  }
+
+  function questionTitle(node: unknown): string {
+    const title = textFromNode(node).trim();
+    return title || "無題の質問";
   }
 
   return {
@@ -131,13 +143,18 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               typeof node === "object" && node !== null
                 ? ((node as { blockId?: unknown }).blockId?.toString() ?? index)
                 : index;
+            const title = questionTitle(node);
             if (
               typeof node === "object" &&
               node !== null &&
               (node as { type?: unknown }).type === "form_radio"
             ) {
               return (
-                <QuestionShell key={key} questionId={key.toString()}>
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
                   <NativeRadioInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -148,8 +165,27 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_short_text"
             ) {
               return (
-                <QuestionShell key={key} questionId={key.toString()}>
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
                   <ShortTextInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_long_text"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <LongTextInput element={node as TElement} />
                 </QuestionShell>
               );
             }
@@ -159,8 +195,42 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_date"
             ) {
               return (
-                <QuestionShell key={key} questionId={key.toString()}>
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
                   <DateInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_time"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <TimeInput element={node as TElement} />
+                </QuestionShell>
+              );
+            }
+            if (
+              typeof node === "object" &&
+              node !== null &&
+              (node as { type?: unknown }).type === "form_dropdown"
+            ) {
+              return (
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
+                  <DropdownInput element={node as TElement} />
                 </QuestionShell>
               );
             }
@@ -170,7 +240,11 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_choice_grid"
             ) {
               return (
-                <QuestionShell key={key} questionId={key.toString()}>
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
                   <ChoiceGridInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -181,7 +255,11 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               (node as { type?: unknown }).type === "form_checkbox_grid"
             ) {
               return (
-                <QuestionShell key={key} questionId={key.toString()}>
+                <QuestionShell
+                  key={key}
+                  questionId={key.toString()}
+                  title={title}
+                >
                   <CheckboxGridInput element={node as TElement} />
                 </QuestionShell>
               );
@@ -227,7 +305,18 @@ function renderFormBody(
     );
   }
 
+  const shouldRemoveContainer = !container.isConnected;
+  if (shouldRemoveContainer) {
+    document.body.appendChild(container);
+  }
   const root = createRoot(container);
+  const unmount = root.unmount.bind(root);
+  root.unmount = () => {
+    unmount();
+    if (shouldRemoveContainer) {
+      container.remove();
+    }
+  };
   act(() => {
     root.render(<FormBodyHarness />);
   });
@@ -457,6 +546,10 @@ function appearanceWithQuestionNumbers(
 describe("FormBody", () => {
   beforeEach(() => {
     plateViewerValues.length = 0;
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
   });
 
   it("excludes isolated slash and empty blocks from public viewer content", () => {
@@ -719,6 +812,7 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -812,6 +906,42 @@ describe("FormBody", () => {
     act(() => root.unmount());
   });
 
+  it("labels public answer controls with their question titles when multiple questions render", () => {
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-short", "Short answer"),
+      questionNode("long_text", "q-long", "Long answer"),
+      questionNode("date", "q-date", "Preferred date"),
+      questionNode("time", "q-time", "Preferred time"),
+      questionNode("dropdown", "q-dropdown", "Country", {
+        options: [
+          { id: "jp", label: "Japan" },
+          { id: "us", label: "United States" },
+        ],
+      }),
+    ]);
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent);
+
+    expect(
+      getByRole(container, "textbox", { name: "Short answer" }),
+    ).not.toBeNull();
+    expect(
+      getByRole(container, "textbox", { name: "Long answer" }),
+    ).not.toBeNull();
+    expect(
+      getByRole(container, "combobox", { name: "Country" }),
+    ).not.toBeNull();
+
+    expect(getByLabelText(container, "Preferred date")).toBe(
+      container.querySelector<HTMLInputElement>("input[type='date']"),
+    );
+    expect(getByLabelText(container, "Preferred time")).toBe(
+      container.querySelector<HTMLInputElement>("input[type='time']"),
+    );
+
+    act(() => root.unmount());
+  });
+
   it.each([
     ["mobile", 375],
     ["desktop", 1024],
@@ -849,6 +979,7 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -936,6 +1067,10 @@ describe("FormBody", () => {
 
     const form = container.querySelector("form");
     expect(form).not.toBeNull();
+    const nameInput = getByRole(container, "textbox", { name: "Name" });
+    expect(nameInput.getAttribute("aria-describedby")).toBeNull();
+    expect(nameInput.getAttribute("aria-invalid")).toBeNull();
+
     await act(async () => {
       form?.dispatchEvent(
         new Event("submit", { bubbles: true, cancelable: true }),
@@ -944,6 +1079,10 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("必須項目が未入力です: Name");
+    expect(nameInput.getAttribute("aria-describedby")).toBe(
+      "form-question-q-name-error",
+    );
+    expect(nameInput.getAttribute("aria-invalid")).toBe("true");
 
     act(() => root.unmount());
   });
@@ -1346,7 +1485,7 @@ describe("FormBody", () => {
     expect(container.textContent).toContain("必須項目が未入力です: 法人名");
 
     const companyInput = getByRole(container, "textbox", {
-      name: "q-company-name",
+      name: "法人名",
     });
     await act(async () => {
       fireEvent.change(companyInput, { target: { value: "Nexus 株式会社" } });
@@ -1399,10 +1538,9 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("法人追加情報");
     await act(async () => {
-      fireEvent.change(
-        getByRole(container, "textbox", { name: "q-company-name" }),
-        { target: { value: "x" } },
-      );
+      fireEvent.change(getByRole(container, "textbox", { name: "法人名" }), {
+        target: { value: "x" },
+      });
     });
     await act(async () => {
       getByRole(container, "button", {
@@ -1476,7 +1614,7 @@ describe("FormBody", () => {
     expect(onSubmitRequest).not.toHaveBeenCalled();
 
     const companyInput = getByRole(container, "textbox", {
-      name: "q-company-name",
+      name: "法人名",
     });
     await act(async () => {
       fireEvent.change(companyInput, { target: { value: "Nexus 株式会社" } });

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { getByRole } from "@testing-library/dom";
 import type { ComponentType, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -55,14 +56,20 @@ vi.mock("platejs/react", () => ({
 }));
 
 let collectText: (node: unknown) => string;
-let FormQuestionElement: ComponentType<{ children?: ReactNode }>;
+let getFormQuestionTitleId: (blockId: string) => string;
+let FormQuestionElement: ComponentType<{
+  children?: ReactNode;
+  viewerControls?: ReactNode;
+}>;
 
 beforeAll(async () => {
   const formQuestionBase = await import("./form-question-base");
   collectText = formQuestionBase.collectText;
+  getFormQuestionTitleId = formQuestionBase.getFormQuestionTitleId;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
+      viewerControls?: ReactNode;
     }>;
 });
 
@@ -149,5 +156,35 @@ describe("FormQuestionElement", () => {
     mountedRoots.push(root);
 
     expect(container.textContent).not.toContain("質問タイトルを入力...");
+  });
+
+  it("uses the rendered question title as a viewer control accessible name", () => {
+    plateState.element = {
+      type: "form_short_text",
+      blockId: "question-1",
+      children: [{ type: "p", children: [{ text: "Question title" }] }],
+    };
+    plateState.readOnly = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mountedRoots.push(root);
+
+    act(() => {
+      root.render(
+        <FormQuestionElement
+          viewerControls={
+            <input aria-labelledby={getFormQuestionTitleId("question-1")} />
+          }
+        >
+          <p>Question title</p>
+        </FormQuestionElement>,
+      );
+    });
+
+    expect(
+      getByRole(container, "textbox", { name: "Question title" }),
+    ).not.toBeNull();
+    container.remove();
   });
 });
