@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractAnswerableQuestionsFromPlateContent,
   extractQuestionsFromPlateContent,
   extractTitleFromChildren,
+  getCompletionTargetReferences,
   removeNestedQuestionsFromPlateContent,
+  splitPlateContentIntoPages,
+  validateCompletionTargetPages,
+  validateCompletionTargetsInPlateContent,
   validatePlateContent,
 } from "../plate-content-utils";
 
@@ -17,6 +22,32 @@ function wrapNode(node: Record<string, unknown>, wrapperCount: number) {
   }
 
   return current;
+}
+
+function paragraph(text: string) {
+  return { type: "p", children: [{ text }] };
+}
+
+function questionNode(type: string, blockId: string, title: string) {
+  return {
+    type: `form_${type}`,
+    blockId,
+    validation: { type },
+    children: [paragraph(title)],
+  };
+}
+
+function sectionNode(
+  blockId: string,
+  title: string,
+  validation?: Record<string, unknown>,
+) {
+  return {
+    type: "form_section_separator",
+    blockId,
+    validation: { type: "section_separator", ...validation },
+    children: [paragraph(title)],
+  };
 }
 
 describe("extractTitleFromChildren", () => {
@@ -64,6 +95,142 @@ describe("extractQuestionsFromPlateContent", () => {
     ]);
 
     expect(questions).toEqual([]);
+  });
+});
+
+describe("extractAnswerableQuestionsFromPlateContent", () => {
+  it("excludes section separators from answerable question extraction", () => {
+    const questions = extractAnswerableQuestionsFromPlateContent([
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-1", "完了画面"),
+    ]);
+
+    expect(questions).toEqual([
+      expect.objectContaining({ blockId: "question-1", type: "short_text" }),
+    ]);
+  });
+});
+
+describe("completion target validation", () => {
+  it("allows submit actions without target_id for legacy confirmation screens", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-complete", "完了", {
+        default_action: { type: "submit" },
+      }),
+      paragraph("Thanks"),
+    ]);
+
+    expect(getCompletionTargetReferences(pages)).toEqual([]);
+    expect(validateCompletionTargetPages(pages)).toEqual([]);
+  });
+
+  it("allows submit target pages that contain no answerable questions", () => {
+    const issues = validateCompletionTargetsInPlateContent([
+      sectionNode("section-form", "入力"),
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-complete", "完了", {
+        default_action: { type: "submit", target_id: "section-complete" },
+      }),
+      paragraph("送信ありがとうございました。"),
+    ]);
+
+    expect(issues).toEqual([]);
+  });
+
+  it("reports submit target pages that still contain answerable questions", () => {
+    const issues = validateCompletionTargetsInPlateContent([
+      sectionNode("section-form", "入力"),
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-complete", "完了", {
+        default_action: { type: "submit", target_id: "section-complete" },
+      }),
+      questionNode("radio", "question-after-submit", "満足度"),
+    ]);
+
+    expect(issues).toEqual([
+      {
+        code: "completion_target_has_answerable_questions",
+        sourcePageId: "section-form",
+        actionSource: "default_action",
+        targetPageId: "section-complete",
+        answerableQuestionIds: ["question-after-submit"],
+      },
+    ]);
+  });
+
+  it("reports submit targets that reference missing pages", () => {
+    const issues = validateCompletionTargetsInPlateContent([
+      sectionNode("section-form", "入力"),
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-next", "次", {
+        default_action: { type: "submit", target_id: "missing-section" },
+      }),
+    ]);
+
+    expect(issues).toEqual([
+      {
+        code: "completion_target_not_found",
+        sourcePageId: "section-form",
+        actionSource: "default_action",
+        targetPageId: "missing-section",
+      },
+    ]);
+  });
+
+  it("reports navigation rule submit targets with rule context", () => {
+    const issues = validateCompletionTargetsInPlateContent([
+      sectionNode("section-form", "入力"),
+      questionNode("short_text", "question-1", "区分"),
+      sectionNode("section-complete", "完了", {
+        navigation_rules: [
+          {
+            id: "rule-submit-vip",
+            name: "VIP 完了",
+            conditions: [
+              {
+                question_id: "question-1",
+                operator: "equals",
+                value: "vip",
+              },
+            ],
+            condition_match: "all",
+            action: { type: "submit", target_id: "section-complete" },
+          },
+        ],
+      }),
+      questionNode("long_text", "question-after-submit", "追加入力"),
+    ]);
+
+    expect(issues).toEqual([
+      {
+        code: "completion_target_has_answerable_questions",
+        sourcePageId: "section-form",
+        actionSource: "navigation_rule",
+        ruleId: "rule-submit-vip",
+        ruleName: "VIP 完了",
+        targetPageId: "section-complete",
+        answerableQuestionIds: ["question-after-submit"],
+      },
+    ]);
+  });
+
+  it("ignores malformed navigation rules instead of throwing", () => {
+    const issues = validateCompletionTargetsInPlateContent([
+      sectionNode("section-form", "入力"),
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-complete", "完了", {
+        navigation_rules: [
+          {},
+          { action: null },
+          { action: { type: "submit" } },
+          { action: { type: "submit", target_id: 42 } },
+        ],
+      }),
+      paragraph("送信ありがとうございました。"),
+    ]);
+
+    expect(issues).toEqual([]);
   });
 });
 

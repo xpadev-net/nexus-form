@@ -70,11 +70,25 @@ export const BLOCK_TYPES = [
 
 export type BlockTypeValue = (typeof BLOCK_TYPES)[number];
 
+export type AnswerableBlockTypeValue = Exclude<
+  BlockTypeValue,
+  "section_separator"
+>;
+
+export const ANSWERABLE_BLOCK_TYPES = BLOCK_TYPES.filter(
+  (type): type is AnswerableBlockTypeValue => type !== "section_separator",
+) as readonly AnswerableBlockTypeValue[];
+
 export type PlateQuestionType = `form_${BlockTypeValue}`;
+export type AnswerablePlateQuestionType = `form_${AnswerableBlockTypeValue}`;
 
 export const FORM_QUESTION_TYPES = BLOCK_TYPES.map(
   (type) => `form_${type}`,
 ) as readonly PlateQuestionType[];
+
+export const FORM_ANSWERABLE_QUESTION_TYPES = ANSWERABLE_BLOCK_TYPES.map(
+  (type) => `form_${type}`,
+) as readonly AnswerablePlateQuestionType[];
 
 /**
  * Check whether an unknown value is one of the canonical form block types.
@@ -90,6 +104,21 @@ export function isBlockType(type: unknown): type is BlockTypeValue {
 }
 
 /**
+ * Check whether an unknown value is a canonical block type that accepts answers.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is an answerable form block type.
+ */
+export function isAnswerableBlockType(
+  type: unknown,
+): type is AnswerableBlockTypeValue {
+  return (
+    typeof type === "string" &&
+    (ANSWERABLE_BLOCK_TYPES as readonly string[]).includes(type)
+  );
+}
+
+/**
  * Check whether an unknown value is one of the derived Plate question node types.
  *
  * @param type - Unknown value to inspect.
@@ -99,6 +128,21 @@ export function isPlateQuestionType(type: unknown): type is PlateQuestionType {
   return (
     typeof type === "string" &&
     (FORM_QUESTION_TYPES as readonly string[]).includes(type)
+  );
+}
+
+/**
+ * Check whether an unknown value is a Plate question node type that accepts answers.
+ *
+ * @param type - Unknown value to inspect.
+ * @returns True when `type` is an answerable Plate question type.
+ */
+export function isAnswerablePlateQuestionType(
+  type: unknown,
+): type is AnswerablePlateQuestionType {
+  return (
+    typeof type === "string" &&
+    (FORM_ANSWERABLE_QUESTION_TYPES as readonly string[]).includes(type)
   );
 }
 

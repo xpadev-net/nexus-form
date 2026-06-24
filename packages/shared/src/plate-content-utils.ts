@@ -5,8 +5,10 @@
 
 import type { FormLogicRule } from "./forms/condition-evaluator";
 import {
+  type AnswerableBlockTypeValue,
   FORM_QUESTION_TYPES,
   fromPlateQuestionType,
+  isAnswerableBlockType,
   isPlateQuestionType,
 } from "./forms/form-block";
 
@@ -17,6 +19,10 @@ export interface ExtractedQuestion {
   type: string;
   title: string;
   validation: Record<string, unknown>;
+}
+
+export interface ExtractedAnswerableQuestion extends ExtractedQuestion {
+  type: AnswerableBlockTypeValue;
 }
 
 const HEADING_TYPES = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
@@ -142,6 +148,18 @@ export function extractQuestionsFromPlateContent(
 }
 
 /**
+ * Extract only Plate form question nodes that accept user answers.
+ */
+export function extractAnswerableQuestionsFromPlateContent(
+  plateContent: unknown[],
+): ExtractedAnswerableQuestion[] {
+  return extractQuestionsFromPlateContent(plateContent).flatMap((question) => {
+    if (!isAnswerableBlockType(question.type)) return [];
+    return [{ ...question, type: question.type }];
+  });
+}
+
+/**
  * Deep-clone a Plate document and regenerate all blockId values
  * with new UUIDs. Used for form duplication.
  */
@@ -243,6 +261,36 @@ export interface PlatePage {
   };
 }
 
+export type CompletionTargetActionSource = "default_action" | "navigation_rule";
+
+export interface CompletionTargetReference {
+  /** Page whose submit action points at the completion target. */
+  sourcePageId: string;
+  /** Whether the target came from the page default action or a conditional rule. */
+  actionSource: CompletionTargetActionSource;
+  /** Conditional navigation rule ID when actionSource is "navigation_rule". */
+  ruleId?: string;
+  /** Conditional navigation rule name when actionSource is "navigation_rule". */
+  ruleName?: string;
+  /** Page ID referenced by submit.target_id. */
+  targetPageId: string;
+}
+
+export interface CompletionTargetNotFoundIssue
+  extends CompletionTargetReference {
+  code: "completion_target_not_found";
+}
+
+export interface CompletionTargetHasAnswerableQuestionsIssue
+  extends CompletionTargetReference {
+  code: "completion_target_has_answerable_questions";
+  answerableQuestionIds: string[];
+}
+
+export type CompletionTargetValidationIssue =
+  | CompletionTargetNotFoundIssue
+  | CompletionTargetHasAnswerableQuestionsIssue;
+
 /**
  * Split a PlateJS document into pages delimited by form_section_separator nodes.
  * Each page contains the nodes between two separators (or document boundaries).
@@ -286,9 +334,9 @@ export function splitPlateContentIntoPages(
       }
 
       // Finalize the current page
-      const questionIds = extractQuestionsFromPlateContent(currentNodes)
-        .filter((q) => q.type !== "section_separator")
-        .map((q) => q.blockId);
+      const questionIds = extractAnswerableQuestionsFromPlateContent(
+        currentNodes,
+      ).map((q) => q.blockId);
 
       pages.push({
         pageId: currentPageId,
@@ -314,9 +362,9 @@ export function splitPlateContentIntoPages(
   }
 
   // Finalize the last page
-  const lastQuestionIds = extractQuestionsFromPlateContent(currentNodes)
-    .filter((q) => q.type !== "section_separator")
-    .map((q) => q.blockId);
+  const lastQuestionIds = extractAnswerableQuestionsFromPlateContent(
+    currentNodes,
+  ).map((q) => q.blockId);
 
   pages.push({
     pageId: currentPageId,
@@ -340,6 +388,100 @@ export function resolvePageIndexByPageId(
 ): number {
   if (!targetPageId) return -1;
   return pages.findIndex((p) => p.pageId === targetPageId);
+}
+
+/**
+ * Completion target pages render after submit and must not contain answerable
+ * question blocks.
+ */
+export function isCompletionTargetPage(page: PlatePage): boolean {
+  return page.questionIds.length === 0;
+}
+
+function getSubmitTargetPageId(action: unknown): string | undefined {
+  if (!isRecord(action)) return undefined;
+  if (action.type !== "submit") return undefined;
+  return typeof action.target_id === "string" && action.target_id.length > 0
+    ? action.target_id
+    : undefined;
+}
+
+/**
+ * Find submit actions that explicitly point at completion target pages.
+ * Submit actions without target_id are kept valid for legacy confirmation flow.
+ */
+export function getCompletionTargetReferences(
+  pages: PlatePage[],
+): CompletionTargetReference[] {
+  const references: CompletionTargetReference[] = [];
+
+  for (const page of pages) {
+    const defaultTargetPageId = getSubmitTargetPageId(page.defaultAction);
+    if (defaultTargetPageId) {
+      references.push({
+        sourcePageId: page.pageId,
+        actionSource: "default_action",
+        targetPageId: defaultTargetPageId,
+      });
+    }
+
+    for (const rule of page.navigationRules ?? []) {
+      if (!isRecord(rule)) continue;
+      const targetPageId = getSubmitTargetPageId(rule.action);
+      if (!targetPageId) continue;
+      references.push({
+        sourcePageId: page.pageId,
+        actionSource: "navigation_rule",
+        ruleId: typeof rule.id === "string" ? rule.id : undefined,
+        ruleName: typeof rule.name === "string" ? rule.name : undefined,
+        targetPageId,
+      });
+    }
+  }
+
+  return references;
+}
+
+/**
+ * Validate that submit.target_id references point at existing inputless pages.
+ */
+export function validateCompletionTargetPages(
+  pages: PlatePage[],
+): CompletionTargetValidationIssue[] {
+  const issues: CompletionTargetValidationIssue[] = [];
+
+  for (const reference of getCompletionTargetReferences(pages)) {
+    const targetIndex = resolvePageIndexByPageId(pages, reference.targetPageId);
+    if (targetIndex === -1) {
+      issues.push({
+        ...reference,
+        code: "completion_target_not_found",
+      });
+      continue;
+    }
+
+    const targetPage = pages[targetIndex];
+    if (targetPage && !isCompletionTargetPage(targetPage)) {
+      issues.push({
+        ...reference,
+        code: "completion_target_has_answerable_questions",
+        answerableQuestionIds: targetPage.questionIds,
+      });
+    }
+  }
+
+  return issues;
+}
+
+/**
+ * Split Plate content and validate submit.target_id completion targets.
+ */
+export function validateCompletionTargetsInPlateContent(
+  plateContent: unknown[],
+): CompletionTargetValidationIssue[] {
+  return validateCompletionTargetPages(
+    splitPlateContentIntoPages(plateContent),
+  );
 }
 
 /**
