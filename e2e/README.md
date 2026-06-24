@@ -98,6 +98,8 @@ pnpm test:e2e -- --grep "シナリオ1"
 pnpm test:e2e:ci
 ```
 
+CI の `E2E Harness` job はこのコマンドで Playwright のテスト一覧を検証し、production build した API/Web サーバーを起動して health endpoint と Web root の smoke check を実行します。フルブラウザ E2E はローカルまたは専用 QA 環境で `pnpm test:e2e` を実行してください。
+
 ## テストヘルパー
 
 ### 認証ヘルパー (`helpers/auth.ts`)
@@ -141,7 +143,7 @@ pnpm test:e2e:ci
 テスト対象のアプリケーションのベースURL（デフォルト: `http://localhost:3000`）
 
 ```bash
-BASE_URL=http://localhost:3001 pnpm test:e2e
+BASE_URL=http://127.0.0.1:3000 pnpm test:e2e
 ```
 
 ## QA fixture 方針
