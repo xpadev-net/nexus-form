@@ -113,11 +113,45 @@ async function flushAsyncWork(): Promise<void> {
   });
 }
 
+async function waitForLatestState(
+  states: GoogleSheetsIntegrationModel[],
+  assertion: (state: GoogleSheetsIntegrationModel) => void,
+): Promise<void> {
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt <= 50; attempt += 1) {
+    const latestState = states.at(-1);
+
+    try {
+      if (!latestState) {
+        throw new Error("Expected model state to be captured");
+      }
+
+      assertion(latestState);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 50) {
+        await flushAsyncWork();
+      }
+    }
+  }
+
+  throw lastError;
+}
+
 function jsonBody(init: RequestInit | undefined): unknown {
   if (typeof init?.body !== "string") {
     throw new Error("Expected JSON string request body");
   }
   return JSON.parse(init.body) as unknown;
+}
+
+function requestUrl(input: unknown): URL {
+  if (typeof input !== "string") {
+    throw new Error("Expected request URL string");
+  }
+  return new URL(input);
 }
 
 describe("useGoogleSheetsIntegrationModel API contract", () => {
@@ -226,7 +260,7 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
     await flushPromises();
 
     const createCall = mocks.fetchJson.mock.calls.find(([input, init]) => {
-      const url = new URL(input as string);
+      const url = requestUrl(input);
       return (
         init?.method === "POST" &&
         url.pathname === "/api/integrations/google/spreadsheets"
@@ -237,7 +271,7 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
 
     const spreadsheetListCall = mocks.fetchJson.mock.calls.find(
       ([input, init]) => {
-        const url = new URL(input as string);
+        const url = requestUrl(input);
         return (
           init?.method !== "POST" &&
           url.pathname === "/api/integrations/google/spreadsheets" &&
@@ -247,11 +281,11 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
     );
     expect(spreadsheetListCall).toBeDefined();
     expect(
-      new URL(spreadsheetListCall?.[0] as string).searchParams.get("pageSize"),
+      requestUrl(spreadsheetListCall?.[0]).searchParams.get("pageSize"),
     ).toBe("21");
 
     const addSheetCall = mocks.fetchJson.mock.calls.find(([input, init]) => {
-      const url = new URL(input as string);
+      const url = requestUrl(input);
       return (
         init?.method === "POST" &&
         url.pathname ===
@@ -262,7 +296,7 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
     expect(jsonBody(addSheetCall?.[1])).toEqual({ title: "Responses 2026" });
 
     const saveCall = mocks.fetchJson.mock.calls.find(([input, init]) => {
-      const url = new URL(input as string);
+      const url = requestUrl(input);
       return (
         init?.method === "POST" &&
         url.pathname === "/api/forms/form-1/integrations/google-sheets"
@@ -328,29 +362,44 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
       <HookHarness onState={(state) => states.push(state)} />,
     );
 
-    await flushAsyncWork();
-    await flushAsyncWork();
-
-    expect(states.at(-1)?.filteredSpreadsheets).toEqual([
-      { id: "spreadsheet-a", name: "Spreadsheet A" },
-      { id: "spreadsheet-b", name: "Spreadsheet B" },
-    ]);
+    await waitForLatestState(states, (state) => {
+      expect(state.filteredSpreadsheets).toEqual([
+        { id: "spreadsheet-a", name: "Spreadsheet A" },
+        { id: "spreadsheet-b", name: "Spreadsheet B" },
+      ]);
+    });
 
     await act(async () => {
       states.at(-1)?.handleSelectSpreadsheet("spreadsheet-a");
     });
-    await flushAsyncWork();
 
-    expect(states.at(-1)?.selectedSpreadsheetName).toBe("Spreadsheet A");
+    await waitForLatestState(states, (state) => {
+      expect(state.selectedSpreadsheetName).toBe("Spreadsheet A");
+    });
 
     await act(async () => {
       states.at(-1)?.handleSearchQueryChange("no-match");
     });
-    await flushAsyncWork();
-    await flushAsyncWork();
 
-    expect(states.at(-1)?.selectedSpreadsheetId).toBe("spreadsheet-a");
-    expect(states.at(-1)?.selectedSpreadsheetName).toBe("Spreadsheet A");
+    await waitForLatestState(states, (state) => {
+      const hasNoMatchSearchRequest = mocks.fetchJson.mock.calls.some(
+        ([input, init]) => {
+          const url = requestUrl(input);
+          return (
+            init?.method !== "POST" &&
+            url.pathname === "/api/integrations/google/spreadsheets" &&
+            url.searchParams.get("query") === "no-match"
+          );
+        },
+      );
+
+      expect(hasNoMatchSearchRequest).toBe(true);
+      expect(state.searchQuery).toBe("no-match");
+      expect(state.isFetchingSpreadsheets).toBe(false);
+      expect(state.filteredSpreadsheets).toEqual([]);
+      expect(state.selectedSpreadsheetId).toBe("spreadsheet-a");
+      expect(state.selectedSpreadsheetName).toBe("Spreadsheet A");
+    });
 
     act(() => root.unmount());
   });

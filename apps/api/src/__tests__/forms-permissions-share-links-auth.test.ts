@@ -12,11 +12,14 @@ const mocks = vi.hoisted(() => ({
     share_link_id?: string;
   } | null,
   createShareLink: vi.fn(),
+  cancelInvitation: vi.fn(),
   dbSelect: vi.fn(),
   dbTransaction: vi.fn(),
   deleteShareLink: vi.fn(),
   checkShareLinkPermission: vi.fn(),
+  createInvitation: vi.fn(),
   getUserFormPermission: vi.fn(),
+  getFormInvitations: vi.fn(),
   getFormPermissions: vi.fn(),
   getShareLinks: vi.fn(),
   formPermissionTable: {
@@ -107,12 +110,12 @@ vi.mock("../lib/dual-auth", () => ({
 
 vi.mock("../lib/forms/permission-service", () => ({
   acceptInvitation: vi.fn(),
-  cancelInvitation: vi.fn(),
+  cancelInvitation: mocks.cancelInvitation,
   checkShareLinkPermission: mocks.checkShareLinkPermission,
-  createInvitation: vi.fn(),
+  createInvitation: mocks.createInvitation,
   createShareLink: mocks.createShareLink,
   deleteShareLink: mocks.deleteShareLink,
-  getFormInvitations: vi.fn(),
+  getFormInvitations: mocks.getFormInvitations,
   getFormPermissions: mocks.getFormPermissions,
   getShareLinks: mocks.getShareLinks,
   getUserFormPermission: mocks.getUserFormPermission,
@@ -124,6 +127,14 @@ vi.mock("../lib/forms/permission-service", () => ({
   updateShareLink: mocks.updateShareLink,
   validateShareLinkRole: mocks.validateShareLinkRole,
 }));
+
+function namedPermissionServiceError(
+  name: "InvitationCreateError" | "PermissionUpdateError",
+  statusCode: 403 | 404 | 409,
+  message: string,
+) {
+  return Object.assign(new Error(message), { name, statusCode });
+}
 
 describe("R9-C1 share-link management authorization", () => {
   beforeEach(() => {
@@ -345,6 +356,163 @@ describe("R9-C1 share-link management authorization", () => {
       "editor-1",
       undefined,
     );
+  });
+});
+
+describe("R28-H2 invitation management authorization", () => {
+  const invitationWithToken = {
+    id: "invitation-1",
+    form_id: "form-1",
+    email: "target@example.com",
+    role: "VIEWER",
+    token: "secret-invitation-token",
+    status: "PENDING",
+    expires_at: "2026-06-08T00:00:00.000Z",
+    created_at: "2026-06-01T00:00:00.000Z",
+    updated_at: "2026-06-01T00:00:00.000Z",
+    invited_by: "editor-1",
+    inviter: {
+      id: "editor-1",
+      name: "Editor",
+      email: "editor@example.com",
+      discord_id: null,
+      created_at: "2026-06-01T00:00:00.000Z",
+      updated_at: "2026-06-01T00:00:00.000Z",
+    },
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "share-link:link-1",
+      token_id: "token-1",
+      scopes: ["read", "write"],
+      form_ids: ["form-1"],
+      share_link_id: "link-1",
+    };
+    mocks.createInvitation.mockResolvedValue(invitationWithToken);
+    mocks.getFormInvitations.mockResolvedValue({
+      invitations: [invitationWithToken],
+      total: 1,
+      page: 1,
+      limit: 20,
+    });
+  });
+
+  it.each([
+    {
+      method: "GET",
+      path: "/form-1/invitations?page=1&pageSize=20",
+      service: "getFormInvitations",
+    },
+    {
+      method: "POST",
+      path: "/form-1/invitations",
+      body: { email: "target@example.com", role: "VIEWER" },
+      service: "createInvitation",
+    },
+    {
+      method: "GET",
+      path: "/form-1/invitations/invitation-1",
+      service: "dbSelect",
+    },
+    {
+      method: "DELETE",
+      path: "/form-1/invitations/invitation-1",
+      service: "cancelInvitation",
+    },
+  ] as const)("rejects EDITOR share-link API tokens before $method $path", async ({
+    body,
+    method,
+    path,
+    service,
+  }) => {
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(path, {
+      body: body ? JSON.stringify(body) : undefined,
+      headers: body ? { "content-type": "application/json" } : undefined,
+      method,
+    });
+    const responseBody = await response.text();
+
+    expect(response.status).toBe(403);
+    expect(responseBody).not.toContain("secret-invitation-token");
+    expect(mocks[service]).not.toHaveBeenCalled();
+  });
+
+  it("rejects anonymous synthetic API tokens before listing invitations", async () => {
+    mocks.authContext = {
+      auth_type: "api_token",
+      user_id: "anon:visitor-1",
+      token_id: "token-1",
+      scopes: ["read"],
+      form_ids: ["form-1"],
+    };
+
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+    const response = await formsPermissionsRouter.request(
+      "/form-1/invitations?page=1&pageSize=20",
+    );
+
+    expect(response.status).toBe(403);
+    expect(mocks.getFormInvitations).not.toHaveBeenCalled();
+  });
+});
+
+describe("R28-H3 invitation creation error responses", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.authContext = {
+      auth_type: "session",
+      user_id: "editor-1",
+    };
+  });
+
+  it.each([
+    {
+      message: "Inviter is not allowed to create invitations",
+      status: 403,
+    },
+    {
+      message: "Form not found",
+      status: 404,
+    },
+    {
+      message: "Invitation already exists for this email",
+      status: 409,
+    },
+  ] as const)("maps invitation creation domain failures to $status", async ({
+    message,
+    status,
+  }) => {
+    mocks.createInvitation.mockRejectedValue(
+      namedPermissionServiceError("InvitationCreateError", status, message),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/form-1/invitations",
+      {
+        body: JSON.stringify({
+          email: "target@example.com",
+          role: "VIEWER",
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({ error: message });
+    expect(response.status).toBe(status);
   });
 });
 
@@ -664,6 +832,43 @@ describe("permission mutation stale conflict responses", () => {
       error: "Permission role changed before it could be updated",
     });
     expect(response.status).toBe(409);
+  });
+
+  it.each([
+    {
+      message: "Form not found",
+      status: 404,
+    },
+    {
+      message: "Permission not found",
+      status: 404,
+    },
+    {
+      message: "Cannot change owner role. Use transfer ownership instead.",
+      status: 409,
+    },
+  ] as const)("maps permission role update domain failures to $status", async ({
+    message,
+    status,
+  }) => {
+    mocks.updatePermissionRole.mockRejectedValue(
+      namedPermissionServiceError("PermissionUpdateError", status, message),
+    );
+    const { formsPermissionsRouter } = await import(
+      "../routes/forms-permissions"
+    );
+
+    const response = await formsPermissionsRouter.request(
+      "/form-1/permissions/editor-1",
+      {
+        body: JSON.stringify({ role: "VIEWER" }),
+        headers: { "content-type": "application/json" },
+        method: "PUT",
+      },
+    );
+
+    await expect(response.json()).resolves.toEqual({ error: message });
+    expect(response.status).toBe(status);
   });
 
   it("maps stale permission deletes to conflict responses", async () => {

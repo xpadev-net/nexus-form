@@ -9,19 +9,26 @@ import {
   type FormEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
+  useState,
 } from "react";
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
+import {
+  FormQuestionA11yProvider,
+  getFormQuestionErrorId,
+} from "@/components/ui/form-question-nodes/form-question-base";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
-import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { cn } from "@/lib/utils";
 import {
   type FormAppearance,
   FormAppearanceSchema,
 } from "@/types/validation/form";
+import { validateExtractedQuestionAnswer } from "@/utils/validation/question-validators";
 import { FormPageNavigation } from "./form-page-navigation";
 
 export interface FormSubmitRequestData {
@@ -52,6 +59,13 @@ interface FormBodyProps {
   success?: string | null;
   onErrorChange?: (error: string | null) => void;
   appearance?: FormAppearance;
+}
+
+interface QuestionValidationMessage {
+  questionId: string;
+  title: string;
+  messages: string[];
+  codes: string[];
 }
 
 type FormBodyStyle = CSSProperties & {
@@ -134,6 +148,132 @@ function normalizeAppearance(appearance: FormAppearance | undefined) {
   return appearance ?? FormAppearanceSchema.parse({});
 }
 
+function uniqueMessages(messages: string[]): string[] {
+  return Array.from(new Set(messages));
+}
+
+function formatQuestionErrorSummary(
+  errors: QuestionValidationMessage[],
+): string {
+  const names = errors.map((error) => error.title).join("、");
+  const onlyRequiredErrors = errors.every((error) =>
+    error.codes.every((code) => code === "REQUIRED"),
+  );
+  return onlyRequiredErrors
+    ? `必須項目が未入力です: ${names}`
+    : `入力内容を確認してください: ${names}`;
+}
+
+function findQuestionControl(
+  root: HTMLElement,
+  questionId: string,
+): HTMLElement | null {
+  const controls = Array.from(
+    root.querySelectorAll<HTMLElement>("input, textarea, select, button"),
+  );
+  return (
+    controls.find((control) => {
+      if (control.getAttribute("disabled") != null) return false;
+      const ariaLabel = control.getAttribute("aria-label");
+      const name = control.getAttribute("name");
+      const id = control.getAttribute("id") ?? "";
+      return (
+        ariaLabel === questionId ||
+        name === questionId ||
+        id === questionId ||
+        id.startsWith(`${questionId}-`)
+      );
+    }) ?? null
+  );
+}
+
+function findFirstFocusableControl(root: HTMLElement): HTMLElement | null {
+  const controls = Array.from(
+    root.querySelectorAll<HTMLElement>("input, textarea, select, button"),
+  );
+  return (
+    controls.find((control) => control.getAttribute("disabled") == null) ?? null
+  );
+}
+
+function findQuestionControlByPageOrder(
+  viewer: HTMLElement | null,
+  pageQuestionIds: readonly string[],
+  questionId: string,
+): HTMLElement | null {
+  if (!viewer) return null;
+  if (!pageQuestionIds.includes(questionId)) return null;
+  const questionCard =
+    Array.from(
+      viewer.querySelectorAll<HTMLElement>("[data-form-question-id]"),
+    ).find((element) => element.dataset.formQuestionId === questionId) ?? null;
+  return questionCard ? findFirstFocusableControl(questionCard) : null;
+}
+
+function findQuestionErrorElement(
+  form: HTMLFormElement,
+  questionId: string,
+): HTMLElement | null {
+  const errors = Array.from(
+    form.querySelectorAll<HTMLElement>("[data-question-error-for]"),
+  );
+  return (
+    errors.find((element) => element.dataset.questionErrorFor === questionId) ??
+    null
+  );
+}
+
+function focusQuestionValidationTarget(
+  form: HTMLFormElement | null,
+  viewer: HTMLElement | null,
+  questionId: string,
+  pageQuestionIds: readonly string[],
+): boolean {
+  if (!form) return false;
+  const target =
+    findQuestionControl(form, questionId) ??
+    findQuestionControlByPageOrder(viewer, pageQuestionIds, questionId) ??
+    findQuestionErrorElement(form, questionId);
+  if (!target) return false;
+  target.focus();
+  return true;
+}
+
+function findPageIndexForQuestion(
+  pages: ReturnType<typeof splitPlateContentIntoPages>,
+  pageIndexes: number[],
+  questionId: string,
+): number | undefined {
+  for (const pageIndex of pageIndexes) {
+    const page = pages[pageIndex];
+    if (page?.questionIds.includes(questionId)) {
+      return pageIndex;
+    }
+  }
+  return undefined;
+}
+
+function questionsForPageIndexes(
+  questions: ExtractedQuestion[],
+  pages: ReturnType<typeof splitPlateContentIntoPages>,
+  pageIndexes: number[],
+): ExtractedQuestion[] {
+  const questionById = new Map(
+    questions
+      .filter((question) => question.type !== "section_separator")
+      .map((question) => [question.blockId, question]),
+  );
+
+  return pageIndexes.flatMap((pageIndex) => {
+    const page = pages[pageIndex];
+    if (!page) return [];
+    return page.questionIds.flatMap((questionId) => {
+      const question = questionById.get(questionId);
+      return question ? [question] : [];
+    });
+  });
+}
+
 function addQuestionNumbersToPlateContent(
   nodes: unknown[],
   questionNumberByBlockId: ReadonlyMap<string, number>,
@@ -199,6 +339,12 @@ export function FormBody({
   appearance: appearanceProp,
 }: FormBodyProps) {
   const { answers } = useFormResponse();
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
+  const pendingFocusQuestionIdRef = useRef<string | null>(null);
+  const [questionErrors, setQuestionErrors] = useState<
+    QuestionValidationMessage[]
+  >([]);
   const appearance = useMemo(
     () => normalizeAppearance(appearanceProp),
     [appearanceProp],
@@ -261,16 +407,107 @@ export function FormBody({
     return allQuestions.filter((q) => pageQuestionIds.has(q.blockId));
   }, [allQuestions, paging.currentPage.questionIds]);
 
+  const currentPageQuestionErrors = useMemo(() => {
+    const pageQuestionIds = new Set(paging.currentPage.questionIds);
+    return questionErrors.filter((error) =>
+      pageQuestionIds.has(error.questionId),
+    );
+  }, [questionErrors, paging.currentPage.questionIds]);
+  const currentPageInvalidQuestionIds = useMemo(
+    () => new Set(currentPageQuestionErrors.map((error) => error.questionId)),
+    [currentPageQuestionErrors],
+  );
+
+  const collectQuestionErrors = useCallback(
+    (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
+      return questions.flatMap((question) => {
+        const result = validateExtractedQuestionAnswer(
+          question,
+          answers.get(question.blockId),
+        );
+        if (result.is_valid) return [];
+        return [
+          {
+            questionId: question.blockId,
+            title: question.title || "無題の質問",
+            messages: uniqueMessages(
+              result.errors.map((error) => error.message),
+            ),
+            codes: result.errors.map((error) => error.code),
+          },
+        ];
+      });
+    },
+    [answers],
+  );
+
+  const applyQuestionErrors = useCallback(
+    (
+      errors: QuestionValidationMessage[],
+      summaryErrors: QuestionValidationMessage[] = errors,
+    ): boolean => {
+      setQuestionErrors(errors);
+      if (errors.length > 0) {
+        const questionId = errors[0]?.questionId ?? null;
+        pendingFocusQuestionIdRef.current = questionId;
+        if (
+          questionId &&
+          focusQuestionValidationTarget(
+            formRef.current,
+            viewerRef.current,
+            questionId,
+            paging.currentPage.questionIds,
+          )
+        ) {
+          pendingFocusQuestionIdRef.current = null;
+        }
+        onErrorChange?.(
+          formatQuestionErrorSummary(
+            summaryErrors.length > 0 ? summaryErrors : errors,
+          ),
+        );
+        return false;
+      }
+      pendingFocusQuestionIdRef.current = null;
+      onErrorChange?.(null);
+      return true;
+    },
+    [onErrorChange, paging.currentPage.questionIds],
+  );
+
+  useEffect(() => {
+    const questionId = pendingFocusQuestionIdRef.current;
+    if (!questionId) return;
+    const isErrorRendered = currentPageQuestionErrors.some(
+      (error) => error.questionId === questionId,
+    );
+    if (!isErrorRendered) return;
+    if (
+      focusQuestionValidationTarget(
+        formRef.current,
+        viewerRef.current,
+        questionId,
+        paging.currentPage.questionIds,
+      )
+    ) {
+      pendingFocusQuestionIdRef.current = null;
+    }
+  }, [currentPageQuestionErrors, paging.currentPage.questionIds]);
+
   const validateCurrentPage = useCallback((): boolean => {
-    const unanswered = findUnansweredRequired(currentPageQuestions, answers);
-    if (unanswered.length > 0) {
-      const names = unanswered.map((q) => q.title || "無題の質問").join("、");
-      onErrorChange?.(`必須項目が未入力です: ${names}`);
-      return false;
+    const errors = collectQuestionErrors(currentPageQuestions);
+    if (errors.length > 0) {
+      return applyQuestionErrors(errors);
     }
     onErrorChange?.(null);
+    setQuestionErrors([]);
     return true;
-  }, [currentPageQuestions, answers, onErrorChange]);
+  }, [
+    currentPageQuestions,
+    collectQuestionErrors,
+    applyQuestionErrors,
+    onErrorChange,
+  ]);
 
   const handleNextPage = useCallback(() => {
     if (!validateCurrentPage()) return;
@@ -279,6 +516,8 @@ export function FormBody({
 
   const handlePreviousPage = useCallback(() => {
     onErrorChange?.(null);
+    setQuestionErrors([]);
+    pendingFocusQuestionIdRef.current = null;
     paging.goToPreviousPage();
   }, [paging, onErrorChange]);
 
@@ -314,18 +553,57 @@ export function FormBody({
   const handleFormSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!validateCurrentPage()) return;
+      const reachableQuestions = questionsForPageIndexes(
+        allQuestions,
+        pages,
+        paging.reachablePageIndexes,
+      );
+      const errors = collectQuestionErrors(reachableQuestions);
+      if (errors.length > 0) {
+        const firstErrorQuestionId = errors[0]?.questionId;
+        let summaryErrors = errors;
+        if (firstErrorQuestionId) {
+          const firstErrorPageIndex = findPageIndexForQuestion(
+            pages,
+            paging.reachablePageIndexes,
+            firstErrorQuestionId,
+          );
+          const firstErrorPageQuestionIds =
+            firstErrorPageIndex !== undefined
+              ? pages[firstErrorPageIndex]?.questionIds
+              : undefined;
+          if (firstErrorPageQuestionIds) {
+            summaryErrors = errors.filter((error) =>
+              firstErrorPageQuestionIds.includes(error.questionId),
+            );
+          }
+          if (
+            firstErrorPageIndex !== undefined &&
+            firstErrorPageIndex !== paging.currentPageIndex
+          ) {
+            paging.goToPage(firstErrorPageIndex);
+          }
+        }
+        applyQuestionErrors(errors, summaryErrors);
+        return;
+      }
+      applyQuestionErrors([]);
       const payload = buildSubmitPayload(
         allQuestions,
-        paging.visitedQuestionIds,
+        paging.reachableQuestionIds,
       );
       onSubmitRequest?.(payload);
     },
     [
-      validateCurrentPage,
+      pages,
+      collectQuestionErrors,
+      applyQuestionErrors,
       buildSubmitPayload,
       allQuestions,
-      paging.visitedQuestionIds,
+      paging.reachablePageIndexes,
+      paging.reachableQuestionIds,
+      paging.currentPageIndex,
+      paging.goToPage,
       onSubmitRequest,
     ],
   );
@@ -393,14 +671,21 @@ export function FormBody({
         </div>
       )}
 
-      <form onSubmit={handleFormSubmit} className="space-y-3">
+      <form ref={formRef} onSubmit={handleFormSubmit} className="space-y-3">
         {/* Plate ドキュメントによるフォーム描画 (現在ページのみ) */}
         {parsedContent.length > 0 ? (
-          <div className={cn("rounded-lg border bg-card", spacingClass.card)}>
-            <PlateViewer
-              key={paging.currentPageIndex}
-              value={viewerPlateContent}
-            />
+          <div
+            className={cn("rounded-lg border bg-card", spacingClass.card)}
+            ref={viewerRef}
+          >
+            <FormQuestionA11yProvider
+              invalidQuestionIds={currentPageInvalidQuestionIds}
+            >
+              <PlateViewer
+                key={paging.currentPageIndex}
+                value={viewerPlateContent}
+              />
+            </FormQuestionA11yProvider>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
@@ -409,6 +694,28 @@ export function FormBody({
               : "フォームの内容を読み込めませんでした。"}
           </p>
         )}
+
+        {currentPageQuestionErrors.length > 0 ? (
+          <div
+            aria-live="assertive"
+            className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
+            role="alert"
+          >
+            {currentPageQuestionErrors.map((questionError) => (
+              <p
+                className="text-sm text-destructive outline-none"
+                data-question-error-for={questionError.questionId}
+                id={getFormQuestionErrorId(questionError.questionId)}
+                key={questionError.questionId}
+                tabIndex={-1}
+              >
+                <span className="font-medium">{questionError.title}</span>
+                {": "}
+                {questionError.messages.join("、")}
+              </p>
+            ))}
+          </div>
+        ) : null}
 
         {/* 質問がある場合のみ送信・ナビゲーションを表示 */}
         {allQuestions.length > 0 && (

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
-import type { ReactNode } from "react";
-import { act } from "react";
+import type { ReactNode, Ref } from "react";
+import { act, useImperativeHandle } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "@/lib/api";
@@ -81,6 +81,11 @@ const formBodyMockState = vi.hoisted(() => ({
     plateContent: string;
     title: string;
   }>,
+}));
+const hCaptchaMockState = vi.hoisted(() => ({
+  onVerify: undefined as ((token: string) => void) | undefined,
+  onExpire: undefined as (() => void) | undefined,
+  reset: vi.fn(),
 }));
 const refetchFormMock = vi.fn(async () => {
   if (refetchResult.data) {
@@ -271,7 +276,20 @@ vi.mock("@/components/forms/form-not-found-page", () => ({
 }));
 
 vi.mock("@/components/forms/hcaptcha-widget", () => ({
-  HCaptchaWidget: () => <div data-testid="hcaptcha-widget" />,
+  HCaptchaWidget: ({
+    onExpire,
+    onVerify,
+    ref,
+  }: {
+    onExpire?: () => void;
+    onVerify: (token: string) => void;
+    ref?: Ref<{ reset: () => void }>;
+  }) => {
+    hCaptchaMockState.onExpire = onExpire;
+    hCaptchaMockState.onVerify = onVerify;
+    useImperativeHandle(ref, () => ({ reset: hCaptchaMockState.reset }), []);
+    return <div data-testid="hcaptcha-widget" />;
+  },
 }));
 
 vi.mock("@/components/forms/password-protection-gate", () => ({
@@ -350,6 +368,9 @@ describe("PublicFormPage", () => {
     requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
     formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
     formBodyMockState.renderProps.length = 0;
+    hCaptchaMockState.onVerify = undefined;
+    hCaptchaMockState.onExpire = undefined;
+    hCaptchaMockState.reset.mockClear();
     publicFormRetry = undefined;
   });
 
@@ -769,6 +790,163 @@ describe("PublicFormPage", () => {
         telemetry: { v4Token: "telemetry-token" },
         fingerprints: [],
       },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("resets hCaptcha after a failed submit so a retried response cannot reuse the consumed token", async () => {
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q1",
+          question_type: "form_short_text",
+          question_title: "Name",
+          value: "Alice",
+        },
+      ],
+      visitedQuestionIds: ["q1"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) => {
+      if (request === "telemetry-request") {
+        return { token: "telemetry-token" };
+      }
+      throw new RpcError("回答データの検証に失敗しました", 400);
+    });
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      hCaptchaMockState.onVerify?.("first-captcha-token");
+    });
+    expect(
+      container
+        .querySelector("[data-testid='public-form-body']")
+        ?.getAttribute("data-captcha-ready"),
+    ).toBe("true");
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(apiMocks.submitPost).toHaveBeenLastCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        captchaToken: "first-captcha-token",
+      }),
+    });
+    expect(hCaptchaMockState.reset).toHaveBeenCalledTimes(1);
+    expect(
+      container
+        .querySelector("[data-testid='public-form-body']")
+        ?.getAttribute("data-captcha-ready"),
+    ).toBe("false");
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "セキュリティ確認が完了していません。hCaptchaを完了してください。",
+    );
+    expect(hCaptchaMockState.reset).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      hCaptchaMockState.onVerify?.("second-captcha-token");
+    });
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(2);
+    expect(apiMocks.submitPost).toHaveBeenLastCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        captchaToken: "second-captcha-token",
+      }),
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("does not reset hCaptcha state after a failed submit when the development bypass is enabled", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) => {
+      if (request === "telemetry-request") {
+        return { token: "telemetry-token" };
+      }
+      throw new RpcError("回答データの検証に失敗しました", 400);
+    });
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(hCaptchaMockState.reset).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector("[data-testid='public-form-body']")
+        ?.getAttribute("data-captcha-ready"),
+    ).toBe("true");
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        captchaToken: "form-security-dev-bypass",
+      }),
     });
 
     await act(async () => {

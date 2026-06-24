@@ -3,10 +3,12 @@ import { isPlateQuestionType } from "@nexus-form/shared";
 import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
-import type { ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
+
+const HEADING_TYPES = ["h1", "h2", "h3", "h4", "h5", "h6"] as const;
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -28,6 +30,91 @@ export function collectText(node: unknown): string {
   return typeof node.text === "string" ? node.text : "";
 }
 
+function getElementChildren(element: TElement): unknown[] {
+  return Array.isArray(element.children) ? element.children : [];
+}
+
+function getQuestionNumberPrefix(children: unknown[]): string {
+  const firstText = collectText(children[0]).trim();
+  return /^Q\d+\.$/.test(firstText) ? `${firstText} ` : "";
+}
+
+function getHeadingQuestionText(children: unknown[]): string | undefined {
+  let bestHeading: {
+    headingIndex: number;
+    text: string;
+  } | null = null;
+
+  for (const child of children) {
+    if (!isObjectRecord(child)) continue;
+    const type = child.type;
+    if (typeof type !== "string") continue;
+    const headingIndex = (HEADING_TYPES as readonly string[]).indexOf(type);
+    if (headingIndex === -1) continue;
+    const text = collectText(child).replace(/\s+/g, " ").trim();
+    if (!text) continue;
+    if (bestHeading === null || headingIndex < bestHeading.headingIndex) {
+      bestHeading = { headingIndex, text };
+    }
+  }
+
+  return bestHeading?.text;
+}
+
+function getFirstQuestionText(children: unknown[]): string | undefined {
+  for (const child of children) {
+    const text = collectText(child).replace(/\s+/g, " ").trim();
+    if (!text || /^Q\d+\.$/.test(text)) continue;
+    return text;
+  }
+  return undefined;
+}
+
+export function getQuestionAccessibleName(element: TElement): string {
+  const children = getElementChildren(element);
+  const questionNumberPrefix = getQuestionNumberPrefix(children);
+  const title = getHeadingQuestionText(children) ?? getFirstQuestionText(children);
+  return `${questionNumberPrefix}${title ?? ""}`.trim() || "無題の質問";
+}
+
+export function getFormQuestionTitleId(blockId: string): string {
+  return `form-question-${blockId}-title`;
+}
+
+export function getQuestionControlId(
+  blockId: string,
+  suffix = "answer",
+): string {
+  return `${blockId}-${suffix}`;
+}
+
+export function getQuestionLabelId(blockId: string): string {
+  return getFormQuestionTitleId(blockId);
+}
+
+interface QuestionControlLabelProps {
+  id: string;
+  name: string;
+  "aria-labelledby": string;
+}
+
+export function getQuestionControlLabelProps(
+  blockId: string,
+): QuestionControlLabelProps {
+  return {
+    id: getQuestionControlId(blockId),
+    name: blockId,
+    "aria-labelledby": getQuestionLabelId(blockId),
+  };
+}
+
+export function getQuestionValueAccessibleName(
+  element: TElement,
+  valueLabel: string,
+): string {
+  return `${getQuestionAccessibleName(element)}: ${valueLabel}`;
+}
+
 function isElementEmpty(element: TElement): boolean {
   return collectText(element).trim() === "";
 }
@@ -37,6 +124,48 @@ export interface FormQuestionElementProps {
   editorControls?: ReactNode;
   /** Rendered below the editable children area in viewer mode */
   viewerControls?: ReactNode;
+}
+
+export function getFormQuestionErrorId(blockId: string): string {
+  return `form-question-${blockId}-error`;
+}
+
+interface FormQuestionA11yState {
+  invalidQuestionIds: ReadonlySet<string>;
+}
+
+const emptyInvalidQuestionIds = new Set<string>();
+
+const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
+  invalidQuestionIds: emptyInvalidQuestionIds,
+});
+
+export function FormQuestionA11yProvider({
+  children,
+  invalidQuestionIds,
+}: {
+  children: ReactNode;
+  invalidQuestionIds: ReadonlySet<string>;
+}) {
+  return (
+    <FormQuestionA11yContext.Provider value={{ invalidQuestionIds }}>
+      {children}
+    </FormQuestionA11yContext.Provider>
+  );
+}
+
+export function useFormQuestionErrorA11y(blockId: string): {
+  "aria-describedby"?: string;
+  "aria-invalid"?: true;
+} {
+  const { invalidQuestionIds } = useContext(FormQuestionA11yContext);
+  if (!invalidQuestionIds.has(blockId)) {
+    return {};
+  }
+  return {
+    "aria-describedby": getFormQuestionErrorId(blockId),
+    "aria-invalid": true,
+  };
 }
 
 /**
@@ -62,6 +191,10 @@ export const FormQuestionElement = withRef<
       | { required?: boolean }
       | undefined;
     const isRequired = validation?.required ?? false;
+    const blockId =
+      typeof element.blockId === "string" ? element.blockId : undefined;
+    const titleId = blockId ? getQuestionLabelId(blockId) : undefined;
+    const titleText = getQuestionAccessibleName(element);
 
     return (
       <PlateElement
@@ -70,6 +203,7 @@ export const FormQuestionElement = withRef<
           "my-3 rounded-lg border border-border bg-card p-4 shadow-sm",
           className,
         )}
+        data-form-question-id={blockId}
         {...props}
       >
         {/* Type badge */}
@@ -89,6 +223,11 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
+        {titleId ? (
+          <span contentEditable={false} hidden id={titleId}>
+            {titleText}
+          </span>
+        ) : null}
         <div className="relative min-w-0">
           {!readOnly && isElementEmpty(element) && (
             <span

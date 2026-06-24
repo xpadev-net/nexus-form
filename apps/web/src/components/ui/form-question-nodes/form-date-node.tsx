@@ -5,7 +5,11 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { DateSettingsEditor, EditorControlsWrapper } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlLabelProps,
+  useFormQuestionErrorA11y,
+} from "./form-question-base";
 
 export const FormDateElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -54,8 +58,9 @@ function isDateValueOutsideValidation(
 
 export function DateInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | {
@@ -71,11 +76,13 @@ export function DateInput({ element }: { element: TElement }) {
 
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       type="date"
       min={validation?.minDate}
       max={validation?.maxDate}
       value={value}
-      aria-invalid={isInvalid ? true : undefined}
+      aria-invalid={isInvalid || errorA11y["aria-invalid"] ? true : undefined}
+      aria-describedby={errorA11y["aria-describedby"]}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
       onBlur={(e) => syncDateValue(e.currentTarget.value)}
     />

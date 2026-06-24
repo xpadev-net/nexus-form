@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "rollup -c rollup.config.mjs",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && rollup -c rollup.config.mjs && node ../../scripts/assert-no-test-artifacts.mjs dist",
     "start": "node dist/index.mjs",
     "type-check": "tsgo --noEmit",
     "lint": "biome check",

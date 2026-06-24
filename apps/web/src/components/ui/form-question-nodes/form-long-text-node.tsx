@@ -4,7 +4,11 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Textarea } from "@/components/ui/textarea";
 import { EditorControlsWrapper, TextLengthEditor } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlLabelProps,
+  useFormQuestionErrorA11y,
+} from "./form-question-base";
 
 export const FormLongTextElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -31,17 +35,20 @@ export const FormLongTextElement = withRef<typeof PlateElement>(
   },
 );
 
-function LongTextInput({ element }: { element: TElement }) {
+export function LongTextInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   return (
     <Textarea
+      {...getQuestionControlLabelProps(blockId)}
       value={(answer?.value as string) ?? ""}
       onChange={(e) => ctx.setAnswer(blockId, { value: e.target.value })}
       placeholder="回答を入力してください"
       rows={4}
+      {...errorA11y}
     />
   );
 }

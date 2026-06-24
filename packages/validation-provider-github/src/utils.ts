@@ -8,6 +8,14 @@ const RETRYABLE_NETWORK_ERROR_CODES = new Set([
   "ECONNABORTED",
 ]);
 
+const RATE_LIMIT_RETRY_AFTER_HEADER_NAMES = ["retry-after"];
+const RATE_LIMIT_RESET_HEADER_NAMES = ["x-ratelimit-reset"];
+const RATE_LIMIT_REMAINING_HEADER_NAMES = ["x-ratelimit-remaining"];
+const SECONDARY_RATE_LIMIT_MESSAGE_FRAGMENTS = [
+  "secondary rate limit",
+  "abuse detection mechanism",
+];
+
 export interface OctokitRequestError extends Error {
   status?: number;
   response?: {
@@ -85,11 +93,20 @@ function getHeaderValue(
   names: string[],
 ): string | null {
   if (!headers) return null;
-  for (const name of names) {
-    const value = headers[name];
+  const normalizedNames = new Set(names.map((name) => name.toLowerCase()));
+  for (const [key, value] of Object.entries(headers)) {
+    if (!normalizedNames.has(key.toLowerCase())) continue;
     if (typeof value === "string") return value;
+    if (typeof value === "number") return String(value);
   }
   return null;
+}
+
+function hasHeaderValue(
+  headers: Record<string, unknown> | null,
+  names: string[],
+): boolean {
+  return getHeaderValue(headers, names) !== null;
 }
 
 function getGitHubErrorHeaders(error: unknown): Record<string, unknown> | null {
@@ -100,15 +117,140 @@ function getGitHubErrorData(error: unknown): Record<string, unknown> | null {
   return getRecordProperty(getRecordProperty(error, "response"), "data");
 }
 
-export function isGitHubRateLimitError(error: unknown): boolean {
-  if (getNumberProperty(error, "status") !== 403) return false;
-  const remaining = getHeaderValue(getGitHubErrorHeaders(error), [
-    "x-ratelimit-remaining",
-    "X-RateLimit-Remaining",
-    "X-RATELIMIT-REMAINING",
-  ]);
+function getGitHubErrorMessages(error: unknown): string[] {
+  const messages: string[] = [];
+  const message = getStringProperty(error, "message");
+  if (message !== null) messages.push(message);
+
+  const data = getGitHubErrorData(error);
+  const responseMessage = getStringProperty(data, "message");
+  if (responseMessage) messages.push(responseMessage);
+
+  const errors = data?.errors;
+  if (Array.isArray(errors)) {
+    for (const entry of errors) {
+      const entryMessage = getStringProperty(entry, "message");
+      if (entryMessage) messages.push(entryMessage);
+    }
+  }
+
+  return messages;
+}
+
+function hasSecondaryRateLimitMessage(error: unknown): boolean {
+  return getGitHubErrorMessages(error).some((message) => {
+    const normalizedMessage = message.toLowerCase();
+    return SECONDARY_RATE_LIMIT_MESSAGE_FRAGMENTS.some((fragment) =>
+      normalizedMessage.includes(fragment),
+    );
+  });
+}
+
+function parseRetryAfterHeader(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, Math.ceil(seconds * 1000));
+  }
+
+  const retryAtMs = Date.parse(trimmed);
+  if (Number.isNaN(retryAtMs)) return null;
+  return Math.max(0, retryAtMs - Date.now());
+}
+
+function parseRateLimitResetHeader(value: string): number | null {
+  const resetTime = Number.parseInt(value, 10);
+  if (Number.isNaN(resetTime)) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const waitSeconds = Math.max(0, resetTime - now);
+  return waitSeconds * 1000;
+}
+
+function hasRateLimitRemainingZeroHeader(
+  headers: Record<string, unknown> | null,
+): boolean {
+  const remaining = getHeaderValue(headers, RATE_LIMIT_REMAINING_HEADER_NAMES);
   if (remaining === null) return false;
   return remaining === "0";
+}
+
+function hasRetryAfterHeader(error: unknown): boolean {
+  return hasHeaderValue(
+    getGitHubErrorHeaders(error),
+    RATE_LIMIT_RETRY_AFTER_HEADER_NAMES,
+  );
+}
+
+function hasSecondaryRateLimitSignal(error: unknown): boolean {
+  return hasRetryAfterHeader(error) || hasSecondaryRateLimitMessage(error);
+}
+
+/**
+ * Detects GitHub API rate-limit responses from an unknown upstream error.
+ *
+ * Returns true for HTTP 429, and for HTTP 403 when the response has exhausted
+ * primary rate-limit headers or known secondary rate-limit signals.
+ */
+export function isGitHubRateLimitError(error: unknown): boolean {
+  const status = getNumberProperty(error, "status");
+  if (status === 429) return true;
+  if (status !== 403) return false;
+
+  const headers = getGitHubErrorHeaders(error);
+  return (
+    hasRateLimitRemainingZeroHeader(headers) ||
+    hasSecondaryRateLimitSignal(error)
+  );
+}
+
+function getGitHubRetryAfterHeader(error: unknown): string | null {
+  return getHeaderValue(
+    getGitHubErrorHeaders(error),
+    RATE_LIMIT_RETRY_AFTER_HEADER_NAMES,
+  );
+}
+
+function getGitHubRateLimitResetHeader(error: unknown): string | null {
+  return getHeaderValue(
+    getGitHubErrorHeaders(error),
+    RATE_LIMIT_RESET_HEADER_NAMES,
+  );
+}
+
+/**
+ * Extracts the GitHub rate-limit retry delay in milliseconds.
+ *
+ * Reads Retry-After first, then falls back to x-ratelimit-reset. Returns null
+ * when the error does not carry usable retry-after information.
+ */
+export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
+  const retryAfterHeader = getGitHubRetryAfterHeader(error);
+  if (retryAfterHeader) {
+    const retryAfter = parseRetryAfterHeader(retryAfterHeader);
+    if (retryAfter !== null) return retryAfter;
+  }
+
+  const resetHeader = getGitHubRateLimitResetHeader(error);
+  if (!resetHeader) return null;
+  return parseRateLimitResetHeader(resetHeader);
+}
+
+export function parseGitHubError(error: unknown): string {
+  const message = getStringProperty(error, "message");
+  if (message !== null) return message;
+  const data = getGitHubErrorData(error);
+  const responseMessage = getStringProperty(data, "message");
+  if (responseMessage) return responseMessage;
+  const errors = data?.errors;
+  if (Array.isArray(errors)) {
+    const messages = errors
+      .map((entry) => getStringProperty(entry, "message"))
+      .filter((msg): msg is string => typeof msg === "string");
+    if (messages.length > 0) return messages.join("; ");
+  }
+  return "Unknown GitHub API error";
 }
 
 export function isGitHubAuthError(error: unknown): boolean {
@@ -128,39 +270,6 @@ export function isGitHubUserNotFoundError(error: unknown): boolean {
  */
 export function getGitHubErrorStatus(error: unknown): number | null {
   return getNumberProperty(error, "status");
-}
-
-export function getGitHubRateLimitRetryAfter(error: unknown): number | null {
-  const resetHeader = getHeaderValue(getGitHubErrorHeaders(error), [
-    "x-ratelimit-reset",
-    "X-RateLimit-Reset",
-    "X-RATELIMIT-RESET",
-  ]);
-  if (!resetHeader) return null;
-  try {
-    const resetTime = Number.parseInt(resetHeader, 10);
-    const now = Math.floor(Date.now() / 1000);
-    const waitSeconds = Math.max(0, resetTime - now);
-    return waitSeconds * 1000;
-  } catch {
-    return null;
-  }
-}
-
-export function parseGitHubError(error: unknown): string {
-  const message = getStringProperty(error, "message");
-  if (message !== null) return message;
-  const data = getGitHubErrorData(error);
-  const responseMessage = getStringProperty(data, "message");
-  if (responseMessage) return responseMessage;
-  const errors = data?.errors;
-  if (Array.isArray(errors)) {
-    const messages = errors
-      .map((entry) => getStringProperty(entry, "message"))
-      .filter((msg): msg is string => typeof msg === "string");
-    if (messages.length > 0) return messages.join("; ");
-  }
-  return "Unknown GitHub API error";
 }
 
 export function getGitHubErrorCode(error: unknown): GitHubErrorCode {

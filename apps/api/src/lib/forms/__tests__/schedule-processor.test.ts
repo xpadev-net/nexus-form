@@ -76,6 +76,7 @@ vi.mock("../../logger", () => ({
   logError: mocks.logError,
 }));
 
+import { SnapshotNotFoundError } from "../../errors/form-errors";
 import { processFormSchedule } from "../schedule-processor";
 
 type ScheduleRow = {
@@ -459,8 +460,48 @@ describe("processFormSchedule", () => {
       type: "and",
       conditions: [
         { type: "eq", left: "formSchedule.id", right: "schedule-switch" },
-        { type: "eq", left: "formSchedule.processedAt", right: now },
+        { type: "eq", left: "formSchedule.formId", right: "form-1" },
       ],
     });
+  });
+
+  it("releases the SWITCH_SNAPSHOT claim when the target snapshot disappears", async () => {
+    const now = new Date("2026-06-01T12:00:00.000Z");
+    useSelectRows({
+      formStatus: "PUBLISHED",
+      schedules: [
+        scheduleRow({
+          id: "schedule-switch",
+          action: "SWITCH_SNAPSHOT",
+          snapshotVersion: 2,
+        }),
+      ],
+    });
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
+    mocks.activateSnapshot.mockRejectedValueOnce(
+      new SnapshotNotFoundError("form-1", 2),
+    );
+
+    await expect(processFormSchedule("form-1", now)).rejects.toThrow(
+      "Snapshot not found for form form-1 version 2",
+    );
+
+    expect(mocks.updateCalls).toHaveLength(2);
+    expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
+    expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
+    expect(mocks.updateCalls[1]?.table).toBe(mocks.schema.formSchedule);
+    expect(mocks.updateCalls[1]?.values).toEqual({ processedAt: null });
+    expect(mocks.updateCalls[1]?.condition).toEqual({
+      type: "and",
+      conditions: [
+        { type: "eq", left: "formSchedule.id", right: "schedule-switch" },
+        { type: "eq", left: "formSchedule.formId", right: "form-1" },
+      ],
+    });
+    expect(mocks.logError).toHaveBeenCalledWith(
+      "SWITCH_SNAPSHOT skipped: snapshot not found",
+      "api",
+      { formId: "form-1", targetVersion: 2 },
+    );
   });
 });
