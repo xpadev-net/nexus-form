@@ -1150,6 +1150,68 @@ describe("FormBody", () => {
     container.remove();
   });
 
+  it("keeps the current page open and focuses the short text question when regex validation fails", async () => {
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-code", "Access code", {
+        required: true,
+        pattern: "^NF-\\d{4}$",
+        allowPatternMismatch: false,
+        omitMockQuestionId: true,
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: true }),
+    ]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+    });
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    if (!codeInput) {
+      throw new Error("Access code input was not rendered");
+    }
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "draft" } });
+    });
+
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).not.toContain("Next page");
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Access code",
+    );
+    expect(container.textContent).toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+    expect(codeInput.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(codeInput);
+
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "NF-1234" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("blocks submit and focuses the invalid question when submit validation fails", async () => {
     const onSubmitRequest = vi.fn();
     const container = document.createElement("div");
@@ -1191,6 +1253,69 @@ describe("FormBody", () => {
       "Access code: 3文字以上で入力してください",
     );
     expect(document.activeElement).toBe(codeInput);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("returns to the invalid reachable page when submit validation finds a short text regex mismatch", async () => {
+    const onSubmitRequest = vi.fn();
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-code", "Access code", {
+        required: true,
+        pattern: "^NF-\\d{4}$",
+        allowPatternMismatch: false,
+        omitMockQuestionId: true,
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: false }),
+    ]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      onSubmitRequest,
+      providerSlot: <InvalidCodeSwitcher />,
+    });
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    if (!codeInput) {
+      throw new Error("Access code input was not rendered");
+    }
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "NF-1234" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    await act(async () => {
+      getByRole(container, "button", {
+        name: "invalidate code",
+      }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    const focusedCodeInput = container.querySelector<HTMLInputElement>("input");
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).toContain(
+      "入力内容を確認してください: Access code",
+    );
+    expect(container.textContent).toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+    expect(document.activeElement).toBe(focusedCodeInput);
 
     act(() => root.unmount());
     container.remove();

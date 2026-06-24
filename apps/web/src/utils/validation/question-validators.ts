@@ -7,6 +7,7 @@ import {
   textMatchesPattern,
 } from "@nexus-form/shared";
 import { getPatternTemplate } from "@/lib/constants/validation-patterns";
+import { logWarn } from "@/lib/logger";
 import { isValidEmail } from "@/lib/validation/email";
 import { getValidationMessage } from "@/lib/validation-messages";
 import {
@@ -18,7 +19,7 @@ import type {
   ValidationResult,
 } from "@/types/domain/validation";
 
-interface AnswerLike {
+export interface AnswerLike {
   value?: unknown;
   values?: unknown[];
   responses?: Record<string, unknown>;
@@ -58,6 +59,22 @@ const createValidationError = (
   code,
   value,
 });
+
+function safelyTextMatchesPattern(value: string, pattern: string): boolean {
+  try {
+    return textMatchesPattern(value, pattern);
+  } catch (error) {
+    logWarn(
+      "Invalid short text validation regex; skipping pattern check",
+      "form-validation",
+      {
+        pattern,
+        error,
+      },
+    );
+    return true;
+  }
+}
 
 // 型安全な型ガード関数
 const isShortTextValidation = (
@@ -202,7 +219,7 @@ export const validateShortText = (
     shortTextValidation?.pattern &&
     !shortTextValidation.allowPatternMismatch
   ) {
-    if (!textMatchesPattern(value, shortTextValidation.pattern)) {
+    if (!safelyTextMatchesPattern(value, shortTextValidation.pattern)) {
       // テンプレートが設定されている場合は具体的なエラーメッセージを表示
       let errorMessage = "入力形式が正しくありません";
       if (template) {
