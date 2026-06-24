@@ -528,6 +528,10 @@ function PublicFormPageInner() {
         captchaRef.current?.reset();
       } catch (submitError) {
         submitLockRef.current = false;
+        if (!hCaptchaBypassEnabled) {
+          dispatch({ type: "captcha-expired" });
+          captchaRef.current?.reset();
+        }
         dispatch({
           type: "submit-error",
           message:
