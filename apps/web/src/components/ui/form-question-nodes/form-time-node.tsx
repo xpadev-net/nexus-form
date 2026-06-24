@@ -4,7 +4,10 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { EditorControlsWrapper, TimeSettingsEditor } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlLabelProps,
+} from "./form-question-base";
 
 export const FormTimeElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -31,7 +34,7 @@ export const FormTimeElement = withRef<typeof PlateElement>(
   },
 );
 
-function TimeInput({ element }: { element: TElement }) {
+export function TimeInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -44,6 +47,7 @@ function TimeInput({ element }: { element: TElement }) {
     | undefined;
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       type="time"
       min={validation?.minTime}
       max={validation?.maxTime}

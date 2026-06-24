@@ -7,7 +7,11 @@ import {
   EditorControlsWrapper,
   LinearScaleSettingsEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionLabelId,
+  getQuestionValueAccessibleName,
+} from "./form-question-base";
 
 export const FormLinearScaleElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -34,7 +38,7 @@ export const FormLinearScaleElement = withRef<typeof PlateElement>(
   },
 );
 
-function LinearScaleInput({ element }: { element: TElement }) {
+export function LinearScaleInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -55,7 +59,11 @@ function LinearScaleInput({ element }: { element: TElement }) {
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      role="group"
+      aria-labelledby={getQuestionLabelId(blockId)}
+    >
       <div className="flex items-center justify-between gap-2">
         {minLabel && (
           <span className="text-xs text-muted-foreground">{minLabel}</span>
@@ -66,6 +74,11 @@ function LinearScaleInput({ element }: { element: TElement }) {
               key={value}
               type="button"
               variant={currentValue === value ? "default" : "outline"}
+              aria-label={getQuestionValueAccessibleName(
+                element,
+                String(value),
+              )}
+              aria-pressed={currentValue === value}
               onClick={() => ctx.setAnswer(blockId, { value })}
               className="size-9 rounded-full p-0 shadow-none"
             >

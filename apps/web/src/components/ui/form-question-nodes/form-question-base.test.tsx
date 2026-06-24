@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { getByRole } from "@testing-library/dom";
 import type { ComponentType, ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -55,28 +56,47 @@ vi.mock("platejs/react", () => ({
 }));
 
 let collectText: (node: unknown) => string;
-let FormQuestionElement: ComponentType<{ children?: ReactNode }>;
+let getQuestionAccessibleName: (element: Record<string, unknown>) => string;
+let getQuestionControlLabelProps: (blockId: string) => {
+  id: string;
+  name: string;
+  "aria-labelledby": string;
+};
+let FormQuestionElement: ComponentType<{
+  children?: ReactNode;
+  viewerControls?: ReactNode;
+}>;
 
 beforeAll(async () => {
   const formQuestionBase = await import("./form-question-base");
   collectText = formQuestionBase.collectText;
+  getQuestionAccessibleName =
+    formQuestionBase.getQuestionAccessibleName as unknown as (
+      element: Record<string, unknown>,
+    ) => string;
+  getQuestionControlLabelProps = formQuestionBase.getQuestionControlLabelProps;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
+      viewerControls?: ReactNode;
     }>;
 });
 
-function renderFormQuestionElement(element: Record<string, unknown>): {
+function renderFormQuestionElement(
+  element: Record<string, unknown>,
+  viewerControls?: ReactNode,
+): {
   container: HTMLElement;
   root: Root;
 } {
   plateState.element = element;
   const container = document.createElement("div");
+  document.body.appendChild(container);
   const root = createRoot(container);
 
   act(() => {
     root.render(
-      <FormQuestionElement>
+      <FormQuestionElement viewerControls={viewerControls}>
         <p>Question body</p>
       </FormQuestionElement>,
     );
@@ -127,6 +147,7 @@ describe("FormQuestionElement", () => {
     for (const root of mountedRoots) {
       act(() => root.unmount());
     }
+    document.body.replaceChildren();
   });
 
   it("renders placeholder without crashing when saved children are malformed", () => {
@@ -149,5 +170,43 @@ describe("FormQuestionElement", () => {
     mountedRoots.push(root);
 
     expect(container.textContent).not.toContain("質問タイトルを入力...");
+  });
+
+  it("provides the question title as a stable accessible label for viewer controls", () => {
+    plateState.readOnly = true;
+    const { container, root } = renderFormQuestionElement(
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          { type: "p", children: [{ text: "氏名" }] },
+          { type: "p", children: [{ text: "補足説明" }] },
+        ],
+      },
+      <input {...getQuestionControlLabelProps("question-1")} />,
+    );
+    mountedRoots.push(root);
+
+    const input = getByRole(container, "textbox", { name: "氏名" });
+    expect(input.getAttribute("aria-labelledby")).toBe(
+      "question-1-question-label",
+    );
+    expect(
+      container.querySelector("#question-1-question-label")?.textContent,
+    ).toBe("氏名");
+  });
+
+  it("keeps generated question numbers with the title but excludes description text", () => {
+    expect(
+      getQuestionAccessibleName({
+        type: "form_short_text",
+        blockId: "question-1",
+        children: [
+          { type: "p", children: [{ bold: true, text: "Q1. " }] },
+          { type: "p", children: [{ text: "氏名" }] },
+          { type: "p", children: [{ text: "補足説明" }] },
+        ],
+      }),
+    ).toBe("Q1. 氏名");
   });
 });

@@ -5,7 +5,10 @@ import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { DateSettingsEditor, EditorControlsWrapper } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlLabelProps,
+} from "./form-question-base";
 
 export const FormDateElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -71,6 +74,7 @@ export function DateInput({ element }: { element: TElement }) {
 
   return (
     <Input
+      {...getQuestionControlLabelProps(blockId)}
       type="date"
       min={validation?.minDate}
       max={validation?.maxDate}

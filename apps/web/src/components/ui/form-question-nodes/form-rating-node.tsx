@@ -7,7 +7,11 @@ import {
   EditorControlsWrapper,
   RatingSettingsEditor,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionLabelId,
+  getQuestionValueAccessibleName,
+} from "./form-question-base";
 
 export const FormRatingElement = withRef<typeof PlateElement>(
   ({ children, ...props }, ref) => {
@@ -34,7 +38,7 @@ export const FormRatingElement = withRef<typeof PlateElement>(
   },
 );
 
-function RatingInput({ element }: { element: TElement }) {
+export function RatingInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   if (!ctx) return null;
   const blockId = element.blockId as string;
@@ -49,7 +53,11 @@ function RatingInput({ element }: { element: TElement }) {
   const iconChar = icon === "heart" ? "\u2665" : icon === "thumbs" ? "\uD83D\uDC4D" : "\u2605";
 
   return (
-    <div className="flex justify-center gap-1">
+    <div
+      className="flex justify-center gap-1"
+      role="group"
+      aria-labelledby={getQuestionLabelId(blockId)}
+    >
       {Array.from({ length: maxRating }, (_, i) => {
         const value = i + 1;
         const isFilled = value <= currentRating;
@@ -58,6 +66,11 @@ function RatingInput({ element }: { element: TElement }) {
             key={value}
             type="button"
             variant="ghost"
+            aria-label={getQuestionValueAccessibleName(
+              element,
+              String(value),
+            )}
+            aria-pressed={currentRating === value}
             onClick={() => ctx.setAnswer(blockId, { value })}
             className={cn(
               "text-2xl h-auto w-auto p-1 transition-colors",

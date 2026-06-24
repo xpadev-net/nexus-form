@@ -11,7 +11,12 @@ import {
   ChoiceOptionsEditor,
   EditorControlsWrapper,
 } from "./editor-controls";
-import { FormQuestionElement } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionControlId,
+  getQuestionLabelId,
+  getQuestionValueAccessibleName,
+} from "./form-question-base";
 
 interface OptionLike {
   id: string;
@@ -57,6 +62,7 @@ export function RadioInput({ element }: { element: TElement }) {
   const otherLabel = validation?.otherLabel || "その他";
   const selectedValue = (answer?.value as string) ?? "";
   const isOtherSelected = selectedValue === "other";
+  const otherInputId = getQuestionControlId(blockId, "other-input");
 
   if (options.length === 0 && !allowOther) {
     return (
@@ -67,6 +73,7 @@ export function RadioInput({ element }: { element: TElement }) {
   return (
     <div className="space-y-2">
       <RadioGroup
+        aria-labelledby={getQuestionLabelId(blockId)}
         value={selectedValue}
         onValueChange={(value) =>
           ctx.setAnswer(blockId, {
@@ -107,17 +114,23 @@ export function RadioInput({ element }: { element: TElement }) {
         )}
       </RadioGroup>
       {allowOther && isOtherSelected && (
-        <Input
-          value={(answer?.other_value as string) ?? ""}
-          onChange={(e) =>
-            ctx.setAnswer(blockId, {
-              value: "other",
-              other_value: e.target.value,
-            })
-          }
-          placeholder={`${otherLabel}を入力`}
-          className="ml-6"
-        />
+        <div className="ml-6">
+          <Label htmlFor={otherInputId} className="sr-only">
+            {getQuestionValueAccessibleName(element, `${otherLabel}を入力`)}
+          </Label>
+          <Input
+            id={otherInputId}
+            name={`${blockId}-other`}
+            value={(answer?.other_value as string) ?? ""}
+            onChange={(e) =>
+              ctx.setAnswer(blockId, {
+                value: "other",
+                other_value: e.target.value,
+              })
+            }
+            placeholder={`${otherLabel}を入力`}
+          />
+        </div>
       )}
     </div>
   );
