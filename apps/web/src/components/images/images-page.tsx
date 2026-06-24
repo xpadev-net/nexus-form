@@ -1,189 +1,231 @@
-import { useCallback, useEffect, useReducer } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { client } from "@/lib/api";
 
-type ImageItem = {
-  key: string;
-  name: string;
-  size: number;
-  lastModified: string | null;
-  url: string;
-};
+const imagesQueryKey = ["s3-images", "prod"] as const;
 
-interface ImagesPageState {
-  images: ImageItem[];
-  selectedFile: File | null;
-  isLoading: boolean;
-  isUploading: boolean;
-  error: string | null;
-}
+const ImageItemSchema = z.object({
+  key: z.string(),
+  name: z.string(),
+  size: z.number().nonnegative(),
+  lastModified: z.string().nullable(),
+  url: z.string(),
+});
 
-type ImagesPageAction =
-  | { type: "load-start" }
-  | { type: "load-success"; images: ImageItem[] }
-  | { type: "load-error"; message: string }
-  | { type: "select-file"; file: File | null }
-  | { type: "upload-start" }
-  | { type: "upload-complete" }
-  | { type: "upload-error"; message: string }
-  | { type: "delete-error"; message: string }
-  | { type: "clear-error" };
+type ImageItem = z.infer<typeof ImageItemSchema>;
 
-const initialImagesPageState: ImagesPageState = {
-  images: [],
-  selectedFile: null,
-  isLoading: true,
-  isUploading: false,
-  error: null,
-};
+const ListImagesResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    images: z.array(ImageItemSchema),
+  }),
+});
 
-function imagesPageReducer(
-  state: ImagesPageState,
-  action: ImagesPageAction,
-): ImagesPageState {
-  switch (action.type) {
-    case "load-start":
-      return { ...state, isLoading: true, error: null };
-    case "load-success":
-      return { ...state, images: action.images, isLoading: false };
-    case "load-error":
-      return { ...state, isLoading: false, error: action.message };
-    case "select-file":
-      return { ...state, selectedFile: action.file, error: null };
-    case "upload-start":
-      return { ...state, isUploading: true, error: null };
-    case "upload-complete":
-      return { ...state, selectedFile: null, isUploading: false };
-    case "upload-error":
-      return { ...state, isUploading: false, error: action.message };
-    case "delete-error":
-      return { ...state, error: action.message };
-    case "clear-error":
-      return { ...state, error: null };
-  }
-}
+const S3ErrorBodySchema = z.object({
+  error: z.string().optional(),
+  validationErrors: z.array(z.string()).optional(),
+});
+
+const PresignedUploadResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    presignedUrl: z.string().url(),
+    key: z.string().min(1),
+  }),
+});
+
+const MoveResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    key: z.string().min(1),
+  }),
+});
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "不明なエラーが発生しました";
 }
 
-export function ImagesPage() {
-  const [state, dispatch] = useReducer(
-    imagesPageReducer,
-    initialImagesPageState,
+async function readJsonSafely(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+async function getS3ErrorMessage(response: Response, fallback: string) {
+  const body = await readJsonSafely(response);
+  const parsed = S3ErrorBodySchema.safeParse(body);
+  if (!parsed.success) return fallback;
+
+  if (parsed.data.validationErrors && parsed.data.validationErrors.length > 0) {
+    return parsed.data.validationErrors.join("\n");
+  }
+
+  return parsed.data.error ?? fallback;
+}
+
+async function fetchImages(signal?: AbortSignal): Promise<ImageItem[]> {
+  const response = await client.api.s3.list.$get(
+    {
+      query: { bucket: "prod" },
+    },
+    { init: { signal } },
   );
+  if (!response.ok) {
+    throw new Error(
+      await getS3ErrorMessage(response, "画像一覧の取得に失敗しました"),
+    );
+  }
 
-  const loadImages = useCallback(async () => {
-    try {
-      dispatch({ type: "load-start" });
-      const response = await client.api.s3.list.$get({
-        query: { bucket: "prod" },
-      });
-      if (!response.ok) {
-        throw new Error("画像一覧の取得に失敗しました");
-      }
-      const json = await response.json();
-      dispatch({ type: "load-success", images: json.data?.images ?? [] });
-    } catch (loadError) {
-      dispatch({ type: "load-error", message: getErrorMessage(loadError) });
-    }
-  }, []);
+  const json = await readJsonSafely(response);
+  const parsed = ListImagesResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error("画像一覧の取得に失敗しました");
+  }
 
-  useEffect(() => {
-    void loadImages();
-  }, [loadImages]);
+  return parsed.data.data.images;
+}
 
-  const uploadImage = async () => {
-    if (!state.selectedFile) return;
+async function uploadImageFile(file: File): Promise<void> {
+  const presignedResponse = await client.api.s3["presigned-upload"].$post({
+    json: {
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type,
+    },
+  });
 
-    try {
-      dispatch({ type: "upload-start" });
+  if (!presignedResponse.ok) {
+    throw new Error(
+      await getS3ErrorMessage(
+        presignedResponse,
+        "アップロードURLの発行に失敗しました",
+      ),
+    );
+  }
 
-      const presignedResponse = await client.api.s3["presigned-upload"].$post({
-        json: {
-          fileName: state.selectedFile.name,
-          fileSize: state.selectedFile.size,
-          mimeType: state.selectedFile.type,
-        },
-      });
+  const presignedJson = await readJsonSafely(presignedResponse);
+  const presignedParsed =
+    PresignedUploadResponseSchema.safeParse(presignedJson);
+  if (!presignedParsed.success) {
+    throw new Error("アップロードURLの発行に失敗しました");
+  }
 
-      if (!presignedResponse.ok) {
-        throw new Error("アップロードURLの発行に失敗しました");
-      }
+  const { key, presignedUrl } = presignedParsed.data.data;
+  const putResponse = await fetch(presignedUrl, {
+    method: "PUT",
+    body: file,
+    headers: {
+      "content-type": file.type,
+    },
+  });
 
-      const presignedJson = await presignedResponse.json();
+  if (!putResponse.ok) {
+    throw new Error("S3アップロードに失敗しました");
+  }
 
-      if (!("data" in presignedJson)) {
-        throw new Error("アップロードURLの発行に失敗しました");
-      }
+  const completeResponse = await client.api.s3["upload-complete"].$post({
+    json: {
+      key,
+      bucket: "tmp",
+      size: file.size,
+      contentType: file.type,
+    },
+  });
 
-      const putResponse = await fetch(presignedJson.data.presignedUrl, {
-        method: "PUT",
-        body: state.selectedFile,
-        headers: {
-          "content-type": state.selectedFile.type,
-        },
-      });
+  if (!completeResponse.ok) {
+    throw new Error(
+      await getS3ErrorMessage(
+        completeResponse,
+        "アップロード完了通知に失敗しました",
+      ),
+    );
+  }
 
-      if (!putResponse.ok) {
-        throw new Error("S3アップロードに失敗しました");
-      }
+  const moveResponse = await client.api.s3.move.$post({
+    json: { tmpKey: key },
+  });
+  if (!moveResponse.ok) {
+    throw new Error(
+      await getS3ErrorMessage(moveResponse, "画像の移動に失敗しました"),
+    );
+  }
 
-      const completeResponse = await client.api.s3["upload-complete"].$post({
-        json: {
-          key: presignedJson.data.key,
-          bucket: "tmp",
-          size: state.selectedFile.size,
-          contentType: state.selectedFile.type,
-        },
-      });
+  const moveJson = await readJsonSafely(moveResponse);
+  const moveParsed = MoveResponseSchema.safeParse(moveJson);
+  if (
+    !moveParsed.success ||
+    !moveParsed.data.data.key.startsWith("prod/users/")
+  ) {
+    throw new Error("画像の本番反映に失敗しました");
+  }
+}
 
-      if (!completeResponse.ok) {
-        throw new Error("アップロード完了通知に失敗しました");
-      }
+async function deleteImageFile(key: string): Promise<void> {
+  const response = await client.api.s3.delete.$delete({
+    json: {
+      key,
+      bucket: "prod",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(
+      await getS3ErrorMessage(response, "画像の削除に失敗しました"),
+    );
+  }
+}
 
-      const moveResponse = await client.api.s3.move.$post({
-        json: { tmpKey: presignedJson.data.key },
-      });
-      if (!moveResponse.ok) {
-        throw new Error("画像の移動に失敗しました");
-      }
-      const moveJson = await moveResponse.json();
-      if (
-        !("data" in moveJson) ||
-        typeof moveJson.data?.key !== "string" ||
-        !moveJson.data.key.startsWith("prod/users/")
-      ) {
-        throw new Error("画像の本番反映に失敗しました");
-      }
+export function ImagesPage() {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-      await loadImages();
-      dispatch({ type: "upload-complete" });
-    } catch (uploadError) {
-      dispatch({ type: "upload-error", message: getErrorMessage(uploadError) });
-    }
+  const imagesQuery = useQuery({
+    queryKey: imagesQueryKey,
+    queryFn: ({ signal }) => fetchImages(signal),
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: uploadImageFile,
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      setSelectedFile(null);
+      await queryClient.invalidateQueries({ queryKey: imagesQueryKey });
+    },
+    onError: (uploadError) => {
+      setActionError(getErrorMessage(uploadError));
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteImageFile,
+    onMutate: () => {
+      setActionError(null);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: imagesQueryKey });
+    },
+    onError: (deleteError) => {
+      setActionError(getErrorMessage(deleteError));
+    },
+  });
+
+  const uploadImage = () => {
+    if (!selectedFile) return;
+    uploadMutation.mutate(selectedFile);
   };
 
-  const deleteImage = async (key: string) => {
-    try {
-      dispatch({ type: "clear-error" });
-      const response = await client.api.s3.delete.$delete({
-        json: {
-          key,
-          bucket: "prod",
-        },
-      });
-      if (!response.ok) {
-        throw new Error("画像の削除に失敗しました");
-      }
-      await loadImages();
-    } catch (deleteError) {
-      dispatch({
-        type: "delete-error",
-        message: getErrorMessage(deleteError),
-      });
-    }
-  };
+  const images = imagesQuery.data ?? [];
+  const queryError = imagesQuery.error
+    ? getErrorMessage(imagesQuery.error)
+    : null;
+  const error = actionError ?? queryError;
+  const isUploading = uploadMutation.isPending;
 
   return (
     <section className="rounded-lg border bg-card p-6 shadow-sm">
@@ -197,40 +239,43 @@ export function ImagesPage() {
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
           onChange={(event) => {
-            dispatch({
-              type: "select-file",
-              file: event.target.files?.[0] ?? null,
-            });
+            setSelectedFile(event.target.files?.[0] ?? null);
+            setActionError(null);
           }}
           className="text-sm"
-          disabled={state.isUploading}
+          disabled={isUploading}
         />
         <Button
           type="button"
           variant="outline"
-          onClick={() => void uploadImage()}
-          disabled={!state.selectedFile || state.isUploading}
+          onClick={uploadImage}
+          disabled={!selectedFile || isUploading}
         >
-          {state.isUploading ? "アップロード中..." : "アップロード"}
+          {isUploading ? "アップロード中..." : "アップロード"}
         </Button>
         <Button
           type="button"
           variant="outline"
-          onClick={() => void loadImages()}
+          onClick={() => {
+            setActionError(null);
+            void imagesQuery.refetch();
+          }}
         >
           再読み込み
         </Button>
       </div>
 
-      {state.error ? (
-        <p className="mt-3 text-sm text-destructive">{state.error}</p>
+      {error ? (
+        <p className="mt-3 whitespace-pre-line text-sm text-destructive">
+          {error}
+        </p>
       ) : null}
 
-      {state.isLoading ? (
+      {imagesQuery.isLoading ? (
         <p className="mt-6 text-sm text-muted-foreground">読み込み中...</p>
       ) : (
         <ul className="mt-6 space-y-3">
-          {state.images.map((image) => (
+          {images.map((image) => (
             <li
               key={image.key}
               className="flex items-center justify-between rounded border p-3"
@@ -245,13 +290,13 @@ export function ImagesPage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => void deleteImage(image.key)}
+                onClick={() => deleteMutation.mutate(image.key)}
               >
                 削除
               </Button>
             </li>
           ))}
-          {state.images.length === 0 ? (
+          {images.length === 0 ? (
             <li className="rounded border p-3 text-sm text-muted-foreground">
               画像はまだありません。
             </li>

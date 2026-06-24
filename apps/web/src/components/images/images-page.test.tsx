@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,6 +34,11 @@ vi.mock("@/lib/api", () => ({
 
 type JsonResponseBody = Record<string, unknown>;
 
+type DeferredResponse = {
+  promise: Promise<ReturnType<typeof okJson>>;
+  resolve: (response: ReturnType<typeof okJson>) => void;
+};
+
 function okJson(body: JsonResponseBody) {
   return {
     ok: true,
@@ -47,9 +53,25 @@ function errorJson(body: JsonResponseBody) {
   };
 }
 
+function createDeferredResponse(): DeferredResponse {
+  let resolveResponse: DeferredResponse["resolve"] | undefined;
+  const promise = new Promise<ReturnType<typeof okJson>>((resolve) => {
+    resolveResponse = resolve;
+  });
+
+  if (!resolveResponse) {
+    throw new Error("Failed to create deferred response");
+  }
+
+  return {
+    promise,
+    resolve: resolveResponse,
+  };
+}
+
 async function waitForAssertion(assertion: () => void): Promise<void> {
   let lastError: unknown;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
       assertion();
       return;
@@ -89,8 +111,18 @@ function requireCallOrder(order: number | undefined): number {
 }
 
 async function renderImagesPage(root: Root, container: HTMLElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   act(() => {
-    root.render(<ImagesPage />);
+    root.render(
+      <QueryClientProvider client={queryClient}>
+        <ImagesPage />
+      </QueryClientProvider>,
+    );
   });
   await waitForAssertion(() => {
     expect(apiMocks.listMock).toHaveBeenCalled();
@@ -105,7 +137,7 @@ describe("ImagesPage", () => {
   let root: Root;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -179,10 +211,10 @@ describe("ImagesPage", () => {
       expect(container.textContent).toContain("upload.jpg");
     });
 
-    expect(apiMocks.listMock).toHaveBeenNthCalledWith(1, {
+    expect(apiMocks.listMock.mock.calls[0]?.[0]).toEqual({
       query: { bucket: "prod" },
     });
-    expect(apiMocks.listMock).toHaveBeenNthCalledWith(2, {
+    expect(apiMocks.listMock.mock.calls[1]?.[0]).toEqual({
       query: { bucket: "prod" },
     });
     expect(apiMocks.presignedUploadMock).toHaveBeenCalledWith({
@@ -260,7 +292,7 @@ describe("ImagesPage", () => {
     });
 
     await waitForAssertion(() => {
-      expect(container.textContent).toContain("画像の移動に失敗しました");
+      expect(container.textContent).toContain("move failed");
     });
     expect(apiMocks.listMock).toHaveBeenCalledOnce();
   });
@@ -397,5 +429,132 @@ describe("ImagesPage", () => {
         bucket: "prod",
       },
     });
+  });
+
+  it("keeps the latest server state when an older reload resolves after delete", async () => {
+    const image = {
+      key: "prod/users/user-a/upload.jpg",
+      name: "upload.jpg",
+      size: 5,
+      lastModified: null,
+      url: "prod/users/user-a/upload.jpg",
+    };
+    const staleReload = createDeferredResponse();
+    const afterDeleteReload = createDeferredResponse();
+    apiMocks.listMock
+      .mockResolvedValueOnce(
+        okJson({ success: true, data: { images: [image] } }),
+      )
+      .mockReturnValueOnce(staleReload.promise)
+      .mockReturnValueOnce(afterDeleteReload.promise);
+    apiMocks.deleteMock.mockResolvedValue(
+      okJson({ success: true, message: "Object deleted successfully" }),
+    );
+
+    await renderImagesPage(root, container);
+    expect(container.textContent).toContain("upload.jpg");
+
+    await act(async () => {
+      findButton(container, "再読み込み").click();
+    });
+    await waitForAssertion(() => {
+      expect(apiMocks.listMock).toHaveBeenCalledTimes(2);
+    });
+
+    await act(async () => {
+      findButton(container, "削除").click();
+    });
+    await waitForAssertion(() => {
+      expect(apiMocks.deleteMock).toHaveBeenCalledOnce();
+      expect(apiMocks.listMock).toHaveBeenCalledTimes(3);
+    });
+
+    await act(async () => {
+      afterDeleteReload.resolve(
+        okJson({ success: true, data: { images: [] } }),
+      );
+      await afterDeleteReload.promise;
+    });
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain("画像はまだありません。");
+    });
+
+    await act(async () => {
+      staleReload.resolve(okJson({ success: true, data: { images: [image] } }));
+      await staleReload.promise;
+    });
+
+    expect(container.textContent).toContain("画像はまだありません。");
+    expect(container.textContent).not.toContain("upload.jpg");
+  });
+
+  it("shows S3 validation error details returned during upload URL creation", async () => {
+    apiMocks.listMock.mockResolvedValue(
+      okJson({ success: true, data: { images: [] } }),
+    );
+    apiMocks.presignedUploadMock.mockResolvedValue(
+      errorJson({
+        error: "File size validation failed",
+        validationErrors: ["File size exceeds the 5 MB limit"],
+      }),
+    );
+
+    await renderImagesPage(root, container);
+    const file = new File(["image"], "upload.jpg", { type: "image/jpeg" });
+    Object.defineProperty(findFileInput(container), "files", {
+      value: [file],
+      configurable: true,
+    });
+    act(() => {
+      findFileInput(container).dispatchEvent(
+        new Event("change", { bubbles: true }),
+      );
+    });
+
+    await act(async () => {
+      findButton(container, "アップロード").click();
+    });
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain(
+        "File size exceeds the 5 MB limit",
+      );
+    });
+    expect(container.textContent).not.toContain(
+      "アップロードURLの発行に失敗しました",
+    );
+  });
+
+  it("falls back to a safe upload URL error when the success body is malformed", async () => {
+    apiMocks.listMock.mockResolvedValue(
+      okJson({ success: true, data: { images: [] } }),
+    );
+    apiMocks.presignedUploadMock.mockResolvedValue(
+      okJson({ success: true, data: null }),
+    );
+
+    await renderImagesPage(root, container);
+    const file = new File(["image"], "upload.jpg", { type: "image/jpeg" });
+    Object.defineProperty(findFileInput(container), "files", {
+      value: [file],
+      configurable: true,
+    });
+    act(() => {
+      findFileInput(container).dispatchEvent(
+        new Event("change", { bubbles: true }),
+      );
+    });
+
+    await act(async () => {
+      findButton(container, "アップロード").click();
+    });
+
+    await waitForAssertion(() => {
+      expect(container.textContent).toContain(
+        "アップロードURLの発行に失敗しました",
+      );
+    });
+    expect(container.textContent).not.toContain("Cannot read");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
