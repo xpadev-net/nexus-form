@@ -132,23 +132,30 @@ export function getFormQuestionErrorId(blockId: string): string {
 
 interface FormQuestionA11yState {
   invalidQuestionIds: ReadonlySet<string>;
+  errorMessagesByQuestionId: ReadonlyMap<string, string>;
 }
 
 const emptyInvalidQuestionIds = new Set<string>();
+const emptyErrorMessagesByQuestionId = new Map<string, string>();
 
 const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
   invalidQuestionIds: emptyInvalidQuestionIds,
+  errorMessagesByQuestionId: emptyErrorMessagesByQuestionId,
 });
 
 export function FormQuestionA11yProvider({
   children,
+  errorMessagesByQuestionId = emptyErrorMessagesByQuestionId,
   invalidQuestionIds,
 }: {
   children: ReactNode;
+  errorMessagesByQuestionId?: ReadonlyMap<string, string>;
   invalidQuestionIds: ReadonlySet<string>;
 }) {
   return (
-    <FormQuestionA11yContext.Provider value={{ invalidQuestionIds }}>
+    <FormQuestionA11yContext.Provider
+      value={{ errorMessagesByQuestionId, invalidQuestionIds }}
+    >
       {children}
     </FormQuestionA11yContext.Provider>
   );
@@ -166,6 +173,33 @@ export function useFormQuestionErrorA11y(blockId: string): {
     "aria-describedby": getFormQuestionErrorId(blockId),
     "aria-invalid": true,
   };
+}
+
+export function useFormQuestionErrorMessage(
+  blockId: string | undefined,
+): string | undefined {
+  const { errorMessagesByQuestionId } = useContext(FormQuestionA11yContext);
+  if (!blockId) return undefined;
+  return errorMessagesByQuestionId.get(blockId);
+}
+
+export function FormQuestionErrorMessage({
+  questionId,
+}: {
+  questionId: string | undefined;
+}) {
+  const errorMessage = useFormQuestionErrorMessage(questionId);
+  if (!questionId || !errorMessage) return null;
+  return (
+    <p
+      className="mt-2 text-sm text-destructive outline-none"
+      data-question-error-for={questionId}
+      id={getFormQuestionErrorId(questionId)}
+      tabIndex={-1}
+    >
+      {errorMessage}
+    </p>
+  );
 }
 
 /**
@@ -195,6 +229,7 @@ export const FormQuestionElement = withRef<
       typeof element.blockId === "string" ? element.blockId : undefined;
     const titleId = blockId ? getQuestionLabelId(blockId) : undefined;
     const titleText = getQuestionAccessibleName(element);
+    const errorMessage = useFormQuestionErrorMessage(blockId);
 
     return (
       <PlateElement
@@ -248,9 +283,13 @@ export const FormQuestionElement = withRef<
             {editorControls}
           </div>
         )}
-        {readOnly && viewerControls && (
-          <div className="mt-3 border-t pt-3" contentEditable={false}>
+        {readOnly && (viewerControls || errorMessage) && (
+          <div
+            className={cn("mt-3", viewerControls && "border-t pt-3")}
+            contentEditable={false}
+          >
             {viewerControls}
+            <FormQuestionErrorMessage questionId={blockId} />
           </div>
         )}
       </PlateElement>

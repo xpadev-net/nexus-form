@@ -147,6 +147,9 @@ function compareEquals(
       responseValue.every((val, index) => val === conditionValue[index])
     );
   }
+  if (Array.isArray(responseValue)) {
+    return responseValue.includes(conditionValue);
+  }
   return responseValue === conditionValue;
 }
 
@@ -211,15 +214,29 @@ function isAnswered(responseValue: unknown): boolean {
 }
 
 function includesAny(responseValue: unknown, conditionValue: unknown): boolean {
-  if (!Array.isArray(responseValue) || !Array.isArray(conditionValue))
-    return false;
-  return conditionValue.some((val) => responseValue.includes(val));
+  const conditionValues = Array.isArray(conditionValue)
+    ? conditionValue
+    : [conditionValue];
+  if (conditionValues.length === 0) return false;
+
+  if (Array.isArray(responseValue)) {
+    return conditionValues.some((val) => responseValue.includes(val));
+  }
+
+  return conditionValues.some((val) => responseValue === val);
 }
 
 function includesAll(responseValue: unknown, conditionValue: unknown): boolean {
-  if (!Array.isArray(responseValue) || !Array.isArray(conditionValue))
-    return false;
-  return conditionValue.every((val) => responseValue.includes(val));
+  const conditionValues = Array.isArray(conditionValue)
+    ? conditionValue
+    : [conditionValue];
+  if (conditionValues.length === 0) return false;
+
+  if (Array.isArray(responseValue)) {
+    return conditionValues.every((val) => responseValue.includes(val));
+  }
+
+  return conditionValues.every((val) => responseValue === val);
 }
 
 function compareBefore(

@@ -12,7 +12,11 @@ import {
   GridItemsEditor,
   GridSelectionLimitsEditor,
 } from "./editor-controls";
-import { FormQuestionElement, getQuestionLabelId } from "./form-question-base";
+import {
+  FormQuestionElement,
+  getQuestionLabelId,
+  useFormQuestionErrorA11y,
+} from "./form-question-base";
 
 interface GridItemLike {
   id: string;
@@ -48,8 +52,9 @@ export const FormCheckboxGridElement = withRef<typeof PlateElement>(
 export function CheckboxGridInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const inputIdPrefix = useId();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | {
@@ -89,6 +94,7 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
       className="space-y-1"
       role="group"
       aria-labelledby={getQuestionLabelId(blockId)}
+      {...errorA11y}
     >
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
@@ -128,10 +134,11 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
                         <label
                           htmlFor={inputId}
                           className={cn(
-                            "relative flex min-h-10 w-full min-w-12 items-center justify-center px-3 py-2",
+                            "relative flex min-h-10 w-full min-w-12 items-center justify-center px-3 py-2 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2",
                             disabled
-                              ? "cursor-not-allowed"
-                              : "cursor-pointer",
+                              ? "cursor-not-allowed bg-muted/30 opacity-70"
+                              : "cursor-pointer hover:bg-muted/50",
+                            isChecked && "bg-primary/5 opacity-100 hover:bg-primary/10",
                           )}
                         >
                           <input

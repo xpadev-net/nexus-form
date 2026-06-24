@@ -1,4 +1,4 @@
-import { withRef } from "@udecode/cn";
+import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
@@ -16,6 +16,7 @@ import {
   getQuestionControlId,
   getQuestionLabelId,
   getQuestionValueAccessibleName,
+  useFormQuestionErrorA11y,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -51,8 +52,9 @@ export const FormRadioElement = withRef<typeof PlateElement>(
 
 export function RadioInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
-  if (!ctx) return null;
   const blockId = element.blockId as string;
+  const errorA11y = useFormQuestionErrorA11y(blockId);
+  if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
     | { options?: OptionLike[]; allowOther?: boolean; otherLabel?: string }
@@ -70,30 +72,52 @@ export function RadioInput({ element }: { element: TElement }) {
     );
   }
 
+  const focusOption = (optionId: string) => {
+    document.getElementById(optionId)?.focus();
+  };
+
+  const selectOption = (value: string) => {
+    ctx.setAnswer(blockId, {
+      value,
+      other_value: value === "other" ? (answer?.other_value as string) : undefined,
+    });
+  };
+
   return (
     <div className="space-y-2">
       <RadioGroup
         aria-labelledby={getQuestionLabelId(blockId)}
         value={selectedValue}
-        onValueChange={(value) =>
-          ctx.setAnswer(blockId, {
-            value,
-            other_value: value === "other" ? (answer?.other_value as string) : undefined,
-          })
-        }
+        onValueChange={selectOption}
+        {...errorA11y}
       >
         {options.map((option) => {
           const label = getChoiceDisplayLabel(option);
+          const isSelected = selectedValue === option.id;
+          const optionId = `${blockId}-${option.id}`;
           return (
-            <div key={option.id} className="flex items-center gap-2">
+            <div
+              key={option.id}
+              className={cn(
+                "flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md border border-transparent px-3 py-2 font-normal leading-5 transition-colors hover:border-primary/30 hover:bg-muted/50 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+                isSelected &&
+                  "border-primary/30 bg-primary/5 hover:bg-primary/10",
+              )}
+              onClick={() => {
+                focusOption(optionId);
+                selectOption(option.id);
+              }}
+            >
               <RadioGroupItem
                 value={option.id}
-                id={`${blockId}-${option.id}`}
+                id={optionId}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
               />
               <Label
-                htmlFor={`${blockId}-${option.id}`}
-                className="font-normal"
+                htmlFor={optionId}
+                className="flex-1 cursor-pointer font-normal leading-5"
+                onClick={(event) => event.stopPropagation()}
               >
                 {label}
               </Label>
@@ -101,13 +125,28 @@ export function RadioInput({ element }: { element: TElement }) {
           );
         })}
         {allowOther && (
-          <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "flex min-h-10 w-full cursor-pointer items-center gap-3 rounded-md border border-transparent px-3 py-2 font-normal leading-5 transition-colors hover:border-primary/30 hover:bg-muted/50 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+              isOtherSelected &&
+                "border-primary/30 bg-primary/5 hover:bg-primary/10",
+            )}
+            onClick={() => {
+              focusOption(`${blockId}-other`);
+              selectOption("other");
+            }}
+          >
             <RadioGroupItem
               value="other"
               id={`${blockId}-other`}
               aria-label={otherLabel}
+              onClick={(event) => event.stopPropagation()}
             />
-            <Label htmlFor={`${blockId}-other`} className="font-normal">
+            <Label
+              htmlFor={`${blockId}-other`}
+              className="flex-1 cursor-pointer font-normal leading-5"
+              onClick={(event) => event.stopPropagation()}
+            >
               {otherLabel}
             </Label>
           </div>

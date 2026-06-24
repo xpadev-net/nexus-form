@@ -16,10 +16,7 @@ import {
 } from "react";
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
-import {
-  FormQuestionA11yProvider,
-  getFormQuestionErrorId,
-} from "@/components/ui/form-question-nodes/form-question-base";
+import { FormQuestionA11yProvider } from "@/components/ui/form-question-nodes/form-question-base";
 import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
@@ -65,7 +62,6 @@ interface QuestionValidationMessage {
   questionId: string;
   title: string;
   messages: string[];
-  codes: string[];
 }
 
 type FormBodyStyle = CSSProperties & {
@@ -152,17 +148,8 @@ function uniqueMessages(messages: string[]): string[] {
   return Array.from(new Set(messages));
 }
 
-function formatQuestionErrorSummary(
-  errors: QuestionValidationMessage[],
-): string {
-  const names = errors.map((error) => error.title).join("、");
-  const onlyRequiredErrors = errors.every((error) =>
-    error.codes.every((code) => code === "REQUIRED"),
-  );
-  return onlyRequiredErrors
-    ? `必須項目が未入力です: ${names}`
-    : `入力内容を確認してください: ${names}`;
-}
+const FORM_VALIDATION_ALERT_MESSAGE =
+  "入力内容を確認してください。該当する質問の近くにエラーを表示しています。";
 
 function findQuestionControl(
   root: HTMLElement,
@@ -345,6 +332,8 @@ export function FormBody({
   const [questionErrors, setQuestionErrors] = useState<
     QuestionValidationMessage[]
   >([]);
+  const [validationDisplayPageIndexes, setValidationDisplayPageIndexes] =
+    useState<ReadonlySet<number>>(() => new Set());
   const appearance = useMemo(
     () => normalizeAppearance(appearanceProp),
     [appearanceProp],
@@ -408,13 +397,31 @@ export function FormBody({
   }, [allQuestions, paging.currentPage.questionIds]);
 
   const currentPageQuestionErrors = useMemo(() => {
+    if (!validationDisplayPageIndexes.has(paging.currentPageIndex)) {
+      return [];
+    }
     const pageQuestionIds = new Set(paging.currentPage.questionIds);
     return questionErrors.filter((error) =>
       pageQuestionIds.has(error.questionId),
     );
-  }, [questionErrors, paging.currentPage.questionIds]);
+  }, [
+    questionErrors,
+    paging.currentPage.questionIds,
+    paging.currentPageIndex,
+    validationDisplayPageIndexes,
+  ]);
   const currentPageInvalidQuestionIds = useMemo(
     () => new Set(currentPageQuestionErrors.map((error) => error.questionId)),
+    [currentPageQuestionErrors],
+  );
+  const currentPageErrorMessagesByQuestionId = useMemo(
+    () =>
+      new Map(
+        currentPageQuestionErrors.map((error) => [
+          error.questionId,
+          `${error.title}: ${error.messages.join("、")}`,
+        ]),
+      ),
     [currentPageQuestionErrors],
   );
 
@@ -433,7 +440,6 @@ export function FormBody({
             messages: uniqueMessages(
               result.errors.map((error) => error.message),
             ),
-            codes: result.errors.map((error) => error.code),
           },
         ];
       });
@@ -441,11 +447,21 @@ export function FormBody({
     [answers],
   );
 
+  const markPageForValidationDisplay = useCallback((pageIndex: number) => {
+    setValidationDisplayPageIndexes((currentPageIndexes) => {
+      if (currentPageIndexes.has(pageIndex)) return currentPageIndexes;
+      const nextPageIndexes = new Set(currentPageIndexes);
+      nextPageIndexes.add(pageIndex);
+      return nextPageIndexes;
+    });
+  }, []);
+
+  const clearValidationDisplayPages = useCallback(() => {
+    setValidationDisplayPageIndexes(new Set());
+  }, []);
+
   const applyQuestionErrors = useCallback(
-    (
-      errors: QuestionValidationMessage[],
-      summaryErrors: QuestionValidationMessage[] = errors,
-    ): boolean => {
+    (errors: QuestionValidationMessage[]): boolean => {
       setQuestionErrors(errors);
       if (errors.length > 0) {
         const questionId = errors[0]?.questionId ?? null;
@@ -461,11 +477,7 @@ export function FormBody({
         ) {
           pendingFocusQuestionIdRef.current = null;
         }
-        onErrorChange?.(
-          formatQuestionErrorSummary(
-            summaryErrors.length > 0 ? summaryErrors : errors,
-          ),
-        );
+        onErrorChange?.(FORM_VALIDATION_ALERT_MESSAGE);
         return false;
       }
       pendingFocusQuestionIdRef.current = null;
@@ -497,16 +509,21 @@ export function FormBody({
   const validateCurrentPage = useCallback((): boolean => {
     const errors = collectQuestionErrors(currentPageQuestions);
     if (errors.length > 0) {
+      markPageForValidationDisplay(paging.currentPageIndex);
       return applyQuestionErrors(errors);
     }
     onErrorChange?.(null);
     setQuestionErrors([]);
+    clearValidationDisplayPages();
     return true;
   }, [
     currentPageQuestions,
     collectQuestionErrors,
     applyQuestionErrors,
+    markPageForValidationDisplay,
+    paging.currentPageIndex,
     onErrorChange,
+    clearValidationDisplayPages,
   ]);
 
   const handleNextPage = useCallback(() => {
@@ -517,9 +534,10 @@ export function FormBody({
   const handlePreviousPage = useCallback(() => {
     onErrorChange?.(null);
     setQuestionErrors([]);
+    clearValidationDisplayPages();
     pendingFocusQuestionIdRef.current = null;
     paging.goToPreviousPage();
-  }, [paging, onErrorChange]);
+  }, [paging, onErrorChange, clearValidationDisplayPages]);
 
   const buildSubmitPayload = useCallback(
     (
@@ -561,22 +579,14 @@ export function FormBody({
       const errors = collectQuestionErrors(reachableQuestions);
       if (errors.length > 0) {
         const firstErrorQuestionId = errors[0]?.questionId;
-        let summaryErrors = errors;
+        let displayPageIndex = paging.currentPageIndex;
         if (firstErrorQuestionId) {
           const firstErrorPageIndex = findPageIndexForQuestion(
             pages,
             paging.reachablePageIndexes,
             firstErrorQuestionId,
           );
-          const firstErrorPageQuestionIds =
-            firstErrorPageIndex !== undefined
-              ? pages[firstErrorPageIndex]?.questionIds
-              : undefined;
-          if (firstErrorPageQuestionIds) {
-            summaryErrors = errors.filter((error) =>
-              firstErrorPageQuestionIds.includes(error.questionId),
-            );
-          }
+          displayPageIndex = firstErrorPageIndex ?? displayPageIndex;
           if (
             firstErrorPageIndex !== undefined &&
             firstErrorPageIndex !== paging.currentPageIndex
@@ -584,10 +594,12 @@ export function FormBody({
             paging.goToPage(firstErrorPageIndex);
           }
         }
-        applyQuestionErrors(errors, summaryErrors);
+        markPageForValidationDisplay(displayPageIndex);
+        applyQuestionErrors(errors);
         return;
       }
       applyQuestionErrors([]);
+      clearValidationDisplayPages();
       const payload = buildSubmitPayload(
         allQuestions,
         paging.reachableQuestionIds,
@@ -604,6 +616,8 @@ export function FormBody({
       paging.reachableQuestionIds,
       paging.currentPageIndex,
       paging.goToPage,
+      markPageForValidationDisplay,
+      clearValidationDisplayPages,
       onSubmitRequest,
     ],
   );
@@ -679,6 +693,7 @@ export function FormBody({
             ref={viewerRef}
           >
             <FormQuestionA11yProvider
+              errorMessagesByQuestionId={currentPageErrorMessagesByQuestionId}
               invalidQuestionIds={currentPageInvalidQuestionIds}
             >
               <PlateViewer
@@ -701,19 +716,9 @@ export function FormBody({
             className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
             role="alert"
           >
-            {currentPageQuestionErrors.map((questionError) => (
-              <p
-                className="text-sm text-destructive outline-none"
-                data-question-error-for={questionError.questionId}
-                id={getFormQuestionErrorId(questionError.questionId)}
-                key={questionError.questionId}
-                tabIndex={-1}
-              >
-                <span className="font-medium">{questionError.title}</span>
-                {": "}
-                {questionError.messages.join("、")}
-              </p>
-            ))}
+            <p className="text-sm text-destructive">
+              {FORM_VALIDATION_ALERT_MESSAGE}
+            </p>
           </div>
         ) : null}
 

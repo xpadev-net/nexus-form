@@ -67,6 +67,11 @@ let FormQuestionElement: ComponentType<{
   children?: ReactNode;
   viewerControls?: ReactNode;
 }>;
+let FormQuestionA11yProvider: ComponentType<{
+  children?: ReactNode;
+  errorMessagesByQuestionId?: ReadonlyMap<string, string>;
+  invalidQuestionIds: ReadonlySet<string>;
+}>;
 
 beforeAll(async () => {
   const formQuestionBase = await import("./form-question-base");
@@ -81,6 +86,12 @@ beforeAll(async () => {
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
       viewerControls?: ReactNode;
+    }>;
+  FormQuestionA11yProvider =
+    formQuestionBase.FormQuestionA11yProvider as unknown as ComponentType<{
+      children?: ReactNode;
+      errorMessagesByQuestionId?: ReadonlyMap<string, string>;
+      invalidQuestionIds: ReadonlySet<string>;
     }>;
 });
 
@@ -226,6 +237,40 @@ describe("FormQuestionElement", () => {
     expect(
       getByRole(container, "textbox", { name: "Question title" }),
     ).not.toBeNull();
+  });
+
+  it("renders the inline error even when no viewer controls are provided", () => {
+    plateState.element = {
+      type: "form_short_text",
+      blockId: "question-1",
+      children: [{ type: "p", children: [{ text: "Question title" }] }],
+    };
+    plateState.readOnly = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mountedRoots.push(root);
+
+    act(() => {
+      root.render(
+        <FormQuestionA11yProvider
+          errorMessagesByQuestionId={
+            new Map([["question-1", "Question title: Required"]])
+          }
+          invalidQuestionIds={new Set(["question-1"])}
+        >
+          <FormQuestionElement>
+            <p>Question title</p>
+          </FormQuestionElement>
+        </FormQuestionA11yProvider>,
+      );
+    });
+
+    const error = container.querySelector<HTMLElement>(
+      "#form-question-question-1-error",
+    );
+    expect(error?.textContent).toBe("Question title: Required");
+    expect(error?.dataset.questionErrorFor).toBe("question-1");
   });
 
   it("keeps generated question numbers with the title but excludes description text", () => {
