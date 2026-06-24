@@ -1407,6 +1407,51 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("Discord の長い retry_after は worker を sleep させず BullMQ delayed retry に委譲する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: false,
+        retryAfter: 600,
+        retryable: true,
+        errorCode: "DISCORD_API_RATE_LIMIT",
+        errorMessage: "Discord API rate limit exceeded",
+      }),
+    });
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+    });
+    const before = Date.now();
+
+    await expect(
+      handleGenericValidation(job, "lock-token"),
+    ).rejects.toBeInstanceOf(DelayedError);
+
+    expect(mockWithRedisLock).toHaveBeenCalledWith(
+      "nexus-form:discord-validation-api",
+      expect.any(Function),
+      expect.objectContaining({
+        ttlMs: 120_000,
+        waitTimeoutMs: 125_000,
+      }),
+    );
+    expect(job.updateData).toHaveBeenCalledWith(
+      expect.objectContaining({ retryAfterCount: 1 }),
+    );
+    expect(job.moveToDelayed).toHaveBeenCalledWith(
+      expect.any(Number),
+      "lock-token",
+    );
+    const delayedUntil = vi.mocked(job.moveToDelayed).mock.calls[0]?.[0];
+    expect(delayedUntil).toBeGreaterThanOrEqual(before + 300_000);
+    expect(delayedUntil).toBeLessThanOrEqual(Date.now() + 300_000);
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("retryAfter が上限回数に到達した場合は FAILED として確定する", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
