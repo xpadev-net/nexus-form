@@ -119,7 +119,7 @@ async function waitForLatestState(
 ): Promise<void> {
   let lastError: unknown;
 
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  for (let attempt = 0; attempt <= 50; attempt += 1) {
     const latestState = states.at(-1);
 
     try {
@@ -131,7 +131,9 @@ async function waitForLatestState(
       return;
     } catch (error) {
       lastError = error;
-      await flushAsyncWork();
+      if (attempt < 50) {
+        await flushAsyncWork();
+      }
     }
   }
 
