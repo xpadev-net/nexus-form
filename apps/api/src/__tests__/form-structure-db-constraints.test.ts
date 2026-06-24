@@ -63,17 +63,20 @@ describe("FormStructure database constraints", () => {
     expect(sql).toContain("CREATE TABLE `FormStructureActiveNormalization`");
     expect(sql).toContain("PARTITION BY `formId`");
     expect(sql).toContain("SET `Target`.`isActive` = false");
+    expect(sql).toContain("`COLUMN_NAME` = 'activeFormId'");
     expect(sql).toContain(
-      "ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128)",
+      "'ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128)'",
     );
     expect(sql).not.toContain("CREATE TRIGGER");
     expect(sql).toContain("SET `activeFormId` = CASE");
     expect(sql).toContain("WHEN `isActive` = true THEN `formId`");
+    expect(sql).toContain("`INDEX_NAME` = 'FormStructure_formId_version_key'");
     expect(sql).toContain(
-      "CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)",
+      "'CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)'",
     );
+    expect(sql).toContain("`INDEX_NAME` = 'FormStructure_activeFormId_key'");
     expect(sql).toContain(
-      "CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)",
+      "'CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)'",
     );
     expect(sql.indexOf("SET `Target`.`isActive` = false")).toBeLessThan(
       sql.indexOf("SET `activeFormId` = CASE"),

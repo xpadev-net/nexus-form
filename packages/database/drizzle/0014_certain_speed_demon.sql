@@ -66,11 +66,53 @@ INNER JOIN `FormStructureActiveNormalization` AS `RankedActive`
   ON `RankedActive`.`id` = `Target`.`id`
 SET `Target`.`isActive` = false;--> statement-breakpoint
 DROP TABLE `FormStructureActiveNormalization`;--> statement-breakpoint
-ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128);--> statement-breakpoint
+SET @nf_active_form_id_column_exists = (
+  SELECT COUNT(*)
+  FROM `INFORMATION_SCHEMA`.`COLUMNS`
+  WHERE `TABLE_SCHEMA` = DATABASE()
+    AND `TABLE_NAME` = 'FormStructure'
+    AND `COLUMN_NAME` = 'activeFormId'
+);--> statement-breakpoint
+SET @nf_add_active_form_id_column = IF(
+  @nf_active_form_id_column_exists > 0,
+  'SELECT 1',
+  'ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128)'
+);--> statement-breakpoint
+PREPARE nf_add_active_form_id_column_stmt FROM @nf_add_active_form_id_column;--> statement-breakpoint
+EXECUTE nf_add_active_form_id_column_stmt;--> statement-breakpoint
+DEALLOCATE PREPARE nf_add_active_form_id_column_stmt;--> statement-breakpoint
 UPDATE `FormStructure`
 SET `activeFormId` = CASE
   WHEN `isActive` = true THEN `formId`
   ELSE NULL
 END;--> statement-breakpoint
-CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`);--> statement-breakpoint
-CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`);
+SET @nf_form_id_version_index_exists = (
+  SELECT COUNT(*)
+  FROM `INFORMATION_SCHEMA`.`STATISTICS`
+  WHERE `TABLE_SCHEMA` = DATABASE()
+    AND `TABLE_NAME` = 'FormStructure'
+    AND `INDEX_NAME` = 'FormStructure_formId_version_key'
+);--> statement-breakpoint
+SET @nf_create_form_id_version_index = IF(
+  @nf_form_id_version_index_exists > 0,
+  'SELECT 1',
+  'CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)'
+);--> statement-breakpoint
+PREPARE nf_create_form_id_version_index_stmt FROM @nf_create_form_id_version_index;--> statement-breakpoint
+EXECUTE nf_create_form_id_version_index_stmt;--> statement-breakpoint
+DEALLOCATE PREPARE nf_create_form_id_version_index_stmt;--> statement-breakpoint
+SET @nf_active_form_id_index_exists = (
+  SELECT COUNT(*)
+  FROM `INFORMATION_SCHEMA`.`STATISTICS`
+  WHERE `TABLE_SCHEMA` = DATABASE()
+    AND `TABLE_NAME` = 'FormStructure'
+    AND `INDEX_NAME` = 'FormStructure_activeFormId_key'
+);--> statement-breakpoint
+SET @nf_create_active_form_id_index = IF(
+  @nf_active_form_id_index_exists > 0,
+  'SELECT 1',
+  'CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)'
+);--> statement-breakpoint
+PREPARE nf_create_active_form_id_index_stmt FROM @nf_create_active_form_id_index;--> statement-breakpoint
+EXECUTE nf_create_active_form_id_index_stmt;--> statement-breakpoint
+DEALLOCATE PREPARE nf_create_active_form_id_index_stmt;
