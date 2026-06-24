@@ -3,7 +3,7 @@ import { isPlateQuestionType } from "@nexus-form/shared";
 import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
-import { createContext, type ReactNode, useContext } from "react";
+import { createContext, type ReactNode, use } from "react";
 import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
@@ -165,7 +165,7 @@ export function useFormQuestionErrorA11y(blockId: string): {
   "aria-describedby"?: string;
   "aria-invalid"?: true;
 } {
-  const { invalidQuestionIds } = useContext(FormQuestionA11yContext);
+  const { invalidQuestionIds } = use(FormQuestionA11yContext);
   if (!invalidQuestionIds.has(blockId)) {
     return {};
   }
@@ -178,7 +178,7 @@ export function useFormQuestionErrorA11y(blockId: string): {
 export function useFormQuestionErrorMessage(
   blockId: string | undefined,
 ): string | undefined {
-  const { errorMessagesByQuestionId } = useContext(FormQuestionA11yContext);
+  const { errorMessagesByQuestionId } = use(FormQuestionA11yContext);
   if (!blockId) return undefined;
   return errorMessagesByQuestionId.get(blockId);
 }
