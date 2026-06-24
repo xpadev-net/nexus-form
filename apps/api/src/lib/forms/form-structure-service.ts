@@ -92,7 +92,7 @@ export async function saveFormStructure(
       // 既存の構造を非アクティブにする
       await tx
         .update(formStructure)
-        .set({ isActive: false })
+        .set({ activeFormId: null, isActive: false })
         .where(
           and(
             eq(formStructure.formId, formId),
@@ -104,6 +104,7 @@ export async function saveFormStructure(
       await tx.insert(formStructure).values({
         id: randomUUID(),
         formId,
+        activeFormId: formId,
         structureJson: JSON.stringify(validatedStructure),
         version: newVersion,
         createdBy: userId,
@@ -297,7 +298,7 @@ export async function restoreFormStructure(
       // 既存の構造を非アクティブにする
       await tx
         .update(formStructure)
-        .set({ isActive: false })
+        .set({ activeFormId: null, isActive: false })
         .where(
           and(
             eq(formStructure.formId, formId),
@@ -309,6 +310,7 @@ export async function restoreFormStructure(
       await tx.insert(formStructure).values({
         id: randomUUID(),
         formId,
+        activeFormId: formId,
         structureJson: rawJson,
         version: newVersion,
         createdBy: userId,

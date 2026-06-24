@@ -63,31 +63,26 @@ describe("FormStructure database constraints", () => {
     expect(sql).toContain("CREATE TABLE `FormStructureActiveNormalization`");
     expect(sql).toContain("PARTITION BY `formId`");
     expect(sql).toContain("SET `Target`.`isActive` = false");
+    expect(sql).toContain("`COLUMN_NAME` = 'activeFormId'");
     expect(sql).toContain(
-      "ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128)",
+      "'ALTER TABLE `FormStructure` ADD `activeFormId` varchar(128)'",
     );
-    expect(sql).toContain(
-      "CREATE TRIGGER `FormStructure_activeFormId_before_insert`",
-    );
-    expect(sql).toContain(
-      "CREATE TRIGGER `FormStructure_activeFormId_before_update`",
-    );
+    expect(sql).not.toContain("CREATE TRIGGER");
     expect(sql).toContain("SET `activeFormId` = CASE");
-    expect(sql).toContain("SET NEW.`activeFormId` = CASE");
-    expect(sql).toContain("WHEN NEW.`isActive` = true THEN NEW.`formId`");
+    expect(sql).toContain("WHEN `isActive` = true THEN `formId`");
+    expect(sql).toContain("`INDEX_NAME` = 'FormStructure_formId_version_key'");
     expect(sql).toContain(
-      "CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)",
+      "'CREATE UNIQUE INDEX `FormStructure_formId_version_key` ON `FormStructure` (`formId`,`version`)'",
     );
+    expect(sql).toContain("`INDEX_NAME` = 'FormStructure_activeFormId_key'");
     expect(sql).toContain(
-      "CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)",
+      "'CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)'",
     );
     expect(sql.indexOf("SET `Target`.`isActive` = false")).toBeLessThan(
       sql.indexOf("SET `activeFormId` = CASE"),
     );
     expect(sql.indexOf("SET `activeFormId` = CASE")).toBeLessThan(
-      sql.indexOf(
-        "CREATE UNIQUE INDEX `FormStructure_activeFormId_key` ON `FormStructure` (`activeFormId`)",
-      ),
+      sql.indexOf("EXECUTE nf_create_active_form_id_index_stmt"),
     );
   });
 });

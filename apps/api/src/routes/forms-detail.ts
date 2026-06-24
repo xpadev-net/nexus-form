@@ -243,7 +243,7 @@ export const formsDetailRouter = createHonoApp()
 
           await tx
             .update(formStructure)
-            .set({ isActive: false })
+            .set({ activeFormId: null, isActive: false })
             .where(
               and(
                 eq(formStructure.formId, id),
@@ -253,6 +253,7 @@ export const formsDetailRouter = createHonoApp()
           await tx.insert(formStructure).values({
             id: randomUUID(),
             formId: id,
+            activeFormId: id,
             structureJson: JSON.stringify(validatedStructure),
             version: nextVersion,
             createdBy,
@@ -540,6 +541,7 @@ export const formsDetailRouter = createHonoApp()
           await tx.insert(formStructure).values({
             id: randomUUID(),
             formId: newFormId,
+            activeFormId: newFormId,
             structureJson: sourceStructure.structureJson,
             version: 1,
             createdBy: auth.user_id,
