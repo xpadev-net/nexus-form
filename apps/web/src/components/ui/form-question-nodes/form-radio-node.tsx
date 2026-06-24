@@ -109,10 +109,12 @@ export function RadioInput({ element }: { element: TElement }) {
                 value={option.id}
                 id={optionId}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
               />
               <Label
                 htmlFor={optionId}
                 className="flex-1 cursor-pointer font-normal leading-5"
+                onClick={(event) => event.stopPropagation()}
               >
                 {label}
               </Label>
@@ -135,10 +137,12 @@ export function RadioInput({ element }: { element: TElement }) {
               value="other"
               id={`${blockId}-other`}
               aria-label={otherLabel}
+              onClick={(event) => event.stopPropagation()}
             />
             <Label
               htmlFor={`${blockId}-other`}
               className="flex-1 cursor-pointer font-normal leading-5"
+              onClick={(event) => event.stopPropagation()}
             >
               {otherLabel}
             </Label>

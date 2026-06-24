@@ -134,6 +134,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
                 checked={isChecked}
                 disabled={disabled}
                 aria-label={label}
+                onClick={(event) => event.stopPropagation()}
                 onCheckedChange={(checked) =>
                   toggleOption(option.id, checked === true)
                 }
@@ -144,6 +145,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
                   "flex-1 font-normal leading-5",
                   disabled ? "cursor-not-allowed" : "cursor-pointer",
                 )}
+                onClick={(event) => event.stopPropagation()}
               >
                 {label}
               </Label>
@@ -174,6 +176,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
               checked={isOtherSelected}
               disabled={!isOtherSelected && atMax}
               aria-label={otherLabel}
+              onClick={(event) => event.stopPropagation()}
               onCheckedChange={(checked) =>
                 toggleOption("other", checked === true)
               }
@@ -186,6 +189,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
                   ? "cursor-not-allowed"
                   : "cursor-pointer",
               )}
+              onClick={(event) => event.stopPropagation()}
             >
               {otherLabel}
             </Label>

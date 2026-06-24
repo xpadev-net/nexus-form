@@ -339,6 +339,18 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
     expect(document.activeElement).toBe(radio);
 
+    const secondRadio = getByRole(container, "radio", { name: "個人" });
+    const secondRadioLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${secondRadio.id}"]`,
+    );
+    expect(secondRadioLabel).toBeTruthy();
+    if (!secondRadioLabel) throw new Error("Expected second radio label");
+    await act(async () => {
+      secondRadioLabel.click();
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({ value: "individual" });
+
     act(() => root.unmount());
   });
 
@@ -393,6 +405,25 @@ describe("public choice controls accessible labels", () => {
       other_values: undefined,
     });
     expect(document.activeElement).toBe(secondCheckbox);
+
+    const firstCheckbox = checkboxes[0];
+    expect(firstCheckbox).toBeDefined();
+    if (!firstCheckbox) throw new Error("Expected first checkbox");
+    const firstCheckboxLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${firstCheckbox.id}"]`,
+    );
+    expect(firstCheckboxLabel).toBeTruthy();
+    if (!firstCheckboxLabel) {
+      throw new Error("Expected first checkbox label");
+    }
+    await act(async () => {
+      firstCheckboxLabel.click();
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp-secondary", "corp-primary"],
+      other_values: undefined,
+    });
 
     act(() => root.unmount());
   });
