@@ -77,8 +77,8 @@ export function getQuestionAccessibleName(element: TElement): string {
   return `${questionNumberPrefix}${title ?? ""}`.trim() || "無題の質問";
 }
 
-export function getQuestionLabelId(blockId: string): string {
-  return `${blockId}-question-label`;
+export function getFormQuestionTitleId(blockId: string): string {
+  return `form-question-${blockId}-title`;
 }
 
 export function getQuestionControlId(
@@ -86,6 +86,10 @@ export function getQuestionControlId(
   suffix = "answer",
 ): string {
   return `${blockId}-${suffix}`;
+}
+
+export function getQuestionLabelId(blockId: string): string {
+  return getFormQuestionTitleId(blockId);
 }
 
 interface QuestionControlLabelProps {
@@ -120,10 +124,6 @@ export interface FormQuestionElementProps {
   editorControls?: ReactNode;
   /** Rendered below the editable children area in viewer mode */
   viewerControls?: ReactNode;
-}
-
-export function getFormQuestionTitleId(blockId: string): string {
-  return getQuestionLabelId(blockId);
 }
 
 export function getFormQuestionErrorId(blockId: string): string {
@@ -193,6 +193,8 @@ export const FormQuestionElement = withRef<
     const isRequired = validation?.required ?? false;
     const blockId =
       typeof element.blockId === "string" ? element.blockId : undefined;
+    const titleId = blockId ? getQuestionLabelId(blockId) : undefined;
+    const titleText = getQuestionAccessibleName(element);
 
     return (
       <PlateElement
@@ -221,16 +223,11 @@ export const FormQuestionElement = withRef<
         </div>
 
         {/* Editable rich text children (title/description) */}
-        {blockId && (
-          <span
-            id={getQuestionLabelId(blockId)}
-            hidden
-            contentEditable={false}
-          >
-            {getQuestionAccessibleName(element)}
+        {titleId ? (
+          <span contentEditable={false} hidden id={titleId}>
+            {titleText}
           </span>
-        )}
-
+        ) : null}
         <div className="relative min-w-0">
           {!readOnly && isElementEmpty(element) && (
             <span
