@@ -1,4 +1,4 @@
-import type { FC } from "react";
+import { type FC, useId } from "react";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -15,10 +15,23 @@ interface BlockRef {
   title?: string;
 }
 
+/**
+ * Section candidate for submit completion targets.
+ *
+ * `id` is the section/page ID, `title` is the editor label, and
+ * `isCompletionTarget` is true when the section contains no answerable fields.
+ */
+export interface SectionTargetOption {
+  id: string;
+  title: string;
+  isCompletionTarget: boolean;
+}
+
 interface LogicActionBuilderProps {
   action: FormLogicAction;
   availableBlocks: BlockRef[];
   availableSections: Array<{ id: string; title: string }>;
+  completionTargetSections?: SectionTargetOption[];
   onChange: (action: FormLogicAction) => void;
   disabled?: boolean;
 }
@@ -29,15 +42,70 @@ const ACTION_TYPE_LABELS: Record<FormLogicAction["type"], string> = {
   submit: "送信する",
 };
 
+export function getCompletionTargetStatus(
+  action: FormLogicAction,
+  completionTargetSections: SectionTargetOption[],
+) {
+  const selectedCompletionTarget = completionTargetSections.find(
+    (section) => section.id === action.target_id,
+  );
+  const hasCompletionTargetChoice = completionTargetSections.some(
+    (section) => section.isCompletionTarget,
+  );
+  // Submit without target_id remains the legacy confirmation flow.
+  const hasMissingCompletionTarget =
+    action.type === "submit" &&
+    typeof action.target_id === "string" &&
+    action.target_id.length > 0 &&
+    !selectedCompletionTarget;
+  const hasInvalidCompletionTarget =
+    action.type === "submit" &&
+    selectedCompletionTarget != null &&
+    !selectedCompletionTarget.isCompletionTarget;
+  const hasCompletionTargetError =
+    hasInvalidCompletionTarget || hasMissingCompletionTarget;
+
+  return {
+    selectedCompletionTarget,
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  };
+}
+
 export const LogicActionBuilder: FC<LogicActionBuilderProps> = ({
   action,
   availableSections,
+  completionTargetSections = [],
   onChange,
   disabled = false,
 }) => {
+  const completionTargetMessageId = useId();
+  const completionTargetErrorId = useId();
+  const {
+    hasCompletionTargetChoice,
+    hasMissingCompletionTarget,
+    hasInvalidCompletionTarget,
+    hasCompletionTargetError,
+  } = getCompletionTargetStatus(action, completionTargetSections);
+  const completionTargetDescription = [
+    action.type === "submit" && !hasCompletionTargetChoice
+      ? completionTargetMessageId
+      : undefined,
+    hasCompletionTargetError ? completionTargetErrorId : undefined,
+  ]
+    .filter((id): id is string => typeof id === "string")
+    .join(" ");
+
   const handleTypeChange = (type: FormLogicAction["type"]) => {
     if (type === "jump_to_section") {
       onChange({ type, target_id: availableSections[0]?.id });
+    } else if (type === "submit") {
+      const firstTarget = completionTargetSections.find(
+        (section) => section.isCompletionTarget,
+      );
+      onChange(firstTarget ? { type, target_id: firstTarget.id } : { type });
     } else {
       onChange({ type });
     }
@@ -86,7 +154,63 @@ export const LogicActionBuilder: FC<LogicActionBuilderProps> = ({
             </SelectContent>
           </Select>
         )}
+
+        {action.type === "submit" && (
+          <Select
+            value={action.target_id || ""}
+            onValueChange={handleTargetChange}
+            disabled={
+              disabled || (!hasCompletionTargetChoice && !action.target_id)
+            }
+          >
+            <SelectTrigger
+              aria-describedby={completionTargetDescription || undefined}
+              aria-invalid={hasCompletionTargetError || undefined}
+              className="h-8 text-xs"
+            >
+              <SelectValue placeholder="完了セクションを選択" />
+            </SelectTrigger>
+            <SelectContent>
+              {hasMissingCompletionTarget && action.target_id ? (
+                <SelectItem value={action.target_id}>
+                  不明な完了セクション
+                </SelectItem>
+              ) : null}
+              {completionTargetSections.map((section) => (
+                <SelectItem
+                  key={section.id}
+                  value={section.id}
+                  disabled={
+                    !section.isCompletionTarget &&
+                    section.id !== action.target_id
+                  }
+                >
+                  {section.title}
+                  {!section.isCompletionTarget ? "（入力欄あり）" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
       </div>
+      {action.type === "submit" && !hasCompletionTargetChoice && (
+        <p
+          id={completionTargetMessageId}
+          className="text-xs text-muted-foreground"
+        >
+          完了セクションに使える入力欄なしセクションがありません
+        </p>
+      )}
+      {hasInvalidCompletionTarget && (
+        <p id={completionTargetErrorId} className="text-xs text-destructive">
+          選択中の完了セクションに入力欄が含まれています
+        </p>
+      )}
+      {hasMissingCompletionTarget && (
+        <p id={completionTargetErrorId} className="text-xs text-destructive">
+          選択中の完了セクションが見つかりません
+        </p>
+      )}
     </div>
   );
 };
