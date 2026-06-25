@@ -3,6 +3,8 @@ import {
   createFormsSSERouter,
   createSseChannelRegistry,
   createSseConnectionLimiter,
+  DEFAULT_SSE_LIMITS,
+  resolveSseLimitConfig,
 } from "../routes/forms-sse";
 
 const mocks = vi.hoisted(() => ({
@@ -898,6 +900,56 @@ describe("SSE channel subscriber registry", () => {
     expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
   });
 
+  it("uses the fallback pending-message limit when SSE limit env values are invalid", async () => {
+    const limits = resolveSseLimitConfig({
+      SSE_MAX_CONNECTIONS: "not-a-number",
+      SSE_MAX_CONNECTIONS_PER_USER: "0",
+      SSE_MAX_CONNECTIONS_PER_FORM: "-1",
+      SSE_MAX_PENDING_MESSAGES_PER_CLIENT: "",
+    });
+    const subscribers: FakeSubscriber[] = [];
+    const registry = createSseChannelRegistry(
+      () => {
+        const subscriber = new FakeSubscriber();
+        subscribers.push(subscriber);
+        return subscriber;
+      },
+      {
+        maxPendingMessagesPerClient: limits.maxPendingMessagesPerClient,
+      },
+    );
+    const firstSent = createDeferred();
+    const client = {
+      sendMessage: vi.fn((id: string, _data: string) => {
+        if (id === "1") return firstSent.promise;
+        return Promise.resolve();
+      }),
+      close: vi.fn(),
+    };
+
+    const detach = await registry.attach("form:validation:form-1", client);
+
+    subscribers[0]?.emitMessage("form:validation:form-1", "message-0");
+    await vi.waitFor(() => {
+      expect(client.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    for (let i = 1; i <= DEFAULT_SSE_LIMITS.maxPendingMessagesPerClient; i++) {
+      subscribers[0]?.emitMessage("form:validation:form-1", `message-${i}`);
+    }
+
+    await vi.waitFor(() => {
+      expect(client.close).toHaveBeenCalledTimes(1);
+      expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+        "form:validation:form-1",
+      );
+      expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    });
+
+    firstSent.resolve();
+    await detach();
+  });
+
   it("closes only the SSE client whose userId matches an access-revoke event", async () => {
     const subscribers: FakeSubscriber[] = [];
     const registry = createSseChannelRegistry(() => {
@@ -1097,6 +1149,41 @@ describe("SSE channel subscriber registry", () => {
 });
 
 describe("SSE connection limiter", () => {
+  it("falls back to safe defaults for invalid SSE limit env values", () => {
+    const limits = resolveSseLimitConfig({
+      SSE_MAX_CONNECTIONS: "not-a-number",
+      SSE_MAX_CONNECTIONS_PER_USER: "0",
+      SSE_MAX_CONNECTIONS_PER_FORM: "-1",
+      SSE_MAX_PENDING_MESSAGES_PER_CLIENT: "",
+    });
+
+    expect(limits).toEqual(DEFAULT_SSE_LIMITS);
+
+    const limiter = createSseConnectionLimiter({
+      maxTotal: limits.maxConnections,
+      maxPerUser: limits.maxConnectionsPerUser,
+      maxPerForm: limits.maxConnectionsPerForm,
+    });
+
+    for (let i = 0; i < DEFAULT_SSE_LIMITS.maxConnectionsPerUser; i++) {
+      expect(
+        limiter.tryAcquire({ userId: "user-1", formId: `form-${i}` }),
+      ).toEqual({
+        release: expect.any(Function),
+      });
+    }
+
+    expect(
+      limiter.tryAcquire({
+        userId: "user-1",
+        formId: "form-over-default-limit",
+      }),
+    ).toEqual({
+      status: 503,
+      message: "Too many SSE connections for this user",
+    });
+  });
+
   it("limits connections per user so one user cannot occupy every process-local slot", () => {
     const limiter = createSseConnectionLimiter({
       maxTotal: 10,
