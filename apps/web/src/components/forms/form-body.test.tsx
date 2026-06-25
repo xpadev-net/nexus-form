@@ -29,6 +29,9 @@ class ResizeObserverStub implements ResizeObserver {
   disconnect() {}
 }
 
+const VALIDATION_SUMMARY_MESSAGE =
+  "入力内容を確認してください。該当する質問の近くにエラーを表示しています。";
+
 const plateViewerValues = vi.hoisted(() => [] as string[]);
 
 vi.mock("@/components/editor/plate-viewer", async () => {
@@ -1210,9 +1213,7 @@ describe("FormBody", () => {
         );
       });
       expect(onSubmitRequest).not.toHaveBeenCalled();
-      expect(container.textContent).toContain(
-        "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-      );
+      expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
       expect(container.textContent).toContain(
         "Choice grid: この項目は必須です",
       );
@@ -1313,10 +1314,9 @@ describe("FormBody", () => {
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).not.toContain("必須項目が未入力です: Name");
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain("Name: この項目は必須です");
-    expect(onErrorChange).toHaveBeenLastCalledWith(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(onErrorChange).toHaveBeenLastCalledWith(null);
     expect(nameInput.getAttribute("aria-describedby")).toBe(
       "form-question-q-name-error",
     );
@@ -1699,10 +1699,8 @@ describe("FormBody", () => {
     );
     expect(gridGroup?.getAttribute("aria-invalid")).toBe("true");
 
-    const summary = container.querySelector<HTMLElement>('[role="alert"]');
-    expect(summary?.textContent).toBe(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
 
     act(() => root.unmount());
   });
@@ -1739,9 +1737,7 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).not.toContain("Next page");
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
     );
@@ -1801,9 +1797,7 @@ describe("FormBody", () => {
 
     expect(container.textContent).toContain("1 / 2");
     expect(container.textContent).not.toContain("Next page");
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Access code: 入力形式が正しくありません",
     );
@@ -1863,9 +1857,7 @@ describe("FormBody", () => {
     });
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
     );
@@ -1926,9 +1918,7 @@ describe("FormBody", () => {
     const focusedCodeInput = container.querySelector<HTMLInputElement>("input");
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 / 2");
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Access code: 入力形式が正しくありません",
     );
@@ -2121,9 +2111,7 @@ describe("FormBody", () => {
     const focusedCodeInput = container.querySelector<HTMLInputElement>("input");
     expect(onSubmitRequest).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 / 2");
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Access code: 3文字以上で入力してください",
     );
@@ -2164,9 +2152,7 @@ describe("FormBody", () => {
     });
 
     expect(onSubmitRequest).not.toHaveBeenCalled();
-    expect(container.textContent).toContain(
-      "入力内容を確認してください。該当する質問の近くにエラーを表示しています。",
-    );
+    expect(container.textContent).not.toContain(VALIDATION_SUMMARY_MESSAGE);
     expect(container.textContent).toContain(
       "Choices: 回答データの形式が正しくありません",
     );

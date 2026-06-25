@@ -97,9 +97,6 @@ function uniqueMessages(messages: string[]): string[] {
   return Array.from(new Set(messages));
 }
 
-const FORM_VALIDATION_ALERT_MESSAGE =
-  "入力内容を確認してください。該当する質問の近くにエラーを表示しています。";
-
 function findQuestionControl(
   root: HTMLElement,
   questionId: string,
@@ -405,10 +402,6 @@ export function FormBody({
       ),
     [currentPageQuestionErrors],
   );
-  const shouldShowPageValidationAlert =
-    validationDisplayPageIndexes.has(paging.currentPageIndex) &&
-    currentPageQuestionErrors.length > 0;
-
   const collectQuestionErrors = useCallback(
     (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
       return questions.flatMap((question) => {
@@ -527,7 +520,7 @@ export function FormBody({
         ) {
           pendingFocusQuestionIdRef.current = null;
         }
-        onErrorChange?.(FORM_VALIDATION_ALERT_MESSAGE);
+        onErrorChange?.(null);
         return false;
       }
       pendingFocusQuestionIdRef.current = null;
@@ -780,18 +773,6 @@ export function FormBody({
               : "フォームの内容を読み込めませんでした。"}
           </p>
         )}
-
-        {shouldShowPageValidationAlert ? (
-          <div
-            aria-live="assertive"
-            className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2"
-            role="alert"
-          >
-            <p className="text-sm text-destructive">
-              {FORM_VALIDATION_ALERT_MESSAGE}
-            </p>
-          </div>
-        ) : null}
 
         {/* 質問がある場合のみ送信・ナビゲーションを表示 */}
         {allQuestions.length > 0 && !isShowingSubmittedCompletionPage && (
