@@ -9,6 +9,7 @@ import {
   FormQuestionElement,
   getQuestionControlLabelProps,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 export const FormDateElement = withRef<typeof PlateElement>(
@@ -60,6 +61,7 @@ export function DateInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -70,7 +72,9 @@ export function DateInput({ element }: { element: TElement }) {
     | undefined;
   const value = getDateAnswerValue(answer?.value);
   const syncDateValue = (nextValue: string) => {
-    ctx.setAnswer(blockId, { value: nextValue });
+    const nextAnswer = { value: nextValue };
+    ctx.setAnswer(blockId, nextAnswer);
+    validationFeedback.notifyAnswerChange(nextAnswer);
   };
   const isInvalid = isDateValueOutsideValidation(value, validation);
 
@@ -84,7 +88,11 @@ export function DateInput({ element }: { element: TElement }) {
       aria-invalid={isInvalid || errorA11y["aria-invalid"] ? true : undefined}
       aria-describedby={errorA11y["aria-describedby"]}
       onChange={(e) => syncDateValue(e.currentTarget.value)}
-      onBlur={(e) => syncDateValue(e.currentTarget.value)}
+      onBlur={(e) => {
+        const nextAnswer = { value: e.currentTarget.value };
+        syncDateValue(e.currentTarget.value);
+        validationFeedback.markTouched(nextAnswer);
+      }}
     />
   );
 }

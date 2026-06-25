@@ -4,6 +4,7 @@ import type { TElement } from "platejs";
 import { ElementApi } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
 import { createContext, type ReactNode, use } from "react";
+import type { AnswerEntry } from "@/contexts/form-response-context";
 import { questionTypeLabels } from "@/lib/constants/form-question";
 
 export { questionTypeLabels };
@@ -133,28 +134,42 @@ export function getFormQuestionErrorId(blockId: string): string {
 interface FormQuestionA11yState {
   invalidQuestionIds: ReadonlySet<string>;
   errorMessagesByQuestionId: ReadonlyMap<string, string>;
+  markQuestionTouched: (questionId: string, answer?: AnswerEntry) => void;
+  notifyQuestionAnswerChange: (questionId: string, answer: AnswerEntry) => void;
 }
 
 const emptyInvalidQuestionIds = new Set<string>();
 const emptyErrorMessagesByQuestionId = new Map<string, string>();
+const noopQuestionFeedback = () => {};
 
 const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
   invalidQuestionIds: emptyInvalidQuestionIds,
   errorMessagesByQuestionId: emptyErrorMessagesByQuestionId,
+  markQuestionTouched: noopQuestionFeedback,
+  notifyQuestionAnswerChange: noopQuestionFeedback,
 });
 
 export function FormQuestionA11yProvider({
   children,
   errorMessagesByQuestionId = emptyErrorMessagesByQuestionId,
   invalidQuestionIds,
+  markQuestionTouched = noopQuestionFeedback,
+  notifyQuestionAnswerChange = noopQuestionFeedback,
 }: {
   children: ReactNode;
   errorMessagesByQuestionId?: ReadonlyMap<string, string>;
   invalidQuestionIds: ReadonlySet<string>;
+  markQuestionTouched?: (questionId: string, answer?: AnswerEntry) => void;
+  notifyQuestionAnswerChange?: (questionId: string, answer: AnswerEntry) => void;
 }) {
   return (
     <FormQuestionA11yContext.Provider
-      value={{ errorMessagesByQuestionId, invalidQuestionIds }}
+      value={{
+        errorMessagesByQuestionId,
+        invalidQuestionIds,
+        markQuestionTouched,
+        notifyQuestionAnswerChange,
+      }}
     >
       {children}
     </FormQuestionA11yContext.Provider>
@@ -181,6 +196,20 @@ export function useFormQuestionErrorMessage(
   const { errorMessagesByQuestionId } = use(FormQuestionA11yContext);
   if (!blockId) return undefined;
   return errorMessagesByQuestionId.get(blockId);
+}
+
+export function useFormQuestionValidationFeedback(blockId: string): {
+  markTouched: (answer?: AnswerEntry) => void;
+  notifyAnswerChange: (answer: AnswerEntry) => void;
+} {
+  const { markQuestionTouched, notifyQuestionAnswerChange } = use(
+    FormQuestionA11yContext,
+  );
+  return {
+    markTouched: (answer) => markQuestionTouched(blockId, answer),
+    notifyAnswerChange: (answer) =>
+      notifyQuestionAnswerChange(blockId, answer),
+  };
 }
 
 export function FormQuestionErrorMessage({

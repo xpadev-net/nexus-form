@@ -18,7 +18,10 @@ import {
 import { PlateViewer } from "@/components/editor/plate-viewer";
 import { Button } from "@/components/ui/button";
 import { FormQuestionA11yProvider } from "@/components/ui/form-question-nodes/form-question-base";
-import { useFormResponse } from "@/contexts/form-response-context";
+import {
+  type AnswerEntry,
+  useFormResponse,
+} from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { cn } from "@/lib/utils";
@@ -279,6 +282,10 @@ export function FormBody({
   const [questionErrors, setQuestionErrors] = useState<
     QuestionValidationMessage[]
   >([]);
+  const [touchedQuestionIds, setTouchedQuestionIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const touchedQuestionIdsRef = useRef<ReadonlySet<string>>(new Set());
   const [validationDisplayPageIndexes, setValidationDisplayPageIndexes] =
     useState<ReadonlySet<number>>(() => new Set());
   const appearance = useMemo(
@@ -362,18 +369,26 @@ export function FormBody({
     return allQuestions.filter((q) => pageQuestionIds.has(q.blockId));
   }, [allQuestions, paging.currentPage.questionIds]);
 
+  const questionById = useMemo(
+    () => new Map(allQuestions.map((question) => [question.blockId, question])),
+    [allQuestions],
+  );
+
   const currentPageQuestionErrors = useMemo(() => {
-    if (!validationDisplayPageIndexes.has(paging.currentPageIndex)) {
-      return [];
-    }
+    const showPageErrors = validationDisplayPageIndexes.has(
+      paging.currentPageIndex,
+    );
     const pageQuestionIds = new Set(paging.currentPage.questionIds);
-    return questionErrors.filter((error) =>
-      pageQuestionIds.has(error.questionId),
+    return questionErrors.filter(
+      (error) =>
+        pageQuestionIds.has(error.questionId) &&
+        (showPageErrors || touchedQuestionIds.has(error.questionId)),
     );
   }, [
     questionErrors,
     paging.currentPage.questionIds,
     paging.currentPageIndex,
+    touchedQuestionIds,
     validationDisplayPageIndexes,
   ]);
   const currentPageInvalidQuestionIds = useMemo(
@@ -413,6 +428,62 @@ export function FormBody({
     [answers],
   );
 
+  const collectSingleQuestionError = useCallback(
+    (
+      question: ExtractedQuestion,
+      answer?: AnswerEntry,
+    ): QuestionValidationMessage[] => {
+      const result = validateExtractedQuestionAnswer(question, answer);
+      if (result.is_valid) return [];
+      return [
+        {
+          questionId: question.blockId,
+          title: question.title || "無題の質問",
+          messages: uniqueMessages(result.errors.map((error) => error.message)),
+        },
+      ];
+    },
+    [],
+  );
+
+  const updateSingleQuestionError = useCallback(
+    (questionId: string, answer?: AnswerEntry) => {
+      const question = questionById.get(questionId);
+      if (!question || question.type === "section_separator") return;
+      const nextErrors = collectSingleQuestionError(
+        question,
+        answer ?? answers.get(questionId),
+      );
+      setQuestionErrors((currentErrors) => [
+        ...currentErrors.filter((error) => error.questionId !== questionId),
+        ...nextErrors,
+      ]);
+    },
+    [answers, collectSingleQuestionError, questionById],
+  );
+
+  const markQuestionTouched = useCallback(
+    (questionId: string, answer?: AnswerEntry) => {
+      const currentIds = touchedQuestionIdsRef.current;
+      if (!currentIds.has(questionId)) {
+        const nextIds = new Set(currentIds);
+        nextIds.add(questionId);
+        touchedQuestionIdsRef.current = nextIds;
+        setTouchedQuestionIds(nextIds);
+      }
+      updateSingleQuestionError(questionId, answer);
+    },
+    [updateSingleQuestionError],
+  );
+
+  const notifyQuestionAnswerChange = useCallback(
+    (questionId: string, answer: AnswerEntry) => {
+      if (!touchedQuestionIdsRef.current.has(questionId)) return;
+      updateSingleQuestionError(questionId, answer);
+    },
+    [updateSingleQuestionError],
+  );
+
   const markPageForValidationDisplay = useCallback((pageIndex: number) => {
     setValidationDisplayPageIndexes((currentPageIndexes) => {
       if (currentPageIndexes.has(pageIndex)) return currentPageIndexes;
@@ -424,6 +495,12 @@ export function FormBody({
 
   const clearValidationDisplayPages = useCallback(() => {
     setValidationDisplayPageIndexes(new Set());
+  }, []);
+
+  const clearTouchedQuestionIds = useCallback(() => {
+    const emptyIds = new Set<string>();
+    touchedQuestionIdsRef.current = emptyIds;
+    setTouchedQuestionIds(emptyIds);
   }, []);
 
   const applyQuestionErrors = useCallback(
@@ -479,7 +556,14 @@ export function FormBody({
       return applyQuestionErrors(errors);
     }
     onErrorChange?.(null);
-    setQuestionErrors([]);
+    const currentPageQuestionIds = new Set(
+      currentPageQuestions.map((question) => question.blockId),
+    );
+    setQuestionErrors((currentErrors) =>
+      currentErrors.filter(
+        (error) => !currentPageQuestionIds.has(error.questionId),
+      ),
+    );
     clearValidationDisplayPages();
     return true;
   }, [
@@ -499,7 +583,6 @@ export function FormBody({
 
   const handlePreviousPage = useCallback(() => {
     onErrorChange?.(null);
-    setQuestionErrors([]);
     clearValidationDisplayPages();
     pendingFocusQuestionIdRef.current = null;
     paging.goToPreviousPage();
@@ -566,6 +649,7 @@ export function FormBody({
       }
       applyQuestionErrors([]);
       clearValidationDisplayPages();
+      clearTouchedQuestionIds();
       const payload = buildSubmitPayload(
         allQuestions,
         paging.reachableQuestionIds,
@@ -588,6 +672,7 @@ export function FormBody({
       paging.goToPage,
       markPageForValidationDisplay,
       clearValidationDisplayPages,
+      clearTouchedQuestionIds,
       onSubmitRequest,
     ],
   );
@@ -668,6 +753,8 @@ export function FormBody({
             <FormQuestionA11yProvider
               errorMessagesByQuestionId={currentPageErrorMessagesByQuestionId}
               invalidQuestionIds={currentPageInvalidQuestionIds}
+              markQuestionTouched={markQuestionTouched}
+              notifyQuestionAnswerChange={notifyQuestionAnswerChange}
             >
               <PlateViewer
                 key={displayedPageIndex}

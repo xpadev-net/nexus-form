@@ -15,6 +15,7 @@ import {
   FormQuestionElement,
   getQuestionLabelId,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 interface GridItemLike {
@@ -52,6 +53,7 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
   const inputIdPrefix = useId();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -70,9 +72,9 @@ export function ChoiceGridInput({ element }: { element: TElement }) {
   }
 
   const handleSelect = (rowId: string, columnId: string) => {
-    ctx.setAnswer(blockId, {
-      responses: { ...responses, [rowId]: columnId },
-    });
+    const nextAnswer = { responses: { ...responses, [rowId]: columnId } };
+    ctx.setAnswer(blockId, nextAnswer);
+    validationFeedback.markTouched(nextAnswer);
   };
 
   return (
