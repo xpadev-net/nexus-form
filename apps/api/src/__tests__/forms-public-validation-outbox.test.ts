@@ -476,11 +476,12 @@ async function submitPublicForm(
       value: "xpadev",
     },
   ],
+  headers: Record<string, string> = {},
 ) {
   const { formsPublicRouter } = await import("../routes/forms-public");
   return formsPublicRouter.request("/public/public-form-1/submit", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify({
       responses,
       captchaToken: "captcha-token",
@@ -1256,6 +1257,44 @@ describe("R23-T1 public form input validation submit slice", () => {
       expect.any(Request),
       {
         strategy: "telemetry",
+      },
+    );
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["telemetry-token"],
+      "203.0.113.10",
+    );
+  });
+
+  it("logs divergent submit and telemetry header boundaries without changing the consumed IP", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    mocks.extractClientIP.mockImplementation(
+      (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
+        if (options.strategy === "telemetry") {
+          return { ip: "198.51.100.20", source: "x-nginx-forwarded-for" };
+        }
+
+        return { ip: "203.0.113.10", source: "x-forwarded-for" };
+      },
+    );
+
+    const response = await submitPublicForm(responses, {
+      "x-forwarded-for": "203.0.113.10",
+      "x-nginx-forwarded-for": "198.51.100.20",
+    });
+
+    expect(response.status).toBe(201);
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "POST: telemetry token IP header mismatch",
+      "forms-public",
+      {
+        publicId: "public-form-1",
+        submitSource: "x-forwarded-for",
+        submitStrategy: "general",
+        telemetrySource: "x-nginx-forwarded-for",
+        telemetryStrategy: "telemetry",
       },
     );
     expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(

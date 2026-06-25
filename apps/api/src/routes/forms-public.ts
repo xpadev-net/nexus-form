@@ -670,6 +670,28 @@ export const formsPublicRouter = createHonoApp()
           return c.json(errorResponse("Unable to determine client IP"), 400);
         }
 
+        if (c.req.header("x-nginx-forwarded-for") !== undefined) {
+          const telemetryIpResult = extractClientIP(c.req.raw, {
+            strategy: "telemetry",
+          });
+          if (
+            telemetryIpResult.ip !== "unknown" &&
+            telemetryIpResult.ip !== ip
+          ) {
+            logWarn(
+              "POST: telemetry token IP header mismatch",
+              "forms-public",
+              {
+                publicId,
+                submitStrategy: "general",
+                submitSource: submitIpResult.source,
+                telemetryStrategy: "telemetry",
+                telemetrySource: telemetryIpResult.source,
+              },
+            );
+          }
+        }
+
         try {
           await consumeTokensOrThrow(telemetryTokens, ip);
         } catch {
