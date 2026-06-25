@@ -141,7 +141,7 @@ function getLabeledRadio(
   return { label, radio, row };
 }
 
-function expectOnlyRadioSelected(container: HTMLElement, name: string) {
+function expectOnlyRadioSelected(container: HTMLElement, name: string): void {
   const radios = getAllByRole(container, "radio");
   expect(radios.filter((radio) => radio.getAttribute("aria-checked") === "true"))
     .toHaveLength(1);

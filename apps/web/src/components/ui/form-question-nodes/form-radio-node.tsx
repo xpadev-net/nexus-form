@@ -1,6 +1,7 @@
 import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
+import type { MouseEvent } from "react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,7 +80,7 @@ export function RadioInput({ element }: { element: TElement }) {
     });
   };
 
-  const activateOption = (optionId: string) => {
+  const activateOption = (optionId: string): void => {
     const option = document.getElementById(optionId);
     option?.focus();
     option?.click();
@@ -105,7 +106,7 @@ export function RadioInput({ element }: { element: TElement }) {
                 isSelected &&
                   "border-primary/30 bg-primary/5 hover:bg-primary/10",
               )}
-              onClick={(event) => {
+              onClick={(event: MouseEvent<HTMLDivElement>) => {
                 if (event.target === event.currentTarget) {
                   activateOption(optionId);
                 }
@@ -132,7 +133,7 @@ export function RadioInput({ element }: { element: TElement }) {
               isOtherSelected &&
                 "border-primary/30 bg-primary/5 hover:bg-primary/10",
             )}
-            onClick={(event) => {
+            onClick={(event: MouseEvent<HTMLDivElement>) => {
               if (event.target === event.currentTarget) {
                 activateOption(`${blockId}-other`);
               }
