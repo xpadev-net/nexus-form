@@ -10,6 +10,7 @@ commonLabels:
 resources:
   - configmap.yaml
   - secret.yaml
+  - api-migration-job.yaml
   - api-deployment.yaml
   - api-service.yaml
   - web-deployment.yaml
