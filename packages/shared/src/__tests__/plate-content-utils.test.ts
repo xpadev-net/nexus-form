@@ -235,6 +235,16 @@ describe("completion target validation", () => {
 });
 
 describe("validatePlateContent", () => {
+  it("allows empty and slash-only paragraphs so authored text survives save", () => {
+    expect(
+      validatePlateContent([
+        { type: "p", children: [{ text: "" }] },
+        { type: "p", children: [] },
+        { type: "p", children: [{ text: "/" }] },
+      ]),
+    ).toBe(true);
+  });
+
   it("rejects a form question nested inside another form question", () => {
     expect(
       validatePlateContent([
