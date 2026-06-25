@@ -57,7 +57,11 @@ export function buildTelemetryTokenUrl(
   version: TelemetryTokenVersion,
 ): string {
   const hostUrl = normalizeTelemetryHost(host);
-  return new URL(telemetryTokenPathByVersion[version], hostUrl.origin).href;
+  const basePath = hostUrl.pathname.endsWith("/")
+    ? hostUrl.pathname
+    : `${hostUrl.pathname}/`;
+  const endpointPath = telemetryTokenPathByVersion[version].replace(/^\/+/, "");
+  return new URL(endpointPath, `${hostUrl.origin}${basePath}`).href;
 }
 
 function getVersionTelemetryHost(

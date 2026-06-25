@@ -47,7 +47,7 @@ describe("buildTelemetryTokenUrl", () => {
     );
     expect(
       buildTelemetryTokenUrl("https://telemetry.example.com/base", "v6"),
-    ).toBe("https://telemetry.example.com/api/telemetry/v6");
+    ).toBe("https://telemetry.example.com/base/api/telemetry/v6");
   });
 
   it("rejects non-HTTP telemetry hosts", () => {
@@ -113,7 +113,7 @@ describe("resolveTelemetryTokenUrl", () => {
   });
 });
 
-describe("fetchPublicSubmitTelemetryToken", () => {
+describe("resolvePublicSubmitTelemetryTokenUrl", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
@@ -152,6 +152,15 @@ describe("fetchPublicSubmitTelemetryToken", () => {
       url: "https://telemetry.build.example/api/telemetry/v4",
       version: "v4",
     });
+  });
+});
+
+describe("fetchPublicSubmitTelemetryToken", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    apiMocks.rpc.mockReset();
+    apiMocks.telemetryPost.mockReset();
   });
 
   it("returns a v6 token payload when only the v6 runtime host is configured", async () => {
