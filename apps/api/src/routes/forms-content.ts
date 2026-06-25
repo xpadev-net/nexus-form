@@ -104,7 +104,8 @@ export const formsContentRouter = createHonoApp()
       const id = c.req.param("id");
       const { plateContent, expectedVersion } = c.req.valid("json");
 
-      // Validate Plate JSON structure
+      // Validate Plate JSON structure. Empty and slash-only paragraph nodes are
+      // valid Plate content and are saved as authored text.
       let parsed: unknown;
       try {
         parsed = JSON.parse(plateContent);

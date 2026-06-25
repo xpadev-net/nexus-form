@@ -487,6 +487,8 @@ export function validateCompletionTargetsInPlateContent(
 /**
  * Basic validation of Plate Value JSON structure.
  * Checks that the content is an array of objects with children.
+ * Empty and slash-only paragraph nodes are valid Plate content and must be
+ * preserved as authored text.
  */
 export function validatePlateContent(content: unknown): content is unknown[] {
   if (!Array.isArray(content)) return false;
