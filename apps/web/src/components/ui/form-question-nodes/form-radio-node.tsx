@@ -1,6 +1,7 @@
 import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
+import type { MouseEvent } from "react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,15 +73,17 @@ export function RadioInput({ element }: { element: TElement }) {
     );
   }
 
-  const focusOption = (optionId: string) => {
-    document.getElementById(optionId)?.focus();
-  };
-
   const selectOption = (value: string) => {
     ctx.setAnswer(blockId, {
       value,
       other_value: value === "other" ? (answer?.other_value as string) : undefined,
     });
+  };
+
+  const activateOption = (optionId: string): void => {
+    const option = document.getElementById(optionId);
+    option?.focus();
+    option?.click();
   };
 
   return (
@@ -103,21 +106,20 @@ export function RadioInput({ element }: { element: TElement }) {
                 isSelected &&
                   "border-primary/30 bg-primary/5 hover:bg-primary/10",
               )}
-              onClick={() => {
-                focusOption(optionId);
-                selectOption(option.id);
+              onClick={(event: MouseEvent<HTMLDivElement>) => {
+                if (event.target === event.currentTarget) {
+                  activateOption(optionId);
+                }
               }}
             >
               <RadioGroupItem
                 value={option.id}
                 id={optionId}
                 aria-label={label}
-                onClick={(event) => event.stopPropagation()}
               />
               <Label
                 htmlFor={optionId}
                 className="flex-1 cursor-pointer font-normal leading-5"
-                onClick={(event) => event.stopPropagation()}
               >
                 {label}
               </Label>
@@ -131,21 +133,20 @@ export function RadioInput({ element }: { element: TElement }) {
               isOtherSelected &&
                 "border-primary/30 bg-primary/5 hover:bg-primary/10",
             )}
-            onClick={() => {
-              focusOption(`${blockId}-other`);
-              selectOption("other");
+            onClick={(event: MouseEvent<HTMLDivElement>) => {
+              if (event.target === event.currentTarget) {
+                activateOption(`${blockId}-other`);
+              }
             }}
           >
             <RadioGroupItem
               value="other"
               id={`${blockId}-other`}
               aria-label={otherLabel}
-              onClick={(event) => event.stopPropagation()}
             />
             <Label
               htmlFor={`${blockId}-other`}
               className="flex-1 cursor-pointer font-normal leading-5"
-              onClick={(event) => event.stopPropagation()}
             >
               {otherLabel}
             </Label>
