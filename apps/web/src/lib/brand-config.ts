@@ -39,30 +39,48 @@ function loadRuntimeConfig(): Partial<Record<keyof BrandConfig, string>> {
  */
 const runtimeConfig = loadRuntimeConfig();
 
-/**
- * ランタイム値 (Docker env) → ビルド時値 (import.meta.env) → デフォルト値
- * の優先順位でブランド設定を解決する。
- */
-function pick(
-  runtimeKey: keyof BrandConfig,
-  buildTimeValue: string | undefined,
-): string | undefined {
-  const runtimeValue = runtimeConfig[runtimeKey];
-  return runtimeValue !== undefined && runtimeValue !== ""
-    ? runtimeValue
-    : buildTimeValue;
+function resolveBrandConfig(
+  resolvedRuntimeConfig: Partial<Record<keyof BrandConfig, string>>,
+): BrandConfig {
+  /**
+   * ランタイム値 (Docker env) → ビルド時値 (import.meta.env) → デフォルト値
+   * の優先順位でブランド設定を解決する。
+   */
+  function pick(
+    runtimeKey: keyof BrandConfig,
+    buildTimeValue: string | undefined,
+  ): string | undefined {
+    const runtimeValue = resolvedRuntimeConfig[runtimeKey];
+    return runtimeValue !== undefined && runtimeValue !== ""
+      ? runtimeValue
+      : buildTimeValue;
+  }
+
+  return createBrandConfig({
+    appName: pick("appName", import.meta.env.VITE_BRAND_APP_NAME),
+    primaryColor: pick(
+      "primaryColor",
+      import.meta.env.VITE_BRAND_PRIMARY_COLOR,
+    ),
+    secondaryColor: pick(
+      "secondaryColor",
+      import.meta.env.VITE_BRAND_SECONDARY_COLOR,
+    ),
+    accentColor: pick("accentColor", import.meta.env.VITE_BRAND_ACCENT_COLOR),
+    termsUrl: pick("termsUrl", import.meta.env.VITE_BRAND_TERMS_URL),
+    privacyUrl: pick("privacyUrl", import.meta.env.VITE_BRAND_PRIVACY_URL),
+    copyright: pick("copyright", import.meta.env.VITE_BRAND_COPYRIGHT),
+    homepageUrl: pick("homepageUrl", import.meta.env.VITE_BRAND_HOMEPAGE_URL),
+  });
 }
 
-export const brandConfig = createBrandConfig({
-  appName: pick("appName", import.meta.env.VITE_BRAND_APP_NAME),
-  primaryColor: pick("primaryColor", import.meta.env.VITE_BRAND_PRIMARY_COLOR),
-  secondaryColor: pick(
-    "secondaryColor",
-    import.meta.env.VITE_BRAND_SECONDARY_COLOR,
-  ),
-  accentColor: pick("accentColor", import.meta.env.VITE_BRAND_ACCENT_COLOR),
-  termsUrl: pick("termsUrl", import.meta.env.VITE_BRAND_TERMS_URL),
-  privacyUrl: pick("privacyUrl", import.meta.env.VITE_BRAND_PRIVACY_URL),
-  copyright: pick("copyright", import.meta.env.VITE_BRAND_COPYRIGHT),
-  homepageUrl: pick("homepageUrl", import.meta.env.VITE_BRAND_HOMEPAGE_URL),
-});
+export const brandConfig = resolveBrandConfig(runtimeConfig);
+
+/**
+ * Resolves the current brand configuration from the latest runtime
+ * `window.__BRAND_CONFIG__` value via `loadRuntimeConfig` and `resolveBrandConfig`.
+ * Call this when runtime config can change after this module is imported.
+ */
+export function getRuntimeBrandConfig(): BrandConfig {
+  return resolveBrandConfig(loadRuntimeConfig());
+}
