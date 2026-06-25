@@ -14,8 +14,11 @@ commonLabels:
   environment: production
   managed-by: kustomize
 
-# Override image references with full registry paths
-# If you fork this repository, update the organization name below to match your own
+# Override image references with full registry paths.
+# If you fork this repository, update the organization name below to match your own.
+# The latest tags below are placeholders. Production GitOps should replace them
+# with immutable tags such as sha-<short-sha> before syncing so the migration Job
+# and API Deployment run the same build.
 images:
   - name: nexus-form
     newName: ghcr.io/xpadev-net/nexus-form
@@ -26,4 +29,3 @@ images:
   - name: nexus-form-worker
     newName: ghcr.io/xpadev-net/nexus-form-worker
     newTag: latest
-

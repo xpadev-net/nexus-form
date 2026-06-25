@@ -140,11 +140,6 @@ const runNode = (args) => {
 
 (async () => {
   await replaceEnvironment();
-  const migrationStatus = await runNode(["/migration/run-migrations.mjs"]);
-  if (migrationStatus !== 0) {
-    process.exit(migrationStatus);
-  }
-
   const apiStatus = await runNode(["./apps/api/dist/index.mjs"]);
   process.exit(apiStatus);
 })();
