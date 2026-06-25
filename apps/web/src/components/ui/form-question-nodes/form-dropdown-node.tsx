@@ -23,6 +23,7 @@ import {
   getQuestionLabelId,
   getQuestionValueAccessibleName,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -60,6 +61,7 @@ export function DropdownInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -83,17 +85,27 @@ export function DropdownInput({ element }: { element: TElement }) {
     <div className="space-y-2">
       <Select
         value={selectedValue}
-        onValueChange={(value) =>
-          ctx.setAnswer(blockId, {
+        onValueChange={(value) => {
+          const nextAnswer = {
             value,
             other_value: value === "other" ? (answer?.other_value as string) : undefined,
-          })
-        }
+          };
+          ctx.setAnswer(blockId, nextAnswer);
+          validationFeedback.notifyAnswerChange(nextAnswer);
+        }}
       >
         <SelectTrigger
           id={getQuestionControlId(blockId)}
           aria-labelledby={questionLabelId}
           className="w-full"
+          onBlur={() =>
+            validationFeedback.markTouched({
+              value: selectedValue,
+              other_value: isOtherSelected
+                ? (answer?.other_value as string)
+                : undefined,
+            })
+          }
           {...errorA11y}
         >
           <SelectValue placeholder="選択してください" />
@@ -118,8 +130,16 @@ export function DropdownInput({ element }: { element: TElement }) {
             id={otherInputId}
             name={`${blockId}-other`}
             value={(answer?.other_value as string) ?? ""}
-            onChange={(e) =>
-              ctx.setAnswer(blockId, {
+            onChange={(e) => {
+              const nextAnswer = {
+                value: "other",
+                other_value: e.target.value,
+              };
+              ctx.setAnswer(blockId, nextAnswer);
+              validationFeedback.notifyAnswerChange(nextAnswer);
+            }}
+            onBlur={(e) =>
+              validationFeedback.markTouched({
                 value: "other",
                 other_value: e.target.value,
               })

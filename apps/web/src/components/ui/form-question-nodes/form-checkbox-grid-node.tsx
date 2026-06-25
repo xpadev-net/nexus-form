@@ -16,6 +16,7 @@ import {
   FormQuestionElement,
   getQuestionLabelId,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 interface GridItemLike {
@@ -54,6 +55,7 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
   const inputIdPrefix = useId();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -84,9 +86,9 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
     const next = current.includes(columnId)
       ? current.filter((id) => id !== columnId)
       : [...current, columnId];
-    ctx.setAnswer(blockId, {
-      responses: { ...responses, [rowId]: next },
-    });
+    const nextAnswer = { responses: { ...responses, [rowId]: next } };
+    ctx.setAnswer(blockId, nextAnswer);
+    validationFeedback.markTouched(nextAnswer);
   };
 
   return (

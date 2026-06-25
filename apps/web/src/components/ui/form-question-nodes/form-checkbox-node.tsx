@@ -18,6 +18,7 @@ import {
   getQuestionLabelId,
   getQuestionValueAccessibleName,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 interface OptionLike {
@@ -56,6 +57,7 @@ export function CheckboxInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -87,12 +89,14 @@ export function CheckboxInput({ element }: { element: TElement }) {
     const next = checked
       ? [...selected, optionId]
       : selected.filter((id) => id !== optionId);
-    ctx.setAnswer(blockId, {
+    const nextAnswer = {
       values: next,
       other_values: next.includes("other")
         ? (answer?.other_values as string[]) ?? []
         : undefined,
-    });
+    };
+    ctx.setAnswer(blockId, nextAnswer);
+    validationFeedback.markTouched(nextAnswer);
   };
 
   const focusOption = (optionId: string) => {
@@ -208,8 +212,16 @@ export function CheckboxInput({ element }: { element: TElement }) {
             id={otherInputId}
             name={`${blockId}-other`}
             value={((answer?.other_values as string[]) ?? [])[0] ?? ""}
-            onChange={(e) =>
-              ctx.setAnswer(blockId, {
+            onChange={(e) => {
+              const nextAnswer = {
+                values: selected,
+                other_values: [e.target.value],
+              };
+              ctx.setAnswer(blockId, nextAnswer);
+              validationFeedback.notifyAnswerChange(nextAnswer);
+            }}
+            onBlur={(e) =>
+              validationFeedback.markTouched({
                 values: selected,
                 other_values: [e.target.value],
               })

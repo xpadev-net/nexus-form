@@ -68,12 +68,16 @@ vi.mock("@/components/editor/plate-viewer", async () => {
   const { FormQuestionErrorMessage, getFormQuestionTitleId } = await import(
     "@/components/ui/form-question-nodes/form-question-base"
   );
+  const { useFormQuestionValidationFeedback } = await import(
+    "@/components/ui/form-question-nodes/form-question-base"
+  );
   type OptionLike = { id: string; label: string };
 
   function NativeRadioInput({ element }: { element: TElement }) {
     const ctx = useFormResponseOptional();
-    if (!ctx) return null;
     const blockId = element.blockId as string;
+    const validationFeedback = useFormQuestionValidationFeedback(blockId);
+    if (!ctx) return null;
     const answer = ctx.getAnswer(blockId);
     const validation = element.validation as
       | { options?: OptionLike[] }
@@ -91,7 +95,9 @@ vi.mock("@/components/editor/plate-viewer", async () => {
               value={option.id}
               onChange={(event) => {
                 if (event.currentTarget.checked) {
-                  ctx.setAnswer(blockId, { value: option.id });
+                  const nextAnswer = { value: option.id };
+                  ctx.setAnswer(blockId, nextAnswer);
+                  validationFeedback.markTouched(nextAnswer);
                 }
               }}
             />
@@ -688,6 +694,7 @@ function appearanceWithQuestionNumbers(
 describe("FormBody", () => {
   beforeEach(() => {
     globalThis.ResizeObserver = ResizeObserverStub;
+    Element.prototype.scrollIntoView = vi.fn();
     plateViewerValues.length = 0;
   });
 
@@ -1314,6 +1321,278 @@ describe("FormBody", () => {
       "form-question-q-name-error",
     );
     expect(nameInput.getAttribute("aria-invalid")).toBe("true");
+
+    act(() => root.unmount());
+  });
+
+  it("shows and clears a required text error after the input is blurred", async () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-name", "Name", { required: true }),
+      ]),
+      { captchaReady: true },
+    );
+
+    const nameInput = getByRole(container, "textbox", { name: "Name" });
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+
+    await act(async () => {
+      fireEvent.focus(nameInput);
+      fireEvent.focusOut(nameInput);
+    });
+
+    expect(container.textContent).toContain("Name: この項目は必須です");
+    expect(nameInput.getAttribute("aria-invalid")).toBe("true");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => {
+      fireEvent.change(nameInput, { target: { value: "Alice" } });
+    });
+
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+    expect(nameInput.getAttribute("aria-invalid")).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows and clears a short text pattern error after blur", async () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("short_text", "q-code", "Access code", {
+          required: true,
+          pattern: "^NF-\\d{4}$",
+          allowPatternMismatch: false,
+        }),
+      ]),
+      { captchaReady: true },
+    );
+
+    const codeInput = getByRole(container, "textbox", {
+      name: "Access code",
+    });
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "draft" } });
+    });
+    expect(container.textContent).not.toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+
+    await act(async () => {
+      fireEvent.focus(codeInput);
+      fireEvent.focusOut(codeInput);
+    });
+
+    expect(container.textContent).toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+    expect(codeInput.getAttribute("aria-invalid")).toBe("true");
+
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "NF-1234" } });
+    });
+
+    expect(container.textContent).not.toContain(
+      "Access code: 入力形式が正しくありません",
+    );
+    expect(codeInput.getAttribute("aria-invalid")).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows and clears checkbox minimum selection errors after selection changes", async () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("checkbox", "q-colors", "Colors", {
+          required: true,
+          minSelections: 2,
+          options: [
+            { id: "red", label: "Red" },
+            { id: "blue", label: "Blue" },
+          ],
+        }),
+      ]),
+      { captchaReady: true },
+    );
+
+    const red = getByRole(container, "checkbox", { name: "Red" });
+    const blue = getByRole(container, "checkbox", { name: "Blue" });
+
+    await act(async () => {
+      fireEvent.click(red);
+    });
+
+    expect(red.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).toContain("Colors: 2個以上選択してください");
+
+    await act(async () => {
+      fireEvent.click(blue);
+    });
+
+    expect(blue.getAttribute("aria-checked")).toBe("true");
+    expect(container.textContent).not.toContain(
+      "Colors: 2個以上選択してください",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("clears a required dropdown blur error after selecting an option", async () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("dropdown", "q-country", "Country", {
+          required: true,
+          options: [
+            { id: "jp", label: "Japan" },
+            { id: "us", label: "United States" },
+          ],
+        }),
+      ]),
+      { captchaReady: true },
+    );
+
+    const countryInput = getByRole(container, "combobox", {
+      name: "Country",
+    });
+
+    await act(async () => {
+      fireEvent.focus(countryInput);
+      fireEvent.focusOut(countryInput);
+    });
+
+    expect(container.textContent).toContain("Country: この項目は必須です");
+    expect(countryInput.getAttribute("aria-invalid")).toBe("true");
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    await act(async () => {
+      countryInput.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const japanOption = getByRole(document.body, "option", { name: "Japan" });
+    await act(async () => {
+      japanOption.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).not.toContain("Country: この項目は必須です");
+    expect(countryInput.getAttribute("aria-invalid")).toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows and clears date and time range errors after blur", async () => {
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("date", "q-date", "Date", {
+          required: true,
+          minDate: "2026-01-01",
+          maxDate: "2026-12-31",
+        }),
+        questionNode("time", "q-time", "Time", {
+          required: true,
+          minTime: "09:00",
+          maxTime: "17:00",
+        }),
+      ]),
+      { captchaReady: true },
+    );
+
+    const dateInput =
+      container.querySelector<HTMLInputElement>("input[type=date]");
+    const timeInput =
+      container.querySelector<HTMLInputElement>("input[type=time]");
+    expect(dateInput).not.toBeNull();
+    expect(timeInput).not.toBeNull();
+
+    await act(async () => {
+      if (!dateInput || !timeInput) return;
+      fireEvent.change(dateInput, { target: { value: "2027-01-01" } });
+      fireEvent.focus(dateInput);
+      fireEvent.focusOut(dateInput);
+      fireEvent.change(timeInput, { target: { value: "08:00" } });
+      fireEvent.focus(timeInput);
+      fireEvent.focusOut(timeInput);
+    });
+
+    expect(container.textContent).toContain(
+      "Date: 2026-12-31以前の日付を入力してください",
+    );
+    expect(container.textContent).toContain(
+      "Time: 09:00以降の時刻を入力してください",
+    );
+
+    await act(async () => {
+      if (!dateInput || !timeInput) return;
+      fireEvent.change(dateInput, { target: { value: "2026-06-15" } });
+      fireEvent.change(timeInput, { target: { value: "10:30" } });
+    });
+
+    expect(container.textContent).not.toContain(
+      "Date: 2026-12-31以前の日付を入力してください",
+    );
+    expect(container.textContent).not.toContain(
+      "Time: 09:00以降の時刻を入力してください",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("keeps touched question errors visible when returning to a page", async () => {
+    const plateContent = JSON.stringify([
+      questionNode("radio", "q-plan", "Plan", {
+        required: true,
+        options: [{ id: "standard", label: "Standard" }],
+      }),
+      questionNode("section_separator", "section-details", "Details"),
+      questionNode("short_text", "q-name", "Name", {
+        required: true,
+      }),
+    ]);
+
+    const container = document.createElement("div");
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+    });
+
+    await act(async () => {
+      fireEvent.click(getByRole(container, "radio", { name: "Standard" }));
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const nameInput = getByRole(container, "textbox", { name: "Name" });
+    await act(async () => {
+      fireEvent.focus(nameInput);
+      fireEvent.focusOut(nameInput);
+    });
+    expect(container.textContent).toContain("Name: この項目は必須です");
+
+    await act(async () => {
+      getByRole(container, "button", { name: "戻る" }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(container.textContent).toContain("Plan");
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Details");
+    expect(container.textContent).toContain("Name: この項目は必須です");
 
     act(() => root.unmount());
   });

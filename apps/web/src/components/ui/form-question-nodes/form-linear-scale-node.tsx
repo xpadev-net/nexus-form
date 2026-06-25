@@ -12,6 +12,7 @@ import {
   getQuestionAccessibleName,
   getQuestionLabelId,
   useFormQuestionErrorA11y,
+  useFormQuestionValidationFeedback,
 } from "./form-question-base";
 
 export const FormLinearScaleElement = withRef<typeof PlateElement>(
@@ -43,6 +44,7 @@ export function LinearScaleInput({ element }: { element: TElement }) {
   const ctx = useFormResponseOptional();
   const blockId = element.blockId as string;
   const errorA11y = useFormQuestionErrorA11y(blockId);
+  const validationFeedback = useFormQuestionValidationFeedback(blockId);
   if (!ctx) return null;
   const answer = ctx.getAnswer(blockId);
   const validation = element.validation as
@@ -80,7 +82,11 @@ export function LinearScaleInput({ element }: { element: TElement }) {
               variant={currentValue === value ? "default" : "outline"}
               aria-label={`${questionName}: ${value}`}
               aria-pressed={currentValue === value}
-              onClick={() => ctx.setAnswer(blockId, { value })}
+              onClick={() => {
+                const nextAnswer = { value };
+                ctx.setAnswer(blockId, nextAnswer);
+                validationFeedback.markTouched(nextAnswer);
+              }}
               className="size-9 rounded-full p-0 shadow-none"
             >
               {value}
