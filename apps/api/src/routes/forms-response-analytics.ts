@@ -11,12 +11,27 @@ import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
 import { aggregateAllBlocksInBatches } from "../lib/forms/response-analytics";
 import { createHonoApp } from "../lib/hono";
+import { logError } from "../lib/logger";
 import {
   BlockAnalyticsResponseSchema,
   ResponseAggregateResponseSchema,
   ResponseAnalyticsResponseSchema,
   ResponseStatusesResponseSchema,
 } from "../types/domain/form-responses";
+
+function extractDatabaseErrorDetails(error: unknown): Record<string, unknown> {
+  if (!error || typeof error !== "object") {
+    return {};
+  }
+
+  const details: Record<string, unknown> = {};
+  for (const key of ["code", "errno", "sqlState", "sqlMessage"] as const) {
+    if (key in error) {
+      details[key] = Reflect.get(error, key);
+    }
+  }
+  return details;
+}
 
 export const formsResponseAnalyticsRouter = createHonoApp()
   .use("/:id/responses*", withDualFormAuth("EDITOR"))
@@ -64,18 +79,30 @@ export const formsResponseAnalyticsRouter = createHonoApp()
       const formId = c.req.param("id");
       const { page, pageSize } = c.req.valid("query");
       const offset = (page - 1) * pageSize;
-      const responseDate = sql<string>`date(${formResponse.submittedAt})`;
-      const rows = await db
-        .select({
-          date: responseDate,
-          count: count(),
-        })
-        .from(formResponse)
-        .where(eq(formResponse.formId, formId))
-        .groupBy(responseDate)
-        .orderBy(sql`${responseDate} desc`)
-        .offset(offset)
-        .limit(pageSize + 1);
+      const responseDate = sql<string>`date_format(${formResponse.submittedAt}, '%Y-%m-%d')`;
+      let rows: Array<{ date: string; count: number }>;
+      try {
+        rows = await db
+          .select({
+            date: responseDate,
+            count: count(),
+          })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId))
+          .groupBy(responseDate)
+          .orderBy(sql`${responseDate} desc`)
+          .offset(offset)
+          .limit(pageSize + 1);
+      } catch (error) {
+        logError("Failed to load response analytics timeline", "database", {
+          error,
+          formId,
+          page,
+          pageSize,
+          ...extractDatabaseErrorDetails(error),
+        });
+        throw error;
+      }
       return c.json(
         ResponseAnalyticsResponseSchema.parse({
           timeline: rows.slice(0, pageSize),

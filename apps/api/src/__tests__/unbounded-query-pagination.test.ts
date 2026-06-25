@@ -195,6 +195,23 @@ function limitedQuery(result: unknown[]) {
   };
 }
 
+function failingLimitedQuery(error: unknown) {
+  return {
+    from: vi.fn().mockReturnThis(),
+    where: vi.fn().mockReturnThis(),
+    groupBy: vi.fn().mockReturnThis(),
+    orderBy: vi.fn().mockReturnThis(),
+    offset: vi.fn(function offset(this: unknown, value: number) {
+      mocks.offsetCalls.push(value);
+      return this;
+    }),
+    limit: vi.fn((value: number) => {
+      mocks.limitCalls.push(value);
+      return Promise.reject(error);
+    }),
+  };
+}
+
 function orderedQuery(result: unknown[]) {
   return {
     from: vi.fn().mockReturnThis(),
@@ -875,18 +892,18 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("applies limit and offset to response analytics timelines", async () => {
-    mocks.db.select.mockReturnValueOnce(
-      limitedQuery([
-        { date: "2026-05-18", count: 2 },
-        { date: "2026-05-17", count: 3 },
-        { date: "2026-05-16", count: 1 },
-        { date: "2026-05-15", count: 4 },
-        { date: "2026-05-14", count: 5 },
-      ]),
-    );
+    const query = limitedQuery([
+      { date: "2026-05-18", count: 2 },
+      { date: "2026-05-17", count: 3 },
+      { date: "2026-05-16", count: 1 },
+      { date: "2026-05-15", count: 4 },
+      { date: "2026-05-14", count: 5 },
+    ]);
+    mocks.db.select.mockReturnValueOnce(query);
     const { formsResponseAnalyticsRouter } = await import(
       "../routes/forms-response-analytics"
     );
+    const { sql } = await import("drizzle-orm");
 
     const res = await formsResponseAnalyticsRouter.request(
       "/form-1/responses/analytics?page=3&pageSize=4",
@@ -905,6 +922,13 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.offsetCalls).toContain(8);
     expect(mocks.limitCalls).toContain(5);
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sql).mock.calls).toEqual(
+      expect.arrayContaining([
+        [["date_format(", ", '%Y-%m-%d')"], "formResponse.submittedAt"],
+        [["", " desc"], "date_format("],
+      ]),
+    );
+    expect(query.groupBy).toHaveBeenCalledWith("date_format(");
   });
 
   it("returns an empty response analytics timeline as a successful page", async () => {
@@ -924,6 +948,40 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     });
     expect(mocks.offsetCalls).toContain(0);
     expect(mocks.limitCalls).toContain(5);
+  });
+
+  it("logs MySQL driver details when response analytics timeline loading fails", async () => {
+    const dbError = Object.assign(new Error("Unknown column submittedAt"), {
+      code: "ER_BAD_FIELD_ERROR",
+      errno: 1054,
+      sqlState: "42S22",
+      sqlMessage: "Unknown column 'submittedAt' in 'group statement'",
+    });
+    mocks.db.select.mockReturnValueOnce(failingLimitedQuery(dbError));
+    const { formsResponseAnalyticsRouter } = await import(
+      "../routes/forms-response-analytics"
+    );
+    const { logError } = await import("../lib/logger");
+
+    const res = await formsResponseAnalyticsRouter.request(
+      "/form-1/responses/analytics?page=2&pageSize=10",
+    );
+
+    expect(res.status).toBe(500);
+    expect(logError).toHaveBeenCalledWith(
+      "Failed to load response analytics timeline",
+      "database",
+      expect.objectContaining({
+        error: dbError,
+        formId: "form-1",
+        page: 2,
+        pageSize: 10,
+        code: "ER_BAD_FIELD_ERROR",
+        errno: 1054,
+        sqlState: "42S22",
+        sqlMessage: "Unknown column 'submittedAt' in 'group statement'",
+      }),
+    );
   });
 
   it("returns empty block analytics successfully when the form has no analytics targets", async () => {
