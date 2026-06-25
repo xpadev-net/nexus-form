@@ -9,6 +9,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
 import {
+  type ReactElement,
   type ReactNode,
   useCallback,
   useEffect,
@@ -282,7 +283,7 @@ function PublicFormLegalLinks({
   appearance: appearanceProp,
 }: {
   appearance?: FormAppearance;
-}) {
+}): ReactElement | null {
   const { termsUrl, privacyUrl } = useMemo(() => getRuntimeBrandConfig(), []);
   if (!termsUrl && !privacyUrl) return null;
 
@@ -336,7 +337,7 @@ function PublicFormAppearanceShell({
 }: {
   appearance?: FormAppearance;
   children: ReactNode;
-}) {
+}): ReactElement {
   return (
     <FormAppearanceSurface
       appearance={appearance}

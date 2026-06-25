@@ -76,6 +76,11 @@ function resolveBrandConfig(
 
 export const brandConfig = resolveBrandConfig(runtimeConfig);
 
+/**
+ * Resolves the current brand configuration from the latest runtime
+ * `window.__BRAND_CONFIG__` value via `loadRuntimeConfig` and `resolveBrandConfig`.
+ * Call this when runtime config can change after this module is imported.
+ */
 export function getRuntimeBrandConfig(): BrandConfig {
   return resolveBrandConfig(loadRuntimeConfig());
 }
