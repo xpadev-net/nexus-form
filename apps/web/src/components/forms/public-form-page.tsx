@@ -283,7 +283,7 @@ function PublicFormLegalLinks({
 }: {
   appearance?: FormAppearance;
 }) {
-  const { termsUrl, privacyUrl } = getRuntimeBrandConfig();
+  const { termsUrl, privacyUrl } = useMemo(() => getRuntimeBrandConfig(), []);
   if (!termsUrl && !privacyUrl) return null;
 
   const appearance = normalizeFormAppearance(appearanceProp);
