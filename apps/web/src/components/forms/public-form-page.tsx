@@ -25,6 +25,7 @@ import { decodePrefillData } from "@/lib/forms/prefill";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
+import { fetchPublicSubmitTelemetryToken } from "@/lib/telemetry-token";
 import {
   FormAppearanceSchema,
   type FormConfirmation,
@@ -512,8 +513,8 @@ function PublicFormPageInner() {
 
         // テレメトリトークンの取得
         const telemetryToken = formSecurityBypassEnabled
-          ? formSecurityBypassToken
-          : (await rpc(client.api.telemetry.v4.$post())).token;
+          ? { v4Token: formSecurityBypassToken }
+          : await fetchPublicSubmitTelemetryToken();
 
         // 回答の送信
         const submitResult = await rpc(
@@ -522,7 +523,7 @@ function PublicFormPageInner() {
             json: {
               responses: parsedInput.data,
               captchaToken,
-              telemetry: { v4Token: telemetryToken },
+              telemetry: telemetryToken,
               fingerprints: fingerprintsPayload,
             },
           }),

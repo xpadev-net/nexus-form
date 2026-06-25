@@ -292,7 +292,7 @@ VITE_BASE_URL=https://example.com
 
 #### VITE_TELEMETRY_V4_HOST / VITE_TELEMETRY_V6_HOST（オプション）
 
-テレメトリーホストを設定します。
+テレメトリーホストを設定します。bare host と URL の両方を指定でき、bare host は `https://` として扱われます。公開フォーム送信時の token 取得は単一 token を使用し、`VITE_TELEMETRY_V4_HOST`、`VITE_TELEMETRY_V6_HOST`、共通の `VITE_TELEMETRY_HOST`（v4 endpoint）、既存 API client fallback（v4 endpoint）の順に使用します。専用 host が設定されている場合、その host での token 取得失敗時は fallback せず送信を停止します。
 
 ```
 VITE_TELEMETRY_V4_HOST=ipv4.example.com
