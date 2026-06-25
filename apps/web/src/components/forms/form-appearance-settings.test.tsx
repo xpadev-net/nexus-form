@@ -295,6 +295,46 @@ describe("FormAppearanceSettings", () => {
     act(() => root.unmount());
   });
 
+  it("applies resolved dark appearance colors to the live preview surface", () => {
+    structureData.structure.appearance = {
+      theme: {
+        primary_color: "#93c5fd",
+        accent_color: "#bbf7d0",
+        background_color: "#111827",
+        font_family: "Inter",
+      },
+      layout: {
+        width: "medium",
+        alignment: "center",
+        spacing: "comfortable",
+        show_progress_bar: true,
+        progress_position: "top",
+        show_question_numbers: true,
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderSettings(container);
+
+    const previewSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true'][data-preview-viewport='desktop']",
+    );
+    expect(previewSurface).not.toBeNull();
+    expect(previewSurface?.style.getPropertyValue("--background")).toBe(
+      "#111827",
+    );
+    expect(previewSurface?.style.getPropertyValue("--foreground")).toBe(
+      "white",
+    );
+    expect(previewSurface?.style.getPropertyValue("--card")).toBe("#242a38");
+    expect(previewSurface?.style.getPropertyValue("--card-foreground")).toBe(
+      "white",
+    );
+    expect(previewSurface?.style.getPropertyValue("--primary")).toBe("#93c5fd");
+    expect(previewSurface?.style.getPropertyValue("--accent")).toBe("#bbf7d0");
+
+    act(() => root.unmount());
+  });
+
   it("keeps live preview answers inside a preview-only provider", async () => {
     const container = document.createElement("div");
     const root = renderSettings(container);

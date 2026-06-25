@@ -26,6 +26,11 @@ import {
   FormLayoutSchema,
   type FormTheme,
 } from "@/types/validation/form";
+import {
+  expandHexColor,
+  FormAppearanceSurface,
+  formAppearanceContrastWarnings,
+} from "./form-appearance-surface";
 import { FormBody } from "./form-body";
 
 export const formAppearanceStructureQueryKey = (formId: string) =>
@@ -50,70 +55,6 @@ function parseAppearance(value: unknown): FormAppearance {
   return result.success ? result.data : FormAppearanceSchema.parse({});
 }
 
-function expandHex(hexColor: string): string | null {
-  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(hexColor)) {
-    return null;
-  }
-  if (hexColor.length === 7) return hexColor;
-  return `#${hexColor
-    .slice(1)
-    .split("")
-    .map((char) => `${char}${char}`)
-    .join("")}`;
-}
-
-function relativeLuminance(hexColor: string): number | null {
-  const expanded = expandHex(hexColor);
-  if (!expanded) return null;
-  const value = Number.parseInt(expanded.slice(1), 16);
-  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(
-    (channel) => {
-      const normalized = channel / 255;
-      return normalized <= 0.03928
-        ? normalized / 12.92
-        : ((normalized + 0.055) / 1.055) ** 2.4;
-    },
-  );
-  const red = channels[0] ?? 0;
-  const green = channels[1] ?? 0;
-  const blue = channels[2] ?? 0;
-  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-}
-
-function contrastRatio(foreground: string, background: string): number | null {
-  const foregroundLuminance = relativeLuminance(foreground);
-  const backgroundLuminance = relativeLuminance(background);
-  if (foregroundLuminance === null || backgroundLuminance === null) {
-    return null;
-  }
-  const lighter = Math.max(foregroundLuminance, backgroundLuminance);
-  const darker = Math.min(foregroundLuminance, backgroundLuminance);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function colorWarnings(appearance: FormAppearance): string[] {
-  const { theme } = appearance;
-  const checks = [
-    {
-      label: "テーマ色",
-      ratio: contrastRatio(theme.primary_color, theme.background_color),
-      minimum: 4.5,
-    },
-    {
-      label: "アクセント色",
-      ratio: contrastRatio(theme.accent_color, theme.background_color),
-      minimum: 3,
-    },
-  ];
-
-  return checks
-    .filter((check) => check.ratio !== null && check.ratio < check.minimum)
-    .map(
-      (check) =>
-        `${check.label}と背景色のコントラストが ${check.minimum}:1 未満です。`,
-    );
-}
-
 const ColorField: FC<{
   id: string;
   label: string;
@@ -126,7 +67,7 @@ const ColorField: FC<{
       <Input
         id={id}
         type="color"
-        value={expandHex(value) ?? brandConfig.primaryColor}
+        value={expandHexColor(value) ?? brandConfig.primaryColor}
         onChange={(event) => onChange(event.target.value)}
         className="h-9 w-14 p-1"
       />
@@ -226,7 +167,7 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
     },
   });
 
-  const warnings = colorWarnings(draftAppearance);
+  const warnings = formAppearanceContrastWarnings(draftAppearance);
   const publishStatusMessage = !structureQuery.data
     ? "保存済みの外観を読み込み中です。"
     : isDirty
@@ -497,9 +438,10 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
               </Button>
             </div>
           </div>
-          <div
+          <FormAppearanceSurface
+            appearance={draftAppearance}
             className={cn(
-              "overflow-hidden rounded-lg border bg-background",
+              "overflow-hidden rounded-lg border",
               previewViewport === "mobile" ? "mx-auto max-w-[390px]" : "w-full",
             )}
             data-preview-viewport={previewViewport}
@@ -514,7 +456,7 @@ export const FormAppearanceSettings: FC<FormAppearanceSettingsProps> = ({
                 success="これはプレビューです。回答は保存されません。"
               />
             </FormResponseProvider>
-          </div>
+          </FormAppearanceSurface>
         </div>
       </div>
     </section>
