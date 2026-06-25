@@ -91,11 +91,28 @@ docker push your-registry/nexus-form-worker:latest
 へ書き出され、フロントエンドが runtime config として読み込みます。
 
 **主なVITE_*環境変数**:
-- `VITE_HCAPTCHA_SITE_KEY`: hCaptchaのサイトキー（公開キー）。hCaptchaウィジェットを使用する場合は必須です。
 - `VITE_API_URL`: ブラウザから到達可能な公開API URL（例: `https://api.example.com`、同一オリジンでリバースプロキシする場合は `https://example.com`）
+- `VITE_BASE_URL`: ブラウザから到達可能な公開Web URL（例: `https://example.com`）
+- `VITE_HCAPTCHA_SITE_KEY`: hCaptchaのサイトキー（公開キー）。hCaptchaウィジェットを使用する場合は必須です。
+- `VITE_TELEMETRY_HOST`: 共通テレメトリーhost。v4専用host未設定時のv4 endpointとして使用されます。
+- `VITE_TELEMETRY_V4_HOST`: IPv4テレメトリーhost
+- `VITE_TELEMETRY_V6_HOST`: IPv6テレメトリーhost
 
 **注意**: `VITE_HCAPTCHA_SITE_KEY`が設定されていない場合、hCaptchaウィジェットが正常に動作せず、フォーム送信がブロックされる可能性があります。
 `VITE_API_URL`には `http://api:3001` のような Kubernetes ClusterIP Service の内部DNS名を設定しないでください。Web コンテナ内ではなく、エンドユーザーのブラウザで使用されます。
+
+ConfigMapを変更しただけでは、既存のWeb Pod内に生成済みの `/env-config.js` は更新されません。ConfigMap適用後はWeb Podを再起動し、生成内容を確認してください。
+
+```bash
+kubectl apply -k k8s/overlays/production
+kubectl -n production rollout restart deployment/web
+kubectl -n production rollout status deployment/web
+kubectl -n production exec deployment/web -- sed -n '1,120p' /usr/share/nginx/html/env-config.js
+
+# ブラウザから参照される内容を確認する場合
+kubectl -n production port-forward service/web 8080:80
+curl http://127.0.0.1:8080/env-config.js
+```
 
 #### Secretの編集
 
@@ -259,7 +276,7 @@ REDIS_URL=redis://host:port
 
 ### VITE_*環境変数
 
-フロントエンドで使用される公開環境変数です。Viteビルド時にバンドルに埋め込まれます。
+フロントエンドで使用される公開環境変数です。Web コンテナ起動時に `/env-config.js` へ書き出され、ブラウザで読み込まれます。
 
 #### VITE_HCAPTCHA_SITE_KEY（必須）
 
@@ -277,6 +294,7 @@ VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
 
 開発環境でフォーム送信を疎通確認するためのフラグです。`true` にすると hCaptcha、テレメトリIP/トークン、フィンガープリント必須チェックをまとめてバイパスします。
 本番向けの `k8s/base` には含めず、開発用の Web runtime config と API 環境変数にだけ設定してください。
+`k8s/base/configmap.yaml` にはこのキーの値を置かず、必要な開発用 overlay でだけ追加してください。
 
 ```
 VITE_FORM_SECURITY_DEV_BYPASS=false
@@ -290,11 +308,12 @@ VITE_FORM_SECURITY_DEV_BYPASS=false
 VITE_BASE_URL=https://example.com
 ```
 
-#### VITE_TELEMETRY_V4_HOST / VITE_TELEMETRY_V6_HOST（オプション）
+#### VITE_TELEMETRY_HOST / VITE_TELEMETRY_V4_HOST / VITE_TELEMETRY_V6_HOST（オプション）
 
 テレメトリーホストを設定します。bare host と URL の両方を指定でき、bare host は `https://` として扱われ、URL path は endpoint の base path として保持されます。公開フォーム送信時の token 取得は単一 token を使用し、`VITE_TELEMETRY_V4_HOST`、`VITE_TELEMETRY_V6_HOST`、共通の `VITE_TELEMETRY_HOST`（v4 endpoint）、既存 API client fallback（v4 endpoint）の順に使用します。専用 host が設定されている場合、その host での token 取得失敗時は fallback せず送信を停止します。
 
 ```
+VITE_TELEMETRY_HOST=telemetry.example.com
 VITE_TELEMETRY_V4_HOST=ipv4.example.com
 VITE_TELEMETRY_V6_HOST=ipv6.example.com
 ```
