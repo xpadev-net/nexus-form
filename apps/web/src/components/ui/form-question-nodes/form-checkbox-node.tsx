@@ -89,18 +89,14 @@ export function CheckboxInput({ element }: { element: TElement }) {
     const next = checked
       ? [...selected, optionId]
       : selected.filter((id) => id !== optionId);
-    ctx.setAnswer(blockId, {
+    const nextAnswer = {
       values: next,
       other_values: next.includes("other")
         ? (answer?.other_values as string[]) ?? []
         : undefined,
-    });
-    validationFeedback.markTouched({
-      values: next,
-      other_values: next.includes("other")
-        ? (answer?.other_values as string[]) ?? []
-        : undefined,
-    });
+    };
+    ctx.setAnswer(blockId, nextAnswer);
+    validationFeedback.markTouched(nextAnswer);
   };
 
   const focusOption = (optionId: string) => {

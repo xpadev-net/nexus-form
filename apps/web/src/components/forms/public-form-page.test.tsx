@@ -395,6 +395,8 @@ vi.mock("@/lib/forms/find-unanswered-required", () => ({
 describe("PublicFormPage", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    window.__NEXUS_FORM_CONFIG__ = undefined;
     publicFormData = lockedFormData;
     publicFormIsPending = false;
     refetchResult = { data: unlockedFormData, error: null };
@@ -877,6 +879,199 @@ describe("PublicFormPage", () => {
         fingerprints: [],
       },
     });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("uses the dedicated runtime telemetry v4 host when requesting the submit token", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    window.__NEXUS_FORM_CONFIG__ = {
+      telemetryV4Host: "ipv4.runtime.example",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ token: "runtime-host-token" }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) => {
+      expect(request).toBe("submit-request");
+      return {
+        confirmation: {
+          title: "ご回答ありがとうございます",
+          message: "回答を受け付けました。ご協力ありがとうございました。",
+        },
+        response: { id: "response-1" },
+        responseId: "response-1",
+      };
+    });
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv4.runtime.example/api/telemetry/v4",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: {
+        responses: [],
+        captchaToken: "form-security-dev-bypass",
+        telemetry: { v4Token: "runtime-host-token" },
+        fingerprints: [],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("uses the dedicated runtime telemetry v6 host when no v4 host is configured", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    window.__NEXUS_FORM_CONFIG__ = {
+      telemetryV6Host: "ipv6.runtime.example",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ token: "runtime-v6-host-token" }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) => {
+      expect(request).toBe("submit-request");
+      return {
+        confirmation: {
+          title: "ご回答ありがとうございます",
+          message: "回答を受け付けました。ご協力ありがとうございました。",
+        },
+        response: { id: "response-1" },
+        responseId: "response-1",
+      };
+    });
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv6.runtime.example/api/telemetry/v6",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: {
+        responses: [],
+        captchaToken: "form-security-dev-bypass",
+        telemetry: { v6Token: "runtime-v6-host-token" },
+        fingerprints: [],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("stops public submit when the configured telemetry host fails", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    window.__NEXUS_FORM_CONFIG__ = {
+      telemetryV4Host: "ipv4.runtime.example",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "rate limited" }), {
+          status: 429,
+        }),
+      ),
+    );
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.submitPost).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("rate limited");
 
     await act(async () => {
       root.unmount();
