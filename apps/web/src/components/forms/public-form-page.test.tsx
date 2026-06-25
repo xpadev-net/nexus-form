@@ -396,6 +396,9 @@ describe("PublicFormPage", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+    vi.stubEnv("VITE_BRAND_PRIVACY_URL", "");
+    vi.stubEnv("VITE_BRAND_TERMS_URL", "");
+    window.__BRAND_CONFIG__ = undefined;
     window.__NEXUS_FORM_CONFIG__ = undefined;
     publicFormData = lockedFormData;
     publicFormIsPending = false;
@@ -573,6 +576,182 @@ describe("PublicFormPage", () => {
     act(() => root.unmount());
   });
 
+  it("shows the runtime brand terms link on the public response and submit completion screens", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    window.__BRAND_CONFIG__ = {
+      termsUrl: "https://brand.example/terms",
+    };
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "送信ありがとうございます",
+              message: "受付が完了しました。",
+            },
+            response: { id: "response-terms" },
+            responseId: "response-terms",
+          },
+    );
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    const responseTermsLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://brand.example/terms"]',
+    );
+    expect(responseTermsLink?.textContent).toBe("利用規約");
+    expect(responseTermsLink?.target).toBe("_blank");
+    expect(responseTermsLink?.rel).toContain("noopener");
+    expect(container.textContent).not.toContain("プライバシーポリシー");
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("送信完了");
+    const completionTermsLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="https://brand.example/terms"]',
+    );
+    expect(completionTermsLink?.textContent).toBe("利用規約");
+    expect(container.textContent).not.toContain("プライバシーポリシー");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("hides public legal links when runtime brand legal URLs are not configured", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : {
+            confirmation: {
+              title: "送信ありがとうございます",
+              message: "受付が完了しました。",
+            },
+            response: { id: "response-no-legal" },
+            responseId: "response-no-legal",
+          },
+    );
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    expect(
+      container.querySelector("[aria-label='ブランドの法的リンク']"),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("利用規約");
+    expect(container.textContent).not.toContain("プライバシーポリシー");
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("送信完了");
+    expect(
+      container.querySelector("[aria-label='ブランドの法的リンク']"),
+    ).toBeNull();
+    expect(container.textContent).not.toContain("利用規約");
+    expect(container.textContent).not.toContain("プライバシーポリシー");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("matches footer legal link rules for a privacy-only or paired runtime brand config", () => {
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: "[]",
+      structure: { settings: { require_fingerprint: false } },
+    };
+    window.__BRAND_CONFIG__ = {
+      privacyUrl: "https://brand.example/privacy",
+    };
+    const privacyOnlyContainer = document.createElement("div");
+    const privacyOnlyRoot = renderPublicForm(privacyOnlyContainer);
+
+    expect(privacyOnlyContainer.textContent).not.toContain("利用規約");
+    expect(privacyOnlyContainer.textContent).toContain("プライバシーポリシー");
+    expect(
+      privacyOnlyContainer.querySelector<HTMLAnchorElement>(
+        'a[href="https://brand.example/privacy"]',
+      ),
+    ).not.toBeNull();
+    expect(privacyOnlyContainer.textContent).not.toContain("|");
+
+    act(() => privacyOnlyRoot.unmount());
+
+    window.__BRAND_CONFIG__ = {
+      privacyUrl: "https://brand.example/privacy",
+      termsUrl: "https://brand.example/terms",
+    };
+    const pairedContainer = document.createElement("div");
+    const pairedRoot = renderPublicForm(pairedContainer);
+
+    expect(pairedContainer.textContent).toContain("利用規約");
+    expect(pairedContainer.textContent).toContain("プライバシーポリシー");
+    expect(pairedContainer.textContent).toContain("|");
+    expect(
+      pairedContainer.querySelector<HTMLAnchorElement>(
+        'a[href="https://brand.example/terms"]',
+      ),
+    ).not.toBeNull();
+    expect(
+      pairedContainer.querySelector<HTMLAnchorElement>(
+        'a[href="https://brand.example/privacy"]',
+      ),
+    ).not.toBeNull();
+
+    act(() => pairedRoot.unmount());
+  });
+
   it("explains that a 404 public URL may have been regenerated", () => {
     publicFormData = undefined;
     const container = document.createElement("div");
@@ -592,6 +771,9 @@ describe("PublicFormPage", () => {
   });
 
   it("shows the password gate while protected body fields are locked, then renders the form after verification", async () => {
+    window.__BRAND_CONFIG__ = {
+      termsUrl: "https://brand.example/terms",
+    };
     const container = document.createElement("div");
     const root = renderPublicForm(container);
 
@@ -616,6 +798,11 @@ describe("PublicFormPage", () => {
     expect(
       container.querySelector("[data-testid='public-form-body']")?.textContent,
     ).toContain("Protected form");
+    expect(
+      container.querySelector<HTMLAnchorElement>(
+        'a[href="https://brand.example/terms"]',
+      )?.textContent,
+    ).toBe("利用規約");
 
     await act(async () => {
       root.unmount();

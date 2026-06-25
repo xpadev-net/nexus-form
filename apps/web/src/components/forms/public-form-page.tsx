@@ -8,7 +8,14 @@ import {
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from "react";
 import { z } from "zod";
 import {
   FormResponseProvider,
@@ -20,18 +27,24 @@ import {
 } from "@/hooks/fingerprint/use-fingerprint";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, RpcError, rpc } from "@/lib/api";
+import { getRuntimeBrandConfig } from "@/lib/brand-config";
 import { findUnansweredRequired } from "@/lib/forms/find-unanswered-required";
 import { decodePrefillData } from "@/lib/forms/prefill";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
 import { fetchPublicSubmitTelemetryToken } from "@/lib/telemetry-token";
+import { cn } from "@/lib/utils";
 import {
+  type FormAppearance,
   FormAppearanceSchema,
   type FormConfirmation,
   SafeConfirmationUrlSchema,
 } from "@/types/validation/form";
-import { FormAppearanceSurface } from "./form-appearance-surface";
+import {
+  FormAppearanceSurface,
+  normalizeFormAppearance,
+} from "./form-appearance-surface";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -249,6 +262,89 @@ function PublicFormLoadingStatus({ message }: { message: string }) {
     <section aria-busy="true" className="p-6" data-public-form-loading="true">
       <p className="text-sm text-muted-foreground">{message}</p>
     </section>
+  );
+}
+
+function publicFormLegalLinksWidthClass(
+  width: FormAppearance["layout"]["width"],
+): string {
+  switch (width) {
+    case "full":
+      return "max-w-none";
+    case "compact":
+      return "max-w-2xl";
+    case "medium":
+      return "max-w-3xl";
+  }
+}
+
+function PublicFormLegalLinks({
+  appearance: appearanceProp,
+}: {
+  appearance?: FormAppearance;
+}) {
+  const { termsUrl, privacyUrl } = getRuntimeBrandConfig();
+  if (!termsUrl && !privacyUrl) return null;
+
+  const appearance = normalizeFormAppearance(appearanceProp);
+  const isCentered = appearance.layout.alignment === "center";
+
+  return (
+    <nav
+      aria-label="ブランドの法的リンク"
+      className={cn(
+        "w-full px-6 pt-1 pb-6 text-xs text-muted-foreground",
+        publicFormLegalLinksWidthClass(appearance.layout.width),
+        isCentered ? "mx-auto text-center" : "mr-auto text-left",
+      )}
+    >
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-x-4 gap-y-2",
+          isCentered ? "justify-center" : "justify-start",
+        )}
+      >
+        {termsUrl && (
+          <a
+            href={termsUrl}
+            className="transition-colors underline-offset-4 hover:text-foreground hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            利用規約
+          </a>
+        )}
+        {termsUrl && privacyUrl && <span className="text-border">|</span>}
+        {privacyUrl && (
+          <a
+            href={privacyUrl}
+            className="transition-colors underline-offset-4 hover:text-foreground hover:underline"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            プライバシーポリシー
+          </a>
+        )}
+      </div>
+    </nav>
+  );
+}
+
+function PublicFormAppearanceShell({
+  appearance,
+  children,
+}: {
+  appearance?: FormAppearance;
+  children: ReactNode;
+}) {
+  return (
+    <FormAppearanceSurface
+      appearance={appearance}
+      className="flex min-h-dvh flex-col"
+    >
+      <div className="flex-1">{children}</div>
+      <PublicFormLegalLinks appearance={appearance} />
+    </FormAppearanceSurface>
   );
 }
 
@@ -604,7 +700,7 @@ function PublicFormPageInner() {
   if (state.submitted) {
     if (state.submitted.completionTargetPageId) {
       return (
-        <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+        <PublicFormAppearanceShell appearance={appearance}>
           <FormBody
             title={formData.form.title ?? "公開フォーム"}
             description={formData.form.description ?? undefined}
@@ -614,18 +710,18 @@ function PublicFormPageInner() {
             captchaReady={true}
             submittedCompletionPageId={state.submitted.completionTargetPageId}
           />
-        </FormAppearanceSurface>
+        </PublicFormAppearanceShell>
       );
     }
 
     return (
-      <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+      <PublicFormAppearanceShell appearance={appearance}>
         <PublicSubmitCompletion
           responseId={state.submitted.responseId}
           confirmation={state.submitted.confirmation}
           responseSummary={state.submitted.responseSummary}
         />
-      </FormAppearanceSurface>
+      </PublicFormAppearanceShell>
     );
   }
 
@@ -651,7 +747,7 @@ function PublicFormPageInner() {
       <PublicFormLoadingStatus message="フォーム本文を復元しています。" />
     </PasswordProtectionGate>
   ) : (
-    <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+    <PublicFormAppearanceShell appearance={appearance}>
       <FormBody
         title={formData.form.title ?? "公開フォーム"}
         description={formData.form.description ?? undefined}
@@ -674,6 +770,6 @@ function PublicFormPageInner() {
         success={null}
         onErrorChange={(message) => dispatch({ type: "set-error", message })}
       />
-    </FormAppearanceSurface>
+    </PublicFormAppearanceShell>
   );
 }
