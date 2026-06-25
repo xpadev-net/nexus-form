@@ -10,7 +10,7 @@ import {
   type PlateElementProps,
 } from "platejs/react";
 import { type ComponentProps, type ReactNode, act, forwardRef } from "react";
-import { createRoot, type Root } from "react-dom/client";
+import { createRoot } from "react-dom/client";
 import type { DropTargetMonitor } from "react-dnd";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BlockDragElement, isBlockDragEnabled } from "./block-draggable";

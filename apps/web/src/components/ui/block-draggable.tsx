@@ -123,7 +123,6 @@ export function BlockDragElement(props: PlateElementProps) {
       },
     });
 
-  const isInFormQuestion = path.length === 2;
   const isInColumn = path.length === 3;
   const isInTable = path.length === 4;
 
@@ -198,17 +197,17 @@ export function BlockDragElement(props: PlateElementProps) {
       {!isInTable && (
         <Gutter>
           <div
-            className={cn(
-              "slate-blockToolbarWrapper",
-              "flex h-[1.5em]",
-              (isInColumn || isInFormQuestion) && "h-4",
-            )}
+              className={cn(
+                "slate-blockToolbarWrapper",
+                "flex h-[1.5em]",
+                isInColumn && "h-4",
+              )}
           >
             <div
               className={cn(
                 "slate-blockToolbar relative w-4.5",
                 "pointer-events-auto mr-1 flex items-center",
-                (isInColumn || isInFormQuestion) && "mr-1.5",
+                isInColumn && "mr-1.5",
               )}
             >
               <Tooltip>
