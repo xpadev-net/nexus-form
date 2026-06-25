@@ -180,6 +180,7 @@ images:
 - フォークして利用する場合は、`xpadev-net` をご自身のGitHub組織名またはユーザー名に置き換えてください
 - 別のレジストリを使用する場合は、`newName`を適切なレジストリパスに変更してください
 - 特定のタグを使用する場合は、`newTag`を変更してください（例: `sha-abc1234`）
+- API のマイグレーション Job と API Deployment は同じ `nexus-form` イメージ参照を使います。Argo CD の `Sync` hook と sync wave で新しい API Pod の起動前にマイグレーションを実行するため、本番環境では `latest` ではなく `sha-<short-sha>` などの immutable tag を指定してください。
 
 #### 特定のコミットSHAタグを使用する場合
 
@@ -206,11 +207,25 @@ images:
 kubectl apply -k k8s/base
 ```
 
+このコマンドはマニフェストのレンダリング確認や簡易適用には使えますが、Argo CD hook の wave 順序や Job 完了待ちは `kubectl apply` では保証されません。API 起動前 migration の順序保証が必要な環境では Argo CD で同期してください。`kubectl` で運用する場合は ConfigMap/Secret を適用後、API Deployment を更新する前に同じ `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了を確認してから Deployment を適用します。
+
 #### 本番環境へのデプロイ
 
 ```bash
 kubectl apply -k k8s/overlays/production
 ```
+
+### データベースマイグレーション
+
+Argo CD でデプロイする場合、`api-migration` Job が `Sync` hook として実行されます。API コンテナの起動処理ではマイグレーションを実行せず、同じ `nexus-form` イメージに同梱された `/migration/run-migrations.mjs` を hook Job から実行します。
+
+ConfigMap と Secret は sync wave `-2`、migration Job は sync wave `-1`、API Deployment は通常 wave `0` で同期されます。これにより、更新後の環境変数を先に反映し、マイグレーション完了後に新しい API Pod を起動できます。
+
+`PreSync` は ConfigMap/Secret などの通常リソースより前に実行されるため、初回デプロイや環境変数変更を含む同期で参照先が存在しない、または古い値で migration される可能性があります。`PostSync` では新しい API Pod が先に起動するため、新しいコードが未適用のスキーマへアクセスする時間が発生します。そのため、このマニフェストでは `Sync` hook と sync wave を組み合わせます。
+
+`Sync` hook も同期対象の desired manifest から作成されますが、`latest` のような mutable tag ではレジストリの更新タイミングに依存します。マイグレーションと API を同じビルドに固定するため、production overlay の `nexus-form` は immutable tag に更新してから同期してください。
+
+Argo CD を使わずに同じ API イメージを直接起動する場合は、API 起動前に `/nodejs/bin/node /migration/run-migrations.mjs` を別 Job や手動ステップで実行してください。
 
 ## 環境変数の設定
 
@@ -327,7 +342,7 @@ APIサーバーにはliveness probe（`/api/health`）とreadiness probe（`/api
 
 ### データベースマイグレーション
 
-データベースマイグレーションはDrizzle ORMで管理されています。デプロイ前に`pnpm db:migrate`を実行してください。
+データベースマイグレーションはDrizzle ORMで管理されています。Argo CD では `api-migration` Sync hook が API Deployment の前に実行します。Argo CD 以外で運用する場合は、API と同じ `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了後に API Deployment を更新してください。
 
 ## トラブルシューティング
 

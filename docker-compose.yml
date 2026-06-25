@@ -71,11 +71,24 @@ services:
   # あるいは API がプロバイダ未登録として即 FAILED にする、というドリフトが
   # 発生します。詳細は docs/external-plugins.md を参照。
   #
+  # api-migration:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #   environment:
+  #     DATABASE_URL: mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}
+  #   entrypoint: ["/nodejs/bin/node", "/migration/run-migrations.mjs"]
+  #
   # api:
   #   build:
   #     context: .
   #     dockerfile: Dockerfile
   #   depends_on:
+  #     api-migration:
+  #       condition: service_completed_successfully
   #     mysql:
   #       condition: service_healthy
   #     redis:
