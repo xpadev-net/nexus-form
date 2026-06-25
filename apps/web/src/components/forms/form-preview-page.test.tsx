@@ -170,4 +170,14 @@ describe("FormPreviewPage links", () => {
 
     expect(formBodyProps.at(-1)?.appearance).toEqual(mockAppearance);
   });
+
+  it("wraps the latest preview body in the shared appearance surface", () => {
+    const html = renderToStaticMarkup(<FormPreviewPage />);
+
+    expect(html).toContain('data-form-appearance-surface="true"');
+    expect(html).toContain("--background:#ffffff");
+    expect(html).toContain("--card:#ebebeb");
+    expect(html).toContain("--primary:#2563eb");
+    expect(html).toContain("--accent:#16a34a");
+  });
 });

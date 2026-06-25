@@ -7,7 +7,6 @@ import {
   splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import {
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
   useCallback,
@@ -23,11 +22,12 @@ import { useFormResponse } from "@/contexts/form-response-context";
 import { useFormPaging } from "@/hooks/forms/use-form-paging";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { cn } from "@/lib/utils";
-import {
-  type FormAppearance,
-  FormAppearanceSchema,
-} from "@/types/validation/form";
+import type { FormAppearance } from "@/types/validation/form";
 import { validateExtractedQuestionAnswer } from "@/utils/validation/question-validators";
+import {
+  formAppearanceSurfaceStyle,
+  normalizeFormAppearance,
+} from "./form-appearance-surface";
 import { FormPageNavigation } from "./form-page-navigation";
 
 export interface FormSubmitRequestData {
@@ -68,57 +68,6 @@ interface QuestionValidationMessage {
   messages: string[];
 }
 
-type FormBodyStyle = CSSProperties & {
-  "--background": string;
-  "--card": string;
-  "--form-accent-color": string;
-  "--primary": string;
-  "--primary-foreground": string;
-  "--ring": string;
-};
-
-function contrastTextColor(hexColor: string): string {
-  const expanded =
-    hexColor.length === 4
-      ? `#${hexColor
-          .slice(1)
-          .split("")
-          .map((char) => `${char}${char}`)
-          .join("")}`
-      : hexColor;
-  const value = Number.parseInt(expanded.slice(1), 16);
-  const channels = [(value >> 16) & 255, (value >> 8) & 255, value & 255].map(
-    (channel) => {
-      const normalized = channel / 255;
-      return normalized <= 0.03928
-        ? normalized / 12.92
-        : ((normalized + 0.055) / 1.055) ** 2.4;
-    },
-  );
-  const red = channels[0] ?? 0;
-  const green = channels[1] ?? 0;
-  const blue = channels[2] ?? 0;
-  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-  const blackContrast = (luminance + 0.05) / 0.05;
-  const whiteContrast = 1.05 / (luminance + 0.05);
-  return blackContrast >= whiteContrast ? "black" : "white";
-}
-
-function formBodyStyle(appearance: FormAppearance): FormBodyStyle {
-  const { theme } = appearance;
-  return {
-    "--background": theme.background_color,
-    "--card": theme.background_color,
-    "--form-accent-color": theme.accent_color,
-    "--primary": theme.primary_color,
-    "--primary-foreground": contrastTextColor(theme.primary_color),
-    "--ring": theme.primary_color,
-    backgroundColor: theme.background_color,
-    color: contrastTextColor(theme.background_color),
-    fontFamily: theme.font_family,
-  };
-}
-
 function formWidthClass(width: FormAppearance["layout"]["width"]): string {
   switch (width) {
     case "full":
@@ -142,10 +91,6 @@ function formSpacingClass(spacing: FormAppearance["layout"]["spacing"]): {
     case "comfortable":
       return { section: "space-y-4 p-6", card: "p-6" };
   }
-}
-
-function normalizeAppearance(appearance: FormAppearance | undefined) {
-  return appearance ?? FormAppearanceSchema.parse({});
 }
 
 function uniqueMessages(messages: string[]): string[] {
@@ -340,7 +285,7 @@ export function FormBody({
   const [validationDisplayPageIndexes, setValidationDisplayPageIndexes] =
     useState<ReadonlySet<number>>(() => new Set());
   const appearance = useMemo(
-    () => normalizeAppearance(appearanceProp),
+    () => normalizeFormAppearance(appearanceProp),
     [appearanceProp],
   );
 
@@ -664,7 +609,7 @@ export function FormBody({
         alignClass,
         spacingClass.section,
       )}
-      style={formBodyStyle(appearance)}
+      style={formAppearanceSurfaceStyle(appearance)}
       data-form-appearance-width={appearance.layout.width}
       data-form-appearance-spacing={appearance.layout.spacing}
       data-form-question-numbers={
@@ -718,7 +663,10 @@ export function FormBody({
         {/* Plate ドキュメントによるフォーム描画 (現在ページのみ) */}
         {parsedContent.length > 0 ? (
           <div
-            className={cn("rounded-lg border bg-card", spacingClass.card)}
+            className={cn(
+              "rounded-lg border bg-card text-card-foreground",
+              spacingClass.card,
+            )}
             ref={viewerRef}
           >
             <FormQuestionA11yProvider

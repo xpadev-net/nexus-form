@@ -20,6 +20,7 @@ import { formatJapanDate } from "@/lib/formatters";
 import { decodePrefillData } from "@/lib/forms/prefill";
 import { FormAppearanceSchema } from "@/types/validation/form";
 import { formAppearanceStructureQueryKey } from "./form-appearance-settings";
+import { FormAppearanceSurface } from "./form-appearance-surface";
 import { FormBody } from "./form-body";
 
 function PreviewLoadingStatus({ message }: { message: string }) {
@@ -216,22 +217,27 @@ export function FormPreviewPage() {
           </p>
         </section>
       ) : (
-        <FormResponseProvider
-          key={String(selectedVersion)}
-          initialAnswers={prefilledAnswers}
+        <FormAppearanceSurface
+          appearance={previewAppearance}
+          className="min-h-[calc(100dvh-41px)]"
         >
-          <FormBody
-            title={form?.title ?? "フォームプレビュー"}
-            description={form?.description ?? undefined}
-            plateContent={plateContent ?? "[]"}
-            mode="preview"
-            appearance={previewAppearance}
-            onSubmitRequest={handlePreviewSubmit}
-            error={previewError}
-            onErrorChange={setPreviewError}
-            success={previewMessage}
-          />
-        </FormResponseProvider>
+          <FormResponseProvider
+            key={String(selectedVersion)}
+            initialAnswers={prefilledAnswers}
+          >
+            <FormBody
+              title={form?.title ?? "フォームプレビュー"}
+              description={form?.description ?? undefined}
+              plateContent={plateContent ?? "[]"}
+              mode="preview"
+              appearance={previewAppearance}
+              onSubmitRequest={handlePreviewSubmit}
+              error={previewError}
+              onErrorChange={setPreviewError}
+              success={previewMessage}
+            />
+          </FormResponseProvider>
+        </FormAppearanceSurface>
       )}
     </div>
   );
