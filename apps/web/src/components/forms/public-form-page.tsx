@@ -31,6 +31,7 @@ import {
   type FormConfirmation,
   SafeConfirmationUrlSchema,
 } from "@/types/validation/form";
+import { FormAppearanceSurface } from "./form-appearance-surface";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import { FormNotFoundPage } from "./form-not-found-page";
 import { HCaptchaWidget, type HCaptchaWidgetHandle } from "./hcaptcha-widget";
@@ -289,7 +290,7 @@ function PublicSubmitCompletion({
 
   return (
     <section className="mx-auto max-w-2xl space-y-4 p-6">
-      <div className="rounded-lg border bg-card p-6">
+      <div className="rounded-lg border bg-card p-6 text-card-foreground">
         <div className="space-y-3">
           <p className="text-sm font-medium text-emerald-600">送信完了</p>
           <h1 className="text-2xl font-semibold">{confirmation.title}</h1>
@@ -603,24 +604,28 @@ function PublicFormPageInner() {
   if (state.submitted) {
     if (state.submitted.completionTargetPageId) {
       return (
-        <FormBody
-          title={formData.form.title ?? "公開フォーム"}
-          description={formData.form.description ?? undefined}
-          plateContent={formData.plateContent ?? "[]"}
-          mode="public"
-          appearance={appearance}
-          captchaReady={true}
-          submittedCompletionPageId={state.submitted.completionTargetPageId}
-        />
+        <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+          <FormBody
+            title={formData.form.title ?? "公開フォーム"}
+            description={formData.form.description ?? undefined}
+            plateContent={formData.plateContent ?? "[]"}
+            mode="public"
+            appearance={appearance}
+            captchaReady={true}
+            submittedCompletionPageId={state.submitted.completionTargetPageId}
+          />
+        </FormAppearanceSurface>
       );
     }
 
     return (
-      <PublicSubmitCompletion
-        responseId={state.submitted.responseId}
-        confirmation={state.submitted.confirmation}
-        responseSummary={state.submitted.responseSummary}
-      />
+      <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+        <PublicSubmitCompletion
+          responseId={state.submitted.responseId}
+          confirmation={state.submitted.confirmation}
+          responseSummary={state.submitted.responseSummary}
+        />
+      </FormAppearanceSurface>
     );
   }
 
@@ -646,27 +651,29 @@ function PublicFormPageInner() {
       <PublicFormLoadingStatus message="フォーム本文を復元しています。" />
     </PasswordProtectionGate>
   ) : (
-    <FormBody
-      title={formData.form.title ?? "公開フォーム"}
-      description={formData.form.description ?? undefined}
-      plateContent={formData.plateContent ?? "[]"}
-      mode="public"
-      appearance={appearance}
-      onSubmitRequest={(data) => void handleSubmitRequest(data)}
-      preSubmitSlot={
-        hCaptchaBypassEnabled ? null : (
-          <HCaptchaWidget
-            ref={captchaRef}
-            onVerify={handleCaptchaVerify}
-            onExpire={handleCaptchaExpire}
-          />
-        )
-      }
-      isSubmitting={state.isSubmitting}
-      captchaReady={hCaptchaBypassEnabled || !!state.captchaToken}
-      error={state.error}
-      success={null}
-      onErrorChange={(message) => dispatch({ type: "set-error", message })}
-    />
+    <FormAppearanceSurface appearance={appearance} className="min-h-dvh">
+      <FormBody
+        title={formData.form.title ?? "公開フォーム"}
+        description={formData.form.description ?? undefined}
+        plateContent={formData.plateContent ?? "[]"}
+        mode="public"
+        appearance={appearance}
+        onSubmitRequest={(data) => void handleSubmitRequest(data)}
+        preSubmitSlot={
+          hCaptchaBypassEnabled ? null : (
+            <HCaptchaWidget
+              ref={captchaRef}
+              onVerify={handleCaptchaVerify}
+              onExpire={handleCaptchaExpire}
+            />
+          )
+        }
+        isSubmitting={state.isSubmitting}
+        captchaReady={hCaptchaBypassEnabled || !!state.captchaToken}
+        error={state.error}
+        success={null}
+        onErrorChange={(message) => dispatch({ type: "set-error", message })}
+      />
+    </FormAppearanceSurface>
   );
 }

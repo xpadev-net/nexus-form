@@ -15,6 +15,7 @@ import {
   requireInput,
 } from "@/test-utils/form-control-labels";
 import type { FormAppearance } from "@/types/validation/form";
+import { FormAppearanceSurface } from "./form-appearance-surface";
 import type { FormSubmitRequestData } from "./form-body";
 import { FormBody } from "./form-body";
 
@@ -356,26 +357,28 @@ function renderFormBody(
     return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
         {options.providerSlot}
-        <FormBody
-          title="公開フォーム"
-          plateContent={plateContent}
-          mode="public"
-          appearance={options.appearance}
-          captchaReady={options.captchaReady}
-          description={options.description}
-          error={error}
-          submittedCompletionPageId={submittedCompletionPageId}
-          onErrorChange={(nextError) => {
-            setError(nextError);
-            options.onErrorChange?.(nextError);
-          }}
-          onSubmitRequest={(data) => {
-            options.onSubmitRequest?.(data);
-            if (options.showCompletionTargetAfterSubmit) {
-              setSubmittedCompletionPageId(data.completionTargetPageId);
-            }
-          }}
-        />
+        <FormAppearanceSurface appearance={options.appearance}>
+          <FormBody
+            title="公開フォーム"
+            plateContent={plateContent}
+            mode="public"
+            appearance={options.appearance}
+            captchaReady={options.captchaReady}
+            description={options.description}
+            error={error}
+            submittedCompletionPageId={submittedCompletionPageId}
+            onErrorChange={(nextError) => {
+              setError(nextError);
+              options.onErrorChange?.(nextError);
+            }}
+            onSubmitRequest={(data) => {
+              options.onSubmitRequest?.(data);
+              if (options.showCompletionTargetAfterSubmit) {
+                setSubmittedCompletionPageId(data.completionTargetPageId);
+              }
+            }}
+          />
+        </FormAppearanceSurface>
       </FormResponseProvider>
     );
   }
@@ -749,7 +752,7 @@ describe("FormBody", () => {
     expect(renderedValue).not.toContain("Q1.");
     expect(
       container
-        .querySelector<HTMLElement>("[data-form-appearance-width='compact']")
+        .querySelector<HTMLElement>("[data-form-appearance-surface='true']")
         ?.style.getPropertyValue("--primary-foreground"),
     ).toBe("white");
     expect(
@@ -760,6 +763,79 @@ describe("FormBody", () => {
     ).not.toBeNull();
 
     act(() => root.unmount());
+  });
+
+  it("keeps appearance page and card colors consistent in light and dark themes", () => {
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "question-1", "氏名", {
+        required: false,
+      }),
+    ]);
+    const container = document.createElement("div");
+    const lightAppearance = appearanceWithQuestionNumbers(false);
+    const lightRoot = renderFormBody(container, plateContent, {
+      appearance: lightAppearance,
+    });
+
+    const lightBody = container.querySelector<HTMLElement>(
+      "[data-form-appearance-width='compact']",
+    );
+    const lightSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(lightBody?.style.getPropertyValue("--background")).toBe("");
+    expect(lightSurface?.style.getPropertyValue("--background")).toBe(
+      "#ffffff",
+    );
+    expect(lightSurface?.style.getPropertyValue("--foreground")).toBe("black");
+    expect(lightSurface?.style.getPropertyValue("--card")).toBe("#ebebeb");
+    expect(lightSurface?.style.getPropertyValue("--card-foreground")).toBe(
+      "black",
+    );
+    expect(
+      container
+        .querySelector("[data-testid='plate-viewer']")
+        ?.parentElement?.classList.contains("text-card-foreground"),
+    ).toBe(true);
+
+    act(() => lightRoot.unmount());
+    container.replaceChildren();
+
+    const darkRoot = renderFormBody(container, plateContent, {
+      appearance: {
+        ...lightAppearance,
+        theme: {
+          ...lightAppearance.theme,
+          primary_color: "#93c5fd",
+          accent_color: "#bbf7d0",
+          background_color: "#111827",
+        },
+      },
+    });
+
+    const darkBody = container.querySelector<HTMLElement>(
+      "[data-form-appearance-width='compact']",
+    );
+    const darkSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(darkBody?.style.getPropertyValue("--background")).toBe("");
+    expect(darkSurface?.style.getPropertyValue("--background")).toBe("#111827");
+    expect(darkSurface?.style.getPropertyValue("--foreground")).toBe("white");
+    expect(darkSurface?.style.getPropertyValue("--card")).toBe("#242a38");
+    expect(darkSurface?.style.getPropertyValue("--card-foreground")).toBe(
+      "white",
+    );
+    expect(darkSurface?.style.getPropertyValue("--card")).not.toBe(
+      darkSurface?.style.getPropertyValue("--background"),
+    );
+    expect(
+      container
+        .querySelector("[data-testid='plate-viewer']")
+        ?.parentElement?.classList.contains("text-card-foreground"),
+    ).toBe(true);
+
+    act(() => darkRoot.unmount());
   });
 
   it("renders appearance images with no-referrer privacy controls", () => {

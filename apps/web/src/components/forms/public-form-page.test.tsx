@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
+import type { FormAppearance } from "@/types/validation/form";
 import { PublicFormPage } from "./public-form-page";
 
 (
@@ -46,6 +47,7 @@ type PublicFormData = {
       show_response_id?: boolean;
       allow_edit_link?: boolean;
     };
+    appearance?: FormAppearance;
     settings?: { require_fingerprint?: boolean };
   } | null;
 };
@@ -524,6 +526,51 @@ describe("PublicFormPage", () => {
     await act(async () => {
       root.unmount();
     });
+  });
+
+  it("wraps the public form body in the shared appearance surface", () => {
+    publicFormData = {
+      form: {
+        description: "Dark appearance",
+        isPasswordProtected: false,
+        title: "公開中のフォーム",
+      },
+      plateContent: "[]",
+      structure: {
+        appearance: {
+          theme: {
+            primary_color: "#93c5fd",
+            accent_color: "#bbf7d0",
+            background_color: "#111827",
+            font_family: "Inter",
+          },
+          layout: {
+            width: "medium",
+            alignment: "center",
+            spacing: "comfortable",
+            show_progress_bar: true,
+            progress_position: "top",
+            show_question_numbers: false,
+          },
+        },
+        settings: { require_fingerprint: false },
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    const surface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(surface).not.toBeNull();
+    expect(surface?.style.getPropertyValue("--background")).toBe("#111827");
+    expect(surface?.style.getPropertyValue("--foreground")).toBe("white");
+    expect(surface?.style.getPropertyValue("--card")).toBe("#242a38");
+    expect(surface?.style.getPropertyValue("--card-foreground")).toBe("white");
+    expect(surface?.style.getPropertyValue("--primary")).toBe("#93c5fd");
+    expect(surface?.style.getPropertyValue("--accent")).toBe("#bbf7d0");
+
+    act(() => root.unmount());
   });
 
   it("explains that a 404 public URL may have been regenerated", () => {
@@ -1230,6 +1277,22 @@ describe("PublicFormPage", () => {
         },
       ]),
       structure: {
+        appearance: {
+          theme: {
+            primary_color: "#93c5fd",
+            accent_color: "#bbf7d0",
+            background_color: "#111827",
+            font_family: "Inter",
+          },
+          layout: {
+            width: "medium",
+            alignment: "center",
+            spacing: "comfortable",
+            show_progress_bar: true,
+            progress_position: "top",
+            show_question_numbers: false,
+          },
+        },
         confirmation: {
           title: "送信ありがとうございます",
           message: "受付が完了しました。",
@@ -1292,6 +1355,16 @@ describe("PublicFormPage", () => {
     expect(container.textContent).toContain("次の手順");
     expect(container.textContent).toContain("問い合わせ");
     expect(container.textContent).not.toContain("回答を送信");
+    const surface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(surface?.style.getPropertyValue("--background")).toBe("#111827");
+    expect(surface?.style.getPropertyValue("--card")).toBe("#242a38");
+    expect(
+      container
+        .querySelector(".bg-card")
+        ?.classList.contains("text-card-foreground"),
+    ).toBe(true);
     expect(
       Array.from(container.querySelectorAll("a")).map((link) =>
         link.getAttribute("href"),

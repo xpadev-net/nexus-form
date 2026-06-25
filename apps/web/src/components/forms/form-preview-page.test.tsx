@@ -336,6 +336,16 @@ describe("FormPreviewPage links", () => {
     expect(formBodyProps.at(-1)?.appearance).toEqual(mockAppearance);
   });
 
+  it("wraps the latest preview body in the shared appearance surface", () => {
+    const html = renderToStaticMarkup(<FormPreviewPage />);
+
+    expect(html).toContain('data-form-appearance-surface="true"');
+    expect(html).toContain("--background:#ffffff");
+    expect(html).toContain("--card:#ebebeb");
+    expect(html).toContain("--primary:#2563eb");
+    expect(html).toContain("--accent:#16a34a");
+  });
+
   it("shows the preview completion target after submit without calling public submit", async () => {
     queryMockState.useActualFormBody = true;
     queryMockState.plateContent = JSON.stringify([
