@@ -236,6 +236,19 @@ describe("BlockDraggable", () => {
     cleanup();
   });
 
+  it("marks the block wrapper as a context menu target", () => {
+    const element = paragraph("block-1", "First block");
+    const editor = createEditor([element]);
+    const { cleanup, container } = renderDragElement({ editor, element });
+    const blockWrapper = container.querySelector<HTMLElement>(
+      ".slate-blockWrapper",
+    );
+
+    expect(blockWrapper?.dataset.blockContextMenuTarget).toBe("block-1");
+
+    cleanup();
+  });
+
   it("restores the dragged block selection after the drop handler lets Plate move nodes", async () => {
     const element = paragraph("block-1", "First block");
     const editor = createEditor([element, paragraph("block-2", "Second block")]);

@@ -10,6 +10,11 @@ import { type ReactNode, useCallback } from "react";
 
 import { setBlockType } from "@/components/editor/transforms";
 import {
+  getEventTargetElement,
+  resolveBlockContextMenuTargetId,
+  shouldKeepBlockContextMenuSelection,
+} from "@/components/ui/block-context-menu-target";
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuGroup,
@@ -77,13 +82,42 @@ export function BlockContextMenu({ children }: { children: ReactNode }) {
       <ContextMenuTrigger
         asChild
         onContextMenu={(event) => {
-          const dataset = (event.target as HTMLElement).dataset;
+          const eventTarget = getEventTargetElement(event.target);
+          const dataset =
+            eventTarget instanceof HTMLElement ? eventTarget.dataset : undefined;
           const disabled =
             dataset?.slateEditor === "true" ||
             readOnly ||
             dataset?.plateOpenContextMenu === "false";
 
           if (disabled) return event.preventDefault();
+
+          const targetBlockId = resolveBlockContextMenuTargetId({
+            clientX: event.clientX,
+            clientY: event.clientY,
+            root: event.currentTarget,
+            target: event.target,
+          });
+          const blockSelectionApi =
+            editor.getApi(BlockSelectionPlugin).blockSelection;
+
+          if (targetBlockId) {
+            const selectedBlockIds = blockSelectionApi
+              .getNodes()
+              .map(([node]) =>
+                typeof node.id === "string" ? node.id : undefined,
+              )
+              .filter((id): id is string => id !== undefined);
+
+            if (
+              !shouldKeepBlockContextMenuSelection(
+                selectedBlockIds,
+                targetBlockId,
+              )
+            ) {
+              blockSelectionApi.set(targetBlockId);
+            }
+          }
 
           window.setTimeout(() => {
             api.blockMenu.show(BLOCK_CONTEXT_MENU_ID, {
