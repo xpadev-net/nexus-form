@@ -24,10 +24,7 @@ import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { cn } from "@/lib/utils";
 import type { FormAppearance } from "@/types/validation/form";
 import { validateExtractedQuestionAnswer } from "@/utils/validation/question-validators";
-import {
-  formAppearanceSurfaceStyle,
-  normalizeFormAppearance,
-} from "./form-appearance-surface";
+import { normalizeFormAppearance } from "./form-appearance-surface";
 import { FormPageNavigation } from "./form-page-navigation";
 
 export interface FormSubmitRequestData {
@@ -609,7 +606,6 @@ export function FormBody({
         alignClass,
         spacingClass.section,
       )}
-      style={formAppearanceSurfaceStyle(appearance)}
       data-form-appearance-width={appearance.layout.width}
       data-form-appearance-spacing={appearance.layout.spacing}
       data-form-question-numbers={

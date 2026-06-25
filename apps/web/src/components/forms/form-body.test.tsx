@@ -15,6 +15,7 @@ import {
   requireInput,
 } from "@/test-utils/form-control-labels";
 import type { FormAppearance } from "@/types/validation/form";
+import { FormAppearanceSurface } from "./form-appearance-surface";
 import type { FormSubmitRequestData } from "./form-body";
 import { FormBody } from "./form-body";
 
@@ -356,26 +357,28 @@ function renderFormBody(
     return (
       <FormResponseProvider initialAnswers={options.initialAnswers}>
         {options.providerSlot}
-        <FormBody
-          title="公開フォーム"
-          plateContent={plateContent}
-          mode="public"
-          appearance={options.appearance}
-          captchaReady={options.captchaReady}
-          description={options.description}
-          error={error}
-          submittedCompletionPageId={submittedCompletionPageId}
-          onErrorChange={(nextError) => {
-            setError(nextError);
-            options.onErrorChange?.(nextError);
-          }}
-          onSubmitRequest={(data) => {
-            options.onSubmitRequest?.(data);
-            if (options.showCompletionTargetAfterSubmit) {
-              setSubmittedCompletionPageId(data.completionTargetPageId);
-            }
-          }}
-        />
+        <FormAppearanceSurface appearance={options.appearance}>
+          <FormBody
+            title="公開フォーム"
+            plateContent={plateContent}
+            mode="public"
+            appearance={options.appearance}
+            captchaReady={options.captchaReady}
+            description={options.description}
+            error={error}
+            submittedCompletionPageId={submittedCompletionPageId}
+            onErrorChange={(nextError) => {
+              setError(nextError);
+              options.onErrorChange?.(nextError);
+            }}
+            onSubmitRequest={(data) => {
+              options.onSubmitRequest?.(data);
+              if (options.showCompletionTargetAfterSubmit) {
+                setSubmittedCompletionPageId(data.completionTargetPageId);
+              }
+            }}
+          />
+        </FormAppearanceSurface>
       </FormResponseProvider>
     );
   }
@@ -749,7 +752,7 @@ describe("FormBody", () => {
     expect(renderedValue).not.toContain("Q1.");
     expect(
       container
-        .querySelector<HTMLElement>("[data-form-appearance-width='compact']")
+        .querySelector<HTMLElement>("[data-form-appearance-surface='true']")
         ?.style.getPropertyValue("--primary-foreground"),
     ).toBe("white");
     expect(
@@ -774,9 +777,13 @@ describe("FormBody", () => {
       appearance: lightAppearance,
     });
 
-    const lightSurface = container.querySelector<HTMLElement>(
+    const lightBody = container.querySelector<HTMLElement>(
       "[data-form-appearance-width='compact']",
     );
+    const lightSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(lightBody?.style.getPropertyValue("--background")).toBe("");
     expect(lightSurface?.style.getPropertyValue("--background")).toBe(
       "#ffffff",
     );
@@ -806,9 +813,13 @@ describe("FormBody", () => {
       },
     });
 
-    const darkSurface = container.querySelector<HTMLElement>(
+    const darkBody = container.querySelector<HTMLElement>(
       "[data-form-appearance-width='compact']",
     );
+    const darkSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface='true']",
+    );
+    expect(darkBody?.style.getPropertyValue("--background")).toBe("");
     expect(darkSurface?.style.getPropertyValue("--background")).toBe("#111827");
     expect(darkSurface?.style.getPropertyValue("--foreground")).toBe("white");
     expect(darkSurface?.style.getPropertyValue("--card")).toBe("#242a38");
