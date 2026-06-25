@@ -11,6 +11,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
 spec:
   backoffLimit: 3
+  activeDeadlineSeconds: 300
   template:
     metadata:
       labels:
@@ -18,6 +19,12 @@ spec:
         component: api-migration
     spec:
       restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       containers:
       - name: migrate
         image: nexus-form:latest
@@ -30,6 +37,11 @@ spec:
             name: nexus-form-config
         - secretRef:
             name: nexus-form-secrets
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
         resources:
           requests:
             cpu: "100m"

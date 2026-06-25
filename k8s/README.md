@@ -207,7 +207,7 @@ images:
 kubectl apply -k k8s/base
 ```
 
-このコマンドはマニフェストのレンダリング確認や簡易適用には使えますが、Argo CD hook の wave 順序や Job 完了待ちは `kubectl apply` では保証されません。API 起動前 migration の順序保証が必要な環境では Argo CD で同期してください。`kubectl` で運用する場合は ConfigMap/Secret を適用後、API Deployment を更新する前に同じ `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了を確認してから Deployment を適用します。
+このコマンドはマニフェストのレンダリング確認や簡易適用には使えますが、Argo CD hook の wave 順序や Job 完了待ちは `kubectl apply` では保証されません。API 起動前 migration の順序保証が必要な環境では Argo CD で同期してください。`kubectl` で運用する場合は ConfigMap/Secret を適用後、API Deployment を更新する前に同じ immutable tag または digest の `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了を確認してから Deployment を適用します。`api-migration` Job を含む overlay を直接再適用する場合は、Job の `spec.template` が immutable なため、イメージタグ変更前に `kubectl delete job api-migration --ignore-not-found` で完了済み Job を削除してください。
 
 #### 本番環境へのデプロイ
 
@@ -225,7 +225,7 @@ ConfigMap と Secret は sync wave `-2`、migration Job は sync wave `-1`、API
 
 `Sync` hook も同期対象の desired manifest から作成されますが、`latest` のような mutable tag ではレジストリの更新タイミングに依存します。マイグレーションと API を同じビルドに固定するため、production overlay の `nexus-form` は immutable tag に更新してから同期してください。
 
-Argo CD を使わずに同じ API イメージを直接起動する場合は、API 起動前に `/nodejs/bin/node /migration/run-migrations.mjs` を別 Job や手動ステップで実行してください。
+Argo CD を使わずに同じ API イメージを直接起動する場合は、API 起動前に `/nodejs/bin/node /migration/run-migrations.mjs` を別 Job や手動ステップで実行してください。このとき migration 実行時と API Deployment 更新時の `nexus-form` イメージは、同じ `sha-<short-sha>` tag または digest に固定してください。
 
 ## 環境変数の設定
 
@@ -342,7 +342,7 @@ APIサーバーにはliveness probe（`/api/health`）とreadiness probe（`/api
 
 ### データベースマイグレーション
 
-データベースマイグレーションはDrizzle ORMで管理されています。Argo CD では `api-migration` Sync hook が API Deployment の前に実行します。Argo CD 以外で運用する場合は、API と同じ `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了後に API Deployment を更新してください。
+データベースマイグレーションはDrizzle ORMで管理されています。Argo CD では `api-migration` Sync hook が API Deployment の前に実行します。Argo CD 以外で運用する場合は、API と同じ immutable tag または digest の `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了後に API Deployment を更新してください。
 
 ## トラブルシューティング
 
