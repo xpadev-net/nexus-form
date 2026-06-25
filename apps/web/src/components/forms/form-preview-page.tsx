@@ -24,6 +24,7 @@ import {
   FormConfirmationSchema,
 } from "@/types/validation/form";
 import { formAppearanceStructureQueryKey } from "./form-appearance-settings";
+import { FormAppearanceSurface } from "./form-appearance-surface";
 import { FormBody, type FormSubmitRequestData } from "./form-body";
 import {
   buildResponseSummary,
@@ -267,52 +268,57 @@ export function FormPreviewPage() {
           </p>
         </section>
       ) : (
-        <FormResponseProvider
-          key={String(selectedVersion)}
-          initialAnswers={prefilledAnswers}
+        <FormAppearanceSurface
+          appearance={previewAppearance}
+          className="min-h-[calc(100dvh-41px)]"
         >
-          {previewSubmitResult?.completionTargetPageId ? (
-            <>
-              <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
-                {previewMessage}
-              </p>
+          <FormResponseProvider
+            key={String(selectedVersion)}
+            initialAnswers={prefilledAnswers}
+          >
+            {previewSubmitResult?.completionTargetPageId ? (
+              <>
+                <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
+                  {previewMessage}
+                </p>
+                <FormBody
+                  title={form?.title ?? "フォームプレビュー"}
+                  description={form?.description ?? undefined}
+                  plateContent={plateContent ?? "[]"}
+                  mode="preview"
+                  appearance={previewAppearance}
+                  submittedCompletionPageId={
+                    previewSubmitResult.completionTargetPageId
+                  }
+                />
+              </>
+            ) : previewSubmitResult ? (
+              <>
+                <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
+                  {previewMessage}
+                </p>
+                <SubmitCompletion
+                  autoRedirect={false}
+                  confirmation={previewSubmitResult.confirmation}
+                  responseId="preview"
+                  responseSummary={previewSubmitResult.responseSummary}
+                />
+              </>
+            ) : (
               <FormBody
                 title={form?.title ?? "フォームプレビュー"}
                 description={form?.description ?? undefined}
                 plateContent={plateContent ?? "[]"}
                 mode="preview"
                 appearance={previewAppearance}
-                submittedCompletionPageId={
-                  previewSubmitResult.completionTargetPageId
-                }
+                onSubmitRequest={handlePreviewSubmit}
+                error={previewError}
+                onErrorChange={setPreviewError}
+                success={previewMessage}
               />
-            </>
-          ) : previewSubmitResult ? (
-            <>
-              <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
-                {previewMessage}
-              </p>
-              <SubmitCompletion
-                autoRedirect={false}
-                confirmation={previewSubmitResult.confirmation}
-                responseId="preview"
-                responseSummary={previewSubmitResult.responseSummary}
-              />
-            </>
-          ) : (
-            <FormBody
-              title={form?.title ?? "フォームプレビュー"}
-              description={form?.description ?? undefined}
-              plateContent={plateContent ?? "[]"}
-              mode="preview"
-              appearance={previewAppearance}
-              onSubmitRequest={handlePreviewSubmit}
-              error={previewError}
-              onErrorChange={setPreviewError}
-              success={previewMessage}
-            />
-          )}
-        </FormResponseProvider>
+            )}
+          </FormResponseProvider>
+        </FormAppearanceSurface>
       )}
     </div>
   );
