@@ -26,7 +26,7 @@ function extractDatabaseErrorDetails(error: unknown): Record<string, unknown> {
 
   const details: Record<string, unknown> = {};
   for (const key of ["code", "errno", "sqlState", "sqlMessage"] as const) {
-    if (key in error) {
+    if (Object.hasOwn(error, key)) {
       details[key] = Reflect.get(error, key);
     }
   }

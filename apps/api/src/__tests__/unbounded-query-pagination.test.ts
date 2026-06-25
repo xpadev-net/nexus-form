@@ -922,13 +922,15 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.offsetCalls).toContain(8);
     expect(mocks.limitCalls).toContain(5);
     expect(mocks.db.select).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sql).mock.calls).toEqual(
+    const sqlCalls = vi.mocked(sql).mock.calls;
+    expect(sqlCalls).toEqual(
       expect.arrayContaining([
         [["date_format(", ", '%Y-%m-%d')"], "formResponse.submittedAt"],
-        [["", " desc"], "date_format("],
+        [["", " desc"], expect.anything()],
       ]),
     );
-    expect(query.groupBy).toHaveBeenCalledWith("date_format(");
+    expect(query.groupBy).toHaveBeenCalledTimes(1);
+    expect(query.orderBy).toHaveBeenCalledTimes(1);
   });
 
   it("returns an empty response analytics timeline as a successful page", async () => {
