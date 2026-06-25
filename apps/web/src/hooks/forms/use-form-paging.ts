@@ -24,7 +24,7 @@ interface UseFormPagingReturn {
   isLastPage: boolean;
   shouldSubmit: boolean;
   submitTargetPageId?: string;
-  goToNextPage: () => void;
+  goToNextPage: () => number | undefined;
   goToPreviousPage: () => void;
   goToPage: (pageIndex: number) => void;
   pageHistory: number[];
@@ -138,15 +138,15 @@ export function useFormPaging({
       ? currentPageAction.target_id
       : undefined;
 
-  const goToNextPage = useCallback(() => {
+  const goToNextPage = useCallback((): number | undefined => {
     const page = pages[currentPageIndex];
-    if (!page) return;
+    if (!page) return undefined;
 
     const action = resolvePageAction(page, answers);
 
     if (action?.type === "submit") {
       // Submit is handled by shouldSubmit; nothing to navigate.
-      return;
+      return undefined;
     }
 
     if (action?.type === "jump_to_section" && action.target_id) {
@@ -154,16 +154,19 @@ export function useFormPaging({
       if (targetIndex !== -1) {
         setPageHistory((prev) => [...prev, currentPageIndex]);
         setCurrentPageIndex(targetIndex);
-        return;
+        return targetIndex;
       }
       // target not found, fall through to default next page
     }
 
     // "next" action or no action: go to next page
     if (currentPageIndex < totalPages - 1) {
+      const nextPageIndex = currentPageIndex + 1;
       setPageHistory((prev) => [...prev, currentPageIndex]);
-      setCurrentPageIndex(currentPageIndex + 1);
+      setCurrentPageIndex(nextPageIndex);
+      return nextPageIndex;
     }
+    return undefined;
   }, [pages, currentPageIndex, totalPages, answers]);
 
   const goToPreviousPage = useCallback(() => {
