@@ -56,6 +56,21 @@ describe("extractClientIP", () => {
       expect(result.source).toBe("x-nginx-forwarded-for");
     });
 
+    it("should fail closed when only spoofable x-forwarded-for is sent to telemetry", () => {
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-forwarded-for": "203.0.113.10",
+        },
+      });
+
+      const result = extractClientIP(request, {
+        strategy: "telemetry",
+        trustedProxyCount: 1,
+      });
+      expect(result.ip).toBe("unknown");
+      expect(result.source).toBe("unknown");
+    });
+
     it("should trim whitespace from IP", () => {
       const request = new Request("http://localhost", {
         headers: {
@@ -188,6 +203,19 @@ describe("extractClientIP", () => {
 
       const result = extractClientIP(request, { strategy: "general" });
       expect(result.ip).toBe("192.168.1.1");
+      expect(result.source).toBe("x-forwarded-for");
+    });
+
+    it("should select the client-side edge before the trusted proxy suffix", () => {
+      process.env.TRUSTED_PROXY_COUNT = "2";
+      const request = new Request("http://localhost", {
+        headers: {
+          "x-forwarded-for": "198.51.100.7, 203.0.113.10, 10.0.0.1",
+        },
+      });
+
+      const result = extractClientIP(request, { strategy: "general" });
+      expect(result.ip).toBe("203.0.113.10");
       expect(result.source).toBe("x-forwarded-for");
     });
 

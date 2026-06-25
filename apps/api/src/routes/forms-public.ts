@@ -555,7 +555,10 @@ export const formsPublicRouter = createHonoApp()
     async (c) => {
       const publicId = c.req.param("publicId");
       const payload = c.req.valid("json");
-      const { ip } = extractClientIP(c.req.raw, { strategy: "general" });
+      const submitIpResult = extractClientIP(c.req.raw, {
+        strategy: "general",
+      });
+      const { ip } = submitIpResult;
       const formSecurityBypassEnabled = isFormSecurityBypassEnabled();
 
       // 1. Verify hCaptcha before any form-specific work.
@@ -655,15 +658,20 @@ export const formsPublicRouter = createHonoApp()
       ].filter((t): t is string => !!t);
 
       if (!formSecurityBypassEnabled) {
-        const { ip: telemetryIp } = extractClientIP(c.req.raw, {
-          strategy: "telemetry",
-        });
-        if (telemetryIp === "unknown") {
+        if (ip === "unknown") {
+          logWarn("POST: telemetry token IP detection failed", "forms-public", {
+            publicId,
+            strategy: "general",
+            source: submitIpResult.source,
+            hasXForwardedFor: c.req.header("x-forwarded-for") !== undefined,
+            hasXNginxForwardedFor:
+              c.req.header("x-nginx-forwarded-for") !== undefined,
+          });
           return c.json(errorResponse("Unable to determine client IP"), 400);
         }
 
         try {
-          await consumeTokensOrThrow(telemetryTokens, telemetryIp);
+          await consumeTokensOrThrow(telemetryTokens, ip);
         } catch {
           return c.json(
             errorResponse("Invalid or expired telemetry tokens"),
