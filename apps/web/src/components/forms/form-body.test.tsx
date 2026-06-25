@@ -431,6 +431,18 @@ function InvalidCodeSwitcher() {
   );
 }
 
+function AnswerProbe({
+  blockId,
+  onAnswer,
+}: {
+  blockId: string;
+  onAnswer: (answer: AnswerEntry | undefined) => void;
+}) {
+  const { answers } = useFormResponse();
+  onAnswer(answers.get(blockId));
+  return null;
+}
+
 function questionNode(
   type: string,
   blockId: string,
@@ -521,6 +533,19 @@ function publicQuestionFixturePlateContent(): string {
       maxTime: "17:00",
     }),
   ]);
+}
+
+function getControlLabel(
+  container: HTMLElement,
+  control: HTMLElement,
+): HTMLLabelElement {
+  const label = container.querySelector<HTMLLabelElement>(
+    `label[for="${control.id}"]`,
+  );
+  if (!label) {
+    throw new Error(`Expected label for ${control.id}`);
+  }
+  return label;
 }
 
 function sectionBranchingPlateContent(
@@ -1438,6 +1463,72 @@ describe("FormBody", () => {
     expect(container.textContent).not.toContain(
       "Colors: 2個以上選択してください",
     );
+
+    act(() => root.unmount());
+  });
+
+  it("updates a checkbox answer once for control, label, and row clicks", async () => {
+    const onAnswer = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(
+      container,
+      JSON.stringify([
+        questionNode("checkbox", "q-colors", "Colors", {
+          required: true,
+          minSelections: 2,
+          options: [
+            { id: "red", label: "Red" },
+            { id: "blue", label: "Blue" },
+          ],
+        }),
+      ]),
+      {
+        captchaReady: true,
+        providerSlot: <AnswerProbe blockId="q-colors" onAnswer={onAnswer} />,
+      },
+    );
+
+    const red = getByRole(container, "checkbox", { name: "Red" });
+    const redLabel = getControlLabel(container, red);
+    const redRow = redLabel.parentElement;
+    if (!redRow) {
+      throw new Error("Expected checkbox row");
+    }
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(red);
+    });
+
+    expect(red.getAttribute("aria-checked")).toBe("true");
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["red"],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Colors: 2個以上選択してください");
+
+    await act(async () => {
+      redLabel.click();
+    });
+
+    expect(red.getAttribute("aria-checked")).toBe("false");
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: [],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      fireEvent.click(redRow);
+    });
+
+    expect(red.getAttribute("aria-checked")).toBe("true");
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["red"],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(4);
 
     act(() => root.unmount());
   });
