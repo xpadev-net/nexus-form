@@ -22,7 +22,11 @@ data:
   # Web runtime configuration (injected into /env-config.js by Docker entrypoint)
   # Must be reachable from the end user's browser, not a cluster-internal Service DNS name.
   VITE_API_URL: "https://api.example.com"
+  VITE_BASE_URL: ""
   VITE_HCAPTCHA_SITE_KEY: ""
+  VITE_TELEMETRY_HOST: ""
+  VITE_TELEMETRY_V4_HOST: ""
+  VITE_TELEMETRY_V6_HOST: ""
 
   # Brand customization (optional, defaults to nexus-form branding)
   VITE_BRAND_APP_NAME: ""

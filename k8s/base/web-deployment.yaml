@@ -37,11 +37,41 @@ spec:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_API_URL
+        - name: VITE_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_BASE_URL
+              optional: true
+        - name: VITE_FORM_SECURITY_DEV_BYPASS
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_FORM_SECURITY_DEV_BYPASS
+              optional: true
         - name: VITE_HCAPTCHA_SITE_KEY
           valueFrom:
             configMapKeyRef:
               name: nexus-form-config
               key: VITE_HCAPTCHA_SITE_KEY
+        - name: VITE_TELEMETRY_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_TELEMETRY_HOST
+              optional: true
+        - name: VITE_TELEMETRY_V4_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_TELEMETRY_V4_HOST
+              optional: true
+        - name: VITE_TELEMETRY_V6_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_TELEMETRY_V6_HOST
+              optional: true
         - name: VITE_BRAND_APP_NAME
           valueFrom:
             configMapKeyRef:
