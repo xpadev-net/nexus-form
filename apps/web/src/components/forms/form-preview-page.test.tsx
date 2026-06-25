@@ -39,13 +39,7 @@ const formBodyProps = vi.hoisted(
     }>,
 );
 const queryMockState = vi.hoisted(() => ({
-  confirmation: undefined as
-    | {
-        message?: string;
-        show_response_summary?: boolean;
-        title?: string;
-      }
-    | undefined,
+  confirmation: undefined as Record<string, unknown> | undefined,
   loadingKeys: [] as string[],
   plateContent: "[]" as string,
   renderSubmitButton: false,
@@ -419,6 +413,14 @@ describe("FormPreviewPage links", () => {
             question_type: "short_text",
             value: "Alice",
           },
+          {
+            question_id: "q-grid",
+            question_title: "行列",
+            question_type: "custom_grid",
+            responses: {
+              row1: { col1: "選択A" },
+            },
+          },
         ],
         visitedQuestionIds: ["q-name"],
       });
@@ -430,7 +432,37 @@ describe("FormPreviewPage links", () => {
     expect(container.textContent).toContain("回答サマリー");
     expect(container.textContent).toContain("氏名");
     expect(container.textContent).toContain("Alice");
+    expect(container.textContent).toContain('row1: {"col1":"選択A"}');
     expect(container.textContent).not.toContain("回答 ID");
+    expect(apiMocks.publicSubmitPost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("falls back to the default preview confirmation when stored confirmation is invalid", async () => {
+    queryMockState.confirmation = {
+      redirect_url: "ftp://example.test/legacy",
+      title: "壊れた確認設定",
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(<FormPreviewPage />);
+    });
+    await act(async () => {
+      formBodyProps.at(-1)?.onSubmitRequest?.({
+        responses: [],
+        visitedQuestionIds: [],
+      });
+    });
+
+    expect(container.textContent).toContain("送信完了");
+    expect(container.textContent).toContain("ご回答ありがとうございます");
+    expect(container.textContent).not.toContain("壊れた確認設定");
     expect(apiMocks.publicSubmitPost).not.toHaveBeenCalled();
 
     await act(async () => {

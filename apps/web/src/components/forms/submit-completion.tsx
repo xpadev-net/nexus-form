@@ -46,7 +46,9 @@ function formatResponseSummaryValue(item: ResponseSummarySourceItem): string {
         .map(([rowId, value]) => {
           const formattedValue = Array.isArray(value)
             ? value.join(", ")
-            : value;
+            : value !== null && typeof value === "object"
+              ? JSON.stringify(value)
+              : formatResponseValue(value);
           return `${rowId}: ${formattedValue}`;
         })
         .join(" / "),

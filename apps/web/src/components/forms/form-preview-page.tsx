@@ -146,10 +146,13 @@ export function FormPreviewPage() {
         parsedContent,
         data.completionTargetPageId,
       );
-      const confirmation = FormConfirmationSchema.parse({
+      const confirmationResult = FormConfirmationSchema.safeParse({
         ...(structureQuery.data?.structure?.confirmation ?? {}),
         show_response_id: false,
       });
+      const confirmation = confirmationResult.success
+        ? confirmationResult.data
+        : FormConfirmationSchema.parse({ show_response_id: false });
       setPreviewError(null);
       setPreviewMessage(
         "プレビュー送信です。回答レコード、検証ジョブ、通知、Sheets 同期は作成されません。",
