@@ -689,6 +689,7 @@ export const formsPublicRouter = createHonoApp()
                 telemetrySource: telemetryIpResult.source,
               },
             );
+            return c.json(errorResponse("Unable to determine client IP"), 400);
           }
         }
 

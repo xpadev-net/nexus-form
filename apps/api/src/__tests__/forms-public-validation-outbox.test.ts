@@ -1265,7 +1265,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
-  it("logs divergent submit and telemetry header boundaries without changing the consumed IP", async () => {
+  it("rejects divergent submit and telemetry header boundaries before consuming tokens", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
@@ -1285,7 +1285,10 @@ describe("R23-T1 public form input validation submit slice", () => {
       "x-nginx-forwarded-for": "198.51.100.20",
     });
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Unable to determine client IP",
+    });
     expect(mocks.logWarn).toHaveBeenCalledWith(
       "POST: telemetry token IP header mismatch",
       "forms-public",
@@ -1297,10 +1300,7 @@ describe("R23-T1 public form input validation submit slice", () => {
         telemetryStrategy: "telemetry",
       },
     );
-    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
-      ["telemetry-token"],
-      "203.0.113.10",
-    );
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
   });
 
   it("rejects telemetry tokens before consumption when the general API boundary cannot determine the current IP", async () => {
