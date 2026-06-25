@@ -123,6 +123,36 @@ function testElement(
   };
 }
 
+function getLabeledRadio(
+  container: HTMLElement,
+  name: string,
+): {
+  label: HTMLLabelElement;
+  radio: HTMLElement;
+  row: HTMLElement;
+} {
+  const radio = getByRole(container, "radio", { name });
+  const label = container.querySelector<HTMLLabelElement>(
+    `label[for="${radio.id}"]`,
+  );
+  if (!label) throw new Error(`Expected radio label for ${name}`);
+  const row = label.parentElement;
+  if (!row) throw new Error(`Expected radio row for ${name}`);
+  return { label, radio, row };
+}
+
+function expectOnlyRadioSelected(container: HTMLElement, name: string) {
+  const radios = getAllByRole(container, "radio");
+  expect(radios.filter((radio) => radio.getAttribute("aria-checked") === "true"))
+    .toHaveLength(1);
+  for (const radio of radios) {
+    const isSelected = radio.getAttribute("aria-label") === name;
+    expect(radio.getAttribute("aria-checked")).toBe(
+      isSelected ? "true" : "false",
+    );
+  }
+}
+
 describe("public choice controls accessible labels", () => {
   it("names text and date inputs from the visible question label", () => {
     const shortTextElement = testElement("form_short_text", "full-name", {});
@@ -296,7 +326,7 @@ describe("public choice controls accessible labels", () => {
     act(() => rating.root.unmount());
   });
 
-  it("exposes radio options by visible label and keeps saving option IDs", async () => {
+  it("keeps radio switching routed through Radix value changes", async () => {
     const onAnswer = vi.fn();
     const element = testElement(
       "form_radio",
@@ -305,6 +335,7 @@ describe("public choice controls accessible labels", () => {
         options: [
           { id: "corp", label: "法人" },
           { id: "individual", label: "個人" },
+          { id: "nonprofit", label: "NPO" },
         ],
       },
     );
@@ -323,33 +354,101 @@ describe("public choice controls accessible labels", () => {
     expect(
       getByRole(container, "radiogroup", { name: "会社種別" }),
     ).toBeTruthy();
-    const radio = getByRole(container, "radio", { name: "法人" });
-    const radioLabel = container.querySelector<HTMLLabelElement>(
-      `label[for="${radio.id}"]`,
-    );
-    expect(radioLabel).toBeTruthy();
-    if (!radioLabel) throw new Error("Expected radio row label");
-    const radioRow = radioLabel.parentElement;
-    expect(radioRow?.className).toContain("w-full");
+    const corp = getLabeledRadio(container, "法人");
+    const individual = getLabeledRadio(container, "個人");
+    const nonprofit = getLabeledRadio(container, "NPO");
+    expect(corp.row.className).toContain("w-full");
 
     await act(async () => {
-      fireEvent.click(radioRow ?? radioLabel);
+      fireEvent.click(corp.row);
     });
 
     expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
-    expect(document.activeElement).toBe(radio);
+    expect(document.activeElement).toBe(corp.radio);
+    expectOnlyRadioSelected(container, "法人");
+    const callCountAfterInitialSelection = onAnswer.mock.calls.length;
 
-    const secondRadio = getByRole(container, "radio", { name: "個人" });
-    const secondRadioLabel = container.querySelector<HTMLLabelElement>(
-      `label[for="${secondRadio.id}"]`,
-    );
-    expect(secondRadioLabel).toBeTruthy();
-    if (!secondRadioLabel) throw new Error("Expected second radio label");
     await act(async () => {
-      secondRadioLabel.click();
+      fireEvent.click(corp.radio);
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
+    expect(onAnswer).toHaveBeenCalledTimes(callCountAfterInitialSelection);
+    expectOnlyRadioSelected(container, "法人");
+
+    await act(async () => {
+      fireEvent.click(individual.radio);
     });
 
     expect(onAnswer).toHaveBeenLastCalledWith({ value: "individual" });
+    expectOnlyRadioSelected(container, "個人");
+
+    await act(async () => {
+      nonprofit.label.click();
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({ value: "nonprofit" });
+    expectOnlyRadioSelected(container, "NPO");
+
+    await act(async () => {
+      fireEvent.click(corp.row);
+    });
+
+    expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
+    expectOnlyRadioSelected(container, "法人");
+
+    individual.radio.focus();
+    expect(document.activeElement).toBe(individual.radio);
+    expect(individual.radio.getAttribute("aria-checked")).toBe("false");
+
+    act(() => root.unmount());
+  });
+
+  it("keeps only the last radio option selected across consecutive clicks", async () => {
+    const onAnswer = vi.fn();
+    const element = testElement(
+      "form_radio",
+      "company-type-sequence",
+      {
+        options: [
+          { id: "corp", label: "法人" },
+          { id: "individual", label: "個人" },
+          { id: "nonprofit", label: "NPO" },
+        ],
+      },
+    );
+    element.children = [
+      { type: "p", children: [{ text: "会社種別" }] },
+    ];
+    const { container, root } = renderWithAnswers(
+      <RadioInput element={element} />,
+      {
+        blockId: "company-type-sequence",
+        labelElement: element,
+        onAnswer,
+      },
+    );
+
+    const corp = getLabeledRadio(container, "法人");
+    const individual = getLabeledRadio(container, "個人");
+    const nonprofit = getLabeledRadio(container, "NPO");
+    const clicks: [() => void, string, string][] = [
+      [() => fireEvent.click(nonprofit.radio), "nonprofit", "NPO"],
+      [() => individual.label.click(), "individual", "個人"],
+      [() => fireEvent.click(corp.row), "corp", "法人"],
+      [() => fireEvent.click(individual.radio), "individual", "個人"],
+      [() => nonprofit.label.click(), "nonprofit", "NPO"],
+      [() => fireEvent.click(corp.radio), "corp", "法人"],
+    ];
+
+    for (const [click, value, name] of clicks) {
+      await act(async () => {
+        click();
+      });
+
+      expect(onAnswer).toHaveBeenLastCalledWith({ value });
+      expectOnlyRadioSelected(container, name);
+    }
 
     act(() => root.unmount());
   });
