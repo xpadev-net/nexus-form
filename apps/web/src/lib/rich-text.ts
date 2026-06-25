@@ -32,9 +32,35 @@ function isSlashInputNode(node: Record<string, unknown>): boolean {
   return node.type === "slash_input";
 }
 
+function slashInputText(node: Record<string, unknown>): string {
+  const text = extractText(node);
+  return text.startsWith("/") ? text : `/${text}`;
+}
+
+function createSlashInputTextNode(
+  node: Record<string, unknown>,
+  parentType: string | undefined,
+): Record<string, unknown> {
+  const textNode = { text: slashInputText(node) };
+  return parentType && REMOVABLE_TEXT_BLOCK_TYPES.has(parentType)
+    ? textNode
+    : { type: "p", children: [textNode] };
+}
+
+function hasOnlyDisplayResidueChildren(children: unknown[]): boolean {
+  return children.every((child) => {
+    if (!isRecord(child)) return false;
+    if (isSlashInputNode(child)) return true;
+    if (typeof child.text === "string") return child.text.trim() === "";
+    return isRemovableStandaloneTextBlock(child, true);
+  });
+}
+
 function isRemovableStandaloneTextBlock(
   node: Record<string, unknown>,
+  removeTextResidue: boolean,
 ): boolean {
+  if (!removeTextResidue) return false;
   if (typeof node.type !== "string") return false;
   const type = node.type;
   if (!REMOVABLE_TEXT_BLOCK_TYPES.has(type)) return false;
@@ -44,18 +70,35 @@ function isRemovableStandaloneTextBlock(
   return text === "" || text === "/";
 }
 
-function sanitizeNode(node: unknown, depth = 0): unknown | null {
+function sanitizeNode(
+  node: unknown,
+  removeTextResidue: boolean,
+  depth = 0,
+  parentType?: string,
+): unknown | null {
   if (depth > MAX_DEPTH || !isRecord(node)) return node;
-  if (isSlashInputNode(node)) return null;
-  if (isPlateQuestionType(node.type)) return node;
+  if (isSlashInputNode(node)) {
+    return removeTextResidue
+      ? null
+      : createSlashInputTextNode(node, parentType);
+  }
+  if (removeTextResidue && isPlateQuestionType(node.type)) return node;
+  if (isRemovableStandaloneTextBlock(node, removeTextResidue)) {
+    return null;
+  }
 
   let changed = false;
   const nextNode: Record<string, unknown> = { ...node };
+  const nextParentType = typeof node.type === "string" ? node.type : undefined;
 
   const children = node.children;
+  const hadOnlyDisplayResidueChildren =
+    Array.isArray(children) && hasOnlyDisplayResidueChildren(children);
   if (Array.isArray(children)) {
     const nextChildren = children
-      .map((child) => sanitizeNode(child, depth + 1))
+      .map((child) =>
+        sanitizeNode(child, removeTextResidue, depth + 1, nextParentType),
+      )
       .filter((child): child is unknown => child !== null);
     changed =
       nextChildren.length !== children.length ||
@@ -64,7 +107,20 @@ function sanitizeNode(node: unknown, depth = 0): unknown | null {
   }
 
   const nodeToCheck = changed ? nextNode : node;
-  if (isRemovableStandaloneTextBlock(nodeToCheck)) return null;
+  if (
+    changed &&
+    removeTextResidue &&
+    hadOnlyDisplayResidueChildren &&
+    Array.isArray(nextNode.children) &&
+    nextNode.children.length === 0 &&
+    typeof nextNode.type === "string" &&
+    REMOVABLE_TEXT_BLOCK_TYPES.has(nextNode.type)
+  ) {
+    return null;
+  }
+  if (isRemovableStandaloneTextBlock(nodeToCheck, removeTextResidue)) {
+    return null;
+  }
 
   return changed ? nextNode : node;
 }
@@ -92,12 +148,33 @@ function hasNestedQuestionNode(
   });
 }
 
-export function sanitizeFormPlateContent(plateContent: unknown[]): unknown[] {
+export function sanitizeFormPlateContentForSave(
+  plateContent: unknown[],
+): unknown[] {
+  const withoutUnsafeResidue = plateContent
+    .map((node) => sanitizeNode(node, false))
+    .filter((node): node is unknown => node !== null);
+
+  return hasNestedQuestionNode(withoutUnsafeResidue)
+    ? removeNestedQuestionsFromPlateContent(withoutUnsafeResidue)
+    : withoutUnsafeResidue;
+}
+
+// Display cleanup hides editor residue from public/preview rendering only.
+export function cleanupFormPlateContentForDisplay(
+  plateContent: unknown[],
+): unknown[] {
   const withoutTextResidue = plateContent
-    .map((node) => sanitizeNode(node))
+    .map((node) => sanitizeNode(node, true))
     .filter((node): node is unknown => node !== null);
 
   return hasNestedQuestionNode(withoutTextResidue)
     ? removeNestedQuestionsFromPlateContent(withoutTextResidue)
     : withoutTextResidue;
+}
+
+// Backward-compatible display sanitizer. Use sanitizeFormPlateContentForSave
+// when serializing editor content for persistence.
+export function sanitizeFormPlateContent(plateContent: unknown[]): unknown[] {
+  return cleanupFormPlateContentForDisplay(plateContent);
 }
