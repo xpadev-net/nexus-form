@@ -81,11 +81,14 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
     );
   }
 
-  const toggleCell = (rowId: string, columnId: string) => {
+  const toggleCell = (rowId: string, columnId: string, checked: boolean) => {
     const current = responses[rowId] ?? [];
-    const next = current.includes(columnId)
-      ? current.filter((id) => id !== columnId)
-      : [...current, columnId];
+    const isSelected = current.includes(columnId);
+    if (checked === isSelected) return;
+    if (checked && maxPerRow != null && current.length >= maxPerRow) return;
+    const next = checked
+      ? [...current, columnId]
+      : current.filter((id) => id !== columnId);
     const nextAnswer = { responses: { ...responses, [rowId]: next } };
     ctx.setAnswer(blockId, nextAnswer);
     validationFeedback.markTouched(nextAnswer);
@@ -148,7 +151,13 @@ export function CheckboxGridInput({ element }: { element: TElement }) {
                             type="checkbox"
                             checked={isChecked}
                             disabled={disabled}
-                            onChange={() => toggleCell(row.id, col.id)}
+                            onChange={(event) =>
+                              toggleCell(
+                                row.id,
+                                col.id,
+                                event.currentTarget.checked,
+                              )
+                            }
                             aria-label={getGridCellAccessibleName(row, col)}
                             className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
                           />

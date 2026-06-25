@@ -97,6 +97,44 @@ function uniqueMessages(messages: string[]): string[] {
   return Array.from(new Set(messages));
 }
 
+function stringArraysEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function questionValidationMessagesEqual(
+  left: readonly QuestionValidationMessage[],
+  right: readonly QuestionValidationMessage[],
+): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((message, index) => {
+    const nextMessage = right[index];
+    return (
+      nextMessage !== undefined &&
+      message.questionId === nextMessage.questionId &&
+      message.title === nextMessage.title &&
+      stringArraysEqual(message.messages, nextMessage.messages)
+    );
+  });
+}
+
+function replaceQuestionErrors(
+  currentErrors: QuestionValidationMessage[],
+  questionId: string,
+  nextErrors: readonly QuestionValidationMessage[],
+): QuestionValidationMessage[] {
+  const mergedErrors = [
+    ...currentErrors.filter((error) => error.questionId !== questionId),
+    ...nextErrors,
+  ];
+  return questionValidationMessagesEqual(currentErrors, mergedErrors)
+    ? currentErrors
+    : mergedErrors;
+}
+
 function findQuestionControl(
   root: HTMLElement,
   questionId: string,
@@ -450,10 +488,9 @@ export function FormBody({
         question,
         answer ?? answers.get(questionId),
       );
-      setQuestionErrors((currentErrors) => [
-        ...currentErrors.filter((error) => error.questionId !== questionId),
-        ...nextErrors,
-      ]);
+      setQuestionErrors((currentErrors) =>
+        replaceQuestionErrors(currentErrors, questionId, nextErrors),
+      );
     },
     [answers, collectSingleQuestionError, questionById],
   );
@@ -481,7 +518,12 @@ export function FormBody({
   );
 
   const showOnlyValidationDisplayPage = useCallback((pageIndex: number) => {
-    setValidationDisplayPageIndexes(new Set([pageIndex]));
+    setValidationDisplayPageIndexes((currentPageIndexes) => {
+      if (currentPageIndexes.size === 1 && currentPageIndexes.has(pageIndex)) {
+        return currentPageIndexes;
+      }
+      return new Set([pageIndex]);
+    });
   }, []);
 
   const clearValidationDisplayPage = useCallback((pageIndex: number) => {
@@ -494,18 +536,27 @@ export function FormBody({
   }, []);
 
   const clearValidationDisplayPages = useCallback(() => {
-    setValidationDisplayPageIndexes(new Set());
+    setValidationDisplayPageIndexes((currentPageIndexes) =>
+      currentPageIndexes.size === 0 ? currentPageIndexes : new Set(),
+    );
   }, []);
 
   const clearTouchedQuestionIds = useCallback(() => {
+    if (touchedQuestionIdsRef.current.size === 0) return;
     const emptyIds = new Set<string>();
     touchedQuestionIdsRef.current = emptyIds;
-    setTouchedQuestionIds(emptyIds);
+    setTouchedQuestionIds((currentIds) =>
+      currentIds.size === 0 ? currentIds : emptyIds,
+    );
   }, []);
 
   const applyQuestionErrors = useCallback(
     (errors: QuestionValidationMessage[]): boolean => {
-      setQuestionErrors(errors);
+      setQuestionErrors((currentErrors) =>
+        questionValidationMessagesEqual(currentErrors, errors)
+          ? currentErrors
+          : errors,
+      );
       if (errors.length > 0) {
         const questionId = errors[0]?.questionId ?? null;
         pendingFocusQuestionIdRef.current = questionId;
@@ -560,11 +611,14 @@ export function FormBody({
     const currentPageQuestionIds = new Set(
       currentPageQuestions.map((question) => question.blockId),
     );
-    setQuestionErrors((currentErrors) =>
-      currentErrors.filter(
+    setQuestionErrors((currentErrors) => {
+      const nextErrors = currentErrors.filter(
         (error) => !currentPageQuestionIds.has(error.questionId),
-      ),
-    );
+      );
+      return questionValidationMessagesEqual(currentErrors, nextErrors)
+        ? currentErrors
+        : nextErrors;
+    });
     clearValidationDisplayPage(paging.currentPageIndex);
     return true;
   }, [
