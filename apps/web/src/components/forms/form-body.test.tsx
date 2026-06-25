@@ -1583,6 +1583,102 @@ describe("FormBody", () => {
     container.remove();
   });
 
+  it("hides carried submit validation errors after navigating forward normally until the destination is validated again", async () => {
+    const onSubmitRequest = vi.fn();
+    const plateContent = JSON.stringify([
+      questionNode("short_text", "q-code", "Access code", {
+        required: true,
+        minLength: 3,
+        omitMockQuestionId: true,
+      }),
+      questionNode("section_separator", "section-next", "Next page"),
+      questionNode("short_text", "q-name", "Name", { required: true }),
+    ]);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = renderFormBody(container, plateContent, {
+      captchaReady: true,
+      onSubmitRequest,
+      providerSlot: <InvalidCodeSwitcher />,
+    });
+
+    const codeInput = container.querySelector<HTMLInputElement>("input");
+    if (!codeInput) {
+      throw new Error("Access code input was not rendered");
+    }
+    await act(async () => {
+      fireEvent.change(codeInput, { target: { value: "abc" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    await act(async () => {
+      getByRole(container, "button", {
+        name: "invalidate code",
+      }).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(container.textContent).toContain("1 / 2");
+    expect(container.textContent).toContain(
+      "Access code: 3文字以上で入力してください",
+    );
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+
+    const returnedCodeInput =
+      container.querySelector<HTMLInputElement>("input");
+    if (!returnedCodeInput) {
+      throw new Error("Returned access code input was not rendered");
+    }
+    await act(async () => {
+      fireEvent.change(returnedCodeInput, { target: { value: "abc" } });
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("Next page");
+    expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain("Name: この項目は必須です");
+    expect(
+      getByRole(container, "textbox", { name: "Name" }).getAttribute(
+        "aria-invalid",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Name: この項目は必須です");
+    expect(
+      getByRole(container, "textbox", { name: "Name" }).getAttribute(
+        "aria-invalid",
+      ),
+    ).toBe("true");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("focuses the question error when the invalid question has no focusable control", async () => {
     const onSubmitRequest = vi.fn();
     const container = document.createElement("div");
@@ -2033,6 +2129,84 @@ describe("FormBody", () => {
         }),
       ],
     });
+
+    act(() => root.unmount());
+  });
+
+  it("does not display restored invalid branch answers immediately after a section jump or after returning", async () => {
+    const onSubmitRequest = vi.fn();
+    const container = document.createElement("div");
+    const root = renderFormBody(container, sectionBranchingPlateContent(), {
+      captchaReady: true,
+      initialAnswers: new Map<string, AnswerEntry>([
+        ["q-entity-type", { value: "corporate" }],
+        ["q-company-name", { value: "x" }],
+      ]),
+      onSubmitRequest,
+    });
+
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("法人追加情報");
+    expect(container.textContent).toContain("2 / 2");
+    expect(container.textContent).not.toContain(
+      "法人名: 2文字以上で入力してください",
+    );
+    expect(
+      getByRole(container, "textbox", { name: "法人名" }).getAttribute(
+        "aria-invalid",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(onSubmitRequest).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "法人名: 2文字以上で入力してください",
+    );
+
+    await act(async () => {
+      getByRole(container, "button", { name: /戻る/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    await act(async () => {
+      getByRole(container, "button", { name: /次へ/ }).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("法人追加情報");
+    expect(container.textContent).not.toContain(
+      "法人名: 2文字以上で入力してください",
+    );
+    expect(
+      getByRole(container, "textbox", { name: "法人名" }).getAttribute(
+        "aria-invalid",
+      ),
+    ).toBeNull();
+
+    await act(async () => {
+      container
+        .querySelector("form")
+        ?.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+
+    expect(container.textContent).toContain(
+      "法人名: 2文字以上で入力してください",
+    );
 
     act(() => root.unmount());
   });

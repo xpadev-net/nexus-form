@@ -471,11 +471,15 @@ export function FormBody({
     [answers],
   );
 
-  const markPageForValidationDisplay = useCallback((pageIndex: number) => {
+  const showOnlyValidationDisplayPage = useCallback((pageIndex: number) => {
+    setValidationDisplayPageIndexes(new Set([pageIndex]));
+  }, []);
+
+  const clearValidationDisplayPage = useCallback((pageIndex: number) => {
     setValidationDisplayPageIndexes((currentPageIndexes) => {
-      if (currentPageIndexes.has(pageIndex)) return currentPageIndexes;
+      if (!currentPageIndexes.has(pageIndex)) return currentPageIndexes;
       const nextPageIndexes = new Set(currentPageIndexes);
-      nextPageIndexes.add(pageIndex);
+      nextPageIndexes.delete(pageIndex);
       return nextPageIndexes;
     });
   }, []);
@@ -533,27 +537,38 @@ export function FormBody({
   const validateCurrentPage = useCallback((): boolean => {
     const errors = collectQuestionErrors(currentPageQuestions);
     if (errors.length > 0) {
-      markPageForValidationDisplay(paging.currentPageIndex);
+      showOnlyValidationDisplayPage(paging.currentPageIndex);
       return applyQuestionErrors(errors);
     }
     onErrorChange?.(null);
-    setQuestionErrors([]);
-    clearValidationDisplayPages();
+    pendingFocusQuestionIdRef.current = null;
+    const currentPageQuestionIds = new Set(
+      currentPageQuestions.map((question) => question.blockId),
+    );
+    setQuestionErrors((currentErrors) =>
+      currentErrors.filter(
+        (error) => !currentPageQuestionIds.has(error.questionId),
+      ),
+    );
+    clearValidationDisplayPage(paging.currentPageIndex);
     return true;
   }, [
     currentPageQuestions,
     collectQuestionErrors,
     applyQuestionErrors,
-    markPageForValidationDisplay,
+    showOnlyValidationDisplayPage,
     paging.currentPageIndex,
     onErrorChange,
-    clearValidationDisplayPages,
+    clearValidationDisplayPage,
   ]);
 
   const handleNextPage = useCallback(() => {
     if (!validateCurrentPage()) return;
-    paging.goToNextPage();
-  }, [validateCurrentPage, paging]);
+    const nextPageIndex = paging.goToNextPage();
+    if (nextPageIndex !== undefined) {
+      clearValidationDisplayPage(nextPageIndex);
+    }
+  }, [validateCurrentPage, paging, clearValidationDisplayPage]);
 
   const handlePreviousPage = useCallback(() => {
     onErrorChange?.(null);
@@ -618,7 +633,7 @@ export function FormBody({
             paging.goToPage(firstErrorPageIndex);
           }
         }
-        markPageForValidationDisplay(displayPageIndex);
+        showOnlyValidationDisplayPage(displayPageIndex);
         applyQuestionErrors(errors);
         return;
       }
@@ -644,7 +659,7 @@ export function FormBody({
       paging.submitTargetPageId,
       paging.currentPageIndex,
       paging.goToPage,
-      markPageForValidationDisplay,
+      showOnlyValidationDisplayPage,
       clearValidationDisplayPages,
       onSubmitRequest,
     ],
