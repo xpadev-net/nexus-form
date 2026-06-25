@@ -397,7 +397,9 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({ value: "corp" });
     expectOnlyRadioSelected(container, "法人");
 
-    individual.radio.focus();
+    await act(async () => {
+      individual.radio.focus();
+    });
     expect(document.activeElement).toBe(individual.radio);
     expect(individual.radio.getAttribute("aria-checked")).toBe("false");
 
