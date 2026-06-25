@@ -766,6 +766,58 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("keeps authored empty and slash-only text blocks unchanged through autosave success", () => {
+    vi.useFakeTimers();
+    const draftContent = JSON.stringify([
+      { type: "p", children: [{ text: "Before" }] },
+      { type: "p", children: [{ text: "" }] },
+      { type: "p", children: [] },
+      { type: "p", children: [{ text: "/" }] },
+      {
+        type: "p",
+        children: [{ type: "a", url: "/", children: [{ text: "/" }] }],
+      },
+      { type: "p", children: [{ text: "After" }] },
+    ]);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      restoreGeneration: 0,
+    });
+
+    act(() => {
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        {
+          expectedVersion: 7,
+          plateContent: draftContent,
+          restoreGeneration: 0,
+        },
+      );
+    });
+
+    expect(setQueryDataMock).toHaveBeenCalledWith(["formContent", "form-1"], {
+      plateContent: draftContent,
+      plateContentVersion: 8,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("reports unsaved local edits while an autosave is in-flight even if the editor matches the saved base", () => {
     vi.useFakeTimers();
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
