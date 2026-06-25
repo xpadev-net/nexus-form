@@ -42,12 +42,16 @@ vi.mock("drizzle-orm", () => ({
   })),
 }));
 
-vi.mock("../../lib/google-sheets-client", () => ({
-  appendRows: vi.fn(),
-  readRange: vi.fn(),
-  SHEETS_API_TIMEOUT_MS: 30_000,
-  updateRange: vi.fn(),
-}));
+vi.mock("../../lib/google-sheets-client", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../lib/google-sheets-client")>();
+  return {
+    ...actual,
+    appendRows: vi.fn(),
+    readRange: vi.fn(),
+    updateRange: vi.fn(),
+  };
+});
 
 vi.mock("../../lib/oauth-token-store", () => ({
   getOAuthToken: vi.fn(),
