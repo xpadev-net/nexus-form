@@ -4,6 +4,8 @@ metadata:
   name: nexus-form-config
   labels:
     app: nexus-form
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
 data:
   # Redis
   REDIS_URL: "redis://redis-service:6379"
