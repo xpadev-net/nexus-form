@@ -76,6 +76,7 @@ import { and } from "drizzle-orm";
 import {
   appendRows,
   readRange,
+  SHEETS_API_TIMEOUT_MS,
   updateRange,
 } from "../../lib/google-sheets-client";
 import {
@@ -757,6 +758,94 @@ describe("handleSheetsSync — write path", () => {
         ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
         waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
       }),
+    );
+  });
+
+  it("keeps the integration lock alive through the maximum Sheets API calls", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+
+    let elapsedMs = 0;
+    let lockExpiresAtMs = 0;
+    mockWithRedisLock.mockImplementationOnce(async (_key, fn, options) => {
+      if (options?.ttlMs === undefined) {
+        throw new Error("Expected sheets sync lock TTL");
+      }
+      lockExpiresAtMs = elapsedMs + options.ttlMs;
+      const result = await fn();
+      expect(elapsedMs).toBeLessThan(lockExpiresAtMs);
+      return result;
+    });
+
+    const consumeSheetsApiTimeout = () => {
+      expect(elapsedMs).toBeLessThan(lockExpiresAtMs);
+      elapsedMs += SHEETS_API_TIMEOUT_MS;
+      expect(elapsedMs).toBeLessThan(lockExpiresAtMs);
+    };
+
+    mockReadRange.mockImplementation(async (_token, params) => {
+      consumeSheetsApiTimeout();
+      if (params.rangeA1 === "Sheet1!1:1") {
+        return {
+          ok: true,
+          data: { values: [["Response ID"]] },
+        } as never;
+      }
+      return {
+        ok: true,
+        data: { values: [["Response ID"], ["other-response"]] },
+      } as never;
+    });
+    mockUpdateRange.mockImplementation(async () => {
+      consumeSheetsApiTimeout();
+      return { ok: true } as never;
+    });
+    mockAppendRows.mockImplementation(async () => {
+      consumeSheetsApiTimeout();
+      return {
+        ok: true,
+        data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+      } as never;
+    });
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toMatchObject({ ok: true, updatedRows: 1 });
+    expect(mockReadRange).toHaveBeenCalledTimes(2);
+    expect(mockUpdateRange).toHaveBeenCalledOnce();
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(elapsedMs).toBe(SHEETS_API_TIMEOUT_MS * 4);
+    expect(lockExpiresAtMs - elapsedMs).toBeGreaterThanOrEqual(
+      SHEETS_API_TIMEOUT_MS,
+    );
+  });
+
+  it("does not append the same response twice across repeated jobs", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValueOnce(null);
+    mockGetIdempotencyKeyValue.mockResolvedValueOnce("done");
+
+    const firstResult = await handleSheetsSync(makeJob());
+    setupDbSelect([INTEGRATION], [RESPONSE], []);
+    const secondResult = await handleSheetsSync(makeJob());
+
+    expect(firstResult).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      updatedRows: 1,
+    });
+    expect(secondResult).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
     );
   });
 
