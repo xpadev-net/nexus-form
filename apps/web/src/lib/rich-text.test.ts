@@ -187,4 +187,24 @@ describe("sanitizeFormPlateContentForSave", () => {
       },
     ]);
   });
+
+  it("wraps slash input as a paragraph when it is directly inside a question", () => {
+    const sanitized = sanitizeFormPlateContentForSave([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text", required: false },
+        children: [{ type: "slash_input", children: [{ text: "" }] }],
+      },
+    ]);
+
+    expect(sanitized).toEqual([
+      {
+        type: "form_short_text",
+        blockId: "question-1",
+        validation: { type: "short_text", required: false },
+        children: [{ type: "p", children: [{ text: "/" }] }],
+      },
+    ]);
+  });
 });

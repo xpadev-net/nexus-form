@@ -39,13 +39,15 @@ function slashInputText(node: Record<string, unknown>): string {
 
 function createSlashInputTextNode(
   node: Record<string, unknown>,
-  depth: number,
+  parentType: string | undefined,
 ): Record<string, unknown> {
   const textNode = { text: slashInputText(node) };
-  return depth === 0 ? { type: "p", children: [textNode] } : textNode;
+  return parentType && REMOVABLE_TEXT_BLOCK_TYPES.has(parentType)
+    ? textNode
+    : { type: "p", children: [textNode] };
 }
 
-function hasOnlyEditorResidueChildren(children: unknown[]): boolean {
+function hasOnlyDisplayResidueChildren(children: unknown[]): boolean {
   return children.every((child) => {
     if (!isRecord(child)) return false;
     if (isSlashInputNode(child)) return true;
@@ -72,10 +74,13 @@ function sanitizeNode(
   node: unknown,
   removeTextResidue: boolean,
   depth = 0,
+  parentType?: string,
 ): unknown | null {
   if (depth > MAX_DEPTH || !isRecord(node)) return node;
   if (isSlashInputNode(node)) {
-    return removeTextResidue ? null : createSlashInputTextNode(node, depth);
+    return removeTextResidue
+      ? null
+      : createSlashInputTextNode(node, parentType);
   }
   if (removeTextResidue && isPlateQuestionType(node.type)) return node;
   if (isRemovableStandaloneTextBlock(node, removeTextResidue)) {
@@ -84,13 +89,16 @@ function sanitizeNode(
 
   let changed = false;
   const nextNode: Record<string, unknown> = { ...node };
+  const nextParentType = typeof node.type === "string" ? node.type : undefined;
 
   const children = node.children;
-  const hadOnlyEditorResidueChildren =
-    Array.isArray(children) && hasOnlyEditorResidueChildren(children);
+  const hadOnlyDisplayResidueChildren =
+    Array.isArray(children) && hasOnlyDisplayResidueChildren(children);
   if (Array.isArray(children)) {
     const nextChildren = children
-      .map((child) => sanitizeNode(child, removeTextResidue, depth + 1))
+      .map((child) =>
+        sanitizeNode(child, removeTextResidue, depth + 1, nextParentType),
+      )
       .filter((child): child is unknown => child !== null);
     changed =
       nextChildren.length !== children.length ||
@@ -102,7 +110,7 @@ function sanitizeNode(
   if (
     changed &&
     removeTextResidue &&
-    hadOnlyEditorResidueChildren &&
+    hadOnlyDisplayResidueChildren &&
     Array.isArray(nextNode.children) &&
     nextNode.children.length === 0 &&
     typeof nextNode.type === "string" &&
