@@ -2,7 +2,7 @@ import { DndPlugin, useDraggable, useDropLine } from "@platejs/dnd";
 import { expandListItemsWithChildren } from "@platejs/list";
 import { BlockSelectionPlugin } from "@platejs/selection/react";
 import { GripVertical } from "lucide-react";
-import { getPluginByType, isType, KEYS, type TElement } from "platejs";
+import { getPluginByType, isType, KEYS, type Path, type TElement } from "platejs";
 import {
   MemoizedChildren,
   type PlateEditor,
@@ -33,60 +33,79 @@ import { cn } from "@/lib/utils";
 
 const UNDRAGGABLE_KEYS = [KEYS.column, KEYS.tr, KEYS.td];
 
+export function isBlockDragEnabled(
+  editor: PlateEditor,
+  element: TElement,
+  path: Path,
+) {
+  if (editor.dom.readOnly) return false;
+  if (isType(editor, element, UNDRAGGABLE_KEYS)) return false;
+
+  if (path.length === 1) {
+    return true;
+  }
+
+  if (hasFormQuestionAncestor(editor, path)) {
+    return false;
+  }
+
+  if (path.length === 3) {
+    const block = editor.api.some({
+      at: path,
+      match: {
+        type: editor.getType(KEYS.column),
+      },
+    });
+
+    if (block) {
+      return true;
+    }
+  }
+  if (path.length === 4) {
+    const block = editor.api.some({
+      at: path,
+      match: {
+        type: editor.getType(KEYS.table),
+      },
+    });
+
+    if (block) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function hasFormQuestionAncestor(editor: PlateEditor, path: Path) {
+  for (let depth = path.length - 1; depth > 0; depth--) {
+    const parentEntry = editor.api.node(path.slice(0, depth));
+    if (
+      parentEntry &&
+      typeof parentEntry[0].type === "string" &&
+      isFormQuestionType(parentEntry[0].type)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export const BlockDraggable: RenderNodeWrapper = (props) => {
   const { editor, element, path } = props;
 
-  const enabled = useMemo(() => {
-    if (editor.dom.readOnly) return false;
-
-    if (path.length === 1 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
-      return true;
-    }
-    // Children inside form question containers (depth 2)
-    if (path.length === 2 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
-      const parentEntry = editor.api.node(path.slice(0, -1));
-      if (
-        parentEntry &&
-        typeof parentEntry[0].type === "string" &&
-        isFormQuestionType(parentEntry[0].type)
-      ) {
-        return true;
-      }
-    }
-    if (path.length === 3 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
-      const block = editor.api.some({
-        at: path,
-        match: {
-          type: editor.getType(KEYS.column),
-        },
-      });
-
-      if (block) {
-        return true;
-      }
-    }
-    if (path.length === 4 && !isType(editor, element, UNDRAGGABLE_KEYS)) {
-      const block = editor.api.some({
-        at: path,
-        match: {
-          type: editor.getType(KEYS.table),
-        },
-      });
-
-      if (block) {
-        return true;
-      }
-    }
-
-    return false;
-  }, [editor, element, path]);
+  const enabled = useMemo(
+    () => isBlockDragEnabled(editor, element, path),
+    [editor, element, path],
+  );
 
   if (!enabled) return;
 
-  return (props) => <Draggable {...props} />;
+  return (props) => <BlockDragElement {...props} />;
 };
 
-function Draggable(props: PlateElementProps) {
+export function BlockDragElement(props: PlateElementProps) {
   const { children, editor, element, path } = props;
   const blockSelectionApi = editor.getApi(BlockSelectionPlugin).blockSelection;
 
@@ -96,9 +115,10 @@ function Draggable(props: PlateElementProps) {
       onDropHandler: (_, { dragItem }) => {
         const id = (dragItem as { id: string[] | string }).id;
 
-        if (blockSelectionApi) {
-          blockSelectionApi.add(id);
-        }
+        queueMicrotask(() => {
+          blockSelectionApi.set(id);
+          blockSelectionApi.focus();
+        });
         resetPreview();
       },
     });
@@ -114,6 +134,7 @@ function Draggable(props: PlateElementProps) {
     if (previewRef.current) {
       previewRef.current.replaceChildren();
       previewRef.current?.classList.add("hidden");
+      previewRef.current?.classList.remove("opacity-0");
     }
   }, [previewRef]);
 
@@ -224,7 +245,9 @@ function Draggable(props: PlateElementProps) {
                       if (event.button !== 0 && event.button !== 2) return;
                       if (event.shiftKey) return;
 
-                      event.preventDefault();
+                      if (event.button === 2) {
+                        event.preventDefault();
+                      }
 
                       const { blockSelection, processedBlocks } = resolveSelectedBlocks();
 
