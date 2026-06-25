@@ -40,10 +40,17 @@ vi.mock("./api", () => ({
   rpc: apiMocks.rpc,
 }));
 
+function setRuntimeConfig(config: Record<string, string>): void {
+  window.__NEXUS_FORM_CONFIG__ = config;
+}
+
 describe("buildTelemetryTokenUrl", () => {
   it("accepts bare hosts and URL values when building versioned endpoints", () => {
     expect(buildTelemetryTokenUrl("ipv4.example.com", "v4")).toBe(
       "https://ipv4.example.com/api/telemetry/v4",
+    );
+    expect(buildTelemetryTokenUrl("telemetry-service:8080", "v4")).toBe(
+      "https://telemetry-service:8080/api/telemetry/v4",
     );
     expect(
       buildTelemetryTokenUrl("https://telemetry.example.com/base", "v6"),
@@ -65,11 +72,9 @@ describe("resolveTelemetryTokenUrl", () => {
 
   it("prefers version hosts over shared telemetry hosts", () => {
     vi.stubEnv("VITE_TELEMETRY_HOST", "telemetry.build.example");
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryHost: "telemetry.runtime.example",
-        telemetryV4Host: "ipv4.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryHost: "telemetry.runtime.example",
+      telemetryV4Host: "ipv4.runtime.example",
     });
 
     expect(resolveTelemetryTokenUrl("v4")).toEqual({
@@ -80,10 +85,8 @@ describe("resolveTelemetryTokenUrl", () => {
 
   it("resolves v6-specific hosts for v6 token requests", () => {
     vi.stubEnv("VITE_TELEMETRY_HOST", "telemetry.build.example");
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV6Host: "ipv6.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV6Host: "ipv6.runtime.example",
     });
 
     expect(resolveTelemetryTokenUrl("v6")).toEqual({
@@ -94,10 +97,8 @@ describe("resolveTelemetryTokenUrl", () => {
 
   it("falls back to the shared telemetry host before the API client fallback", () => {
     vi.stubEnv("VITE_TELEMETRY_HOST", "telemetry.build.example");
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV4Host: "",
-      },
+    setRuntimeConfig({
+      telemetryV4Host: "",
     });
 
     expect(resolveTelemetryTokenUrl("v4")).toEqual({
@@ -107,7 +108,7 @@ describe("resolveTelemetryTokenUrl", () => {
   });
 
   it("returns null when no telemetry host is configured", () => {
-    vi.stubGlobal("window", { __NEXUS_FORM_CONFIG__: {} });
+    setRuntimeConfig({});
 
     expect(resolveTelemetryTokenUrl("v4")).toBeNull();
   });
@@ -115,6 +116,7 @@ describe("resolveTelemetryTokenUrl", () => {
 
 describe("resolvePublicSubmitTelemetryTokenUrl", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     apiMocks.rpc.mockReset();
@@ -123,11 +125,9 @@ describe("resolvePublicSubmitTelemetryTokenUrl", () => {
 
   it("prefers v4 host, then v6 host, then shared host for public submits", () => {
     vi.stubEnv("VITE_TELEMETRY_HOST", "telemetry.build.example");
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV4Host: "ipv4.runtime.example",
-        telemetryV6Host: "ipv6.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
+      telemetryV6Host: "ipv6.runtime.example",
     });
     expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
       source: "version-host",
@@ -135,10 +135,8 @@ describe("resolvePublicSubmitTelemetryTokenUrl", () => {
       version: "v4",
     });
 
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV6Host: "ipv6.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV6Host: "ipv6.runtime.example",
     });
     expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
       source: "version-host",
@@ -146,7 +144,7 @@ describe("resolvePublicSubmitTelemetryTokenUrl", () => {
       version: "v6",
     });
 
-    vi.stubGlobal("window", { __NEXUS_FORM_CONFIG__: {} });
+    setRuntimeConfig({});
     expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
       source: "shared-host",
       url: "https://telemetry.build.example/api/telemetry/v4",
@@ -170,10 +168,8 @@ describe("fetchPublicSubmitTelemetryToken", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV6Host: "ipv6.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV6Host: "ipv6.runtime.example",
     });
 
     await expect(fetchPublicSubmitTelemetryToken()).resolves.toEqual({
@@ -185,8 +181,35 @@ describe("fetchPublicSubmitTelemetryToken", () => {
         credentials: "omit",
         headers: { Accept: "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       },
     );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("times out when a configured host does not respond", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(
+      (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
+    });
+
+    const tokenPromise = expect(
+      fetchPublicSubmitTelemetryToken(),
+    ).rejects.toThrow("テレメトリトークンの取得がタイムアウトしました");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await tokenPromise;
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
     expect(apiMocks.rpc).not.toHaveBeenCalled();
   });
@@ -198,10 +221,8 @@ describe("fetchPublicSubmitTelemetryToken", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV4Host: "ipv4.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
     });
 
     await expect(fetchPublicSubmitTelemetryToken()).rejects.toThrow(
@@ -214,7 +235,7 @@ describe("fetchPublicSubmitTelemetryToken", () => {
   it("uses the existing API client when no telemetry host is configured", async () => {
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.rpc.mockResolvedValue({ token: "api-token" });
-    vi.stubGlobal("window", { __NEXUS_FORM_CONFIG__: {} });
+    setRuntimeConfig({});
 
     await expect(fetchPublicSubmitTelemetryToken()).resolves.toEqual({
       v4Token: "api-token",
@@ -239,10 +260,8 @@ describe("fetchTelemetryV4Token", () => {
         new Response(JSON.stringify({ token: "host-token" }), { status: 200 }),
       );
     vi.stubGlobal("fetch", fetchMock);
-    vi.stubGlobal("window", {
-      __NEXUS_FORM_CONFIG__: {
-        telemetryV4Host: "ipv4.runtime.example",
-      },
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
     });
 
     await expect(fetchTelemetryV4Token()).resolves.toBe("host-token");
@@ -252,6 +271,7 @@ describe("fetchTelemetryV4Token", () => {
         credentials: "omit",
         headers: { Accept: "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       },
     );
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
@@ -261,7 +281,7 @@ describe("fetchTelemetryV4Token", () => {
   it("uses the existing API client when no telemetry host is configured", async () => {
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.rpc.mockResolvedValue({ token: "api-token" });
-    vi.stubGlobal("window", { __NEXUS_FORM_CONFIG__: {} });
+    setRuntimeConfig({});
 
     await expect(fetchTelemetryV4Token()).resolves.toBe("api-token");
     expect(apiMocks.telemetryPost).toHaveBeenCalledTimes(1);

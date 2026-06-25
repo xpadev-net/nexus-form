@@ -2,6 +2,7 @@ import { z } from "zod";
 import { client, RpcError, rpc } from "./api";
 import { getRuntimeConfigValue } from "./runtime-config";
 
+/** Supported telemetry token endpoint versions. */
 export type TelemetryTokenVersion = "v4" | "v6";
 
 type TelemetryHostResolutionSource = "version-host" | "shared-host";
@@ -11,6 +12,7 @@ type TelemetryHostResolution = {
   url: string;
 };
 
+/** Single telemetry token payload accepted by the public submit API. */
 export type PublicSubmitTelemetryToken =
   | { v4Token: string; v6Token?: never }
   | { v4Token?: never; v6Token: string };
@@ -28,8 +30,10 @@ const telemetryTokenPathByVersion: Record<TelemetryTokenVersion, string> = {
   v6: "/api/telemetry/v6",
 };
 
-function hasUrlScheme(value: string): boolean {
-  return /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(value);
+const TELEMETRY_TOKEN_FETCH_TIMEOUT_MS = 10_000;
+
+function hasExplicitUrlScheme(value: string): boolean {
+  return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value);
 }
 
 function normalizeTelemetryHost(host: string): URL {
@@ -39,7 +43,7 @@ function normalizeTelemetryHost(host: string): URL {
   }
 
   const hostUrl = new URL(
-    hasUrlScheme(trimmedHost) ? trimmedHost : `https://${trimmedHost}`,
+    hasExplicitUrlScheme(trimmedHost) ? trimmedHost : `https://${trimmedHost}`,
   );
   if (hostUrl.protocol !== "http:" && hostUrl.protocol !== "https:") {
     throw new Error("Telemetry host must use http or https");
@@ -52,6 +56,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+ * Builds a telemetry token endpoint URL from a bare host or http(s) URL.
+ *
+ * Bare hosts are normalized to `https://`, and URL path segments are preserved
+ * as the base path before appending `/api/telemetry/{version}`.
+ */
 export function buildTelemetryTokenUrl(
   host: string,
   version: TelemetryTokenVersion,
@@ -80,6 +90,12 @@ function getVersionTelemetryHost(
   );
 }
 
+/**
+ * Resolves the endpoint for a specific telemetry token version.
+ *
+ * Version-specific runtime/build-time host config wins over the shared
+ * telemetry host. Returns `null` so callers can use the existing API fallback.
+ */
 export function resolveTelemetryTokenUrl(
   version: TelemetryTokenVersion,
 ): TelemetryHostResolution | null {
@@ -105,6 +121,13 @@ export function resolveTelemetryTokenUrl(
   return null;
 }
 
+/**
+ * Resolves the single telemetry token endpoint used by public form submits.
+ *
+ * Public submits prefer v4 host, then v6 host, then shared telemetry host on
+ * the v4 endpoint. Returning `null` means the submit flow should use the
+ * existing API client fallback on the v4 endpoint.
+ */
 export function resolvePublicSubmitTelemetryTokenUrl(): PublicSubmitTelemetryTokenResolution | null {
   const v4Host = getVersionTelemetryHost("v4");
   if (v4Host) {
@@ -139,12 +162,46 @@ export function resolvePublicSubmitTelemetryTokenUrl(): PublicSubmitTelemetryTok
   return null;
 }
 
+function createTelemetryTokenFetchSignal(): {
+  cleanup: () => void;
+  signal: AbortSignal;
+} {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => controller.abort(),
+    TELEMETRY_TOKEN_FETCH_TIMEOUT_MS,
+  );
+  return {
+    cleanup: () => window.clearTimeout(timeoutId),
+    signal: controller.signal,
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "AbortError" || error.name === "TimeoutError")
+  );
+}
+
 async function fetchTelemetryTokenFromHost(url: string): Promise<string> {
-  const response = await fetch(url, {
-    credentials: "omit",
-    headers: { Accept: "application/json" },
-    method: "POST",
-  });
+  const { cleanup, signal } = createTelemetryTokenFetchSignal();
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+      method: "POST",
+      signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error("テレメトリトークンの取得がタイムアウトしました");
+    }
+    throw error;
+  } finally {
+    cleanup();
+  }
   const json: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
@@ -167,6 +224,9 @@ async function fetchTelemetryTokenFromHost(url: string): Promise<string> {
   return result.data.token;
 }
 
+/**
+ * Fetches a v4 telemetry token using v4/shared host config, then API fallback.
+ */
 export async function fetchTelemetryV4Token(): Promise<string> {
   const telemetryUrl = resolveTelemetryTokenUrl("v4");
   if (telemetryUrl) {
@@ -176,6 +236,13 @@ export async function fetchTelemetryV4Token(): Promise<string> {
   return (await rpc(client.api.telemetry.v4.$post())).token;
 }
 
+/**
+ * Fetches the telemetry token payload required for public form submit.
+ *
+ * Dedicated host failures do not fall back to the API client, so deployment
+ * misconfiguration remains visible. When no telemetry host is configured, the
+ * existing API client fallback retrieves a v4 token.
+ */
 export async function fetchPublicSubmitTelemetryToken(): Promise<PublicSubmitTelemetryToken> {
   const telemetryUrl = resolvePublicSubmitTelemetryTokenUrl();
   if (!telemetryUrl) {

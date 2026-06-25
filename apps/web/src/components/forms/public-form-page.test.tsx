@@ -939,6 +939,7 @@ describe("PublicFormPage", () => {
         credentials: "omit",
         headers: { Accept: "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       },
     );
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
@@ -1011,6 +1012,7 @@ describe("PublicFormPage", () => {
         credentials: "omit",
         headers: { Accept: "application/json" },
         method: "POST",
+        signal: expect.any(AbortSignal),
       },
     );
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
