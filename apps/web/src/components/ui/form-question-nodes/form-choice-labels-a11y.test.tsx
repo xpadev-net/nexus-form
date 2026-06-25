@@ -482,6 +482,7 @@ describe("public choice controls accessible labels", () => {
     expect(
       getByRole(container, "group", { name: "会社タグ" }),
     ).toBeTruthy();
+    expect(onAnswer).toHaveBeenCalledTimes(1);
     const checkboxes = getAllByRole(container, "checkbox", { name: "法人" });
     expect(checkboxes).toHaveLength(2);
     const secondCheckbox = checkboxes[1];
@@ -505,6 +506,7 @@ describe("public choice controls accessible labels", () => {
       values: ["corp-secondary"],
       other_values: undefined,
     });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(secondCheckbox);
 
     const firstCheckbox = checkboxes[0];
@@ -525,6 +527,109 @@ describe("public choice controls accessible labels", () => {
       values: ["corp-secondary", "corp-primary"],
       other_values: undefined,
     });
+    expect(onAnswer).toHaveBeenCalledTimes(3);
+
+    act(() => root.unmount());
+  });
+
+  it("uses a single checkbox update path for control, label, row, and other clicks", async () => {
+    const onAnswer = vi.fn();
+    const element = testElement(
+      "form_checkbox",
+      "company-tags-other",
+      {
+        allowOther: true,
+        otherLabel: "その他",
+        options: [
+          { id: "corp", label: "法人" },
+          { id: "individual", label: "個人" },
+        ],
+      },
+    );
+    element.children = [
+      { type: "p", children: [{ text: "会社タグ" }] },
+    ];
+    const { container, root } = renderWithAnswers(
+      <CheckboxInput element={element} />,
+      {
+        blockId: "company-tags-other",
+        labelElement: element,
+        onAnswer,
+      },
+    );
+
+    const corpCheckbox = getByRole(container, "checkbox", { name: "法人" });
+    const corpLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${corpCheckbox.id}"]`,
+    );
+    const corpRow = corpLabel?.parentElement;
+    if (!corpLabel || !corpRow) {
+      throw new Error("Expected checkbox label and row");
+    }
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(corpCheckbox);
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp"],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      corpLabel.click();
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: [],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      fireEvent.click(corpRow);
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp"],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(4);
+
+    const otherCheckbox = getByRole(container, "checkbox", { name: "その他" });
+    const otherLabel = container.querySelector<HTMLLabelElement>(
+      `label[for="${otherCheckbox.id}"]`,
+    );
+    const otherRow = otherLabel?.parentElement;
+    if (!otherLabel || !otherRow) {
+      throw new Error("Expected other checkbox label and row");
+    }
+
+    await act(async () => {
+      otherLabel.click();
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp", "other"],
+      other_values: [],
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(5);
+
+    await act(async () => {
+      fireEvent.click(otherCheckbox);
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp"],
+      other_values: undefined,
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(6);
+
+    await act(async () => {
+      fireEvent.click(otherRow);
+    });
+    expect(onAnswer).toHaveBeenLastCalledWith({
+      values: ["corp", "other"],
+      other_values: [],
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(7);
 
     act(() => root.unmount());
   });
@@ -571,6 +676,7 @@ describe("public choice controls accessible labels", () => {
     );
     expect(disabledCheckbox.disabled).toBe(true);
     expect(disabledLabel?.className).toContain("cursor-not-allowed");
+    expect(onAnswer).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       disabledLabel?.click();
@@ -578,6 +684,17 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       values: ["corp-primary"],
     });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(disabledCheckbox);
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(disabledLabel?.parentElement ?? disabledCheckbox);
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
 
     const selectedLabel = container.querySelector<HTMLLabelElement>(
       `label[for="${selectedCheckbox.id}"]`,
@@ -590,6 +707,7 @@ describe("public choice controls accessible labels", () => {
       values: [],
       other_values: undefined,
     });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
 
     act(() => root.unmount());
   });
@@ -634,6 +752,7 @@ describe("public choice controls accessible labels", () => {
     expect(getAssociatedLabel(container, cell).className).toContain("w-full");
     cell.focus();
     expect(document.activeElement).toBe(cell);
+    expect(onAnswer).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       fireEvent.click(cell);
@@ -708,6 +827,7 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": ["corp"] },
     });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
     expect(cell.checked).toBe(true);
 
     await act(async () => {
@@ -717,6 +837,7 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": ["corp", "individual"] },
     });
+    expect(onAnswer).toHaveBeenCalledTimes(3);
     expect(cell.checked).toBe(true);
     expect(secondCell.checked).toBe(true);
 
@@ -727,6 +848,7 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": ["individual"] },
     });
+    expect(onAnswer).toHaveBeenCalledTimes(4);
     expect(cell.checked).toBe(false);
     expect(secondCell.checked).toBe(true);
 
@@ -781,6 +903,7 @@ describe("public choice controls accessible labels", () => {
     expect(disabledCell.disabled).toBe(true);
     expect(disabledCellLabel.className).toContain("cursor-not-allowed");
     expect(selectedCellLabel.className).toContain("bg-primary/5");
+    expect(onAnswer).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       disabledCellLabel.click();
@@ -788,6 +911,12 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": ["corp"] },
     });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      fireEvent.click(disabledCell);
+    });
+    expect(onAnswer).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       selectedCellLabel.click();
@@ -795,6 +924,7 @@ describe("public choice controls accessible labels", () => {
     expect(onAnswer).toHaveBeenLastCalledWith({
       responses: { "contract-type": [] },
     });
+    expect(onAnswer).toHaveBeenCalledTimes(2);
 
     act(() => root.unmount());
   });
