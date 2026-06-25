@@ -301,6 +301,9 @@ export function BlockDragElement(props: PlateElementProps) {
         role="group"
         aria-label={`Editor block content: ${blockTypeLabel}`}
         className="slate-blockWrapper relative flow-root"
+        data-block-context-menu-target={
+          typeof element.id === "string" ? element.id : undefined
+        }
         onContextMenu={(event) =>
           editor
             .getApi(BlockSelectionPlugin)
