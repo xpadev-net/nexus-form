@@ -1,6 +1,7 @@
 import { cn, withRef } from "@udecode/cn";
 import type { TElement } from "platejs";
 import { PlateElement, useElement, useReadOnly } from "platejs/react";
+import type { MouseEvent } from "react";
 import { useFormResponseOptional } from "@/contexts/form-response-context";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -86,6 +87,9 @@ export function CheckboxInput({ element }: { element: TElement }) {
   }
 
   const toggleOption = (optionId: string, checked: boolean) => {
+    const isSelected = selected.includes(optionId);
+    if (checked === isSelected) return;
+    if (checked && atMax) return;
     const next = checked
       ? [...selected, optionId]
       : selected.filter((id) => id !== optionId);
@@ -99,8 +103,10 @@ export function CheckboxInput({ element }: { element: TElement }) {
     validationFeedback.markTouched(nextAnswer);
   };
 
-  const focusOption = (optionId: string) => {
-    document.getElementById(optionId)?.focus();
+  const activateOption = (optionId: string): void => {
+    const option = document.getElementById(optionId);
+    option?.focus();
+    option?.click();
   };
 
   return (
@@ -127,13 +133,10 @@ export function CheckboxInput({ element }: { element: TElement }) {
                 isChecked &&
                   "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10",
               )}
-              onClick={(event) => {
-                if (disabled) {
-                  event.preventDefault();
-                  return;
+              onClick={(event: MouseEvent<HTMLDivElement>) => {
+                if (event.target === event.currentTarget) {
+                  activateOption(optionId);
                 }
-                focusOption(optionId);
-                toggleOption(option.id, !isChecked);
               }}
             >
               <Checkbox
@@ -141,7 +144,6 @@ export function CheckboxInput({ element }: { element: TElement }) {
                 checked={isChecked}
                 disabled={disabled}
                 aria-label={label}
-                onClick={(event) => event.stopPropagation()}
                 onCheckedChange={(checked) =>
                   toggleOption(option.id, checked === true)
                 }
@@ -152,7 +154,6 @@ export function CheckboxInput({ element }: { element: TElement }) {
                   "flex-1 font-normal leading-5",
                   disabled ? "cursor-not-allowed" : "cursor-pointer",
                 )}
-                onClick={(event) => event.stopPropagation()}
               >
                 {label}
               </Label>
@@ -169,13 +170,10 @@ export function CheckboxInput({ element }: { element: TElement }) {
               isOtherSelected &&
                 "border-primary/30 bg-primary/5 text-foreground opacity-100 hover:bg-primary/10",
             )}
-            onClick={(event) => {
-              if (!isOtherSelected && atMax) {
-                event.preventDefault();
-                return;
+            onClick={(event: MouseEvent<HTMLDivElement>) => {
+              if (event.target === event.currentTarget) {
+                activateOption(`${blockId}-other`);
               }
-              focusOption(`${blockId}-other`);
-              toggleOption("other", !isOtherSelected);
             }}
           >
             <Checkbox
@@ -183,7 +181,6 @@ export function CheckboxInput({ element }: { element: TElement }) {
               checked={isOtherSelected}
               disabled={!isOtherSelected && atMax}
               aria-label={otherLabel}
-              onClick={(event) => event.stopPropagation()}
               onCheckedChange={(checked) =>
                 toggleOption("other", checked === true)
               }
@@ -196,7 +193,6 @@ export function CheckboxInput({ element }: { element: TElement }) {
                   ? "cursor-not-allowed"
                   : "cursor-pointer",
               )}
-              onClick={(event) => event.stopPropagation()}
             >
               {otherLabel}
             </Label>
