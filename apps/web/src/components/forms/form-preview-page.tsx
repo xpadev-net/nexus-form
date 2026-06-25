@@ -18,9 +18,34 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import { client, rpc } from "@/lib/api";
 import { formatJapanDate } from "@/lib/formatters";
 import { decodePrefillData } from "@/lib/forms/prefill";
-import { FormAppearanceSchema } from "@/types/validation/form";
+import {
+  FormAppearanceSchema,
+  type FormConfirmation,
+  FormConfirmationSchema,
+} from "@/types/validation/form";
 import { formAppearanceStructureQueryKey } from "./form-appearance-settings";
-import { FormBody } from "./form-body";
+import { FormBody, type FormSubmitRequestData } from "./form-body";
+import {
+  buildResponseSummary,
+  type ResponseSummaryItem,
+  resolveValidCompletionTargetPageId,
+  SubmitCompletion,
+} from "./submit-completion";
+
+type PreviewSubmitResult = {
+  completionTargetPageId?: string;
+  confirmation: FormConfirmation;
+  responseSummary: ResponseSummaryItem[];
+};
+
+function parsePreviewPlateContent(plateContent: string): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(plateContent);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
 function PreviewLoadingStatus({ message }: { message: string }) {
   return (
@@ -38,6 +63,8 @@ export function FormPreviewPage() {
   );
   const [previewMessage, setPreviewMessage] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [previewSubmitResult, setPreviewSubmitResult] =
+    useState<PreviewSubmitResult | null>(null);
 
   const prefilledAnswers = useMemo(() => {
     if (!prefillParam) return undefined;
@@ -86,31 +113,6 @@ export function FormPreviewPage() {
       : "プレビュー",
   );
 
-  const resetPreviewStatus = useCallback(() => {
-    setPreviewMessage(null);
-    setPreviewError(null);
-  }, []);
-
-  const handlePreviewSubmit = useCallback(() => {
-    setPreviewMessage("これはプレビューです。回答は保存されません。");
-  }, []);
-
-  if (isLoading) {
-    return <PreviewLoadingStatus message="プレビューを準備しています。" />;
-  }
-
-  if (error) {
-    return (
-      <section className="p-6">
-        <p className="text-sm text-destructive">
-          {error instanceof Error
-            ? error.message
-            : "不明なエラーが発生しました"}
-        </p>
-      </section>
-    );
-  }
-
   const form = formQuery.data?.form;
   const snapshotError =
     typeof selectedVersion === "number" ? snapshotContentQuery.error : null;
@@ -130,6 +132,52 @@ export function FormPreviewPage() {
     typeof selectedVersion === "number" &&
     !snapshotContentQuery.isError &&
     (snapshotContentQuery.isPending || plateContent === null);
+
+  const resetPreviewStatus = useCallback(() => {
+    setPreviewMessage(null);
+    setPreviewError(null);
+    setPreviewSubmitResult(null);
+  }, []);
+
+  const handlePreviewSubmit = useCallback(
+    (data: FormSubmitRequestData) => {
+      const parsedContent = parsePreviewPlateContent(plateContent ?? "[]");
+      const completionTargetPageId = resolveValidCompletionTargetPageId(
+        parsedContent,
+        data.completionTargetPageId,
+      );
+      const confirmation = FormConfirmationSchema.parse({
+        ...(structureQuery.data?.structure?.confirmation ?? {}),
+        show_response_id: false,
+      });
+      setPreviewError(null);
+      setPreviewMessage(
+        "プレビュー送信です。回答レコード、検証ジョブ、通知、Sheets 同期は作成されません。",
+      );
+      setPreviewSubmitResult({
+        completionTargetPageId,
+        confirmation,
+        responseSummary: buildResponseSummary(data.responses),
+      });
+    },
+    [plateContent, structureQuery.data?.structure?.confirmation],
+  );
+
+  if (isLoading) {
+    return <PreviewLoadingStatus message="プレビューを準備しています。" />;
+  }
+
+  if (error) {
+    return (
+      <section className="p-6">
+        <p className="text-sm text-destructive">
+          {error instanceof Error
+            ? error.message
+            : "不明なエラーが発生しました"}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <div>
@@ -220,17 +268,47 @@ export function FormPreviewPage() {
           key={String(selectedVersion)}
           initialAnswers={prefilledAnswers}
         >
-          <FormBody
-            title={form?.title ?? "フォームプレビュー"}
-            description={form?.description ?? undefined}
-            plateContent={plateContent ?? "[]"}
-            mode="preview"
-            appearance={previewAppearance}
-            onSubmitRequest={handlePreviewSubmit}
-            error={previewError}
-            onErrorChange={setPreviewError}
-            success={previewMessage}
-          />
+          {previewSubmitResult?.completionTargetPageId ? (
+            <>
+              <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
+                {previewMessage}
+              </p>
+              <FormBody
+                title={form?.title ?? "フォームプレビュー"}
+                description={form?.description ?? undefined}
+                plateContent={plateContent ?? "[]"}
+                mode="preview"
+                appearance={previewAppearance}
+                submittedCompletionPageId={
+                  previewSubmitResult.completionTargetPageId
+                }
+              />
+            </>
+          ) : previewSubmitResult ? (
+            <>
+              <p className="px-6 pt-6 text-sm text-amber-700 dark:text-amber-400">
+                {previewMessage}
+              </p>
+              <SubmitCompletion
+                autoRedirect={false}
+                confirmation={previewSubmitResult.confirmation}
+                responseId="preview"
+                responseSummary={previewSubmitResult.responseSummary}
+              />
+            </>
+          ) : (
+            <FormBody
+              title={form?.title ?? "フォームプレビュー"}
+              description={form?.description ?? undefined}
+              plateContent={plateContent ?? "[]"}
+              mode="preview"
+              appearance={previewAppearance}
+              onSubmitRequest={handlePreviewSubmit}
+              error={previewError}
+              onErrorChange={setPreviewError}
+              success={previewMessage}
+            />
+          )}
         </FormResponseProvider>
       )}
     </div>
