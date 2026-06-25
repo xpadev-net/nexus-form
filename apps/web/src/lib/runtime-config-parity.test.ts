@@ -81,6 +81,39 @@ function sortStrings(values: Iterable<string>): string[] {
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+function leadingSpaceCount(line: string): number {
+  return line.length - line.trimStart().length;
+}
+
+function isYamlContentLine(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed !== "" && !trimmed.startsWith("#");
+}
+
+function parseYamlMapping(
+  line: string,
+): { key: string; value: string | undefined } | undefined {
+  const trimmed = line.trim();
+  const mappingText = trimmed.startsWith("- ")
+    ? trimmed.slice(2).trimStart()
+    : trimmed;
+  const match = mappingText.match(/^([A-Za-z0-9_]+):(?:\s*(.*))?$/);
+  if (!match?.[1]) return undefined;
+
+  return {
+    key: match[1],
+    value: match[2],
+  };
+}
+
+function readYamlScalarValue(value: string | undefined): string {
+  const scalar = value?.trim() ?? "";
+  if (scalar.startsWith('"') && scalar.endsWith('"')) {
+    return scalar.slice(1, -1);
+  }
+  return scalar;
+}
+
 function readTurboBuildEnv(): string[] {
   const turboConfig = JSON.parse(
     readFileSync(join(repoRoot, "turbo.json"), "utf8"),
@@ -128,30 +161,40 @@ function readDockerEntrypointRuntimeEnv(): string[] {
 function readKubernetesConfigMapDataKeys(): Set<string> {
   const configMap = readFileSync(k8sConfigMapPath, "utf8");
   const keys = new Set<string>();
-  let inDataBlock = false;
+  let dataIndent: number | undefined;
+  let dataKeyIndent: number | undefined;
 
   for (const line of configMap.split("\n")) {
-    if (line === "data:") {
-      inDataBlock = true;
+    if (!isYamlContentLine(line)) continue;
+
+    const indent = leadingSpaceCount(line);
+    const mapping = parseYamlMapping(line);
+
+    if (dataIndent === undefined) {
+      if (mapping?.key === "data") {
+        dataIndent = indent;
+      }
       continue;
     }
 
-    if (!inDataBlock) continue;
-    if (line !== "" && !line.startsWith(" ")) break;
+    if (indent <= dataIndent) break;
 
-    const key = line.match(/^ {2}([A-Z0-9_]+):/)?.[1];
-    if (key) keys.add(key);
+    dataKeyIndent ??= indent;
+    if (indent !== dataKeyIndent) continue;
+
+    if (mapping?.key && /^[A-Z0-9_]+$/.test(mapping.key)) {
+      keys.add(mapping.key);
+    }
+  }
+
+  if (dataIndent === undefined) {
+    throw new Error("Unable to find data block in k8s/base/configmap.yaml");
+  }
+  if (keys.size === 0) {
+    throw new Error("No keys found under data in k8s/base/configmap.yaml");
   }
 
   return keys;
-}
-
-function readYamlScalar(line: string, prefix: string): string {
-  const value = line.slice(prefix.length).trim();
-  if (value.startsWith('"') && value.endsWith('"')) {
-    return value.slice(1, -1);
-  }
-  return value;
 }
 
 function readWebDeploymentConfigMapEnvRefs(): KubernetesConfigMapEnvRef[] {
@@ -161,7 +204,8 @@ function readWebDeploymentConfigMapEnvRefs(): KubernetesConfigMapEnvRef[] {
   let envName: string | undefined;
   let configMapName: string | undefined;
   let key: string | undefined;
-  let inConfigMapKeyRef = false;
+  let envIndent: number | undefined;
+  let configMapKeyRefIndent: number | undefined;
   let optional = false;
 
   const pushCurrentRef = () => {
@@ -175,44 +219,73 @@ function readWebDeploymentConfigMapEnvRefs(): KubernetesConfigMapEnvRef[] {
     });
   };
 
+  const resetCurrentRef = () => {
+    envName = undefined;
+    configMapName = undefined;
+    key = undefined;
+    configMapKeyRefIndent = undefined;
+    optional = false;
+  };
+
   for (const line of deployment.split("\n")) {
-    if (line.startsWith("        - name: ")) {
+    if (!isYamlContentLine(line)) continue;
+
+    const indent = leadingSpaceCount(line);
+    const trimmed = line.trim();
+    const mapping = parseYamlMapping(line);
+
+    if (envIndent === undefined) {
+      if (mapping?.key === "env") {
+        envIndent = indent;
+      }
+      continue;
+    }
+
+    if (
+      indent < envIndent ||
+      (indent <= envIndent && !trimmed.startsWith("- "))
+    ) {
       pushCurrentRef();
-      envName = readYamlScalar(line, "        - name: ");
-      configMapName = undefined;
-      key = undefined;
-      inConfigMapKeyRef = false;
-      optional = false;
+      resetCurrentRef();
+      envIndent = undefined;
+      continue;
+    }
+
+    if (trimmed.startsWith("- ")) {
+      pushCurrentRef();
+      resetCurrentRef();
+
+      if (mapping?.key === "name") {
+        envName = readYamlScalarValue(mapping.value);
+      }
       continue;
     }
 
     if (!envName) continue;
 
-    if (line.startsWith("        resources:")) {
-      pushCurrentRef();
-      envName = undefined;
-      break;
-    }
-
-    if (line.startsWith("            configMapKeyRef:")) {
-      inConfigMapKeyRef = true;
+    if (mapping?.key === "configMapKeyRef") {
+      configMapKeyRefIndent = indent;
       continue;
     }
 
-    if (!inConfigMapKeyRef) continue;
-
-    if (line.startsWith("              name: ")) {
-      configMapName = readYamlScalar(line, "              name: ");
+    if (configMapKeyRefIndent === undefined) continue;
+    if (indent <= configMapKeyRefIndent) {
+      configMapKeyRefIndent = undefined;
       continue;
     }
 
-    if (line.startsWith("              key: ")) {
-      key = readYamlScalar(line, "              key: ");
+    if (mapping?.key === "name") {
+      configMapName = readYamlScalarValue(mapping.value);
       continue;
     }
 
-    if (line.startsWith("              optional: ")) {
-      optional = readYamlScalar(line, "              optional: ") === "true";
+    if (mapping?.key === "key") {
+      key = readYamlScalarValue(mapping.value);
+      continue;
+    }
+
+    if (mapping?.key === "optional") {
+      optional = readYamlScalarValue(mapping.value) === "true";
     }
   }
 
@@ -243,14 +316,13 @@ describe("web runtime build env parity", () => {
   it("keeps Kubernetes Web runtime config env in parity with Docker entrypoint runtime config", () => {
     const configMapKeys = readKubernetesConfigMapDataKeys();
     const deploymentEnvRefs = readWebDeploymentConfigMapEnvRefs();
+    const nexusConfigRefs = deploymentEnvRefs.filter(
+      (ref) => ref.configMapName === "nexus-form-config",
+    );
     const refsByEnvName = new Map(
-      deploymentEnvRefs.map((ref) => [ref.envName, ref]),
+      nexusConfigRefs.map((ref) => [ref.envName, ref]),
     );
     const dockerRuntimeEnv = readDockerEntrypointRuntimeEnv();
-
-    expect(sortStrings(refsByEnvName.keys())).toEqual(
-      expect.arrayContaining(dockerRuntimeEnv),
-    );
 
     for (const envName of dockerRuntimeEnv) {
       const ref = refsByEnvName.get(envName);
@@ -273,9 +345,7 @@ describe("web runtime build env parity", () => {
       }
     }
 
-    for (const ref of deploymentEnvRefs) {
-      if (ref.configMapName !== "nexus-form-config") continue;
-
+    for (const ref of nexusConfigRefs) {
       expect(ref.key).toBe(ref.envName);
       if (!configMapKeys.has(ref.key)) {
         expect(deploymentOnlyRuntimeConfigEnv.has(ref.key)).toBe(true);
