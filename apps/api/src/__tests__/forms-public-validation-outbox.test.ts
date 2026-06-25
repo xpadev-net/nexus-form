@@ -505,7 +505,7 @@ function resetPublicSubmitMocks(
   mocks.extractClientIP.mockImplementation(
     (_request: unknown, options: { strategy: "telemetry" | "general" }) => {
       if (options.strategy === "telemetry") {
-        return { ip: "198.51.100.20", source: "x-nginx-forwarded-for" };
+        return { ip: "203.0.113.10", source: "x-nginx-forwarded-for" };
       }
 
       return { ip: "203.0.113.10", source: "x-forwarded-for" };
