@@ -100,9 +100,8 @@ function assertFunction(
 }
 
 class FakeSubscriber {
-  readonly messageListeners: Array<(channel: string, message: string) => void> =
-    [];
-  readonly errorListeners: Array<(error: Error) => void> = [];
+  messageListeners: Array<(channel: string, message: string) => void> = [];
+  errorListeners: Array<(error: Error) => void> = [];
   readonly subscribe = vi.fn(async (_channel: string) => undefined);
   readonly unsubscribe = vi.fn(async (_channel: string) => undefined);
   readonly quit = vi.fn(async () => undefined);
@@ -115,15 +114,35 @@ class FakeSubscriber {
   on(event: "message" | "error", listener: unknown): this {
     assertFunction(listener);
     if (event === "message") {
-      this.messageListeners.push((channel, message) => {
-        listener(channel, message);
-      });
+      this.messageListeners.push(listener);
       return this;
     }
 
-    this.errorListeners.push((error) => {
-      listener(error);
-    });
+    this.errorListeners.push(listener);
+    return this;
+  }
+
+  off(
+    event: "message",
+    listener: (channel: string, message: string) => void,
+  ): this;
+  off(event: "error", listener: (error: Error) => void): this;
+  off(
+    event: "message" | "error",
+    listener:
+      | ((channel: string, message: string) => void)
+      | ((error: Error) => void),
+  ): this {
+    if (event === "message") {
+      this.messageListeners = this.messageListeners.filter(
+        (currentListener) => currentListener !== listener,
+      );
+      return this;
+    }
+
+    this.errorListeners = this.errorListeners.filter(
+      (currentListener) => currentListener !== listener,
+    );
     return this;
   }
 
@@ -193,6 +212,44 @@ describe("SSE keepalive handling", () => {
       event: "keepalive",
       data: "",
     });
+  });
+
+  it("detaches the Redis channel when keepalive write fails", async () => {
+    const release = vi.fn();
+    const subscribers: FakeSubscriber[] = [];
+    const channelRegistry = createSseChannelRegistry(() => {
+      const subscriber = new FakeSubscriber();
+      subscribers.push(subscriber);
+      return subscriber;
+    });
+    const connectionLimiter = {
+      tryAcquire: vi.fn(() => ({
+        release,
+      })),
+    };
+
+    const responsePromise = createFormsSSERouter({
+      channelRegistry,
+      connectionLimiter,
+    }).request("http://localhost/form-1/responses/events");
+
+    await vi.waitFor(() => {
+      expect(subscribers).toHaveLength(1);
+      expect(streamMock.onAbort).toHaveBeenCalledTimes(1);
+    });
+
+    keepaliveWriteShouldFail = true;
+    await vi.advanceTimersByTimeAsync(30_000);
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    expect(release).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.unsubscribe).toHaveBeenCalledWith(
+      "form:validation:form-1",
+    );
+    expect(subscribers[0]?.quit).toHaveBeenCalledTimes(1);
+    expect(subscribers[0]?.messageListeners).toHaveLength(0);
+    expect(subscribers[0]?.errorListeners).toHaveLength(0);
   });
 
   it("releases permit and closes client when post-subscribe permission recheck fails", async () => {

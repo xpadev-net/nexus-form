@@ -25,8 +25,28 @@ import { captureError } from "../lib/sentry";
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 
-function parseIntEnv(name: string, defaultValue: number): number {
-  const raw = process.env[name];
+type SseLimitEnvironment = Record<string, string | undefined>;
+
+export interface SseLimitConfig {
+  maxConnections: number;
+  maxConnectionsPerUser: number;
+  maxConnectionsPerForm: number;
+  maxPendingMessagesPerClient: number;
+}
+
+export const DEFAULT_SSE_LIMITS: SseLimitConfig = {
+  maxConnections: 200,
+  maxConnectionsPerUser: 20,
+  maxConnectionsPerForm: 50,
+  maxPendingMessagesPerClient: 100,
+};
+
+function parseIntEnv(
+  env: SseLimitEnvironment,
+  name: string,
+  defaultValue: number,
+): number {
+  const raw = env[name];
   if (raw === undefined || raw === "") return defaultValue;
   const parsed = Number.parseInt(raw, 10);
   if (
@@ -42,6 +62,33 @@ function parseIntEnv(name: string, defaultValue: number): number {
   return parsed;
 }
 
+export function resolveSseLimitConfig(
+  env: SseLimitEnvironment = process.env,
+): SseLimitConfig {
+  return {
+    maxConnections: parseIntEnv(
+      env,
+      "SSE_MAX_CONNECTIONS",
+      DEFAULT_SSE_LIMITS.maxConnections,
+    ),
+    maxConnectionsPerUser: parseIntEnv(
+      env,
+      "SSE_MAX_CONNECTIONS_PER_USER",
+      DEFAULT_SSE_LIMITS.maxConnectionsPerUser,
+    ),
+    maxConnectionsPerForm: parseIntEnv(
+      env,
+      "SSE_MAX_CONNECTIONS_PER_FORM",
+      DEFAULT_SSE_LIMITS.maxConnectionsPerForm,
+    ),
+    maxPendingMessagesPerClient: parseIntEnv(
+      env,
+      "SSE_MAX_PENDING_MESSAGES_PER_CLIENT",
+      DEFAULT_SSE_LIMITS.maxPendingMessagesPerClient,
+    ),
+  };
+}
+
 /**
  * SSE 同時接続数のプロセスローカル上限。
  *
@@ -49,19 +96,12 @@ function parseIntEnv(name: string, defaultValue: number): number {
  * マルチレプリカ環境のクラスタ全体上限はロードバランサーや外部 rate limit で管理し、
  * ここでは 1 ユーザー・1 フォームがプロセス内の全枠を占有しないようにする。
  */
-const MAX_SSE_CONNECTIONS = parseIntEnv("SSE_MAX_CONNECTIONS", 200);
-const MAX_SSE_CONNECTIONS_PER_USER = parseIntEnv(
-  "SSE_MAX_CONNECTIONS_PER_USER",
-  20,
-);
-const MAX_SSE_CONNECTIONS_PER_FORM = parseIntEnv(
-  "SSE_MAX_CONNECTIONS_PER_FORM",
-  50,
-);
-const MAX_SSE_PENDING_MESSAGES_PER_CLIENT = parseIntEnv(
-  "SSE_MAX_PENDING_MESSAGES_PER_CLIENT",
-  100,
-);
+const sseLimits = resolveSseLimitConfig();
+const MAX_SSE_CONNECTIONS = sseLimits.maxConnections;
+const MAX_SSE_CONNECTIONS_PER_USER = sseLimits.maxConnectionsPerUser;
+const MAX_SSE_CONNECTIONS_PER_FORM = sseLimits.maxConnectionsPerForm;
+const MAX_SSE_PENDING_MESSAGES_PER_CLIENT =
+  sseLimits.maxPendingMessagesPerClient;
 
 interface SseConnectionScope {
   userId: string;
@@ -218,6 +258,10 @@ interface SseChannelRegistry {
   closeAll: () => Promise<void>;
 }
 
+interface SseChannelRegistryOptions {
+  maxPendingMessagesPerClient?: number;
+}
+
 interface FormsSSERouterOptions {
   channelRegistry?: SseChannelRegistry;
   connectionLimiter?: SseConnectionLimiter;
@@ -250,9 +294,12 @@ function createSubscriber(): Redis {
 
 export function createSseChannelRegistry(
   subscriberFactory: () => RedisSubscriber = createSubscriber,
+  options: SseChannelRegistryOptions = {},
 ): SseChannelRegistry {
   const subscriptions = new Map<string, ChannelSubscription>();
   let acceptingClients = true;
+  const maxPendingMessagesPerClient =
+    options.maxPendingMessagesPerClient ?? MAX_SSE_PENDING_MESSAGES_PER_CLIENT;
 
   function removeRedisSubscriberListener(
     subscriber: RedisSubscriber,
@@ -440,7 +487,7 @@ export function createSseChannelRegistry(
         if (entry.closed) continue;
         if (!entry.activated) continue;
 
-        if (entry.pendingMessages >= MAX_SSE_PENDING_MESSAGES_PER_CLIENT) {
+        if (entry.pendingMessages >= maxPendingMessagesPerClient) {
           closeClientEntry(channel, subscription, clientId, entry);
           continue;
         }
