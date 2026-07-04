@@ -29,6 +29,7 @@ import {
   buildResponseLabelLookupFromQuestions,
 } from "../lib/forms/response-choice-labels";
 import {
+  buildResponseExportColumnsFromBlocks,
   buildResponseExportRecords,
   formatRecordsToCsv,
 } from "../lib/forms/response-export";
@@ -1234,7 +1235,7 @@ export const formsResponsesRouter = createHonoApp()
       records,
       fingerprintComponents,
       blockTitleMap,
-      formBlocks.map((block) => block.blockId),
+      buildResponseExportColumnsFromBlocks(formBlocks),
     );
 
     return c.body(csv, 200, {

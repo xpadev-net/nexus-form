@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isAnswerableBlockType } from "@nexus-form/shared";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import { logError } from "../logger";
@@ -24,6 +25,13 @@ type ResponseData = z.infer<typeof ResponseData>;
 
 // レスポンスデータJSONの形式を定義するZodスキーマ
 export const ResponseDataJsonSchema = z.array(ResponseData);
+
+type ExportFormBlock = {
+  blockId: string;
+  category: string;
+  type: string;
+  content: unknown;
+};
 
 /**
  * セッションエイリアスを計算する
@@ -59,6 +67,18 @@ export type ResponseExportRecord = {
     value: unknown;
     display_value?: unknown;
   }>;
+};
+
+export type ResponseExportColumn = {
+  id: string;
+  title: string;
+  blockType?: string;
+};
+
+export type ResponseExportTable = {
+  headerIds: string[];
+  headerTitles: string[];
+  rows: string[][];
 };
 
 // RFC 4180準拠のCSVエスケープ関数
@@ -148,6 +168,30 @@ function buildMetadataValues(
   return [...baseValues, ...fingerprintValues];
 }
 
+function isAnswerableExportBlock(
+  block: Pick<ExportFormBlock, "type">,
+): boolean {
+  return isAnswerableBlockType(block.type);
+}
+
+function getBlockTitle(block: Pick<ExportFormBlock, "blockId" | "content">) {
+  const content =
+    block.content && typeof block.content === "object"
+      ? (block.content as Record<string, unknown>)
+      : null;
+  return (content?.title as string) || block.blockId;
+}
+
+export function buildResponseExportColumnsFromBlocks(
+  formBlocks: ExportFormBlock[],
+): ResponseExportColumn[] {
+  return formBlocks.filter(isAnswerableExportBlock).map((block) => ({
+    id: block.blockId,
+    title: getBlockTitle(block),
+    blockType: block.type,
+  }));
+}
+
 /**
  * 回答データを共通中間形式に変換する
  */
@@ -192,23 +236,14 @@ export function buildResponseExportRecords(
       fingerprintType: string;
     }>;
   }>,
-  formBlocks: Array<{
-    blockId: string;
-    category: string;
-    type: string;
-    content: unknown;
-  }>,
+  formBlocks: ExportFormBlock[],
 ): { records: ResponseExportRecord[]; fingerprintComponents: Set<string> } {
   // ブロックタイトルマップを作成
   const blockTitleMap = new Map<string, string>();
   formBlocks.forEach((block) => {
-    const content =
-      block.content && typeof block.content === "object"
-        ? (block.content as Record<string, unknown>)
-        : null;
-    const title = (content?.title as string) || block.blockId;
-    blockTitleMap.set(block.blockId, title);
+    blockTitleMap.set(block.blockId, getBlockTitle(block));
   });
+  const answerableFormBlocks = formBlocks.filter(isAnswerableExportBlock);
   const responseLabelLookup = buildResponseLabelLookupFromBlocks(formBlocks);
 
   // 疑似ID生成用の名前空間（フォーム固有）
@@ -271,28 +306,24 @@ export function buildResponseExportRecords(
     }
 
     // フォームブロック順にコンポーネント列を生成（システムブロックを除外）
-    const componentColumns = formBlocks
-      .filter((block) => block.category !== "system")
-      .map((block) => {
-        const blockResponse = responseDataJson.find(
-          (r) => r.question_id === block.blockId,
-        );
-        const value = resolveResponseValue(blockResponse);
-        const displayValue = resolveResponseDisplayValue(
-          blockResponse,
-          responseLabelLookup.get(block.blockId),
-        );
+    const componentColumns = answerableFormBlocks.map((block) => {
+      const blockResponse = responseDataJson.find(
+        (r) => r.question_id === block.blockId,
+      );
+      const value = resolveResponseValue(blockResponse);
+      const displayValue = resolveResponseDisplayValue(
+        blockResponse,
+        responseLabelLookup.get(block.blockId),
+      );
 
-        return {
-          block_id: block.blockId,
-          block_type: block.type,
-          question_title: blockResponse?.question_title,
-          value,
-          ...(displayValue !== undefined
-            ? { display_value: displayValue }
-            : {}),
-        };
-      });
+      return {
+        block_id: block.blockId,
+        block_type: block.type,
+        question_title: blockResponse?.question_title,
+        value,
+        ...(displayValue !== undefined ? { display_value: displayValue } : {}),
+      };
+    });
 
     // 各フィンガープリントコンポーネントのUUID生成
     const fingerprintUuids: Record<string, string | null> = {};
@@ -341,6 +372,104 @@ export function buildResponseExportRecords(
   return { records, fingerprintComponents };
 }
 
+function buildComponentColumnsFromRecords(
+  records: ResponseExportRecord[],
+  blockTitleMap: Map<string, string>,
+  emptyRecordColumns: ResponseExportColumn[],
+): ResponseExportColumn[] {
+  const componentHeaders = new Map<string, ResponseExportColumn>();
+  if (records.length === 0) {
+    for (const column of emptyRecordColumns) {
+      if (!componentHeaders.has(column.id)) {
+        componentHeaders.set(column.id, column);
+      }
+    }
+    return Array.from(componentHeaders.values());
+  }
+
+  for (const record of records) {
+    for (const col of record.component_columns ?? []) {
+      if (!componentHeaders.has(col.block_id)) {
+        const blockTitle =
+          col.question_title?.trim() ||
+          blockTitleMap.get(col.block_id) ||
+          col.block_id;
+        componentHeaders.set(col.block_id, {
+          id: col.block_id,
+          title: blockTitle,
+          blockType: col.block_type,
+        });
+      }
+    }
+  }
+
+  return Array.from(componentHeaders.values());
+}
+
+function normalizeEmptyRecordColumns(
+  emptyRecordBlockIds: Array<string | ResponseExportColumn>,
+  blockTitleMap: Map<string, string>,
+): ResponseExportColumn[] {
+  return emptyRecordBlockIds.map((column) =>
+    typeof column === "string"
+      ? {
+          id: column,
+          title: blockTitleMap.get(column) ?? column,
+        }
+      : column,
+  );
+}
+
+export function buildResponseExportTable(
+  records: ResponseExportRecord[],
+  fingerprintComponents: Set<string>,
+  blockTitleMap: Map<string, string>,
+  emptyRecordColumns: ResponseExportColumn[] = [],
+): ResponseExportTable {
+  const metadataIdHeaders = buildMetadataHeaders(fingerprintComponents, false);
+  const metadataTitleHeaders = buildMetadataHeaders(
+    fingerprintComponents,
+    true,
+  );
+  const componentColumns = buildComponentColumnsFromRecords(
+    records,
+    blockTitleMap,
+    emptyRecordColumns,
+  );
+  const headerIds = [
+    ...metadataIdHeaders,
+    ...componentColumns.map((column) => column.id),
+  ];
+  const headerTitles = [
+    ...metadataTitleHeaders,
+    ...componentColumns.map((column) => column.title),
+  ];
+  const rows = records.map((record) => {
+    const metadataValues = buildMetadataValues(record, fingerprintComponents);
+    const componentValues = componentColumns.map((column) => {
+      const answer = record.component_columns?.find(
+        (col) => col.block_id === column.id,
+      );
+      return answer
+        ? stringifyValue(
+            answer.display_value ?? answer.value,
+            answer.block_type,
+          )
+        : "";
+    });
+    return neutralizeSpreadsheetFormulaValues([
+      ...metadataValues,
+      ...componentValues,
+    ]);
+  });
+
+  return {
+    headerIds: neutralizeSpreadsheetFormulaValues(headerIds),
+    headerTitles: neutralizeSpreadsheetFormulaValues(headerTitles),
+    rows,
+  };
+}
+
 /**
  * 共通中間形式のレコードをCSV文字列に変換する
  */
@@ -348,67 +477,18 @@ export function formatRecordsToCsv(
   records: ResponseExportRecord[],
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
-  emptyRecordBlockIds: string[] = [],
+  emptyRecordBlockIds: Array<string | ResponseExportColumn> = [],
 ): string {
   try {
-    // メタデータヘッダーを共通関数から取得
-    const metadataHeaders = buildMetadataHeaders(fingerprintComponents, true);
+    const table = buildResponseExportTable(
+      records,
+      fingerprintComponents,
+      blockTitleMap,
+      normalizeEmptyRecordColumns(emptyRecordBlockIds, blockTitleMap),
+    );
+    const csvRows = [table.headerTitles.map(escapeCSV).join(",")];
 
-    // コンポーネント列をヘッダーに追加
-    const componentHeaders = new Map<string, string>();
-    if (records.length === 0) {
-      emptyRecordBlockIds.forEach((blockId) => {
-        componentHeaders.set(blockId, blockTitleMap.get(blockId) ?? blockId);
-      });
-    } else {
-      records.forEach((record) => {
-        if (record.component_columns) {
-          record.component_columns.forEach((col) => {
-            if (!componentHeaders.has(col.block_id)) {
-              const blockTitle =
-                col.question_title?.trim() ||
-                blockTitleMap.get(col.block_id) ||
-                col.block_id;
-              componentHeaders.set(col.block_id, blockTitle);
-            }
-          });
-        }
-      });
-    }
-
-    // ヘッダーを生成
-    const csvHeaders = [
-      ...metadataHeaders,
-      ...Array.from(componentHeaders.values()),
-    ];
-    const csvRows = [
-      neutralizeSpreadsheetFormulaValues(csvHeaders).map(escapeCSV).join(","),
-    ];
-
-    records.forEach((record) => {
-      // メタデータの値を共通関数から取得
-      const metadataValues = buildMetadataValues(record, fingerprintComponents);
-
-      // 各コンポーネントの回答を追加
-      const componentValues: string[] = [];
-      componentHeaders.forEach((_title, blockId) => {
-        const answer = record.component_columns?.find(
-          (col) => col.block_id === blockId,
-        );
-        componentValues.push(
-          answer
-            ? stringifyValue(
-                answer.display_value ?? answer.value,
-                answer.block_type,
-              )
-            : "",
-        );
-      });
-
-      const row = neutralizeSpreadsheetFormulaValues([
-        ...metadataValues,
-        ...componentValues,
-      ]);
+    table.rows.forEach((row) => {
       csvRows.push(row.map(escapeCSV).join(","));
     });
 
@@ -497,28 +577,27 @@ export function mapRecordToSheetRow(
 
   // 新レイアウトとしてヘッダーを構築し直す必要がある場合
   if (!hasIdRow) {
-    const seenBlockIds = new Set<string>();
-    const componentIds: string[] = [];
-    const componentTitles: string[] = [];
+    const metadataIdHeaders = fingerprintComponents
+      ? buildMetadataHeaders(fingerprintComponents, false)
+      : [RESPONSE_ID_HEADER];
+    const metadataTitleHeaders = fingerprintComponents
+      ? buildMetadataHeaders(fingerprintComponents, true)
+      : ["回答ID"];
+    const componentColumns = buildComponentColumnsFromRecords(
+      [record],
+      blockTitleMap,
+      [],
+    );
+    const componentIds = componentColumns.map((column) => column.id);
+    const rawComponentTitles = componentColumns.map((column) => column.title);
 
     const usedTitleCount: Record<string, number> = {};
-
-    for (const col of record.component_columns ?? []) {
-      if (seenBlockIds.has(col.block_id)) continue;
-      seenBlockIds.add(col.block_id);
-
-      const rawTitle =
-        col.question_title?.trim() ||
-        blockTitleMap.get(col.block_id) ||
-        col.block_id;
+    const componentTitles = rawComponentTitles.map((rawTitle) => {
       const base = getTitleCountKey(rawTitle);
       usedTitleCount[base] = (usedTitleCount[base] ?? 0) + 1;
       const titleCount = usedTitleCount[base];
-      const title = titleCount === 1 ? base : `${base} (${titleCount})`;
-
-      componentIds.push(col.block_id);
-      componentTitles.push(title);
-    }
+      return titleCount === 1 ? base : `${base} (${titleCount})`;
+    });
 
     const idRow = [...metadataIdHeaders, ...componentIds];
     const titleRow = [...metadataTitleHeaders, ...componentTitles];
@@ -532,14 +611,14 @@ export function mapRecordToSheetRow(
     }
 
     // 質問列の値
-    const componentValues: string[] = [];
-    for (const blockId of componentIds) {
-      const col = record.component_columns.find((c) => c.block_id === blockId);
-      const value = col
+    const componentValues = componentColumns.map((column) => {
+      const col = record.component_columns.find(
+        (c) => c.block_id === column.id,
+      );
+      return col
         ? stringifyValue(col.display_value ?? col.value, col.block_type)
         : "";
-      componentValues.push(value);
-    }
+    });
 
     const row = [...rowValues, ...componentValues];
 
