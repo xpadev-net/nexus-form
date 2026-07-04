@@ -67,7 +67,7 @@ vi.mock("@/hooks/forms/use-form-permissions", () => ({
 vi.mock("@/hooks/forms/use-share-links", () => ({
   useShareLinks: () => ({
     buildShareLinkUrl: (token: string) =>
-      `https://example.test/forms/shared/${token}`,
+      `https://example.test/forms/form-1/edit?shareToken=${token}`,
     copyShareLinkUrl: vi.fn(),
     createShareLinkMutation: {
       isPending: false,

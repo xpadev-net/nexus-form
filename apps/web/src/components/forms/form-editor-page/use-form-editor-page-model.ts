@@ -42,7 +42,9 @@ class DuplicateTitleSaveError extends Error {
 export function useFormEditorPageModel(formId: string) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
+  const { shareToken, tab } = useSearch({
+    from: "/_authenticated/forms/$id/edit",
+  });
 
   const activeTab = getEditorTabFromSearch(tab);
   const [responsesEverActive, setResponsesEverActive] = useState(
@@ -55,7 +57,7 @@ export function useFormEditorPageModel(formId: string) {
   const titleSaveValueRef = useRef<string | null>(null);
 
   const formQuery = useQuery({
-    queryKey: ["formDetail", formId],
+    queryKey: ["formDetail", formId, shareToken ?? null],
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
     retry: shouldRetryQuery,
   });
@@ -70,7 +72,7 @@ export function useFormEditorPageModel(formId: string) {
 
   const contentQuery = useQuery({
     enabled: !formQuery.isError,
-    queryKey: ["formContent", formId],
+    queryKey: ["formContent", formId, shareToken ?? null],
     queryFn: () =>
       rpc(client.api.forms[":id"].content.$get({ param: { id: formId } })),
     retry: shouldRetryQuery,
@@ -263,10 +265,10 @@ export function useFormEditorPageModel(formId: string) {
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
-      search: { tab: "editor" },
+      search: { ...(shareToken ? { shareToken } : {}), tab: "editor" },
       replace: true,
     });
-  }, [formId, router, tab]);
+  }, [formId, router, shareToken, tab]);
 
   useEffect(() => {
     if (activeTab === "responses") {
@@ -308,7 +310,7 @@ export function useFormEditorPageModel(formId: string) {
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
-      search: { tab: value },
+      search: { ...(shareToken ? { shareToken } : {}), tab: value },
     });
   };
 

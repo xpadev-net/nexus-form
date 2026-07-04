@@ -100,6 +100,7 @@ describe("SSE recovery hooks", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     setDocumentHidden(false);
+    window.history.replaceState(null, "", "/");
     MockEventSource.instances = [];
     vi.stubGlobal("EventSource", MockEventSource);
   });
@@ -107,7 +108,32 @@ describe("SSE recovery hooks", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    window.history.replaceState(null, "", "/");
     document.body.replaceChildren();
+  });
+
+  it("passes shareToken in validation and editor SSE URLs", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=shared-editor-token",
+    );
+
+    const validation = renderWithClient(<ValidationHarness />);
+    const validationSource = eventSourceAt(0);
+    expect(
+      new URL(String(validationSource.url)).searchParams.get("shareToken"),
+    ).toBe("shared-editor-token");
+    act(() => validation.root.unmount());
+
+    MockEventSource.instances = [];
+
+    const editor = renderWithClient(<EditorHarness />);
+    const editorSource = eventSourceAt(0);
+    expect(
+      new URL(String(editorSource.url)).searchParams.get("shareToken"),
+    ).toBe("shared-editor-token");
+    act(() => editor.root.unmount());
   });
 
   it("reconnects validation SSE after repeated errors with exponential backoff", () => {

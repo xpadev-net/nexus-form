@@ -84,7 +84,7 @@ vi.mock("sonner", () => ({
 vi.mock("@/hooks/forms/use-share-links", () => ({
   useShareLinks: () => ({
     buildShareLinkUrl: (token: string) =>
-      `https://example.test/forms/shared/${token}`,
+      `https://example.test/forms/form-1/edit?shareToken=${token}`,
     copyShareLinkUrl: mocks.copyShareLinkUrl,
     createShareLinkMutation: {
       isPending: false,
@@ -336,7 +336,7 @@ describe("ShareLinkManager", () => {
   it("shows a failure toast and manual copy URL when clipboard copy returns false", async () => {
     mocks.copyShareLinkUrl.mockResolvedValueOnce({
       copied: false,
-      url: "https://example.test/forms/shared/share-token",
+      url: "https://example.test/forms/form-1/edit?shareToken=share-token",
     });
     const container = document.createElement("div");
     const root = renderManager(container);
@@ -358,7 +358,7 @@ describe("ShareLinkManager", () => {
       container.querySelector<HTMLInputElement>(
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
-    ).toBe("https://example.test/forms/shared/share-token");
+    ).toBe("https://example.test/forms/form-1/edit?shareToken=share-token");
 
     act(() => root.unmount());
   });
@@ -432,7 +432,7 @@ describe("ShareLinkManager", () => {
   it("lets users dismiss the manual copy URL panel", async () => {
     mocks.copyShareLinkUrl.mockResolvedValueOnce({
       copied: false,
-      url: "https://example.test/forms/shared/share-token",
+      url: "https://example.test/forms/form-1/edit?shareToken=share-token",
     });
     const container = document.createElement("div");
     const root = renderManager(container);
@@ -467,7 +467,7 @@ describe("ShareLinkManager", () => {
   it("clears the manual copy URL panel after deleting a share link", async () => {
     mocks.copyShareLinkUrl.mockResolvedValueOnce({
       copied: false,
-      url: "https://example.test/forms/shared/share-token",
+      url: "https://example.test/forms/form-1/edit?shareToken=share-token",
     });
     const container = document.createElement("div");
     const root = renderManager(container);
@@ -523,7 +523,7 @@ describe("ShareLinkManager", () => {
       container.querySelector<HTMLInputElement>(
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
-    ).toBe("https://example.test/forms/shared/share-token");
+    ).toBe("https://example.test/forms/form-1/edit?shareToken=share-token");
 
     act(() => root.unmount());
   });

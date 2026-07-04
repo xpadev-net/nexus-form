@@ -8,7 +8,13 @@ import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sy
 import { formDiffQueryKey } from "@/hooks/forms/form-structure-query-keys";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
-import { baseUrl, client, RpcError, rpc } from "@/lib/api";
+import {
+  baseUrl,
+  client,
+  getShareTokenAuthorizationHeader,
+  RpcError,
+  rpc,
+} from "@/lib/api";
 
 const pendingSaveSchema = z.object({
   plateContent: z.string(),
@@ -553,7 +559,10 @@ export function useFormContentAutosave({
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
           fetch(`${baseUrl}/api/forms/${formId}/content`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...getShareTokenAuthorizationHeader(),
+            },
             credentials: "include",
             keepalive: true,
             body,
