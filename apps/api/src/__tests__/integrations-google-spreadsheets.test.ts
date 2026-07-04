@@ -100,6 +100,223 @@ function getFetchJsonBody(fetchMock: ReturnType<typeof vi.fn>): unknown {
   return JSON.parse(init.body) as unknown;
 }
 
+describe("Google Sheets spreadsheet list route", () => {
+  const fetchMock = vi.fn<typeof fetch>();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    mocks.dbSelectRows = [connectedGoogleToken()];
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("returns spreadsheet parent ids and folder paths for duplicate names", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          files: [
+            {
+              id: "spreadsheet-a",
+              name: "Responses",
+              parents: ["folder-a"],
+            },
+            {
+              id: "spreadsheet-b",
+              name: "Responses",
+              parents: ["folder-b"],
+            },
+          ],
+          nextPageToken: "next-page",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "folder-a",
+          mimeType: "application/vnd.google-apps.folder",
+          name: "Campaign A",
+          parents: ["folder-root"],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "folder-root",
+          mimeType: "application/vnd.google-apps.folder",
+          name: "Shared Forms",
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "folder-b",
+          mimeType: "application/vnd.google-apps.folder",
+          name: "Campaign B",
+          parents: ["folder-root"],
+        }),
+      );
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/spreadsheets?query=Response&pageSize=25&pageToken=cursor-1",
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      nextPageToken: "next-page",
+      spreadsheets: [
+        {
+          folderPaths: [
+            {
+              folderIds: ["folder-root", "folder-a"],
+              pathSegments: [
+                { id: "folder-root", name: "Shared Forms" },
+                { id: "folder-a", name: "Campaign A" },
+              ],
+            },
+          ],
+          id: "spreadsheet-a",
+          itemType: "spreadsheet",
+          name: "Responses",
+          parents: ["folder-a"],
+        },
+        {
+          folderPaths: [
+            {
+              folderIds: ["folder-root", "folder-b"],
+              pathSegments: [
+                { id: "folder-root", name: "Shared Forms" },
+                { id: "folder-b", name: "Campaign B" },
+              ],
+            },
+          ],
+          id: "spreadsheet-b",
+          itemType: "spreadsheet",
+          name: "Responses",
+          parents: ["folder-b"],
+        },
+      ],
+    });
+
+    const listUrl = new URL(fetchMock.mock.calls[0]?.[0] as string);
+    expect(listUrl.searchParams.get("fields")).toBe(
+      "files(id,name,parents),nextPageToken",
+    );
+    expect(listUrl.searchParams.get("pageSize")).toBe("25");
+    expect(listUrl.searchParams.get("pageToken")).toBe("cursor-1");
+    expect(listUrl.searchParams.get("q")).toBe(
+      "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false and name contains 'Response'",
+    );
+    expect(listUrl.searchParams.get("supportsAllDrives")).toBeNull();
+    expect(listUrl.searchParams.get("includeItemsFromAllDrives")).toBeNull();
+    expect(listUrl.searchParams.get("corpora")).toBeNull();
+    expect(listUrl.searchParams.get("driveId")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("returns empty folder paths for root-level spreadsheets", async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse({
+        files: [{ id: "spreadsheet-root", name: "Root responses" }],
+      }),
+    );
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      spreadsheets: [
+        {
+          folderPaths: [],
+          id: "spreadsheet-root",
+          itemType: "spreadsheet",
+          name: "Root responses",
+          parents: [],
+        },
+      ],
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 502 when fetching spreadsheets cannot reach Google", async () => {
+    fetchMock.mockRejectedValueOnce(new Error("network down"));
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to fetch spreadsheet list",
+    });
+  });
+
+  it("returns 502 when spreadsheet list returns invalid JSON", async () => {
+    fetchMock.mockResolvedValueOnce(createInvalidJsonResponse());
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unexpected response from Google API",
+    });
+  });
+
+  it("returns 502 when fetching folder metadata cannot reach Google", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          files: [
+            {
+              id: "spreadsheet-a",
+              name: "Responses",
+              parents: ["folder-a"],
+            },
+          ],
+        }),
+      )
+      .mockRejectedValueOnce(new Error("network down"));
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Failed to fetch spreadsheet folders",
+    });
+  });
+
+  it("returns 502 when Google returns malformed folder metadata", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          files: [
+            {
+              id: "spreadsheet-a",
+              name: "Responses",
+              parents: ["folder-a"],
+            },
+          ],
+        }),
+      )
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: "folder-a",
+          mimeType: "application/vnd.google-apps.shortcut",
+          name: "Shortcut",
+        }),
+      );
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: "Unexpected response from Google API",
+    });
+  });
+});
+
 describe("Google Sheets spreadsheet mutation routes", () => {
   const fetchMock = vi.fn<typeof fetch>();
 

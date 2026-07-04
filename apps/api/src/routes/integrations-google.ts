@@ -52,10 +52,18 @@ const googleDriveFilesResponseSchema = z.object({
       z.object({
         id: z.string().optional(),
         name: z.string().optional(),
+        parents: z.array(z.string()).optional(),
       }),
     )
     .optional(),
   nextPageToken: z.string().optional(),
+});
+
+const googleDriveFolderMetadataSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  mimeType: z.literal("application/vnd.google-apps.folder"),
+  parents: z.array(z.string()).optional(),
 });
 
 const googleSpreadsheetSheetsResponseSchema = z.object({
@@ -418,6 +426,136 @@ async function readGoogleJsonResponse(
   }
 }
 
+type DriveFolderPath = {
+  folderIds: string[];
+  pathSegments: Array<{ id: string; name: string }>;
+};
+
+async function fetchDriveFolderMetadata(
+  c: Context,
+  accessToken: string,
+  folderId: string,
+): Promise<
+  | {
+      ok: true;
+      folder: z.infer<typeof googleDriveFolderMetadataSchema>;
+    }
+  | { ok: false; response: Response }
+> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType,parents",
+  });
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?${params.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+  } catch {
+    return {
+      ok: false,
+      response: c.json(
+        errorResponse("Failed to fetch spreadsheet folders"),
+        502,
+      ),
+    };
+  }
+  if (!response.ok) {
+    return {
+      ok: false,
+      response: c.json(
+        errorResponse("Failed to fetch spreadsheet folders"),
+        502,
+      ),
+    };
+  }
+  const rawJson = await readGoogleJsonResponse(c, response);
+  if (!rawJson.ok) return rawJson;
+  const parsed = googleDriveFolderMetadataSchema.safeParse(rawJson.data);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      response: c.json(
+        errorResponse("Unexpected response from Google API"),
+        502,
+      ),
+    };
+  }
+  return { ok: true, folder: parsed.data };
+}
+
+async function buildDriveFolderPath(
+  c: Context,
+  accessToken: string,
+  folderId: string,
+  folderCache: Map<string, z.infer<typeof googleDriveFolderMetadataSchema>>,
+): Promise<
+  { ok: true; path: DriveFolderPath } | { ok: false; response: Response }
+> {
+  const pathSegments: Array<{ id: string; name: string }> = [];
+  const seenFolderIds = new Set<string>();
+  let currentFolderId: string | undefined = folderId;
+
+  while (currentFolderId) {
+    if (seenFolderIds.has(currentFolderId)) {
+      return {
+        ok: false,
+        response: c.json(
+          errorResponse("Unexpected response from Google API"),
+          502,
+        ),
+      };
+    }
+    seenFolderIds.add(currentFolderId);
+
+    let folder = folderCache.get(currentFolderId);
+    if (!folder) {
+      const result = await fetchDriveFolderMetadata(
+        c,
+        accessToken,
+        currentFolderId,
+      );
+      if (!result.ok) return result;
+      folder = result.folder;
+      folderCache.set(currentFolderId, folder);
+    }
+    pathSegments.unshift({ id: folder.id, name: folder.name });
+    currentFolderId = folder.parents?.[0];
+  }
+
+  return {
+    ok: true,
+    path: {
+      folderIds: pathSegments.map((segment) => segment.id),
+      pathSegments,
+    },
+  };
+}
+
+async function buildDriveFolderPaths(
+  c: Context,
+  accessToken: string,
+  parentIds: string[],
+  folderCache: Map<string, z.infer<typeof googleDriveFolderMetadataSchema>>,
+): Promise<
+  { ok: true; paths: DriveFolderPath[] } | { ok: false; response: Response }
+> {
+  const paths: DriveFolderPath[] = [];
+  for (const parentId of parentIds) {
+    const result = await buildDriveFolderPath(
+      c,
+      accessToken,
+      parentId,
+      folderCache,
+    );
+    if (!result.ok) return result;
+    paths.push(result.path);
+  }
+  return { ok: true, paths };
+}
+
 async function requireFreshGoogleToken(
   c: Context,
   userId: string,
@@ -666,32 +804,60 @@ export const integrationsGoogleRouter = createHonoApp()
     const pageToken = c.req.query("pageToken");
     // Escape per Drive API rules: \ first, then ' (reversed order breaks escaping)
     const sanitizedQuery = query?.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const q = `mimeType='application/vnd.google-apps.spreadsheet'${sanitizedQuery ? ` and name contains '${sanitizedQuery}'` : ""}`;
+    // Shortcuts and shared drive-wide search are intentionally outside this API
+    // contract for now; this endpoint returns direct spreadsheet files visible
+    // to the user's default Drive corpus and annotates each page with parents.
+    const q = `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false${sanitizedQuery ? ` and name contains '${sanitizedQuery}'` : ""}`;
 
     const params = new URLSearchParams({
       q,
-      fields: "files(id,name),nextPageToken",
+      fields: "files(id,name,parents),nextPageToken",
     });
     if (pageSize) params.set("pageSize", pageSize);
     if (pageToken) params.set("pageToken", pageToken);
 
-    const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
-      {
-        headers: { Authorization: `Bearer ${token.accessToken}` },
-      },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${token.accessToken}` },
+        },
+      );
+    } catch {
+      return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
+    }
     if (!response.ok)
       return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
-    const rawParsed = googleDriveFilesResponseSchema.safeParse(
-      await response.json(),
-    );
+    const rawJson = await readGoogleJsonResponse(c, response);
+    if (!rawJson.ok) return rawJson.response;
+    const rawParsed = googleDriveFilesResponseSchema.safeParse(rawJson.data);
     if (!rawParsed.success)
       return c.json(errorResponse("Unexpected response from Google API"), 502);
     const raw = rawParsed.data;
-    const spreadsheets = (raw.files ?? []).flatMap((file) =>
-      typeof file.id === "string" ? [{ id: file.id, name: file.name }] : [],
-    );
+    const folderCache = new Map<
+      string,
+      z.infer<typeof googleDriveFolderMetadataSchema>
+    >();
+    const spreadsheets = [];
+    for (const file of raw.files ?? []) {
+      if (typeof file.id !== "string") continue;
+      const parents = file.parents ?? [];
+      const pathsResult = await buildDriveFolderPaths(
+        c,
+        token.accessToken,
+        parents,
+        folderCache,
+      );
+      if (!pathsResult.ok) return pathsResult.response;
+      spreadsheets.push({
+        id: file.id,
+        name: file.name,
+        itemType: "spreadsheet",
+        parents,
+        folderPaths: pathsResult.paths,
+      });
+    }
 
     const parsed = GoogleSpreadsheetsResponseSchema.safeParse({
       spreadsheets,
