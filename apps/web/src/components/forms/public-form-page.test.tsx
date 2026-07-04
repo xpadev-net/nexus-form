@@ -1689,6 +1689,87 @@ describe("PublicFormPage", () => {
     });
   });
 
+  it("refreshes a failed preload before allowing a later public submit", async () => {
+    vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
+    };
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    let telemetryRequestCount = 0;
+    apiMocks.rpc.mockImplementation(async (request) => {
+      if (request === "telemetry-request") {
+        telemetryRequestCount += 1;
+        if (telemetryRequestCount === 1) {
+          throw new Error("telemetry unavailable");
+        }
+        return { token: "telemetry-token-2" };
+      }
+      return {
+        confirmation: {
+          title: "ご回答ありがとうございます",
+          message: "回答を受け付けました。ご協力ありがとうございました。",
+        },
+        response: { id: "response-1" },
+        responseId: "response-1",
+      };
+    });
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await waitForPublicSubmitTelemetryTokenQuery();
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("telemetry unavailable");
+
+    await waitForPublicSubmitTelemetryTokenQuery();
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: {
+        responses: [],
+        captchaToken: "form-security-dev-bypass",
+        telemetry: { v4Token: "telemetry-token-2" },
+        fingerprints: [],
+      },
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("does not reset hCaptcha state after a failed submit when the development bypass is enabled", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     publicFormData = {

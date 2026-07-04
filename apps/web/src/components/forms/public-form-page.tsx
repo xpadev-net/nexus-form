@@ -658,6 +658,7 @@ function PublicFormPageInner() {
         }
         if (!hasPublicSubmitTelemetryToken(telemetryToken)) {
           if (publicSubmitTelemetryTokenError instanceof Error) {
+            void refetchPublicSubmitTelemetryToken();
             throw publicSubmitTelemetryTokenError;
           }
           throw new Error(
