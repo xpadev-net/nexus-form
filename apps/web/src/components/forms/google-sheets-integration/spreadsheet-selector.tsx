@@ -2,6 +2,7 @@ import {
   Check,
   ChevronDown,
   FileSpreadsheet,
+  Folder,
   Loader2,
   Plus,
   RefreshCw,
@@ -37,6 +38,9 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { SPREADSHEET_SELECTOR_RESULT_LIMIT, type Spreadsheet } from "./types";
+
+const ROOT_FOLDER_LABEL = "マイドライブ";
+const UNKNOWN_FOLDER_LABEL = "フォルダ情報なし";
 
 interface SpreadsheetSelectorProps {
   searchQuery: string;
@@ -99,13 +103,27 @@ export function SpreadsheetSelector({
     currentLinkedSpreadsheetName,
     filteredSpreadsheets,
   ]);
+  const isCurrentLinkedSpreadsheetFallback =
+    currentLinkedSpreadsheet !== null &&
+    !filteredSpreadsheets.some(
+      (spreadsheet) => spreadsheet.id === currentLinkedSpreadsheet.id,
+    );
 
   const recentSpreadsheets = useMemo(
     () =>
       filteredSpreadsheets
+        .filter(
+          (spreadsheet) =>
+            spreadsheet.itemType === undefined ||
+            spreadsheet.itemType === "spreadsheet",
+        )
         .filter((spreadsheet) => spreadsheet.id !== currentLinkedSpreadsheetId)
         .slice(0, SPREADSHEET_SELECTOR_RESULT_LIMIT),
     [currentLinkedSpreadsheetId, filteredSpreadsheets],
+  );
+  const folderTree = useMemo(
+    () => buildSpreadsheetFolderTree(recentSpreadsheets),
+    [recentSpreadsheets],
   );
 
   const duplicateNameCounts = useMemo(() => {
@@ -236,6 +254,11 @@ export function SpreadsheetSelector({
                             showSpreadsheetId={shouldShowSpreadsheetId(
                               currentLinkedSpreadsheet,
                             )}
+                            folderLabel={
+                              isCurrentLinkedSpreadsheetFallback
+                                ? ""
+                                : undefined
+                            }
                             statusLabel="現在連携中"
                             onSelect={confirmSpreadsheetSelection}
                           />
@@ -247,33 +270,19 @@ export function SpreadsheetSelector({
                       </SpreadsheetOptionGroup>
 
                       <SpreadsheetOptionGroup
-                        label={`最近使ったもの（最大${SPREADSHEET_SELECTOR_RESULT_LIMIT}件）`}
+                        label={`フォルダから選択（最大${SPREADSHEET_SELECTOR_RESULT_LIMIT}件）`}
                       >
                         {recentSpreadsheets.length === 0 ? (
                           <EmptyOptionMessage>
                             スプレッドシートが見つかりません
                           </EmptyOptionMessage>
                         ) : (
-                          <div className="space-y-1">
-                            {recentSpreadsheets.map((spreadsheet) => (
-                              <SpreadsheetOptionButton
-                                key={spreadsheet.id}
-                                spreadsheet={spreadsheet}
-                                isSelected={
-                                  selectedSpreadsheetId === spreadsheet.id
-                                }
-                                showSpreadsheetId={shouldShowSpreadsheetId(
-                                  spreadsheet,
-                                )}
-                                statusLabel={
-                                  selectedSpreadsheetId === spreadsheet.id
-                                    ? "選択中"
-                                    : undefined
-                                }
-                                onSelect={confirmSpreadsheetSelection}
-                              />
-                            ))}
-                          </div>
+                          <SpreadsheetFolderTree
+                            nodes={folderTree}
+                            selectedSpreadsheetId={selectedSpreadsheetId}
+                            shouldShowSpreadsheetId={shouldShowSpreadsheetId}
+                            onSelect={confirmSpreadsheetSelection}
+                          />
                         )}
                       </SpreadsheetOptionGroup>
                     </div>
@@ -441,6 +450,7 @@ interface SpreadsheetOptionButtonProps {
   spreadsheet: Spreadsheet;
   isSelected: boolean;
   showSpreadsheetId: boolean;
+  folderLabel?: string;
   statusLabel?: string;
   onSelect: (spreadsheet: Spreadsheet) => void;
 }
@@ -449,12 +459,14 @@ function SpreadsheetOptionButton({
   spreadsheet,
   isSelected,
   showSpreadsheetId,
+  folderLabel,
   statusLabel,
   onSelect,
 }: SpreadsheetOptionButtonProps) {
   const displayName = getSpreadsheetDisplayName(spreadsheet);
   const detailLabel = getSpreadsheetDetailLabel({
     spreadsheet,
+    folderLabel,
     showSpreadsheetId,
     statusLabel,
   });
@@ -484,6 +496,90 @@ function SpreadsheetOptionButton({
   );
 }
 
+interface SpreadsheetFolderTreeProps {
+  nodes: SpreadsheetFolderNode[];
+  selectedSpreadsheetId: string;
+  shouldShowSpreadsheetId: (spreadsheet: Spreadsheet) => boolean;
+  onSelect: (spreadsheet: Spreadsheet) => void;
+}
+
+function SpreadsheetFolderTree({
+  nodes,
+  selectedSpreadsheetId,
+  shouldShowSpreadsheetId,
+  onSelect,
+}: SpreadsheetFolderTreeProps) {
+  return (
+    <div className="space-y-1">
+      {nodes.map((node) => (
+        <SpreadsheetFolderNodeView
+          key={node.key}
+          node={node}
+          depth={0}
+          selectedSpreadsheetId={selectedSpreadsheetId}
+          shouldShowSpreadsheetId={shouldShowSpreadsheetId}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  );
+}
+
+interface SpreadsheetFolderNodeViewProps {
+  node: SpreadsheetFolderNode;
+  depth: number;
+  selectedSpreadsheetId: string;
+  shouldShowSpreadsheetId: (spreadsheet: Spreadsheet) => boolean;
+  onSelect: (spreadsheet: Spreadsheet) => void;
+}
+
+function SpreadsheetFolderNodeView({
+  node,
+  depth,
+  selectedSpreadsheetId,
+  shouldShowSpreadsheetId,
+  onSelect,
+}: SpreadsheetFolderNodeViewProps) {
+  return (
+    <div className="space-y-1">
+      <div
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground"
+        style={{ paddingLeft: `${0.5 + depth * 0.75}rem` }}
+      >
+        <Folder className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">{node.label}</span>
+      </div>
+      {node.entries.map(({ spreadsheet, folderLabel }) => (
+        <div
+          key={`${node.key}:${spreadsheet.id}`}
+          style={{ paddingLeft: `${depth * 0.75}rem` }}
+        >
+          <SpreadsheetOptionButton
+            spreadsheet={spreadsheet}
+            isSelected={selectedSpreadsheetId === spreadsheet.id}
+            showSpreadsheetId={shouldShowSpreadsheetId(spreadsheet)}
+            folderLabel={folderLabel}
+            statusLabel={
+              selectedSpreadsheetId === spreadsheet.id ? "選択中" : undefined
+            }
+            onSelect={onSelect}
+          />
+        </div>
+      ))}
+      {node.children.map((childNode) => (
+        <SpreadsheetFolderNodeView
+          key={childNode.key}
+          node={childNode}
+          depth={depth + 1}
+          selectedSpreadsheetId={selectedSpreadsheetId}
+          shouldShowSpreadsheetId={shouldShowSpreadsheetId}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  );
+}
+
 function EmptyOptionMessage({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-md px-3 py-4 text-sm text-muted-foreground">
@@ -499,17 +595,144 @@ function getSpreadsheetDisplayName(spreadsheet: Spreadsheet | null) {
 
 function getSpreadsheetDetailLabel({
   spreadsheet,
+  folderLabel,
   showSpreadsheetId,
   statusLabel,
 }: {
   spreadsheet: Spreadsheet;
+  folderLabel?: string;
   showSpreadsheetId: boolean;
   statusLabel?: string;
 }) {
-  if (!showSpreadsheetId) return statusLabel;
+  const resolvedFolderLabel =
+    folderLabel ?? getSpreadsheetFolderLabel(spreadsheet);
+  const labels = [statusLabel, resolvedFolderLabel].filter(
+    (label): label is string => Boolean(label),
+  );
 
-  const idLabel = `ID: ${compactSpreadsheetId(spreadsheet.id)}`;
-  return statusLabel ? `${statusLabel} / ${idLabel}` : idLabel;
+  if (showSpreadsheetId) {
+    labels.push(`ID: ${compactSpreadsheetId(spreadsheet.id)}`);
+  }
+
+  return labels.join(" / ");
+}
+
+interface SpreadsheetFolderNode {
+  key: string;
+  label: string;
+  entries: SpreadsheetFolderEntry[];
+  children: SpreadsheetFolderNode[];
+}
+
+interface MutableSpreadsheetFolderNode {
+  key: string;
+  label: string;
+  entries: SpreadsheetFolderEntry[];
+  children: Map<string, MutableSpreadsheetFolderNode>;
+}
+
+interface SpreadsheetFolderEntry {
+  spreadsheet: Spreadsheet;
+  folderLabel: string;
+}
+
+function buildSpreadsheetFolderTree(
+  spreadsheets: Spreadsheet[],
+): SpreadsheetFolderNode[] {
+  const roots = new Map<string, MutableSpreadsheetFolderNode>();
+
+  for (const spreadsheet of spreadsheets) {
+    for (const folderEntry of getSpreadsheetFolderEntries(spreadsheet)) {
+      let currentLevel = roots;
+      let currentNode: MutableSpreadsheetFolderNode | null = null;
+
+      for (const segment of folderEntry.pathSegments) {
+        const node = ensureFolderNode(currentLevel, segment.id, segment.name);
+        currentNode = node;
+        currentLevel = node.children;
+      }
+
+      currentNode?.entries.push({
+        spreadsheet,
+        folderLabel: folderEntry.folderLabel,
+      });
+    }
+  }
+
+  return [...roots.values()].map(toSpreadsheetFolderNode);
+}
+
+function ensureFolderNode(
+  nodes: Map<string, MutableSpreadsheetFolderNode>,
+  key: string,
+  label: string,
+) {
+  const existingNode = nodes.get(key);
+  if (existingNode) return existingNode;
+
+  const node: MutableSpreadsheetFolderNode = {
+    key,
+    label,
+    entries: [],
+    children: new Map(),
+  };
+  nodes.set(key, node);
+  return node;
+}
+
+function toSpreadsheetFolderNode(
+  node: MutableSpreadsheetFolderNode,
+): SpreadsheetFolderNode {
+  return {
+    key: node.key,
+    label: node.label,
+    entries: node.entries,
+    children: [...node.children.values()].map(toSpreadsheetFolderNode),
+  };
+}
+
+function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet) {
+  const validFolderPaths = (spreadsheet.folderPaths ?? [])
+    .map((folderPath) => folderPath.pathSegments)
+    .filter((pathSegments) => pathSegments.length > 0);
+
+  if (validFolderPaths.length > 0) {
+    return validFolderPaths.map((pathSegments) =>
+      toSpreadsheetFolderEntry(
+        pathSegments.map((segment) => ({
+          id: segment.id,
+          name: segment.name.trim() || UNKNOWN_FOLDER_LABEL,
+        })),
+      ),
+    );
+  }
+
+  if ((spreadsheet.parents ?? []).length > 0) {
+    return [
+      toSpreadsheetFolderEntry([
+        { id: "__unknown-folder__", name: UNKNOWN_FOLDER_LABEL },
+      ]),
+    ];
+  }
+
+  return [
+    toSpreadsheetFolderEntry([{ id: "__root__", name: ROOT_FOLDER_LABEL }]),
+  ];
+}
+
+function toSpreadsheetFolderEntry(
+  pathSegments: { id: string; name: string }[],
+) {
+  return {
+    pathSegments,
+    folderLabel: pathSegments.map((segment) => segment.name).join(" / "),
+  };
+}
+
+function getSpreadsheetFolderLabel(spreadsheet: Spreadsheet) {
+  const [primaryFolderEntry] = getSpreadsheetFolderEntries(spreadsheet);
+
+  return primaryFolderEntry?.folderLabel;
 }
 
 function compactSpreadsheetId(spreadsheetId: string) {

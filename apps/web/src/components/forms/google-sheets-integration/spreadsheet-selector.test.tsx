@@ -307,7 +307,7 @@ describe("SpreadsheetSelector", () => {
     }
   }, 15_000);
 
-  it("separates current, recent, and create actions inside a limited popover", () => {
+  it("separates current, folder browser, and create actions inside a limited popover", () => {
     const spreadsheets = Array.from({ length: 25 }, (_, index) => ({
       id: `spreadsheet-${index}`,
       name: `Spreadsheet ${index}`,
@@ -331,8 +331,11 @@ describe("SpreadsheetSelector", () => {
 
       expect(queryAllByText(container, "現在連携中").length).toBeGreaterThan(0);
       expect(
-        queryByText(container, "最近使ったもの（最大20件）"),
+        queryByText(container, "フォルダから選択（最大20件）"),
       ).not.toBeNull();
+      expect(queryAllByText(container, "マイドライブ").length).toBeGreaterThan(
+        0,
+      );
       expect(
         queryByText(container, "新しいスプレッドシートを作成"),
       ).not.toBeNull();
@@ -381,6 +384,127 @@ describe("SpreadsheetSelector", () => {
 
       expect(queryByText(container, /ID: duplicat\.\.\.et-a/)).not.toBeNull();
       expect(queryByText(container, /ID: duplicat\.\.\.et-b/)).not.toBeNull();
+    } finally {
+      cleanupSelector(root, container);
+    }
+  }, 15_000);
+
+  it("groups spreadsheets by Drive folder paths and distinguishes duplicate names", () => {
+    const { container, root } = renderSelector({
+      selectedSpreadsheetId: "",
+      filteredSpreadsheets: [
+        {
+          id: "shared-sales-report-a",
+          name: "月次レポート",
+          itemType: "spreadsheet",
+          parents: ["folder-sales"],
+          folderPaths: [
+            {
+              folderIds: ["folder-company", "folder-sales"],
+              pathSegments: [
+                { id: "folder-company", name: "Company" },
+                { id: "folder-sales", name: "Sales" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "shared-sales-report-b",
+          name: "月次レポート",
+          itemType: "spreadsheet",
+          parents: ["folder-support"],
+          folderPaths: [
+            {
+              folderIds: ["folder-company", "folder-support"],
+              pathSegments: [
+                { id: "folder-company", name: "Company" },
+                { id: "folder-support", name: "Support" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "root-sheet",
+          name: "Root sheet",
+          itemType: "spreadsheet",
+          parents: [],
+          folderPaths: [],
+        },
+        {
+          id: "missing-folder-metadata",
+          name: "Missing metadata",
+          itemType: "spreadsheet",
+          parents: ["folder-hidden"],
+          folderPaths: [],
+        },
+        {
+          id: "multi-parent-sheet",
+          name: "Multi parent",
+          itemType: "spreadsheet",
+          parents: ["folder-alpha", "folder-beta"],
+          folderPaths: [
+            {
+              folderIds: ["folder-alpha"],
+              pathSegments: [{ id: "folder-alpha", name: "Alpha" }],
+            },
+            {
+              folderIds: ["folder-beta"],
+              pathSegments: [{ id: "folder-beta", name: "Beta" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    try {
+      const selector = getByRole(container, "combobox", {
+        name: /未選択/,
+      });
+
+      act(() => {
+        selector.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      expect(queryByText(container, "Company")).not.toBeNull();
+      expect(queryByText(container, "Sales")).not.toBeNull();
+      expect(queryByText(container, "Support")).not.toBeNull();
+      expect(queryAllByText(container, "マイドライブ").length).toBeGreaterThan(
+        0,
+      );
+      expect(
+        queryAllByText(container, "フォルダ情報なし").length,
+      ).toBeGreaterThan(0);
+      expect(queryByText(container, /Company \/ Sales/)).not.toBeNull();
+      expect(queryByText(container, /Company \/ Support/)).not.toBeNull();
+      expect(queryAllByText(container, /Alpha/).length).toBeGreaterThan(0);
+      expect(queryAllByText(container, /Beta/).length).toBeGreaterThan(0);
+      expect(queryByText(container, /ID: shared-s\.\.\.rt-a/)).not.toBeNull();
+      expect(queryByText(container, /ID: shared-s\.\.\.rt-b/)).not.toBeNull();
+    } finally {
+      cleanupSelector(root, container);
+    }
+  }, 15_000);
+
+  it("does not infer root folder metadata for a current spreadsheet outside the visible page", () => {
+    const { container, root } = renderSelector({
+      selectedSpreadsheetId: "current-spreadsheet-id",
+      selectedSpreadsheetName: "現在の連携先",
+      currentLinkedSpreadsheetId: "current-spreadsheet-id",
+      currentLinkedSpreadsheetName: "現在の連携先",
+      filteredSpreadsheets: [],
+    });
+
+    try {
+      const selector = getByRole(container, "combobox", {
+        name: /現在の連携先/,
+      });
+
+      act(() => {
+        selector.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+      expect(container.textContent).toContain("現在連携中");
+      expect(container.textContent).not.toContain("現在連携中 / マイドライブ");
     } finally {
       cleanupSelector(root, container);
     }
