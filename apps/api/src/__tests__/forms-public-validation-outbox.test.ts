@@ -477,6 +477,9 @@ async function submitPublicForm(
     },
   ],
   headers: Record<string, string> = {},
+  telemetry: { v4Token?: string; v6Token?: string } = {
+    v4Token: "telemetry-token",
+  },
 ) {
   const { formsPublicRouter } = await import("../routes/forms-public");
   return formsPublicRouter.request("/public/public-form-1/submit", {
@@ -485,7 +488,7 @@ async function submitPublicForm(
     body: JSON.stringify({
       responses,
       captchaToken: "captcha-token",
-      telemetry: { v4Token: "telemetry-token" },
+      telemetry,
       fingerprints: [],
     }),
   });
@@ -1230,6 +1233,28 @@ describe("R23-T1 public form input validation submit slice", () => {
       "203.0.113.10",
     );
     expect(mocks.db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("allows v4 and v6 telemetry candidates to be validated with any matching token", async () => {
+    const snapshot = mixedQuestionSnapshot();
+    const responses = validMixedResponses();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm(
+      responses,
+      {},
+      {
+        v4Token: "v4-token",
+        v6Token: "v6-token",
+      },
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["v4-token", "v6-token"],
+      "203.0.113.10",
+    );
   });
 
   it("uses the general API IP boundary for token consumption instead of the telemetry boundary", async () => {

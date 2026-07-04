@@ -40,8 +40,9 @@ export function hashIPAddress(ip: string): string {
  *
  * @param tokens - Telemetry token values submitted by the public form.
  * @param currentIp - Normalized client IP address observed during submission.
- * @returns Resolves when every unique token is valid, unused, unexpired, and IP-bound to currentIp.
- * @throws When no tokens are provided or any token is invalid, expired, already used, or IP-mismatched.
+ * @returns Resolves when at least one token is valid, unused, unexpired, and IP-bound to currentIp.
+ * Matching tokens authorize the submit; all other submitted unused/unexpired token candidates are consumed too.
+ * @throws When no tokens are provided or no token is valid for the current IP.
  */
 export async function consumeTokensOrThrow(
   tokens: string[],
@@ -52,26 +53,39 @@ export async function consumeTokensOrThrow(
     throw new Error("No telemetry tokens provided");
   }
 
-  // Atomically mark all matching unused tokens as consumed in a single UPDATE.
-  // The WHERE clause ensures only valid, unused, non-expired tokens are affected.
+  // Mark current-IP matching unused tokens first; at least one match authorizes
+  // the submit. v4/v6 tokens are alternative address-family evidence.
   const now = new Date();
-  const result = await db
-    .update(telemetryToken)
-    .set({ usedAt: now })
-    .where(
-      and(
-        inArray(telemetryToken.token, unique),
-        eq(telemetryToken.ip, hashIPAddress(currentIp)),
-        isNull(telemetryToken.usedAt),
-        gt(telemetryToken.expiresAt, now),
-      ),
-    );
+  await db.transaction(async (tx) => {
+    const result = await tx
+      .update(telemetryToken)
+      .set({ usedAt: now })
+      .where(
+        and(
+          inArray(telemetryToken.token, unique),
+          eq(telemetryToken.ip, hashIPAddress(currentIp)),
+          isNull(telemetryToken.usedAt),
+          gt(telemetryToken.expiresAt, now),
+        ),
+      );
 
-  // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
-  const header = result[0] as { affectedRows: number };
-  if (header.affectedRows !== unique.length) {
-    throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
-  }
+    // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
+    const header = result[0] as { affectedRows: number };
+    if (header.affectedRows === 0) {
+      throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
+    }
+
+    await tx
+      .update(telemetryToken)
+      .set({ usedAt: now })
+      .where(
+        and(
+          inArray(telemetryToken.token, unique),
+          isNull(telemetryToken.usedAt),
+          gt(telemetryToken.expiresAt, now),
+        ),
+      );
+  });
 }
 
 /**
