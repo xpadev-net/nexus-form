@@ -21,6 +21,12 @@ vi.mock("@nexus-form/database", () => ({
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
+  fingerprintDetail: {
+    componentName: "fingerprintDetail.componentName",
+    componentValueHash: "fingerprintDetail.componentValueHash",
+    fingerprintType: "fingerprintDetail.fingerprintType",
+    responseId: "fingerprintDetail.responseId",
+  },
   form: {},
   formSnapshot: {},
 }));
@@ -39,6 +45,11 @@ vi.mock("drizzle-orm", () => ({
     column,
     type: "eq",
     value,
+  })),
+  inArray: vi.fn((column: unknown, values: unknown[]) => ({
+    column,
+    type: "inArray",
+    values,
   })),
 }));
 
@@ -168,10 +179,15 @@ function setupDbSelect(...results: unknown[][]) {
   mockDb.select.mockImplementation(() => {
     const idx = call++;
     const result = results[idx] ?? [];
+    const promise = Promise.resolve(result);
     return {
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue(result),
+      // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are thenable, and this mock must support direct await.
+      then: promise.then.bind(promise),
+      catch: promise.catch.bind(promise),
+      finally: promise.finally.bind(promise),
     } as unknown as ReturnType<typeof db.select>;
   });
 }
@@ -381,6 +397,7 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+    expect(mockDb.select).toHaveBeenCalledTimes(3);
   });
 
   it('waits out a stale "pending" idempotency key under the integration lock and writes without BullMQ retry', async () => {
@@ -561,6 +578,7 @@ describe("handleSheetsSync — idempotency states", () => {
       spreadsheetId: "spreadsheet-id",
       rangeA1: "Sheet1!A:A",
     });
+    expect(mockDb.select).toHaveBeenCalledTimes(3);
   });
 
   it("skips append when the idempotency key expired but the response row already exists", async () => {
@@ -723,6 +741,176 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
+  it("writes the calculated uniqueness score into the sheet row", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [],
+      [{ id: "response-1" }, { id: "response-2" }],
+      [
+        {
+          responseId: "response-1",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+        {
+          responseId: "response-2",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        values: [["Response ID", "block-1", "ユニーク度スコア"]],
+      }),
+    );
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "hello", "0.0000"]],
+      }),
+    );
+  });
+
+  it("updates existing sheet rows with recalculated uniqueness scores before appending", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [{ ...RESPONSE, id: "response-2" }],
+      [],
+      [{ id: "response-1" }, { id: "response-2" }],
+      [
+        {
+          responseId: "response-1",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+        {
+          responseId: "response-2",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "ユニーク度スコア", "block-1"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"], ["missing-response"]],
+        },
+      } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-2",
+      }),
+    );
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!B2:B3",
+      values: [["0.0000"], [""]],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-2", "0.0000", "hello"]],
+      }),
+    );
+  });
+
+  it("leaves the uniqueness score blank when the calculation scope is exceeded", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [],
+      Array.from({ length: 5001 }, (_, index) => ({
+        id: `response-${index}`,
+      })),
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "ユニーク度スコア", "block-1"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-0"]],
+        },
+      } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "", "hello"]],
+      }),
+    );
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!B2:B2",
+      values: [[""]],
+    });
+    expect(mockDb.select).toHaveBeenCalledTimes(4);
+  });
+
   it("does not throw when best-effort done promotion fails", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
@@ -746,9 +934,9 @@ describe("handleSheetsSync — write path", () => {
     await handleSheetsSync(makeJob());
 
     // Lock TTL covers a pending-idempotency wait plus one Sheets critical section.
-    expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBe(180);
-    expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(330_000);
-    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(335_000);
+    expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBe(210);
+    expect(SHEETS_SYNC_LOCK_TTL_MS).toBe(390_000);
+    expect(SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS).toBe(395_000);
     expect(PENDING_IDEMPOTENCY_TTL_SECONDS).toBeGreaterThan(
       Math.ceil(
         (SHEETS_SYNC_LOCK_TTL_MS - PENDING_IDEMPOTENCY_TTL_SECONDS * 1000) /
@@ -767,6 +955,13 @@ describe("handleSheetsSync — write path", () => {
 
   it("keeps the integration lock alive through the maximum Sheets API calls", async () => {
     setupHappyPathMocks();
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [],
+      [{ id: "response-1" }, { id: "other-response" }],
+      [],
+    );
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
 
     let elapsedMs = 0;
@@ -816,9 +1011,9 @@ describe("handleSheetsSync — write path", () => {
 
     expect(result).toMatchObject({ ok: true, updatedRows: 1 });
     expect(mockReadRange).toHaveBeenCalledTimes(2);
-    expect(mockUpdateRange).toHaveBeenCalledOnce();
+    expect(mockUpdateRange).toHaveBeenCalledTimes(2);
     expect(mockAppendRows).toHaveBeenCalledOnce();
-    expect(elapsedMs).toBe(SHEETS_API_TIMEOUT_MS * 4);
+    expect(elapsedMs).toBe(SHEETS_API_TIMEOUT_MS * 5);
     expect(lockExpiresAtMs - elapsedMs).toBeGreaterThanOrEqual(
       SHEETS_API_TIMEOUT_MS,
     );
@@ -915,13 +1110,13 @@ describe("handleSheetsSync — write path", () => {
     expect(mockUpdateRange).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        values: [["Response ID", "Submitted Label"]],
+        values: [["Response ID", "ユニーク度スコア", "Submitted Label"]],
       }),
     );
     expect(mockAppendRows).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        rows: [["response-1", "hello"]],
+        rows: [["response-1", "1.0000", "hello"]],
       }),
     );
   });
@@ -932,7 +1127,9 @@ describe("handleSheetsSync — write path", () => {
     // Extra column already present — no new column needed
     mockReadRange.mockResolvedValue({
       ok: true,
-      data: { values: [["Response ID", "block-1", "extra-col"]] },
+      data: {
+        values: [["Response ID", "ユニーク度スコア", "block-1", "extra-col"]],
+      },
     } as never);
 
     await handleSheetsSync(makeJob());

@@ -37,6 +37,7 @@ import {
   getLatestSnapshotByVersion,
   getSnapshotByVersion,
 } from "../lib/forms/snapshot-repository";
+import { calculateUniquenessScoreMap } from "../lib/forms/uniqueness-calculator";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
@@ -71,6 +72,8 @@ const responseBodySizeLimit = createRequestBodySizeLimit({
 const LIKE_ESCAPE_CHAR = "!";
 const RESPONSE_SEARCH_MIN_BATCH_SIZE = 200;
 const RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT = 5000;
+const RESPONSE_EXPORT_ROW_LIMIT = 5000;
+const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = RESPONSE_EXPORT_ROW_LIMIT;
 
 const listResponsesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -88,8 +91,6 @@ const listResponsesQuerySchema = z.object({
 });
 
 const limitedListQuerySchema = paginationQuerySchema;
-const RESPONSE_EXPORT_ROW_LIMIT = 5000;
-
 const createResponseSchema = z.object({
   responses: z.array(responsePayloadItemSchema).max(MAX_RESPONSE_ITEMS),
   respondentUuid: z.string().max(MAX_RESPONSE_ID_LENGTH).optional(),
@@ -172,6 +173,76 @@ type ResponseSearchRow = {
 };
 
 type ResponseListRow = Omit<ResponseSearchRow, "responseDataJson">;
+
+async function getUniquenessScoresForForm(
+  formId: string,
+): Promise<Map<string, number> | null> {
+  const responseRows = await db
+    .select({ id: formResponse.id })
+    .from(formResponse)
+    .where(eq(formResponse.formId, formId))
+    .limit(RESPONSE_UNIQUENESS_CALCULATION_LIMIT + 1);
+
+  if (responseRows.length === 0) return new Map();
+  if (responseRows.length > RESPONSE_UNIQUENESS_CALCULATION_LIMIT) {
+    logWarn(
+      "Skipping uniqueness score calculation because response count exceeds the bounded calculation limit",
+      "forms-responses",
+      {
+        formId,
+        limit: RESPONSE_UNIQUENESS_CALCULATION_LIMIT,
+      },
+    );
+    return null;
+  }
+
+  const responseIds = responseRows.map((row) => row.id);
+  const fingerprintRows = await db
+    .select({
+      responseId: fingerprintDetail.responseId,
+      componentName: fingerprintDetail.componentName,
+      componentValueHash: fingerprintDetail.componentValueHash,
+      fingerprintType: fingerprintDetail.fingerprintType,
+    })
+    .from(fingerprintDetail)
+    .where(inArray(fingerprintDetail.responseId, responseIds));
+
+  const fingerprintsByResponseId = new Map<
+    string,
+    Array<{
+      componentName: string;
+      componentValueHash: string;
+      fingerprintType: string;
+    }>
+  >();
+  for (const {
+    responseId,
+    componentName,
+    componentValueHash,
+    fingerprintType,
+  } of fingerprintRows) {
+    const current = fingerprintsByResponseId.get(responseId) ?? [];
+    current.push({ componentName, componentValueHash, fingerprintType });
+    fingerprintsByResponseId.set(responseId, current);
+  }
+
+  return calculateUniquenessScoreMap(
+    responseRows.map((row) => ({
+      id: row.id,
+      fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+    })),
+  );
+}
+
+function addUniquenessScore<T extends { id: string }>(
+  row: T,
+  scores: Map<string, number> | null,
+): T & { uniquenessScore: number | null } {
+  return {
+    ...row,
+    uniquenessScore: scores === null ? null : (scores.get(row.id) ?? 1),
+  };
+}
 
 function buildResponseChoiceLabelsByQuestion(
   plateContent: string | null,
@@ -902,10 +973,13 @@ export const formsResponsesRouter = createHonoApp()
           sortField,
           sortOrder,
         });
+        const uniquenessScores = await getUniquenessScoresForForm(formId);
 
         return c.json(
           ResponsesListResponseSchema.parse({
-            responses,
+            responses: responses.map((response) =>
+              addUniquenessScore(response, uniquenessScores),
+            ),
             page: query.page,
             limit: query.limit,
             hasNext,
@@ -930,10 +1004,13 @@ export const formsResponsesRouter = createHonoApp()
         .offset(offset)
         .limit(query.limit + 1);
       const responses = rows.slice(0, query.limit);
+      const uniquenessScores = await getUniquenessScoresForForm(formId);
 
       return c.json(
         ResponsesListResponseSchema.parse({
-          responses,
+          responses: responses.map((response) =>
+            addUniquenessScore(response, uniquenessScores),
+          ),
           page: query.page,
           limit: query.limit,
           hasNext: rows.length > query.limit,
@@ -1181,11 +1258,12 @@ export const formsResponsesRouter = createHonoApp()
     const displayResponse = responseDataJsonWithLabels
       ? { ...response, responseDataJson: responseDataJsonWithLabels }
       : response;
+    const uniquenessScores = await getUniquenessScoresForForm(formId);
 
     const externalValidations = await getExternalValidationResults(responseId);
     return c.json(
       ResponseDetailResponseSchema.parse({
-        response: displayResponse,
+        response: addUniquenessScore(displayResponse, uniquenessScores),
         externalValidations,
       }),
     );

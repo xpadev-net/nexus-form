@@ -302,6 +302,12 @@ export function FormResponsesContent({ formId }: { formId: string }) {
                                 {formatJapanLocaleDateTime(response.updatedAt)}
                               </span>
                             )}
+                            {response.uniquenessScore !== null && (
+                              <span className="text-xs text-muted-foreground">
+                                ユニーク度:{" "}
+                                {response.uniquenessScore.toFixed(4)}
+                              </span>
+                            )}
                           </div>
                           {response.countryCode && (
                             <span className="text-xs text-muted-foreground">
