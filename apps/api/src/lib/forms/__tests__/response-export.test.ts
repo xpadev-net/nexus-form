@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildResponseExportColumnsFromBlocks,
   buildResponseExportRecords,
+  buildResponseExportTable,
   formatRecordsToCsv,
   mapRecordToSheetRow,
   type ResponseExportRecord,
@@ -203,6 +205,169 @@ describe("response export", () => {
       ]),
     ).toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
+    );
+  });
+
+  it("builds deterministic shared export headers and rows", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-1",
+        form_id: "form-1",
+        respondent_uuid: "respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        fingerprint_uuids: {
+          canvas: "canvas-uuid",
+          webgl: "webgl-uuid",
+        },
+        ua_uuid: null,
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "choice-block",
+          block_type: "radio",
+          question_title: "希望枠",
+          value: "morning",
+          display_value: "午前",
+        },
+        {
+          block_id: "checkbox-block",
+          block_type: "checkbox",
+          question_title: "興味",
+          value: ["ts", "react"],
+          display_value: ["TypeScript", "React"],
+        },
+      ],
+    };
+
+    expect(
+      buildResponseExportTable(
+        [record],
+        new Set(["webgl", "canvas"]),
+        blockTitleMap,
+      ),
+    ).toEqual({
+      headerIds: [
+        "Response ID",
+        "Respondent UUID",
+        "Submitted At",
+        "Updated At",
+        "Country Code",
+        "UA UUID",
+        "Uniqueness Score",
+        "canvas UUID",
+        "webgl UUID",
+        "choice-block",
+        "checkbox-block",
+      ],
+      headerTitles: [
+        "回答ID",
+        "回答者UUID",
+        "送信日時",
+        "更新日時",
+        "国コード",
+        "UA UUID",
+        "ユニーク度スコア",
+        "canvas UUID",
+        "webgl UUID",
+        "希望枠",
+        "興味",
+      ],
+      rows: [
+        [
+          "response-1",
+          "respondent-1",
+          "2026-05-17T01:00:00.000Z",
+          "",
+          "JP",
+          "",
+          "1.0000",
+          "canvas-uuid",
+          "webgl-uuid",
+          "午前",
+          "TypeScript, React",
+        ],
+      ],
+    });
+  });
+
+  it("omits section separators from shared empty headers and CSV before, between, and after questions", () => {
+    const sectionedBlocks = [
+      {
+        blockId: "intro-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "導入", validation: { type: "section_separator" } },
+      },
+      {
+        blockId: "first-question",
+        category: "question",
+        type: "short_text",
+        content: { title: "最初の質問", validation: {} },
+      },
+      {
+        blockId: "middle-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "中間", validation: { type: "section_separator" } },
+      },
+      {
+        blockId: "second-question",
+        category: "question",
+        type: "radio",
+        content: { title: "次の質問", validation: {} },
+      },
+      {
+        blockId: "outro-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "終了", validation: { type: "section_separator" } },
+      },
+    ];
+    const sectionedTitleMap = new Map(
+      sectionedBlocks.map((block) => [
+        block.blockId,
+        String(block.content.title),
+      ]),
+    );
+    const emptyColumns = buildResponseExportColumnsFromBlocks(sectionedBlocks);
+
+    expect(emptyColumns.map((column) => column.id)).toEqual([
+      "first-question",
+      "second-question",
+    ]);
+    expect(
+      buildResponseExportTable([], new Set(), sectionedTitleMap, emptyColumns),
+    ).toEqual({
+      headerIds: [
+        "Response ID",
+        "Respondent UUID",
+        "Submitted At",
+        "Updated At",
+        "Country Code",
+        "UA UUID",
+        "Uniqueness Score",
+        "first-question",
+        "second-question",
+      ],
+      headerTitles: [
+        "回答ID",
+        "回答者UUID",
+        "送信日時",
+        "更新日時",
+        "国コード",
+        "UA UUID",
+        "ユニーク度スコア",
+        "最初の質問",
+        "次の質問",
+      ],
+      rows: [],
+    });
+    expect(
+      formatRecordsToCsv([], new Set(), sectionedTitleMap, emptyColumns),
+    ).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","最初の質問","次の質問"',
     );
   });
 
@@ -506,6 +671,96 @@ describe("response export", () => {
     expect(csv).not.toContain("法人追加情報");
   });
 
+  it("omits question-category section separators from non-empty export records and CSV", () => {
+    const sectionedBlocks = [
+      {
+        blockId: "intro-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "導入", validation: { type: "section_separator" } },
+      },
+      {
+        blockId: "first-question",
+        category: "question",
+        type: "short_text",
+        content: { title: "最初の質問", validation: {} },
+      },
+      {
+        blockId: "middle-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "中間", validation: { type: "section_separator" } },
+      },
+      {
+        blockId: "second-question",
+        category: "question",
+        type: "short_text",
+        content: { title: "次の質問", validation: {} },
+      },
+      {
+        blockId: "outro-section",
+        category: "question",
+        type: "section_separator",
+        content: { title: "終了", validation: { type: "section_separator" } },
+      },
+    ];
+    const sectionedTitleMap = new Map(
+      sectionedBlocks.map((block) => [
+        block.blockId,
+        String(block.content.title),
+      ]),
+    );
+
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      "form-sectioned",
+      [
+        {
+          id: "response-sectioned",
+          formId: "form-sectioned",
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "first-question",
+              question_type: "short_text",
+              value: "回答1",
+            },
+            {
+              question_id: "second-question",
+              question_type: "short_text",
+              value: "回答2",
+            },
+          ]),
+          respondentUuid: "respondent-sectioned",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [],
+        },
+      ],
+      sectionedBlocks,
+    );
+
+    expect(
+      records[0]?.component_columns.map((column) => column.block_id),
+    ).toEqual(["first-question", "second-question"]);
+
+    const csv = formatRecordsToCsv(
+      records,
+      fingerprintComponents,
+      sectionedTitleMap,
+    );
+    expect(csv.split("\n")[0]).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","最初の質問","次の質問"',
+    );
+    expect(csv.split("\n")[1]).toBe(
+      '"response-sectioned","respondent-sectioned","2026-05-17T01:00:00.000Z","","JP","","1.0000","回答1","回答2"',
+    );
+    expect(csv).not.toContain("導入");
+    expect(csv).not.toContain("中間");
+    expect(csv).not.toContain("終了");
+  });
+
   it("prefers display labels when mapping records to sheet rows", () => {
     const record: ResponseExportRecord = {
       metadata: {
@@ -639,5 +894,42 @@ describe("response export", () => {
     expect(existingLayoutRow.idRow).toEqual(newLayoutRow.idRow);
     expect(existingLayoutRow.titleRow).toEqual(newLayoutRow.titleRow);
     expect(existingLayoutRow.row).toEqual(newLayoutRow.row);
+  });
+
+  it("keeps duplicate sheet titles disambiguated deterministically", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-duplicate",
+        form_id: "form-duplicate",
+        respondent_uuid: "respondent-duplicate",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        ua_uuid: null,
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "first-name",
+          block_type: "short_text",
+          question_title: "名前",
+          value: "山田",
+        },
+        {
+          block_id: "second-name",
+          block_type: "short_text",
+          question_title: "名前",
+          value: "太郎",
+        },
+      ],
+    };
+    const duplicateTitleMap = new Map([
+      ["first-name", "名前"],
+      ["second-name", "名前"],
+    ]);
+
+    const newLayoutRow = mapRecordToSheetRow(record, [], duplicateTitleMap);
+
+    expect(newLayoutRow.titleRow).toEqual(["回答ID", "名前", "名前 (2)"]);
+    expect(newLayoutRow.row).toEqual(["response-duplicate", "山田", "太郎"]);
   });
 });
