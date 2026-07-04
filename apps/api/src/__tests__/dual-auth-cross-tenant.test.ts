@@ -26,7 +26,14 @@ vi.mock("@nexus-form/database/schema", () => ({
   apiToken: {},
   form: {},
   formPermission: {},
-  formShareLink: {},
+  formShareLink: {
+    expiresAt: "formShareLink.expiresAt",
+    formId: "formShareLink.formId",
+    id: "formShareLink.id",
+    isActive: "formShareLink.isActive",
+    role: "formShareLink.role",
+    token: "formShareLink.token",
+  },
 }));
 
 vi.mock("better-auth", () => ({
@@ -99,11 +106,36 @@ const FORM_ID = "form-xyz";
 const OWNER_ID = "owner-user-id";
 const OTHER_USER_ID = "other-user-id";
 
-function createBearerContext(token: string) {
+function createBearerContext(
+  token: string,
+  query: Record<string, string> = {},
+) {
   return {
     req: {
       header: (name: string) =>
         name.toLowerCase() === "authorization" ? `Bearer ${token}` : undefined,
+      method: "GET",
+      query: (name: string) => query[name],
+      url: `http://localhost/api/forms/${FORM_ID}`,
+    },
+    json: (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        headers: { "content-type": "application/json" },
+        status,
+      }),
+  };
+}
+
+function createQueryContext(
+  query: Record<string, string>,
+  url = `http://localhost/api/forms/${FORM_ID}/editor/events`,
+) {
+  return {
+    req: {
+      header: () => undefined,
+      method: "GET",
+      query: (name: string) => query[name],
+      url,
     },
     json: (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), {
@@ -301,7 +333,200 @@ describe("C-1: api_token cross-tenant access prevention in checkFormPermissionLe
     if ("error" in authResult) {
       expect(authResult.response.status).toBe(401);
     }
-    expect(vi.mocked(db.select)).not.toHaveBeenCalled();
+    expect(vi.mocked(db.select)).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts an EDITOR share-link bearer token for its matching form", async () => {
+    const { db } = await import("@nexus-form/database");
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: null,
+          formId: FORM_ID,
+          id: "share-link-1",
+          isActive: true,
+          role: "EDITOR",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("share-token") as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    if ("error" in authResult) {
+      throw new Error("Expected share-link token authentication to succeed");
+    }
+    expect(authResult.context).toMatchObject({
+      auth_type: "api_token",
+      form_ids: [FORM_ID],
+      scopes: ["read", "write"],
+      share_link_id: "share-link-1",
+      user_id: "share-link:share-link-1",
+    });
+  });
+
+  it("accepts an EDITOR share-link query token for SSE-style authentication", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: null,
+          formId: FORM_ID,
+          id: "share-link-query",
+          isActive: true,
+          role: "EDITOR",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createQueryContext({ shareToken: "share-token-query" }) as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(tokenMocks.validateApiTokenForForm).not.toHaveBeenCalled();
+    if ("error" in authResult) {
+      throw new Error(
+        "Expected share-link query token authentication to succeed",
+      );
+    }
+    expect(authResult.context).toMatchObject({
+      auth_type: "api_token",
+      form_ids: [FORM_ID],
+      scopes: ["read", "write"],
+      share_link_id: "share-link-query",
+      user_id: "share-link:share-link-query",
+    });
+  });
+
+  it("does not accept a share-link query token on non-SSE form routes", async () => {
+    const authResult = await authenticateDualForForm(
+      createQueryContext(
+        { shareToken: "share-token-query" },
+        `http://localhost/api/forms/${FORM_ID}`,
+      ) as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(tokenMocks.validateApiTokenForForm).not.toHaveBeenCalled();
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(401);
+    }
+  });
+
+  it("rejects an inactive EDITOR share-link bearer token", async () => {
+    const { db } = await import("@nexus-form/database");
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: null,
+          formId: FORM_ID,
+          id: "share-link-inactive",
+          isActive: false,
+          role: "EDITOR",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("inactive-share-token") as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(401);
+    }
+  });
+
+  it("rejects an expired EDITOR share-link bearer token", async () => {
+    const { db } = await import("@nexus-form/database");
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: new Date(Date.now() - 1_000),
+          formId: FORM_ID,
+          id: "share-link-expired",
+          isActive: true,
+          role: "EDITOR",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("expired-share-token") as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(401);
+    }
+  });
+
+  it("rejects an EDITOR share-link bearer token for a different form", async () => {
+    const { db } = await import("@nexus-form/database");
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: null,
+          formId: "different-form",
+          id: "share-link-different-form",
+          isActive: true,
+          role: "EDITOR",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("different-form-share-token") as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(401);
+    }
+  });
+
+  it("rejects a VIEWER share-link bearer token when write scope is required", async () => {
+    const { db } = await import("@nexus-form/database");
+    tokenMocks.validateApiTokenForForm.mockResolvedValueOnce(null);
+    mockDbCall(db, [
+      [
+        {
+          expiresAt: null,
+          formId: FORM_ID,
+          id: "share-link-viewer",
+          isActive: true,
+          role: "VIEWER",
+        },
+      ],
+    ]);
+
+    const authResult = await authenticateDualForForm(
+      createBearerContext("viewer-share-token") as never,
+      FORM_ID,
+      ["write"],
+    );
+
+    expect(authResult).toMatchObject({ error: true });
+    if ("error" in authResult) {
+      expect(authResult.response.status).toBe(403);
+    }
   });
 
   it("denies anon token (user_id starts with 'anon:') even when form_ids passes", async () => {

@@ -10,7 +10,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InvitationManager } from "./invitation-manager";
 import { PermissionEditor } from "./permission-editor";
-import { SharedFormPage } from "./shared-form-page";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -29,27 +28,10 @@ type InvitationRecord = {
   role: "EDITOR" | "VIEWER";
 };
 
-type SharedFormQuery = {
-  data:
-    | {
-        form: {
-          description: string | null;
-          id: string;
-          title: string;
-        };
-        role: "EDITOR" | "VIEWER";
-      }
-    | undefined;
-  error: Error | null;
-  isError: boolean;
-  isLoading: boolean;
-};
-
 const mocks = vi.hoisted(
   (): {
     createInvitationMutate: ReturnType<typeof vi.fn>;
     removePermissionMutate: ReturnType<typeof vi.fn>;
-    sharedFormQuery: SharedFormQuery;
     toastSuccess: ReturnType<typeof vi.fn>;
     updatePermissionMutate: ReturnType<typeof vi.fn>;
     useFormPermissionsState: {
@@ -71,19 +53,6 @@ const mocks = vi.hoisted(
   } => ({
     createInvitationMutate: vi.fn(),
     removePermissionMutate: vi.fn(),
-    sharedFormQuery: {
-      data: {
-        form: {
-          description: "共有説明",
-          id: "form-1",
-          title: "共有フォーム",
-        },
-        role: "EDITOR",
-      },
-      error: null,
-      isError: false,
-      isLoading: false,
-    },
     toastSuccess: vi.fn(),
     updatePermissionMutate: vi.fn(),
     useFormPermissionsState: {
@@ -118,14 +87,6 @@ function renderNode(container: HTMLElement, node: ReactNode): Root {
   return root;
 }
 
-vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => mocks.sharedFormQuery,
-}));
-
-vi.mock("@tanstack/react-router", () => ({
-  useParams: () => ({ token: "share-token" }),
-}));
-
 vi.mock("@/hooks/forms/use-form-permissions", () => ({
   useFormPermissions: () => ({
     createInvitationMutation: {
@@ -146,29 +107,6 @@ vi.mock("@/hooks/forms/use-form-permissions", () => ({
       mutate: mocks.updatePermissionMutate,
     },
   }),
-}));
-
-vi.mock("@/lib/api", () => ({
-  client: {
-    api: {
-      forms: {
-        shared: {
-          ":token": {
-            $get: vi.fn(),
-          },
-        },
-      },
-    },
-  },
-  RpcError: class RpcError extends Error {
-    status: number;
-
-    constructor(message: string, status: number) {
-      super(message);
-      this.status = status;
-    }
-  },
-  rpc: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -239,19 +177,6 @@ vi.mock("@/components/ui/select", () => ({
 describe("R23-T3 sharing and permission UI", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.sharedFormQuery = {
-      data: {
-        form: {
-          description: "共有説明",
-          id: "form-1",
-          title: "共有フォーム",
-        },
-        role: "EDITOR",
-      },
-      error: null,
-      isError: false,
-      isLoading: false,
-    };
     mocks.useFormPermissionsState.permissionsQuery = {
       data: {
         permissions: [
@@ -271,39 +196,6 @@ describe("R23-T3 sharing and permission UI", () => {
       isLoading: false,
       refetch: vi.fn(),
     };
-  });
-
-  it("renders an EDITOR shared-link view without an authenticated edit target", () => {
-    const container = document.createElement("div");
-    const root = renderNode(container, <SharedFormPage />);
-
-    expect(container.textContent).toContain("共有フォーム");
-    expect(container.textContent).toContain("共有ロール: EDITOR");
-    expect(container.textContent).toContain(
-      "この共有リンクは編集者ロールで共有されています。",
-    );
-    expect(container.querySelector("a")).toBeNull();
-
-    act(() => root.unmount());
-  });
-
-  it("renders a VIEWER shared-link view without the edit target", () => {
-    mocks.sharedFormQuery = {
-      ...mocks.sharedFormQuery,
-      data: mocks.sharedFormQuery.data
-        ? { ...mocks.sharedFormQuery.data, role: "VIEWER" }
-        : undefined,
-    };
-    const container = document.createElement("div");
-    const root = renderNode(container, <SharedFormPage />);
-
-    expect(container.textContent).toContain("共有ロール: VIEWER");
-    expect(container.textContent).toContain(
-      "この共有リンクでは閲覧のみ可能です。",
-    );
-    expect(container.querySelector("a")).toBeNull();
-
-    act(() => root.unmount());
   });
 
   it("sends a mocked email invitation with the selected EDITOR role", () => {

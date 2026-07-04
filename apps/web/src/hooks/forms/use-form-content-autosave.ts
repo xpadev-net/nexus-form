@@ -1,6 +1,6 @@
 import { ensureNodeIds, type MergePlateResult } from "@nexus-form/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
@@ -8,7 +8,13 @@ import { resolveServerContentSync } from "@/hooks/forms/form-content-autosave-sy
 import { formDiffQueryKey } from "@/hooks/forms/form-structure-query-keys";
 import { useEditorSSE } from "@/hooks/forms/use-editor-sse";
 import { usePlateMerge } from "@/hooks/forms/use-plate-merge";
-import { baseUrl, client, RpcError, rpc } from "@/lib/api";
+import {
+  baseUrl,
+  client,
+  getShareTokenAuthorizationHeader,
+  RpcError,
+  rpc,
+} from "@/lib/api";
 
 const pendingSaveSchema = z.object({
   plateContent: z.string(),
@@ -125,6 +131,7 @@ interface ContentSaveInput {
 interface UseFormContentAutosaveOptions {
   formId: string;
   contentData: ContentQueryData | undefined;
+  contentQueryKey?: readonly unknown[];
   contentRefetch: () => Promise<unknown>;
   getActiveTab: () => string;
 }
@@ -153,10 +160,15 @@ export interface UseFormContentAutosaveReturn {
 export function useFormContentAutosave({
   formId,
   contentData,
+  contentQueryKey: providedContentQueryKey,
   contentRefetch,
   getActiveTab,
 }: UseFormContentAutosaveOptions): UseFormContentAutosaveReturn {
   const queryClient = useQueryClient();
+  const contentQueryKey = useMemo(
+    () => providedContentQueryKey ?? ["formContent", formId],
+    [formId, providedContentQueryKey],
+  );
 
   const [isSaving, setIsSaving] = useState(false);
   const [draftContent, setDraftContent] = useState<string | null>(null);
@@ -205,7 +217,7 @@ export function useFormContentAutosave({
       });
       if (!hasInFlightTyping) {
         editorValueRef.current = mergedContent;
-        queryClient.setQueryData(["formContent", formId], {
+        queryClient.setQueryData(contentQueryKey, {
           plateContent: mergedContent,
           plateContentVersion: newVersion,
         });
@@ -230,7 +242,7 @@ export function useFormContentAutosave({
         }, 2000);
       }
     },
-    [formId, queryClient],
+    [contentQueryKey, formId, queryClient],
   );
 
   const handleConflict = useCallback(() => {
@@ -447,7 +459,7 @@ export function useFormContentAutosave({
         lastSavedVersionRef.current = data.plateContentVersion;
         pendingRemoteContentRef.current = null;
         pendingRemoteVersionRef.current = null;
-        queryClient.setQueryData(["formContent", formId], {
+        queryClient.setQueryData(contentQueryKey, {
           plateContent: variables.plateContent,
           plateContentVersion: data.plateContentVersion,
         });
@@ -553,7 +565,10 @@ export function useFormContentAutosave({
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
           fetch(`${baseUrl}/api/forms/${formId}/content`, {
             method: "PUT",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              ...getShareTokenAuthorizationHeader(),
+            },
             credentials: "include",
             keepalive: true,
             body,
@@ -612,7 +627,7 @@ export function useFormContentAutosave({
         clearResolvedPendingSave(formId, retryPayload);
         toast.success("前回未保存の変更を復元しました");
         void queryClient.invalidateQueries({
-          queryKey: ["formContent", formId],
+          queryKey: contentQueryKey,
         });
         void queryClient.invalidateQueries({
           queryKey: formDiffQueryKey(formId),
@@ -673,7 +688,7 @@ export function useFormContentAutosave({
     return () => {
       window.clearTimeout(retryTimer);
     };
-  }, [formId, queryClient]);
+  }, [contentQueryKey, formId, queryClient]);
 
   return {
     isSaving,

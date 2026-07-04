@@ -5,9 +5,12 @@ import { FormEditorPage } from "@/components/forms/form-editor-page";
 export const Route = createFileRoute("/_authenticated/forms/$id/edit")({
   component: FormEditorPage,
   errorComponent: EditorRouteErrorPage,
-  validateSearch: (search): { tab?: string } => {
+  validateSearch: (search): { shareToken?: string; tab?: string } => {
     const tab = search.tab;
-    if (typeof tab === "string") return { tab };
-    return {};
+    const shareToken = search.shareToken;
+    return {
+      ...(typeof shareToken === "string" ? { shareToken } : {}),
+      ...(typeof tab === "string" ? { tab } : {}),
+    };
   },
 });

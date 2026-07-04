@@ -52,10 +52,18 @@ const googleDriveFilesResponseSchema = z.object({
       z.object({
         id: z.string().optional(),
         name: z.string().optional(),
+        parents: z.array(z.string()).optional(),
       }),
     )
     .optional(),
   nextPageToken: z.string().optional(),
+});
+
+const googleDriveFolderMetadataSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  mimeType: z.literal("application/vnd.google-apps.folder"),
+  parents: z.array(z.string()).optional(),
 });
 
 const googleSpreadsheetSheetsResponseSchema = z.object({
@@ -418,6 +426,90 @@ async function readGoogleJsonResponse(
   }
 }
 
+type DriveFolderPath = {
+  folderIds: string[];
+  pathSegments: Array<{ id: string; name: string }>;
+};
+
+async function fetchDriveFolderMetadata(
+  accessToken: string,
+  folderId: string,
+): Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null> {
+  const params = new URLSearchParams({
+    fields: "id,name,mimeType,parents",
+  });
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?${params.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      },
+    );
+  } catch {
+    return null;
+  }
+  if (!response.ok) return null;
+  let rawJson: unknown;
+  try {
+    rawJson = await response.json();
+  } catch {
+    return null;
+  }
+  const parsed = googleDriveFolderMetadataSchema.safeParse(rawJson);
+  if (!parsed.success) return null;
+  return parsed.data;
+}
+
+async function buildDriveFolderPath(
+  accessToken: string,
+  folderId: string,
+  folderCache: Map<
+    string,
+    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
+  >,
+): Promise<DriveFolderPath | null> {
+  const pathSegments: Array<{ id: string; name: string }> = [];
+  const seenFolderIds = new Set<string>();
+  let currentFolderId: string | undefined = folderId;
+
+  while (currentFolderId) {
+    if (seenFolderIds.has(currentFolderId)) return null;
+    seenFolderIds.add(currentFolderId);
+
+    let folder = folderCache.get(currentFolderId);
+    if (!folder) {
+      folder = fetchDriveFolderMetadata(accessToken, currentFolderId);
+      folderCache.set(currentFolderId, folder);
+    }
+    const resolvedFolder = await folder;
+    if (!resolvedFolder) return null;
+    pathSegments.unshift({ id: resolvedFolder.id, name: resolvedFolder.name });
+    currentFolderId = resolvedFolder.parents?.[0];
+  }
+
+  return {
+    folderIds: pathSegments.map((segment) => segment.id),
+    pathSegments,
+  };
+}
+
+async function buildDriveFolderPaths(
+  accessToken: string,
+  parentIds: string[],
+  folderCache: Map<
+    string,
+    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
+  >,
+): Promise<DriveFolderPath[]> {
+  const paths = await Promise.all(
+    parentIds.map((parentId) =>
+      buildDriveFolderPath(accessToken, parentId, folderCache),
+    ),
+  );
+  return paths.filter((path): path is DriveFolderPath => path !== null);
+}
+
 async function requireFreshGoogleToken(
   c: Context,
   userId: string,
@@ -666,31 +758,58 @@ export const integrationsGoogleRouter = createHonoApp()
     const pageToken = c.req.query("pageToken");
     // Escape per Drive API rules: \ first, then ' (reversed order breaks escaping)
     const sanitizedQuery = query?.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-    const q = `mimeType='application/vnd.google-apps.spreadsheet'${sanitizedQuery ? ` and name contains '${sanitizedQuery}'` : ""}`;
+    // Shortcuts and shared drive-wide search are intentionally outside this API
+    // contract for now; this endpoint returns direct spreadsheet files visible
+    // to the user's default Drive corpus and annotates each page with parents.
+    const q = `mimeType='application/vnd.google-apps.spreadsheet' and trashed=false${sanitizedQuery ? ` and name contains '${sanitizedQuery}'` : ""}`;
 
     const params = new URLSearchParams({
       q,
-      fields: "files(id,name),nextPageToken",
+      fields: "files(id,name,parents),nextPageToken",
     });
     if (pageSize) params.set("pageSize", pageSize);
     if (pageToken) params.set("pageToken", pageToken);
 
-    const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
-      {
-        headers: { Authorization: `Bearer ${token.accessToken}` },
-      },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${token.accessToken}` },
+        },
+      );
+    } catch {
+      return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
+    }
     if (!response.ok)
       return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
-    const rawParsed = googleDriveFilesResponseSchema.safeParse(
-      await response.json(),
-    );
+    const rawJson = await readGoogleJsonResponse(c, response);
+    if (!rawJson.ok) return rawJson.response;
+    const rawParsed = googleDriveFilesResponseSchema.safeParse(rawJson.data);
     if (!rawParsed.success)
       return c.json(errorResponse("Unexpected response from Google API"), 502);
     const raw = rawParsed.data;
-    const spreadsheets = (raw.files ?? []).flatMap((file) =>
-      typeof file.id === "string" ? [{ id: file.id, name: file.name }] : [],
+    const folderCache = new Map<
+      string,
+      Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
+    >();
+    const spreadsheets = await Promise.all(
+      (raw.files ?? []).flatMap((file) => {
+        if (typeof file.id !== "string") return [];
+        const id = file.id;
+        const parents = file.parents ?? [];
+        return [
+          buildDriveFolderPaths(token.accessToken, parents, folderCache).then(
+            (folderPaths) => ({
+              id,
+              name: file.name,
+              itemType: "spreadsheet",
+              parents,
+              folderPaths,
+            }),
+          ),
+        ];
+      }),
     );
 
     const parsed = GoogleSpreadsheetsResponseSchema.safeParse({

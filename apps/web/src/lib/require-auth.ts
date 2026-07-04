@@ -8,6 +8,17 @@ type RequireAuthContext = {
   };
 };
 
+function isShareLinkEditorUrl(
+  location: RequireAuthContext["location"],
+): boolean {
+  if (!location?.href) return false;
+  const url = new URL(location.href, "http://localhost");
+  return (
+    /^\/forms\/[^/]+\/edit$/.test(url.pathname) &&
+    Boolean(url.searchParams.get("shareToken"))
+  );
+}
+
 function loginRedirectFor(location: RequireAuthContext["location"]) {
   return redirect({
     to: "/login",
@@ -28,6 +39,8 @@ function loginRedirectFor(location: RequireAuthContext["location"]) {
 export async function requireAuth({
   location,
 }: RequireAuthContext = {}): Promise<void> {
+  if (isShareLinkEditorUrl(location)) return;
+
   try {
     const { data } = await authClient.getSession();
     if (!data?.session) {

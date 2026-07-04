@@ -8,10 +8,25 @@ export type GoogleCallbackResponse = z.infer<
   typeof GoogleCallbackResponseSchema
 >;
 
+/** Google Drive folder path segment. */
+export const DriveFolderPathSegmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
+
+/** Google Drive folder path for one parent chain. */
+export const DriveFolderPathSchema = z.object({
+  folderIds: z.array(z.string()),
+  pathSegments: z.array(DriveFolderPathSegmentSchema),
+});
+
 /** Google スプレッドシート 1 件。 */
 export const SpreadsheetItemSchema = z.object({
   id: z.string(),
   name: z.string().nullish(),
+  itemType: z.literal("spreadsheet"),
+  parents: z.array(z.string()),
+  folderPaths: z.array(DriveFolderPathSchema),
 });
 
 /** GET /integrations/google/spreadsheets のレスポンス。 */
