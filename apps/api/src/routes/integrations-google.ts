@@ -432,16 +432,9 @@ type DriveFolderPath = {
 };
 
 async function fetchDriveFolderMetadata(
-  c: Context,
   accessToken: string,
   folderId: string,
-): Promise<
-  | {
-      ok: true;
-      folder: z.infer<typeof googleDriveFolderMetadataSchema>;
-    }
-  | { ok: false; response: Response }
-> {
+): Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null> {
   const params = new URLSearchParams({
     fields: "id,name,mimeType,parents",
   });
@@ -454,106 +447,67 @@ async function fetchDriveFolderMetadata(
       },
     );
   } catch {
-    return {
-      ok: false,
-      response: c.json(
-        errorResponse("Failed to fetch spreadsheet folders"),
-        502,
-      ),
-    };
+    return null;
   }
-  if (!response.ok) {
-    return {
-      ok: false,
-      response: c.json(
-        errorResponse("Failed to fetch spreadsheet folders"),
-        502,
-      ),
-    };
+  if (!response.ok) return null;
+  let rawJson: unknown;
+  try {
+    rawJson = await response.json();
+  } catch {
+    return null;
   }
-  const rawJson = await readGoogleJsonResponse(c, response);
-  if (!rawJson.ok) return rawJson;
-  const parsed = googleDriveFolderMetadataSchema.safeParse(rawJson.data);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      response: c.json(
-        errorResponse("Unexpected response from Google API"),
-        502,
-      ),
-    };
-  }
-  return { ok: true, folder: parsed.data };
+  const parsed = googleDriveFolderMetadataSchema.safeParse(rawJson);
+  if (!parsed.success) return null;
+  return parsed.data;
 }
 
 async function buildDriveFolderPath(
-  c: Context,
   accessToken: string,
   folderId: string,
-  folderCache: Map<string, z.infer<typeof googleDriveFolderMetadataSchema>>,
-): Promise<
-  { ok: true; path: DriveFolderPath } | { ok: false; response: Response }
-> {
+  folderCache: Map<
+    string,
+    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
+  >,
+): Promise<DriveFolderPath | null> {
   const pathSegments: Array<{ id: string; name: string }> = [];
   const seenFolderIds = new Set<string>();
   let currentFolderId: string | undefined = folderId;
 
   while (currentFolderId) {
-    if (seenFolderIds.has(currentFolderId)) {
-      return {
-        ok: false,
-        response: c.json(
-          errorResponse("Unexpected response from Google API"),
-          502,
-        ),
-      };
-    }
+    if (seenFolderIds.has(currentFolderId)) return null;
     seenFolderIds.add(currentFolderId);
 
     let folder = folderCache.get(currentFolderId);
     if (!folder) {
-      const result = await fetchDriveFolderMetadata(
-        c,
-        accessToken,
-        currentFolderId,
-      );
-      if (!result.ok) return result;
-      folder = result.folder;
+      folder = fetchDriveFolderMetadata(accessToken, currentFolderId);
       folderCache.set(currentFolderId, folder);
     }
-    pathSegments.unshift({ id: folder.id, name: folder.name });
-    currentFolderId = folder.parents?.[0];
+    const resolvedFolder = await folder;
+    if (!resolvedFolder) return null;
+    pathSegments.unshift({ id: resolvedFolder.id, name: resolvedFolder.name });
+    currentFolderId = resolvedFolder.parents?.[0];
   }
 
   return {
-    ok: true,
-    path: {
-      folderIds: pathSegments.map((segment) => segment.id),
-      pathSegments,
-    },
+    folderIds: pathSegments.map((segment) => segment.id),
+    pathSegments,
   };
 }
 
 async function buildDriveFolderPaths(
-  c: Context,
   accessToken: string,
   parentIds: string[],
-  folderCache: Map<string, z.infer<typeof googleDriveFolderMetadataSchema>>,
-): Promise<
-  { ok: true; paths: DriveFolderPath[] } | { ok: false; response: Response }
-> {
-  const paths: DriveFolderPath[] = [];
-  for (const parentId of parentIds) {
-    const result = await buildDriveFolderPath(
-      c,
-      accessToken,
-      parentId,
-      folderCache,
-    );
-    if (!result.ok) return result;
-    paths.push(result.path);
-  }
-  return { ok: true, paths };
+  folderCache: Map<
+    string,
+    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
+  >,
+): Promise<DriveFolderPath[]> {
+  const paths = await Promise.all(
+    parentIds.map((parentId) =>
+      buildDriveFolderPath(accessToken, parentId, folderCache),
+    ),
+  );
+  return paths.filter((path): path is DriveFolderPath => path !== null);
 }
 
 async function requireFreshGoogleToken(
@@ -837,27 +791,26 @@ export const integrationsGoogleRouter = createHonoApp()
     const raw = rawParsed.data;
     const folderCache = new Map<
       string,
-      z.infer<typeof googleDriveFolderMetadataSchema>
+      Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
     >();
-    const spreadsheets = [];
-    for (const file of raw.files ?? []) {
-      if (typeof file.id !== "string") continue;
-      const parents = file.parents ?? [];
-      const pathsResult = await buildDriveFolderPaths(
-        c,
-        token.accessToken,
-        parents,
-        folderCache,
-      );
-      if (!pathsResult.ok) return pathsResult.response;
-      spreadsheets.push({
-        id: file.id,
-        name: file.name,
-        itemType: "spreadsheet",
-        parents,
-        folderPaths: pathsResult.paths,
-      });
-    }
+    const spreadsheets = await Promise.all(
+      (raw.files ?? []).flatMap((file) => {
+        if (typeof file.id !== "string") return [];
+        const id = file.id;
+        const parents = file.parents ?? [];
+        return [
+          buildDriveFolderPaths(token.accessToken, parents, folderCache).then(
+            (folderPaths) => ({
+              id,
+              name: file.name,
+              itemType: "spreadsheet",
+              parents,
+              folderPaths,
+            }),
+          ),
+        ];
+      }),
+    );
 
     const parsed = GoogleSpreadsheetsResponseSchema.safeParse({
       spreadsheets,

@@ -92,6 +92,17 @@ function createInvalidJsonResponse(): Response {
   });
 }
 
+function createDeferredResponse(): {
+  promise: Promise<Response>;
+  resolve: (response: Response) => void;
+} {
+  let resolveResponse: (response: Response) => void = () => {};
+  const promise = new Promise<Response>((resolve) => {
+    resolveResponse = resolve;
+  });
+  return { promise, resolve: resolveResponse };
+}
+
 function getFetchJsonBody(fetchMock: ReturnType<typeof vi.fn>): unknown {
   const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
   if (typeof init?.body !== "string") {
@@ -111,9 +122,10 @@ describe("Google Sheets spreadsheet list route", () => {
   });
 
   it("returns spreadsheet parent ids and folder paths for duplicate names", async () => {
-    fetchMock
-      .mockResolvedValueOnce(
-        createJsonResponse({
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/drive/v3/files?")) {
+        return createJsonResponse({
           files: [
             {
               id: "spreadsheet-a",
@@ -127,31 +139,33 @@ describe("Google Sheets spreadsheet list route", () => {
             },
           ],
           nextPageToken: "next-page",
-        }),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
+        });
+      }
+      if (url.includes("/drive/v3/files/folder-a?")) {
+        return createJsonResponse({
           id: "folder-a",
           mimeType: "application/vnd.google-apps.folder",
           name: "Campaign A",
           parents: ["folder-root"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
+        });
+      }
+      if (url.includes("/drive/v3/files/folder-root?")) {
+        return createJsonResponse({
           id: "folder-root",
           mimeType: "application/vnd.google-apps.folder",
           name: "Shared Forms",
-        }),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse({
+        });
+      }
+      if (url.includes("/drive/v3/files/folder-b?")) {
+        return createJsonResponse({
           id: "folder-b",
           mimeType: "application/vnd.google-apps.folder",
           name: "Campaign B",
           parents: ["folder-root"],
-        }),
-      );
+        });
+      }
+      throw new Error(`Unexpected Google URL: ${url}`);
+    });
     const app = createApp();
 
     const response = await app.request(
@@ -238,6 +252,56 @@ describe("Google Sheets spreadsheet list route", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("fetches sibling folder paths without serializing spreadsheet rows", async () => {
+    const folderA = createDeferredResponse();
+    const folderB = createDeferredResponse();
+    fetchMock
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          files: [
+            {
+              id: "spreadsheet-a",
+              name: "Responses A",
+              parents: ["folder-a"],
+            },
+            {
+              id: "spreadsheet-b",
+              name: "Responses B",
+              parents: ["folder-b"],
+            },
+          ],
+        }),
+      )
+      .mockReturnValueOnce(folderA.promise)
+      .mockReturnValueOnce(folderB.promise);
+    const app = createApp();
+
+    const responsePromise = app.request(
+      "/api/integrations/google/spreadsheets",
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    folderA.resolve(
+      createJsonResponse({
+        id: "folder-a",
+        mimeType: "application/vnd.google-apps.folder",
+        name: "Folder A",
+      }),
+    );
+    folderB.resolve(
+      createJsonResponse({
+        id: "folder-b",
+        mimeType: "application/vnd.google-apps.folder",
+        name: "Folder B",
+      }),
+    );
+    const response = await responsePromise;
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.spreadsheets).toHaveLength(2);
+  });
+
   it("returns 502 when fetching spreadsheets cannot reach Google", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
     const app = createApp();
@@ -262,7 +326,7 @@ describe("Google Sheets spreadsheet list route", () => {
     });
   });
 
-  it("returns 502 when fetching folder metadata cannot reach Google", async () => {
+  it("keeps spreadsheet rows when fetching folder metadata cannot reach Google", async () => {
     fetchMock
       .mockResolvedValueOnce(
         createJsonResponse({
@@ -280,13 +344,21 @@ describe("Google Sheets spreadsheet list route", () => {
 
     const response = await app.request("/api/integrations/google/spreadsheets");
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      error: "Failed to fetch spreadsheet folders",
+      spreadsheets: [
+        {
+          folderPaths: [],
+          id: "spreadsheet-a",
+          itemType: "spreadsheet",
+          name: "Responses",
+          parents: ["folder-a"],
+        },
+      ],
     });
   });
 
-  it("returns 502 when Google returns malformed folder metadata", async () => {
+  it("keeps spreadsheet rows when Google returns malformed folder metadata", async () => {
     fetchMock
       .mockResolvedValueOnce(
         createJsonResponse({
@@ -310,9 +382,17 @@ describe("Google Sheets spreadsheet list route", () => {
 
     const response = await app.request("/api/integrations/google/spreadsheets");
 
-    expect(response.status).toBe(502);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      error: "Unexpected response from Google API",
+      spreadsheets: [
+        {
+          folderPaths: [],
+          id: "spreadsheet-a",
+          itemType: "spreadsheet",
+          name: "Responses",
+          parents: ["folder-a"],
+        },
+      ],
     });
   });
 });
