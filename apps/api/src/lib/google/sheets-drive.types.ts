@@ -125,7 +125,23 @@ export type ListSpreadsheetsInput = z.infer<typeof ListSpreadsheetsInputSchema>;
 
 export const ListSpreadsheetsOutputSchema = z.object({
   spreadsheets: z.array(
-    z.object({ id: z.string(), name: z.string().optional() }),
+    z.object({
+      id: z.string(),
+      name: z.string().optional(),
+      itemType: z.literal("spreadsheet"),
+      parents: z.array(z.string()),
+      folderPaths: z.array(
+        z.object({
+          folderIds: z.array(z.string()),
+          pathSegments: z.array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+            }),
+          ),
+        }),
+      ),
+    }),
   ),
   nextPageToken: z.string().optional(),
 });
