@@ -850,8 +850,8 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
       spreadsheetId: "spreadsheet-id",
-      rangeA1: "Sheet1!B2:B3",
-      values: [["0.0000"], [""]],
+      rangeA1: "Sheet1!B2:B2",
+      values: [["0.0000"]],
     });
     expect(mockAppendRows).toHaveBeenCalledWith(
       TOKEN,

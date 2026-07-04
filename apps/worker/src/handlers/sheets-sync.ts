@@ -756,19 +756,35 @@ async function updateExistingUniquenessScoreCells(
 
   throwIfShuttingDown();
   const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
-  const values = params.responseIds.map((responseId) => [
-    params.uniquenessScores.get(responseId)?.toFixed(4) ?? "",
-  ]);
-  const result = await updateRange(token, {
-    spreadsheetId: params.spreadsheetId,
-    rangeA1: `${params.sheetName}!${columnLetter}2:${columnLetter}${
-      params.responseIds.length + 1
-    }`,
-    values,
-  });
-  if (!result.ok) {
-    throwSheetsSyncFailure("update uniqueness scores", result);
+
+  let rangeStartRow: number | null = null;
+  let rangeValues: string[][] = [];
+  const flushRange = async (endRow: number) => {
+    if (rangeStartRow === null || rangeValues.length === 0) return;
+    const result = await updateRange(token, {
+      spreadsheetId: params.spreadsheetId,
+      rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
+      values: rangeValues,
+    });
+    if (!result.ok) {
+      throwSheetsSyncFailure("update uniqueness scores", result);
+    }
+    rangeStartRow = null;
+    rangeValues = [];
+  };
+
+  for (const [index, responseId] of params.responseIds.entries()) {
+    const rowNumber = index + 2;
+    const score = params.uniquenessScores.get(responseId);
+    if (score === undefined && !params.shouldBlankUnavailableScores) {
+      await flushRange(rowNumber - 1);
+      continue;
+    }
+
+    rangeStartRow ??= rowNumber;
+    rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
   }
+  await flushRange(params.responseIds.length + 1);
 }
 
 async function waitForPendingIdempotencyToResolve(
