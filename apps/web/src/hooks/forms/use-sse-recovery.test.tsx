@@ -136,6 +136,64 @@ describe("SSE recovery hooks", () => {
     act(() => editor.root.unmount());
   });
 
+  it("reconnects validation and editor SSE when shareToken changes", () => {
+    window.history.replaceState(null, "", "/forms/form-1/edit");
+
+    const validation = renderWithClient(<ValidationHarness />);
+    const firstValidationSource = eventSourceAt(0);
+    expect(
+      new URL(String(firstValidationSource.url)).searchParams.has("shareToken"),
+    ).toBe(false);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=next-share-token",
+    );
+    act(() => {
+      validation.root.render(
+        <QueryClientProvider client={validation.client}>
+          <ValidationHarness />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(firstValidationSource.closed).toBe(true);
+    const secondValidationSource = eventSourceAt(1);
+    expect(
+      new URL(String(secondValidationSource.url)).searchParams.get(
+        "shareToken",
+      ),
+    ).toBe("next-share-token");
+    act(() => validation.root.unmount());
+
+    MockEventSource.instances = [];
+    window.history.replaceState(null, "", "/forms/form-1/edit");
+
+    const editor = renderWithClient(<EditorHarness />);
+    const firstEditorSource = eventSourceAt(0);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=next-share-token",
+    );
+    act(() => {
+      editor.root.render(
+        <QueryClientProvider client={editor.client}>
+          <EditorHarness />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(firstEditorSource.closed).toBe(true);
+    const secondEditorSource = eventSourceAt(1);
+    expect(
+      new URL(String(secondEditorSource.url)).searchParams.get("shareToken"),
+    ).toBe("next-share-token");
+    act(() => editor.root.unmount());
+  });
+
   it("reconnects validation SSE after repeated errors with exponential backoff", () => {
     const { root } = renderWithClient(<ValidationHarness />);
     const firstSource = eventSourceAt(0);

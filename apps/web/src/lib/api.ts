@@ -37,13 +37,15 @@ export function getShareTokenFromCurrentUrl(): string | null {
 }
 
 /**
- * Adds the current shared-editor token to an EventSource-compatible URL.
+ * Adds a shared-editor token to an EventSource-compatible URL.
  *
- * @returns The original URL when no token is active, otherwise an absolute URL
- *   with the current `shareToken` search parameter set.
+ * @returns The original URL when no token is provided or active, otherwise an
+ *   absolute URL with the `shareToken` search parameter set.
  */
-export function withShareTokenSearchParam(url: string): string {
-  const shareToken = getShareTokenFromCurrentUrl();
+export function withShareTokenSearchParam(
+  url: string,
+  shareToken = getShareTokenFromCurrentUrl(),
+): string {
   if (!shareToken) return url;
 
   const nextUrl = new URL(url, window.location.origin);

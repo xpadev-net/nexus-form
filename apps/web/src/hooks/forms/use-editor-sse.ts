@@ -40,7 +40,7 @@ export function useEditorSSE(
   options?: EditorSSEOptions,
 ): void {
   const queryClient = useQueryClient();
-  const _shareToken = getShareTokenFromCurrentUrl();
+  const shareToken = getShareTokenFromCurrentUrl();
   const onEventRef = useRef(options?.onEvent);
   onEventRef.current = options?.onEvent;
 
@@ -60,6 +60,7 @@ export function useEditorSSE(
 
     const url = withShareTokenSearchParam(
       `${baseUrl}/api/forms/${formId}/editor/events`,
+      shareToken,
     );
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
@@ -202,5 +203,5 @@ export function useEditorSSE(
       clearReconnectTimer();
       closeEventSource();
     };
-  }, [formId, queryClient]);
+  }, [formId, queryClient, shareToken]);
 }

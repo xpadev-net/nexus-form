@@ -19,7 +19,7 @@ const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
  */
 export function useValidationSSE(formId: string | null | undefined): void {
   const queryClient = useQueryClient();
-  const _shareToken = getShareTokenFromCurrentUrl();
+  const shareToken = getShareTokenFromCurrentUrl();
   const formIdRef = useRef(formId);
   formIdRef.current = formId;
 
@@ -28,6 +28,7 @@ export function useValidationSSE(formId: string | null | undefined): void {
 
     const url = withShareTokenSearchParam(
       `${baseUrl}/api/forms/${formId}/responses/events`,
+      shareToken,
     );
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
@@ -139,5 +140,5 @@ export function useValidationSSE(formId: string | null | undefined): void {
       clearReconnectTimer();
       closeEventSource();
     };
-  }, [formId, queryClient]);
+  }, [formId, queryClient, shareToken]);
 }
