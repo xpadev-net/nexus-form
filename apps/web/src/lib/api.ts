@@ -25,11 +25,23 @@ export function apiUrl(path: string): string {
   return `${normalizedBaseUrl}${normalizedPath}`;
 }
 
+/**
+ * Reads the shared-editor token from the current browser URL.
+ *
+ * @returns The current `shareToken` search parameter, or null outside the browser
+ *   and when the URL has no shared-editor token.
+ */
 export function getShareTokenFromCurrentUrl(): string | null {
   if (typeof window === "undefined") return null;
   return new URL(window.location.href).searchParams.get("shareToken");
 }
 
+/**
+ * Adds the current shared-editor token to an EventSource-compatible URL.
+ *
+ * @returns The original URL when no token is active, otherwise an absolute URL
+ *   with the current `shareToken` search parameter set.
+ */
 export function withShareTokenSearchParam(url: string): string {
   const shareToken = getShareTokenFromCurrentUrl();
   if (!shareToken) return url;
@@ -39,6 +51,12 @@ export function withShareTokenSearchParam(url: string): string {
   return nextUrl.toString();
 }
 
+/**
+ * Builds an Authorization header for APIs that can send custom headers.
+ *
+ * @returns A Bearer authorization header when a shared-editor token is active,
+ *   otherwise an empty object suitable for header spreading.
+ */
 export function getShareTokenAuthorizationHeader():
   | { Authorization: string }
   | Record<string, never> {

@@ -8,7 +8,9 @@ type RequireAuthContext = {
   };
 };
 
-function isShareLinkEditorUrl(location: RequireAuthContext["location"]) {
+function isShareLinkEditorUrl(
+  location: RequireAuthContext["location"],
+): boolean {
   if (!location?.href) return false;
   const url = new URL(location.href, "http://localhost");
   return (

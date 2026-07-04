@@ -3,7 +3,11 @@ import { EditorSSEEventSchema } from "@nexus-form/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { MutableRefObject } from "react";
 import { useEffect, useRef } from "react";
-import { baseUrl, withShareTokenSearchParam } from "@/lib/api";
+import {
+  baseUrl,
+  getShareTokenFromCurrentUrl,
+  withShareTokenSearchParam,
+} from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { formDiffQueryKey } from "./form-structure-query-keys";
 
@@ -36,6 +40,7 @@ export function useEditorSSE(
   options?: EditorSSEOptions,
 ): void {
   const queryClient = useQueryClient();
+  const _shareToken = getShareTokenFromCurrentUrl();
   const onEventRef = useRef(options?.onEvent);
   onEventRef.current = options?.onEvent;
 

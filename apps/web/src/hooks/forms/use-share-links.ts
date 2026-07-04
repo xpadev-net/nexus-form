@@ -141,7 +141,7 @@ export const useShareLinks = (
     },
   });
 
-  const buildShareLinkUrl = (token: string) => {
+  const buildShareLinkUrl = (token: string): string => {
     if (!formId) return `${window.location.origin}/`;
     const url = new URL(`/forms/${formId}/edit`, window.location.origin);
     url.searchParams.set("shareToken", token);

@@ -2,7 +2,11 @@ import type { ValidationSSEEvent } from "@nexus-form/shared";
 import { ValidationSSEEventSchema } from "@nexus-form/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { baseUrl, withShareTokenSearchParam } from "@/lib/api";
+import {
+  baseUrl,
+  getShareTokenFromCurrentUrl,
+  withShareTokenSearchParam,
+} from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
@@ -15,6 +19,7 @@ const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
  */
 export function useValidationSSE(formId: string | null | undefined): void {
   const queryClient = useQueryClient();
+  const _shareToken = getShareTokenFromCurrentUrl();
   const formIdRef = useRef(formId);
   formIdRef.current = formId;
 
