@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   db: {
     select: vi.fn(),
+    transaction: vi.fn(),
     update: vi.fn(),
   },
   eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
@@ -76,6 +77,9 @@ beforeEach(() => {
   mocks.selectFrom.mockReturnValue({ where: mocks.selectWhere });
   mocks.selectWhere.mockResolvedValue([{ token: "token-a" }]);
   mocks.db.update.mockReturnValue({ set: mocks.updateSet });
+  mocks.db.transaction.mockImplementation(async (callback) => {
+    return callback(mocks.db);
+  });
   mocks.updateSet.mockReturnValue({ where: mocks.updateWhere });
   mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
 });
@@ -143,9 +147,9 @@ describe("hashIPAddress", () => {
 });
 
 describe("consumeTokensOrThrow", () => {
-  it("consumes unused tokens only when the current IP hash matches", async () => {
+  it("accepts multiple submitted tokens when at least one current IP hash matches and consumes same-IP candidates", async () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
-    mocks.updateWhere.mockResolvedValue([{ affectedRows: 2 }]);
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
 
     await consumeTokensOrThrow(
       ["token-a", "token-a", "token-b"],
@@ -172,9 +176,37 @@ describe("consumeTokensOrThrow", () => {
         args: expect.arrayContaining([ipCondition]),
       }),
     );
+    expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
     expect(mocks.updateSet).toHaveBeenCalledWith({
       usedAt: expect.any(Date),
     });
+  });
+
+  it("accepts when all submitted tokens match the current IP hash", async () => {
+    setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+    mocks.updateWhere.mockResolvedValue([{ affectedRows: 2 }]);
+
+    await expect(
+      consumeTokensOrThrow(["token-a", "token-b"], "203.0.113.10"),
+    ).resolves.toBeUndefined();
+
+    const ipCondition = mocks.eq.mock.results[0]?.value;
+    expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
+    expect(mocks.updateWhere.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
   });
 
   it("rejects tokens when no row matches the current IP hash", async () => {
