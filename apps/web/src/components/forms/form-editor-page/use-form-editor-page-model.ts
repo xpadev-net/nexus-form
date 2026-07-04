@@ -364,6 +364,7 @@ export function useFormEditorPageModel(formId: string) {
     setConflictResolutions,
     setShowDeleteModal,
     setShowDuplicateModal,
+    shareToken,
     showDeleteModal,
     showDuplicateModal,
     titleSaveFailureCount: updateTitleMutation.failureCount,

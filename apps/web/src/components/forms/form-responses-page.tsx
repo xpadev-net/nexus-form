@@ -63,8 +63,14 @@ function formResponsesReducer(
   }
 }
 
-export function FormResponsesContent({ formId }: { formId: string }) {
-  useValidationSSE(formId);
+export function FormResponsesContent({
+  formId,
+  shareToken,
+}: {
+  formId: string;
+  shareToken?: string;
+}) {
+  useValidationSSE(formId, shareToken);
 
   const [state, dispatch] = useReducer(
     formResponsesReducer,

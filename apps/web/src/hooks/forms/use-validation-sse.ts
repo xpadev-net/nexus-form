@@ -17,9 +17,11 @@ const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
  * バリデーション結果のリアルタイム更新を SSE で受信し、
  * 関連する TanStack Query キャッシュを自動的に無効化するフック
  */
-export function useValidationSSE(formId: string | null | undefined): void {
+export function useValidationSSE(
+  formId: string | null | undefined,
+  shareToken = getShareTokenFromCurrentUrl(),
+): void {
   const queryClient = useQueryClient();
-  const shareToken = getShareTokenFromCurrentUrl();
   const formIdRef = useRef(formId);
   formIdRef.current = formId;
 

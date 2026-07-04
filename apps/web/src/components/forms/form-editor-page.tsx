@@ -127,7 +127,7 @@ export function FormEditorPage() {
         aria-hidden={model.activeTab !== "responses"}
       >
         {model.responsesEverActive ? (
-          <FormResponsesContent formId={id} />
+          <FormResponsesContent formId={id} shareToken={model.shareToken} />
         ) : null}
       </TabsContent>
 
