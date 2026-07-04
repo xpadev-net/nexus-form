@@ -1072,16 +1072,29 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("uses the dedicated runtime telemetry v4 host when requesting the submit token", async () => {
+  it("uses both dedicated runtime telemetry hosts when requesting the submit token", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     window.__NEXUS_FORM_CONFIG__ = {
       telemetryV4Host: "ipv4.runtime.example",
+      telemetryV6Host: "ipv6.runtime.example",
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ token: "runtime-host-token" }), {
-        status: 200,
-      }),
-    );
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://ipv4.runtime.example/api/telemetry/v4") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ token: "runtime-v4-host-token" }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url === "https://ipv6.runtime.example/api/telemetry/v6") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ token: "runtime-v6-host-token" }), {
+            status: 200,
+          }),
+        );
+      }
+      throw new Error(`Unexpected telemetry token URL: ${url}`);
+    });
     vi.stubGlobal("fetch", fetchMock);
     publicFormData = {
       form: {
@@ -1129,13 +1142,25 @@ describe("PublicFormPage", () => {
         signal: expect.any(AbortSignal),
       },
     );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv6.runtime.example/api/telemetry/v6",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
     expect(apiMocks.submitPost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: {
         responses: [],
         captchaToken: "form-security-dev-bypass",
-        telemetry: { v4Token: "runtime-host-token" },
+        telemetry: {
+          v4Token: "runtime-v4-host-token",
+          v6Token: "runtime-v6-host-token",
+        },
         fingerprints: [],
       },
     });
@@ -1145,15 +1170,22 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("uses the dedicated runtime telemetry v6 host when no v4 host is configured", async () => {
+  it("uses the dedicated runtime telemetry v6 host when v4 token fetch fails", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     window.__NEXUS_FORM_CONFIG__ = {
+      telemetryV4Host: "ipv4.runtime.example",
       telemetryV6Host: "ipv6.runtime.example",
     };
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ token: "runtime-v6-host-token" }), {
-        status: 200,
-      }),
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/v4")
+          ? new Response(JSON.stringify({ error: "v4 unavailable" }), {
+              status: 503,
+            })
+          : new Response(JSON.stringify({ token: "runtime-v6-host-token" }), {
+              status: 200,
+            }),
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     publicFormData = {
@@ -1195,6 +1227,15 @@ describe("PublicFormPage", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://ipv6.runtime.example/api/telemetry/v6",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv4.runtime.example/api/telemetry/v4",
       {
         credentials: "omit",
         headers: { Accept: "application/json" },
