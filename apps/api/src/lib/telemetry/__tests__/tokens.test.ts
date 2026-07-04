@@ -147,7 +147,7 @@ describe("hashIPAddress", () => {
 });
 
 describe("consumeTokensOrThrow", () => {
-  it("accepts multiple submitted tokens when at least one current IP hash matches and consumes remaining candidates", async () => {
+  it("accepts multiple submitted tokens when at least one current IP hash matches and consumes same-IP candidates", async () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
     mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
 
@@ -179,7 +179,7 @@ describe("consumeTokensOrThrow", () => {
     expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
     expect(mocks.updateWhere.mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
-        args: expect.not.arrayContaining([ipCondition]),
+        args: expect.arrayContaining([ipCondition]),
       }),
     );
     expect(mocks.updateSet).toHaveBeenCalledWith({
@@ -194,6 +194,19 @@ describe("consumeTokensOrThrow", () => {
     await expect(
       consumeTokensOrThrow(["token-a", "token-b"], "203.0.113.10"),
     ).resolves.toBeUndefined();
+
+    const ipCondition = mocks.eq.mock.results[0]?.value;
+    expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
+    expect(mocks.updateWhere.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        args: expect.arrayContaining([ipCondition]),
+      }),
+    );
   });
 
   it("rejects tokens when no row matches the current IP hash", async () => {

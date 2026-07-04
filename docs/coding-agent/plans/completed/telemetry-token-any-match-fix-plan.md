@@ -1,8 +1,8 @@
 # Plan: Telemetry Token Any-Match Fix
 
 - status: done
-- generated: 2026-07-05
-- last_updated: 2026-07-05
+- generated: 2026-07-04
+- last_updated: 2026-07-04
 - work_type: code
 
 ## Goal
@@ -82,22 +82,22 @@
 - Revert the token consumption predicate and associated tests if any-match behavior is rejected.
 
 ## Progress Log
-- 2026-07-05 00:00 Wave 1 started: [Task_1, Task_2]
+- 2026-07-04 00:00 Wave 1 started: [Task_1, Task_2]
   - Summary: Implement any-match telemetry token acceptance and correction lesson.
   - Validation evidence: pending.
   - Notes: User explicitly requested the behavior change, so approval is implicit for this fix.
-- 2026-07-05 00:13 Wave 1 completed: [Task_1, Task_2]
+- 2026-07-04 00:13 Wave 1 completed: [Task_1, Task_2]
   - Summary: `consumeTokensOrThrow` now accepts at least one valid matching token; tests cover one-of-many and all-matching cases.
   - Validation evidence: `rtk pnpm --filter @nexus-form/api exec vitest run src/lib/telemetry/__tests__/tokens.test.ts src/__tests__/forms-public-validation-outbox.test.ts --silent`; `rtk pnpm lint:fix`; `rtk pnpm type-check`; `rtk pnpm test --silent`.
   - Notes: All validation passed.
 
 ## Decision Log
-- 2026-07-05 00:00 Decision:
+- 2026-07-04 00:00 Decision:
   - Trigger / new insight: HTTP submit has one observed client IP, while v4/v6 tokens are alternative network-path evidence.
   - Plan delta: Accept if any submitted token matches instead of requiring all tokens to match.
   - Tradeoffs considered: Leaves non-matching extra token unused, but avoids false rejection for dual telemetry collection.
   - User approval: yes, direct request.
-- 2026-07-05 00:13 Decision:
+- 2026-07-04 00:13 Decision:
   - Trigger / new insight: Fix is a narrow backend predicate change with focused tests and full repo validation.
   - Plan delta: Independent Reviewer dispatch waived.
   - Tradeoffs considered: Full subagent review would add overhead without materially improving confidence for this scoped change.

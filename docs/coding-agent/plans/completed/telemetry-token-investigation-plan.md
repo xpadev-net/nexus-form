@@ -1,8 +1,8 @@
 # Plan: Telemetry Token Investigation
 
 - status: done
-- generated: 2026-07-05
-- last_updated: 2026-07-05
+- generated: 2026-07-04
+- last_updated: 2026-07-04
 - work_type: research
 
 ## Goal
@@ -71,17 +71,17 @@
 - Investigation only. Remove or move this plan when complete.
 
 ## Progress Log
-- 2026-07-05 00:00 Wave 1 started: [Task_1]
+- 2026-07-04 00:00 Wave 1 started: [Task_1]
   - Summary: Begin targeted telemetry-token trace.
   - Validation evidence: pending.
   - Notes: Research approval waived for investigation-only request with no app code edits.
-- 2026-07-05 00:06 Wave 1 completed: [Task_1]
+- 2026-07-04 00:06 Wave 1 completed: [Task_1]
   - Summary: Root cause identified as partial token consumption followed by affected-row mismatch when v4/v6 tokens do not both satisfy submit-time IP/unused/expiry conditions.
   - Validation evidence: `rtk pnpm --filter @nexus-form/api exec vitest run src/lib/telemetry/__tests__/tokens.test.ts src/routes/telemetry.test.ts src/__tests__/forms-public-validation-outbox.test.ts --silent`; `rtk pnpm --filter @nexus-form/web exec vitest run src/lib/telemetry-token.test.ts src/components/forms/public-form-page.test.tsx --silent`.
   - Notes: Both targeted command sets passed.
 
 ## Decision Log
-- 2026-07-05 00:00 Decision:
+- 2026-07-04 00:00 Decision:
   - Trigger / new insight: User requested cause investigation, not implementation.
   - Plan delta: Single research task; no Worker dispatch.
   - Tradeoffs considered: Subagent dispatch would add overhead without improving a narrow read-only trace.

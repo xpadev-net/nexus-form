@@ -6,6 +6,20 @@ import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 
 type TelemetryTokenRow = InferSelectModel<typeof telemetryToken>;
 
+function getAffectedRows(result: unknown): number {
+  if (!Array.isArray(result)) return 0;
+  const [header] = result;
+  if (
+    typeof header !== "object" ||
+    header === null ||
+    !("affectedRows" in header)
+  ) {
+    return 0;
+  }
+  const { affectedRows } = header;
+  return typeof affectedRows === "number" ? affectedRows : 0;
+}
+
 function resolveTelemetryIpSalt(): string {
   const telemetrySalt = process.env.TELEMETRY_IP_SALT;
   if (telemetrySalt !== undefined && telemetrySalt !== "") return telemetrySalt;
@@ -41,7 +55,7 @@ export function hashIPAddress(ip: string): string {
  * @param tokens - Telemetry token values submitted by the public form.
  * @param currentIp - Normalized client IP address observed during submission.
  * @returns Resolves when at least one token is valid, unused, unexpired, and IP-bound to currentIp.
- * Matching tokens authorize the submit; all other submitted unused/unexpired token candidates are consumed too.
+ * Matching tokens authorize the submit; other submitted unused/unexpired candidates bound to the same IP are consumed too.
  * @throws When no tokens are provided or no token is valid for the current IP.
  */
 export async function consumeTokensOrThrow(
@@ -69,9 +83,7 @@ export async function consumeTokensOrThrow(
         ),
       );
 
-    // mysql2 returns [ResultSetHeader, FieldPacket[]] — check affected row count
-    const header = result[0] as { affectedRows: number };
-    if (header.affectedRows === 0) {
+    if (getAffectedRows(result) === 0) {
       throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
     }
 
@@ -81,6 +93,7 @@ export async function consumeTokensOrThrow(
       .where(
         and(
           inArray(telemetryToken.token, unique),
+          eq(telemetryToken.ip, hashIPAddress(currentIp)),
           isNull(telemetryToken.usedAt),
           gt(telemetryToken.expiresAt, now),
         ),
