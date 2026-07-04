@@ -819,7 +819,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       responses: [],
       hasNext: false,
     });
-    expect(mocks.db.select).toHaveBeenCalledTimes(27);
+    expect(mocks.db.select).toHaveBeenCalledTimes(26);
     expect(mocks.offsetCalls).toEqual(
       Array.from({ length: 25 }, (_, index) => index * 200),
     );

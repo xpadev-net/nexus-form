@@ -37,7 +37,7 @@ import {
   getLatestSnapshotByVersion,
   getSnapshotByVersion,
 } from "../lib/forms/snapshot-repository";
-import { calculateUniquenessScoreMap } from "../lib/forms/uniqueness-calculator";
+import { calculateUniqueness } from "../lib/forms/uniqueness-calculator";
 import { getExternalValidationResults } from "../lib/forms/validation-results";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
@@ -176,7 +176,10 @@ type ResponseListRow = Omit<ResponseSearchRow, "responseDataJson">;
 
 async function getUniquenessScoresForForm(
   formId: string,
+  targetResponseIds: string[],
 ): Promise<Map<string, number> | null> {
+  if (targetResponseIds.length === 0) return new Map();
+
   const responseRows = await db
     .select({ id: formResponse.id })
     .from(formResponse)
@@ -226,11 +229,28 @@ async function getUniquenessScoresForForm(
     fingerprintsByResponseId.set(responseId, current);
   }
 
-  return calculateUniquenessScoreMap(
-    responseRows.map((row) => ({
-      id: row.id,
-      fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
-    })),
+  const fingerprintSets = responseRows.map((row) => ({
+    id: row.id,
+    fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+  }));
+  const fingerprintSetsById = new Map(
+    fingerprintSets.map((fingerprintSet) => [
+      fingerprintSet.id,
+      fingerprintSet,
+    ]),
+  );
+
+  return new Map(
+    [...new Set(targetResponseIds)].map((responseId) => [
+      responseId,
+      calculateUniqueness(
+        fingerprintSetsById.get(responseId) ?? {
+          id: responseId,
+          fingerprintDetails: [],
+        },
+        fingerprintSets,
+      ),
+    ]),
   );
 }
 
@@ -973,7 +993,10 @@ export const formsResponsesRouter = createHonoApp()
           sortField,
           sortOrder,
         });
-        const uniquenessScores = await getUniquenessScoresForForm(formId);
+        const uniquenessScores = await getUniquenessScoresForForm(
+          formId,
+          responses.map((response) => response.id),
+        );
 
         return c.json(
           ResponsesListResponseSchema.parse({
@@ -1004,7 +1027,10 @@ export const formsResponsesRouter = createHonoApp()
         .offset(offset)
         .limit(query.limit + 1);
       const responses = rows.slice(0, query.limit);
-      const uniquenessScores = await getUniquenessScoresForForm(formId);
+      const uniquenessScores = await getUniquenessScoresForForm(
+        formId,
+        responses.map((response) => response.id),
+      );
 
       return c.json(
         ResponsesListResponseSchema.parse({
@@ -1258,7 +1284,9 @@ export const formsResponsesRouter = createHonoApp()
     const displayResponse = responseDataJsonWithLabels
       ? { ...response, responseDataJson: responseDataJsonWithLabels }
       : response;
-    const uniquenessScores = await getUniquenessScoresForForm(formId);
+    const uniquenessScores = await getUniquenessScoresForForm(formId, [
+      responseId,
+    ]);
 
     const externalValidations = await getExternalValidationResults(responseId);
     return c.json(

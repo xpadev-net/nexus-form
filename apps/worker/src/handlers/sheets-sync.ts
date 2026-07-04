@@ -343,6 +343,33 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     jobId: job.id,
   });
 
+  let prefetchedIdempotencyValue:
+    | Awaited<ReturnType<typeof getIdempotencyKeyValue>>
+    | undefined = await getIdempotencyKeyValue(idempotencyKey);
+  if (prefetchedIdempotencyValue === "done") {
+    return duplicateSkippedResult();
+  }
+
+  // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+  const responseData = safeParseResponseData(
+    response.responseDataJson,
+    response.id,
+  );
+  if (!responseData) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "invalid_data",
+      provider: "google-sheets",
+      jobId: job.id,
+    };
+  }
+
+  const uniquenessScores = await getUniquenessScoresForResponse(
+    formId,
+    response.id,
+  );
+
   // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
@@ -351,7 +378,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     lockKey,
     async () => {
       while (true) {
-        const keyValue = await getIdempotencyKeyValue(idempotencyKey);
+        const keyValue =
+          prefetchedIdempotencyValue === undefined
+            ? await getIdempotencyKeyValue(idempotencyKey)
+            : prefetchedIdempotencyValue;
+        prefetchedIdempotencyValue = undefined;
 
         if (keyValue === "done") {
           // A prior attempt already wrote the row; skip.
@@ -384,21 +415,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           continue;
         }
 
-        // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-        const responseData = safeParseResponseData(
-          response.responseDataJson,
-          response.id,
-        );
-        if (!responseData) {
-          return {
-            ok: true,
-            skipped: true,
-            reason: "invalid_data",
-            provider: "google-sheets",
-            jobId: job.id,
-          };
-        }
-
         // Mark as "pending" before any Sheets API call in this critical section.
         // If Redis is unavailable, throw so the job retries rather than writing
         // without the duplicate guard.
@@ -421,11 +437,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         const existingHeaders = sheetCheck.headers;
 
         await job.updateProgress(60);
-
-        const uniquenessScores = await getUniquenessScoresForResponse(
-          formId,
-          response.id,
-        );
 
         // 7. ヘッダーと行データを構築
         const { headers, row } = buildRowFromResponse(
@@ -545,7 +556,7 @@ async function getUniquenessScoresForResponse(
   if (responseRows.length > RESPONSE_UNIQUENESS_CALCULATION_LIMIT) {
     return {
       allScores: new Map(),
-      shouldBlankUnavailableScores: true,
+      shouldBlankUnavailableScores: false,
       targetScore: null,
     };
   }

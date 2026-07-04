@@ -578,7 +578,7 @@ describe("handleSheetsSync — idempotency states", () => {
       spreadsheetId: "spreadsheet-id",
       rangeA1: "Sheet1!A:A",
     });
-    expect(mockDb.select).toHaveBeenCalledTimes(3);
+    expect(mockDb.select).toHaveBeenCalledTimes(4);
   });
 
   it("skips append when the idempotency key expired but the response row already exists", async () => {
@@ -903,11 +903,7 @@ describe("handleSheetsSync — idempotency states", () => {
         rows: [["response-1", "", "hello"]],
       }),
     );
-    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
-      spreadsheetId: "spreadsheet-id",
-      rangeA1: "Sheet1!B2:B2",
-      values: [[""]],
-    });
+    expect(mockUpdateRange).not.toHaveBeenCalled();
     expect(mockDb.select).toHaveBeenCalledTimes(4);
   });
 
