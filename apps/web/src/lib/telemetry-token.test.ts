@@ -176,6 +176,7 @@ describe("resolvePublicSubmitTelemetryTokenUrls", () => {
 
 describe("fetchPublicSubmitTelemetryToken", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     apiMocks.rpc.mockReset();
@@ -279,6 +280,37 @@ describe("fetchPublicSubmitTelemetryToken", () => {
         signal: expect.any(AbortSignal),
       },
     );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns a shared v4 token without waiting for a hanging shared v6 endpoint", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://telemetry.runtime.example/api/telemetry/v4") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ token: "shared-v4-host-token" }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url === "https://telemetry.runtime.example/api/telemetry/v6") {
+        return new Promise<Response>(() => undefined);
+      }
+      throw new Error(`Unexpected telemetry token URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setRuntimeConfig({
+      telemetryHost: "telemetry.runtime.example",
+    });
+
+    const tokenPromise = fetchPublicSubmitTelemetryToken();
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(tokenPromise).resolves.toEqual({
+      v4Token: "shared-v4-host-token",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
     expect(apiMocks.rpc).not.toHaveBeenCalled();
   });

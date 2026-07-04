@@ -32,6 +32,7 @@ const telemetryTokenPathByVersion: Record<TelemetryTokenVersion, string> = {
 };
 
 const TELEMETRY_TOKEN_FETCH_TIMEOUT_MS = 10_000;
+const SHARED_TELEMETRY_TOKEN_GRACE_MS = 250;
 
 function hasExplicitUrlScheme(value: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value);
@@ -198,6 +199,106 @@ async function fetchTelemetryTokenFromHost(url: string): Promise<string> {
   return result.data.token;
 }
 
+function waitForSharedTelemetryTokenGrace(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, SHARED_TELEMETRY_TOKEN_GRACE_MS);
+  });
+}
+
+async function fetchPublicSubmitTelemetryTokenResult({
+  url,
+  version,
+}: PublicSubmitTelemetryTokenResolution): Promise<{
+  token: string;
+  version: TelemetryTokenVersion;
+}> {
+  return {
+    token: await fetchTelemetryTokenFromHost(url),
+    version,
+  };
+}
+
+function addPublicSubmitTelemetryToken(
+  telemetryToken: PublicSubmitTelemetryToken,
+  result: { token: string; version: TelemetryTokenVersion },
+): void {
+  if (result.version === "v4") {
+    telemetryToken.v4Token = result.token;
+  } else {
+    telemetryToken.v6Token = result.token;
+  }
+}
+
+function throwFirstTelemetryTokenError(
+  tokenResults: PromiseSettledResult<unknown>[],
+): never {
+  const firstError = tokenResults.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )?.reason;
+  if (firstError instanceof Error) {
+    throw firstError;
+  }
+
+  throw new Error("テレメトリトークンを取得できませんでした");
+}
+
+async function fetchSharedPublicSubmitTelemetryToken(
+  telemetryUrls: PublicSubmitTelemetryTokenResolution[],
+): Promise<PublicSubmitTelemetryToken> {
+  const trackedTokenResults = telemetryUrls.map((telemetryUrl) => {
+    let settledResult:
+      | PromiseSettledResult<{
+          token: string;
+          version: TelemetryTokenVersion;
+        }>
+      | undefined;
+    const promise = fetchPublicSubmitTelemetryTokenResult(telemetryUrl).then(
+      (result) => {
+        settledResult = { status: "fulfilled", value: result };
+        return result;
+      },
+      (error: unknown) => {
+        settledResult = { reason: error, status: "rejected" };
+        throw error;
+      },
+    );
+
+    return {
+      get settledResult() {
+        return settledResult;
+      },
+      promise,
+    };
+  });
+
+  try {
+    await Promise.any(trackedTokenResults.map(({ promise }) => promise));
+  } catch {
+    const tokenResults = await Promise.allSettled(
+      trackedTokenResults.map(({ promise }) => promise),
+    );
+    throwFirstTelemetryTokenError(tokenResults);
+  }
+
+  await Promise.race([
+    Promise.allSettled(trackedTokenResults.map(({ promise }) => promise)),
+    waitForSharedTelemetryTokenGrace(),
+  ]);
+
+  const telemetryToken: PublicSubmitTelemetryToken = {};
+  for (const result of trackedTokenResults) {
+    if (result.settledResult?.status === "fulfilled") {
+      addPublicSubmitTelemetryToken(telemetryToken, result.settledResult.value);
+    }
+  }
+
+  if (telemetryToken.v4Token || telemetryToken.v6Token) {
+    return telemetryToken;
+  }
+
+  throw new Error("テレメトリトークンを取得できませんでした");
+}
+
 /**
  * Fetches a v4 telemetry token using v4/shared host config, then API fallback.
  */
@@ -223,11 +324,15 @@ export async function fetchPublicSubmitTelemetryToken(): Promise<PublicSubmitTel
     return { v4Token: (await rpc(client.api.telemetry.v4.$post())).token };
   }
 
+  if (
+    telemetryUrls.length > 1 &&
+    telemetryUrls.every(({ source }) => source === "shared-host")
+  ) {
+    return fetchSharedPublicSubmitTelemetryToken(telemetryUrls);
+  }
+
   const tokenResults = await Promise.allSettled(
-    telemetryUrls.map(async ({ url, version }) => ({
-      token: await fetchTelemetryTokenFromHost(url),
-      version,
-    })),
+    telemetryUrls.map(fetchPublicSubmitTelemetryTokenResult),
   );
   const telemetryToken: PublicSubmitTelemetryToken = {};
 
@@ -236,23 +341,12 @@ export async function fetchPublicSubmitTelemetryToken(): Promise<PublicSubmitTel
       continue;
     }
 
-    if (result.value.version === "v4") {
-      telemetryToken.v4Token = result.value.token;
-    } else {
-      telemetryToken.v6Token = result.value.token;
-    }
+    addPublicSubmitTelemetryToken(telemetryToken, result.value);
   }
 
   if (telemetryToken.v4Token || telemetryToken.v6Token) {
     return telemetryToken;
   }
 
-  const firstError = tokenResults.find(
-    (result): result is PromiseRejectedResult => result.status === "rejected",
-  )?.reason;
-  if (firstError instanceof Error) {
-    throw firstError;
-  }
-
-  throw new Error("テレメトリトークンを取得できませんでした");
+  throwFirstTelemetryTokenError(tokenResults);
 }
