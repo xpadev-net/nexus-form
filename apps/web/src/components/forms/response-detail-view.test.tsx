@@ -49,6 +49,7 @@ describe("ResponseDetailView", () => {
       validationResultsQuery: {
         data: {
           response: {
+            uniquenessScore: 0.75,
             responseDataJson: JSON.stringify([
               {
                 question_id: "name",
@@ -112,6 +113,8 @@ describe("ResponseDetailView", () => {
     const root = renderResponseDetail(container);
 
     expect(container.textContent).toContain("氏名 (name)");
+    expect(container.textContent).toContain("ユニーク度スコア");
+    expect(container.textContent).toContain("0.7500");
     expect(container.textContent).toContain("山田 太郎");
     expect(container.textContent).toContain("興味 (interests)");
     expect(container.textContent).toContain("TypeScript, React");

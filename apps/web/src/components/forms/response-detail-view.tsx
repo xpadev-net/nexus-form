@@ -123,12 +123,21 @@ function parseResponseFields(responseDataJson: string | null): ResponseField[] {
   });
 }
 
+function formatUniquenessScore(score: unknown): string | null {
+  return typeof score === "number" && Number.isFinite(score)
+    ? score.toFixed(4)
+    : null;
+}
+
 export function ResponseDetailView({
   formId,
   responseId,
   fields,
 }: ResponseDetailViewProps) {
   const { validationResultsQuery } = useValidationResults(formId, responseId);
+  const uniquenessScore = formatUniquenessScore(
+    validationResultsQuery.data?.response?.uniquenessScore,
+  );
   const responseFields = useMemo(
     () =>
       fields ??
@@ -160,6 +169,15 @@ export function ResponseDetailView({
         </div>
       ) : (
         <>
+          {uniquenessScore && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ResponseDisplay
+                label="ユニーク度スコア"
+                value={uniquenessScore}
+              />
+            </div>
+          )}
+
           {responseFields.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {responseFields.map((field) => (

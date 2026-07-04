@@ -4,6 +4,8 @@ import { FormResponseRowSchema } from "./form-row";
 /** GET /:id/responses のリストアイテム（responseDataJson を含まない）。 */
 export const ResponseListItemSchema = FormResponseRowSchema.omit({
   responseDataJson: true,
+}).extend({
+  uniquenessScore: z.number().min(0).max(1).nullable(),
 });
 export type ResponseListItem = z.infer<typeof ResponseListItemSchema>;
 
@@ -243,8 +245,13 @@ export type ExternalValidationResult = z.infer<
 >;
 
 /** GET /:id/responses/:responseId のレスポンス。 */
+export const ResponseDetailRowSchema = FormResponseRowSchema.extend({
+  uniquenessScore: z.number().min(0).max(1).nullable(),
+});
+export type ResponseDetailRow = z.infer<typeof ResponseDetailRowSchema>;
+
 export const ResponseDetailResponseSchema = z.object({
-  response: FormResponseRowSchema,
+  response: ResponseDetailRowSchema,
   externalValidations: z.array(ExternalValidationResultSchema),
 });
 export type ResponseDetailResponse = z.infer<

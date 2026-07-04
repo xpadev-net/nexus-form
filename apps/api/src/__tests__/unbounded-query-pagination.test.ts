@@ -237,6 +237,29 @@ function whereQuery(result: unknown[]) {
   };
 }
 
+function emptySelectQuery(result: unknown[]) {
+  const promise = Promise.resolve(result);
+  const query = {
+    from: vi.fn(() => query),
+    where: vi.fn(() => query),
+    groupBy: vi.fn(() => query),
+    orderBy: vi.fn(() => query),
+    offset: vi.fn((value: number) => {
+      mocks.offsetCalls.push(value);
+      return query;
+    }),
+    limit: vi.fn((value: number) => {
+      mocks.limitCalls.push(value);
+      return Promise.resolve(result);
+    }),
+    // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are thenable, and this mock must support direct await.
+    then: promise.then.bind(promise),
+    catch: promise.catch.bind(promise),
+    finally: promise.finally.bind(promise),
+  };
+  return query;
+}
+
 function countQuery(total: number) {
   return {
     from: vi.fn().mockReturnThis(),
@@ -291,6 +314,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.db.select.mockReset();
+    mocks.db.select.mockImplementation(() => emptySelectQuery([]));
     mocks.db.update.mockReset();
     mocks.offsetCalls.length = 0;
     mocks.limitCalls.length = 0;
@@ -456,7 +480,44 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(body.responses[0]).not.toHaveProperty("responseDataJson");
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(6);
-    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+    expect(mocks.limitCalls).toContain(5001);
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns null uniqueness scores when the bounded calculation scope is exceeded", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            id: "response-1",
+            formId: "form-1",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-1",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        orderedQuery(
+          Array.from({ length: 5001 }, (_, index) => ({
+            id: `response-${index}`,
+          })),
+        ),
+      );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses");
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      responses: [{ id: "response-1", uniquenessScore: null }],
+    });
+    expect(mocks.limitCalls).toContain(5001);
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
   });
 
   it("escapes wildcard characters in response search filters", async () => {
@@ -524,7 +585,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       .mocked(sql)
       .mock.calls.filter((call) => call[1] === "formResponse.responseDataJson");
     expect(responseBodySearchCalls).toHaveLength(0);
-    expect(mocks.db.select).toHaveBeenCalledTimes(1);
+    expect(mocks.db.select).toHaveBeenCalledTimes(2);
   });
 
   it("searches response body text and choice display labels with q before paginating", async () => {
@@ -689,9 +750,6 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
   });
 
   it("keeps descending response list sorts aligned with the id tiebreaker", async () => {
-    mocks.db.select
-      .mockReturnValueOnce(limitedQuery([]))
-      .mockReturnValueOnce(limitedQuery([]));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
     const { sql } = await import("drizzle-orm");
 

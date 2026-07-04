@@ -120,3 +120,14 @@ export function calculateAllUniquenessScores(
     uniquenessScore: calculateUniqueness(response, responses),
   }));
 }
+
+export function calculateUniquenessScoreMap(
+  responses: ResponseWithFingerprints[],
+): Map<string, number> {
+  return new Map(
+    calculateAllUniquenessScores(responses).map((score) => [
+      score.responseId,
+      score.uniquenessScore,
+    ]),
+  );
+}

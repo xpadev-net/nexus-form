@@ -18,6 +18,7 @@ type ResponsesQueryState = {
           id: string;
           respondentUuid: string;
           submittedAt: string;
+          uniquenessScore: number;
           updatedAt: string | null;
         }[];
         hasNext: boolean;
@@ -62,6 +63,7 @@ const queryMock = vi.hoisted(
             id: "response-1",
             respondentUuid: "respondent-uuid-1",
             submittedAt: "2026-01-01T00:00:00.000Z",
+            uniquenessScore: 1,
             updatedAt: null,
           },
         ],
@@ -168,6 +170,7 @@ beforeEach(() => {
           id: "response-1",
           respondentUuid: "respondent-uuid-1",
           submittedAt: "2026-01-01T00:00:00.000Z",
+          uniquenessScore: 1,
           updatedAt: null,
         },
       ],
@@ -201,6 +204,7 @@ describe("FormResponsesContent accessibility", () => {
     expect(container.querySelector("fieldset > legend")?.textContent).toBe(
       "回答表示モード",
     );
+    expect(container.textContent).toContain("ユニーク度: 1.0000");
 
     const responseButton = Array.from(
       container.querySelectorAll("button"),
@@ -228,6 +232,7 @@ describe("FormResponsesContent accessibility", () => {
             id: "response-1",
             respondentUuid: "respondent-uuid-1",
             submittedAt: "2026-01-01T00:00:00.000Z",
+            uniquenessScore: 1,
             updatedAt: null,
           },
         ],

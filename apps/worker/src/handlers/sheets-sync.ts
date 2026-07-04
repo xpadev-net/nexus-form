@@ -5,14 +5,20 @@
  */
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
-import { form, formSnapshot } from "@nexus-form/database/schema";
 import {
+  fingerprintDetail,
+  form,
+  formSnapshot,
+} from "@nexus-form/database/schema";
+import {
+  COMPONENT_WEIGHTS,
+  DEFAULT_COMPONENT_WEIGHT,
   extractQuestionsFromPlateContent,
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -39,9 +45,12 @@ import { workerShutdownSignal } from "../lib/shutdown-signal";
 export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
+const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
 // Maximum Sheets API calls inside the critical section:
-// 2 reads (idempotency check) + 1 conditional header update + 1 append
-const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 4;
+// 2 reads (idempotency check) + 1 conditional header update
+// + 1 conditional uniqueness-score backfill + 1 append
+const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
+const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = 5000;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
@@ -171,6 +180,20 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 
 const IntegrationConfigSchema = z.record(z.string(), z.unknown());
 type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
+type FingerprintSet = {
+  id: string;
+  fingerprintDetails: Array<{
+    componentName: string;
+    componentValueHash: string;
+    fingerprintType: string;
+  }>;
+};
+
+type ResponseUniquenessScores = {
+  allScores: Map<string, number>;
+  shouldBlankUnavailableScores: boolean;
+  targetScore: number | null;
+};
 
 function resolveGoogleSheetsConfig(
   rawConfig: IntegrationConfig,
@@ -320,6 +343,33 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     jobId: job.id,
   });
 
+  let prefetchedIdempotencyValue:
+    | Awaited<ReturnType<typeof getIdempotencyKeyValue>>
+    | undefined = await getIdempotencyKeyValue(idempotencyKey);
+  if (prefetchedIdempotencyValue === "done") {
+    return duplicateSkippedResult();
+  }
+
+  // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+  const responseData = safeParseResponseData(
+    response.responseDataJson,
+    response.id,
+  );
+  if (!responseData) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "invalid_data",
+      provider: "google-sheets",
+      jobId: job.id,
+    };
+  }
+
+  const uniquenessScores = await getUniquenessScoresForResponse(
+    formId,
+    response.id,
+  );
+
   // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
@@ -328,7 +378,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     lockKey,
     async () => {
       while (true) {
-        const keyValue = await getIdempotencyKeyValue(idempotencyKey);
+        const keyValue =
+          prefetchedIdempotencyValue === undefined
+            ? await getIdempotencyKeyValue(idempotencyKey)
+            : prefetchedIdempotencyValue;
+        prefetchedIdempotencyValue = undefined;
 
         if (keyValue === "done") {
           // A prior attempt already wrote the row; skip.
@@ -361,21 +415,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           continue;
         }
 
-        // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-        const responseData = safeParseResponseData(
-          response.responseDataJson,
-          response.id,
-        );
-        if (!responseData) {
-          return {
-            ok: true,
-            skipped: true,
-            reason: "invalid_data",
-            provider: "google-sheets",
-            jobId: job.id,
-          };
-        }
-
         // Mark as "pending" before any Sheets API call in this critical section.
         // If Redis is unavailable, throw so the job retries rather than writing
         // without the duplicate guard.
@@ -405,6 +444,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           responseData,
           blockTitleMap,
           response.id,
+          uniquenessScores.targetScore,
         );
 
         // 8. ヘッダーが変更された場合は更新
@@ -422,6 +462,15 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             throwSheetsSyncFailure("update headers", headerUpdateResult);
           }
         }
+        await updateExistingUniquenessScoreCells(token, {
+          spreadsheetId,
+          sheetName,
+          headers,
+          responseIds: sheetCheck.responseIds,
+          shouldBlankUnavailableScores:
+            uniquenessScores.shouldBlankUnavailableScores,
+          uniquenessScores: uniquenessScores.allScores,
+        });
         await job.updateProgress(80);
 
         // 9. 行を追記
@@ -486,6 +535,151 @@ function columnIndexToLetter(index: number): string {
   return letter;
 }
 
+async function getUniquenessScoresForResponse(
+  formId: string,
+  responseId: string,
+): Promise<ResponseUniquenessScores> {
+  const responseRows = await db
+    .select({ id: formResponse.id })
+    .from(formResponse)
+    .where(eq(formResponse.formId, formId))
+    .limit(RESPONSE_UNIQUENESS_CALCULATION_LIMIT + 1);
+
+  if (responseRows.length === 0) {
+    return {
+      allScores: new Map(),
+      shouldBlankUnavailableScores: false,
+      targetScore: 1,
+    };
+  }
+
+  if (responseRows.length > RESPONSE_UNIQUENESS_CALCULATION_LIMIT) {
+    return {
+      allScores: new Map(),
+      shouldBlankUnavailableScores: false,
+      targetScore: null,
+    };
+  }
+
+  const responseIds = responseRows.map((row) => row.id);
+  const fingerprintRows = await db
+    .select({
+      responseId: fingerprintDetail.responseId,
+      componentName: fingerprintDetail.componentName,
+      componentValueHash: fingerprintDetail.componentValueHash,
+      fingerprintType: fingerprintDetail.fingerprintType,
+    })
+    .from(fingerprintDetail)
+    .where(inArray(fingerprintDetail.responseId, responseIds));
+
+  const fingerprintsByResponseId = new Map<
+    string,
+    FingerprintSet["fingerprintDetails"]
+  >();
+  for (const {
+    responseId: fingerprintResponseId,
+    componentName,
+    componentValueHash,
+    fingerprintType,
+  } of fingerprintRows) {
+    const current = fingerprintsByResponseId.get(fingerprintResponseId) ?? [];
+    current.push({ componentName, componentValueHash, fingerprintType });
+    fingerprintsByResponseId.set(fingerprintResponseId, current);
+  }
+
+  const fingerprintSets = responseRows.map((row) => ({
+    id: row.id,
+    fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+  }));
+  const target = fingerprintSets.find((set) => set.id === responseId) ?? {
+    id: responseId,
+    fingerprintDetails: [],
+  };
+
+  const allScores = calculateUniquenessScoreMap(fingerprintSets);
+  return {
+    allScores,
+    shouldBlankUnavailableScores: false,
+    targetScore: allScores.get(target.id) ?? 1,
+  };
+}
+
+function calculateUniquenessScoreMap(
+  responses: FingerprintSet[],
+): Map<string, number> {
+  return new Map(
+    responses.map((response) => [
+      response.id,
+      calculateUniqueness(response, responses),
+    ]),
+  );
+}
+
+function calculateSimilarity(
+  response1: FingerprintSet,
+  response2: FingerprintSet,
+): number {
+  if (
+    response1.fingerprintDetails.length === 0 ||
+    response2.fingerprintDetails.length === 0
+  ) {
+    return 0;
+  }
+
+  const allComponents = new Set<string>();
+  for (const detail of response1.fingerprintDetails) {
+    allComponents.add(detail.componentName);
+  }
+  for (const detail of response2.fingerprintDetails) {
+    allComponents.add(detail.componentName);
+  }
+
+  let totalWeight = 0;
+  let matchedWeight = 0;
+  for (const componentName of allComponents) {
+    const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
+    totalWeight += weight;
+
+    const detail1 = response1.fingerprintDetails.find(
+      (detail) => detail.componentName === componentName,
+    );
+    const detail2 = response2.fingerprintDetails.find(
+      (detail) => detail.componentName === componentName,
+    );
+    if (
+      detail1 &&
+      detail2 &&
+      detail1.componentValueHash === detail2.componentValueHash &&
+      detail1.fingerprintType === detail2.fingerprintType
+    ) {
+      matchedWeight += weight;
+    }
+  }
+
+  return totalWeight === 0 ? 0 : matchedWeight / totalWeight;
+}
+
+function calculateUniqueness(
+  targetResponse: FingerprintSet,
+  allResponses: FingerprintSet[],
+): number {
+  if (allResponses.length <= 1) return 1;
+
+  const otherResponses = allResponses.filter(
+    (response) => response.id !== targetResponse.id,
+  );
+  if (otherResponses.length === 0) return 1;
+
+  const averageSimilarity =
+    otherResponses.reduce(
+      (sum, otherResponse) =>
+        sum + calculateSimilarity(targetResponse, otherResponse),
+      0,
+    ) / otherResponses.length;
+
+  return Math.max(0, Math.min(1, 1 - averageSimilarity));
+}
+
 async function readSheetForIdempotency(
   token: OAuthToken,
   params: {
@@ -493,7 +687,12 @@ async function readSheetForIdempotency(
     sheetName: string;
     responseId: string;
   },
-): Promise<{ ok: true; exists: boolean; headers: string[] }> {
+): Promise<{
+  ok: true;
+  exists: boolean;
+  headers: string[];
+  responseIds: string[];
+}> {
   throwIfShuttingDown();
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
@@ -503,13 +702,13 @@ async function readSheetForIdempotency(
     throwSheetsSyncFailure("read sheet for idempotency check", headerData);
   }
   if (headerData.data.values.length === 0) {
-    return { ok: true, exists: false, headers: [] };
+    return { ok: true, exists: false, headers: [], responseIds: [] };
   }
 
   const headers = headerData.data.values[0] ?? [];
   const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIndex === -1) {
-    return { ok: true, exists: false, headers };
+    return { ok: true, exists: false, headers, responseIds: [] };
   }
 
   const columnLetter = columnIndexToLetter(responseIdIndex);
@@ -525,10 +724,67 @@ async function readSheetForIdempotency(
     );
   }
 
-  const exists = entireColumn.data.values
+  const responseIds = entireColumn.data.values
     .slice(1)
-    .some((row) => row[0] === params.responseId);
-  return { ok: true, exists, headers };
+    .map((row) => (typeof row[0] === "string" ? row[0] : ""));
+  const exists = responseIds.includes(params.responseId);
+  return { ok: true, exists, headers, responseIds };
+}
+
+async function updateExistingUniquenessScoreCells(
+  token: OAuthToken,
+  params: {
+    spreadsheetId: string;
+    sheetName: string;
+    headers: string[];
+    responseIds: string[];
+    shouldBlankUnavailableScores: boolean;
+    uniquenessScores: Map<string, number>;
+  },
+): Promise<void> {
+  if (
+    params.responseIds.length === 0 ||
+    (params.uniquenessScores.size === 0 && !params.shouldBlankUnavailableScores)
+  ) {
+    return;
+  }
+
+  const uniquenessScoreIndex = params.headers.indexOf(UNIQUENESS_SCORE_HEADER);
+  if (uniquenessScoreIndex === -1) {
+    return;
+  }
+
+  throwIfShuttingDown();
+  const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
+
+  let rangeStartRow: number | null = null;
+  let rangeValues: string[][] = [];
+  const flushRange = async (endRow: number) => {
+    if (rangeStartRow === null || rangeValues.length === 0) return;
+    const result = await updateRange(token, {
+      spreadsheetId: params.spreadsheetId,
+      rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
+      values: rangeValues,
+    });
+    if (!result.ok) {
+      throwSheetsSyncFailure("update uniqueness scores", result);
+    }
+    rangeStartRow = null;
+    rangeValues = [];
+  };
+
+  for (const [index, responseId] of params.responseIds.entries()) {
+    const rowNumber = index + 2;
+    const score = params.uniquenessScores.get(responseId);
+    if (score === undefined && !params.shouldBlankUnavailableScores) {
+      await flushRange(rowNumber - 1);
+      continue;
+    }
+
+    rangeStartRow ??= rowNumber;
+    rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
+  }
+  await flushRange(params.responseIds.length + 1);
 }
 
 async function waitForPendingIdempotencyToResolve(
@@ -578,6 +834,7 @@ function buildRowFromResponse(
   responseData: Record<string, unknown>,
   blockTitleMap: Map<string, string>,
   responseId: string,
+  uniquenessScore: number | null,
 ): { headers: string[]; row: string[] } {
   const headers =
     existingHeaders.length > 0 ? [...existingHeaders] : [RESPONSE_ID_HEADER];
@@ -594,6 +851,15 @@ function buildRowFromResponse(
   if (responseIdIdx >= 0) {
     row[responseIdIdx] = responseId;
   }
+
+  let uniquenessScoreIdx = headers.indexOf(UNIQUENESS_SCORE_HEADER);
+  if (uniquenessScoreIdx === -1) {
+    headers.push(UNIQUENESS_SCORE_HEADER);
+    row.push("");
+    uniquenessScoreIdx = headers.length - 1;
+  }
+  row[uniquenessScoreIdx] =
+    uniquenessScore === null ? "" : uniquenessScore.toFixed(4);
 
   // 各ブロックのデータを行に配置
   for (const [blockId, value] of Object.entries(responseData)) {
