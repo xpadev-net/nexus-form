@@ -12,10 +12,11 @@ type TelemetryHostResolution = {
   url: string;
 };
 
-/** Single telemetry token payload accepted by the public submit API. */
-export type PublicSubmitTelemetryToken =
-  | { v4Token: string; v6Token?: never }
-  | { v4Token?: never; v6Token: string };
+/** Telemetry token payload accepted by the public submit API. */
+export type PublicSubmitTelemetryToken = {
+  v4Token?: string;
+  v6Token?: string;
+};
 
 type PublicSubmitTelemetryTokenResolution = TelemetryHostResolution & {
   version: TelemetryTokenVersion;
@@ -122,44 +123,17 @@ export function resolveTelemetryTokenUrl(
 }
 
 /**
- * Resolves the single telemetry token endpoint used by public form submits.
+ * Resolves the telemetry token endpoints used by public form submits.
  *
- * Public submits prefer v4 host, then v6 host, then shared telemetry host on
- * the v4 endpoint. Returning `null` means the submit flow should use the
+ * Public submits attempt both address-family-specific endpoints when they are
+ * configured. Returning an empty array means the submit flow should use the
  * existing API client fallback on the v4 endpoint.
  */
-export function resolvePublicSubmitTelemetryTokenUrl(): PublicSubmitTelemetryTokenResolution | null {
-  const v4Host = getVersionTelemetryHost("v4");
-  if (v4Host) {
-    return {
-      source: "version-host",
-      url: buildTelemetryTokenUrl(v4Host, "v4"),
-      version: "v4",
-    };
-  }
-
-  const v6Host = getVersionTelemetryHost("v6");
-  if (v6Host) {
-    return {
-      source: "version-host",
-      url: buildTelemetryTokenUrl(v6Host, "v6"),
-      version: "v6",
-    };
-  }
-
-  const sharedHost = getRuntimeConfigValue(
-    "telemetryHost",
-    import.meta.env.VITE_TELEMETRY_HOST,
-  );
-  if (sharedHost) {
-    return {
-      source: "shared-host",
-      url: buildTelemetryTokenUrl(sharedHost, "v4"),
-      version: "v4",
-    };
-  }
-
-  return null;
+export function resolvePublicSubmitTelemetryTokenUrls(): PublicSubmitTelemetryTokenResolution[] {
+  return (["v4", "v6"] as const).flatMap((version) => {
+    const resolution = resolveTelemetryTokenUrl(version);
+    return resolution ? [{ ...resolution, version }] : [];
+  });
 }
 
 function createTelemetryTokenFetchSignal(): {
@@ -244,13 +218,41 @@ export async function fetchTelemetryV4Token(): Promise<string> {
  * existing API client fallback retrieves a v4 token.
  */
 export async function fetchPublicSubmitTelemetryToken(): Promise<PublicSubmitTelemetryToken> {
-  const telemetryUrl = resolvePublicSubmitTelemetryTokenUrl();
-  if (!telemetryUrl) {
+  const telemetryUrls = resolvePublicSubmitTelemetryTokenUrls();
+  if (telemetryUrls.length === 0) {
     return { v4Token: (await rpc(client.api.telemetry.v4.$post())).token };
   }
 
-  const token = await fetchTelemetryTokenFromHost(telemetryUrl.url);
-  return telemetryUrl.version === "v4"
-    ? { v4Token: token }
-    : { v6Token: token };
+  const tokenResults = await Promise.allSettled(
+    telemetryUrls.map(async ({ url, version }) => ({
+      token: await fetchTelemetryTokenFromHost(url),
+      version,
+    })),
+  );
+  const telemetryToken: PublicSubmitTelemetryToken = {};
+
+  for (const result of tokenResults) {
+    if (result.status !== "fulfilled") {
+      continue;
+    }
+
+    if (result.value.version === "v4") {
+      telemetryToken.v4Token = result.value.token;
+    } else {
+      telemetryToken.v6Token = result.value.token;
+    }
+  }
+
+  if (telemetryToken.v4Token || telemetryToken.v6Token) {
+    return telemetryToken;
+  }
+
+  const firstError = tokenResults.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  )?.reason;
+  if (firstError instanceof Error) {
+    throw firstError;
+  }
+
+  throw new Error("テレメトリトークンを取得できませんでした");
 }

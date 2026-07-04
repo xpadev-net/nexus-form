@@ -5,7 +5,7 @@ import {
   buildTelemetryTokenUrl,
   fetchPublicSubmitTelemetryToken,
   fetchTelemetryV4Token,
-  resolvePublicSubmitTelemetryTokenUrl,
+  resolvePublicSubmitTelemetryTokenUrls,
   resolveTelemetryTokenUrl,
 } from "./telemetry-token";
 
@@ -114,7 +114,7 @@ describe("resolveTelemetryTokenUrl", () => {
   });
 });
 
-describe("resolvePublicSubmitTelemetryTokenUrl", () => {
+describe("resolvePublicSubmitTelemetryTokenUrls", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
@@ -123,33 +123,54 @@ describe("resolvePublicSubmitTelemetryTokenUrl", () => {
     apiMocks.telemetryPost.mockReset();
   });
 
-  it("prefers v4 host, then v6 host, then shared host for public submits", () => {
+  it("resolves both configured address-family hosts for public submits", () => {
     vi.stubEnv("VITE_TELEMETRY_HOST", "telemetry.build.example");
     setRuntimeConfig({
       telemetryV4Host: "ipv4.runtime.example",
       telemetryV6Host: "ipv6.runtime.example",
     });
-    expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
-      source: "version-host",
-      url: "https://ipv4.runtime.example/api/telemetry/v4",
-      version: "v4",
-    });
+    expect(resolvePublicSubmitTelemetryTokenUrls()).toEqual([
+      {
+        source: "version-host",
+        url: "https://ipv4.runtime.example/api/telemetry/v4",
+        version: "v4",
+      },
+      {
+        source: "version-host",
+        url: "https://ipv6.runtime.example/api/telemetry/v6",
+        version: "v6",
+      },
+    ]);
 
     setRuntimeConfig({
       telemetryV6Host: "ipv6.runtime.example",
     });
-    expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
-      source: "version-host",
-      url: "https://ipv6.runtime.example/api/telemetry/v6",
-      version: "v6",
-    });
+    expect(resolvePublicSubmitTelemetryTokenUrls()).toEqual([
+      {
+        source: "shared-host",
+        url: "https://telemetry.build.example/api/telemetry/v4",
+        version: "v4",
+      },
+      {
+        source: "version-host",
+        url: "https://ipv6.runtime.example/api/telemetry/v6",
+        version: "v6",
+      },
+    ]);
 
     setRuntimeConfig({});
-    expect(resolvePublicSubmitTelemetryTokenUrl()).toEqual({
-      source: "shared-host",
-      url: "https://telemetry.build.example/api/telemetry/v4",
-      version: "v4",
-    });
+    expect(resolvePublicSubmitTelemetryTokenUrls()).toEqual([
+      {
+        source: "shared-host",
+        url: "https://telemetry.build.example/api/telemetry/v4",
+        version: "v4",
+      },
+      {
+        source: "shared-host",
+        url: "https://telemetry.build.example/api/telemetry/v6",
+        version: "v6",
+      },
+    ]);
   });
 });
 
@@ -161,22 +182,109 @@ describe("fetchPublicSubmitTelemetryToken", () => {
     apiMocks.telemetryPost.mockReset();
   });
 
-  it("returns a v6 token payload when only the v6 runtime host is configured", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ token: "v6-host-token" }), {
-        status: 200,
-      }),
+  it("returns both token payloads when both runtime hosts are configured", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            token: url.includes("/v4") ? "v4-host-token" : "v6-host-token",
+          }),
+          { status: 200 },
+        ),
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
     setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
+      telemetryV6Host: "ipv6.runtime.example",
+    });
+
+    await expect(fetchPublicSubmitTelemetryToken()).resolves.toEqual({
+      v4Token: "v4-host-token",
+      v6Token: "v6-host-token",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv4.runtime.example/api/telemetry/v4",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv6.runtime.example/api/telemetry/v6",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns a v6 token payload when the v4 endpoint fails", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/v4")
+          ? new Response(JSON.stringify({ error: "v4 unavailable" }), {
+              status: 503,
+            })
+          : new Response(JSON.stringify({ token: "v6-host-token" }), {
+              status: 200,
+            }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
       telemetryV6Host: "ipv6.runtime.example",
     });
 
     await expect(fetchPublicSubmitTelemetryToken()).resolves.toEqual({
       v6Token: "v6-host-token",
     });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://ipv6.runtime.example/api/telemetry/v6",
+      {
+        credentials: "omit",
+        headers: { Accept: "application/json" },
+        method: "POST",
+        signal: expect.any(AbortSignal),
+      },
+    );
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.rpc).not.toHaveBeenCalled();
+  });
+
+  it("returns a v4 token payload when the v6 endpoint fails", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes("/v6")
+          ? new Response(JSON.stringify({ error: "v6 unavailable" }), {
+              status: 503,
+            })
+          : new Response(JSON.stringify({ token: "v4-host-token" }), {
+              status: 200,
+            }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
+      telemetryV6Host: "ipv6.runtime.example",
+    });
+
+    await expect(fetchPublicSubmitTelemetryToken()).resolves.toEqual({
+      v4Token: "v4-host-token",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://ipv4.runtime.example/api/telemetry/v4",
       {
         credentials: "omit",
         headers: { Accept: "application/json" },
