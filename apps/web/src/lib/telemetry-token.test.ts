@@ -356,6 +356,38 @@ describe("fetchPublicSubmitTelemetryToken", () => {
     expect(apiMocks.rpc).not.toHaveBeenCalled();
   });
 
+  it("returns a v4 token payload without waiting for a hanging dedicated v6 endpoint", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://ipv4.runtime.example/api/telemetry/v4") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ token: "v4-host-token" }), {
+            status: 200,
+          }),
+        );
+      }
+      if (url === "https://ipv6.runtime.example/api/telemetry/v6") {
+        return new Promise<Response>(() => undefined);
+      }
+      throw new Error(`Unexpected telemetry token URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    setRuntimeConfig({
+      telemetryV4Host: "ipv4.runtime.example",
+      telemetryV6Host: "ipv6.runtime.example",
+    });
+
+    const tokenPromise = fetchPublicSubmitTelemetryToken();
+    await vi.advanceTimersByTimeAsync(250);
+
+    await expect(tokenPromise).resolves.toEqual({
+      v4Token: "v4-host-token",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
+    expect(apiMocks.rpc).not.toHaveBeenCalled();
+  });
+
   it("returns a v4 token payload when the v6 endpoint fails", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === "https://ipv4.runtime.example/api/telemetry/v4") {

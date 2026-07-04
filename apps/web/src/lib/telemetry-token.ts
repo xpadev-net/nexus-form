@@ -32,7 +32,7 @@ const telemetryTokenPathByVersion: Record<TelemetryTokenVersion, string> = {
 };
 
 const TELEMETRY_TOKEN_FETCH_TIMEOUT_MS = 10_000;
-const SHARED_TELEMETRY_TOKEN_GRACE_MS = 250;
+const PUBLIC_SUBMIT_TELEMETRY_TOKEN_GRACE_MS = 250;
 
 function hasExplicitUrlScheme(value: string): boolean {
   return /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(value);
@@ -199,9 +199,9 @@ async function fetchTelemetryTokenFromHost(url: string): Promise<string> {
   return result.data.token;
 }
 
-function waitForSharedTelemetryTokenGrace(): Promise<void> {
+function waitForPublicSubmitTelemetryTokenGrace(): Promise<void> {
   return new Promise((resolve) => {
-    window.setTimeout(resolve, SHARED_TELEMETRY_TOKEN_GRACE_MS);
+    window.setTimeout(resolve, PUBLIC_SUBMIT_TELEMETRY_TOKEN_GRACE_MS);
   });
 }
 
@@ -242,7 +242,7 @@ function throwFirstTelemetryTokenError(
   throw new Error("テレメトリトークンを取得できませんでした");
 }
 
-async function fetchSharedPublicSubmitTelemetryToken(
+async function fetchMultiplePublicSubmitTelemetryTokens(
   telemetryUrls: PublicSubmitTelemetryTokenResolution[],
 ): Promise<PublicSubmitTelemetryToken> {
   const trackedTokenResults = telemetryUrls.map((telemetryUrl) => {
@@ -282,7 +282,7 @@ async function fetchSharedPublicSubmitTelemetryToken(
 
   await Promise.race([
     Promise.allSettled(trackedTokenResults.map(({ promise }) => promise)),
-    waitForSharedTelemetryTokenGrace(),
+    waitForPublicSubmitTelemetryTokenGrace(),
   ]);
 
   const telemetryToken: PublicSubmitTelemetryToken = {};
@@ -324,11 +324,8 @@ export async function fetchPublicSubmitTelemetryToken(): Promise<PublicSubmitTel
     return { v4Token: (await rpc(client.api.telemetry.v4.$post())).token };
   }
 
-  if (
-    telemetryUrls.length > 1 &&
-    telemetryUrls.every(({ source }) => source === "shared-host")
-  ) {
-    return fetchSharedPublicSubmitTelemetryToken(telemetryUrls);
+  if (telemetryUrls.length > 1) {
+    return fetchMultiplePublicSubmitTelemetryTokens(telemetryUrls);
   }
 
   const tokenResults = await Promise.allSettled(
