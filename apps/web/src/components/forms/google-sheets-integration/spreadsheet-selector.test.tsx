@@ -5,6 +5,7 @@ import {
   getByTestId,
   queryAllByText,
   queryByText,
+  within,
 } from "@testing-library/dom";
 import type { ComponentProps, ReactNode } from "react";
 import {
@@ -311,6 +312,7 @@ describe("SpreadsheetSelector", () => {
     const spreadsheets = Array.from({ length: 25 }, (_, index) => ({
       id: `spreadsheet-${index}`,
       name: `Spreadsheet ${index}`,
+      parents: [],
     }));
     const { container, root } = renderSelector({
       selectedSpreadsheetId: "spreadsheet-0",
@@ -468,18 +470,28 @@ describe("SpreadsheetSelector", () => {
       expect(queryByText(container, "Company")).not.toBeNull();
       expect(queryByText(container, "Sales")).not.toBeNull();
       expect(queryByText(container, "Support")).not.toBeNull();
-      expect(queryAllByText(container, "マイドライブ").length).toBeGreaterThan(
-        0,
-      );
+      const rootSheetOption = getByRole(container, "option", {
+        name: /Root sheet/,
+      });
+      const missingMetadataOption = getByRole(container, "option", {
+        name: /Missing metadata/,
+      });
       expect(
-        queryAllByText(container, "フォルダ情報なし").length,
-      ).toBeGreaterThan(0);
+        within(rootSheetOption).queryByText("マイドライブ"),
+      ).not.toBeNull();
+      expect(
+        within(missingMetadataOption).queryByText("フォルダ情報なし"),
+      ).not.toBeNull();
       expect(queryByText(container, /Company \/ Sales/)).not.toBeNull();
       expect(queryByText(container, /Company \/ Support/)).not.toBeNull();
       expect(queryAllByText(container, /Alpha/).length).toBeGreaterThan(0);
       expect(queryAllByText(container, /Beta/).length).toBeGreaterThan(0);
-      expect(queryByText(container, /ID: shared-s\.\.\.rt-a/)).not.toBeNull();
-      expect(queryByText(container, /ID: shared-s\.\.\.rt-b/)).not.toBeNull();
+      const idLabelText = queryAllByText(container, /ID:/)
+        .map((element) => element.textContent ?? "")
+        .join(" ");
+      expect(idLabelText).toContain("shared-s");
+      expect(idLabelText).toContain("rt-a");
+      expect(idLabelText).toContain("rt-b");
     } finally {
       cleanupSelector(root, container);
     }

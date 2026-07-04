@@ -603,7 +603,7 @@ function getSpreadsheetDetailLabel({
   folderLabel?: string;
   showSpreadsheetId: boolean;
   statusLabel?: string;
-}) {
+}): string {
   const resolvedFolderLabel =
     folderLabel ?? getSpreadsheetFolderLabel(spreadsheet);
   const labels = [statusLabel, resolvedFolderLabel].filter(
@@ -666,7 +666,7 @@ function ensureFolderNode(
   nodes: Map<string, MutableSpreadsheetFolderNode>,
   key: string,
   label: string,
-) {
+): MutableSpreadsheetFolderNode {
   const existingNode = nodes.get(key);
   if (existingNode) return existingNode;
 
@@ -691,7 +691,10 @@ function toSpreadsheetFolderNode(
   };
 }
 
-function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet) {
+function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet): {
+  pathSegments: { id: string; name: string }[];
+  folderLabel: string;
+}[] {
   const validFolderPaths = (spreadsheet.folderPaths ?? [])
     .map((folderPath) => folderPath.pathSegments)
     .filter((pathSegments) => pathSegments.length > 0);
@@ -715,21 +718,34 @@ function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet) {
     ];
   }
 
+  if (spreadsheet.parents) {
+    return [
+      toSpreadsheetFolderEntry([{ id: "__root__", name: ROOT_FOLDER_LABEL }]),
+    ];
+  }
+
   return [
-    toSpreadsheetFolderEntry([{ id: "__root__", name: ROOT_FOLDER_LABEL }]),
+    toSpreadsheetFolderEntry([
+      { id: "__unknown-folder__", name: UNKNOWN_FOLDER_LABEL },
+    ]),
   ];
 }
 
 function toSpreadsheetFolderEntry(
   pathSegments: { id: string; name: string }[],
-) {
+): {
+  pathSegments: { id: string; name: string }[];
+  folderLabel: string;
+} {
   return {
     pathSegments,
     folderLabel: pathSegments.map((segment) => segment.name).join(" / "),
   };
 }
 
-function getSpreadsheetFolderLabel(spreadsheet: Spreadsheet) {
+function getSpreadsheetFolderLabel(
+  spreadsheet: Spreadsheet,
+): string | undefined {
   const [primaryFolderEntry] = getSpreadsheetFolderEntries(spreadsheet);
 
   return primaryFolderEntry?.folderLabel;
