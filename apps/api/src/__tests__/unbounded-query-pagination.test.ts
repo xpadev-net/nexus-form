@@ -175,7 +175,13 @@ vi.mock("drizzle-orm", () => ({
   lt: vi.fn((left, right) => ({ op: "lt", left, right })),
   ne: vi.fn((left, right) => ({ op: "ne", left, right })),
   or: vi.fn((...conditions) => ({ op: "or", conditions })),
-  sql: vi.fn((strings) => String(strings[0] ?? "sql")),
+  sql: vi.fn((strings) => {
+    const expression = {
+      as: vi.fn((alias: string) => ({ alias, expression })),
+      toString: () => String(strings[0] ?? "sql"),
+    };
+    return expression;
+  }),
 }));
 
 function limitedQuery(result: unknown[]) {
@@ -984,8 +990,16 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(sqlCalls).toEqual(
       expect.arrayContaining([
         [["date_format(", ", '%Y-%m-%d')"], "formResponse.submittedAt"],
-        [["", " desc"], expect.anything()],
       ]),
+    );
+    expect(query.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ alias: "date" }),
+    );
+    expect(query.orderBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        field: expect.objectContaining({ alias: "date" }),
+        op: "desc",
+      }),
     );
     expect(query.groupBy).toHaveBeenCalledTimes(1);
     expect(query.orderBy).toHaveBeenCalledTimes(1);

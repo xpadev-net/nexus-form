@@ -79,7 +79,10 @@ export const formsResponseAnalyticsRouter = createHonoApp()
       const formId = c.req.param("id");
       const { page, pageSize } = c.req.valid("query");
       const offset = (page - 1) * pageSize;
-      const responseDate = sql<string>`date_format(${formResponse.submittedAt}, '%Y-%m-%d')`;
+      const responseDate =
+        sql<string>`date_format(${formResponse.submittedAt}, '%Y-%m-%d')`.as(
+          "date",
+        );
       let rows: Array<{ date: string; count: number }>;
       try {
         rows = await db
@@ -90,7 +93,7 @@ export const formsResponseAnalyticsRouter = createHonoApp()
           .from(formResponse)
           .where(eq(formResponse.formId, formId))
           .groupBy(responseDate)
-          .orderBy(sql`${responseDate} desc`)
+          .orderBy(desc(responseDate))
           .offset(offset)
           .limit(pageSize + 1);
       } catch (error) {
