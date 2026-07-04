@@ -4,6 +4,7 @@
  * 新しいフォーム回答をGoogle Sheetsに追記する
  */
 
+import { createHash } from "node:crypto";
 import { db, formIntegration, formResponse } from "@nexus-form/database";
 import {
   fingerprintDetail,
@@ -11,11 +12,21 @@ import {
   formSnapshot,
 } from "@nexus-form/database/schema";
 import {
+  buildResponseLabelLookupFromQuestions,
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,
+  type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  isAnswerableBlockType,
+  mapRecordToSheetRow,
+  neutralizeSpreadsheetFormulaValue,
+  type ResponseDataItem,
+  type ResponseExportRecord,
+  resolveResponseDisplayValue,
+  responsePayloadItemSchema,
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
+  type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
 import { and, eq, inArray } from "drizzle-orm";
@@ -46,6 +57,8 @@ export type SheetsSyncJob = SheetsSyncJobData;
 
 const RESPONSE_ID_HEADER = "Response ID";
 const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
+const UNIQUENESS_SCORE_ID_HEADER = "Uniqueness Score";
+const SHARED_TITLE_RESPONSE_ID_HEADER = "回答ID";
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
 // + 1 conditional uniqueness-score backfill + 1 append
@@ -191,8 +204,20 @@ type FingerprintSet = {
 
 type ResponseUniquenessScores = {
   allScores: Map<string, number>;
+  fingerprintComponents: Set<string>;
   shouldBlankUnavailableScores: boolean;
   targetScore: number | null;
+  targetFingerprintUuids: Record<string, string | null>;
+};
+type SheetLayout = "empty" | "shared" | "legacy";
+type SheetReadResult = {
+  ok: true;
+  exists: boolean;
+  headers: string[];
+  titleHeaders: string[];
+  layout: SheetLayout;
+  responseIds: string[];
+  headerRowCount: number;
 };
 
 function resolveGoogleSheetsConfig(
@@ -316,11 +341,13 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           .limit(1);
 
   const blockTitleMap = new Map<string, string>();
+  let extractedQuestions: ExtractedQuestion[] = [];
   if (plateRecord?.plateContent) {
     try {
       const parsed: unknown = JSON.parse(plateRecord.plateContent);
       if (Array.isArray(parsed)) {
-        for (const q of extractQuestionsFromPlateContent(parsed)) {
+        extractedQuestions = extractQuestionsFromPlateContent(parsed);
+        for (const q of extractedQuestions) {
           if (q.blockId) {
             blockTitleMap.set(q.blockId, q.title || q.blockId);
           }
@@ -439,12 +466,17 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         await job.updateProgress(60);
 
         // 7. ヘッダーと行データを構築
-        const { headers, row } = buildRowFromResponse(
+        const { headers, titleHeaders, row } = buildRowFromResponse(
           existingHeaders,
+          sheetCheck.titleHeaders,
+          sheetCheck.layout,
           responseData,
+          extractedQuestions,
           blockTitleMap,
-          response.id,
+          response,
           uniquenessScores.targetScore,
+          uniquenessScores.fingerprintComponents,
+          uniquenessScores.targetFingerprintUuids,
         );
 
         // 8. ヘッダーが変更された場合は更新
@@ -455,8 +487,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           throwIfShuttingDown();
           const headerUpdateResult = await updateRange(token, {
             spreadsheetId,
-            rangeA1: `${sheetName}!1:1`,
-            values: [headers],
+            rangeA1:
+              sheetCheck.layout === "legacy"
+                ? `${sheetName}!1:1`
+                : `${sheetName}!1:2`,
+            values:
+              sheetCheck.layout === "legacy"
+                ? [headers]
+                : [headers, titleHeaders],
           });
           if (!headerUpdateResult.ok) {
             throwSheetsSyncFailure("update headers", headerUpdateResult);
@@ -467,6 +505,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           sheetName,
           headers,
           responseIds: sheetCheck.responseIds,
+          headerRowCount: sheetCheck.headerRowCount,
           shouldBlankUnavailableScores:
             uniquenessScores.shouldBlankUnavailableScores,
           uniquenessScores: uniquenessScores.allScores,
@@ -548,16 +587,20 @@ async function getUniquenessScoresForResponse(
   if (responseRows.length === 0) {
     return {
       allScores: new Map(),
+      fingerprintComponents: new Set(),
       shouldBlankUnavailableScores: false,
       targetScore: 1,
+      targetFingerprintUuids: {},
     };
   }
 
   if (responseRows.length > RESPONSE_UNIQUENESS_CALCULATION_LIMIT) {
     return {
       allScores: new Map(),
+      fingerprintComponents: new Set(),
       shouldBlankUnavailableScores: false,
       targetScore: null,
+      targetFingerprintUuids: {},
     };
   }
 
@@ -576,6 +619,7 @@ async function getUniquenessScoresForResponse(
     string,
     FingerprintSet["fingerprintDetails"]
   >();
+  const fingerprintComponents = new Set<string>();
   for (const {
     responseId: fingerprintResponseId,
     componentName,
@@ -585,6 +629,7 @@ async function getUniquenessScoresForResponse(
     const current = fingerprintsByResponseId.get(fingerprintResponseId) ?? [];
     current.push({ componentName, componentValueHash, fingerprintType });
     fingerprintsByResponseId.set(fingerprintResponseId, current);
+    fingerprintComponents.add(componentName);
   }
 
   const fingerprintSets = responseRows.map((row) => ({
@@ -599,8 +644,10 @@ async function getUniquenessScoresForResponse(
   const allScores = calculateUniquenessScoreMap(fingerprintSets);
   return {
     allScores,
+    fingerprintComponents,
     shouldBlankUnavailableScores: false,
     targetScore: allScores.get(target.id) ?? 1,
+    targetFingerprintUuids: buildFingerprintUuids(formId, target),
   };
 }
 
@@ -613,6 +660,54 @@ function calculateUniquenessScoreMap(
       calculateUniqueness(response, responses),
     ]),
   );
+}
+
+const UUID_V5_DNS_NAMESPACE = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+
+function buildFingerprintUuids(
+  formId: string,
+  target: FingerprintSet,
+): Record<string, string | null> {
+  const namespace = uuidV5(formId, UUID_V5_DNS_NAMESPACE);
+  return Object.fromEntries(
+    target.fingerprintDetails.map((fingerprint) => [
+      fingerprint.componentName,
+      uuidV5(fingerprint.componentValueHash, namespace),
+    ]),
+  );
+}
+
+function buildUaUuid(
+  formId: string,
+  userAgent: string | null | undefined,
+): string | null {
+  if (!userAgent) return null;
+  const namespace = uuidV5(formId, UUID_V5_DNS_NAMESPACE);
+  const userAgentHash = createHash("sha256").update(userAgent).digest("hex");
+  return uuidV5(userAgentHash, namespace);
+}
+
+function uuidV5(name: string, namespace: string): string {
+  const namespaceBytes = Buffer.from(namespace.replace(/-/g, ""), "hex");
+  const hash = createHash("sha1")
+    .update(namespaceBytes)
+    .update(Buffer.from(name, "utf8"))
+    .digest();
+  const versionByte = hash[6];
+  const variantByte = hash[8];
+  if (versionByte === undefined || variantByte === undefined) {
+    throw new Error("SHA-1 digest was unexpectedly short");
+  }
+  hash[6] = (versionByte & 0x0f) | 0x50;
+  hash[8] = (variantByte & 0x3f) | 0x80;
+  const hex = hash.subarray(0, 16).toString("hex");
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join("-");
 }
 
 function calculateSimilarity(
@@ -687,29 +782,46 @@ async function readSheetForIdempotency(
     sheetName: string;
     responseId: string;
   },
-): Promise<{
-  ok: true;
-  exists: boolean;
-  headers: string[];
-  responseIds: string[];
-}> {
+): Promise<SheetReadResult> {
   throwIfShuttingDown();
   const headerData = await readRange(token, {
     spreadsheetId: params.spreadsheetId,
-    rangeA1: `${params.sheetName}!1:1`,
+    rangeA1: `${params.sheetName}!1:2`,
   });
   if (!headerData.ok) {
     throwSheetsSyncFailure("read sheet for idempotency check", headerData);
   }
   if (headerData.data.values.length === 0) {
-    return { ok: true, exists: false, headers: [], responseIds: [] };
+    return {
+      ok: true,
+      exists: false,
+      headers: [],
+      titleHeaders: [],
+      layout: "empty",
+      responseIds: [],
+      headerRowCount: 0,
+    };
   }
 
   const headers = headerData.data.values[0] ?? [];
+  const secondRow = headerData.data.values[1] ?? [];
   const responseIdIndex = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIndex === -1) {
-    return { ok: true, exists: false, headers, responseIds: [] };
+    return {
+      ok: true,
+      exists: false,
+      headers,
+      titleHeaders: [],
+      layout: "legacy",
+      responseIds: [],
+      headerRowCount: 1,
+    };
   }
+  const isSharedLayout =
+    secondRow[responseIdIndex] === SHARED_TITLE_RESPONSE_ID_HEADER;
+  const layout: SheetLayout = isSharedLayout ? "shared" : "legacy";
+  const headerRowCount = isSharedLayout ? 2 : 1;
+  const titleHeaders = isSharedLayout ? secondRow : [];
 
   const columnLetter = columnIndexToLetter(responseIdIndex);
   throwIfShuttingDown();
@@ -725,10 +837,23 @@ async function readSheetForIdempotency(
   }
 
   const responseIds = entireColumn.data.values
-    .slice(1)
+    .slice(headerRowCount)
     .map((row) => (typeof row[0] === "string" ? row[0] : ""));
-  const exists = responseIds.includes(params.responseId);
-  return { ok: true, exists, headers, responseIds };
+  const neutralizedResponseId = neutralizeSpreadsheetFormulaValue(
+    params.responseId,
+  );
+  const exists =
+    responseIds.includes(params.responseId) ||
+    responseIds.includes(neutralizedResponseId);
+  return {
+    ok: true,
+    exists,
+    headers,
+    titleHeaders,
+    layout,
+    responseIds,
+    headerRowCount,
+  };
 }
 
 async function updateExistingUniquenessScoreCells(
@@ -738,6 +863,7 @@ async function updateExistingUniquenessScoreCells(
     sheetName: string;
     headers: string[];
     responseIds: string[];
+    headerRowCount: number;
     shouldBlankUnavailableScores: boolean;
     uniquenessScores: Map<string, number>;
   },
@@ -749,7 +875,7 @@ async function updateExistingUniquenessScoreCells(
     return;
   }
 
-  const uniquenessScoreIndex = params.headers.indexOf(UNIQUENESS_SCORE_HEADER);
+  const uniquenessScoreIndex = findUniquenessScoreHeaderIndex(params.headers);
   if (uniquenessScoreIndex === -1) {
     return;
   }
@@ -774,8 +900,11 @@ async function updateExistingUniquenessScoreCells(
   };
 
   for (const [index, responseId] of params.responseIds.entries()) {
-    const rowNumber = index + 2;
-    const score = params.uniquenessScores.get(responseId);
+    const rowNumber = index + params.headerRowCount + 1;
+    const score = getUniquenessScoreForSheetResponseId(
+      params.uniquenessScores,
+      responseId,
+    );
     if (score === undefined && !params.shouldBlankUnavailableScores) {
       await flushRange(rowNumber - 1);
       continue;
@@ -784,7 +913,7 @@ async function updateExistingUniquenessScoreCells(
     rangeStartRow ??= rowNumber;
     rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
   }
-  await flushRange(params.responseIds.length + 1);
+  await flushRange(params.responseIds.length + params.headerRowCount);
 }
 
 async function waitForPendingIdempotencyToResolve(
@@ -831,11 +960,48 @@ async function waitForPendingIdempotencyToResolve(
  */
 function buildRowFromResponse(
   existingHeaders: string[],
+  existingTitleHeaders: string[],
+  layout: SheetLayout,
   responseData: Record<string, unknown>,
+  questions: ExtractedQuestion[],
   blockTitleMap: Map<string, string>,
-  responseId: string,
+  response: {
+    id: string;
+    formId: string;
+    responseDataJson: string;
+    respondentUuid?: string;
+    submittedAt?: Date;
+    updatedAt?: Date | null;
+    countryCode?: string | null;
+    userAgent?: string | null;
+  },
   uniquenessScore: number | null,
-): { headers: string[]; row: string[] } {
+  fingerprintComponents: Set<string>,
+  fingerprintUuids: Record<string, string | null>,
+): { headers: string[]; titleHeaders: string[]; row: string[] } {
+  if (layout !== "legacy") {
+    const record = buildResponseExportRecord(
+      response,
+      responseData,
+      questions,
+      blockTitleMap,
+      uniquenessScore,
+      fingerprintUuids,
+    );
+    const mapped = mapRecordToSheetRow(
+      record,
+      existingHeaders,
+      blockTitleMap,
+      fingerprintComponents,
+      existingTitleHeaders,
+    );
+    return {
+      headers: mapped.idRow,
+      titleHeaders: mapped.titleRow,
+      row: mapped.row,
+    };
+  }
+
   const headers =
     existingHeaders.length > 0 ? [...existingHeaders] : [RESPONSE_ID_HEADER];
 
@@ -849,10 +1015,10 @@ function buildRowFromResponse(
   // Response IDを設定
   const responseIdIdx = headers.indexOf(RESPONSE_ID_HEADER);
   if (responseIdIdx >= 0) {
-    row[responseIdIdx] = responseId;
+    row[responseIdIdx] = response.id;
   }
 
-  let uniquenessScoreIdx = headers.indexOf(UNIQUENESS_SCORE_HEADER);
+  let uniquenessScoreIdx = findUniquenessScoreHeaderIndex(headers);
   if (uniquenessScoreIdx === -1) {
     headers.push(UNIQUENESS_SCORE_HEADER);
     row.push("");
@@ -881,12 +1047,158 @@ function buildRowFromResponse(
     row.push("");
   }
 
-  return { headers, row };
+  return { headers, titleHeaders: [], row };
 }
 
-/**
- * 値を文字列に変換する
- */
+function findUniquenessScoreHeaderIndex(headers: string[]): number {
+  const idHeaderIndex = headers.indexOf(UNIQUENESS_SCORE_ID_HEADER);
+  return idHeaderIndex === -1
+    ? headers.indexOf(UNIQUENESS_SCORE_HEADER)
+    : idHeaderIndex;
+}
+
+function getUniquenessScoreForSheetResponseId(
+  uniquenessScores: Map<string, number>,
+  sheetResponseId: string,
+): number | undefined {
+  const directScore = uniquenessScores.get(sheetResponseId);
+  if (directScore !== undefined) return directScore;
+  const rawResponseId = denormalizeSpreadsheetFormulaValue(sheetResponseId);
+  return rawResponseId === sheetResponseId
+    ? undefined
+    : uniquenessScores.get(rawResponseId);
+}
+
+function denormalizeSpreadsheetFormulaValue(value: string): string {
+  if (!value.startsWith("'")) return value;
+  const possibleOriginal = value.slice(1);
+  return neutralizeSpreadsheetFormulaValue(possibleOriginal) === value
+    ? possibleOriginal
+    : value;
+}
+
+function buildResponseExportRecord(
+  response: {
+    id: string;
+    formId: string;
+    responseDataJson: string;
+    respondentUuid?: string;
+    submittedAt?: Date;
+    updatedAt?: Date | null;
+    countryCode?: string | null;
+    userAgent?: string | null;
+  },
+  responseData: Record<string, unknown>,
+  questions: ExtractedQuestion[],
+  blockTitleMap: Map<string, string>,
+  uniquenessScore: number | null,
+  fingerprintUuids: Record<string, string | null>,
+): ResponseExportRecord {
+  const responseItemsByQuestionId = parseResponseDataItems(
+    response.responseDataJson,
+  );
+  const answerableQuestions = getAnswerableQuestions(questions);
+  const responseLabelLookup = buildResponseLabelLookupFromQuestions(
+    answerableQuestions.map((question) => ({
+      id: question.blockId,
+      type: question.type,
+      validation: question.validation,
+    })),
+  );
+  const componentColumns =
+    answerableQuestions.length > 0
+      ? answerableQuestions.map((question) => {
+          const responseItem = responseItemsByQuestionId.get(question.blockId);
+          const displayValue = resolveResponseDisplayValue(
+            responseItem,
+            responseLabelLookup.get(question.blockId),
+          );
+          return {
+            block_id: question.blockId,
+            block_type: question.type,
+            question_title:
+              responseItem?.question_title || question.title || undefined,
+            value: responseItem
+              ? resolveResponseExportValue(responseItem)
+              : (responseData[question.blockId] ?? null),
+            ...(displayValue !== undefined
+              ? { display_value: displayValue }
+              : {}),
+          };
+        })
+      : Object.entries(responseData).map(([blockId, value]) => ({
+          block_id: blockId,
+          block_type: inferLegacyBlockType(value),
+          question_title: blockTitleMap.get(blockId) ?? blockId,
+          value,
+        }));
+
+  return {
+    metadata: {
+      id: response.id,
+      form_id: response.formId,
+      respondent_uuid: response.respondentUuid ?? "",
+      submitted_at: response.submittedAt?.toISOString() ?? "",
+      updated_at: response.updatedAt?.toISOString(),
+      country_code: response.countryCode ?? undefined,
+      fingerprint_uuids: fingerprintUuids,
+      ua_uuid: buildUaUuid(response.formId, response.userAgent),
+      uniqueness_score: uniquenessScore ?? undefined,
+    },
+    component_columns: componentColumns,
+  };
+}
+
+function getAnswerableQuestions(
+  questions: ExtractedQuestion[],
+): Array<ExtractedQuestion & { type: ValidatorQuestion["type"] }> {
+  return questions.flatMap((question) =>
+    isAnswerableBlockType(question.type)
+      ? [{ ...question, type: question.type }]
+      : [],
+  );
+}
+
+function parseResponseDataItems(
+  responseDataJson: string,
+): Map<string, ResponseDataItem> {
+  try {
+    const parsed: unknown = JSON.parse(responseDataJson);
+    const result = z.array(responsePayloadItemSchema).safeParse(parsed);
+    if (!result.success) return new Map();
+    return new Map(result.data.map((item) => [item.question_id, item]));
+  } catch {
+    return new Map();
+  }
+}
+
+function resolveResponseExportValue(item: ResponseDataItem): unknown {
+  switch (item.question_type) {
+    case "choice_grid":
+    case "checkbox_grid":
+      return item.responses;
+    case "checkbox":
+      return item.values;
+    case "short_text":
+    case "long_text":
+    case "radio":
+    case "dropdown":
+    case "linear_scale":
+    case "rating":
+    case "date":
+    case "time":
+      return item.value;
+    default:
+      return null;
+  }
+}
+
+function inferLegacyBlockType(value: unknown): string {
+  if (Array.isArray(value)) return "checkbox";
+  if (value !== null && typeof value === "object") return "choice_grid";
+  return "short_text";
+}
+
 function stringifyValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
