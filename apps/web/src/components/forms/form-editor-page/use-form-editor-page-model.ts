@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   getEditorTabFromSearch,
@@ -42,7 +42,9 @@ class DuplicateTitleSaveError extends Error {
 export function useFormEditorPageModel(formId: string) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { tab } = useSearch({ from: "/_authenticated/forms/$id/edit" });
+  const { shareToken, tab } = useSearch({
+    from: "/_authenticated/forms/$id/edit",
+  });
 
   const activeTab = getEditorTabFromSearch(tab);
   const [responsesEverActive, setResponsesEverActive] = useState(
@@ -53,9 +55,17 @@ export function useFormEditorPageModel(formId: string) {
   const [titleDraft, setTitleDraft] = useState("");
   const titleSavePromiseRef = useRef<Promise<unknown> | null>(null);
   const titleSaveValueRef = useRef<string | null>(null);
+  const formDetailQueryKey = useMemo(
+    () => ["formDetail", formId, shareToken ?? null] as const,
+    [formId, shareToken],
+  );
+  const contentQueryKey = useMemo(
+    () => ["formContent", formId, shareToken ?? null] as const,
+    [formId, shareToken],
+  );
 
   const formQuery = useQuery({
-    queryKey: ["formDetail", formId],
+    queryKey: formDetailQueryKey,
     queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
     retry: shouldRetryQuery,
   });
@@ -70,7 +80,7 @@ export function useFormEditorPageModel(formId: string) {
 
   const contentQuery = useQuery({
     enabled: !formQuery.isError,
-    queryKey: ["formContent", formId],
+    queryKey: contentQueryKey,
     queryFn: () =>
       rpc(client.api.forms[":id"].content.$get({ param: { id: formId } })),
     retry: shouldRetryQuery,
@@ -91,6 +101,7 @@ export function useFormEditorPageModel(formId: string) {
   } = useFormContentAutosave({
     formId,
     contentData: contentQuery.data,
+    contentQueryKey,
     contentRefetch: contentQuery.refetch,
     getActiveTab: () => activeTab,
   });
@@ -109,10 +120,10 @@ export function useFormEditorPageModel(formId: string) {
       ),
     onSuccess: (data) => {
       if (data?.form) {
-        queryClient.setQueryData(["formDetail", formId], { form: data.form });
+        queryClient.setQueryData(formDetailQueryKey, { form: data.form });
       } else {
         void queryClient.invalidateQueries({
-          queryKey: ["formDetail", formId],
+          queryKey: formDetailQueryKey,
         });
       }
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
@@ -202,7 +213,7 @@ export function useFormEditorPageModel(formId: string) {
     onSuccess: () => {
       toast.success("フォームをアーカイブしました");
       queryClient.setQueryData<typeof formQuery.data>(
-        ["formDetail", formId],
+        formDetailQueryKey,
         (current) => {
           if (!current?.form) return current;
           return {
@@ -214,7 +225,7 @@ export function useFormEditorPageModel(formId: string) {
       queryClient.setQueryData<FormsQueryCache>(["forms"], (current) =>
         updateFormsCacheStatus(current, formId, "ARCHIVED"),
       );
-      void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
+      void queryClient.invalidateQueries({ queryKey: formDetailQueryKey });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
     onError: (err) => {
@@ -230,7 +241,7 @@ export function useFormEditorPageModel(formId: string) {
     onSuccess: () => {
       toast.success("アーカイブを解除しました");
       queryClient.setQueryData<typeof formQuery.data>(
-        ["formDetail", formId],
+        formDetailQueryKey,
         (current) => {
           if (!current?.form) return current;
           return {
@@ -242,7 +253,7 @@ export function useFormEditorPageModel(formId: string) {
       queryClient.setQueryData<FormsQueryCache>(["forms"], (current) =>
         updateFormsCacheStatus(current, formId, "DRAFT"),
       );
-      void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
+      void queryClient.invalidateQueries({ queryKey: formDetailQueryKey });
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
     },
     onError: (err) => {
@@ -263,10 +274,10 @@ export function useFormEditorPageModel(formId: string) {
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
-      search: { tab: "editor" },
+      search: { ...(shareToken ? { shareToken } : {}), tab: "editor" },
       replace: true,
     });
-  }, [formId, router, tab]);
+  }, [formId, router, shareToken, tab]);
 
   useEffect(() => {
     if (activeTab === "responses") {
@@ -308,12 +319,12 @@ export function useFormEditorPageModel(formId: string) {
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
-      search: { tab: value },
+      search: { ...(shareToken ? { shareToken } : {}), tab: value },
     });
   };
 
   const handlePublishStatusChange = () => {
-    void queryClient.invalidateQueries({ queryKey: ["formDetail", formId] });
+    void queryClient.invalidateQueries({ queryKey: formDetailQueryKey });
     void queryClient.invalidateQueries({ queryKey: ["forms"] });
   };
 
@@ -353,6 +364,7 @@ export function useFormEditorPageModel(formId: string) {
     setConflictResolutions,
     setShowDeleteModal,
     setShowDuplicateModal,
+    shareToken,
     showDeleteModal,
     showDuplicateModal,
     titleSaveFailureCount: updateTitleMutation.failureCount,

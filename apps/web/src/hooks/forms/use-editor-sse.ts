@@ -3,7 +3,11 @@ import { EditorSSEEventSchema } from "@nexus-form/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import type { MutableRefObject } from "react";
 import { useEffect, useRef } from "react";
-import { baseUrl } from "@/lib/api";
+import {
+  baseUrl,
+  getShareTokenFromCurrentUrl,
+  withShareTokenSearchParam,
+} from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { formDiffQueryKey } from "./form-structure-query-keys";
 
@@ -36,6 +40,7 @@ export function useEditorSSE(
   options?: EditorSSEOptions,
 ): void {
   const queryClient = useQueryClient();
+  const shareToken = getShareTokenFromCurrentUrl();
   const onEventRef = useRef(options?.onEvent);
   onEventRef.current = options?.onEvent;
 
@@ -53,7 +58,10 @@ export function useEditorSSE(
   useEffect(() => {
     if (!formId) return;
 
-    const url = `${baseUrl}/api/forms/${formId}/editor/events`;
+    const url = withShareTokenSearchParam(
+      `${baseUrl}/api/forms/${formId}/editor/events`,
+      shareToken,
+    );
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
@@ -195,5 +203,5 @@ export function useEditorSSE(
       clearReconnectTimer();
       closeEventSource();
     };
-  }, [formId, queryClient]);
+  }, [formId, queryClient, shareToken]);
 }

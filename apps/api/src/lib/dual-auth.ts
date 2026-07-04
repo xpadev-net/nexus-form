@@ -77,6 +77,22 @@ function extractBearerToken(authHeader: string | null): string | null {
   return token || null;
 }
 
+function isShareLinkQueryAuthAllowed(c: Context): boolean {
+  if (c.req.method.toUpperCase() !== "GET") return false;
+  const pathname = new URL(c.req.url).pathname;
+  return (
+    pathname.endsWith("/responses/events") ||
+    pathname.endsWith("/editor/events")
+  );
+}
+
+function extractShareLinkToken(c: Context): string | null {
+  const bearerToken = extractBearerToken(c.req.header("authorization") ?? null);
+  if (bearerToken) return bearerToken;
+  if (!isShareLinkQueryAuthAllowed(c)) return null;
+  return c.req.query("shareToken") ?? null;
+}
+
 function isSuspendedSessionContext(context: DualAuthContext): boolean {
   return (
     context.auth_type === "session" &&
@@ -209,6 +225,41 @@ async function authenticateWithApiToken(
     });
     return null;
   }
+}
+
+async function authenticateWithShareLinkToken(
+  c: Context,
+  formId: string,
+): Promise<DualAuthContext | null> {
+  const token = extractShareLinkToken(c);
+  if (!token) return null;
+
+  const [link] = await db
+    .select({
+      id: formShareLink.id,
+      formId: formShareLink.formId,
+      role: formShareLink.role,
+      isActive: formShareLink.isActive,
+      expiresAt: formShareLink.expiresAt,
+    })
+    .from(formShareLink)
+    .where(eq(formShareLink.token, token))
+    .limit(1);
+
+  if (!link?.isActive) return null;
+  if (link.formId !== formId) return null;
+  if (link.expiresAt && link.expiresAt <= new Date()) return null;
+
+  const scopes: TokenScope[] =
+    link.role === "EDITOR" ? ["read", "write"] : ["read"];
+
+  return {
+    user_id: `share-link:${link.id}`,
+    scopes,
+    form_ids: [formId],
+    auth_type: "api_token",
+    share_link_id: link.id,
+  };
 }
 
 /**
@@ -363,10 +414,15 @@ export async function authenticateDualForForm(
   try {
     const raw = (c.req.header("authorization") ?? "").trim();
     const isBearer = raw.toLowerCase().startsWith("bearer ");
+    const hasShareToken = Boolean(
+      c.req.query("shareToken") && isShareLinkQueryAuthAllowed(c),
+    );
 
-    const context = isBearer
-      ? await authenticateWithApiToken(c, formId, requiredScopes)
-      : await authenticateWithSession(c);
+    const context =
+      isBearer || hasShareToken
+        ? ((await authenticateWithApiToken(c, formId, requiredScopes)) ??
+          (await authenticateWithShareLinkToken(c, formId)))
+        : await authenticateWithSession(c);
 
     if (context) {
       if (isSuspendedSessionContext(context)) {
@@ -397,7 +453,7 @@ export async function authenticateDualForForm(
       return { context };
     }
 
-    if (isBearer) {
+    if (isBearer || hasShareToken) {
       return {
         error: true,
         response: c.json(

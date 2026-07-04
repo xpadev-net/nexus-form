@@ -2,7 +2,11 @@ import type { ValidationSSEEvent } from "@nexus-form/shared";
 import { ValidationSSEEventSchema } from "@nexus-form/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
-import { baseUrl } from "@/lib/api";
+import {
+  baseUrl,
+  getShareTokenFromCurrentUrl,
+  withShareTokenSearchParam,
+} from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 
 const MAX_CONSECUTIVE_SSE_ERRORS = 3;
@@ -13,7 +17,10 @@ const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
  * バリデーション結果のリアルタイム更新を SSE で受信し、
  * 関連する TanStack Query キャッシュを自動的に無効化するフック
  */
-export function useValidationSSE(formId: string | null | undefined): void {
+export function useValidationSSE(
+  formId: string | null | undefined,
+  shareToken = getShareTokenFromCurrentUrl(),
+): void {
   const queryClient = useQueryClient();
   const formIdRef = useRef(formId);
   formIdRef.current = formId;
@@ -21,7 +28,10 @@ export function useValidationSSE(formId: string | null | undefined): void {
   useEffect(() => {
     if (!formId) return;
 
-    const url = `${baseUrl}/api/forms/${formId}/responses/events`;
+    const url = withShareTokenSearchParam(
+      `${baseUrl}/api/forms/${formId}/responses/events`,
+      shareToken,
+    );
     let eventSource: EventSource | null = null;
     let reconnectTimer: number | null = null;
     let reconnectDelayMs = INITIAL_SSE_RECONNECT_DELAY_MS;
@@ -132,5 +142,5 @@ export function useValidationSSE(formId: string | null | undefined): void {
       clearReconnectTimer();
       closeEventSource();
     };
-  }, [formId, queryClient]);
+  }, [formId, queryClient, shareToken]);
 }

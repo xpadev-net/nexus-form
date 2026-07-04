@@ -25,11 +25,83 @@ export function apiUrl(path: string): string {
   return `${normalizedBaseUrl}${normalizedPath}`;
 }
 
+/**
+ * Reads the shared-editor token from the current browser URL.
+ *
+ * @returns The current `shareToken` search parameter, or null outside the browser
+ *   and when the URL has no shared-editor token.
+ */
+export function getShareTokenFromCurrentUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  return new URL(window.location.href).searchParams.get("shareToken");
+}
+
+/**
+ * Adds a shared-editor token to an EventSource-compatible URL.
+ *
+ * @returns The original URL when no token is provided or active, otherwise an
+ *   absolute URL with the `shareToken` search parameter set.
+ */
+export function withShareTokenSearchParam(
+  url: string,
+  shareToken = getShareTokenFromCurrentUrl(),
+): string {
+  if (!shareToken) return url;
+
+  const nextUrl = new URL(url, window.location.origin);
+  nextUrl.searchParams.set("shareToken", shareToken);
+  return nextUrl.toString();
+}
+
+/**
+ * Builds an Authorization header for APIs that can send custom headers.
+ *
+ * @returns A Bearer authorization header when a shared-editor token is active,
+ *   otherwise an empty object suitable for header spreading.
+ */
+export function getShareTokenAuthorizationHeader():
+  | { Authorization: string }
+  | Record<string, never> {
+  const shareToken = getShareTokenFromCurrentUrl();
+  return shareToken ? { Authorization: `Bearer ${shareToken}` } : {};
+}
+
+function shouldAttachShareToken(input: RequestInfo | URL): boolean {
+  if (typeof window === "undefined") return false;
+  const url =
+    input instanceof Request
+      ? new URL(input.url)
+      : new URL(String(input), baseUrl);
+  return url.pathname.startsWith("/api/forms/");
+}
+
+function withShareTokenAuthHeader(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Headers | undefined {
+  const shareToken = getShareTokenFromCurrentUrl();
+  if (!shareToken || !shouldAttachShareToken(input)) {
+    return init?.headers ? new Headers(init.headers) : undefined;
+  }
+
+  const headers = new Headers(input instanceof Request ? input.headers : {});
+  if (init?.headers) {
+    new Headers(init.headers).forEach((value, key) => {
+      headers.set(key, value);
+    });
+  }
+  if (!headers.has("authorization")) {
+    headers.set("Authorization", `Bearer ${shareToken}`);
+  }
+  return headers;
+}
+
 export const client: ReturnType<typeof hc<AppType>> = hc<AppType>(baseUrl, {
   fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
     try {
       return await fetch(input, {
         ...init,
+        headers: withShareTokenAuthHeader(input, init),
         credentials: "include",
       });
     } catch (error) {

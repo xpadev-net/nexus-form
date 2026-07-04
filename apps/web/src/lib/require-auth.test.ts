@@ -30,6 +30,16 @@ describe("requireAuth", () => {
     });
   });
 
+  it("allows editor share links to load without a user session", async () => {
+    await expect(
+      requireAuth({
+        location: { href: "/forms/form-1/edit?shareToken=share-token" },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
   it("rejects external return paths when building the login redirect", async () => {
     mocks.getSession.mockResolvedValueOnce({ data: null });
 

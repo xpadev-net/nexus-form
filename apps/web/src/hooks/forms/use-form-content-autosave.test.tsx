@@ -93,6 +93,7 @@ vi.mock("@/lib/api", () => ({
       },
     },
   },
+  getShareTokenAuthorizationHeader: () => ({}),
   RpcError: MockRpcError,
   rpc: rpcMock,
 }));

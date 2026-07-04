@@ -100,6 +100,7 @@ describe("SSE recovery hooks", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     setDocumentHidden(false);
+    window.history.replaceState(null, "", "/");
     MockEventSource.instances = [];
     vi.stubGlobal("EventSource", MockEventSource);
   });
@@ -107,7 +108,90 @@ describe("SSE recovery hooks", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
+    window.history.replaceState(null, "", "/");
     document.body.replaceChildren();
+  });
+
+  it("passes shareToken in validation and editor SSE URLs", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=shared-editor-token",
+    );
+
+    const validation = renderWithClient(<ValidationHarness />);
+    const validationSource = eventSourceAt(0);
+    expect(
+      new URL(String(validationSource.url)).searchParams.get("shareToken"),
+    ).toBe("shared-editor-token");
+    act(() => validation.root.unmount());
+
+    MockEventSource.instances = [];
+
+    const editor = renderWithClient(<EditorHarness />);
+    const editorSource = eventSourceAt(0);
+    expect(
+      new URL(String(editorSource.url)).searchParams.get("shareToken"),
+    ).toBe("shared-editor-token");
+    act(() => editor.root.unmount());
+  });
+
+  it("reconnects validation and editor SSE when shareToken changes", () => {
+    window.history.replaceState(null, "", "/forms/form-1/edit");
+
+    const validation = renderWithClient(<ValidationHarness />);
+    const firstValidationSource = eventSourceAt(0);
+    expect(
+      new URL(String(firstValidationSource.url)).searchParams.has("shareToken"),
+    ).toBe(false);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=next-share-token",
+    );
+    act(() => {
+      validation.root.render(
+        <QueryClientProvider client={validation.client}>
+          <ValidationHarness />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(firstValidationSource.closed).toBe(true);
+    const secondValidationSource = eventSourceAt(1);
+    expect(
+      new URL(String(secondValidationSource.url)).searchParams.get(
+        "shareToken",
+      ),
+    ).toBe("next-share-token");
+    act(() => validation.root.unmount());
+
+    MockEventSource.instances = [];
+    window.history.replaceState(null, "", "/forms/form-1/edit");
+
+    const editor = renderWithClient(<EditorHarness />);
+    const firstEditorSource = eventSourceAt(0);
+
+    window.history.replaceState(
+      null,
+      "",
+      "/forms/form-1/edit?shareToken=next-share-token",
+    );
+    act(() => {
+      editor.root.render(
+        <QueryClientProvider client={editor.client}>
+          <EditorHarness />
+        </QueryClientProvider>,
+      );
+    });
+
+    expect(firstEditorSource.closed).toBe(true);
+    const secondEditorSource = eventSourceAt(1);
+    expect(
+      new URL(String(secondEditorSource.url)).searchParams.get("shareToken"),
+    ).toBe("next-share-token");
+    act(() => editor.root.unmount());
   });
 
   it("reconnects validation SSE after repeated errors with exponential backoff", () => {

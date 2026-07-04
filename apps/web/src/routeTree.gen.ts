@@ -16,7 +16,6 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedTokensRouteImport } from './routes/_authenticated/tokens'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedImagesRouteImport } from './routes/_authenticated/images'
-import { Route as FormsSharedTokenRouteImport } from './routes/forms/shared/$token'
 import { Route as FormsPublicPublicIdRouteImport } from './routes/forms/public/$publicId'
 import { Route as FormsPreviewIdRouteImport } from './routes/forms/preview/$id'
 import { Route as FormsInvitesTokenRouteImport } from './routes/forms/invites/$token'
@@ -57,11 +56,6 @@ const AuthenticatedImagesRoute = AuthenticatedImagesRouteImport.update({
   path: '/images',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const FormsSharedTokenRoute = FormsSharedTokenRouteImport.update({
-  id: '/forms/shared/$token',
-  path: '/forms/shared/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const FormsPublicPublicIdRoute = FormsPublicPublicIdRouteImport.update({
   id: '/forms/public/$publicId',
   path: '/forms/public/$publicId',
@@ -100,7 +94,6 @@ export interface FileRoutesByFullPath {
   '/forms/invites/$token': typeof FormsInvitesTokenRoute
   '/forms/preview/$id': typeof FormsPreviewIdRoute
   '/forms/public/$publicId': typeof FormsPublicPublicIdRoute
-  '/forms/shared/$token': typeof FormsSharedTokenRoute
   '/forms/$id/edit': typeof AuthenticatedFormsIdEditRoute
   '/forms/$id/responses': typeof AuthenticatedFormsIdResponsesRoute
 }
@@ -114,7 +107,6 @@ export interface FileRoutesByTo {
   '/forms/invites/$token': typeof FormsInvitesTokenRoute
   '/forms/preview/$id': typeof FormsPreviewIdRoute
   '/forms/public/$publicId': typeof FormsPublicPublicIdRoute
-  '/forms/shared/$token': typeof FormsSharedTokenRoute
   '/forms/$id/edit': typeof AuthenticatedFormsIdEditRoute
   '/forms/$id/responses': typeof AuthenticatedFormsIdResponsesRoute
 }
@@ -130,7 +122,6 @@ export interface FileRoutesById {
   '/forms/invites/$token': typeof FormsInvitesTokenRoute
   '/forms/preview/$id': typeof FormsPreviewIdRoute
   '/forms/public/$publicId': typeof FormsPublicPublicIdRoute
-  '/forms/shared/$token': typeof FormsSharedTokenRoute
   '/_authenticated/forms/$id/edit': typeof AuthenticatedFormsIdEditRoute
   '/_authenticated/forms/$id/responses': typeof AuthenticatedFormsIdResponsesRoute
 }
@@ -146,7 +137,6 @@ export interface FileRouteTypes {
     | '/forms/invites/$token'
     | '/forms/preview/$id'
     | '/forms/public/$publicId'
-    | '/forms/shared/$token'
     | '/forms/$id/edit'
     | '/forms/$id/responses'
   fileRoutesByTo: FileRoutesByTo
@@ -160,7 +150,6 @@ export interface FileRouteTypes {
     | '/forms/invites/$token'
     | '/forms/preview/$id'
     | '/forms/public/$publicId'
-    | '/forms/shared/$token'
     | '/forms/$id/edit'
     | '/forms/$id/responses'
   id:
@@ -175,7 +164,6 @@ export interface FileRouteTypes {
     | '/forms/invites/$token'
     | '/forms/preview/$id'
     | '/forms/public/$publicId'
-    | '/forms/shared/$token'
     | '/_authenticated/forms/$id/edit'
     | '/_authenticated/forms/$id/responses'
   fileRoutesById: FileRoutesById
@@ -187,7 +175,6 @@ export interface RootRouteChildren {
   FormsInvitesTokenRoute: typeof FormsInvitesTokenRoute
   FormsPreviewIdRoute: typeof FormsPreviewIdRoute
   FormsPublicPublicIdRoute: typeof FormsPublicPublicIdRoute
-  FormsSharedTokenRoute: typeof FormsSharedTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -240,13 +227,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/images'
       preLoaderRoute: typeof AuthenticatedImagesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/forms/shared/$token': {
-      id: '/forms/shared/$token'
-      path: '/forms/shared/$token'
-      fullPath: '/forms/shared/$token'
-      preLoaderRoute: typeof FormsSharedTokenRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/forms/public/$publicId': {
       id: '/forms/public/$publicId'
@@ -314,7 +294,6 @@ const rootRouteChildren: RootRouteChildren = {
   FormsInvitesTokenRoute: FormsInvitesTokenRoute,
   FormsPreviewIdRoute: FormsPreviewIdRoute,
   FormsPublicPublicIdRoute: FormsPublicPublicIdRoute,
-  FormsSharedTokenRoute: FormsSharedTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

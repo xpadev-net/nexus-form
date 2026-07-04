@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { FormResponsesContent } from "./form-responses-page";
 
 (
@@ -39,10 +40,12 @@ type CapturedUseQueryOptions = {
   queryKey: readonly unknown[];
 };
 
-function renderResponses(container: HTMLElement): Root {
+function renderResponses(container: HTMLElement, shareToken?: string): Root {
   const root = createRoot(container);
   act(() => {
-    root.render(<FormResponsesContent formId="form-1" />);
+    root.render(
+      <FormResponsesContent formId="form-1" shareToken={shareToken} />,
+    );
   });
   return root;
 }
@@ -188,6 +191,18 @@ beforeEach(() => {
 });
 
 describe("FormResponsesContent accessibility", () => {
+  it("passes shareToken to validation SSE", () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container, "shared-editor-token");
+
+    expect(useValidationSSE).toHaveBeenCalledWith(
+      "form-1",
+      "shared-editor-token",
+    );
+
+    act(() => root.unmount());
+  });
+
   it("labels the response detail close button and exposes view toggle state", () => {
     const container = document.createElement("div");
     const root = renderResponses(container);
