@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
 import type { ReactNode, Ref } from "react";
-import { act, useImperativeHandle } from "react";
+import { act, useEffect, useImperativeHandle, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RpcError } from "@/lib/api";
 import { NetworkError } from "@/lib/fetch-json";
+import type { PublicSubmitTelemetryToken } from "@/lib/telemetry-token";
 import type { FormAppearance } from "@/types/validation/form";
 import { PublicFormPage } from "./public-form-page";
 
@@ -57,6 +58,12 @@ let publicFormIsPending: boolean;
 let refetchResult: { data?: PublicFormData; error: Error | null };
 type RetryFn = (failureCount: number, error: unknown) => boolean;
 let publicFormRetry: RetryFn | undefined;
+let publicSubmitTelemetryTokenQueryState: {
+  data?: PublicSubmitTelemetryToken;
+  error: Error | null;
+  isPending: boolean;
+};
+let publicSubmitTelemetryTokenQueryPromises: Promise<unknown>[];
 const useFingerprintMockState = vi.hoisted(() => ({
   collect: vi.fn(),
   fingerprints: [] as {
@@ -216,13 +223,120 @@ function renderPublicForm(container: HTMLElement): Root {
   return root;
 }
 
+async function waitForPublicSubmitTelemetryTokenQuery(): Promise<void> {
+  await act(async () => {
+    await Promise.allSettled(publicSubmitTelemetryTokenQueryPromises);
+  });
+}
+
+function useMockPublicSubmitTelemetryTokenQuery({
+  active,
+  enabled,
+  queryFn,
+  queryKey,
+}: {
+  active: boolean;
+  enabled: boolean;
+  queryFn: () => Promise<PublicSubmitTelemetryToken>;
+  queryKey: readonly unknown[];
+}) {
+  const [state, setState] = useState(publicSubmitTelemetryTokenQueryState);
+  const _queryKeyIdentity = JSON.stringify(queryKey);
+  const runQuery = () => {
+    const previousData = publicSubmitTelemetryTokenQueryState.data;
+    const promise = queryFn().then(
+      (data) => {
+        const resolvedState = { data, error: null, isPending: false };
+        publicSubmitTelemetryTokenQueryState = resolvedState;
+        setState(resolvedState);
+        return { data, error: null, status: "success" as const };
+      },
+      (error: Error) => {
+        const rejectedState = {
+          data: previousData,
+          error,
+          isPending: false,
+        };
+        publicSubmitTelemetryTokenQueryState = rejectedState;
+        setState(rejectedState);
+        return { data: previousData, error, status: "error" as const };
+      },
+    );
+    publicSubmitTelemetryTokenQueryPromises.push(promise);
+    return promise;
+  };
+
+  useEffect(() => {
+    if (!active) return;
+    if (!enabled) {
+      const disabledState = {
+        data: undefined,
+        error: null,
+        isPending: false,
+      };
+      publicSubmitTelemetryTokenQueryState = disabledState;
+      setState(disabledState);
+      return;
+    }
+
+    let mounted = true;
+    const promise = queryFn().then(
+      (data) => {
+        const resolvedState = { data, error: null, isPending: false };
+        publicSubmitTelemetryTokenQueryState = resolvedState;
+        if (mounted) setState(resolvedState);
+        return data;
+      },
+      (error: Error) => {
+        const rejectedState = {
+          data: undefined,
+          error,
+          isPending: false,
+        };
+        publicSubmitTelemetryTokenQueryState = rejectedState;
+        if (mounted) setState(rejectedState);
+        return undefined;
+      },
+    );
+    publicSubmitTelemetryTokenQueryPromises.push(promise);
+
+    return () => {
+      mounted = false;
+    };
+  }, [active, enabled, queryFn]);
+
+  return { ...state, refetch: runQuery };
+}
+
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => ({ publicId: "public-1" }),
   useSearch: () => ({}),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: ({ retry }: { retry?: RetryFn }) => {
+  useQuery: ({
+    enabled = true,
+    queryFn,
+    queryKey,
+    retry,
+  }: {
+    enabled?: boolean;
+    queryFn: () => Promise<PublicSubmitTelemetryToken>;
+    queryKey: readonly unknown[];
+    retry?: RetryFn;
+  }) => {
+    const publicSubmitTelemetryTokenQuery =
+      useMockPublicSubmitTelemetryTokenQuery({
+        active: queryKey[0] === "publicSubmitTelemetryToken",
+        enabled,
+        queryFn,
+        queryKey,
+      });
+
+    if (queryKey[0] === "publicSubmitTelemetryToken") {
+      return publicSubmitTelemetryTokenQuery;
+    }
+
     publicFormRetry = retry;
     return {
       data: publicFormIsPending ? undefined : publicFormData,
@@ -403,6 +517,12 @@ describe("PublicFormPage", () => {
     publicFormData = lockedFormData;
     publicFormIsPending = false;
     refetchResult = { data: unlockedFormData, error: null };
+    publicSubmitTelemetryTokenQueryState = {
+      data: { v4Token: "telemetry-token" },
+      error: null,
+      isPending: false,
+    };
+    publicSubmitTelemetryTokenQueryPromises = [];
     useFingerprintMockState.collect = vi.fn().mockResolvedValue([]);
     useFingerprintMockState.fingerprints = [];
     verificationFailureMock.mockClear();
@@ -410,6 +530,12 @@ describe("PublicFormPage", () => {
     apiMocks.rpc.mockReset();
     apiMocks.submitPost.mockReset();
     apiMocks.telemetryPost.mockReset();
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.rpc.mockImplementation(async (request) =>
+      request === "telemetry-request"
+        ? { token: "telemetry-token" }
+        : undefined,
+    );
     requiredValidationMock.findUnansweredRequired.mockReset();
     requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
     formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
@@ -1072,11 +1198,16 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("uses both dedicated runtime telemetry hosts when requesting the submit token", async () => {
+  it("preloads both dedicated runtime telemetry hosts before submitting", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     window.__NEXUS_FORM_CONFIG__ = {
       telemetryV4Host: "ipv4.runtime.example",
       telemetryV6Host: "ipv6.runtime.example",
+    };
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
     };
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url === "https://ipv4.runtime.example/api/telemetry/v4") {
@@ -1127,11 +1258,7 @@ describe("PublicFormPage", () => {
     const container = document.createElement("div");
     const root = renderPublicForm(container);
 
-    await act(async () => {
-      container
-        .querySelector("button")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
+    await waitForPublicSubmitTelemetryTokenQuery();
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://ipv4.runtime.example/api/telemetry/v4",
@@ -1151,6 +1278,15 @@ describe("PublicFormPage", () => {
         signal: expect.any(AbortSignal),
       },
     );
+    expect(apiMocks.submitPost).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(apiMocks.telemetryPost).not.toHaveBeenCalled();
     expect(apiMocks.submitPost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
@@ -1170,11 +1306,16 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("uses the dedicated runtime telemetry v6 host when v4 token fetch fails", async () => {
+  it("preloads the dedicated runtime telemetry v6 host when v4 token fetch fails", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     window.__NEXUS_FORM_CONFIG__ = {
       telemetryV4Host: "ipv4.runtime.example",
       telemetryV6Host: "ipv6.runtime.example",
+    };
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
     };
     const fetchMock = vi.fn().mockImplementation((url: string) =>
       Promise.resolve(
@@ -1218,6 +1359,8 @@ describe("PublicFormPage", () => {
     });
     const container = document.createElement("div");
     const root = renderPublicForm(container);
+
+    await waitForPublicSubmitTelemetryTokenQuery();
 
     await act(async () => {
       container
@@ -1264,6 +1407,11 @@ describe("PublicFormPage", () => {
     window.__NEXUS_FORM_CONFIG__ = {
       telemetryV4Host: "ipv4.runtime.example",
     };
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
+    };
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -1291,6 +1439,8 @@ describe("PublicFormPage", () => {
     const container = document.createElement("div");
     const root = renderPublicForm(container);
 
+    await waitForPublicSubmitTelemetryTokenQuery();
+
     await act(async () => {
       container
         .querySelector("button")
@@ -1307,6 +1457,11 @@ describe("PublicFormPage", () => {
   });
 
   it("resets hCaptcha after a failed submit so a retried response cannot reuse the consumed token", async () => {
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
+    };
     publicFormData = {
       form: {
         description: null,
@@ -1336,15 +1491,27 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
+    let telemetryRequestCount = 0;
+    let resolveSecondTelemetryToken:
+      | ((value: { token: string }) => void)
+      | undefined;
     apiMocks.rpc.mockImplementation(async (request) => {
       if (request === "telemetry-request") {
-        return { token: "telemetry-token" };
+        telemetryRequestCount += 1;
+        if (telemetryRequestCount === 1) {
+          return { token: "telemetry-token-1" };
+        }
+        return new Promise((resolve) => {
+          resolveSecondTelemetryToken = resolve;
+        });
       }
       throw new RpcError("回答データの検証に失敗しました", 400);
     });
 
     const container = document.createElement("div");
     const root = renderPublicForm(container);
+
+    await waitForPublicSubmitTelemetryTokenQuery();
 
     await act(async () => {
       hCaptchaMockState.onVerify?.("first-captcha-token");
@@ -1366,6 +1533,7 @@ describe("PublicFormPage", () => {
       param: { publicId: "public-1" },
       json: expect.objectContaining({
         captchaToken: "first-captcha-token",
+        telemetry: { v4Token: "telemetry-token-1" },
       }),
     });
     expect(hCaptchaMockState.reset).toHaveBeenCalledTimes(1);
@@ -1396,13 +1564,125 @@ describe("PublicFormPage", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "テレメトリトークンを再取得中です。しばらく待ってから再度送信してください。",
+    );
+    expect(hCaptchaMockState.reset).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      resolveSecondTelemetryToken?.({ token: "telemetry-token-2" });
+    });
+    await waitForPublicSubmitTelemetryTokenQuery();
+
+    await act(async () => {
+      hCaptchaMockState.onVerify?.("third-captcha-token");
+    });
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
     expect(apiMocks.submitPost).toHaveBeenCalledTimes(2);
     expect(apiMocks.submitPost).toHaveBeenLastCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
-        captchaToken: "second-captcha-token",
+        captchaToken: "third-captcha-token",
+        telemetry: { v4Token: "telemetry-token-2" },
       }),
     });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("does not reuse the consumed telemetry token when refresh fails after a failed submit", async () => {
+    publicSubmitTelemetryTokenQueryState = {
+      data: undefined,
+      error: null,
+      isPending: true,
+    };
+    publicFormData = {
+      form: {
+        description: null,
+        isPasswordProtected: false,
+        title: "Public form",
+      },
+      plateContent: JSON.stringify([
+        {
+          id: "1",
+          type: "form_short_text",
+          blockId: "q1",
+          children: [{ text: "Name" }],
+        },
+      ]),
+      structure: { settings: { require_fingerprint: false } },
+    };
+    formBodyMockState.submitData = {
+      responses: [
+        {
+          question_id: "q1",
+          question_type: "form_short_text",
+          question_title: "Name",
+          value: "Alice",
+        },
+      ],
+      visitedQuestionIds: ["q1"],
+    };
+    apiMocks.telemetryPost.mockReturnValue("telemetry-request");
+    apiMocks.submitPost.mockReturnValue("submit-request");
+    let telemetryRequestCount = 0;
+    apiMocks.rpc.mockImplementation(async (request) => {
+      if (request === "telemetry-request") {
+        telemetryRequestCount += 1;
+        if (telemetryRequestCount === 1) {
+          return { token: "telemetry-token-1" };
+        }
+        throw new Error("telemetry refresh failed");
+      }
+      throw new RpcError("回答データの検証に失敗しました", 400);
+    });
+
+    const container = document.createElement("div");
+    const root = renderPublicForm(container);
+
+    await waitForPublicSubmitTelemetryTokenQuery();
+
+    await act(async () => {
+      hCaptchaMockState.onVerify?.("first-captcha-token");
+    });
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(apiMocks.submitPost).toHaveBeenLastCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        captchaToken: "first-captcha-token",
+        telemetry: { v4Token: "telemetry-token-1" },
+      }),
+    });
+
+    await waitForPublicSubmitTelemetryTokenQuery();
+
+    await act(async () => {
+      hCaptchaMockState.onVerify?.("second-captcha-token");
+    });
+    await act(async () => {
+      container
+        .querySelector("button")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMocks.submitPost).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain(
+      "テレメトリトークンの再取得に失敗しました。ページを再読み込みしてください。",
+    );
 
     await act(async () => {
       root.unmount();

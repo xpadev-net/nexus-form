@@ -34,7 +34,10 @@ import { decodePrefillData } from "@/lib/forms/prefill";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { sanitizeFormPlateContent } from "@/lib/rich-text";
 import { getRuntimeConfigValue } from "@/lib/runtime-config";
-import { fetchPublicSubmitTelemetryToken } from "@/lib/telemetry-token";
+import {
+  fetchPublicSubmitTelemetryToken,
+  type PublicSubmitTelemetryToken,
+} from "@/lib/telemetry-token";
 import { cn } from "@/lib/utils";
 import {
   type FormAppearance,
@@ -57,6 +60,11 @@ const fetchPublicForm = (publicId: string) =>
 const responsesSchema = z.array(responsePayloadItemSchema);
 const formSecurityBypassToken = "form-security-dev-bypass";
 const MAX_FINGERPRINTS_FOR_SUBMIT = 200;
+
+const hasPublicSubmitTelemetryToken = (
+  token: PublicSubmitTelemetryToken | undefined,
+): token is PublicSubmitTelemetryToken =>
+  Boolean(token?.v4Token || token?.v6Token);
 
 type CollectedFingerprintComponent = {
   componentName: string;
@@ -493,6 +501,7 @@ function PublicFormPageInner() {
 
   const captchaRef = useRef<HCaptchaWidgetHandle>(null);
   const submitLockRef = useRef(false);
+  const publicSubmitTelemetryTokenStaleRef = useRef(false);
   const { fingerprints, collect: collectFingerprints } = useFingerprint({
     autoCollect: false,
   });
@@ -515,6 +524,23 @@ function PublicFormPageInner() {
     formData?.structure?.settings?.require_fingerprint !== false;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
   const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
+  const publicFormBodyReady = Boolean(
+    formData?.plateContent !== null && formData?.structure !== null,
+  );
+  const shouldLoadPublicSubmitTelemetryToken =
+    Boolean(formData) && publicFormBodyReady && !formSecurityBypassEnabled;
+  const {
+    data: publicSubmitTelemetryToken,
+    error: publicSubmitTelemetryTokenError,
+    isFetching: isPublicSubmitTelemetryTokenFetching,
+    isPending: isPublicSubmitTelemetryTokenPending,
+    refetch: refetchPublicSubmitTelemetryToken,
+  } = useQuery({
+    queryKey: ["publicSubmitTelemetryToken", publicId],
+    queryFn: fetchPublicSubmitTelemetryToken,
+    enabled: shouldLoadPublicSubmitTelemetryToken,
+    retry: false,
+  });
   const appearanceResult = FormAppearanceSchema.safeParse(
     formData?.structure?.appearance ?? {},
   );
@@ -534,6 +560,7 @@ function PublicFormPageInner() {
     async (data: FormSubmitRequestData) => {
       if (submitLockRef.current || state.submitted) return;
       submitLockRef.current = true;
+      let submittedWithTelemetryToken = false;
       try {
         dispatch({ type: "submit-start" });
 
@@ -609,12 +636,39 @@ function PublicFormPageInner() {
           );
         }
 
-        // テレメトリトークンの取得
+        // ページ読み込み時に取得済みのテレメトリトークンを使用する
         const telemetryToken = formSecurityBypassEnabled
           ? { v4Token: formSecurityBypassToken }
-          : await fetchPublicSubmitTelemetryToken();
+          : publicSubmitTelemetryToken;
+        if (
+          !formSecurityBypassEnabled &&
+          publicSubmitTelemetryTokenStaleRef.current
+        ) {
+          if (
+            publicSubmitTelemetryTokenError instanceof Error &&
+            !isPublicSubmitTelemetryTokenFetching
+          ) {
+            throw new Error(
+              "テレメトリトークンの再取得に失敗しました。ページを再読み込みしてください。",
+            );
+          }
+          throw new Error(
+            "テレメトリトークンを再取得中です。しばらく待ってから再度送信してください。",
+          );
+        }
+        if (!hasPublicSubmitTelemetryToken(telemetryToken)) {
+          if (publicSubmitTelemetryTokenError instanceof Error) {
+            throw publicSubmitTelemetryTokenError;
+          }
+          throw new Error(
+            isPublicSubmitTelemetryTokenPending
+              ? "テレメトリトークンを取得中です。しばらく待ってから再度送信してください。"
+              : "テレメトリトークンを取得できませんでした。ページを再読み込みしてください。",
+          );
+        }
 
         // 回答の送信
+        submittedWithTelemetryToken = true;
         const submitResult = await rpc(
           client.api.forms.public[":publicId"].submit.$post({
             param: { publicId },
@@ -652,6 +706,17 @@ function PublicFormPageInner() {
           dispatch({ type: "captcha-expired" });
           captchaRef.current?.reset();
         }
+        if (!formSecurityBypassEnabled && submittedWithTelemetryToken) {
+          publicSubmitTelemetryTokenStaleRef.current = true;
+          void refetchPublicSubmitTelemetryToken().then((result) => {
+            if (
+              result.status === "success" &&
+              hasPublicSubmitTelemetryToken(result.data)
+            ) {
+              publicSubmitTelemetryTokenStaleRef.current = false;
+            }
+          });
+        }
         dispatch({
           type: "submit-error",
           message:
@@ -671,6 +736,11 @@ function PublicFormPageInner() {
       fingerprints,
       requireFingerprint,
       collectFingerprints,
+      publicSubmitTelemetryToken,
+      publicSubmitTelemetryTokenError,
+      isPublicSubmitTelemetryTokenFetching,
+      isPublicSubmitTelemetryTokenPending,
+      refetchPublicSubmitTelemetryToken,
       publicId,
       clearAnswers,
     ],
