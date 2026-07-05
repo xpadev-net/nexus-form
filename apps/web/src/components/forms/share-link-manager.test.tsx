@@ -359,6 +359,61 @@ describe("ShareLinkManager", () => {
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
     ).toBe("https://example.test/forms/form-1/edit?shareToken=share-token");
+    expect(copyButton?.getAttribute("data-copy-status")).toBe("failed");
+    expect(copyButton?.getAttribute("aria-label")).toBe(
+      "リンクをコピーできませんでした",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("shows copied feedback only on the clicked share link row", async () => {
+    mocks.shareLinksQuery = {
+      ...mocks.shareLinksQuery,
+      data: {
+        share_links: [
+          {
+            expires_at: null,
+            id: "link-1",
+            is_active: true,
+            role: "VIEWER",
+            token: "share-token-1",
+          },
+          {
+            expires_at: null,
+            id: "link-2",
+            is_active: true,
+            role: "EDITOR",
+            token: "share-token-2",
+          },
+        ],
+      },
+    };
+    mocks.copyShareLinkUrl.mockResolvedValueOnce({
+      copied: true,
+      url: "https://example.test/forms/form-1/edit?shareToken=share-token-2",
+    });
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const copyButtons = Array.from(
+      container.querySelectorAll<HTMLButtonElement>(
+        'button[aria-label="リンクをコピー"]',
+      ),
+    );
+    expect(copyButtons).toHaveLength(2);
+
+    await act(async () => {
+      copyButtons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.copyShareLinkUrl).toHaveBeenCalledWith("share-token-2");
+    expect(copyButtons[0]?.getAttribute("data-copy-status")).toBe("idle");
+    expect(copyButtons[1]?.getAttribute("data-copy-status")).toBe("copied");
+    expect(copyButtons[1]?.getAttribute("aria-label")).toBe(
+      "リンクをコピーしました",
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("リンクをコピーしました");
 
     act(() => root.unmount());
   });
@@ -497,6 +552,10 @@ describe("ShareLinkManager", () => {
     expect(
       container.querySelector('input[aria-label="手動コピー用共有リンク"]'),
     ).toBeNull();
+    const resetCopyButton = container.querySelector(
+      'button[aria-label="リンクをコピー"]',
+    );
+    expect(resetCopyButton?.getAttribute("data-copy-status")).toBe("idle");
 
     act(() => root.unmount());
   });
@@ -524,6 +583,7 @@ describe("ShareLinkManager", () => {
         'input[aria-label="手動コピー用共有リンク"]',
       )?.value,
     ).toBe("https://example.test/forms/form-1/edit?shareToken=share-token");
+    expect(copyButton?.getAttribute("data-copy-status")).toBe("failed");
 
     act(() => root.unmount());
   });

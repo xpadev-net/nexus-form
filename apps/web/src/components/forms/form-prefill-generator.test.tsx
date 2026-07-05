@@ -116,7 +116,7 @@ describe("FormPrefillGenerator", () => {
     act(() => root.unmount());
   });
 
-  it("previews reflected and unreflected questions, then gives copy feedback", async () => {
+  it("previews reflected and unreflected questions, then gives local copy feedback", async () => {
     vi.useFakeTimers();
     mocks.writeText.mockResolvedValueOnce(undefined);
     const container = document.createElement("div");
@@ -178,14 +178,18 @@ describe("FormPrefillGenerator", () => {
       "プリフィルURLをコピーしました",
     );
     expect(copyButton?.textContent).toContain("コピー済み");
-    expect(
-      container
-        .querySelector('[data-testid="prefill-url-preview"] [data-copied]')
-        ?.getAttribute("data-copied"),
-    ).toBe("true");
+    const copyFeedbackButtons = container.querySelectorAll(
+      "button[data-copy-status]",
+    );
+    expect(copyFeedbackButtons[0]?.getAttribute("data-copy-status")).toBe(
+      "copied",
+    );
+    expect(copyFeedbackButtons[1]?.getAttribute("data-copy-status")).toBe(
+      "idle",
+    );
 
     act(() => {
-      vi.advanceTimersByTime(2100);
+      vi.advanceTimersByTime(1900);
     });
     await act(async () => {
       copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -196,12 +200,110 @@ describe("FormPrefillGenerator", () => {
     expect(copyButton?.textContent).toContain("コピー済み");
 
     act(() => {
-      vi.advanceTimersByTime(2100);
+      vi.advanceTimersByTime(2000);
     });
     expect(copyButton?.textContent).toContain("URLをコピー");
 
     act(() => root.unmount());
     vi.useRealTimers();
+  });
+
+  it("shows failed feedback on the clicked generated URL copy control", async () => {
+    vi.useFakeTimers();
+    mocks.writeText.mockRejectedValueOnce(new Error("denied"));
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const previewCopyButton = Array.from(
+      container.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent === "コピー");
+    expect(previewCopyButton).toBeDefined();
+
+    await act(async () => {
+      previewCopyButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "URLをコピーできませんでした",
+    );
+    expect(previewCopyButton?.textContent).toContain("コピー失敗");
+    expect(previewCopyButton?.getAttribute("data-copy-status")).toBe("failed");
+    expect(
+      container
+        .querySelector<HTMLButtonElement>("button[data-copy-status]")
+        ?.getAttribute("data-copy-status"),
+    ).toBe("idle");
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(previewCopyButton?.textContent).toContain("コピー");
+    expect(previewCopyButton?.getAttribute("data-copy-status")).toBe("idle");
+
+    act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("ignores stale copy completion after the generated URL changes", async () => {
+    let resolveWriteText: (() => void) | null = null;
+    mocks.writeText.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveWriteText = resolve;
+      }),
+    );
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const generatedUrlInput =
+      container.querySelector<HTMLInputElement>("input[readonly]");
+    const copiedUrl = generatedUrlInput?.value;
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("URLをコピー"),
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Bob" } });
+      }
+    });
+
+    await act(async () => {
+      resolveWriteText?.();
+    });
+
+    expect(mocks.writeText).toHaveBeenCalledWith(copiedUrl);
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector<HTMLButtonElement>("button[data-copy-status]")
+        ?.getAttribute("data-copy-status"),
+    ).toBe("idle");
+
+    act(() => root.unmount());
   });
 
   it("clears copy feedback when the generated URL is removed and recreated", async () => {
@@ -230,6 +332,7 @@ describe("FormPrefillGenerator", () => {
       copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(copyButton?.textContent).toContain("コピー済み");
+    expect(copyButton?.getAttribute("data-copy-status")).toBe("copied");
 
     const clearButton = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent?.includes("クリア"),
@@ -254,11 +357,7 @@ describe("FormPrefillGenerator", () => {
       container.querySelectorAll("button"),
     ).find((button) => button.textContent?.includes("URLをコピー"));
     expect(recreatedCopyButton?.textContent).toContain("URLをコピー");
-    expect(
-      container
-        .querySelector('[data-testid="prefill-url-preview"] [data-copied]')
-        ?.getAttribute("data-copied"),
-    ).toBe("false");
+    expect(recreatedCopyButton?.getAttribute("data-copy-status")).toBe("idle");
 
     act(() => root.unmount());
     vi.useRealTimers();
