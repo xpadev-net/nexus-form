@@ -15,3 +15,11 @@
 - root cause: Focused on authorization semantics and did not separately define post-authorization replay prevention for other submitted candidates.
 - fix: After at least one current-IP token authorizes submit, consume remaining submitted unused/unexpired token rows too.
 - prevention: For multi-candidate one-time tokens, specify both authorization criteria and candidate burn/retention behavior before finalizing the implementation.
+
+## 2026-07-05: Verify PR review decision after review-hook success
+
+- tags: github, review-gate, validation
+- symptom: A PR was reported merge-ready after `gh-review-hook` exited 0, but GitHub still showed `reviewDecision: CHANGES_REQUESTED` from a prior AI review.
+- root cause: Closeout relied on hook exit status and CI success without separately checking the current PR review decision metadata.
+- fix: Re-check PR metadata with `gh pr view --json reviewDecision,headRefOid,mergeStateStatus` after hook completion and continue iterating until the review decision is no longer `CHANGES_REQUESTED`.
+- prevention: Treat `reviewDecision` as an explicit closeout guard for PR-worker handoff, alongside hook exit status, CI status, clean worktree, and local/remote head equality.
