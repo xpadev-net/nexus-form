@@ -134,6 +134,7 @@ interface UseFormContentAutosaveOptions {
   contentQueryKey?: readonly unknown[];
   contentRefetch: () => Promise<unknown>;
   getActiveTab: () => string;
+  enabled?: boolean;
   enableRealtimeSync?: boolean;
 }
 
@@ -164,6 +165,7 @@ export function useFormContentAutosave({
   contentQueryKey: providedContentQueryKey,
   contentRefetch,
   getActiveTab,
+  enabled = true,
   enableRealtimeSync = false,
 }: UseFormContentAutosaveOptions): UseFormContentAutosaveReturn {
   const queryClient = useQueryClient();
@@ -192,6 +194,8 @@ export function useFormContentAutosave({
   const inFlightExpectedVersionRef = useRef<number | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
+  const enabledRef = useRef(enabled);
+  const formIdRef = useRef(formId);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
@@ -199,6 +203,8 @@ export function useFormContentAutosave({
   refetchRef.current = contentRefetch;
   const getActiveTabRef = useRef(getActiveTab);
   getActiveTabRef.current = getActiveTab;
+  enabledRef.current = enabled;
+  formIdRef.current = formId;
 
   const handleMergeSuccess = useCallback(
     (mergedContent: string, newVersion: number, mergeLocalContent: string) => {
@@ -306,12 +312,13 @@ export function useFormContentAutosave({
   }, []);
 
   const hasUnsavedLocalEdits = useCallback((): boolean => {
+    if (!enabled) return false;
     return (
       editorValueRef.current !== baseContentRef.current ||
       pendingValueRef.current != null ||
       inFlightValueRef.current != null
     );
-  }, []);
+  }, [enabled]);
 
   // Initialize refs and draft from server data.
   // When local edits are pending, keep versionRef/baseContentRef on the last
@@ -488,8 +495,21 @@ export function useFormContentAutosave({
 
   mutateRef.current = contentMutation.mutate;
 
+  useEffect(() => {
+    if (enabled) return;
+    if (saveTimerRef.current != null) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    pendingValueRef.current = null;
+    inFlightValueRef.current = null;
+    inFlightExpectedVersionRef.current = null;
+    setIsSaving(false);
+  }, [enabled]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — all values read through refs
   const handleContentChange = useCallback((value: string) => {
+    if (!enabledRef.current) return;
     editorValueRef.current = value;
     if (isConflictActiveRef.current || isMergingRef.current) {
       if (saveTimerRef.current != null) {
@@ -545,12 +565,14 @@ export function useFormContentAutosave({
   // retry it on the next mount.
   useEffect(() => {
     return () => {
+      if (!enabledRef.current) return;
+      const currentFormId = formIdRef.current;
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
       }
       const valueToSave = pendingValueRef.current;
       if (valueToSave == null && inFlightValueRef.current != null) {
-        storeInFlightPendingSave(formId, {
+        storeInFlightPendingSave(currentFormId, {
           plateContent: inFlightValueRef.current,
           expectedVersion:
             inFlightExpectedVersionRef.current ?? versionRef.current,
@@ -566,7 +588,7 @@ export function useFormContentAutosave({
           expectedVersion: keepaliveVersion,
         });
         if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
-          fetch(`${baseUrl}/api/forms/${formId}/content`, {
+          fetch(`${baseUrl}/api/forms/${currentFormId}/content`, {
             method: "PUT",
             headers: {
               "Content-Type": "application/json",
@@ -578,28 +600,29 @@ export function useFormContentAutosave({
           })
             .then((response) => {
               if (response.ok) {
-                clearResolvedPendingSave(formId, {
+                clearResolvedPendingSave(currentFormId, {
                   expectedVersion: keepaliveVersion,
                   plateContent: valueToSave,
                 });
               } else if (baseContentRef.current === valueToSave) {
                 // Regular autosave already saved this content; do not write a duplicate fallback.
               } else {
-                storePendingSave(formId, body);
+                storePendingSave(currentFormId, body);
               }
             })
             .catch(() => {
-              storePendingSave(formId, body);
+              storePendingSave(currentFormId, body);
             });
         } else {
-          storePendingSave(formId, body);
+          storePendingSave(currentFormId, body);
         }
       }
     };
-  }, [formId]);
+  }, []);
 
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
+    if (!enabled) return;
     const saved = readCurrentPendingSave(formId);
     if (!saved) {
       clearPendingSave(formId);
@@ -691,7 +714,7 @@ export function useFormContentAutosave({
     return () => {
       window.clearTimeout(retryTimer);
     };
-  }, [contentQueryKey, formId, queryClient]);
+  }, [contentQueryKey, enabled, formId, queryClient]);
 
   return {
     isSaving,

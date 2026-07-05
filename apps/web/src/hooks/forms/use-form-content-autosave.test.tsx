@@ -126,7 +126,10 @@ function createMemoryStorage(): Storage {
   };
 }
 
-function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
+function renderAutosave(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  options: { enabled?: boolean } = {},
+) {
   const container = document.createElement("div");
   const root = createRoot(container);
 
@@ -135,6 +138,7 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
     const hook = useFormContentAutosave({
       contentData: { plateContent: "[]", plateContentVersion: 7 },
       contentRefetch: refetchMock,
+      enabled: options.enabled,
       formId: "form-1",
       getActiveTab: () => "editor",
     });
@@ -155,6 +159,56 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
   });
 
   return root;
+}
+
+function renderAutosaveWithEnabledToggle(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  initialEnabled = false,
+) {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let enabled = initialEnabled;
+
+  function Harness({ enabled: currentEnabled }: { enabled: boolean }) {
+    const didNotifyReadyRef = useRef(false);
+    const hook = useFormContentAutosave({
+      contentData: { plateContent: "[]", plateContentVersion: 7 },
+      contentRefetch: refetchMock,
+      enabled: currentEnabled,
+      formId: "form-1",
+      getActiveTab: () => "editor",
+    });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
+
+    useEffect(() => {
+      if (didNotifyReadyRef.current) return;
+      didNotifyReadyRef.current = true;
+      onReady(hookRef.current);
+    }, []);
+
+    return null;
+  }
+
+  const render = () => {
+    act(() => {
+      root.render(<Harness enabled={enabled} />);
+    });
+  };
+
+  render();
+
+  return {
+    disable: () => {
+      enabled = false;
+      render();
+    },
+    enable: () => {
+      enabled = true;
+      render();
+    },
+    root,
+  };
 }
 
 async function flushPromises() {
@@ -219,6 +273,100 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: draftContent,
     });
+  });
+
+  it("does not retry or keepalive save when autosave is disabled", async () => {
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"stale"}]}]',
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      { enabled: false },
+    );
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+    });
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+  });
+
+  it("resumes autosave when enabled changes from false to true", () => {
+    vi.useFakeTimers();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { enable, root } = renderAutosaveWithEnabledToggle((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(
+        '[{"type":"p","children":[{"text":"blocked"}]}]',
+      );
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).not.toHaveBeenCalled();
+
+    enable();
+
+    act(() => {
+      hook?.handleContentChange('[{"type":"p","children":[{"text":"saved"}]}]');
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"saved"}]}]',
+      restoreGeneration: expect.any(Number),
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not keepalive save when enabled changes from true to false", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { disable, root } = renderAutosaveWithEnabledToggle((currentHook) => {
+      hook = currentHook;
+    }, true);
+
+    act(() => {
+      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+    });
+
+    disable();
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
   it("keeps a pending save when keepalive fetch rejects", async () => {

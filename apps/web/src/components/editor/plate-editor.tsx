@@ -9,6 +9,7 @@ const LazyPlateEditorInternal = lazy(() =>
 type Props = {
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 };
 
 export function PlateEditor(props: Props) {

@@ -124,6 +124,7 @@ export function useFormEditorPageModel(formId: string) {
   const canUseEditorRealtimeSync =
     myPermissionQuery.data?.role === "OWNER" ||
     myPermissionQuery.data?.role === "EDITOR";
+  const canEditForm = canUseEditorRealtimeSync;
 
   const {
     isSaving,
@@ -143,6 +144,7 @@ export function useFormEditorPageModel(formId: string) {
     contentQueryKey,
     contentRefetch: contentQuery.refetch,
     getActiveTab: () => activeTab,
+    enabled: canEditForm,
     enableRealtimeSync: canUseEditorRealtimeSync,
   });
 
@@ -341,6 +343,25 @@ export function useFormEditorPageModel(formId: string) {
   }, [formId, router, shareToken, tab]);
 
   useEffect(() => {
+    if (canEditForm || activeTab === "editor" || myPermissionQuery.isLoading) {
+      return;
+    }
+    void router.navigate({
+      to: "/forms/$id/edit",
+      params: { id: formId },
+      search: { ...(shareToken ? { shareToken } : {}), tab: "editor" },
+      replace: true,
+    });
+  }, [
+    activeTab,
+    canEditForm,
+    formId,
+    myPermissionQuery.isLoading,
+    router,
+    shareToken,
+  ]);
+
+  useEffect(() => {
     if (activeTab === "responses") {
       setResponsesEverActive(true);
     }
@@ -377,6 +398,16 @@ export function useFormEditorPageModel(formId: string) {
 
   const handleTabChange = (value: string) => {
     if (!isEditorTab(value) || value === activeTab) return;
+    if (
+      !canEditForm &&
+      (value === "settings" ||
+        value === "validation" ||
+        value === "sharing" ||
+        value === "responses")
+    ) {
+      toast.info("閲覧権限ではこの設定を変更できません");
+      return;
+    }
     void router.navigate({
       to: "/forms/$id/edit",
       params: { id: formId },
@@ -396,6 +427,7 @@ export function useFormEditorPageModel(formId: string) {
   return {
     activeTab,
     archiveForm: () => archiveMutation.mutate(),
+    canEditForm,
     conflictResolutions,
     conflictState,
     deleteForm: () => deleteMutation.mutate(),

@@ -178,6 +178,33 @@ async function updateFormTitleWithShareToken(
   );
 }
 
+async function expectViewerEditorIsReadOnly(
+  page: Page,
+  formId: string,
+  token: string,
+): Promise<void> {
+  await expect(page.getByRole("textbox", { name: "フォーム名" })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", {
+      name: /Editing mode|Editing|Viewing|Suggestion/,
+    }),
+  ).toHaveCount(0);
+  await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
+  await expect(page.getByRole("tab", { name: /設定/ })).toBeDisabled();
+  await expect(page.getByRole("tab", { name: /検証/ })).toBeDisabled();
+  await expect(page.getByRole("tab", { name: /共有/ })).toBeDisabled();
+  await expect(page.getByRole("tab", { name: /回答/ })).toBeDisabled();
+
+  await page.goto(
+    `/forms/${formId}/edit?shareToken=${encodeURIComponent(
+      token,
+    )}&tab=settings`,
+    { waitUntil: "domcontentloaded" },
+  );
+  await expect(page).toHaveURL(/tab=editor/);
+  await expect(page.getByText("フォーム管理")).toHaveCount(0);
+}
+
 test.describe("共有リンク編集画面", () => {
   test.afterAll(async () => {
     await cleanupSeededShareLinkForms();
@@ -215,6 +242,10 @@ test.describe("共有リンク編集画面", () => {
       );
       await expect(page.getByText("E2E Share Link Form")).toBeVisible();
       await expect(page.getByText("E2E share link question")).toBeVisible();
+
+      if (role === "viewer") {
+        await expectViewerEditorIsReadOnly(page, seeded.formId, token);
+      }
 
       const failedResponses = apiResponses.filter(
         (response) => response.status >= 400,

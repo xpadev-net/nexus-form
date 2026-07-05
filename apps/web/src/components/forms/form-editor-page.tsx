@@ -53,6 +53,7 @@ export function FormEditorPage() {
       className="gap-4"
     >
       <EditorHeaderSection
+        canEditForm={model.canEditForm}
         formId={id}
         formTitle={model.formData?.title ?? "フォームエディタ"}
         formStatus={model.formStatus}
@@ -80,56 +81,66 @@ export function FormEditorPage() {
         )}
         <section className="rounded-lg border bg-card shadow-sm">
           <PlateEditor
+            key={model.canEditForm ? "editable" : "read-only"}
             value={model.draftContent ?? model.plateContent}
             onChange={model.handleContentChange}
+            readOnly={!model.canEditForm}
           />
         </section>
       </TabsContent>
 
-      <FormSettingsTab
-        formId={id}
-        publicId={model.formData?.publicId}
-        formTitle={model.formData?.title ?? "フォーム"}
-        formDescription={model.formData?.description ?? undefined}
-        plateContent={model.draftContent ?? model.plateContent}
-        isArchived={model.formStatus === "ARCHIVED"}
-        archiveLoading={model.isArchivePending}
-        duplicateLoading={model.isDuplicatePending}
-        onArchive={model.archiveForm}
-        onUnarchive={model.unarchiveForm}
-        onDuplicate={() => model.setShowDuplicateModal(true)}
-        onDelete={() => model.setShowDeleteModal(true)}
-      />
+      {model.canEditForm ? (
+        <FormSettingsTab
+          formId={id}
+          publicId={model.formData?.publicId}
+          formTitle={model.formData?.title ?? "フォーム"}
+          formDescription={model.formData?.description ?? undefined}
+          plateContent={model.draftContent ?? model.plateContent}
+          isArchived={model.formStatus === "ARCHIVED"}
+          archiveLoading={model.isArchivePending}
+          duplicateLoading={model.isDuplicatePending}
+          onArchive={model.archiveForm}
+          onUnarchive={model.unarchiveForm}
+          onDuplicate={() => model.setShowDuplicateModal(true)}
+          onDelete={() => model.setShowDeleteModal(true)}
+        />
+      ) : null}
 
-      <TabsContent value="validation">
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <FormValidationRulesPage
-            formId={id}
-            plateContent={model.plateContent}
-          />
-        </section>
-      </TabsContent>
+      {model.canEditForm ? (
+        <TabsContent value="validation">
+          <section className="rounded-lg border bg-card p-6 shadow-sm">
+            <FormValidationRulesPage
+              formId={id}
+              plateContent={model.plateContent}
+            />
+          </section>
+        </TabsContent>
+      ) : null}
 
-      <TabsContent value="sharing">
-        <section className="rounded-lg border bg-card p-6 shadow-sm">
-          <FormSharingSection
-            formId={id}
-            plateContent={model.plateContent}
-            publicId={model.formData?.publicId}
-          />
-        </section>
-      </TabsContent>
+      {model.canEditForm ? (
+        <TabsContent value="sharing">
+          <section className="rounded-lg border bg-card p-6 shadow-sm">
+            <FormSharingSection
+              formId={id}
+              plateContent={model.plateContent}
+              publicId={model.formData?.publicId}
+            />
+          </section>
+        </TabsContent>
+      ) : null}
 
-      <TabsContent
-        value="responses"
-        forceMount
-        hidden={model.activeTab !== "responses"}
-        aria-hidden={model.activeTab !== "responses"}
-      >
-        {model.responsesEverActive ? (
-          <FormResponsesContent formId={id} shareToken={model.shareToken} />
-        ) : null}
-      </TabsContent>
+      {model.canEditForm ? (
+        <TabsContent
+          value="responses"
+          forceMount
+          hidden={model.activeTab !== "responses"}
+          aria-hidden={model.activeTab !== "responses"}
+        >
+          {model.responsesEverActive ? (
+            <FormResponsesContent formId={id} shareToken={model.shareToken} />
+          ) : null}
+        </TabsContent>
+      ) : null}
 
       <FormDeletionModal
         open={model.showDeleteModal}

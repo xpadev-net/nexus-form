@@ -14,6 +14,7 @@ import {
 import type { FormStatus } from "@/types/validation/shared";
 
 export interface EditorHeaderSectionProps {
+  canEditForm: boolean;
   formId: string;
   formTitle: string;
   formStatus: FormStatus;
@@ -29,6 +30,7 @@ export interface EditorHeaderSectionProps {
 }
 
 export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
+  canEditForm,
   formId,
   formTitle,
   formStatus,
@@ -46,8 +48,8 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
     <section>
       <FormHeader
         title={formTitle}
-        onTitleBlur={onTitleBlur}
-        onTitleDraftChange={onTitleDraftChange}
+        onTitleBlur={canEditForm ? onTitleBlur : undefined}
+        onTitleDraftChange={canEditForm ? onTitleDraftChange : undefined}
         isTitleSaving={isTitleSaving}
         titleSaveFailureCount={titleSaveFailureCount}
         action={
@@ -80,7 +82,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
                 プレビュー
               </Link>
             </Button>
-            {hasFormData && (
+            {hasFormData && canEditForm && (
               <FormPublishMenu
                 formId={formId}
                 formStatus={formStatus}
@@ -99,8 +101,19 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       >
         {EDITOR_TAB_DEFINITIONS.map((tab) => {
           const Icon = tab.icon;
+          const disabled =
+            !canEditForm &&
+            (tab.key === "settings" ||
+              tab.key === "validation" ||
+              tab.key === "sharing" ||
+              tab.key === "responses");
           return (
-            <TabsTrigger key={tab.key} value={tab.key} className="px-4">
+            <TabsTrigger
+              key={tab.key}
+              value={tab.key}
+              className="px-4"
+              disabled={disabled}
+            >
               <Icon className="h-4 w-4" />
               {tab.label}
             </TabsTrigger>
