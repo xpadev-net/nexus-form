@@ -4,6 +4,8 @@ export interface GoogleSheetsIntegrationSetting {
   headerPolicy: "extend";
 }
 
+export type GoogleSheetsSyncMode = "incremental" | "full";
+
 /** GET /forms/{formId}/integrations/google-sheets のレスポンス型 */
 export interface FormIntegrationRecord {
   id: string;
@@ -19,9 +21,16 @@ export interface FormIntegrationResponse {
   integration: FormIntegrationRecord | null;
 }
 
+/** POST /forms/{formId}/integrations/google-sheets/sync のリクエスト型 */
+export interface SyncStartRequest {
+  mode: GoogleSheetsSyncMode;
+}
+
 /** POST /forms/{formId}/integrations/google-sheets/sync のレスポンス型 */
 export interface SyncStartResponse {
   jobId: string;
+  mode?: GoogleSheetsSyncMode;
+  requeued?: boolean;
   status: "queued";
 }
 

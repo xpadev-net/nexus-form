@@ -305,6 +305,7 @@ export {
 export type {
   GenericValidationJobData,
   SheetsSyncJobData,
+  SheetsSyncMode,
 } from "./worker-jobs";
 export {
   buildAutoSheetsSyncJobId,
@@ -315,5 +316,6 @@ export {
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
+  sheetsSyncModeSchema,
   VALIDATION_RETRY_JOB_PREFIX,
 } from "./worker-jobs";

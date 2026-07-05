@@ -2,6 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import {
   buildManualSheetsSyncJobId,
   sheetsSyncJobDataSchema,
+  sheetsSyncModeSchema,
 } from "@nexus-form/shared";
 import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -70,12 +71,17 @@ export type FormIntegrationResponse = z.infer<
 /**
  * Google Sheets manual sync request payload.
  *
- * `force` enables a bounded replay of existing responses for manual synchronization.
- * If omitted, only the latest response is synchronized.
+ * `mode` explicitly selects latest-response incremental sync or bounded full replay.
+ * Legacy `force` is accepted when `mode` is omitted.
  */
-export const GoogleSheetsSyncStartRequestSchema = z.object({
-  force: z.boolean().default(false),
-});
+export const GoogleSheetsSyncStartRequestSchema = z
+  .object({
+    force: z.boolean().optional(),
+    mode: sheetsSyncModeSchema.optional(),
+  })
+  .transform(({ force, mode }) => ({
+    mode: mode ?? (force === true ? "full" : "incremental"),
+  }));
 /** Inferred TypeScript type for `GoogleSheetsSyncStartRequestSchema`. */
 export type GoogleSheetsSyncStartRequest = z.infer<
   typeof GoogleSheetsSyncStartRequestSchema
@@ -87,6 +93,7 @@ export type GoogleSheetsSyncStartRequest = z.infer<
  */
 export const GoogleSheetsSyncStartResponseSchema = z.object({
   jobId: z.string().min(1),
+  mode: sheetsSyncModeSchema,
   requeued: z.boolean(),
   status: z.literal("queued"),
 });
@@ -151,7 +158,7 @@ export const formsIntegrationsRouter = createHonoApp()
     zValidator("json", GoogleSheetsSyncStartRequestSchema),
     async (c) => {
       const formId = c.req.param("id");
-      const { force } = c.req.valid("json");
+      const { mode } = c.req.valid("json");
       const integration = await getFormIntegration(formId);
       if (!integration) {
         return c.json(formIntegrationError("Integration not configured"), 404);
@@ -159,19 +166,20 @@ export const formsIntegrationsRouter = createHonoApp()
 
       const { db, formResponse } = await import("@nexus-form/database");
 
-      const responses = force
-        ? await db
-            .select({ responseId: formResponse.id })
-            .from(formResponse)
-            .where(eq(formResponse.formId, formId))
-            .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
-            .limit(MAX_MANUAL_SHEETS_SYNC_RESPONSES + 1)
-        : await db
-            .select({ responseId: formResponse.id })
-            .from(formResponse)
-            .where(eq(formResponse.formId, formId))
-            .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
-            .limit(1);
+      const responses =
+        mode === "full"
+          ? await db
+              .select({ responseId: formResponse.id })
+              .from(formResponse)
+              .where(eq(formResponse.formId, formId))
+              .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
+              .limit(MAX_MANUAL_SHEETS_SYNC_RESPONSES + 1)
+          : await db
+              .select({ responseId: formResponse.id })
+              .from(formResponse)
+              .where(eq(formResponse.formId, formId))
+              .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+              .limit(1);
 
       if (!hasResponses(responses)) {
         return c.json(formIntegrationError("No responses to sync"), 404);
@@ -223,6 +231,7 @@ export const formsIntegrationsRouter = createHonoApp()
             data: sheetsSyncJobDataSchema.parse({
               formId,
               integrationId: integration.id,
+              mode,
               responseId: job.responseId,
             }),
             opts: {
@@ -241,6 +250,7 @@ export const formsIntegrationsRouter = createHonoApp()
             integration.id,
             firstResponse.responseId,
           ),
+          mode,
           requeued: jobsToQueue.length > 0,
           status: "queued",
         }),
