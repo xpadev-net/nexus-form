@@ -302,6 +302,44 @@ describe("Google Sheets spreadsheet list route", () => {
     expect(listUrl.searchParams.get("pageSize")).toBe("100");
   });
 
+  it("keeps folder paths for a full default spreadsheet page", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/drive/v3/files?")) {
+        return createJsonResponse({
+          files: Array.from({ length: 100 }, (_value, index) => ({
+            id: `spreadsheet-${index + 1}`,
+            name: `Responses ${index + 1}`,
+            parents: [`folder-${index + 1}`],
+          })),
+        });
+      }
+      const folderIndex = Number.parseInt(
+        url.match(/\/drive\/v3\/files\/folder-(\d+)\?/)?.[1] ?? "0",
+        10,
+      );
+      if (folderIndex < 1) throw new Error(`Unexpected Google URL: ${url}`);
+      return createJsonResponse({
+        id: `folder-${folderIndex}`,
+        mimeType: "application/vnd.google-apps.folder",
+        name: `Folder ${folderIndex}`,
+      });
+    });
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.spreadsheets).toHaveLength(100);
+    expect(body.spreadsheets[99].folderPaths).toEqual([
+      {
+        folderIds: ["folder-100"],
+        pathSegments: [{ id: "folder-100", name: "Folder 100" }],
+      },
+    ]);
+  });
+
   it("bounds folder path metadata depth and parent fan-out", async () => {
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
