@@ -66,6 +66,28 @@ const googleDriveFolderMetadataSchema = z.object({
   parents: z.array(z.string()).optional(),
 });
 
+const googleApiErrorResponseSchema = z.object({
+  error: z
+    .object({
+      errors: z
+        .array(
+          z.object({
+            reason: z.string().optional(),
+          }),
+        )
+        .optional(),
+    })
+    .optional(),
+});
+
+const DRIVE_SPREADSHEET_LIST_PAGE_SIZE_MAX = 50;
+const DRIVE_FOLDER_PATH_DEPTH_MAX = 5;
+const DRIVE_FOLDER_PARENT_FANOUT_MAX = 2;
+const DRIVE_FOLDER_METADATA_CONCURRENCY_MAX = 4;
+const DRIVE_FOLDER_METADATA_FETCH_MAX = 80;
+const DRIVE_FOLDER_METADATA_TIMEOUT_MS = 2_000;
+const DRIVE_SPREADSHEET_LIST_TIMEOUT_MS = 5_000;
+
 const googleSpreadsheetSheetsResponseSchema = z.object({
   sheets: z
     .array(
@@ -412,9 +434,15 @@ function requireSessionUser(
 async function readGoogleJsonResponse(
   c: Context,
   response: Response,
+  timeoutMs?: number,
 ): Promise<{ ok: true; data: unknown } | { ok: false; response: Response }> {
   try {
-    return { ok: true, data: await response.json() };
+    return {
+      ok: true,
+      data: timeoutMs
+        ? await readResponseJsonWithTimeout(response, timeoutMs)
+        : await response.json(),
+    };
   } catch {
     return {
       ok: false,
@@ -431,58 +459,232 @@ type DriveFolderPath = {
   pathSegments: Array<{ id: string; name: string }>;
 };
 
+type DriveFolderMetadata = z.infer<typeof googleDriveFolderMetadataSchema>;
+
+type DriveFolderMetadataCache = Map<
+  string,
+  Promise<DriveFolderMetadata | null>
+>;
+
+type DriveFolderMetadataFetchResult = {
+  folder: DriveFolderMetadata | null;
+  stopTraversal: boolean;
+};
+
+class GoogleFetchTimeoutError extends Error {
+  constructor() {
+    super("Google API request timed out");
+  }
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (timedOut) throw new GoogleFetchTimeoutError();
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function readResponseJsonWithTimeout(
+  response: Response,
+  timeoutMs: number,
+): Promise<unknown> {
+  if (!response.body) return response.json();
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let rawJson = "";
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeoutPromise = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(
+        () => reject(new GoogleFetchTimeoutError()),
+        timeoutMs,
+      );
+    });
+
+    while (true) {
+      const chunk = await Promise.race([reader.read(), timeoutPromise]);
+      if (chunk.done) break;
+      rawJson += decoder.decode(chunk.value, { stream: true });
+    }
+    rawJson += decoder.decode();
+    return JSON.parse(rawJson) as unknown;
+  } catch (error) {
+    if (error instanceof GoogleFetchTimeoutError) {
+      void reader.cancel().catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    reader.releaseLock();
+  }
+}
+
+async function getGoogleRateLimitResponseStatus(
+  response: Response,
+): Promise<"rate-limited" | "not-rate-limited" | "unknown-timeout"> {
+  if (response.status === 429) return "rate-limited";
+  if (response.status !== 403) return "not-rate-limited";
+
+  try {
+    const parsed = googleApiErrorResponseSchema.safeParse(
+      await readResponseJsonWithTimeout(
+        response.clone(),
+        DRIVE_FOLDER_METADATA_TIMEOUT_MS,
+      ),
+    );
+    if (!parsed.success) return "not-rate-limited";
+    const isRateLimited =
+      parsed.data.error?.errors?.some((error) =>
+        [
+          "quotaExceeded",
+          "rateLimitExceeded",
+          "userRateLimitExceeded",
+        ].includes(error.reason ?? ""),
+      ) ?? false;
+    return isRateLimited ? "rate-limited" : "not-rate-limited";
+  } catch (error) {
+    if (error instanceof GoogleFetchTimeoutError) return "unknown-timeout";
+    return "not-rate-limited";
+  }
+}
+
+function clampDriveSpreadsheetPageSize(pageSize: string | undefined): number {
+  if (!pageSize) return DRIVE_SPREADSHEET_LIST_PAGE_SIZE_MAX;
+  const parsed = Number.parseInt(pageSize, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.min(parsed, DRIVE_SPREADSHEET_LIST_PAGE_SIZE_MAX);
+}
+
+function createConcurrencyLimiter(concurrency: number) {
+  let activeCount = 0;
+  const queue: Array<() => void> = [];
+
+  return async function runLimited<T>(task: () => Promise<T>): Promise<T> {
+    if (activeCount >= concurrency) {
+      await new Promise<void>((resolve) => {
+        queue.push(resolve);
+      });
+    }
+
+    activeCount += 1;
+    try {
+      return await task();
+    } finally {
+      activeCount -= 1;
+      queue.shift()?.();
+    }
+  };
+}
+
+function createDriveFolderMetadataFetcher(accessToken: string): {
+  cache: DriveFolderMetadataCache;
+  fetchFolder: (folderId: string) => Promise<DriveFolderMetadata | null>;
+} {
+  const cache: DriveFolderMetadataCache = new Map();
+  const runLimited = createConcurrencyLimiter(
+    DRIVE_FOLDER_METADATA_CONCURRENCY_MAX,
+  );
+  let stopMetadataTraversal = false;
+
+  return {
+    cache,
+    fetchFolder: (folderId) => {
+      const cached = cache.get(folderId);
+      if (cached) return cached;
+      if (
+        stopMetadataTraversal ||
+        cache.size >= DRIVE_FOLDER_METADATA_FETCH_MAX
+      ) {
+        return Promise.resolve(null);
+      }
+
+      const promise = runLimited(async () => {
+        if (stopMetadataTraversal) return null;
+        const result = await fetchDriveFolderMetadata(accessToken, folderId);
+        if (result.stopTraversal) stopMetadataTraversal = true;
+        return result.folder;
+      });
+      cache.set(folderId, promise);
+      return promise;
+    },
+  };
+}
+
 async function fetchDriveFolderMetadata(
   accessToken: string,
   folderId: string,
-): Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null> {
+): Promise<DriveFolderMetadataFetchResult> {
   const params = new URLSearchParams({
     fields: "id,name,mimeType,parents",
   });
   let response: Response;
   try {
-    response = await fetch(
+    response = await fetchWithTimeout(
       `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folderId)}?${params.toString()}`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       },
+      DRIVE_FOLDER_METADATA_TIMEOUT_MS,
     );
-  } catch {
-    return null;
+  } catch (error) {
+    return {
+      folder: null,
+      stopTraversal: error instanceof GoogleFetchTimeoutError,
+    };
   }
-  if (!response.ok) return null;
+  const rateLimitStatus = await getGoogleRateLimitResponseStatus(response);
+  if (rateLimitStatus !== "not-rate-limited") {
+    return { folder: null, stopTraversal: true };
+  }
+  if (!response.ok) return { folder: null, stopTraversal: false };
   let rawJson: unknown;
   try {
-    rawJson = await response.json();
-  } catch {
-    return null;
+    rawJson = await readResponseJsonWithTimeout(
+      response,
+      DRIVE_FOLDER_METADATA_TIMEOUT_MS,
+    );
+  } catch (error) {
+    return {
+      folder: null,
+      stopTraversal: error instanceof GoogleFetchTimeoutError,
+    };
   }
   const parsed = googleDriveFolderMetadataSchema.safeParse(rawJson);
-  if (!parsed.success) return null;
-  return parsed.data;
+  if (!parsed.success) return { folder: null, stopTraversal: false };
+  return { folder: parsed.data, stopTraversal: false };
 }
 
 async function buildDriveFolderPath(
-  accessToken: string,
   folderId: string,
-  folderCache: Map<
-    string,
-    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
-  >,
+  fetchFolder: (folderId: string) => Promise<DriveFolderMetadata | null>,
 ): Promise<DriveFolderPath | null> {
   const pathSegments: Array<{ id: string; name: string }> = [];
   const seenFolderIds = new Set<string>();
   let currentFolderId: string | undefined = folderId;
 
-  while (currentFolderId) {
+  while (currentFolderId && seenFolderIds.size < DRIVE_FOLDER_PATH_DEPTH_MAX) {
     if (seenFolderIds.has(currentFolderId)) return null;
     seenFolderIds.add(currentFolderId);
 
-    let folder = folderCache.get(currentFolderId);
-    if (!folder) {
-      folder = fetchDriveFolderMetadata(accessToken, currentFolderId);
-      folderCache.set(currentFolderId, folder);
-    }
-    const resolvedFolder = await folder;
+    const resolvedFolder = await fetchFolder(currentFolderId);
     if (!resolvedFolder) return null;
     pathSegments.unshift({ id: resolvedFolder.id, name: resolvedFolder.name });
     currentFolderId = resolvedFolder.parents?.[0];
@@ -495,17 +697,13 @@ async function buildDriveFolderPath(
 }
 
 async function buildDriveFolderPaths(
-  accessToken: string,
   parentIds: string[],
-  folderCache: Map<
-    string,
-    Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
-  >,
+  fetchFolder: (folderId: string) => Promise<DriveFolderMetadata | null>,
 ): Promise<DriveFolderPath[]> {
   const paths = await Promise.all(
-    parentIds.map((parentId) =>
-      buildDriveFolderPath(accessToken, parentId, folderCache),
-    ),
+    parentIds
+      .slice(0, DRIVE_FOLDER_PARENT_FANOUT_MAX)
+      .map((parentId) => buildDriveFolderPath(parentId, fetchFolder)),
   );
   return paths.filter((path): path is DriveFolderPath => path !== null);
 }
@@ -766,48 +964,48 @@ export const integrationsGoogleRouter = createHonoApp()
     const params = new URLSearchParams({
       q,
       fields: "files(id,name,parents),nextPageToken",
+      pageSize: String(clampDriveSpreadsheetPageSize(pageSize)),
     });
-    if (pageSize) params.set("pageSize", pageSize);
     if (pageToken) params.set("pageToken", pageToken);
 
     let response: Response;
     try {
-      response = await fetch(
+      response = await fetchWithTimeout(
         `https://www.googleapis.com/drive/v3/files?${params.toString()}`,
         {
           headers: { Authorization: `Bearer ${token.accessToken}` },
         },
+        DRIVE_SPREADSHEET_LIST_TIMEOUT_MS,
       );
     } catch {
       return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
     }
     if (!response.ok)
       return c.json(errorResponse("Failed to fetch spreadsheet list"), 502);
-    const rawJson = await readGoogleJsonResponse(c, response);
+    const rawJson = await readGoogleJsonResponse(
+      c,
+      response,
+      DRIVE_SPREADSHEET_LIST_TIMEOUT_MS,
+    );
     if (!rawJson.ok) return rawJson.response;
     const rawParsed = googleDriveFilesResponseSchema.safeParse(rawJson.data);
     if (!rawParsed.success)
       return c.json(errorResponse("Unexpected response from Google API"), 502);
     const raw = rawParsed.data;
-    const folderCache = new Map<
-      string,
-      Promise<z.infer<typeof googleDriveFolderMetadataSchema> | null>
-    >();
+    const { fetchFolder } = createDriveFolderMetadataFetcher(token.accessToken);
     const spreadsheets = await Promise.all(
       (raw.files ?? []).flatMap((file) => {
         if (typeof file.id !== "string") return [];
         const id = file.id;
         const parents = file.parents ?? [];
         return [
-          buildDriveFolderPaths(token.accessToken, parents, folderCache).then(
-            (folderPaths) => ({
-              id,
-              name: file.name,
-              itemType: "spreadsheet",
-              parents,
-              folderPaths,
-            }),
-          ),
+          buildDriveFolderPaths(parents, fetchFolder).then((folderPaths) => ({
+            id,
+            name: file.name,
+            itemType: "spreadsheet",
+            parents,
+            folderPaths,
+          })),
         ];
       }),
     );

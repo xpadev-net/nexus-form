@@ -103,6 +103,41 @@ function createDeferredResponse(): {
   return { promise, resolve: resolveResponse };
 }
 
+function createAbortableNeverResponse(
+  signal: AbortSignal | null,
+): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    signal?.addEventListener(
+      "abort",
+      () => {
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
+}
+
+function createHangingJsonResponse(
+  status = 200,
+  onCancel?: () => void,
+): Response {
+  const encoder = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode("{"));
+      },
+      cancel() {
+        onCancel?.();
+      },
+    }),
+    {
+      headers: { "content-type": "application/json" },
+      status,
+    },
+  );
+}
+
 function getFetchJsonBody(fetchMock: ReturnType<typeof vi.fn>): unknown {
   const init = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
   if (typeof init?.body !== "string") {
@@ -226,6 +261,19 @@ describe("Google Sheets spreadsheet list route", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("clamps spreadsheet list page size to the local maximum", async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse({ files: [] }));
+    const app = createApp();
+
+    const response = await app.request(
+      "/api/integrations/google/spreadsheets?pageSize=500",
+    );
+
+    expect(response.status).toBe(200);
+    const listUrl = new URL(fetchMock.mock.calls[0]?.[0] as string);
+    expect(listUrl.searchParams.get("pageSize")).toBe("50");
+  });
+
   it("returns empty folder paths for root-level spreadsheets", async () => {
     fetchMock.mockResolvedValueOnce(
       createJsonResponse({
@@ -250,6 +298,77 @@ describe("Google Sheets spreadsheet list route", () => {
       ],
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    const listUrl = new URL(fetchMock.mock.calls[0]?.[0] as string);
+    expect(listUrl.searchParams.get("pageSize")).toBe("50");
+  });
+
+  it("bounds folder path metadata depth and parent fan-out", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/drive/v3/files?")) {
+        return createJsonResponse({
+          files: [
+            {
+              id: "spreadsheet-a",
+              name: "Responses",
+              parents: ["folder-1", "folder-extra-a", "folder-extra-b"],
+            },
+          ],
+        });
+      }
+      const folderMatch = url.match(/\/drive\/v3\/files\/([^?]+)/);
+      const folderId = folderMatch?.[1];
+      if (folderId === "folder-extra-a") {
+        return createJsonResponse({
+          id: "folder-extra-a",
+          mimeType: "application/vnd.google-apps.folder",
+          name: "Extra A",
+        });
+      }
+      const level = folderId?.match(/^folder-(\d+)$/)?.[1];
+      if (level) {
+        const levelNumber = Number.parseInt(level, 10);
+        return createJsonResponse({
+          id: `folder-${levelNumber}`,
+          mimeType: "application/vnd.google-apps.folder",
+          name: `Folder ${levelNumber}`,
+          parents: [`folder-${levelNumber + 1}`],
+        });
+      }
+      throw new Error(`Unexpected Google URL: ${url}`);
+    });
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.spreadsheets[0].folderPaths).toEqual([
+      {
+        folderIds: ["folder-5", "folder-4", "folder-3", "folder-2", "folder-1"],
+        pathSegments: [
+          { id: "folder-5", name: "Folder 5" },
+          { id: "folder-4", name: "Folder 4" },
+          { id: "folder-3", name: "Folder 3" },
+          { id: "folder-2", name: "Folder 2" },
+          { id: "folder-1", name: "Folder 1" },
+        ],
+      },
+      {
+        folderIds: ["folder-extra-a"],
+        pathSegments: [{ id: "folder-extra-a", name: "Extra A" }],
+      },
+    ]);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/drive/v3/files/folder-extra-b?"),
+      ),
+    ).toBe(false);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/drive/v3/files/folder-6?"),
+      ),
+    ).toBe(false);
   });
 
   it("fetches sibling folder paths without serializing spreadsheet rows", async () => {
@@ -302,6 +421,258 @@ describe("Google Sheets spreadsheet list route", () => {
     expect(body.spreadsheets).toHaveLength(2);
   });
 
+  it("limits concurrent folder metadata requests", async () => {
+    const folders = Array.from({ length: 5 }, () => createDeferredResponse());
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      if (url.includes("/drive/v3/files?")) {
+        return Promise.resolve(
+          createJsonResponse({
+            files: folders.map((_folder, index) => ({
+              id: `spreadsheet-${index + 1}`,
+              name: `Responses ${index + 1}`,
+              parents: [`folder-${index + 1}`],
+            })),
+          }),
+        );
+      }
+      const folderIndex = Number.parseInt(
+        url.match(/\/drive\/v3\/files\/folder-(\d+)\?/)?.[1] ?? "0",
+        10,
+      );
+      return folders[folderIndex - 1]?.promise ?? Promise.reject();
+    });
+    const app = createApp();
+
+    const responsePromise = app.request(
+      "/api/integrations/google/spreadsheets",
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+    folders[0]?.resolve(
+      createJsonResponse({
+        id: "folder-1",
+        mimeType: "application/vnd.google-apps.folder",
+        name: "Folder 1",
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+    for (const [index, folder] of folders.entries()) {
+      folder.resolve(
+        createJsonResponse({
+          id: `folder-${index + 1}`,
+          mimeType: "application/vnd.google-apps.folder",
+          name: `Folder ${index + 1}`,
+        }),
+      );
+    }
+
+    const response = await responsePromise;
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.spreadsheets).toHaveLength(5);
+  });
+
+  it("keeps spreadsheet rows when folder metadata requests time out", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation((input, init) => {
+        const url = String(input);
+        if (url.includes("/drive/v3/files?")) {
+          return Promise.resolve(
+            createJsonResponse({
+              files: Array.from({ length: 5 }, (_value, index) => ({
+                id: `spreadsheet-${index + 1}`,
+                name: `Responses ${index + 1}`,
+                parents: [`folder-${index + 1}`],
+              })),
+            }),
+          );
+        }
+        return createAbortableNeverResponse(init?.signal ?? null);
+      });
+      const app = createApp();
+
+      const responsePromise = app.request(
+        "/api/integrations/google/spreadsheets",
+      );
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const response = await responsePromise;
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.spreadsheets).toEqual(
+        Array.from({ length: 5 }, (_value, index) => ({
+          folderPaths: [],
+          id: `spreadsheet-${index + 1}`,
+          itemType: "spreadsheet",
+          name: `Responses ${index + 1}`,
+          parents: [`folder-${index + 1}`],
+        })),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/drive/v3/files/folder-5?"),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("short-circuits queued folder metadata requests after rate limits", async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/drive/v3/files?")) {
+        return createJsonResponse({
+          files: Array.from({ length: 5 }, (_value, index) => ({
+            id: `spreadsheet-${index + 1}`,
+            name: `Responses ${index + 1}`,
+            parents: [`folder-${index + 1}`],
+          })),
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          error: {
+            errors: [{ reason: "rateLimitExceeded" }],
+          },
+        }),
+        {
+          headers: { "content-type": "application/json" },
+          status: 403,
+        },
+      );
+    });
+    const app = createApp();
+
+    const response = await app.request("/api/integrations/google/spreadsheets");
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.spreadsheets).toEqual(
+      Array.from({ length: 5 }, (_value, index) => ({
+        folderPaths: [],
+        id: `spreadsheet-${index + 1}`,
+        itemType: "spreadsheet",
+        name: `Responses ${index + 1}`,
+        parents: [`folder-${index + 1}`],
+      })),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/drive/v3/files/folder-5?"),
+      ),
+    ).toBe(false);
+  });
+
+  it("short-circuits queued folder metadata requests when rate-limit bodies time out", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation((input) => {
+        const url = String(input);
+        if (url.includes("/drive/v3/files?")) {
+          return Promise.resolve(
+            createJsonResponse({
+              files: Array.from({ length: 5 }, (_value, index) => ({
+                id: `spreadsheet-${index + 1}`,
+                name: `Responses ${index + 1}`,
+                parents: [`folder-${index + 1}`],
+              })),
+            }),
+          );
+        }
+        return Promise.resolve(createHangingJsonResponse(403));
+      });
+      const app = createApp();
+
+      const responsePromise = app.request(
+        "/api/integrations/google/spreadsheets",
+      );
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const response = await responsePromise;
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.spreadsheets).toEqual(
+        Array.from({ length: 5 }, (_value, index) => ({
+          folderPaths: [],
+          id: `spreadsheet-${index + 1}`,
+          itemType: "spreadsheet",
+          name: `Responses ${index + 1}`,
+          parents: [`folder-${index + 1}`],
+        })),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/drive/v3/files/folder-5?"),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps spreadsheet rows when folder metadata JSON bodies time out", async () => {
+    vi.useFakeTimers();
+    try {
+      const cancelBodyRead = vi.fn();
+      fetchMock.mockImplementation((input) => {
+        const url = String(input);
+        if (url.includes("/drive/v3/files?")) {
+          return Promise.resolve(
+            createJsonResponse({
+              files: Array.from({ length: 5 }, (_value, index) => ({
+                id: `spreadsheet-${index + 1}`,
+                name: `Responses ${index + 1}`,
+                parents: [`folder-${index + 1}`],
+              })),
+            }),
+          );
+        }
+        return Promise.resolve(createHangingJsonResponse(200, cancelBodyRead));
+      });
+      const app = createApp();
+
+      const responsePromise = app.request(
+        "/api/integrations/google/spreadsheets",
+      );
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      const response = await responsePromise;
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.spreadsheets).toEqual(
+        Array.from({ length: 5 }, (_value, index) => ({
+          folderPaths: [],
+          id: `spreadsheet-${index + 1}`,
+          itemType: "spreadsheet",
+          name: `Responses ${index + 1}`,
+          parents: [`folder-${index + 1}`],
+        })),
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(cancelBodyRead).toHaveBeenCalledTimes(4);
+      expect(
+        fetchMock.mock.calls.some((call) =>
+          String(call[0]).includes("/drive/v3/files/folder-5?"),
+        ),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns 502 when fetching spreadsheets cannot reach Google", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
     const app = createApp();
@@ -312,6 +683,31 @@ describe("Google Sheets spreadsheet list route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Failed to fetch spreadsheet list",
     });
+  });
+
+  it("returns 502 when fetching spreadsheets times out", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation((_input, init) =>
+        createAbortableNeverResponse(init?.signal ?? null),
+      );
+      const app = createApp();
+
+      const responsePromise = app.request(
+        "/api/integrations/google/spreadsheets",
+      );
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      const response = await responsePromise;
+
+      expect(response.status).toBe(502);
+      await expect(response.json()).resolves.toEqual({
+        error: "Failed to fetch spreadsheet list",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns 502 when spreadsheet list returns invalid JSON", async () => {
