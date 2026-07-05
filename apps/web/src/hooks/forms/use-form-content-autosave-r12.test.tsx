@@ -30,22 +30,43 @@ const { MockRpcError, putContentMock } = vi.hoisted(() => {
 });
 
 interface TestMutationVariables {
+  contentQueryKey: readonly unknown[];
+  formId: string;
   expectedVersion: number;
   plateContent: string;
   restoreGeneration: number;
 }
 
+type TestMutationVariablesInput =
+  | TestMutationVariables
+  | Omit<TestMutationVariables, "contentQueryKey" | "formId">;
+
 interface TestMutationOptions {
-  onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
-  onError?: (error: unknown, variables: TestMutationVariables) => void;
+  onSuccess?: (data: unknown, variables: TestMutationVariablesInput) => void;
+  onError?: (error: unknown, variables: TestMutationVariablesInput) => void;
 }
 
 let latestMutationOptions: TestMutationOptions | undefined;
 const attemptMergeMock = vi.fn();
 
+function withDefaultMutationScope(
+  variables: TestMutationVariablesInput,
+): TestMutationVariables {
+  return {
+    contentQueryKey: ["formContent", "form-1"],
+    formId: "form-1",
+    ...variables,
+  };
+}
+
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: TestMutationOptions) => {
-    latestMutationOptions = options;
+    latestMutationOptions = {
+      onError: (error, variables) =>
+        options.onError?.(error, withDefaultMutationScope(variables)),
+      onSuccess: (data, variables) =>
+        options.onSuccess?.(data, withDefaultMutationScope(variables)),
+    };
     return { mutate: mutateMock };
   },
   useQueryClient: () => ({

@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ExternalLink, Eye } from "lucide-react";
 import type { FC } from "react";
 import { EDITOR_TAB_DEFINITIONS } from "@/components/forms/form-editor-page/editor-tab-definitions";
+import { isEditOnlyEditorTab } from "@/components/forms/form-editor-tabs";
 import { FormHeader } from "@/components/forms/form-header";
 import { FormPublishMenu } from "@/components/forms/form-publish-menu";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
@@ -101,12 +102,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       >
         {EDITOR_TAB_DEFINITIONS.map((tab) => {
           const Icon = tab.icon;
-          const disabled =
-            !canEditForm &&
-            (tab.key === "settings" ||
-              tab.key === "validation" ||
-              tab.key === "sharing" ||
-              tab.key === "responses");
+          const disabled = !canEditForm && isEditOnlyEditorTab(tab.key);
           return (
             <TabsTrigger
               key={tab.key}

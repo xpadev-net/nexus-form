@@ -667,8 +667,46 @@ describe("FormEditorPage tab synchronization", () => {
     act(() => root.unmount());
   });
 
+  it("waits for permission before rendering an editable owner share page", () => {
+    searchShareToken = "shared-editor-token";
+    permissionQueryState = {
+      data: undefined,
+      isError: false,
+      isLoading: true,
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain("読み込み中...");
+    expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
+
+    permissionQueryState = {
+      data: { role: "OWNER" },
+      isError: false,
+      isLoading: false,
+    };
+    rerenderPage(root);
+
+    expect(
+      container
+        .querySelector("[data-testid='plate-editor']")
+        ?.getAttribute("data-read-only"),
+    ).toBe("false");
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("設定"));
+    expect(settingsButton?.disabled).toBe(false);
+    expect(autosaveOptionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: true }),
+    );
+
+    act(() => root.unmount());
+  });
+
   it.each([
     "settings",
+    "validation",
+    "sharing",
     "responses",
   ])("redirects viewer share links away from %s tab URLs", (blockedTab) => {
     searchShareToken = "shared-viewer-token";

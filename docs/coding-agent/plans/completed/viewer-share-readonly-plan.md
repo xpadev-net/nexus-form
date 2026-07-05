@@ -78,6 +78,10 @@
 - 2026-07-05: Reviewer found autosave cleanup could still flush pending writes when permission changed true-to-false; fixed cleanup to use unmount-only refs and added true-to-false coverage.
 - 2026-07-05: Validation passed after final fixes: focused web vitest, share-link Playwright E2E, `pnpm lint:fix`, `pnpm type-check`, and `pnpm test --silent`.
 - 2026-07-05: Final reviewer pass approved the diff with no actionable issues.
+- 2026-07-05: `gh-review-hook` found form-id switch cleanup and coverage gaps; fixed autosave form-id transition cleanup, centralized edit-only tab keys, gated editor rendering on permission certainty, and added targeted tests.
+- 2026-07-05: Re-validation passed after hook fixes: focused web vitest, share-link Playwright E2E, `pnpm lint:fix`, `pnpm type-check`, and `pnpm test --silent`.
+- 2026-07-05: Follow-up reviewer found an async keepalive fallback edge on form-id switch; fixed non-ok keepalive fallback to always preserve the pending save for the target form.
+- 2026-07-05: Final reviewer found in-flight autosave success could use the current form scope after form-id switch; fixed content save variables to carry form/query scope and added regression coverage.
 
 ## Decision Log
 - 2026-07-05: Approval wait waived because the user asked for an implementation fix and the affected surface is bounded to viewer share-link UI permissions.

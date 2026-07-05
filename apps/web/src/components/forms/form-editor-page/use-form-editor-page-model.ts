@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   getEditorTabFromSearch,
+  isEditOnlyEditorTab,
   isEditorTab,
 } from "@/components/forms/form-editor-tabs";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
@@ -121,9 +122,11 @@ export function useFormEditorPageModel(formId: string) {
       ),
     retry: shouldRetryQuery,
   });
-  const canUseEditorRealtimeSync =
+  const hasEditorPermission =
     myPermissionQuery.data?.role === "OWNER" ||
     myPermissionQuery.data?.role === "EDITOR";
+  const canUseEditorRealtimeSync =
+    !myPermissionQuery.isLoading && hasEditorPermission;
   const canEditForm = canUseEditorRealtimeSync;
 
   const {
@@ -398,13 +401,7 @@ export function useFormEditorPageModel(formId: string) {
 
   const handleTabChange = (value: string) => {
     if (!isEditorTab(value) || value === activeTab) return;
-    if (
-      !canEditForm &&
-      (value === "settings" ||
-        value === "validation" ||
-        value === "sharing" ||
-        value === "responses")
-    ) {
+    if (!canEditForm && isEditOnlyEditorTab(value)) {
       toast.info("閲覧権限ではこの設定を変更できません");
       return;
     }
@@ -445,7 +442,7 @@ export function useFormEditorPageModel(formId: string) {
     isDeletePending: deleteMutation.isPending,
     isDuplicatePending: duplicateMutation.isPending,
     isFormError: formQuery.isError,
-    isFormLoading: formQuery.isLoading,
+    isFormLoading: formQuery.isLoading || myPermissionQuery.isLoading,
     isMerging,
     isNotFound,
     isSaving,
