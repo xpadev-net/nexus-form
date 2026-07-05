@@ -903,7 +903,7 @@ export function useFormContentAutosave({
         expectedVersion: retryPending.expectedVersion,
         plateContent: retryPending.plateContent,
       };
-      clearPendingSave(formId);
+      clearPendingSaveForAuthScope(formId, currentAuthScope);
       inFlightValueRef.current = retryPayload.plateContent;
       inFlightExpectedVersionRef.current = retryPayload.expectedVersion;
       storeInFlightPendingSave(formId, {

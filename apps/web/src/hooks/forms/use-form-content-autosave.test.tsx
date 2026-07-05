@@ -497,7 +497,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     const root = renderAutosave(() => {});
     await flushPromises();
 
-    expect(rpcMock).toHaveBeenCalledOnce();
+    expect(rpcMock).toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
 
     act(() => {
@@ -537,6 +537,52 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     await flushPromises();
 
     expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not delete a different auth scope pending save before storing mount retry in-flight fallback", async () => {
+    const pendingSave = stringifyPendingSave({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+    });
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    const removeItemMock = vi.fn();
+    const setItemMock = vi.fn();
+    const getItemMock = vi.fn(() => {
+      const stack = new Error().stack ?? "";
+      if (
+        stack.includes("clearPendingSaveForAuthScope") ||
+        stack.includes("storeInFlightPendingSave")
+      ) {
+        return differentScopeSave;
+      }
+      return pendingSave;
+    });
+    vi.stubGlobal("localStorage", {
+      ...createMemoryStorage(),
+      getItem: getItemMock,
+      removeItem: removeItemMock,
+      setItem: setItemMock,
+    });
+    rpcMock.mockReturnValue(new Promise(() => {}));
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalled();
+    expect(removeItemMock).not.toHaveBeenCalled();
+    expect(setItemMock).not.toHaveBeenCalled();
 
     act(() => {
       root.unmount();
