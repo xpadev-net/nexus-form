@@ -17,6 +17,14 @@ import {
 } from "@/lib/api";
 
 const pendingSaveSchema = z.object({
+  authScope: z.object({
+    principalKey: z.string(),
+    role: z.enum(["EDITOR", "VIEWER"]),
+    type: z.enum(["session", "share-token"]),
+  }),
+  failureStatus: z.number().int().optional(),
+  failureType: z.enum(["http", "network", "unknown"]).optional(),
+  formId: z.string(),
   plateContent: z.string(),
   expectedVersion: z.number().int(),
   retryBlocked: z.literal("conflict").optional(),
@@ -26,7 +34,46 @@ const pendingSaveSchema = z.object({
 const KEEPALIVE_LIMIT = 64 * 1024;
 const IN_FLIGHT_FALLBACK_RETRY_DELAY_MS = 1000;
 
-type PendingSave = z.infer<typeof pendingSaveSchema>;
+export type PendingSave = z.infer<typeof pendingSaveSchema>;
+export type PendingSaveAuthScope = PendingSave["authScope"];
+
+function fingerprintPrincipal(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index++) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `fnv1a:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function getShareTokenFromCurrentUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return new URL(window.location.href).searchParams.get("shareToken");
+  } catch {
+    return null;
+  }
+}
+
+function buildPendingSaveAuthScope(enabled: boolean): PendingSaveAuthScope {
+  const shareToken = getShareTokenFromCurrentUrl();
+  return {
+    principalKey: shareToken
+      ? fingerprintPrincipal(shareToken)
+      : "current-session",
+    role: enabled ? "EDITOR" : "VIEWER",
+    type: shareToken ? "share-token" : "session",
+  };
+}
+
+function arePendingSaveAuthScopesEqual(
+  a: PendingSaveAuthScope,
+  b: PendingSaveAuthScope,
+): boolean {
+  return (
+    a.principalKey === b.principalKey && a.role === b.role && a.type === b.type
+  );
+}
 
 function parsePendingSave(body: string): PendingSave | null {
   try {
@@ -66,9 +113,55 @@ function clearPendingSave(formId: string) {
   }
 }
 
+function shouldPreserveExistingPendingSave(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+): boolean {
+  const existing = readCurrentPendingSave(formId);
+  return (
+    existing?.data.retryBlocked === "conflict" ||
+    (existing != null &&
+      !arePendingSaveAuthScopesEqual(existing.data.authScope, authScope))
+  );
+}
+
+function storeScopedPendingSave(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+  body: string,
+) {
+  try {
+    if (shouldPreserveExistingPendingSave(formId, authScope)) return;
+  } catch {
+    // If the existing entry cannot be inspected, replace it with the recoverable save.
+  }
+  storePendingSave(formId, body);
+}
+
+function clearPendingSaveForAuthScope(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+) {
+  const existing = readCurrentPendingSave(formId);
+  if (!existing) {
+    clearPendingSave(formId);
+    return;
+  }
+  if (
+    existing.data.formId === formId &&
+    arePendingSaveAuthScopesEqual(existing.data.authScope, authScope)
+  ) {
+    clearPendingSave(formId);
+  }
+}
+
 function clearResolvedPendingSave(
   formId: string,
-  savedContent: { expectedVersion: number; plateContent: string },
+  savedContent: {
+    authScope: PendingSaveAuthScope;
+    expectedVersion: number;
+    plateContent: string;
+  },
 ) {
   const key = `pendingSave:${formId}`;
   let saved: string | null;
@@ -85,6 +178,11 @@ function clearResolvedPendingSave(
     return;
   }
   if (
+    pendingSave.formId === formId &&
+    arePendingSaveAuthScopesEqual(
+      pendingSave.authScope,
+      savedContent.authScope,
+    ) &&
     pendingSave.expectedVersion === savedContent.expectedVersion &&
     pendingSave.plateContent === savedContent.plateContent
   ) {
@@ -94,17 +192,14 @@ function clearResolvedPendingSave(
 
 function storeInFlightPendingSave(
   formId: string,
-  save: { expectedVersion: number; plateContent: string },
+  save: {
+    authScope: PendingSaveAuthScope;
+    expectedVersion: number;
+    plateContent: string;
+  },
 ) {
-  const key = `pendingSave:${formId}`;
   try {
-    const existing = localStorage.getItem(key);
-    if (existing) {
-      const pendingSave = parsePendingSave(existing);
-      if (pendingSave?.retryBlocked === "conflict") {
-        return;
-      }
-    }
+    if (shouldPreserveExistingPendingSave(formId, save.authScope)) return;
   } catch {
     // If the existing entry cannot be inspected, replace it with the recoverable in-flight save.
   }
@@ -112,9 +207,28 @@ function storeInFlightPendingSave(
     formId,
     JSON.stringify({
       ...save,
+      formId,
       source: "in-flight",
     }),
   );
+}
+
+function buildPendingSaveBody(
+  formId: string,
+  save: {
+    authScope: PendingSaveAuthScope;
+    expectedVersion: number;
+    failureStatus?: number;
+    failureType?: PendingSave["failureType"];
+    plateContent: string;
+    retryBlocked?: "conflict";
+    source?: "in-flight";
+  },
+): string {
+  return JSON.stringify({
+    ...save,
+    formId,
+  });
 }
 
 function areQueryKeysEqual(a: readonly unknown[], b: readonly unknown[]) {
@@ -127,6 +241,7 @@ interface ContentQueryData {
 }
 
 interface ContentSaveInput {
+  authScope: PendingSaveAuthScope;
   contentQueryKey: readonly unknown[];
   formId: string;
   plateContent: string;
@@ -203,6 +318,7 @@ export function useFormContentAutosave({
   const enabledRef = useRef(enabled);
   const contentQueryKeyRef = useRef(contentQueryKey);
   const formIdRef = useRef(formId);
+  const authScopeRef = useRef(buildPendingSaveAuthScope(enabled));
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
@@ -213,11 +329,15 @@ export function useFormContentAutosave({
   enabledRef.current = enabled;
   contentQueryKeyRef.current = contentQueryKey;
   formIdRef.current = formId;
+  authScopeRef.current = buildPendingSaveAuthScope(enabled);
 
   const enqueueContentSave = useCallback(
-    (input: Omit<ContentSaveInput, "contentQueryKey" | "formId">) => {
+    (
+      input: Omit<ContentSaveInput, "authScope" | "contentQueryKey" | "formId">,
+    ) => {
       mutateRef.current({
         ...input,
+        authScope: authScopeRef.current,
         contentQueryKey,
         formId,
       });
@@ -226,9 +346,12 @@ export function useFormContentAutosave({
   );
 
   const enqueueCurrentContentSave = useCallback(
-    (input: Omit<ContentSaveInput, "contentQueryKey" | "formId">) => {
+    (
+      input: Omit<ContentSaveInput, "authScope" | "contentQueryKey" | "formId">,
+    ) => {
       mutateRef.current({
         ...input,
+        authScope: authScopeRef.current,
         contentQueryKey: contentQueryKeyRef.current,
         formId: formIdRef.current,
       });
@@ -492,6 +615,7 @@ export function useFormContentAutosave({
       ),
     onSuccess: (data, variables) => {
       clearResolvedPendingSave(variables.formId, {
+        authScope: variables.authScope,
         expectedVersion: variables.expectedVersion,
         plateContent: variables.plateContent,
       });
@@ -545,7 +669,12 @@ export function useFormContentAutosave({
       inFlightExpectedVersionRef.current = null;
       setIsSaving(false);
       lastSavedVersionRef.current = null;
-      if (err instanceof RpcError && err.status === 409) {
+      if (
+        err instanceof RpcError &&
+        (err.status === 401 || err.status === 403)
+      ) {
+        clearPendingSaveForAuthScope(variables.formId, variables.authScope);
+      } else if (err instanceof RpcError && err.status === 409) {
         void attemptMerge();
       } else {
         toast.error("保存に失敗しました");
@@ -619,7 +748,11 @@ export function useFormContentAutosave({
   );
 
   const flushPendingSaveOnExit = useCallback(
-    (targetFormId: string, shouldFlush: boolean) => {
+    (
+      targetFormId: string,
+      shouldFlush: boolean,
+      authScope: PendingSaveAuthScope,
+    ) => {
       if (!shouldFlush) return;
       if (saveTimerRef.current != null) {
         window.clearTimeout(saveTimerRef.current);
@@ -628,6 +761,7 @@ export function useFormContentAutosave({
       const valueToSave = pendingValueRef.current;
       if (valueToSave == null && inFlightValueRef.current != null) {
         storeInFlightPendingSave(targetFormId, {
+          authScope,
           plateContent: inFlightValueRef.current,
           expectedVersion:
             inFlightExpectedVersionRef.current ?? versionRef.current,
@@ -647,6 +781,8 @@ export function useFormContentAutosave({
       // only fallback stored when both refs are set.
       const keepaliveVersion = versionRef.current;
       const body = JSON.stringify({
+        authScope,
+        formId: targetFormId,
         plateContent: valueToSave,
         expectedVersion: keepaliveVersion,
       });
@@ -664,18 +800,40 @@ export function useFormContentAutosave({
           .then((response) => {
             if (response.ok) {
               clearResolvedPendingSave(targetFormId, {
+                authScope,
                 expectedVersion: keepaliveVersion,
                 plateContent: valueToSave,
               });
+            } else if (response.status === 401 || response.status === 403) {
+              clearPendingSaveForAuthScope(targetFormId, authScope);
             } else {
-              storePendingSave(targetFormId, body);
+              storeScopedPendingSave(
+                targetFormId,
+                authScope,
+                buildPendingSaveBody(targetFormId, {
+                  authScope,
+                  expectedVersion: keepaliveVersion,
+                  failureStatus: response.status,
+                  failureType: "http",
+                  plateContent: valueToSave,
+                }),
+              );
             }
           })
           .catch(() => {
-            storePendingSave(targetFormId, body);
+            storeScopedPendingSave(
+              targetFormId,
+              authScope,
+              buildPendingSaveBody(targetFormId, {
+                authScope,
+                expectedVersion: keepaliveVersion,
+                failureType: "network",
+                plateContent: valueToSave,
+              }),
+            );
           });
       } else {
-        storePendingSave(targetFormId, body);
+        storeScopedPendingSave(targetFormId, authScope, body);
       }
     },
     [],
@@ -692,18 +850,19 @@ export function useFormContentAutosave({
   useEffect(() => {
     const cleanupFormId = formId;
     const cleanupEnabled = enabled;
+    const cleanupAuthScope = buildPendingSaveAuthScope(enabled);
     return () => {
       const isSameMountedForm = formIdRef.current === cleanupFormId;
       const isEnabledOnlyCleanup =
         isSameMountedForm && enabledRef.current !== cleanupEnabled;
       if (isEnabledOnlyCleanup) {
         if (cleanupEnabled && !enabledRef.current) {
-          flushPendingSaveOnExit(cleanupFormId, true);
+          flushPendingSaveOnExit(cleanupFormId, true, cleanupAuthScope);
           setIsSaving(false);
         }
         return;
       }
-      flushPendingSaveOnExit(cleanupFormId, cleanupEnabled);
+      flushPendingSaveOnExit(cleanupFormId, cleanupEnabled, cleanupAuthScope);
       if (!isSameMountedForm) {
         setIsSaving(false);
       }
@@ -713,8 +872,16 @@ export function useFormContentAutosave({
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
     if (!enabled) return;
+    const currentAuthScope = buildPendingSaveAuthScope(enabled);
     const saved = readCurrentPendingSave(formId);
     if (!saved) {
+      clearPendingSave(formId);
+      return;
+    }
+    if (
+      saved.data.formId !== formId ||
+      !arePendingSaveAuthScopesEqual(saved.data.authScope, currentAuthScope)
+    ) {
       clearPendingSave(formId);
       return;
     }
@@ -725,14 +892,24 @@ export function useFormContentAutosave({
         clearPendingSave(formId);
         return;
       }
+      if (
+        retryPending.formId !== formId ||
+        !arePendingSaveAuthScopesEqual(retryPending.authScope, currentAuthScope)
+      ) {
+        clearPendingSave(formId);
+        return;
+      }
       const retryPayload = {
         expectedVersion: retryPending.expectedVersion,
         plateContent: retryPending.plateContent,
       };
-      clearPendingSave(formId);
+      clearPendingSaveForAuthScope(formId, currentAuthScope);
       inFlightValueRef.current = retryPayload.plateContent;
       inFlightExpectedVersionRef.current = retryPayload.expectedVersion;
-      storeInFlightPendingSave(formId, retryPayload);
+      storeInFlightPendingSave(formId, {
+        ...retryPayload,
+        authScope: currentAuthScope,
+      });
       try {
         await rpc(
           client.api.forms[":id"].content.$put({
@@ -740,7 +917,10 @@ export function useFormContentAutosave({
             json: retryPayload,
           }),
         );
-        clearResolvedPendingSave(formId, retryPayload);
+        clearResolvedPendingSave(formId, {
+          ...retryPayload,
+          authScope: currentAuthScope,
+        });
         toast.success("前回未保存の変更を復元しました");
         void queryClient.invalidateQueries({
           queryKey: contentQueryKey,
@@ -750,25 +930,58 @@ export function useFormContentAutosave({
         });
       } catch (err) {
         if (err instanceof RpcError && err.status === 409) {
-          storePendingSave(
+          storeScopedPendingSave(
             formId,
-            JSON.stringify({ ...retryPayload, retryBlocked: "conflict" }),
+            currentAuthScope,
+            buildPendingSaveBody(formId, {
+              ...retryPayload,
+              authScope: currentAuthScope,
+              retryBlocked: "conflict",
+            }),
           );
           toast.warning("前回未保存の変更が競合しています");
           return;
         }
+        if (
+          err instanceof RpcError &&
+          (err.status === 401 || err.status === 403)
+        ) {
+          clearPendingSaveForAuthScope(formId, currentAuthScope);
+          return;
+        }
         const currentPendingSave = readCurrentPendingSave(formId);
         if (!currentPendingSave) {
-          storePendingSave(formId, JSON.stringify(retryPayload));
+          storePendingSave(
+            formId,
+            buildPendingSaveBody(formId, {
+              ...retryPayload,
+              authScope: currentAuthScope,
+              failureStatus: err instanceof RpcError ? err.status : undefined,
+              failureType: err instanceof RpcError ? "http" : "unknown",
+            }),
+          );
           return;
         }
         if (
+          currentPendingSave.data.formId === formId &&
+          arePendingSaveAuthScopesEqual(
+            currentPendingSave.data.authScope,
+            currentAuthScope,
+          ) &&
           currentPendingSave.data.retryBlocked !== "conflict" &&
           currentPendingSave.data.expectedVersion ===
             retryPayload.expectedVersion &&
           currentPendingSave.data.plateContent === retryPayload.plateContent
         ) {
-          storePendingSave(formId, JSON.stringify(retryPayload));
+          storePendingSave(
+            formId,
+            buildPendingSaveBody(formId, {
+              ...retryPayload,
+              authScope: currentAuthScope,
+              failureStatus: err instanceof RpcError ? err.status : undefined,
+              failureType: err instanceof RpcError ? "http" : "unknown",
+            }),
+          );
         }
       } finally {
         if (
@@ -793,6 +1006,11 @@ export function useFormContentAutosave({
       if (
         currentPendingSave.data.source !== "in-flight" ||
         currentPendingSave.data.retryBlocked === "conflict" ||
+        currentPendingSave.data.formId !== formId ||
+        !arePendingSaveAuthScopesEqual(
+          currentPendingSave.data.authScope,
+          currentAuthScope,
+        ) ||
         currentPendingSave.data.expectedVersion !==
           saved.data.expectedVersion ||
         currentPendingSave.data.plateContent !== saved.data.plateContent
