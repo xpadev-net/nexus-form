@@ -271,7 +271,7 @@ describe("Google Sheets spreadsheet list route", () => {
 
     expect(response.status).toBe(200);
     const listUrl = new URL(fetchMock.mock.calls[0]?.[0] as string);
-    expect(listUrl.searchParams.get("pageSize")).toBe("50");
+    expect(listUrl.searchParams.get("pageSize")).toBe("100");
   });
 
   it("returns empty folder paths for root-level spreadsheets", async () => {
@@ -299,7 +299,7 @@ describe("Google Sheets spreadsheet list route", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const listUrl = new URL(fetchMock.mock.calls[0]?.[0] as string);
-    expect(listUrl.searchParams.get("pageSize")).toBe("50");
+    expect(listUrl.searchParams.get("pageSize")).toBe("100");
   });
 
   it("bounds folder path metadata depth and parent fan-out", async () => {

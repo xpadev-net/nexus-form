@@ -80,7 +80,7 @@ const googleApiErrorResponseSchema = z.object({
     .optional(),
 });
 
-const DRIVE_SPREADSHEET_LIST_PAGE_SIZE_MAX = 50;
+const DRIVE_SPREADSHEET_LIST_PAGE_SIZE_MAX = 100;
 const DRIVE_FOLDER_PATH_DEPTH_MAX = 5;
 const DRIVE_FOLDER_PARENT_FANOUT_MAX = 2;
 const DRIVE_FOLDER_METADATA_CONCURRENCY_MAX = 4;
