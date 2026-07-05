@@ -897,11 +897,17 @@ function isSharedSheetLayout(
 }
 
 function isSharedTitleHeaderRow(titleHeaders: string[]): boolean {
-  if (titleHeaders.length === 0) return true;
-  return SHARED_BASE_TITLE_HEADERS.every((header, index) => {
-    const existing = titleHeaders[index];
-    return existing === undefined || existing === "" || existing === header;
-  });
+  let hasTitleHeader = false;
+  const hasOnlySharedTitleHeaders = SHARED_BASE_TITLE_HEADERS.every(
+    (header, index) => {
+      const existing = titleHeaders[index];
+      if (existing === undefined || existing === "") return true;
+      if (existing !== header) return false;
+      hasTitleHeader = true;
+      return true;
+    },
+  );
+  return hasTitleHeader && hasOnlySharedTitleHeaders;
 }
 
 function hasSheetRowChanged(nextRow: string[], existingRow: string[]): boolean {

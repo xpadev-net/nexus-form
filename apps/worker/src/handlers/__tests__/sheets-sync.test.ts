@@ -1340,6 +1340,47 @@ describe("handleSheetsSync — write path", () => {
     expect(mockUpdateRange).not.toHaveBeenCalled();
   });
 
+  it("does not treat shared id headers without a title row as shared layout", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            [
+              "Response ID",
+              "Respondent UUID",
+              "Submitted At",
+              "Updated At",
+              "Country Code",
+              "UA UUID",
+              "Uniqueness Score",
+              "block-1",
+            ],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+  });
+
   it("uses the shared export sheet contract for empty-sheet headers, metadata, and formula neutralization", async () => {
     const responseDataJson = JSON.stringify([
       {
