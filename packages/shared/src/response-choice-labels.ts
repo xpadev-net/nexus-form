@@ -128,7 +128,13 @@ function formatGridDisplayValue(
 ): string | undefined {
   if (!item.responses) return undefined;
 
-  const lines = Object.entries(item.responses).map(([rowId, rowValue]) => {
+  const rowIds = [
+    ...lookup.rows.keys(),
+    ...Object.keys(item.responses).filter((rowId) => !lookup.rows.has(rowId)),
+  ];
+
+  const lines = rowIds.map((rowId) => {
+    const rowValue = item.responses?.[rowId];
     const rowLabel = gridItemLabel(lookup.rows, rowId);
     if (item.question_type === "choice_grid" && typeof rowValue === "string") {
       return `${rowLabel}: ${gridItemLabel(lookup.columns, rowValue)}`;

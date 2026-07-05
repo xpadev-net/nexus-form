@@ -94,7 +94,10 @@ vi.mock("../../lib/shutdown-signal", () => ({
 }));
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
-import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import {
+  extractQuestionsFromPlateContent,
+  responsePayloadItemSchema,
+} from "@nexus-form/shared";
 import { and } from "drizzle-orm";
 import {
   appendRows,
@@ -1491,6 +1494,187 @@ describe("handleSheetsSync — write path", () => {
             "1.0000",
             "2125e6c8-927f-51bd-9bae-51b41e1793a4",
             "' =cmd",
+          ],
+        ],
+      }),
+    );
+  });
+
+  it("uses display labels for dropdown, checkbox, and grid answers in shared sheet rows", async () => {
+    const responseDataJson = JSON.stringify([
+      {
+        question_id: "tool-dropdown",
+        question_type: "dropdown",
+        question_title: "利用ツール",
+        value: "react",
+      },
+      {
+        question_id: "interest-checkbox",
+        question_type: "checkbox",
+        question_title: "興味",
+        values: ["ts", "react"],
+      },
+      {
+        question_id: "availability-choice-grid",
+        question_type: "choice_grid",
+        question_title: "参加可能日",
+        responses: { monday: "morning" },
+      },
+      {
+        question_id: "availability-checkbox-grid",
+        question_type: "checkbox_grid",
+        question_title: "参加可能時間",
+        responses: { monday: ["morning", "evening"], tuesday: [] },
+      },
+    ]);
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          responseDataJson,
+          respondentUuid: "respondent-choice",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+          updatedAt: null,
+          countryCode: "JP",
+          userAgent: null,
+        },
+      ],
+      [{ plateContent: JSON.stringify([{ type: "p" }]) }],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(json);
+      const result = responsePayloadItemSchema.array().safeParse(parsed);
+      if (!result.success) return null;
+      return Object.fromEntries(
+        result.data.map((item) => {
+          if (item.responses) {
+            return [item.question_id, JSON.stringify(item.responses)];
+          }
+          if (Array.isArray(item.values)) {
+            return [item.question_id, item.values.map(String).join(",")];
+          }
+          return [
+            item.question_id,
+            item.value === null || item.value === undefined
+              ? ""
+              : String(item.value),
+          ];
+        }),
+      );
+    });
+    mockExtractQuestionsFromPlateContent.mockReturnValue([
+      {
+        blockId: "tool-dropdown",
+        title: "利用ツール",
+        type: "dropdown",
+        validation: {
+          options: [
+            { id: "ts", label: "TypeScript" },
+            { id: "react", label: "React" },
+          ],
+        },
+      },
+      {
+        blockId: "interest-checkbox",
+        title: "興味",
+        type: "checkbox",
+        validation: {
+          options: [
+            { id: "ts", label: "TypeScript" },
+            { id: "react", label: "React" },
+          ],
+        },
+      },
+      {
+        blockId: "availability-choice-grid",
+        title: "参加可能日",
+        type: "choice_grid",
+        validation: {
+          rows: [
+            { id: "monday", label: "月曜" },
+            { id: "tuesday", label: "火曜" },
+          ],
+          columns: [{ id: "morning", label: "午前" }],
+        },
+      },
+      {
+        blockId: "availability-checkbox-grid",
+        title: "参加可能時間",
+        type: "checkbox_grid",
+        validation: {
+          rows: [
+            { id: "monday", label: "月曜" },
+            { id: "tuesday", label: "火曜" },
+            { id: "wednesday", label: "水曜" },
+          ],
+          columns: [
+            { id: "morning", label: "午前" },
+            { id: "evening", label: "夜" },
+          ],
+        },
+      },
+    ]);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    const updateValues = getFirstUpdateValues();
+    expect(getUpdateRow(updateValues, 0)).toEqual([
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "UA UUID",
+      "Uniqueness Score",
+      "tool-dropdown",
+      "interest-checkbox",
+      "availability-choice-grid",
+      "availability-checkbox-grid",
+    ]);
+    expect(getUpdateRow(updateValues, 1)).toEqual([
+      "回答ID",
+      "回答者UUID",
+      "送信日時",
+      "更新日時",
+      "国コード",
+      "UA UUID",
+      "ユニーク度スコア",
+      "利用ツール",
+      "興味",
+      "参加可能日",
+      "参加可能時間",
+    ]);
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [
+          [
+            "response-1",
+            "respondent-choice",
+            "2026-05-17T01:00:00.000Z",
+            "",
+            "JP",
+            "",
+            "1.0000",
+            "React",
+            "TypeScript, React",
+            "月曜: 午前\n火曜: 未回答",
+            "月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答",
           ],
         ],
       }),

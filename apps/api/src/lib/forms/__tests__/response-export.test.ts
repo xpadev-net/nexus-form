@@ -46,14 +46,50 @@ const formBlocks = [
     },
   },
   {
+    blockId: "dropdown-block",
+    category: "question",
+    type: "dropdown",
+    content: {
+      title: "利用ツール",
+      validation: {
+        options: [
+          { id: "ts", label: "TypeScript" },
+          { id: "react", label: "React" },
+        ],
+      },
+    },
+  },
+  {
     blockId: "grid-block",
     category: "question",
     type: "choice_grid",
     content: {
       title: "参加可能日",
       validation: {
-        rows: [{ id: "monday", label: "月曜" }],
+        rows: [
+          { id: "monday", label: "月曜" },
+          { id: "tuesday", label: "火曜" },
+        ],
         columns: [{ id: "morning", label: "午前" }],
+      },
+    },
+  },
+  {
+    blockId: "checkbox-grid-block",
+    category: "question",
+    type: "checkbox_grid",
+    content: {
+      title: "参加可能時間",
+      validation: {
+        rows: [
+          { id: "monday", label: "月曜" },
+          { id: "tuesday", label: "火曜" },
+          { id: "wednesday", label: "水曜" },
+        ],
+        columns: [
+          { id: "morning", label: "午前" },
+          { id: "evening", label: "夜" },
+        ],
       },
     },
   },
@@ -111,9 +147,19 @@ describe("response export", () => {
               values: ["ts", "react"],
             },
             {
+              question_id: "dropdown-block",
+              question_type: "dropdown",
+              value: "react",
+            },
+            {
               question_id: "grid-block",
               question_type: "choice_grid",
               responses: { monday: "morning" },
+            },
+            {
+              question_id: "checkbox-grid-block",
+              question_type: "checkbox_grid",
+              responses: { monday: ["morning", "evening"], tuesday: [] },
             },
             {
               question_id: "rating-block",
@@ -156,11 +202,25 @@ describe("response export", () => {
         display_value: ["TypeScript", "React"],
       },
       {
+        block_id: "dropdown-block",
+        block_type: "dropdown",
+        question_title: undefined,
+        value: "react",
+        display_value: "React",
+      },
+      {
         block_id: "grid-block",
         block_type: "choice_grid",
         question_title: undefined,
         value: { monday: "morning" },
-        display_value: "月曜: 午前",
+        display_value: "月曜: 午前\n火曜: 未回答",
+      },
+      {
+        block_id: "checkbox-grid-block",
+        block_type: "checkbox_grid",
+        question_title: undefined,
+        value: { monday: ["morning", "evening"], tuesday: [] },
+        display_value: "月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答",
       },
       {
         block_id: "rating-block",
@@ -182,11 +242,11 @@ describe("response export", () => {
       blockTitleMap,
     );
 
-    expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠","興味","参加可能日","満足度","未回答"',
-    );
-    expect(csv.split("\n")[1]).toBe(
-      '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","月曜: 午前","5",""',
+    expect(csv).toBe(
+      [
+        '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
+        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
+      ].join("\n"),
     );
     expect(csv).not.toContain("区切り");
   });
