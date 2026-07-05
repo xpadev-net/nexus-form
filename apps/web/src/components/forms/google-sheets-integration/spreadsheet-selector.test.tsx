@@ -486,12 +486,18 @@ describe("SpreadsheetSelector", () => {
       expect(queryByText(container, /Company \/ Support/)).not.toBeNull();
       expect(queryAllByText(container, /Alpha/).length).toBeGreaterThan(0);
       expect(queryAllByText(container, /Beta/).length).toBeGreaterThan(0);
-      const idLabelText = queryAllByText(container, /ID:/)
-        .map((element) => element.textContent ?? "")
-        .join(" ");
-      expect(idLabelText).toContain("shared-s");
-      expect(idLabelText).toContain("rt-a");
-      expect(idLabelText).toContain("rt-b");
+      const salesReportOption = getByRole(container, "option", {
+        name: /Company \/ Sales/,
+      });
+      const supportReportOption = getByRole(container, "option", {
+        name: /Company \/ Support/,
+      });
+      expect(within(salesReportOption).queryByText(/ID:/)).not.toBeNull();
+      expect(salesReportOption.textContent).toContain("shared-s");
+      expect(salesReportOption.textContent).toContain("rt-a");
+      expect(within(supportReportOption).queryByText(/ID:/)).not.toBeNull();
+      expect(supportReportOption.textContent).toContain("shared-s");
+      expect(supportReportOption.textContent).toContain("rt-b");
     } finally {
       cleanupSelector(root, container);
     }

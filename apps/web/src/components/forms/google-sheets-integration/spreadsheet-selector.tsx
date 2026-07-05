@@ -636,6 +636,16 @@ interface SpreadsheetFolderEntry {
   folderLabel: string;
 }
 
+interface SpreadsheetFolderPathSegment {
+  id: string;
+  name: string;
+}
+
+interface SpreadsheetFolderPathEntry {
+  pathSegments: SpreadsheetFolderPathSegment[];
+  folderLabel: string;
+}
+
 function buildSpreadsheetFolderTree(
   spreadsheets: Spreadsheet[],
 ): SpreadsheetFolderNode[] {
@@ -691,10 +701,9 @@ function toSpreadsheetFolderNode(
   };
 }
 
-function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet): {
-  pathSegments: { id: string; name: string }[];
-  folderLabel: string;
-}[] {
+function getSpreadsheetFolderEntries(
+  spreadsheet: Spreadsheet,
+): SpreadsheetFolderPathEntry[] {
   const validFolderPaths = (spreadsheet.folderPaths ?? [])
     .map((folderPath) => folderPath.pathSegments)
     .filter((pathSegments) => pathSegments.length > 0);
@@ -732,11 +741,8 @@ function getSpreadsheetFolderEntries(spreadsheet: Spreadsheet): {
 }
 
 function toSpreadsheetFolderEntry(
-  pathSegments: { id: string; name: string }[],
-): {
-  pathSegments: { id: string; name: string }[];
-  folderLabel: string;
-} {
+  pathSegments: SpreadsheetFolderPathSegment[],
+): SpreadsheetFolderPathEntry {
   return {
     pathSegments,
     folderLabel: pathSegments.map((segment) => segment.name).join(" / "),
