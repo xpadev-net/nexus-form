@@ -17,7 +17,9 @@ import {
   type ComponentProps,
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -74,11 +76,17 @@ function buildPrefillUrl(publicId: string, data: PrefillData): string {
 }
 
 interface PrefillCopyButtonProps
-  extends Omit<ComponentProps<typeof Button>, "children" | "onClick"> {
+  extends Omit<
+    ComponentProps<typeof Button>,
+    "children" | "onClick" | "onCopy"
+  > {
+  copyText: string;
   iconClassName?: string;
   idleLabel: string;
-  onCopy: () => Promise<boolean>;
+  onCopy: (copyText: string) => Promise<CopyResult>;
 }
+
+type CopyResult = "copied" | "failed" | "stale";
 
 const prefillCopyFeedback = {
   copied: {
@@ -107,6 +115,7 @@ const prefillCopyFeedback = {
 
 function PrefillCopyButton({
   className,
+  copyText,
   disabled,
   iconClassName = "mr-1 h-3.5 w-3.5",
   idleLabel,
@@ -114,10 +123,20 @@ function PrefillCopyButton({
   ...props
 }: PrefillCopyButtonProps) {
   const { markCopied, markFailed, status } = useCopyFeedback();
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleClick = async () => {
-    const copied = await onCopy();
-    if (copied) {
+    const result = await onCopy(copyText);
+    if (!isMountedRef.current || result === "stale") {
+      return;
+    }
+    if (result === "copied") {
       markCopied();
       return;
     }
@@ -198,23 +217,44 @@ export function FormPrefillGenerator({
     if (Object.keys(supportedPrefillValues).length === 0) return "";
     return buildPrefillUrl(publicId, supportedPrefillValues);
   }, [supportedPrefillValues, publicId]);
+  const generatedUrlRef = useRef(generatedUrl);
+  generatedUrlRef.current = generatedUrl;
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;
 
-  const copyGeneratedUrl = useCallback(async (): Promise<boolean> => {
-    if (!generatedUrl) return false;
-    try {
-      await navigator.clipboard.writeText(generatedUrl);
-      toast.success("プリフィルURLをコピーしました");
-      if (isUrlTooLong) {
-        toast.warning("URLが長いため一部の環境で開けない可能性があります");
+  const copyGeneratedUrl = useCallback(
+    async (urlToCopy: string): Promise<CopyResult> => {
+      if (!urlToCopy) return "failed";
+      try {
+        await navigator.clipboard.writeText(urlToCopy);
+        if (generatedUrlRef.current !== urlToCopy) {
+          return "stale";
+        }
+        toast.success("プリフィルURLをコピーしました");
+        if (urlToCopy.length > MAX_SAFE_URL_LENGTH) {
+          toast.warning("URLが長いため一部の環境で開けない可能性があります");
+        }
+        return "copied";
+      } catch {
+        if (generatedUrlRef.current !== urlToCopy) {
+          return "stale";
+        }
+        return "failed";
       }
-      return true;
-    } catch {
-      toast.error("URLをコピーできませんでした");
-      return false;
-    }
-  }, [generatedUrl, isUrlTooLong]);
+    },
+    [],
+  );
+
+  const handleGeneratedUrlCopy = useCallback(
+    async (urlToCopy: string) => {
+      const result = await copyGeneratedUrl(urlToCopy);
+      if (result === "failed") {
+        toast.error("URLをコピーできませんでした");
+      }
+      return result;
+    },
+    [copyGeneratedUrl],
+  );
 
   if (questions.length === 0) {
     return (
@@ -240,7 +280,8 @@ export function FormPrefillGenerator({
           )}
           <PrefillCopyButton
             key={`header:${generatedUrl}`}
-            onCopy={copyGeneratedUrl}
+            copyText={generatedUrl}
+            onCopy={handleGeneratedUrlCopy}
             size="sm"
             disabled={!hasPrefillValues}
             idleLabel="URLをコピー"
@@ -266,7 +307,8 @@ export function FormPrefillGenerator({
             />
             <PrefillCopyButton
               key={`preview:${generatedUrl}`}
-              onCopy={copyGeneratedUrl}
+              copyText={generatedUrl}
+              onCopy={handleGeneratedUrlCopy}
               variant="ghost"
               size="sm"
               className="h-6 shrink-0 px-2 text-xs"

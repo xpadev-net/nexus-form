@@ -255,6 +255,57 @@ describe("FormPrefillGenerator", () => {
     vi.useRealTimers();
   });
 
+  it("ignores stale copy completion after the generated URL changes", async () => {
+    let resolveWriteText: (() => void) | null = null;
+    mocks.writeText.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveWriteText = resolve;
+      }),
+    );
+    const container = document.createElement("div");
+    const root = renderGenerator(container);
+
+    const nameInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Alice" } });
+      }
+    });
+
+    const generatedUrlInput =
+      container.querySelector<HTMLInputElement>("input[readonly]");
+    const copiedUrl = generatedUrlInput?.value;
+    const copyButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("URLをコピー"),
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      if (nameInput) {
+        fireEvent.input(nameInput, { target: { value: "Bob" } });
+      }
+    });
+
+    await act(async () => {
+      resolveWriteText?.();
+    });
+
+    expect(mocks.writeText).toHaveBeenCalledWith(copiedUrl);
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+    expect(
+      container
+        .querySelector<HTMLButtonElement>("button[data-copy-status]")
+        ?.getAttribute("data-copy-status"),
+    ).toBe("idle");
+
+    act(() => root.unmount());
+  });
+
   it("clears copy feedback when the generated URL is removed and recreated", async () => {
     vi.useFakeTimers();
     mocks.writeText.mockResolvedValueOnce(undefined);
