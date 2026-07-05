@@ -1,6 +1,15 @@
 export interface Spreadsheet {
   id: string;
   name?: string;
+  itemType?: "spreadsheet";
+  parents?: string[];
+  folderPaths?: {
+    folderIds: string[];
+    pathSegments: {
+      id: string;
+      name: string;
+    }[];
+  }[];
 }
 
 export const SPREADSHEET_SELECTOR_RESULT_LIMIT = 20;
