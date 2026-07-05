@@ -673,7 +673,7 @@ export function useFormContentAutosave({
         err instanceof RpcError &&
         (err.status === 401 || err.status === 403)
       ) {
-        clearPendingSave(variables.formId);
+        clearPendingSaveForAuthScope(variables.formId, variables.authScope);
       } else if (err instanceof RpcError && err.status === 409) {
         void attemptMerge();
       } else {

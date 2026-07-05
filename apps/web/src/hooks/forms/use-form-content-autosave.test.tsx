@@ -1113,6 +1113,50 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
   });
 
+  it("does not delete a different auth scope pending save when regular autosave authorization fails", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"editor draft"}]}]';
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    act(() => {
+      root.unmount();
+    });
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    act(() => {
+      latestMutationOptions?.onError?.(new MockRpcError(403), {
+        authScope: defaultAuthScope,
+        contentQueryKey: ["formContent", "form-1"],
+        expectedVersion: 7,
+        formId: "form-1",
+        plateContent: draftContent,
+        restoreGeneration: 0,
+      });
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
+  });
+
   it("delays retrying in-flight fallback so the original request can clear it first", async () => {
     vi.useFakeTimers();
     const pendingSave = stringifyPendingSave({
