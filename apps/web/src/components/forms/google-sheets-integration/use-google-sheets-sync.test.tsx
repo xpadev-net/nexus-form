@@ -5,7 +5,6 @@ import type { ReactNode } from "react";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HttpError } from "@/lib/fetch-json";
 import type { SyncJobStatusResponse } from "@/types/integrations/google-sheets";
 import type { UiSyncState } from "./types";
 import {
@@ -22,7 +21,6 @@ const mocks = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
-  toastWarning: vi.fn(),
 }));
 
 vi.mock("@/lib/fetch-json", () => {
@@ -47,7 +45,6 @@ vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
-    warning: mocks.toastWarning,
   },
 }));
 
@@ -117,7 +114,6 @@ describe("useGoogleSheetsSync transitions", () => {
     mocks.fetchJson.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
-    mocks.toastWarning.mockReset();
   });
 
   afterEach(() => {
@@ -139,6 +135,24 @@ describe("useGoogleSheetsSync transitions", () => {
 
     expect(second.action).toBeNull();
     expect(second.notifyStatus).toBeNull();
+  });
+
+  it("normalizes stale completed progress to 100 percent", () => {
+    const completed = buildUiSyncState(
+      jobStatus("completed", { processed: 4, total: 10, percentage: 40 }),
+      "job-1",
+    );
+
+    expect(completed).toEqual(
+      expect.objectContaining({
+        progress: {
+          processed: 4,
+          total: 10,
+          percentage: 100,
+        },
+        status: "completed",
+      }),
+    );
   });
 
   it("skips update transitions when queued progress has not changed", () => {
@@ -189,7 +203,7 @@ describe("useGoogleSheetsSync transitions", () => {
     const removeQueries = vi.spyOn(client, "removeQueries");
 
     await act(async () => {
-      await states.at(-1)?.startSync();
+      await states.at(-1)?.startSync("incremental");
     });
     await flushPromises();
 
@@ -245,7 +259,7 @@ describe("useGoogleSheetsSync transitions", () => {
     const removeQueries = vi.spyOn(client, "removeQueries");
 
     await act(async () => {
-      await states.at(-1)?.startSync();
+      await states.at(-1)?.startSync("incremental");
     });
     await flushPromises();
 
@@ -314,7 +328,7 @@ describe("useGoogleSheetsSync transitions", () => {
     );
 
     await act(async () => {
-      await states.at(-1)?.startSync();
+      await states.at(-1)?.startSync("incremental");
     });
 
     expect(states.at(-1)?.isSyncing).toBe(true);
@@ -332,16 +346,10 @@ describe("useGoogleSheetsSync transitions", () => {
     act(() => root.unmount());
   });
 
-  it("falls back to latest-response sync when full manual sync is capped", async () => {
+  it("starts incremental sync with the explicit mode contract", async () => {
     mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { force: boolean };
-        if (body.force) {
-          return Promise.reject(
-            new HttpError(413, "Full manual sync is limited"),
-          );
-        }
-        return Promise.resolve({ jobId: "latest-job", status: "queued" });
+        return Promise.resolve({ jobId: "incremental-job", status: "queued" });
       }
       return new Promise(() => {});
     });
@@ -351,45 +359,27 @@ describe("useGoogleSheetsSync transitions", () => {
     );
 
     await act(async () => {
-      await states.at(-1)?.startSync();
+      await states.at(-1)?.startSync("incremental");
     });
     await flushPromises();
 
     const startRequests = mocks.fetchJson.mock.calls.filter(
       ([, init]) => init?.method === "POST",
     );
-    expect(startRequests).toHaveLength(2);
+    expect(startRequests).toHaveLength(1);
     expect(JSON.parse(String(startRequests[0]?.[1]?.body))).toEqual({
-      force: true,
+      mode: "incremental",
     });
-    expect(JSON.parse(String(startRequests[1]?.[1]?.body))).toEqual({
-      force: false,
-    });
-    expect(mocks.toastWarning).toHaveBeenCalledWith(
-      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
-    );
     expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
-    const [successCallOrder] = mocks.toastSuccess.mock.invocationCallOrder;
-    const [warningCallOrder] = mocks.toastWarning.mock.invocationCallOrder;
-    if (successCallOrder === undefined || warningCallOrder === undefined) {
-      throw new Error("Expected success and fallback warning to be shown");
-    }
-    expect(successCallOrder).toBeLessThan(warningCallOrder);
-    expect(states.at(-1)?.activeJobId).toBe("latest-job");
+    expect(states.at(-1)?.activeJobId).toBe("incremental-job");
 
     act(() => root.unmount());
   });
 
-  it("does not announce latest-response fallback when the fallback request fails", async () => {
+  it("starts full sync with the explicit mode contract", async () => {
     mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { force: boolean };
-        if (body.force) {
-          return Promise.reject(
-            new HttpError(413, "Full manual sync is limited"),
-          );
-        }
-        return Promise.reject(new Error("network unavailable"));
+        return Promise.resolve({ jobId: "full-job", status: "queued" });
       }
       return new Promise(() => {});
     });
@@ -399,15 +389,19 @@ describe("useGoogleSheetsSync transitions", () => {
     );
 
     await act(async () => {
-      await states.at(-1)?.startSync();
+      await states.at(-1)?.startSync("full");
     });
     await flushPromises();
 
-    expect(mocks.toastWarning).not.toHaveBeenCalledWith(
-      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+    const startRequests = mocks.fetchJson.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
     );
-    expect(mocks.toastError).toHaveBeenCalledWith("同期の開始に失敗しました");
-    expect(states.at(-1)?.activeJobId).toBeNull();
+    expect(startRequests).toHaveLength(1);
+    expect(JSON.parse(String(startRequests[0]?.[1]?.body))).toEqual({
+      mode: "full",
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
+    expect(states.at(-1)?.activeJobId).toBe("full-job");
 
     act(() => root.unmount());
   });

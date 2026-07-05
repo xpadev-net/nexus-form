@@ -15,6 +15,7 @@ import { useGoogleSheetsIntegrationModel } from "./use-google-sheets-integration
 const mocks = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   logError: vi.fn(),
+  startSync: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
 }));
@@ -62,7 +63,7 @@ vi.mock("./use-google-sheets-sync", () => ({
   useGoogleSheetsSync: () => ({
     dismissSyncStatus: vi.fn(),
     isSyncing: false,
-    startSync: vi.fn(),
+    startSync: mocks.startSync,
     syncStatus: null,
   }),
 }));
@@ -157,6 +158,7 @@ function requestUrl(input: unknown): URL {
 describe("useGoogleSheetsIntegrationModel API contract", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.startSync.mockResolvedValue(undefined);
     mocks.fetchJson.mockImplementation((input: string, init?: RequestInit) => {
       const url = new URL(input);
 
@@ -401,6 +403,138 @@ describe("useGoogleSheetsIntegrationModel API contract", () => {
       expect(state.selectedSpreadsheetName).toBe("Spreadsheet A");
     });
 
+    act(() => root.unmount());
+  });
+
+  it("starts incremental sync without confirmation", async () => {
+    mocks.fetchJson.mockImplementation((input: string) => {
+      const url = new URL(input);
+
+      if (url.pathname === "/api/forms/form-1/integrations/google-sheets") {
+        return Promise.resolve({
+          integration: {
+            config: {
+              headerPolicy: "extend",
+              sheetName: "Sheet1",
+              spreadsheetId: "spreadsheet-a",
+            },
+            createdAt: "2026-05-21T00:00:00.000Z",
+            formId: "form-1",
+            id: "integration-1",
+            ownerUserId: "owner-user-id",
+            updatedAt: "2026-05-21T00:00:00.000Z",
+            userId: "owner-user-id",
+          },
+        });
+      }
+
+      if (url.pathname === "/api/integrations/google/spreadsheets") {
+        return Promise.resolve({
+          spreadsheets: [{ id: "spreadsheet-a", name: "Spreadsheet A" }],
+        });
+      }
+
+      if (
+        url.pathname ===
+        "/api/integrations/google/spreadsheets/spreadsheet-a/sheets"
+      ) {
+        return Promise.resolve({ sheets: [{ sheetId: 0, title: "Sheet1" }] });
+      }
+
+      throw new Error(`Unexpected request: GET ${input}`);
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const states: GoogleSheetsIntegrationModel[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await waitForLatestState(states, (state) => {
+      expect(state.selectedSpreadsheetId).toBe("spreadsheet-a");
+      expect(state.selectedSheetName).toBe("Sheet1");
+      expect(state.savedConfig).not.toBeNull();
+    });
+
+    await act(async () => {
+      states.at(-1)?.handleIncrementalSyncClick();
+    });
+    await flushPromises();
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(mocks.startSync).toHaveBeenCalledWith("incremental");
+
+    confirmSpy.mockRestore();
+    act(() => root.unmount());
+  });
+
+  it("requires confirmation before starting full sync", async () => {
+    mocks.fetchJson.mockImplementation((input: string) => {
+      const url = new URL(input);
+
+      if (url.pathname === "/api/forms/form-1/integrations/google-sheets") {
+        return Promise.resolve({
+          integration: {
+            config: {
+              headerPolicy: "extend",
+              sheetName: "Sheet1",
+              spreadsheetId: "spreadsheet-a",
+            },
+            createdAt: "2026-05-21T00:00:00.000Z",
+            formId: "form-1",
+            id: "integration-1",
+            ownerUserId: "owner-user-id",
+            updatedAt: "2026-05-21T00:00:00.000Z",
+            userId: "owner-user-id",
+          },
+        });
+      }
+
+      if (url.pathname === "/api/integrations/google/spreadsheets") {
+        return Promise.resolve({
+          spreadsheets: [{ id: "spreadsheet-a", name: "Spreadsheet A" }],
+        });
+      }
+
+      if (
+        url.pathname ===
+        "/api/integrations/google/spreadsheets/spreadsheet-a/sheets"
+      ) {
+        return Promise.resolve({ sheets: [{ sheetId: 0, title: "Sheet1" }] });
+      }
+
+      throw new Error(`Unexpected request: GET ${input}`);
+    });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    const states: GoogleSheetsIntegrationModel[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await waitForLatestState(states, (state) => {
+      expect(state.selectedSpreadsheetId).toBe("spreadsheet-a");
+      expect(state.selectedSheetName).toBe("Sheet1");
+      expect(state.savedConfig).not.toBeNull();
+    });
+
+    confirmSpy.mockReturnValueOnce(false);
+    await act(async () => {
+      states.at(-1)?.handleFullSyncClick();
+    });
+    await flushPromises();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.startSync).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValueOnce(true);
+    await act(async () => {
+      states.at(-1)?.handleFullSyncClick();
+    });
+    await flushPromises();
+
+    expect(confirmSpy).toHaveBeenCalledTimes(2);
+    expect(mocks.startSync).toHaveBeenCalledWith("full");
+
+    confirmSpy.mockRestore();
     act(() => root.unmount());
   });
 });
