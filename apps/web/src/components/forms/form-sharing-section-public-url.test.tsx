@@ -65,6 +65,10 @@ describe("FormSharingSection public URL surface", () => {
       configurable: true,
       value: { writeText: mocks.writeText.mockResolvedValue(undefined) },
     });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it("shows and copies the same current public URL used by settings surfaces", async () => {
@@ -89,8 +93,44 @@ describe("FormSharingSection public URL surface", () => {
     });
 
     expect(mocks.writeText).toHaveBeenCalledWith(expectedUrl);
+    expect(copyButton?.getAttribute("aria-label")).toBe(
+      "現在の公開 URL をコピーしました",
+    );
+    expect(copyButton?.title).toBe("現在の公開 URL をコピーしました");
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "公開 URL をコピーしました",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("shows a manual copy label when clipboard and fallback copy fail", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: mocks.writeText.mockRejectedValue(new Error("nope")),
+      },
+    });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: vi.fn().mockReturnValue(false),
+    });
+    const container = document.createElement("div");
+    const root = renderSharingSection(container);
+
+    const copyButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="現在の公開 URL をコピー"]',
+    );
+    await act(async () => {
+      copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(copyButton?.getAttribute("aria-label")).toBe(
+      "現在の公開 URL を手動でコピーしてください",
+    );
+    expect(copyButton?.title).toBe("現在の公開 URL を手動でコピーしてください");
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      "公開 URL のコピーに失敗しました",
     );
 
     act(() => root.unmount());
