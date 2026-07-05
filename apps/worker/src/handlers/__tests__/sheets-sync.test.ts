@@ -33,8 +33,16 @@ vi.mock("@nexus-form/database/schema", () => ({
 
 vi.mock("@nexus-form/shared", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@nexus-form/shared")>();
+  const responseExport = await import(
+    "../../../../../packages/shared/src/response-export"
+  );
   return {
     ...actual,
+    denormalizeSpreadsheetFormulaValue:
+      responseExport.denormalizeSpreadsheetFormulaValue,
+    mapRecordToSheetRow: responseExport.mapRecordToSheetRow,
+    neutralizeSpreadsheetFormulaValue:
+      responseExport.neutralizeSpreadsheetFormulaValue,
     extractQuestionsFromPlateContent: vi.fn().mockReturnValue([]),
   };
 });
@@ -230,6 +238,22 @@ function getInvocationCallOrder(
     throw new Error(`Expected invocation call order at index ${index}`);
   }
   return callOrder;
+}
+
+function getFirstUpdateValues(): string[][] {
+  const firstUpdate = mockUpdateRange.mock.calls[0];
+  if (!firstUpdate) {
+    throw new Error("Expected updateRange to be called");
+  }
+  return firstUpdate[1].values;
+}
+
+function getUpdateRow(values: string[][], index: number): string[] {
+  const row = values[index];
+  if (!row) {
+    throw new Error(`Expected updateRange values row ${index}`);
+  }
+  return row;
 }
 
 beforeEach(() => {
@@ -572,7 +596,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockReadRange).toHaveBeenCalledTimes(2);
     expect(mockReadRange).toHaveBeenNthCalledWith(1, TOKEN, {
       spreadsheetId: "spreadsheet-id",
-      rangeA1: "Sheet1!1:1",
+      rangeA1: "Sheet1!1:2",
     });
     expect(mockReadRange).toHaveBeenNthCalledWith(2, TOKEN, {
       spreadsheetId: "spreadsheet-id",
@@ -624,7 +648,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockReadRange).toHaveBeenCalledTimes(2);
     expect(mockReadRange).toHaveBeenNthCalledWith(1, TOKEN, {
       spreadsheetId: "spreadsheet-id",
-      rangeA1: "Sheet1!1:1",
+      rangeA1: "Sheet1!1:2",
     });
     expect(mockReadRange).toHaveBeenNthCalledWith(2, TOKEN, {
       spreadsheetId: "spreadsheet-id",
@@ -632,6 +656,68 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
       getInvocationCallOrder(mockReadRange, 0),
+    );
+  });
+
+  it("detects duplicate rows when a formula-like response ID was neutralized in Sheets", async () => {
+    setupHappyPathMocks();
+    setupDbSelect([INTEGRATION], [{ ...RESPONSE, id: "=response-1" }], []);
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            [
+              "Response ID",
+              "Respondent UUID",
+              "Submitted At",
+              "Updated At",
+              "Country Code",
+              "UA UUID",
+              "Uniqueness Score",
+              "block-1",
+            ],
+            [
+              "回答ID",
+              "回答者UUID",
+              "送信日時",
+              "更新日時",
+              "国コード",
+              "UA UUID",
+              "ユニーク度スコア",
+              "block-1",
+            ],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["回答ID"], ["'=response-1"]],
+        },
+      } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "=response-1",
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:=response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
     );
   });
 
@@ -861,6 +947,67 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
+  it("updates existing sheet score rows when formula-like response IDs were neutralized", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [{ ...RESPONSE, id: "response-2" }],
+      [],
+      [{ id: "=response-1" }, { id: "response-2" }],
+      [
+        {
+          responseId: "=response-1",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+        {
+          responseId: "response-2",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "ユニーク度スコア", "block-1"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["'=response-1"], ["missing-response"]],
+        },
+      } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-2",
+      }),
+    );
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!B2:B2",
+      values: [["0.0000"]],
+    });
+  });
+
   it("leaves the uniqueness score blank when the calculation scope is exceeded", async () => {
     setupDbSelect(
       [INTEGRATION],
@@ -1056,8 +1203,469 @@ describe("handleSheetsSync — write path", () => {
 
     expect(mockUpdateRange).toHaveBeenCalledWith(
       TOKEN,
-      expect.objectContaining({ rangeA1: "Sheet1!1:1" }),
+      expect.objectContaining({ rangeA1: "Sheet1!1:2" }),
     );
+  });
+
+  it("updates shared sheet title rows when only title headers changed", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const sharedIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "UA UUID",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [sharedIdRow, ["回答ID"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["回答ID"]],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        sharedIdRow,
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "UA UUID",
+          "ユニーク度スコア",
+          "block-1",
+        ],
+      ],
+    });
+  });
+
+  it("does not treat a legacy first data row value as a shared title row", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            ["Response ID", "block-1"],
+            ["回答ID", "legacy answer"],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["回答ID"]],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:1",
+      values: [["Response ID", "block-1", "ユニーク度スコア"]],
+    });
+    expect(mockUpdateRange).not.toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({ rangeA1: "Sheet1!1:2" }),
+    );
+  });
+
+  it("does not treat legacy data rows as shared title rows when headers match shared ids", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const sharedIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "UA UUID",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            sharedIdRow,
+            [
+              "response-1",
+              "respondent-1",
+              "2026-05-17T01:00:00.000Z",
+              "",
+              "JP",
+              "",
+              "1.0000",
+              "legacy answer",
+            ],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+  });
+
+  it("does not treat shared id headers without a title row as shared layout", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            [
+              "Response ID",
+              "Respondent UUID",
+              "Submitted At",
+              "Updated At",
+              "Country Code",
+              "UA UUID",
+              "Uniqueness Score",
+              "block-1",
+            ],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+  });
+
+  it("uses the shared export sheet contract for empty-sheet headers, metadata, and formula neutralization", async () => {
+    const responseDataJson = JSON.stringify([
+      {
+        question_id: "formula-block",
+        question_type: "short_text",
+        question_title: "=Formula",
+        value: " =cmd",
+      },
+    ]);
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "=response-1",
+          responseDataJson,
+          respondentUuid: "-respondent-1",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+          updatedAt: new Date("2026-05-17T02:30:00.000Z"),
+          countryCode: "JP",
+          userAgent: " @ua",
+        },
+      ],
+      [{ plateContent: JSON.stringify([{ type: "p" }]) }],
+      [{ id: "=response-1" }],
+      [
+        {
+          responseId: "=response-1",
+          componentName: "canvas",
+          componentValueHash: "same-hash",
+          fingerprintType: "browser",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({
+      "formula-block": " =cmd",
+    } as never);
+    mockExtractQuestionsFromPlateContent.mockReturnValue([
+      {
+        blockId: "formula-block",
+        title: "=Formula",
+        type: "short_text",
+        validation: {},
+      },
+    ]);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "=response-1",
+      }),
+    );
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        [
+          "Response ID",
+          "Respondent UUID",
+          "Submitted At",
+          "Updated At",
+          "Country Code",
+          "UA UUID",
+          "Uniqueness Score",
+          "canvas UUID",
+          "formula-block",
+        ],
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "UA UUID",
+          "ユニーク度スコア",
+          "canvas UUID",
+          "'=Formula",
+        ],
+      ],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [
+          [
+            "'=response-1",
+            "'-respondent-1",
+            "2026-05-17T01:00:00.000Z",
+            "2026-05-17T02:30:00.000Z",
+            "JP",
+            "ba045095-ca94-5563-96ed-a888a2137271",
+            "1.0000",
+            "2125e6c8-927f-51bd-9bae-51b41e1793a4",
+            "' =cmd",
+          ],
+        ],
+      }),
+    );
+  });
+
+  it("keeps unvisited section-branch answers blank and excludes section blocks in shared sheet rows", async () => {
+    const responseDataJson = JSON.stringify([
+      {
+        question_id: "q-entity-type",
+        question_type: "radio",
+        question_title: "契約種別",
+        value: "individual",
+      },
+    ]);
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          responseDataJson,
+          respondentUuid: "respondent-individual",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+        },
+      ],
+      [{ plateContent: JSON.stringify([{ type: "p" }]) }],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({
+      "q-entity-type": "individual",
+    } as never);
+    mockExtractQuestionsFromPlateContent.mockReturnValue([
+      {
+        blockId: "q-entity-type",
+        title: "契約種別",
+        type: "radio",
+        validation: {
+          options: [{ id: "individual", label: "個人" }],
+        },
+      },
+      {
+        blockId: "section-corporate",
+        title: "法人追加情報",
+        type: "section_separator",
+        validation: {},
+      },
+      {
+        blockId: "q-company-name",
+        title: "法人名",
+        type: "short_text",
+        validation: { required: true },
+      },
+    ]);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    const updateValues = getFirstUpdateValues();
+    const idRow = getUpdateRow(updateValues, 0);
+    const titleRow = getUpdateRow(updateValues, 1);
+    expect(idRow).not.toContain("section-corporate");
+    expect(titleRow).not.toContain("法人追加情報");
+    expect(idRow.slice(-2)).toEqual(["q-entity-type", "q-company-name"]);
+    expect(titleRow.slice(-2)).toEqual(["契約種別", "法人名"]);
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [
+          [
+            "response-1",
+            "respondent-individual",
+            "2026-05-17T01:00:00.000Z",
+            "",
+            "",
+            "",
+            "1.0000",
+            "個人",
+            "",
+          ],
+        ],
+      }),
+    );
+  });
+
+  it("keeps duplicate shared sheet titles disambiguated with suffixes", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          responseDataJson: JSON.stringify([
+            {
+              question_id: "first-name",
+              question_type: "short_text",
+              question_title: "名前",
+              value: "山田",
+            },
+            {
+              question_id: "second-name",
+              question_type: "short_text",
+              question_title: "名前",
+              value: "太郎",
+            },
+            {
+              question_id: "literal-suffix-name",
+              question_type: "short_text",
+              question_title: "名前 (1)",
+              value: "花子",
+            },
+          ]),
+          respondentUuid: "respondent-duplicate",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+        },
+      ],
+      [{ plateContent: JSON.stringify([{ type: "p" }]) }],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({
+      "first-name": "山田",
+      "literal-suffix-name": "花子",
+      "second-name": "太郎",
+    } as never);
+    mockExtractQuestionsFromPlateContent.mockReturnValue([
+      {
+        blockId: "first-name",
+        title: "名前",
+        type: "short_text",
+        validation: {},
+      },
+      {
+        blockId: "second-name",
+        title: "名前",
+        type: "short_text",
+        validation: {},
+      },
+      {
+        blockId: "literal-suffix-name",
+        title: "名前 (1)",
+        type: "short_text",
+        validation: {},
+      },
+    ]);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(getUpdateRow(getFirstUpdateValues(), 1).slice(-3)).toEqual([
+      "名前",
+      "名前 (2)",
+      "名前 (1)",
+    ]);
   });
 
   it("uses the submitted snapshot plate content when snapshotVersion is present", async () => {

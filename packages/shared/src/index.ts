@@ -121,6 +121,18 @@ export {
   mergePlateContent,
 } from "./plate-merge";
 export type {
+  ResponseDisplayItem,
+  ResponseLabelBlock,
+  ResponseLabelLookupByQuestion,
+  ResponseQuestionLabelLookup,
+} from "./response-choice-labels";
+export {
+  addDisplayLabelsToResponseDataJson,
+  buildResponseLabelLookupFromBlocks,
+  buildResponseLabelLookupFromQuestions,
+  resolveResponseDisplayValue,
+} from "./response-choice-labels";
+export type {
   AnswerableQuestionType,
   QuestionValidation,
   ResponseDataItem,
@@ -141,6 +153,21 @@ export {
   questionValidationSchema,
   responsePayloadItemSchema,
 } from "./response-data";
+export type {
+  ResponseExportColumn,
+  ResponseExportFormBlock,
+  ResponseExportRecord,
+  ResponseExportSheetMapping,
+  ResponseExportTable,
+} from "./response-export";
+export {
+  buildResponseExportColumnsFromBlocks,
+  buildResponseExportTable,
+  denormalizeSpreadsheetFormulaValue,
+  mapRecordToSheetRow,
+  neutralizeSpreadsheetFormulaValue,
+  normalizeResponseExportColumns,
+} from "./response-export";
 export type {
   TextLengthRules,
   TextLengthViolation,
