@@ -8,6 +8,7 @@ import {
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
+  sheetsSyncModeSchema,
   VALIDATION_RETRY_JOB_PREFIX,
 } from "../worker-jobs";
 
@@ -68,6 +69,12 @@ describe("sheets sync job ids", () => {
 });
 
 describe("worker job schemas", () => {
+  it("accepts supported sheets sync modes", () => {
+    expect(sheetsSyncModeSchema.parse("incremental")).toBe("incremental");
+    expect(sheetsSyncModeSchema.parse("full")).toBe("full");
+    expect(() => sheetsSyncModeSchema.parse("everything")).toThrow();
+  });
+
   it("accepts valid generic validation job data", () => {
     expect(
       genericValidationJobDataSchema.parse({
@@ -104,14 +111,31 @@ describe("worker job schemas", () => {
       sheetsSyncJobDataSchema.parse({
         formId: "form-1",
         integrationId: "integration-1",
+        mode: "full",
         responseId: "response-1",
         snapshotVersion: 3,
       }),
     ).toEqual({
       formId: "form-1",
       integrationId: "integration-1",
+      mode: "full",
       responseId: "response-1",
       snapshotVersion: 3,
+    });
+  });
+
+  it("defaults legacy sheets sync jobs to incremental mode", () => {
+    expect(
+      sheetsSyncJobDataSchema.parse({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+      }),
+    ).toEqual({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "incremental",
+      responseId: "response-1",
     });
   });
 });

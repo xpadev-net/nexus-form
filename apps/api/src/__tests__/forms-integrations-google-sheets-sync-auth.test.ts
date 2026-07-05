@@ -181,13 +181,14 @@ describe("Google Sheets sync job status authorization", () => {
         headers: {
           "content-type": "application/json",
         },
-        body: JSON.stringify({ force: true }),
+        body: JSON.stringify({ mode: "full" }),
       },
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
+      mode: "full",
       requeued: true,
       status: "queued",
     });
@@ -199,6 +200,7 @@ describe("Google Sheets sync job status authorization", () => {
       data: {
         formId: "form-1",
         integrationId: "integration-1",
+        mode: "full",
         responseId: "response-1",
       },
     });
@@ -215,6 +217,43 @@ describe("Google Sheets sync job status authorization", () => {
     expect(queuedJobs?.[1]?.opts?.jobId).toMatch(/^sheets-manual\./);
     expect(queuedJobs?.[1]?.opts?.jobId).not.toContain(":");
     expect(queuedJobs?.[1]?.opts?.jobId).not.toBe(queuedJobs?.[0]?.opts?.jobId);
+  });
+
+  it("maps legacy force=true to full manual sync job payloads", async () => {
+    mocks.responseRows = [
+      { responseId: "response-1" },
+      { responseId: "response-2" },
+    ];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: true }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      mode: "full",
+      requeued: true,
+      status: "queued",
+    });
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs).toHaveLength(2);
+    expect(queuedJobs?.[0]?.data).toMatchObject({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-1",
+    });
   });
 
   it("queues manual sync jobs with colon-free ids for colon-containing source ids", async () => {
@@ -453,9 +492,114 @@ describe("Google Sheets sync job status authorization", () => {
     );
 
     expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      mode: "incremental",
+      requeued: true,
+      status: "queued",
+    });
     const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
     expect(queuedJobs).toHaveLength(1);
-    expect(queuedJobs?.[0]?.data.responseId).toBe("latest-response");
+    expect(queuedJobs?.[0]?.data).toMatchObject({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "incremental",
+      responseId: "latest-response",
+    });
+  });
+
+  it("accepts explicit incremental mode for latest-response manual sync", async () => {
+    mocks.responseRows = [
+      { responseId: "latest-response" },
+      { responseId: "older-response" },
+    ];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ mode: "incremental" }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      mode: "incremental",
+      requeued: true,
+      status: "queued",
+    });
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs).toHaveLength(1);
+    expect(queuedJobs?.[0]?.data).toMatchObject({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "incremental",
+      responseId: "latest-response",
+    });
+  });
+
+  it("maps legacy force=false to incremental manual sync job payloads", async () => {
+    mocks.responseRows = [
+      { responseId: "latest-response" },
+      { responseId: "older-response" },
+    ];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ force: false }),
+      },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      mode: "incremental",
+      requeued: true,
+      status: "queued",
+    });
+    const queuedJobs = mocks.addBulk.mock.calls[0]?.[0];
+    expect(queuedJobs).toHaveLength(1);
+    expect(queuedJobs?.[0]?.data).toMatchObject({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "incremental",
+      responseId: "latest-response",
+    });
+  });
+
+  it("rejects unsupported manual sync modes before queueing", async () => {
+    mocks.responseRows = [{ responseId: "response-1" }];
+
+    const { formsIntegrationsRouter } = await import(
+      "../routes/forms-integrations"
+    );
+    const response = await formsIntegrationsRouter.request(
+      "/form-1/integrations/google-sheets/sync",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ mode: "everything" }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.addBulk).not.toHaveBeenCalled();
   });
 
   it("rejects full manual sync when the response count exceeds the queueing limit", async () => {

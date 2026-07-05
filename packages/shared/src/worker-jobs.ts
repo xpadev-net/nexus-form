@@ -47,6 +47,9 @@ export function buildManualSheetsSyncJobId(
   return `${SHEETS_SYNC_MANUAL_JOB_PREFIX}${encodeSheetsSyncJobIdSegment(integrationId)}.${encodeSheetsSyncJobIdSegment(responseId)}`;
 }
 
+export const sheetsSyncModeSchema = z.enum(["incremental", "full"]);
+export type SheetsSyncMode = z.infer<typeof sheetsSyncModeSchema>;
+
 export const genericValidationJobDataSchema = z.object({
   responseId: z.string().min(1),
   ruleId: z.string().min(1),
@@ -65,6 +68,7 @@ export type GenericValidationJobData = z.infer<
 export const sheetsSyncJobDataSchema = z.object({
   formId: z.string().min(1),
   integrationId: z.string().min(1),
+  mode: sheetsSyncModeSchema.default("incremental"),
   responseId: z.string().min(1),
   snapshotVersion: z.number().int().positive().optional(),
 });
