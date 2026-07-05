@@ -17,6 +17,7 @@ vi.mock("@nexus-form/database", () => ({
   formResponse: {
     id: "formResponse.id",
     formId: "formResponse.formId",
+    submittedAt: "formResponse.submittedAt",
   },
 }));
 
@@ -49,6 +50,7 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions: unknown[]) => ({ conditions, type: "and" })),
+  asc: vi.fn((column: unknown) => ({ column, direction: "asc" })),
   eq: vi.fn((column: unknown, value: unknown) => ({
     column,
     type: "eq",
@@ -168,6 +170,7 @@ function makeJob(
   data: {
     formId: string;
     integrationId: string;
+    mode?: "incremental" | "full";
     responseId: string;
     snapshotVersion?: number;
   } = {
@@ -193,6 +196,7 @@ function setupDbSelect(...results: unknown[][]) {
     const promise = Promise.resolve(result);
     return {
       from: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue(result),
       // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are thenable, and this mock must support direct await.
@@ -1073,6 +1077,96 @@ describe("handleSheetsSync — idempotency states", () => {
 });
 
 describe("handleSheetsSync — write path", () => {
+  it("full mode processes historical responses and skips rows already present in the sheet", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+        {
+          ...RESPONSE,
+          id: "response-2",
+          responseDataJson: '{"block-1":"second"}',
+        },
+      ],
+      [],
+      [{ id: "response-1" }, { id: "response-2" }],
+      [],
+      [{ id: "response-1" }, { id: "response-2" }],
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [] },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID", "block-1"]] },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID"], ["response-2"]] },
+      } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(String(json));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as never)
+        : null;
+    });
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    const job = makeJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-1",
+    });
+
+    const result = await handleSheetsSync(job);
+
+    expect(result).toEqual({
+      ok: true,
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "full",
+      processed: 2,
+      total: 2,
+      skipped: 1,
+      updatedRange: "Sheet1!A2",
+      updatedRows: 1,
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "", "", "", "", "", "1.0000", "first"]],
+      }),
+    );
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-2",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    );
+    expect(job.updateProgress).toHaveBeenLastCalledWith({
+      processed: 2,
+      stage: 100,
+      total: 2,
+    });
+  });
+
   it("uses withRedisLock on the integration key", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);

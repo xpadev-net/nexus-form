@@ -30,7 +30,7 @@ import {
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -82,6 +82,7 @@ const SHARED_BASE_TITLE_HEADERS = [
 // + 1 conditional uniqueness-score backfill + 1 append
 const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = 5000;
+const MAX_FULL_SHEETS_SYNC_RESPONSES = 1000;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
@@ -228,6 +229,30 @@ type ResponseUniquenessScores = {
   targetFingerprintUuids: Record<string, string | null>;
 };
 type SheetLayout = "empty" | "shared" | "legacy";
+type SheetsSyncTargetResponse = typeof formResponse.$inferSelect;
+type PreparedSheetsSyncResponse =
+  | {
+      status: "ready";
+      response: SheetsSyncTargetResponse;
+      responseData: Record<string, unknown>;
+      uniquenessScores: ResponseUniquenessScores;
+      prefetchedIdempotencyValue: Awaited<
+        ReturnType<typeof getIdempotencyKeyValue>
+      >;
+    }
+  | {
+      status: "duplicate" | "invalid_data";
+      response: SheetsSyncTargetResponse;
+    };
+type ParsedSheetsSyncResponse =
+  | Omit<
+      Extract<PreparedSheetsSyncResponse, { status: "ready" }>,
+      "uniquenessScores"
+    >
+  | Extract<
+      PreparedSheetsSyncResponse,
+      { status: "duplicate" | "invalid_data" }
+    >;
 type SheetReadResult = {
   ok: true;
   exists: boolean;
@@ -255,7 +280,7 @@ function resolveGoogleSheetsConfig(
 }
 
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
-  const { formId, integrationId, responseId, snapshotVersion } =
+  const { formId, integrationId, mode, responseId, snapshotVersion } =
     sheetsSyncJobDataSchema.parse(job.data);
 
   // 1. Integration設定を取得
@@ -326,17 +351,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得
-  const [response] = await db
-    .select()
-    .from(formResponse)
-    .where(
-      and(eq(formResponse.id, responseId), eq(formResponse.formId, formId)),
-    )
-    .limit(1);
-
-  if (!response) {
-    throw new Error(`Form response not found: ${responseId}`);
-  }
+  const responses = await getSheetsSyncTargetResponses({
+    formId,
+    mode,
+    responseId,
+  });
 
   // 4. 送信時 snapshot の Plate コンテンツからブロックタイトルマップを構築。
   // 古いジョブに snapshotVersion が無い場合だけ現在の draft にフォールバックする。
@@ -377,7 +396,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   }
   await job.updateProgress(40);
 
-  const idempotencyKey = `sheets-written:${integrationId}:${response.id}`;
   const lockKey = `sheets-sync:${integrationId}`;
 
   const duplicateSkippedResult = () => ({
@@ -388,34 +406,217 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     jobId: job.id,
   });
 
+  const preparedResponses = await prepareSheetsSyncResponses(
+    formId,
+    integrationId,
+    responses,
+  );
+  const total = preparedResponses.length;
+  let processed = 0;
+  let skipped = 0;
+  let updatedRows = 0;
+  let updatedRange: string | undefined;
+
+  for (const prepared of preparedResponses) {
+    const result =
+      prepared.status === "ready"
+        ? await writePreparedSheetsSyncResponse({
+            blockTitleMap,
+            extractedQuestions,
+            integrationId,
+            job,
+            lockKey,
+            prepared,
+            progress: { processed, total },
+            sheetName,
+            spreadsheetId,
+            token,
+          })
+        : prepared.status === "duplicate"
+          ? duplicateSkippedResult()
+          : {
+              ok: true,
+              skipped: true,
+              reason: "invalid_data",
+              provider: "google-sheets",
+              jobId: job.id,
+            };
+
+    processed += 1;
+    if ("skipped" in result && result.skipped) {
+      skipped += 1;
+    } else if ("updatedRows" in result) {
+      updatedRows += result.updatedRows;
+      updatedRange = result.updatedRange;
+    }
+    await updateSheetsSyncProgress(job, 100, processed, total).catch(() => {
+      // Best-effort progress update; job result is what matters.
+    });
+
+    if (mode === "incremental") {
+      return result;
+    }
+  }
+
+  return {
+    ok: true,
+    provider: "google-sheets",
+    jobId: job.id,
+    mode,
+    processed,
+    total,
+    skipped,
+    updatedRange,
+    updatedRows,
+  };
+};
+
+async function getSheetsSyncTargetResponses(params: {
+  formId: string;
+  mode: SheetsSyncJob["mode"];
+  responseId: string;
+}): Promise<SheetsSyncTargetResponse[]> {
+  if (params.mode === "incremental") {
+    const [response] = await db
+      .select()
+      .from(formResponse)
+      .where(
+        and(
+          eq(formResponse.id, params.responseId),
+          eq(formResponse.formId, params.formId),
+        ),
+      )
+      .limit(1);
+
+    if (!response) {
+      throw new Error(`Form response not found: ${params.responseId}`);
+    }
+    return [response];
+  }
+
+  const responses = await db
+    .select()
+    .from(formResponse)
+    .where(eq(formResponse.formId, params.formId))
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
+    .limit(MAX_FULL_SHEETS_SYNC_RESPONSES + 1);
+
+  if (responses.length === 0) {
+    throw new Error(`Form response not found: ${params.responseId}`);
+  }
+  if (responses.length > MAX_FULL_SHEETS_SYNC_RESPONSES) {
+    failSheetsSyncWithoutRetry(
+      `Full Google Sheets sync is limited to ${MAX_FULL_SHEETS_SYNC_RESPONSES} responses`,
+    );
+  }
+
+  return responses;
+}
+
+async function prepareSheetsSyncResponses(
+  formId: string,
+  integrationId: string,
+  responses: SheetsSyncTargetResponse[],
+): Promise<PreparedSheetsSyncResponse[]> {
+  const parsedResponses: ParsedSheetsSyncResponse[] = [];
+  const readyResponseIds: string[] = [];
+  for (const response of responses) {
+    const idempotencyKey = getSheetsSyncIdempotencyKey(
+      integrationId,
+      response.id,
+    );
+    const prefetchedIdempotencyValue =
+      await getIdempotencyKeyValue(idempotencyKey);
+    if (prefetchedIdempotencyValue === "done") {
+      parsedResponses.push({ status: "duplicate", response });
+      continue;
+    }
+
+    // レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
+    const responseData = safeParseResponseData(
+      response.responseDataJson,
+      response.id,
+    );
+    if (!responseData) {
+      parsedResponses.push({ status: "invalid_data", response });
+      continue;
+    }
+
+    readyResponseIds.push(response.id);
+    parsedResponses.push({
+      status: "ready",
+      response,
+      responseData,
+      prefetchedIdempotencyValue,
+    });
+  }
+
+  const uniquenessScoresByResponseId =
+    readyResponseIds.length === 0
+      ? new Map<string, ResponseUniquenessScores>()
+      : await getUniquenessScoresForResponses(formId, readyResponseIds);
+
+  return parsedResponses.map((parsedResponse) => {
+    if (parsedResponse.status !== "ready") {
+      return parsedResponse;
+    }
+    const uniquenessScores = uniquenessScoresByResponseId.get(
+      parsedResponse.response.id,
+    );
+    if (!uniquenessScores) {
+      throw new Error(
+        `Uniqueness score was not calculated: ${parsedResponse.response.id}`,
+      );
+    }
+    return {
+      ...parsedResponse,
+      uniquenessScores,
+    };
+  });
+}
+
+async function writePreparedSheetsSyncResponse(params: {
+  blockTitleMap: Map<string, string>;
+  extractedQuestions: ExtractedQuestion[];
+  integrationId: string;
+  job: Job<SheetsSyncJob>;
+  lockKey: string;
+  prepared: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
+  progress: { processed: number; total: number };
+  sheetName: string;
+  spreadsheetId: string;
+  token: OAuthToken;
+}) {
+  const {
+    blockTitleMap,
+    extractedQuestions,
+    integrationId,
+    job,
+    lockKey,
+    prepared,
+    progress,
+    sheetName,
+    spreadsheetId,
+    token,
+  } = params;
+  const { response, responseData, uniquenessScores } = prepared;
+  const idempotencyKey = getSheetsSyncIdempotencyKey(
+    integrationId,
+    response.id,
+  );
   let prefetchedIdempotencyValue:
     | Awaited<ReturnType<typeof getIdempotencyKeyValue>>
-    | undefined = await getIdempotencyKeyValue(idempotencyKey);
-  if (prefetchedIdempotencyValue === "done") {
-    return duplicateSkippedResult();
-  }
+    | undefined = prepared.prefetchedIdempotencyValue;
 
-  // 5. レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
-  const responseData = safeParseResponseData(
-    response.responseDataJson,
-    response.id,
-  );
-  if (!responseData) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "invalid_data",
-      provider: "google-sheets",
-      jobId: job.id,
-    };
-  }
+  const duplicateSkippedResult = () => ({
+    ok: true,
+    skipped: true,
+    reason: "duplicate",
+    provider: "google-sheets",
+    jobId: job.id,
+  });
 
-  const uniquenessScores = await getUniquenessScoresForResponse(
-    formId,
-    response.id,
-  );
-
-  // 5-9. ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
+  // ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
   // (jobId dedup only applies while the job is still in the queue).
@@ -478,12 +679,17 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           return markDuplicateWritten();
         }
 
-        // 6. ヘッダー行を取得
+        // ヘッダー行を取得
         const existingHeaders = sheetCheck.headers;
 
-        await job.updateProgress(60);
+        await updateSheetsSyncProgress(
+          job,
+          60,
+          progress.processed,
+          progress.total,
+        );
 
-        // 7. ヘッダーと行データを構築
+        // ヘッダーと行データを構築
         const { headers, titleHeaders, row } = buildRowFromResponse(
           existingHeaders,
           sheetCheck.titleHeaders,
@@ -501,7 +707,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           sheetCheck.layout !== "legacy" &&
           hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
 
-        // 8. ヘッダーが変更された場合は更新
+        // ヘッダーが変更された場合は更新
         if (
           existingHeaders.length === 0 ||
           headers.length > existingHeaders.length ||
@@ -533,9 +739,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             uniquenessScores.shouldBlankUnavailableScores,
           uniquenessScores: uniquenessScores.allScores,
         });
-        await job.updateProgress(80);
+        await updateSheetsSyncProgress(
+          job,
+          80,
+          progress.processed,
+          progress.total,
+        );
 
-        // 9. 行を追記
+        // 行を追記
         throwIfShuttingDown();
         const appendResult = await appendRows(token, {
           spreadsheetId,
@@ -560,10 +771,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           );
         });
 
-        await job.updateProgress(100).catch(() => {
-          // Best-effort progress update; job result is what matters.
-        });
-
         return {
           ok: true,
           provider: "google-sheets",
@@ -573,15 +780,35 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         };
       }
     },
-    // Lock TTL covers a full pending-idempotency wait followed by the Sheets
-    // critical section (2 reads + 1 conditional header update + 1 append).
+    // Lock TTL covers one response's pending-idempotency wait followed by the
+    // Sheets critical section (2 reads + 1 conditional header update + 1 append).
     {
       ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
       waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
       signal: workerShutdownSignal,
     },
   );
-};
+}
+
+function getSheetsSyncIdempotencyKey(
+  integrationId: string,
+  responseId: string,
+): string {
+  return `sheets-written:${integrationId}:${responseId}`;
+}
+
+async function updateSheetsSyncProgress(
+  job: Job<SheetsSyncJob>,
+  stage: number,
+  processed: number,
+  total: number,
+): Promise<void> {
+  if (total <= 1) {
+    await job.updateProgress(stage);
+    return;
+  }
+  await job.updateProgress({ processed, stage, total });
+}
 
 /**
  * カラムインデックス（0-based）を Google Sheets のカラム文字（A, B, ..., Z, AA, ...）に変換する。
@@ -597,10 +824,10 @@ function columnIndexToLetter(index: number): string {
   return letter;
 }
 
-async function getUniquenessScoresForResponse(
+async function getUniquenessScoresForResponses(
   formId: string,
-  responseId: string,
-): Promise<ResponseUniquenessScores> {
+  targetResponseIds: string[],
+): Promise<Map<string, ResponseUniquenessScores>> {
   const responseRows = await db
     .select({ id: formResponse.id })
     .from(formResponse)
@@ -608,23 +835,33 @@ async function getUniquenessScoresForResponse(
     .limit(RESPONSE_UNIQUENESS_CALCULATION_LIMIT + 1);
 
   if (responseRows.length === 0) {
-    return {
-      allScores: new Map(),
-      fingerprintComponents: new Set(),
-      shouldBlankUnavailableScores: false,
-      targetScore: 1,
-      targetFingerprintUuids: {},
-    };
+    return new Map(
+      targetResponseIds.map((responseId) => [
+        responseId,
+        {
+          allScores: new Map(),
+          fingerprintComponents: new Set(),
+          shouldBlankUnavailableScores: false,
+          targetScore: 1,
+          targetFingerprintUuids: {},
+        },
+      ]),
+    );
   }
 
   if (responseRows.length > RESPONSE_UNIQUENESS_CALCULATION_LIMIT) {
-    return {
-      allScores: new Map(),
-      fingerprintComponents: new Set(),
-      shouldBlankUnavailableScores: false,
-      targetScore: null,
-      targetFingerprintUuids: {},
-    };
+    return new Map(
+      targetResponseIds.map((responseId) => [
+        responseId,
+        {
+          allScores: new Map(),
+          fingerprintComponents: new Set(),
+          shouldBlankUnavailableScores: false,
+          targetScore: null,
+          targetFingerprintUuids: {},
+        },
+      ]),
+    );
   }
 
   const responseIds = responseRows.map((row) => row.id);
@@ -659,19 +896,26 @@ async function getUniquenessScoresForResponse(
     id: row.id,
     fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
   }));
-  const target = fingerprintSets.find((set) => set.id === responseId) ?? {
-    id: responseId,
-    fingerprintDetails: [],
-  };
 
   const allScores = calculateUniquenessScoreMap(fingerprintSets);
-  return {
-    allScores,
-    fingerprintComponents,
-    shouldBlankUnavailableScores: false,
-    targetScore: allScores.get(target.id) ?? 1,
-    targetFingerprintUuids: buildFingerprintUuids(formId, target),
-  };
+  return new Map(
+    targetResponseIds.map((responseId) => {
+      const target = fingerprintSets.find((set) => set.id === responseId) ?? {
+        id: responseId,
+        fingerprintDetails: [],
+      };
+      return [
+        responseId,
+        {
+          allScores,
+          fingerprintComponents,
+          shouldBlankUnavailableScores: false,
+          targetScore: allScores.get(target.id) ?? 1,
+          targetFingerprintUuids: buildFingerprintUuids(formId, target),
+        },
+      ];
+    }),
+  );
 }
 
 function calculateUniquenessScoreMap(
