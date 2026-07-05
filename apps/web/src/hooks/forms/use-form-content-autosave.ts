@@ -113,6 +113,48 @@ function clearPendingSave(formId: string) {
   }
 }
 
+function shouldPreserveExistingPendingSave(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+): boolean {
+  const existing = readCurrentPendingSave(formId);
+  return (
+    existing?.data.retryBlocked === "conflict" ||
+    (existing != null &&
+      !arePendingSaveAuthScopesEqual(existing.data.authScope, authScope))
+  );
+}
+
+function storeScopedPendingSave(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+  body: string,
+) {
+  try {
+    if (shouldPreserveExistingPendingSave(formId, authScope)) return;
+  } catch {
+    // If the existing entry cannot be inspected, replace it with the recoverable save.
+  }
+  storePendingSave(formId, body);
+}
+
+function clearPendingSaveForAuthScope(
+  formId: string,
+  authScope: PendingSaveAuthScope,
+) {
+  const existing = readCurrentPendingSave(formId);
+  if (!existing) {
+    clearPendingSave(formId);
+    return;
+  }
+  if (
+    existing.data.formId === formId &&
+    arePendingSaveAuthScopesEqual(existing.data.authScope, authScope)
+  ) {
+    clearPendingSave(formId);
+  }
+}
+
 function clearResolvedPendingSave(
   formId: string,
   savedContent: {
@@ -156,19 +198,8 @@ function storeInFlightPendingSave(
     plateContent: string;
   },
 ) {
-  const key = `pendingSave:${formId}`;
   try {
-    const existing = localStorage.getItem(key);
-    if (existing) {
-      const pendingSave = parsePendingSave(existing);
-      if (
-        pendingSave?.retryBlocked === "conflict" ||
-        (pendingSave &&
-          !arePendingSaveAuthScopesEqual(pendingSave.authScope, save.authScope))
-      ) {
-        return;
-      }
-    }
+    if (shouldPreserveExistingPendingSave(formId, save.authScope)) return;
   } catch {
     // If the existing entry cannot be inspected, replace it with the recoverable in-flight save.
   }
@@ -774,10 +805,11 @@ export function useFormContentAutosave({
                 plateContent: valueToSave,
               });
             } else if (response.status === 401 || response.status === 403) {
-              clearPendingSave(targetFormId);
+              clearPendingSaveForAuthScope(targetFormId, authScope);
             } else {
-              storePendingSave(
+              storeScopedPendingSave(
                 targetFormId,
+                authScope,
                 buildPendingSaveBody(targetFormId, {
                   authScope,
                   expectedVersion: keepaliveVersion,
@@ -789,8 +821,9 @@ export function useFormContentAutosave({
             }
           })
           .catch(() => {
-            storePendingSave(
+            storeScopedPendingSave(
               targetFormId,
+              authScope,
               buildPendingSaveBody(targetFormId, {
                 authScope,
                 expectedVersion: keepaliveVersion,
@@ -800,7 +833,7 @@ export function useFormContentAutosave({
             );
           });
       } else {
-        storePendingSave(targetFormId, body);
+        storeScopedPendingSave(targetFormId, authScope, body);
       }
     },
     [],

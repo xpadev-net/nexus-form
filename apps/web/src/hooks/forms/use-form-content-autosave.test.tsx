@@ -366,6 +366,45 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
   });
 
+  it("does not overwrite a different auth scope pending save when keepalive fetch fails", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    let resolveResponse:
+      | ((value: { ok: false; status: number }) => void)
+      | undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: false; status: number }>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    resolveResponse?.({ ok: false, status: 500 });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
+  });
+
   it("does not retry or keepalive save when autosave is disabled", async () => {
     const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
@@ -492,6 +531,45 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       plateContent: draftContent,
     });
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("does not delete a different auth scope pending save when keepalive authorization fails", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    let resolveResponse:
+      | ((value: { ok: false; status: number }) => void)
+      | undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<{ ok: false; status: number }>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    resolveResponse?.({ ok: false, status: 403 });
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
   });
 
   it("resumes autosave when enabled changes from false to true", () => {
@@ -1401,6 +1479,36 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         plateContent: largeContent,
       }),
     );
+  });
+
+  it("does not overwrite a different auth scope pending save when the keepalive body is too large", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+
+    act(() => {
+      hook?.handleContentChange("x".repeat(70 * 1024));
+    });
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
   });
 
   it("clears a blocked pending save after a normal autosave succeeds", () => {
