@@ -428,21 +428,21 @@ describe("API Route Integration Tests", () => {
   });
 
   describe("DELETE /api/forms/:id/blocks/sessions/:sessionId", () => {
-    it("should return 401 when unauthenticated", async () => {
+    it("should return 404 because the route is not implemented", async () => {
       const res = await app.request(
         "/api/forms/form-1/blocks/sessions/session-1",
         { method: "DELETE" },
       );
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(404);
     });
   });
 
   describe("DELETE /api/forms/:id/blocks/sessions", () => {
-    it("should return 401 when unauthenticated", async () => {
+    it("should return 404 because the route is not implemented", async () => {
       const res = await app.request("/api/forms/form-1/blocks/sessions", {
         method: "DELETE",
       });
-      expect(res.status).toBe(401);
+      expect(res.status).toBe(404);
     });
   });
 

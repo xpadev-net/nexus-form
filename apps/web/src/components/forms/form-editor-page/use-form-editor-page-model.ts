@@ -109,6 +109,22 @@ export function useFormEditorPageModel(formId: string) {
     retry: shouldRetryQuery,
   });
 
+  const myPermissionQuery = useQuery({
+    enabled: !formQuery.isError,
+    queryKey: ["formPermissionMe", formId, shareToken ?? null] as const,
+    queryFn: () =>
+      rpc(
+        client.api.forms[":id"].permissions.me.$get(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
+    retry: shouldRetryQuery,
+  });
+  const canUseEditorRealtimeSync =
+    myPermissionQuery.data?.role === "OWNER" ||
+    myPermissionQuery.data?.role === "EDITOR";
+
   const {
     isSaving,
     draftContent,
@@ -127,6 +143,7 @@ export function useFormEditorPageModel(formId: string) {
     contentQueryKey,
     contentRefetch: contentQuery.refetch,
     getActiveTab: () => activeTab,
+    enableRealtimeSync: canUseEditorRealtimeSync,
   });
 
   const previousActiveTabRef = useRef(activeTab);

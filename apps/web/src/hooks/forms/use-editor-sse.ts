@@ -16,6 +16,8 @@ const INITIAL_SSE_RECONNECT_DELAY_MS = 1_000;
 const MAX_SSE_RECONNECT_DELAY_MS = 30_000;
 
 type EditorSSEOptions = {
+  /** false の場合は SSE に接続しない */
+  enabled?: boolean;
   /** イベント受信時のコールバック（useQuery を使わないコンポーネント向け） */
   onEvent?: (event: EditorSSEEvent) => void;
   /** 保留中の未保存値を追跡する ref。非 null の場合、document_changed の反映を抑制する */
@@ -41,6 +43,7 @@ export function useEditorSSE(
 ): void {
   const queryClient = useQueryClient();
   const shareToken = getShareTokenFromCurrentUrl();
+  const enabled = options?.enabled ?? true;
   const onEventRef = useRef(options?.onEvent);
   onEventRef.current = options?.onEvent;
 
@@ -56,7 +59,7 @@ export function useEditorSSE(
   isConflictActiveRefRef.current = options?.isConflictActiveRef;
 
   useEffect(() => {
-    if (!formId) return;
+    if (!formId || !enabled) return;
 
     const url = withShareTokenSearchParam(
       `${baseUrl}/api/forms/${formId}/editor/events`,
@@ -203,5 +206,5 @@ export function useEditorSSE(
       clearReconnectTimer();
       closeEventSource();
     };
-  }, [formId, queryClient, shareToken]);
+  }, [enabled, formId, queryClient, shareToken]);
 }
