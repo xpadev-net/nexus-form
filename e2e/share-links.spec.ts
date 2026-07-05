@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import mysql from "mysql2/promise";
 
-const ownerId = "e2e-share-owner";
+const seededOwnerIdPrefix = "e2e-share-owner-";
 const seededIdPrefix = "e2e-share-";
 const seededShareLinkIdPrefix = "e2e-share-link-";
 const seededStructureIdPrefix = "e2e-structure-";
@@ -24,6 +24,13 @@ function requireDatabaseUrl(): string {
   if (!databaseUrl) {
     throw new Error("DATABASE_URL is required for share-links E2E seed");
   }
+  const databaseName = new URL(databaseUrl).pathname.replace(/^\//, "");
+  const allowNonTestDatabase = process.env.E2E_ALLOW_NON_TEST_DATABASE === "1";
+  if (!allowNonTestDatabase && !/(^|_)(ci|e2e|test)(_|$)/i.test(databaseName)) {
+    throw new Error(
+      "share-links E2E seed requires a ci/e2e/test database name or E2E_ALLOW_NON_TEST_DATABASE=1",
+    );
+  }
   return databaseUrl;
 }
 
@@ -40,6 +47,9 @@ async function cleanupSeededShareLinkForms(): Promise<void> {
     await connection.execute("DELETE FROM `Form` WHERE id LIKE ?", [
       `${seededIdPrefix}%`,
     ]);
+    await connection.execute("DELETE FROM `User` WHERE id LIKE ?", [
+      `${seededOwnerIdPrefix}%`,
+    ]);
     await connection.commit();
   } catch (error) {
     await connection.rollback();
@@ -51,6 +61,7 @@ async function cleanupSeededShareLinkForms(): Promise<void> {
 
 async function seedShareLinkForm(): Promise<SeededShareLinkForm> {
   const formId = `${seededIdPrefix}${Date.now()}-${randomUUID()}`;
+  const ownerId = `${seededOwnerIdPrefix}${randomUUID()}`;
   const viewerToken = `e2e-viewer-${randomUUID()}`;
   const editorToken = `e2e-editor-${randomUUID()}`;
   const structureJson = JSON.stringify({
@@ -75,7 +86,7 @@ async function seedShareLinkForm(): Promise<SeededShareLinkForm> {
        ON DUPLICATE KEY UPDATE name = VALUES(name)`,
       [
         ownerId,
-        "e2e-share-owner@example.test",
+        `${ownerId}@example.test`,
         "E2E Share Owner",
         true,
         "user",
@@ -145,6 +156,28 @@ async function seedShareLinkForm(): Promise<SeededShareLinkForm> {
   return { formId, viewerToken, editorToken };
 }
 
+async function updateFormTitleWithShareToken(
+  page: Page,
+  formId: string,
+  token: string,
+  title: string,
+): Promise<number> {
+  return page.evaluate(
+    async ({ formId, title, token }) => {
+      const response = await fetch(`/api/forms/${formId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title }),
+      });
+      return response.status;
+    },
+    { formId, title, token },
+  );
+}
+
 test.describe("共有リンク編集画面", () => {
   test.afterAll(async () => {
     await cleanupSeededShareLinkForms();
@@ -205,30 +238,20 @@ test.describe("共有リンク編集画面", () => {
     );
     await expect(page.getByText("E2E Share Link Form")).toBeVisible();
 
-    const editorUpdateStatus = await page.evaluate(async ({ formId, token }) => {
-      const response = await fetch(`/api/forms/${formId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title: "E2E Share Link Form Edited" }),
-      });
-      return response.status;
-    }, { formId: seeded.formId, token: seeded.editorToken });
+    const editorUpdateStatus = await updateFormTitleWithShareToken(
+      page,
+      seeded.formId,
+      seeded.editorToken,
+      "E2E Share Link Form Edited",
+    );
     expect(editorUpdateStatus).toBe(200);
 
-    const viewerUpdateStatus = await page.evaluate(async ({ formId, token }) => {
-      const response = await fetch(`/api/forms/${formId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ title: "Viewer must not edit" }),
-      });
-      return response.status;
-    }, { formId: seeded.formId, token: seeded.viewerToken });
+    const viewerUpdateStatus = await updateFormTitleWithShareToken(
+      page,
+      seeded.formId,
+      seeded.viewerToken,
+      "Viewer must not edit",
+    );
     expect(viewerUpdateStatus).toBe(403);
   });
 });

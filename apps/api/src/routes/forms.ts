@@ -117,10 +117,4 @@ export const formsRouter = createHonoApp()
       const response = FormCreateResponseSchema.parse({ form: created });
       return c.json(response, 201);
     },
-  )
-  .delete("/:id/blocks/sessions/:sessionId", withDualAuth(), (c) =>
-    c.json(errorResponse("Not found"), 404),
-  )
-  .delete("/:id/blocks/sessions", withDualAuth(), (c) =>
-    c.json(errorResponse("Not found"), 404),
   );

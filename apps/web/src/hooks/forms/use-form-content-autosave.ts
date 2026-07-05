@@ -164,7 +164,7 @@ export function useFormContentAutosave({
   contentQueryKey: providedContentQueryKey,
   contentRefetch,
   getActiveTab,
-  enableRealtimeSync = true,
+  enableRealtimeSync = false,
 }: UseFormContentAutosaveOptions): UseFormContentAutosaveReturn {
   const queryClient = useQueryClient();
   const contentQueryKey = useMemo(
