@@ -1288,6 +1288,58 @@ describe("handleSheetsSync — write path", () => {
     );
   });
 
+  it("does not treat legacy data rows as shared title rows when headers match shared ids", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const sharedIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "UA UUID",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            sharedIdRow,
+            [
+              "response-1",
+              "respondent-1",
+              "2026-05-17T01:00:00.000Z",
+              "",
+              "JP",
+              "",
+              "1.0000",
+              "legacy answer",
+            ],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+
+    const result = await handleSheetsSync(makeJob());
+
+    expect(result).toEqual({
+      ok: true,
+      skipped: true,
+      reason: "duplicate",
+      provider: "google-sheets",
+      jobId: "job-1",
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+  });
+
   it("uses the shared export sheet contract for empty-sheet headers, metadata, and formula neutralization", async () => {
     const responseDataJson = JSON.stringify([
       {

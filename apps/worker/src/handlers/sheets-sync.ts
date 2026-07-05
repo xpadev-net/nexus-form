@@ -68,6 +68,15 @@ const SHARED_BASE_ID_HEADERS = [
   "UA UUID",
   UNIQUENESS_SCORE_ID_HEADER,
 ];
+const SHARED_BASE_TITLE_HEADERS = [
+  "回答ID",
+  "回答者UUID",
+  "送信日時",
+  "更新日時",
+  "国コード",
+  "UA UUID",
+  "ユニーク度スコア",
+];
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
 // + 1 conditional uniqueness-score backfill + 1 append
@@ -831,7 +840,11 @@ async function readSheetForIdempotency(
       headerRowCount: 1,
     };
   }
-  const isSharedLayout = isSharedSheetLayout(headers, responseIdIndex);
+  const isSharedLayout = isSharedSheetLayout(
+    headers,
+    secondRow,
+    responseIdIndex,
+  );
   const layout: SheetLayout = isSharedLayout ? "shared" : "legacy";
   const headerRowCount = isSharedLayout ? 2 : 1;
   const titleHeaders = isSharedLayout ? secondRow : [];
@@ -871,12 +884,24 @@ async function readSheetForIdempotency(
 
 function isSharedSheetLayout(
   headers: string[],
+  titleHeaders: string[],
   responseIdIndex: number,
 ): boolean {
   return (
     responseIdIndex === 0 &&
-    SHARED_BASE_ID_HEADERS.every((header, index) => headers[index] === header)
+    SHARED_BASE_ID_HEADERS.every(
+      (header, index) => headers[index] === header,
+    ) &&
+    isSharedTitleHeaderRow(titleHeaders)
   );
+}
+
+function isSharedTitleHeaderRow(titleHeaders: string[]): boolean {
+  if (titleHeaders.length === 0) return true;
+  return SHARED_BASE_TITLE_HEADERS.every((header, index) => {
+    const existing = titleHeaders[index];
+    return existing === undefined || existing === "" || existing === header;
+  });
 }
 
 function hasSheetRowChanged(nextRow: string[], existingRow: string[]): boolean {
