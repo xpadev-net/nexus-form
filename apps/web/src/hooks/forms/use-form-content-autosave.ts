@@ -696,7 +696,13 @@ export function useFormContentAutosave({
       const isSameMountedForm = formIdRef.current === cleanupFormId;
       const isEnabledOnlyCleanup =
         isSameMountedForm && enabledRef.current !== cleanupEnabled;
-      if (isEnabledOnlyCleanup) return;
+      if (isEnabledOnlyCleanup) {
+        if (cleanupEnabled && !enabledRef.current) {
+          flushPendingSaveOnExit(cleanupFormId, true);
+          setIsSaving(false);
+        }
+        return;
+      }
       flushPendingSaveOnExit(cleanupFormId, cleanupEnabled);
       if (!isSameMountedForm) {
         setIsSaving(false);

@@ -403,7 +403,8 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
-  it("does not keepalive save when enabled changes from true to false", async () => {
+  it("keeps a pending save when enabled changes from true to false", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     vi.stubGlobal("fetch", fetchMock);
     let hook: UseFormContentAutosaveReturn | undefined;
@@ -412,22 +413,39 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     }, true);
 
     act(() => {
-      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+      hook?.handleContentChange(draftContent);
     });
 
     disable();
     await flushPromises();
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:3001/api/forms/form-1/content",
+    );
+    expect(requestInit).toEqual(
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+      }),
+    );
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
 
     act(() => {
       root.unmount();
     });
     await flushPromises();
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("flushes pending edits to the previous form when formId changes", async () => {
