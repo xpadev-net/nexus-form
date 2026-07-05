@@ -19,6 +19,30 @@ describe("response choice display labels", () => {
         },
       },
       {
+        id: "preferred-tool",
+        type: "dropdown",
+        validation: {
+          options: [
+            { id: "ts", label: "TypeScript" },
+            { id: "react", label: "React" },
+          ],
+          allowOther: true,
+          otherLabel: "自由記述",
+        },
+      },
+      {
+        id: "interests",
+        type: "checkbox",
+        validation: {
+          options: [
+            { id: "ts", label: "TypeScript" },
+            { id: "react", label: "React" },
+          ],
+          allowOther: true,
+          otherLabel: "その他の興味",
+        },
+      },
+      {
         id: "company-grid",
         type: "choice_grid",
         validation: {
@@ -59,6 +83,18 @@ describe("response choice display labels", () => {
         value: "legacy-id",
       },
       {
+        question_id: "preferred-tool",
+        question_type: "dropdown",
+        value: "other",
+        other_value: "Vue",
+      },
+      {
+        question_id: "interests",
+        question_type: "checkbox",
+        values: ["ts", "other"],
+        other_values: ["アクセシビリティ"],
+      },
+      {
         question_id: "company-grid",
         question_type: "choice_grid",
         responses: { contract: "corp" },
@@ -92,6 +128,20 @@ describe("response choice display labels", () => {
         question_id: "unknown-choice",
         question_type: "radio",
         value: "legacy-id",
+      },
+      {
+        question_id: "preferred-tool",
+        question_type: "dropdown",
+        value: "other",
+        other_value: "Vue",
+        display_value: "自由記述",
+      },
+      {
+        question_id: "interests",
+        question_type: "checkbox",
+        values: ["ts", "other"],
+        other_values: ["アクセシビリティ"],
+        display_values: ["TypeScript", "その他の興味"],
       },
       {
         question_id: "company-grid",
