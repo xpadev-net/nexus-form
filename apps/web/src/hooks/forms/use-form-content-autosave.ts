@@ -134,6 +134,7 @@ interface UseFormContentAutosaveOptions {
   contentQueryKey?: readonly unknown[];
   contentRefetch: () => Promise<unknown>;
   getActiveTab: () => string;
+  enableRealtimeSync?: boolean;
 }
 
 export interface UseFormContentAutosaveReturn {
@@ -163,6 +164,7 @@ export function useFormContentAutosave({
   contentQueryKey: providedContentQueryKey,
   contentRefetch,
   getActiveTab,
+  enableRealtimeSync = true,
 }: UseFormContentAutosaveOptions): UseFormContentAutosaveReturn {
   const queryClient = useQueryClient();
   const contentQueryKey = useMemo(
@@ -430,6 +432,7 @@ export function useFormContentAutosave({
 
   // SSE integration
   useEditorSSE(formId, {
+    enabled: enableRealtimeSync,
     pendingValueRef,
     lastSavedVersionRef,
     onMergeNeeded: attemptMerge,

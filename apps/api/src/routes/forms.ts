@@ -53,39 +53,44 @@ const requireFormCreationAuth = createMiddleware<Env>(async (c, next) => {
 });
 
 export const formsRouter = createHonoApp()
-  .use("*", withDualAuth())
-  .get("/", zValidator("query", formsListQuerySchema), async (c) => {
-    const auth = c.get("dualAuthContext");
-    if (!auth) return c.json(errorResponse("Unauthorized"), 401);
+  .get(
+    "/",
+    withDualAuth(),
+    zValidator("query", formsListQuerySchema),
+    async (c) => {
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(errorResponse("Unauthorized"), 401);
 
-    const { page, limit } = c.req.valid("query");
-    const offset = (page - 1) * limit;
-    const formsListWhere = createFormsListWhere(auth);
+      const { page, limit } = c.req.valid("query");
+      const offset = (page - 1) * limit;
+      const formsListWhere = createFormsListWhere(auth);
 
-    const [totalResult, forms] = await Promise.all([
-      db.select({ count: count() }).from(form).where(formsListWhere),
-      db.query.form.findMany({
-        where: formsListWhere,
-        orderBy: [desc(form.updatedAt)],
-        limit,
-        offset,
-      }),
-    ]);
+      const [totalResult, forms] = await Promise.all([
+        db.select({ count: count() }).from(form).where(formsListWhere),
+        db.query.form.findMany({
+          where: formsListWhere,
+          orderBy: [desc(form.updatedAt)],
+          limit,
+          offset,
+        }),
+      ]);
 
-    const total = totalResult[0]?.count ?? 0;
-    const response = FormsListResponseSchema.parse({
-      forms,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
-    });
-    return c.json(response);
-  })
+      const total = totalResult[0]?.count ?? 0;
+      const response = FormsListResponseSchema.parse({
+        forms,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      });
+      return c.json(response);
+    },
+  )
   .post(
     "/",
+    withDualAuth(),
     requireFormCreationAuth,
     zValidator("json", createFormSchema),
     async (c) => {
@@ -112,4 +117,10 @@ export const formsRouter = createHonoApp()
       const response = FormCreateResponseSchema.parse({ form: created });
       return c.json(response, 201);
     },
+  )
+  .delete("/:id/blocks/sessions/:sessionId", withDualAuth(), (c) =>
+    c.json(errorResponse("Not found"), 404),
+  )
+  .delete("/:id/blocks/sessions", withDualAuth(), (c) =>
+    c.json(errorResponse("Not found"), 404),
   );
