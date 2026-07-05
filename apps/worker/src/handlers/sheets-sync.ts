@@ -236,12 +236,9 @@ type PreparedSheetsSyncResponse =
       response: SheetsSyncTargetResponse;
       responseData: Record<string, unknown>;
       uniquenessScores: ResponseUniquenessScores;
-      prefetchedIdempotencyValue: Awaited<
-        ReturnType<typeof getIdempotencyKeyValue>
-      >;
     }
   | {
-      status: "duplicate" | "invalid_data";
+      status: "invalid_data";
       response: SheetsSyncTargetResponse;
     };
 type ParsedSheetsSyncResponse =
@@ -249,10 +246,7 @@ type ParsedSheetsSyncResponse =
       Extract<PreparedSheetsSyncResponse, { status: "ready" }>,
       "uniquenessScores"
     >
-  | Extract<
-      PreparedSheetsSyncResponse,
-      { status: "duplicate" | "invalid_data" }
-    >;
+  | Extract<PreparedSheetsSyncResponse, { status: "invalid_data" }>;
 type SheetReadResult = {
   ok: true;
   exists: boolean;
@@ -398,78 +392,85 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   const lockKey = `sheets-sync:${integrationId}`;
 
-  const duplicateSkippedResult = () => ({
-    ok: true,
-    skipped: true,
-    reason: "duplicate",
-    provider: "google-sheets",
-    jobId: job.id,
-  });
-
-  const preparedResponses = await prepareSheetsSyncResponses(
-    formId,
-    integrationId,
-    responses,
-  );
+  const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
   const total = preparedResponses.length;
   let processed = 0;
   let skipped = 0;
   let updatedRows = 0;
   let updatedRange: string | undefined;
 
-  for (const prepared of preparedResponses) {
-    const result =
-      prepared.status === "ready"
-        ? await writePreparedSheetsSyncResponse({
-            blockTitleMap,
-            extractedQuestions,
-            integrationId,
-            job,
-            lockKey,
-            prepared,
-            progress: { processed, total },
-            sheetName,
-            spreadsheetId,
-            token,
-          })
-        : prepared.status === "duplicate"
-          ? duplicateSkippedResult()
-          : {
-              ok: true,
-              skipped: true,
-              reason: "invalid_data",
-              provider: "google-sheets",
-              jobId: job.id,
-            };
+  // ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）。
+  // Full-mode batches keep the same integration lock across all historical
+  // rows, so incremental jobs cannot interleave with a partially updated
+  // header/layout.
+  return await withRedisLock(
+    lockKey,
+    async () => {
+      for (const prepared of preparedResponses) {
+        const result =
+          prepared.status === "ready"
+            ? await writePreparedSheetsSyncResponse({
+                blockTitleMap,
+                extractedQuestions,
+                integrationId,
+                job,
+                prepared,
+                progress: { processed, total },
+                sheetName,
+                spreadsheetId,
+                token,
+              })
+            : {
+                ok: true,
+                skipped: true,
+                reason: "invalid_data",
+                provider: "google-sheets",
+                jobId: job.id,
+              };
 
-    processed += 1;
-    if ("skipped" in result && result.skipped) {
-      skipped += 1;
-    } else if ("updatedRows" in result) {
-      updatedRows += result.updatedRows;
-      updatedRange = result.updatedRange;
-    }
-    await updateSheetsSyncProgress(job, 100, processed, total).catch(() => {
-      // Best-effort progress update; job result is what matters.
-    });
+        processed += 1;
+        if ("skipped" in result && result.skipped) {
+          skipped += 1;
+        } else if ("updatedRows" in result) {
+          updatedRows += result.updatedRows;
+          updatedRange = result.updatedRange;
+        }
+        await updateSheetsSyncProgress(job, 100, processed, total).catch(() => {
+          // Best-effort progress update; job result is what matters.
+        });
 
-    if (mode === "incremental") {
-      return result;
-    }
-  }
+        if (mode === "incremental") {
+          return result;
+        }
+      }
 
-  return {
-    ok: true,
-    provider: "google-sheets",
-    jobId: job.id,
-    mode,
-    processed,
-    total,
-    skipped,
-    updatedRange,
-    updatedRows,
-  };
+      return {
+        ok: true,
+        provider: "google-sheets",
+        jobId: job.id,
+        mode,
+        processed,
+        total,
+        skipped,
+        updatedRange,
+        updatedRows,
+      };
+    },
+    getSheetsSyncLockOptions(total),
+  );
 };
+
+function getSheetsSyncLockOptions(responseCount: number) {
+  const lockMultiplier = Math.max(1, responseCount);
+  const ttlMs = SHEETS_SYNC_LOCK_TTL_MS * lockMultiplier;
+  return {
+    ttlMs,
+    waitTimeoutMs:
+      SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS +
+      SHEETS_SYNC_LOCK_TTL_MS * (lockMultiplier - 1),
+    signal: workerShutdownSignal,
+  };
+}
 
 async function getSheetsSyncTargetResponses(params: {
   formId: string;
@@ -510,28 +511,31 @@ async function getSheetsSyncTargetResponses(params: {
     );
   }
 
-  return responses;
+  const targetResponseIndex = responses.findIndex(
+    (response) => response.id === params.responseId,
+  );
+  if (targetResponseIndex === -1) {
+    throw new Error(`Form response not found: ${params.responseId}`);
+  }
+
+  if (targetResponseIndex === 0) {
+    return responses;
+  }
+
+  const targetResponse = responses[targetResponseIndex];
+  if (!targetResponse) {
+    throw new Error(`Form response not found: ${params.responseId}`);
+  }
+  return [targetResponse];
 }
 
 async function prepareSheetsSyncResponses(
   formId: string,
-  integrationId: string,
   responses: SheetsSyncTargetResponse[],
 ): Promise<PreparedSheetsSyncResponse[]> {
   const parsedResponses: ParsedSheetsSyncResponse[] = [];
   const readyResponseIds: string[] = [];
   for (const response of responses) {
-    const idempotencyKey = getSheetsSyncIdempotencyKey(
-      integrationId,
-      response.id,
-    );
-    const prefetchedIdempotencyValue =
-      await getIdempotencyKeyValue(idempotencyKey);
-    if (prefetchedIdempotencyValue === "done") {
-      parsedResponses.push({ status: "duplicate", response });
-      continue;
-    }
-
     // レスポンスデータをパース（不正データはスキップして再試行ループを避ける）
     const responseData = safeParseResponseData(
       response.responseDataJson,
@@ -547,7 +551,6 @@ async function prepareSheetsSyncResponses(
       status: "ready",
       response,
       responseData,
-      prefetchedIdempotencyValue,
     });
   }
 
@@ -580,7 +583,6 @@ async function writePreparedSheetsSyncResponse(params: {
   extractedQuestions: ExtractedQuestion[];
   integrationId: string;
   job: Job<SheetsSyncJob>;
-  lockKey: string;
   prepared: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
   progress: { processed: number; total: number };
   sheetName: string;
@@ -592,7 +594,6 @@ async function writePreparedSheetsSyncResponse(params: {
     extractedQuestions,
     integrationId,
     job,
-    lockKey,
     prepared,
     progress,
     sheetName,
@@ -604,9 +605,6 @@ async function writePreparedSheetsSyncResponse(params: {
     integrationId,
     response.id,
   );
-  let prefetchedIdempotencyValue:
-    | Awaited<ReturnType<typeof getIdempotencyKeyValue>>
-    | undefined = prepared.prefetchedIdempotencyValue;
 
   const duplicateSkippedResult = () => ({
     ok: true,
@@ -616,178 +614,149 @@ async function writePreparedSheetsSyncResponse(params: {
     jobId: job.id,
   });
 
-  // ロックでシート書き込みを直列化（ヘッダー競合を防ぐ）
   // BullMQ jobId deduplication prevents duplicate concurrent jobs.
   // A Redis idempotency key guards against duplicate rows on BullMQ retries
   // (jobId dedup only applies while the job is still in the queue).
-  return await withRedisLock(
-    lockKey,
-    async () => {
-      while (true) {
-        const keyValue =
-          prefetchedIdempotencyValue === undefined
-            ? await getIdempotencyKeyValue(idempotencyKey)
-            : prefetchedIdempotencyValue;
-        prefetchedIdempotencyValue = undefined;
+  while (true) {
+    const keyValue = await getIdempotencyKeyValue(idempotencyKey);
 
-        if (keyValue === "done") {
-          // A prior attempt already wrote the row; skip.
-          return duplicateSkippedResult();
-        }
+    if (keyValue === "done") {
+      // A prior attempt already wrote the row; skip.
+      return duplicateSkippedResult();
+    }
 
-        const markDuplicateWritten = async () => {
-          await setIdempotencyKey(
-            idempotencyKey,
-            DONE_IDEMPOTENCY_TTL_SECONDS,
-            "done",
-          ).catch((e: unknown) => {
-            console.warn(
-              `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-            );
-          });
-          return duplicateSkippedResult();
-        };
-
-        if (keyValue === "pending") {
-          // The lock TTL expired while another job's critical section is still in
-          // progress, or the prior attempt crashed before the row was written.
-          // Keep the integration lock while waiting so no other response can
-          // update headers or append rows for this integration in between.
-          const pendingResult =
-            await waitForPendingIdempotencyToResolve(idempotencyKey);
-          if (pendingResult === "done") {
-            return duplicateSkippedResult();
-          }
-          continue;
-        }
-
-        // Mark as "pending" before any Sheets API call in this critical section.
-        // If Redis is unavailable, throw so the job retries rather than writing
-        // without the duplicate guard.
-        await setIdempotencyKey(
-          idempotencyKey,
-          PENDING_IDEMPOTENCY_TTL_SECONDS,
-          "pending",
+    const markDuplicateWritten = async () => {
+      await setIdempotencyKey(
+        idempotencyKey,
+        DONE_IDEMPOTENCY_TTL_SECONDS,
+        "done",
+      ).catch((e: unknown) => {
+        console.warn(
+          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
         );
+      });
+      return duplicateSkippedResult();
+    };
 
-        const sheetCheck = await readSheetForIdempotency(token, {
-          spreadsheetId,
-          sheetName,
-          responseId: response.id,
-        });
-        if (sheetCheck.exists) {
-          return markDuplicateWritten();
-        }
-
-        // ヘッダー行を取得
-        const existingHeaders = sheetCheck.headers;
-
-        await updateSheetsSyncProgress(
-          job,
-          60,
-          progress.processed,
-          progress.total,
-        );
-
-        // ヘッダーと行データを構築
-        const { headers, titleHeaders, row } = buildRowFromResponse(
-          existingHeaders,
-          sheetCheck.titleHeaders,
-          sheetCheck.layout,
-          responseData,
-          extractedQuestions,
-          blockTitleMap,
-          response,
-          uniquenessScores.targetScore,
-          uniquenessScores.fingerprintComponents,
-          uniquenessScores.targetFingerprintUuids,
-        );
-
-        const titleHeadersChanged =
-          sheetCheck.layout !== "legacy" &&
-          hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
-
-        // ヘッダーが変更された場合は更新
-        if (
-          existingHeaders.length === 0 ||
-          headers.length > existingHeaders.length ||
-          titleHeadersChanged
-        ) {
-          throwIfShuttingDown();
-          const headerUpdateResult = await updateRange(token, {
-            spreadsheetId,
-            rangeA1:
-              sheetCheck.layout === "legacy"
-                ? `${sheetName}!1:1`
-                : `${sheetName}!1:2`,
-            values:
-              sheetCheck.layout === "legacy"
-                ? [headers]
-                : [headers, titleHeaders],
-          });
-          if (!headerUpdateResult.ok) {
-            throwSheetsSyncFailure("update headers", headerUpdateResult);
-          }
-        }
-        await updateExistingUniquenessScoreCells(token, {
-          spreadsheetId,
-          sheetName,
-          headers,
-          responseIds: sheetCheck.responseIds,
-          headerRowCount: sheetCheck.headerRowCount,
-          shouldBlankUnavailableScores:
-            uniquenessScores.shouldBlankUnavailableScores,
-          uniquenessScores: uniquenessScores.allScores,
-        });
-        await updateSheetsSyncProgress(
-          job,
-          80,
-          progress.processed,
-          progress.total,
-        );
-
-        // 行を追記
-        throwIfShuttingDown();
-        const appendResult = await appendRows(token, {
-          spreadsheetId,
-          sheetName,
-          rows: [row],
-        });
-
-        if (!appendResult.ok) {
-          throwSheetsSyncFailure("append rows", appendResult);
-        }
-        // Promote "pending" → "done" BEFORE updateProgress so a
-        // transient BullMQ/Redis error on progress update doesn't trigger a retry
-        // that would duplicate the row. Keep it for the manual retry window.
-        // Best-effort: do NOT throw on failure.
-        await setIdempotencyKey(
-          idempotencyKey,
-          DONE_IDEMPOTENCY_TTL_SECONDS,
-          "done",
-        ).catch((e: unknown) => {
-          console.warn(
-            `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-          );
-        });
-
-        return {
-          ok: true,
-          provider: "google-sheets",
-          jobId: job.id,
-          updatedRange: appendResult.data.updatedRange,
-          updatedRows: appendResult.data.updatedRows,
-        };
+    if (keyValue === "pending") {
+      // The lock TTL expired while another job's critical section is still in
+      // progress, or the prior attempt crashed before the row was written.
+      // Keep the integration lock while waiting so no other response can
+      // update headers or append rows for this integration in between.
+      const pendingResult =
+        await waitForPendingIdempotencyToResolve(idempotencyKey);
+      if (pendingResult === "done") {
+        return duplicateSkippedResult();
       }
-    },
-    // Lock TTL covers one response's pending-idempotency wait followed by the
-    // Sheets critical section (2 reads + 1 conditional header update + 1 append).
-    {
-      ttlMs: SHEETS_SYNC_LOCK_TTL_MS,
-      waitTimeoutMs: SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS,
-      signal: workerShutdownSignal,
-    },
-  );
+      continue;
+    }
+
+    // Mark as "pending" before any Sheets API call in this critical section.
+    // If Redis is unavailable, throw so the job retries rather than writing
+    // without the duplicate guard.
+    await setIdempotencyKey(
+      idempotencyKey,
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
+
+    const sheetCheck = await readSheetForIdempotency(token, {
+      spreadsheetId,
+      sheetName,
+      responseId: response.id,
+    });
+    if (sheetCheck.exists) {
+      return markDuplicateWritten();
+    }
+
+    // ヘッダー行を取得
+    const existingHeaders = sheetCheck.headers;
+
+    await updateSheetsSyncProgress(job, 60, progress.processed, progress.total);
+
+    // ヘッダーと行データを構築
+    const { headers, titleHeaders, row } = buildRowFromResponse(
+      existingHeaders,
+      sheetCheck.titleHeaders,
+      sheetCheck.layout,
+      responseData,
+      extractedQuestions,
+      blockTitleMap,
+      response,
+      uniquenessScores.targetScore,
+      uniquenessScores.fingerprintComponents,
+      uniquenessScores.targetFingerprintUuids,
+    );
+
+    const titleHeadersChanged =
+      sheetCheck.layout !== "legacy" &&
+      hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
+
+    // ヘッダーが変更された場合は更新
+    if (
+      existingHeaders.length === 0 ||
+      headers.length > existingHeaders.length ||
+      titleHeadersChanged
+    ) {
+      throwIfShuttingDown();
+      const headerUpdateResult = await updateRange(token, {
+        spreadsheetId,
+        rangeA1:
+          sheetCheck.layout === "legacy"
+            ? `${sheetName}!1:1`
+            : `${sheetName}!1:2`,
+        values:
+          sheetCheck.layout === "legacy" ? [headers] : [headers, titleHeaders],
+      });
+      if (!headerUpdateResult.ok) {
+        throwSheetsSyncFailure("update headers", headerUpdateResult);
+      }
+    }
+    await updateExistingUniquenessScoreCells(token, {
+      spreadsheetId,
+      sheetName,
+      headers,
+      responseIds: sheetCheck.responseIds,
+      headerRowCount: sheetCheck.headerRowCount,
+      shouldBlankUnavailableScores:
+        uniquenessScores.shouldBlankUnavailableScores,
+      uniquenessScores: uniquenessScores.allScores,
+    });
+    await updateSheetsSyncProgress(job, 80, progress.processed, progress.total);
+
+    // 行を追記
+    throwIfShuttingDown();
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows: [row],
+    });
+
+    if (!appendResult.ok) {
+      throwSheetsSyncFailure("append rows", appendResult);
+    }
+    // Promote "pending" → "done" BEFORE updateProgress so a
+    // transient BullMQ/Redis error on progress update doesn't trigger a retry
+    // that would duplicate the row. Keep it for the manual retry window.
+    // Best-effort: do NOT throw on failure.
+    await setIdempotencyKey(
+      idempotencyKey,
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    ).catch((e: unknown) => {
+      console.warn(
+        `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+      );
+    });
+
+    return {
+      ok: true,
+      provider: "google-sheets",
+      jobId: job.id,
+      updatedRange: appendResult.data.updatedRange,
+      updatedRows: appendResult.data.updatedRows,
+    };
+  }
 }
 
 function getSheetsSyncIdempotencyKey(
@@ -832,6 +801,7 @@ async function getUniquenessScoresForResponses(
     .select({ id: formResponse.id })
     .from(formResponse)
     .where(eq(formResponse.formId, formId))
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
     .limit(RESPONSE_UNIQUENESS_CALCULATION_LIMIT + 1);
 
   if (responseRows.length === 0) {
