@@ -38,6 +38,7 @@ const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
 );
 
 interface TestMutationVariables {
+  authScope: typeof defaultAuthScope;
   contentQueryKey: readonly unknown[];
   formId: string;
   expectedVersion: number;
@@ -47,7 +48,7 @@ interface TestMutationVariables {
 
 type TestMutationVariablesInput =
   | TestMutationVariables
-  | Omit<TestMutationVariables, "contentQueryKey" | "formId">;
+  | Omit<TestMutationVariables, "authScope" | "contentQueryKey" | "formId">;
 
 interface TestMutationOptions {
   onSuccess?: (data: unknown, variables: TestMutationVariablesInput) => void;
@@ -56,11 +57,44 @@ interface TestMutationOptions {
 
 let latestMutationOptions: TestMutationOptions | undefined;
 const attemptMergeMock = vi.fn();
+const defaultAuthScope = {
+  principalKey: "current-session",
+  role: "EDITOR",
+  type: "session",
+} as const;
+type TestAuthScope = {
+  principalKey: string;
+  role: "EDITOR" | "VIEWER";
+  type: "session" | "share-token";
+};
+type TestPendingSave = {
+  authScope?: TestAuthScope;
+  expectedVersion: number;
+  failureStatus?: number;
+  failureType?: "http" | "network" | "unknown";
+  formId?: string;
+  plateContent: string;
+  retryBlocked?: "conflict";
+  source?: "in-flight";
+};
+
+function makePendingSave(overrides: TestPendingSave) {
+  return {
+    authScope: defaultAuthScope,
+    formId: "form-1",
+    ...overrides,
+  };
+}
+
+function stringifyPendingSave(overrides: TestPendingSave): string {
+  return JSON.stringify(makePendingSave(overrides));
+}
 
 function withDefaultMutationScope(
   variables: TestMutationVariablesInput,
 ): TestMutationVariables {
   return {
+    authScope: defaultAuthScope,
     contentQueryKey: ["formContent", "form-1"],
     formId: "form-1",
     ...variables,
@@ -326,19 +360,25 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       }),
     );
     expect(JSON.parse(String(requestInit?.body))).toEqual({
+      authScope: defaultAuthScope,
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
     });
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        failureStatus: 500,
+        failureType: "http",
+        plateContent: draftContent,
+      }),
+    );
   });
 
   it("does not retry or keepalive save when autosave is disabled", async () => {
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"stale"}]}]',
     });
@@ -371,6 +411,93 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
   });
 
+  it("clears a viewer share-link pending save instead of replaying it as a session editor", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      stringifyPendingSave({
+        authScope: {
+          principalKey: "fnv1a:viewer",
+          role: "VIEWER",
+          type: "share-token",
+        },
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+      }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears legacy pending saves that do not carry an auth scope", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      JSON.stringify({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"legacy"}]}]',
+      }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("clears a pending save when retrying it on mount is unauthorized", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      stringifyPendingSave({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
+    rpcMock.mockRejectedValue(new MockRpcError(403));
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    expect(rpcMock).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("does not persist a keepalive fallback when the server rejects authorization", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
   it("resumes autosave when enabled changes from false to true", () => {
     vi.useFakeTimers();
     let hook: UseFormContentAutosaveReturn | undefined;
@@ -394,6 +521,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      authScope: defaultAuthScope,
       contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
       formId: "form-1",
@@ -433,15 +561,21 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       }),
     );
     expect(JSON.parse(String(requestInit?.body))).toEqual({
+      authScope: defaultAuthScope,
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
     });
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        failureStatus: 500,
+        failureType: "http",
+        plateContent: draftContent,
+      }),
+    );
 
     act(() => {
       root.unmount();
@@ -472,7 +606,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       "http://localhost:3001/api/forms/form-1/content",
     );
     expect(JSON.parse(String(requestInit?.body))).toEqual({
+      authScope: defaultAuthScope,
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
     });
     expect(hook?.hasUnsavedLocalEdits()).toBe(false);
@@ -500,17 +636,20 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        failureType: "network",
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
   });
 
   it("does not keep a pending save when keepalive fetch succeeds", async () => {
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     localStorage.setItem(
       "pendingSave:form-1",
-      JSON.stringify({
+      stringifyPendingSave({
         expectedVersion: 7,
         plateContent: draftContent,
         retryBlocked: "conflict",
@@ -538,7 +677,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("keeps a pending save without retry loops when retrying it on mount fails with a conflict", async () => {
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
     });
@@ -558,11 +697,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
-      retryBlocked: "conflict",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        retryBlocked: "conflict",
+      }),
+    );
     expect(toastWarningMock).toHaveBeenCalledWith(
       expect.stringContaining("競合"),
     );
@@ -582,11 +723,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(toastWarningMock).not.toHaveBeenCalled();
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
-      retryBlocked: "conflict",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+        retryBlocked: "conflict",
+      }),
+    );
 
     act(() => {
       retryBlockedRoot.unmount();
@@ -615,7 +758,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("keeps the pending save when retrying it on mount fails transiently", async () => {
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
     });
@@ -633,7 +776,15 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
         },
       }),
     );
-    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        failureType: "unknown",
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
     expect(toastWarningMock).not.toHaveBeenCalled();
 
     act(() => {
@@ -644,7 +795,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("invalidates content and diff queries when retrying a pending save succeeds on mount", async () => {
     localStorage.setItem(
       "pendingSave:form-1",
-      JSON.stringify({
+      stringifyPendingSave({
         expectedVersion: 7,
         plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
       }),
@@ -689,11 +840,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: draftContent,
+        source: "in-flight",
+      }),
+    );
 
     act(() => {
       latestMutationOptions?.onSuccess?.(
@@ -739,11 +892,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: draftContent,
+        source: "in-flight",
+      }),
+    );
 
     act(() => {
       if (!saveVariables) throw new Error("save variables missing");
@@ -770,7 +925,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("does not overwrite a conflict-blocked pending save with in-flight fallback", () => {
     vi.useFakeTimers();
-    const conflictBlockedSave = JSON.stringify({
+    const conflictBlockedSave = stringifyPendingSave({
       expectedVersion: 6,
       plateContent: '[{"type":"p","children":[{"text":"conflict"}]}]',
       retryBlocked: "conflict",
@@ -823,11 +978,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: draftContent,
+        source: "in-flight",
+      }),
+    );
 
     act(() => {
       latestMutationOptions?.onError?.(new Error("network error"), {
@@ -839,16 +996,18 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: draftContent,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: draftContent,
+        source: "in-flight",
+      }),
+    );
   });
 
   it("delays retrying in-flight fallback so the original request can clear it first", async () => {
     vi.useFakeTimers();
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
       source: "in-flight",
@@ -878,7 +1037,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("retries in-flight fallback after the original request has not cleared it", async () => {
     vi.useFakeTimers();
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
       source: "in-flight",
@@ -917,7 +1076,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
     };
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       ...retryPayload,
       source: "in-flight",
     });
@@ -945,20 +1104,24 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     );
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      ...retryPayload,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        ...retryPayload,
+        source: "in-flight",
+      }),
+    );
 
     act(() => {
       root.unmount();
     });
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      ...retryPayload,
-      source: "in-flight",
-    });
+    ).toEqual(
+      makePendingSave({
+        ...retryPayload,
+        source: "in-flight",
+      }),
+    );
 
     await act(async () => {
       resolveRetry({ plateContentVersion: 8 });
@@ -970,7 +1133,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
   it("stores a failed in-flight retry as a normal pending save for future mounts", async () => {
     vi.useFakeTimers();
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
       source: "in-flight",
@@ -988,10 +1151,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        failureType: "unknown",
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
 
     act(() => {
       root.unmount();
@@ -1001,12 +1167,12 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("does not overwrite a newer pending save when an older retry fails", async () => {
     vi.useFakeTimers();
     let rejectRetry: (reason?: unknown) => void = () => {};
-    const pendingSave = JSON.stringify({
+    const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
       source: "in-flight",
     });
-    const newerPendingSave = JSON.stringify({
+    const newerPendingSave = stringifyPendingSave({
       expectedVersion: 8,
       plateContent: '[{"type":"p","children":[{"text":"newer"}]}]',
       source: "in-flight",
@@ -1062,6 +1228,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      authScope: defaultAuthScope,
       contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
       formId: "form-1",
@@ -1114,6 +1281,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      authScope: defaultAuthScope,
       contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
       formId: "form-1",
@@ -1158,6 +1326,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      authScope: defaultAuthScope,
       contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
       formId: "form-1",
@@ -1196,16 +1365,18 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(
       JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
-    ).toEqual({
-      expectedVersion: 7,
-      plateContent: largeContent,
-    });
+    ).toEqual(
+      makePendingSave({
+        expectedVersion: 7,
+        plateContent: largeContent,
+      }),
+    );
   });
 
   it("clears a blocked pending save after a normal autosave succeeds", () => {
     localStorage.setItem(
       "pendingSave:form-1",
-      JSON.stringify({
+      stringifyPendingSave({
         expectedVersion: 7,
         plateContent: "stale draft",
         retryBlocked: "conflict",
@@ -1217,6 +1388,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
         {
+          authScope: defaultAuthScope,
           expectedVersion: 7,
           plateContent: "stale draft",
           restoreGeneration: 0,
@@ -1234,7 +1406,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   it("clears a matching pending save when a stale autosave succeeds after restore", () => {
     localStorage.setItem(
       "pendingSave:form-1",
-      JSON.stringify({
+      stringifyPendingSave({
         expectedVersion: 7,
         plateContent: "stale-but-saved draft",
         retryBlocked: "conflict",
@@ -1256,6 +1428,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
         {
+          authScope: defaultAuthScope,
           expectedVersion: 7,
           plateContent: "stale-but-saved draft",
           restoreGeneration: 0,
@@ -1274,7 +1447,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
   });
 
   it("keeps a different pending save when an older normal autosave succeeds", () => {
-    const newerPendingSave = JSON.stringify({
+    const newerPendingSave = stringifyPendingSave({
       expectedVersion: 7,
       plateContent: "newer draft",
     });
@@ -1286,6 +1459,7 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
       latestMutationOptions?.onSuccess?.(
         { plateContentVersion: 8 },
         {
+          authScope: defaultAuthScope,
           expectedVersion: 7,
           plateContent: "older draft",
           restoreGeneration: 0,
