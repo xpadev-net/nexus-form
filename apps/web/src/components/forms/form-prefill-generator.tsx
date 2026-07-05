@@ -10,14 +10,14 @@ import {
   Eraser,
   ExternalLink,
   Link2,
+  TriangleAlert,
   Wand2,
 } from "lucide-react";
 import {
+  type ComponentProps,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import { toast } from "sonner";
@@ -39,6 +39,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type { AnswerEntry } from "@/contexts/form-response-context";
+import {
+  type CopyFeedbackStatus,
+  useCopyFeedback,
+} from "@/hooks/use-copy-feedback";
 import {
   encodePrefillData,
   filterPrefillDataForSupportedQuestions,
@@ -62,16 +66,82 @@ interface OptionLike {
   label: string;
 }
 
-interface CopyFeedback {
-  url: string;
-}
-
 const MAX_SAFE_URL_LENGTH = 1900;
-const COPY_FEEDBACK_TIMEOUT_MS = 2200;
 
 function buildPrefillUrl(publicId: string, data: PrefillData): string {
   const encoded = encodePrefillData(data);
   return `${buildPublicFormUrl(publicId)}?p=${encoded}`;
+}
+
+interface PrefillCopyButtonProps
+  extends Omit<ComponentProps<typeof Button>, "children" | "onClick"> {
+  iconClassName?: string;
+  idleLabel: string;
+  onCopy: () => Promise<boolean>;
+}
+
+const prefillCopyFeedback = {
+  copied: {
+    className: "bg-emerald-600 hover:bg-emerald-600",
+    icon: CheckCircle2,
+    label: "コピー済み",
+  },
+  failed: {
+    className: "border-destructive/60 text-destructive",
+    icon: TriangleAlert,
+    label: "コピー失敗",
+  },
+  idle: {
+    className: undefined,
+    icon: Copy,
+    label: undefined,
+  },
+} satisfies Record<
+  CopyFeedbackStatus,
+  {
+    className?: string;
+    icon: typeof Copy;
+    label?: string;
+  }
+>;
+
+function PrefillCopyButton({
+  className,
+  disabled,
+  iconClassName = "mr-1 h-3.5 w-3.5",
+  idleLabel,
+  onCopy,
+  ...props
+}: PrefillCopyButtonProps) {
+  const { markCopied, markFailed, status } = useCopyFeedback();
+
+  const handleClick = async () => {
+    const copied = await onCopy();
+    if (copied) {
+      markCopied();
+      return;
+    }
+    markFailed();
+  };
+
+  const feedback = prefillCopyFeedback[status];
+  const Icon = feedback.icon;
+  const label = feedback.label ?? idleLabel;
+  const classes = [className, feedback.className].filter(Boolean).join(" ");
+
+  return (
+    <Button
+      {...props}
+      className={classes || undefined}
+      disabled={disabled}
+      onClick={() => void handleClick()}
+      data-copy-status={status}
+      title={label}
+    >
+      <Icon className={iconClassName} />
+      {label}
+    </Button>
+  );
 }
 
 export function FormPrefillGenerator({
@@ -79,8 +149,6 @@ export function FormPrefillGenerator({
   publicId,
 }: FormPrefillGeneratorProps) {
   const [prefillValues, setPrefillValues] = useState<PrefillData>({});
-  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null);
-  const copyFeedbackTimeoutRef = useRef<number | null>(null);
 
   const questions = useMemo(() => {
     try {
@@ -132,42 +200,21 @@ export function FormPrefillGenerator({
   }, [supportedPrefillValues, publicId]);
 
   const isUrlTooLong = generatedUrl.length > MAX_SAFE_URL_LENGTH;
-  const copiedUrl = generatedUrl !== "" && copyFeedback?.url === generatedUrl;
 
-  const clearCopyFeedbackTimer = useCallback(() => {
-    if (copyFeedbackTimeoutRef.current === null) return;
-    window.clearTimeout(copyFeedbackTimeoutRef.current);
-    copyFeedbackTimeoutRef.current = null;
-  }, []);
-
-  useEffect(() => {
-    if (copyFeedback === null || generatedUrl === copyFeedback.url) return;
-    clearCopyFeedbackTimer();
-    setCopyFeedback(null);
-  }, [clearCopyFeedbackTimer, copyFeedback, generatedUrl]);
-
-  useEffect(() => {
-    return clearCopyFeedbackTimer;
-  }, [clearCopyFeedbackTimer]);
-
-  const handleCopyUrl = useCallback(async () => {
-    if (!generatedUrl) return;
+  const copyGeneratedUrl = useCallback(async (): Promise<boolean> => {
+    if (!generatedUrl) return false;
     try {
       await navigator.clipboard.writeText(generatedUrl);
-      clearCopyFeedbackTimer();
-      setCopyFeedback({ url: generatedUrl });
-      copyFeedbackTimeoutRef.current = window.setTimeout(() => {
-        copyFeedbackTimeoutRef.current = null;
-        setCopyFeedback(null);
-      }, COPY_FEEDBACK_TIMEOUT_MS);
       toast.success("プリフィルURLをコピーしました");
       if (isUrlTooLong) {
         toast.warning("URLが長いため一部の環境で開けない可能性があります");
       }
+      return true;
     } catch {
       toast.error("URLをコピーできませんでした");
+      return false;
     }
-  }, [clearCopyFeedbackTimer, generatedUrl, isUrlTooLong]);
+  }, [generatedUrl, isUrlTooLong]);
 
   if (questions.length === 0) {
     return (
@@ -191,21 +238,13 @@ export function FormPrefillGenerator({
               クリア
             </Button>
           )}
-          <Button
+          <PrefillCopyButton
+            key={`header:${generatedUrl}`}
+            onCopy={copyGeneratedUrl}
             size="sm"
-            onClick={handleCopyUrl}
             disabled={!hasPrefillValues}
-            className={
-              copiedUrl ? "bg-emerald-600 hover:bg-emerald-600" : undefined
-            }
-          >
-            {copiedUrl ? (
-              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-            ) : (
-              <Copy className="mr-1 h-3.5 w-3.5" />
-            )}
-            {copiedUrl ? "コピー済み" : "URLをコピー"}
-          </Button>
+            idleLabel="URLをコピー"
+          />
         </div>
       </div>
 
@@ -217,14 +256,7 @@ export function FormPrefillGenerator({
 
       {generatedUrl && (
         <div className="space-y-2" data-testid="prefill-url-preview">
-          <div
-            className={`flex flex-wrap items-center gap-2 rounded-md border p-2 transition-colors ${
-              copiedUrl
-                ? "border-emerald-500 bg-emerald-50 dark:bg-emerald-950/30"
-                : "bg-muted/30"
-            }`}
-            data-copied={copiedUrl ? "true" : "false"}
-          >
+          <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
             <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
             <input
               className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
@@ -232,19 +264,15 @@ export function FormPrefillGenerator({
               value={generatedUrl}
               onFocus={(e) => e.currentTarget.select()}
             />
-            <Button
+            <PrefillCopyButton
+              key={`preview:${generatedUrl}`}
+              onCopy={copyGeneratedUrl}
               variant="ghost"
               size="sm"
               className="h-6 shrink-0 px-2 text-xs"
-              onClick={handleCopyUrl}
-            >
-              {copiedUrl ? (
-                <CheckCircle2 className="mr-1 h-3 w-3" />
-              ) : (
-                <Copy className="mr-1 h-3 w-3" />
-              )}
-              {copiedUrl ? "コピー済み" : "コピー"}
-            </Button>
+              idleLabel="コピー"
+              iconClassName="mr-1 h-3 w-3"
+            />
             <Button
               asChild
               variant="ghost"

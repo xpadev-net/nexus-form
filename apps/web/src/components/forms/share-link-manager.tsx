@@ -1,4 +1,4 @@
-import { Copy, Link2, Loader2, Plus, ShieldAlert, Trash2 } from "lucide-react";
+import { Link2, Loader2, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyFeedbackButton } from "@/components/ui/copy-feedback-button";
 import {
   Select,
   SelectContent,
@@ -23,6 +24,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useShareLinks } from "@/hooks/forms/use-share-links";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { formatJapanDate } from "@/lib/formatters";
 
 interface ShareLinkManagerProps {
@@ -37,6 +39,12 @@ const roleSummaries = {
     description:
       "フォーム構成や公開設定を編集でき、送信済み回答も閲覧できます。",
   },
+} as const;
+
+const shareLinkCopyLabels = {
+  copied: "リンクをコピーしました",
+  failed: "リンクをコピーできませんでした",
+  idle: "リンクをコピー",
 } as const;
 
 function isShareLinkRole(value: string): value is "EDITOR" | "VIEWER" {
@@ -98,6 +106,34 @@ function formatShareLinkFailureMessage(error: unknown): string {
   return message;
 }
 
+interface ShareLinkCopyButtonProps {
+  token: string;
+  onCopy: (token: string) => Promise<boolean>;
+}
+
+function ShareLinkCopyButton({ onCopy, token }: ShareLinkCopyButtonProps) {
+  const { markCopied, markFailed, status } = useCopyFeedback();
+
+  const handleClick = async () => {
+    const copied = await onCopy(token);
+    if (copied) {
+      markCopied();
+      return;
+    }
+    markFailed();
+  };
+
+  return (
+    <CopyFeedbackButton
+      variant="ghost"
+      className="h-8 w-8 p-0"
+      onClick={() => void handleClick()}
+      labels={shareLinkCopyLabels}
+      status={status}
+    />
+  );
+}
+
 export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
   const {
     shareLinksQuery,
@@ -110,6 +146,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
   const [newRole, setNewRole] = useState<"EDITOR" | "VIEWER">("VIEWER");
   const [isEditorConfirmOpen, setIsEditorConfirmOpen] = useState(false);
   const [manualCopyUrl, setManualCopyUrl] = useState<string | null>(null);
+  const [copyResetKey, setCopyResetKey] = useState(0);
 
   const shareLinks = shareLinksQuery.data?.share_links ?? [];
 
@@ -134,7 +171,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
     createSelectedShareLink();
   };
 
-  const handleCopy = async (token: string) => {
+  const handleCopy = async (token: string): Promise<boolean> => {
     const fallbackUrl = buildShareLinkUrl(token);
     try {
       const { copied, url } = await copyShareLinkUrl(token);
@@ -143,13 +180,15 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
         toast.error(
           "リンクをコピーできませんでした。手動でコピーしてください。",
         );
-        return;
+        return false;
       }
       setManualCopyUrl(null);
       toast.success("リンクをコピーしました");
+      return true;
     } catch {
       setManualCopyUrl(fallbackUrl);
       toast.error("リンクをコピーできませんでした。手動でコピーしてください。");
+      return false;
     }
   };
 
@@ -161,6 +200,7 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
     deleteShareLinkMutation.mutate(linkId, {
       onSuccess: () => {
         setManualCopyUrl(null);
+        setCopyResetKey((current) => current + 1);
         toast.success("共有リンクを削除しました");
       },
     });
@@ -317,15 +357,13 @@ export function ShareLinkManager({ formId }: ShareLinkManagerProps) {
                   }
                   aria-label="リンクの有効/無効を切り替え"
                 />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => link.token && void handleCopy(link.token)}
-                  aria-label="リンクをコピー"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </Button>
+                {link.token ? (
+                  <ShareLinkCopyButton
+                    key={`${link.token}:${copyResetKey}`}
+                    token={link.token}
+                    onCopy={handleCopy}
+                  />
+                ) : null}
                 <Button
                   variant="ghost"
                   size="sm"
