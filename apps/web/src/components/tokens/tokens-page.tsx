@@ -1,5 +1,5 @@
-import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Copy, TriangleAlert } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +10,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useApiTokens } from "@/hooks/tokens/use-api-tokens";
+import {
+  type CopyFeedbackStatus,
+  useCopyFeedback,
+} from "@/hooks/use-copy-feedback";
 import { usePageTitle } from "@/hooks/use-page-title";
+
+const tokenCopyButtonConfig = {
+  copied: {
+    Icon: Check,
+    iconClassName: "text-green-500",
+    label: "コピー済み",
+  },
+  failed: {
+    Icon: TriangleAlert,
+    iconClassName: "text-destructive",
+    label: "コピーに失敗しました",
+  },
+  idle: {
+    Icon: Copy,
+    iconClassName: "",
+    label: "クリップボードにコピー",
+  },
+} satisfies Record<
+  CopyFeedbackStatus,
+  { Icon: typeof Copy; iconClassName: string; label: string }
+>;
 
 function TokenRevealDialog({
   tokenValue,
@@ -19,22 +44,20 @@ function TokenRevealDialog({
   tokenValue: string;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 2000);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+  const { markCopied, markFailed, status } = useCopyFeedback();
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(tokenValue);
-      setCopied(true);
+      markCopied();
     } catch {
+      markFailed();
       toast.error("クリップボードへのコピーに失敗しました");
     }
   };
+
+  const copyButton = tokenCopyButtonConfig[status];
+  const CopyButtonIcon = copyButton.Icon;
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -54,18 +77,14 @@ function TokenRevealDialog({
             variant="outline"
             className="w-full"
             onClick={() => void handleCopy()}
+            aria-label={copyButton.label}
+            title={copyButton.label}
+            data-copy-status={status}
           >
-            {copied ? (
-              <>
-                <Check className="mr-2 h-4 w-4 text-green-500" />
-                コピー済み
-              </>
-            ) : (
-              <>
-                <Copy className="mr-2 h-4 w-4" />
-                クリップボードにコピー
-              </>
-            )}
+            <CopyButtonIcon
+              className={`mr-2 h-4 w-4 ${copyButton.iconClassName}`}
+            />
+            {copyButton.label}
           </Button>
           <Button type="button" className="w-full" onClick={onClose}>
             閉じる
