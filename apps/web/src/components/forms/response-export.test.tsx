@@ -93,7 +93,11 @@ describe("ResponseExport", () => {
     expect(mocks.exportGet).toHaveBeenCalledWith({
       param: { id: "form id" },
     });
-    expect(URL.createObjectURL).toHaveBeenCalledWith(expect.any(Blob));
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(URL.createObjectURL).mock.calls[0]?.[0]).toMatchObject({
+      size: 3,
+      type: "text/csv;charset=utf-8",
+    });
     expect(appendedAnchors[0]?.download).toBe("responses-form-1.csv");
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       "すべての回答CSVを生成しました。ダウンロードを開始します。",
