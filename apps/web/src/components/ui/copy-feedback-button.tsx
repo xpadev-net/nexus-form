@@ -1,5 +1,5 @@
 import { Check, Copy, TriangleAlert } from "lucide-react";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactElement } from "react";
 import { Button } from "@/components/ui/button";
 import type { CopyFeedbackStatus } from "@/hooks/use-copy-feedback";
 
@@ -18,16 +18,24 @@ interface CopyFeedbackButtonProps
   status: CopyFeedbackStatus;
 }
 
+const copyFeedbackIcons = {
+  copied: Check,
+  failed: TriangleAlert,
+  idle: Copy,
+} satisfies Record<CopyFeedbackStatus, typeof Copy>;
+
+/**
+ * Renders a stable-size icon copy button whose accessible label reflects copy state.
+ */
 export function CopyFeedbackButton({
   labels,
   status,
   type = "button",
   variant = "outline",
   ...props
-}: CopyFeedbackButtonProps) {
+}: CopyFeedbackButtonProps): ReactElement {
   const label = labels[status];
-  const Icon =
-    status === "copied" ? Check : status === "failed" ? TriangleAlert : Copy;
+  const Icon = copyFeedbackIcons[status];
 
   return (
     <Button

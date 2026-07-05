@@ -21,6 +21,9 @@ function TestCopyFeedback() {
       <button type="button" onClick={copyFeedback.markFailed}>
         failed
       </button>
+      <button type="button" onClick={copyFeedback.reset}>
+        reset
+      </button>
     </div>
   );
 }
@@ -92,5 +95,21 @@ describe("useCopyFeedback", () => {
     act(() => root.unmount());
 
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it("resets copied and failed states immediately", () => {
+    const root = renderHookHarness();
+
+    clickButton("copied");
+    expect(getStatus()).toBe("copied");
+    clickButton("reset");
+    expect(getStatus()).toBe("idle");
+
+    clickButton("failed");
+    expect(getStatus()).toBe("failed");
+    clickButton("reset");
+    expect(getStatus()).toBe("idle");
+
+    act(() => root.unmount());
   });
 });

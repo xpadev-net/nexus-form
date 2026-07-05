@@ -6,9 +6,21 @@ interface UseCopyFeedbackOptions {
   resetAfterMs?: number;
 }
 
+interface UseCopyFeedbackReturn {
+  status: CopyFeedbackStatus;
+  markCopied: () => void;
+  markFailed: () => void;
+  reset: () => void;
+}
+
+/**
+ * Tracks transient copy feedback state and resets non-idle states after a timer.
+ *
+ * Returns the current status plus actions for success, failure, and immediate reset.
+ */
 export function useCopyFeedback({
   resetAfterMs = 2000,
-}: UseCopyFeedbackOptions = {}) {
+}: UseCopyFeedbackOptions = {}): UseCopyFeedbackReturn {
   const [status, setStatus] = useState<CopyFeedbackStatus>("idle");
   const resetTimerRef = useRef<number | null>(null);
 

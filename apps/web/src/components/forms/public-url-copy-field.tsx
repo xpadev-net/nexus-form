@@ -64,7 +64,11 @@ export function PublicUrlCopyField({
   }, [copyFeedback.reset, url]);
 
   const handleCopy = async () => {
-    const copied = await copyText(url);
+    const targetUrl = url;
+    const copied = await copyText(targetUrl);
+    if (previousUrlRef.current !== targetUrl) {
+      return;
+    }
     if (copied) {
       copyFeedback.markCopied();
       toast.success(copiedMessage);
