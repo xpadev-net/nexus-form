@@ -94,7 +94,10 @@ vi.mock("../../lib/shutdown-signal", () => ({
 }));
 
 import { db, formIntegration, formResponse } from "@nexus-form/database";
-import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import {
+  extractQuestionsFromPlateContent,
+  responsePayloadItemSchema,
+} from "@nexus-form/shared";
 import { and } from "drizzle-orm";
 import {
   appendRows,
@@ -1548,15 +1551,27 @@ describe("handleSheetsSync — write path", () => {
       ok: true,
       data: { values: [] },
     } as never);
-    mockSafeParseResponseData.mockReturnValue({
-      "availability-checkbox-grid": JSON.stringify({
-        monday: ["morning", "evening"],
-        tuesday: [],
-      }),
-      "availability-choice-grid": JSON.stringify({ monday: "morning" }),
-      "interest-checkbox": "ts,react",
-      "tool-dropdown": "react",
-    } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(json);
+      const result = responsePayloadItemSchema.array().safeParse(parsed);
+      if (!result.success) return null;
+      return Object.fromEntries(
+        result.data.map((item) => {
+          if (item.responses) {
+            return [item.question_id, JSON.stringify(item.responses)];
+          }
+          if (Array.isArray(item.values)) {
+            return [item.question_id, item.values.map(String).join(",")];
+          }
+          return [
+            item.question_id,
+            item.value === null || item.value === undefined
+              ? ""
+              : String(item.value),
+          ];
+        }),
+      );
+    });
     mockExtractQuestionsFromPlateContent.mockReturnValue([
       {
         blockId: "tool-dropdown",
@@ -1585,7 +1600,10 @@ describe("handleSheetsSync — write path", () => {
         title: "参加可能日",
         type: "choice_grid",
         validation: {
-          rows: [{ id: "monday", label: "月曜" }],
+          rows: [
+            { id: "monday", label: "月曜" },
+            { id: "tuesday", label: "火曜" },
+          ],
           columns: [{ id: "morning", label: "午前" }],
         },
       },
@@ -1597,6 +1615,7 @@ describe("handleSheetsSync — write path", () => {
           rows: [
             { id: "monday", label: "月曜" },
             { id: "tuesday", label: "火曜" },
+            { id: "wednesday", label: "水曜" },
           ],
           columns: [
             { id: "morning", label: "午前" },
@@ -1654,8 +1673,8 @@ describe("handleSheetsSync — write path", () => {
             "1.0000",
             "React",
             "TypeScript, React",
-            "月曜: 午前",
-            "月曜: 午前, 夜\n火曜: 未回答",
+            "月曜: 午前\n火曜: 未回答",
+            "月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答",
           ],
         ],
       }),

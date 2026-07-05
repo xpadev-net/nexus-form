@@ -66,7 +66,10 @@ const formBlocks = [
     content: {
       title: "参加可能日",
       validation: {
-        rows: [{ id: "monday", label: "月曜" }],
+        rows: [
+          { id: "monday", label: "月曜" },
+          { id: "tuesday", label: "火曜" },
+        ],
         columns: [{ id: "morning", label: "午前" }],
       },
     },
@@ -81,6 +84,7 @@ const formBlocks = [
         rows: [
           { id: "monday", label: "月曜" },
           { id: "tuesday", label: "火曜" },
+          { id: "wednesday", label: "水曜" },
         ],
         columns: [
           { id: "morning", label: "午前" },
@@ -209,14 +213,14 @@ describe("response export", () => {
         block_type: "choice_grid",
         question_title: undefined,
         value: { monday: "morning" },
-        display_value: "月曜: 午前",
+        display_value: "月曜: 午前\n火曜: 未回答",
       },
       {
         block_id: "checkbox-grid-block",
         block_type: "checkbox_grid",
         question_title: undefined,
         value: { monday: ["morning", "evening"], tuesday: [] },
-        display_value: "月曜: 午前, 夜\n火曜: 未回答",
+        display_value: "月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答",
       },
       {
         block_id: "rating-block",
@@ -241,7 +245,7 @@ describe("response export", () => {
     expect(csv).toBe(
       [
         '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
-        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前","月曜: 午前, 夜\n火曜: 未回答","5",""',
+        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
       ].join("\n"),
     );
     expect(csv).not.toContain("区切り");

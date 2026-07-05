@@ -46,7 +46,10 @@ describe("response choice display labels", () => {
         id: "company-grid",
         type: "choice_grid",
         validation: {
-          rows: [{ id: "contract", label: "契約種別" }],
+          rows: [
+            { id: "contract", label: "契約種別" },
+            { id: "billing", label: "請求先" },
+          ],
           columns: [{ id: "corp", label: "法人" }],
         },
       },
@@ -57,6 +60,7 @@ describe("response choice display labels", () => {
           rows: [
             { id: "monday", label: "月曜" },
             { id: "tuesday", label: "火曜" },
+            { id: "wednesday", label: "水曜" },
           ],
           columns: [
             { id: "morning", label: "午前" },
@@ -147,13 +151,13 @@ describe("response choice display labels", () => {
         question_id: "company-grid",
         question_type: "choice_grid",
         responses: { contract: "corp" },
-        display_value: "契約種別: 法人",
+        display_value: "契約種別: 法人\n請求先: 未回答",
       },
       {
         question_id: "availability-grid",
         question_type: "checkbox_grid",
         responses: { monday: ["morning", "evening"], tuesday: [] },
-        display_value: "月曜: 午前, 夜\n火曜: 未回答",
+        display_value: "月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答",
       },
     ]);
   });
