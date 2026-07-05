@@ -96,6 +96,10 @@ describe("FormPublicUrlSettings", () => {
         writeText: vi.fn().mockResolvedValue(undefined),
       },
     });
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it("builds a public form URL from the current origin", () => {
@@ -126,6 +130,10 @@ describe("FormPublicUrlSettings", () => {
     await click(copyButton);
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedUrl);
+    expect(copyButton.getAttribute("aria-label")).toBe(
+      "現在の公開 URL をコピーしました",
+    );
+    expect(copyButton.title).toBe("現在の公開 URL をコピーしました");
     expect(apiMocks.toastSuccess).toHaveBeenCalledWith(
       "公開 URL をコピーしました",
     );
@@ -185,8 +193,50 @@ describe("FormPublicUrlSettings", () => {
     await click(copyButton);
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expectedUrl);
+    expect(copyButton.getAttribute("aria-label")).toBe(
+      "新しい公開 URL をコピーしました",
+    );
+    expect(copyButton.title).toBe("新しい公開 URL をコピーしました");
     expect(apiMocks.toastSuccess).toHaveBeenCalledWith(
       "新しい公開 URL をコピーしました",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the textarea copy fallback when clipboard write rejects", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error("clipboard denied")),
+      },
+    });
+    const execCommand = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, "execCommand", {
+      configurable: true,
+      value: execCommand,
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const { root } = renderSettings(container, "fallback-public-id");
+
+    const copyButton = document.querySelector(
+      'button[aria-label="現在の公開 URL をコピー"]',
+    );
+    if (!(copyButton instanceof HTMLButtonElement)) {
+      throw new Error("Current URL copy button not found");
+    }
+    await click(copyButton);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      buildPublicFormUrl("fallback-public-id"),
+    );
+    expect(execCommand).toHaveBeenCalledWith("copy");
+    expect(copyButton.getAttribute("aria-label")).toBe(
+      "現在の公開 URL をコピーしました",
+    );
+    expect(apiMocks.toastSuccess).toHaveBeenCalledWith(
+      "公開 URL をコピーしました",
     );
 
     act(() => root.unmount());

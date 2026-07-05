@@ -1,7 +1,8 @@
-import { Copy } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { CopyFeedbackButton } from "@/components/ui/copy-feedback-button";
 import { Input } from "@/components/ui/input";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 
 interface PublicUrlCopyFieldProps {
   id: string;
@@ -46,12 +47,34 @@ export function PublicUrlCopyField({
   copiedMessage,
   description,
 }: PublicUrlCopyFieldProps) {
+  const copyFeedback = useCopyFeedback();
+  const previousUrlRef = useRef(url);
+  const copyLabels = {
+    idle: `${label} をコピー`,
+    copied: `${label} をコピーしました`,
+    failed: `${label} を手動でコピーしてください`,
+  };
+
+  useEffect(() => {
+    if (previousUrlRef.current === url) {
+      return;
+    }
+    previousUrlRef.current = url;
+    copyFeedback.reset();
+  }, [copyFeedback.reset, url]);
+
   const handleCopy = async () => {
-    const copied = await copyText(url);
+    const targetUrl = url;
+    const copied = await copyText(targetUrl);
+    if (previousUrlRef.current !== targetUrl) {
+      return;
+    }
     if (copied) {
+      copyFeedback.markCopied();
       toast.success(copiedMessage);
       return;
     }
+    copyFeedback.markFailed();
     toast.error("公開 URL のコピーに失敗しました");
   };
 
@@ -62,15 +85,11 @@ export function PublicUrlCopyField({
       </label>
       <div className="flex gap-2">
         <Input id={id} readOnly value={url} className="font-mono text-xs" />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          aria-label={`${label} をコピー`}
+        <CopyFeedbackButton
+          labels={copyLabels}
+          status={copyFeedback.status}
           onClick={handleCopy}
-        >
-          <Copy className="h-4 w-4" />
-        </Button>
+        />
       </div>
       {description ? (
         <p className="text-sm text-muted-foreground">{description}</p>
