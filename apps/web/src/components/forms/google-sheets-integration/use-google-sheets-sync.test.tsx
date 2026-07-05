@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HttpError } from "@/lib/fetch-json";
 import type { SyncJobStatusResponse } from "@/types/integrations/google-sheets";
 import type { UiSyncState } from "./types";
 import {
@@ -21,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   fetchJson: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 vi.mock("@/lib/fetch-json", () => {
@@ -45,6 +47,7 @@ vi.mock("sonner", () => ({
   toast: {
     error: mocks.toastError,
     success: mocks.toastSuccess,
+    warning: mocks.toastWarning,
   },
 }));
 
@@ -114,6 +117,7 @@ describe("useGoogleSheetsSync transitions", () => {
     mocks.fetchJson.mockReset();
     mocks.toastError.mockReset();
     mocks.toastSuccess.mockReset();
+    mocks.toastWarning.mockReset();
   });
 
   afterEach(() => {
@@ -402,6 +406,48 @@ describe("useGoogleSheetsSync transitions", () => {
     });
     expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
     expect(states.at(-1)?.activeJobId).toBe("full-job");
+
+    act(() => root.unmount());
+  });
+
+  it("falls back to incremental sync when full sync is capped", async () => {
+    mocks.fetchJson.mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        const body = JSON.parse(String(init.body)) as { mode: string };
+        if (body.mode === "full") {
+          return Promise.reject(
+            new HttpError(413, "Full manual sync is limited"),
+          );
+        }
+        return Promise.resolve({ jobId: "incremental-job", status: "queued" });
+      }
+      return new Promise(() => {});
+    });
+    const states: ReturnType<typeof useGoogleSheetsSync>[] = [];
+    const { root } = renderWithClient(
+      <HookHarness onState={(state) => states.push(state)} />,
+    );
+
+    await act(async () => {
+      await states.at(-1)?.startSync("full");
+    });
+    await flushPromises();
+
+    const startRequests = mocks.fetchJson.mock.calls.filter(
+      ([, init]) => init?.method === "POST",
+    );
+    expect(startRequests).toHaveLength(2);
+    expect(JSON.parse(String(startRequests[0]?.[1]?.body))).toEqual({
+      mode: "full",
+    });
+    expect(JSON.parse(String(startRequests[1]?.[1]?.body))).toEqual({
+      mode: "incremental",
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("同期を開始しました");
+    expect(mocks.toastWarning).toHaveBeenCalledWith(
+      "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+    );
+    expect(states.at(-1)?.activeJobId).toBe("incremental-job");
 
     act(() => root.unmount());
   });

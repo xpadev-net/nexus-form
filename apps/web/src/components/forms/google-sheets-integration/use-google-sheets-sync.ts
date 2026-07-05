@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 import { apiUrl } from "@/lib/api";
-import { fetchJson } from "@/lib/fetch-json";
+import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
 import { isRecord } from "@/lib/type-guards";
 import type {
@@ -441,15 +441,34 @@ export function useGoogleSheetsSync({
       });
 
       try {
-        const requestBody: SyncStartRequest = { mode };
-        const rawData = await fetchJson<unknown>(
-          apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
-          apiRequestInit({
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-          }),
-        );
+        const requestSyncStart = (
+          syncMode: GoogleSheetsSyncMode,
+        ): Promise<unknown> => {
+          const requestBody: SyncStartRequest = { mode: syncMode };
+          return fetchJson<unknown>(
+            apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
+            apiRequestInit({
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            }),
+          );
+        };
+
+        let fellBackToIncremental = false;
+        let rawData: unknown;
+        try {
+          rawData = await requestSyncStart(mode);
+        } catch (error) {
+          if (
+            mode !== "full" ||
+            !(error instanceof HttpError && error.status === 413)
+          ) {
+            throw error;
+          }
+          fellBackToIncremental = true;
+          rawData = await requestSyncStart("incremental");
+        }
         const data = syncStartResponseSchema.parse(rawData);
         const startedStatus: UiSyncState = {
           jobId: data.jobId,
@@ -470,6 +489,11 @@ export function useGoogleSheetsSync({
         }, 60_000);
 
         toast.success("同期を開始しました");
+        if (fellBackToIncremental) {
+          toast.warning(
+            "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+          );
+        }
 
         try {
           await queryClient.invalidateQueries({
