@@ -6,7 +6,6 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
-  FileSearch,
   Pencil,
   Plus,
   RefreshCw,
@@ -19,6 +18,7 @@ import { z } from "zod";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyFeedbackButton } from "@/components/ui/copy-feedback-button";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +47,7 @@ import {
   type SnapshotListItem,
   useSnapshots,
 } from "@/hooks/forms/use-snapshots";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
 import {
@@ -200,6 +201,40 @@ function StatusIcon({ status }: { status: DisplayScheduleStatus }) {
     return <Ban className={className} />;
   }
   return <Clock className={className} />;
+}
+
+const scheduleLogCopyLabels = {
+  copied: "管理ログ検索キーをコピーしました",
+  failed: "管理ログ検索キーをコピーできませんでした",
+  idle: "ログ確認",
+} as const;
+
+interface ScheduleLogCopyButtonProps {
+  entry: ScheduleEntry;
+  onCopy: (entry: ScheduleEntry) => Promise<boolean>;
+}
+
+function ScheduleLogCopyButton({ entry, onCopy }: ScheduleLogCopyButtonProps) {
+  const { markCopied, markFailed, status } = useCopyFeedback();
+
+  const handleClick = async () => {
+    const copied = await onCopy(entry);
+    if (copied) {
+      markCopied();
+      return;
+    }
+    markFailed();
+  };
+
+  return (
+    <CopyFeedbackButton
+      variant="ghost"
+      className="h-7 w-7"
+      onClick={() => void handleClick()}
+      labels={scheduleLogCopyLabels}
+      status={status}
+    />
+  );
 }
 
 interface EntryDialogProps {
@@ -518,8 +553,10 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
     try {
       await navigator.clipboard.writeText(lookupKey);
       toast.success(`管理ログ検索キーをコピーしました: ${lookupKey}`);
+      return true;
     } catch {
       toast.warning(`管理ログで ${lookupKey} を検索してください`);
+      return false;
     }
   }, []);
 
@@ -608,15 +645,7 @@ export function ScheduleManager({ formId }: ScheduleManagerProps) {
             >
               <RefreshCw className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7"
-              onClick={() => void handleShowLogs(entry)}
-              aria-label="ログ確認"
-            >
-              <FileSearch className="h-3.5 w-3.5" />
-            </Button>
+            <ScheduleLogCopyButton entry={entry} onCopy={handleShowLogs} />
           </div>
         )}
       </li>

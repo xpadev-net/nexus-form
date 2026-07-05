@@ -1,5 +1,5 @@
-import { Check, Copy } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Check, Copy, TriangleAlert } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useApiTokens } from "@/hooks/tokens/use-api-tokens";
+import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { usePageTitle } from "@/hooks/use-page-title";
 
 function TokenRevealDialog({
@@ -19,22 +20,24 @@ function TokenRevealDialog({
   tokenValue: string;
   onClose: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 2000);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
+  const { markCopied, markFailed, status } = useCopyFeedback();
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(tokenValue);
-      setCopied(true);
+      markCopied();
     } catch {
+      markFailed();
       toast.error("クリップボードへのコピーに失敗しました");
     }
   };
+
+  const copyButtonLabels = {
+    copied: "コピー済み",
+    failed: "コピーに失敗しました",
+    idle: "クリップボードにコピー",
+  } as const;
+  const copyButtonLabel = copyButtonLabels[status];
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -54,16 +57,24 @@ function TokenRevealDialog({
             variant="outline"
             className="w-full"
             onClick={() => void handleCopy()}
+            aria-label={copyButtonLabel}
+            title={copyButtonLabel}
+            data-copy-status={status}
           >
-            {copied ? (
+            {status === "copied" ? (
               <>
                 <Check className="mr-2 h-4 w-4 text-green-500" />
-                コピー済み
+                {copyButtonLabel}
+              </>
+            ) : status === "failed" ? (
+              <>
+                <TriangleAlert className="mr-2 h-4 w-4 text-destructive" />
+                {copyButtonLabel}
               </>
             ) : (
               <>
                 <Copy className="mr-2 h-4 w-4" />
-                クリップボードにコピー
+                {copyButtonLabel}
               </>
             )}
           </Button>

@@ -306,6 +306,7 @@ describe("ScheduleManager", () => {
   });
 
   it("labels pending, completed, failed, and cancelled schedules with recovery actions", async () => {
+    vi.useFakeTimers();
     const timestamp = "2026-06-01T00:00:00.000Z";
     mocks.snapshotsQuery = {
       ...mocks.snapshotsQuery,
@@ -408,6 +409,18 @@ describe("ScheduleManager", () => {
     expect(toast.success).toHaveBeenCalledWith(
       "管理ログ検索キーをコピーしました: scheduleId=failed-schedule",
     );
+    const logButton = container.querySelector("button[data-copy-status]");
+    expect(logButton?.getAttribute("data-copy-status")).toBe("copied");
+    expect(logButton?.getAttribute("aria-label")).toBe(
+      "管理ログ検索キーをコピーしました",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(logButton?.getAttribute("data-copy-status")).toBe("idle");
+    expect(logButton?.getAttribute("aria-label")).toBe("ログ確認");
 
     act(() => {
       container
@@ -419,6 +432,63 @@ describe("ScheduleManager", () => {
     expect(container.textContent).toContain("公開版を 未選択 へ切り替えます。");
 
     act(() => root.unmount());
+    vi.useRealTimers();
+  });
+
+  it("shows failed feedback on the clicked schedule log copy control", async () => {
+    vi.useFakeTimers();
+    mocks.clipboardWriteText.mockRejectedValueOnce(new Error("denied"));
+    const timestamp = "2026-06-01T00:00:00.000Z";
+    mocks.schedulesQuery = {
+      ...mocks.schedulesQuery,
+      data: {
+        schedules: [
+          {
+            id: "failed-copy-schedule",
+            formId: "form-1",
+            triggerAt: timestamp,
+            action: "SWITCH_SNAPSHOT",
+            snapshotVersion: 2,
+            processedAt: timestamp,
+            status: "COMPLETED",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderManager(container);
+
+    const logButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="ログ確認"]',
+    );
+    expect(logButton).not.toBeNull();
+
+    await act(async () => {
+      logButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(mocks.clipboardWriteText).toHaveBeenCalledWith(
+      "scheduleId=failed-copy-schedule",
+    );
+    expect(toast.warning).toHaveBeenCalledWith(
+      "管理ログで scheduleId=failed-copy-schedule を検索してください",
+    );
+    expect(logButton?.getAttribute("data-copy-status")).toBe("failed");
+    expect(logButton?.getAttribute("aria-label")).toBe(
+      "管理ログ検索キーをコピーできませんでした",
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(logButton?.getAttribute("data-copy-status")).toBe("idle");
+    expect(logButton?.getAttribute("aria-label")).toBe("ログ確認");
+
+    act(() => root.unmount());
+    vi.useRealTimers();
   });
 
   it("keeps failed recovery visible when snapshots loaded as empty", () => {
