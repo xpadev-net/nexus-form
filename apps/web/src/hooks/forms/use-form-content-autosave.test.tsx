@@ -38,22 +38,43 @@ const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
 );
 
 interface TestMutationVariables {
+  contentQueryKey: readonly unknown[];
+  formId: string;
   expectedVersion: number;
   plateContent: string;
   restoreGeneration: number;
 }
 
+type TestMutationVariablesInput =
+  | TestMutationVariables
+  | Omit<TestMutationVariables, "contentQueryKey" | "formId">;
+
 interface TestMutationOptions {
-  onSuccess?: (data: unknown, variables: TestMutationVariables) => void;
-  onError?: (error: unknown, variables: TestMutationVariables) => void;
+  onSuccess?: (data: unknown, variables: TestMutationVariablesInput) => void;
+  onError?: (error: unknown, variables: TestMutationVariablesInput) => void;
 }
 
 let latestMutationOptions: TestMutationOptions | undefined;
 const attemptMergeMock = vi.fn();
 
+function withDefaultMutationScope(
+  variables: TestMutationVariablesInput,
+): TestMutationVariables {
+  return {
+    contentQueryKey: ["formContent", "form-1"],
+    formId: "form-1",
+    ...variables,
+  };
+}
+
 vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: TestMutationOptions) => {
-    latestMutationOptions = options;
+    latestMutationOptions = {
+      onError: (error, variables) =>
+        options.onError?.(error, withDefaultMutationScope(variables)),
+      onSuccess: (data, variables) =>
+        options.onSuccess?.(data, withDefaultMutationScope(variables)),
+    };
     return {
       mutate: mutateMock,
     };
@@ -126,7 +147,10 @@ function createMemoryStorage(): Storage {
   };
 }
 
-function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
+function renderAutosave(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  options: { enabled?: boolean } = {},
+) {
   const container = document.createElement("div");
   const root = createRoot(container);
 
@@ -135,6 +159,7 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
     const hook = useFormContentAutosave({
       contentData: { plateContent: "[]", plateContentVersion: 7 },
       contentRefetch: refetchMock,
+      enabled: options.enabled,
       formId: "form-1",
       getActiveTab: () => "editor",
     });
@@ -155,6 +180,97 @@ function renderAutosave(onReady: (hook: UseFormContentAutosaveReturn) => void) {
   });
 
   return root;
+}
+
+function renderAutosaveWithEnabledToggle(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+  initialEnabled = false,
+) {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let enabled = initialEnabled;
+
+  function Harness({ enabled: currentEnabled }: { enabled: boolean }) {
+    const didNotifyReadyRef = useRef(false);
+    const hook = useFormContentAutosave({
+      contentData: { plateContent: "[]", plateContentVersion: 7 },
+      contentRefetch: refetchMock,
+      enabled: currentEnabled,
+      formId: "form-1",
+      getActiveTab: () => "editor",
+    });
+    const hookRef = useRef(hook);
+    hookRef.current = hook;
+
+    useEffect(() => {
+      if (didNotifyReadyRef.current) return;
+      didNotifyReadyRef.current = true;
+      onReady(hookRef.current);
+    }, []);
+
+    return null;
+  }
+
+  const render = () => {
+    act(() => {
+      root.render(<Harness enabled={enabled} />);
+    });
+  };
+
+  render();
+
+  return {
+    disable: () => {
+      enabled = false;
+      render();
+    },
+    enable: () => {
+      enabled = true;
+      render();
+    },
+    root,
+  };
+}
+
+function renderAutosaveWithFormId(
+  onReady: (hook: UseFormContentAutosaveReturn) => void,
+): {
+  root: ReturnType<typeof createRoot>;
+  switchForm: (nextFormId: string, nextPlateContent?: string) => void;
+} {
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  let formId = "form-1";
+  let plateContent = "[]";
+
+  function Harness({ currentFormId }: { currentFormId: string }): null {
+    const hook = useFormContentAutosave({
+      contentData: { plateContent, plateContentVersion: 7 },
+      contentRefetch: refetchMock,
+      formId: currentFormId,
+      getActiveTab: () => "editor",
+    });
+    onReady(hook);
+
+    return null;
+  }
+
+  const render = () => {
+    act(() => {
+      root.render(<Harness currentFormId={formId} />);
+    });
+  };
+
+  render();
+
+  return {
+    root,
+    switchForm: (nextFormId: string, nextPlateContent = "[]") => {
+      formId = nextFormId;
+      plateContent = nextPlateContent;
+      render();
+    },
+  };
 }
 
 async function flushPromises() {
@@ -218,6 +334,151 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     ).toEqual({
       expectedVersion: 7,
       plateContent: draftContent,
+    });
+  });
+
+  it("does not retry or keepalive save when autosave is disabled", async () => {
+    const pendingSave = JSON.stringify({
+      expectedVersion: 7,
+      plateContent: '[{"type":"p","children":[{"text":"stale"}]}]',
+    });
+    localStorage.setItem("pendingSave:form-1", pendingSave);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave(
+      (currentHook) => {
+        hook = currentHook;
+      },
+      { enabled: false },
+    );
+    await flushPromises();
+
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      hook?.handleContentChange('[{"type":"p","children":[{"text":"draft"}]}]');
+    });
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(pendingSave);
+  });
+
+  it("resumes autosave when enabled changes from false to true", () => {
+    vi.useFakeTimers();
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { enable, root } = renderAutosaveWithEnabledToggle((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(
+        '[{"type":"p","children":[{"text":"blocked"}]}]',
+      );
+      vi.advanceTimersByTime(2000);
+    });
+    expect(mutateMock).not.toHaveBeenCalled();
+
+    enable();
+
+    act(() => {
+      hook?.handleContentChange('[{"type":"p","children":[{"text":"saved"}]}]');
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(mutateMock).toHaveBeenCalledWith({
+      contentQueryKey: ["formContent", "form-1"],
+      expectedVersion: 7,
+      formId: "form-1",
+      plateContent: '[{"type":"p","children":[{"text":"saved"}]}]',
+      restoreGeneration: expect.any(Number),
+    });
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps a pending save when enabled changes from true to false", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { disable, root } = renderAutosaveWithEnabledToggle((currentHook) => {
+      hook = currentHook;
+    }, true);
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+
+    disable();
+    await flushPromises();
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:3001/api/forms/form-1/content",
+    );
+    expect(requestInit).toEqual(
+      expect.objectContaining({
+        keepalive: true,
+        method: "PUT",
+      }),
+    );
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+
+    act(() => {
+      root.unmount();
+    });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("flushes pending edits to the previous form when formId changes", async () => {
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { root, switchForm } = renderAutosaveWithFormId((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+
+    switchForm("form-2");
+    await flushPromises();
+
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://localhost:3001/api/forms/form-1/content",
+    );
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+    });
+    expect(hook?.hasUnsavedLocalEdits()).toBe(false);
+
+    act(() => {
+      root.unmount();
     });
   });
 
@@ -447,6 +708,64 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+  });
+
+  it("clears the previous form in-flight fallback when its autosave succeeds after formId changes", () => {
+    vi.useFakeTimers();
+    const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const { root, switchForm } = renderAutosaveWithFormId((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+      vi.advanceTimersByTime(2000);
+    });
+    const saveVariables = mutateMock.mock.calls[0]?.[0] as
+      | TestMutationVariables
+      | undefined;
+    expect(saveVariables).toEqual(
+      expect.objectContaining({
+        contentQueryKey: ["formContent", "form-1"],
+        formId: "form-1",
+        plateContent: draftContent,
+      }),
+    );
+
+    switchForm("form-2");
+
+    expect(
+      JSON.parse(localStorage.getItem("pendingSave:form-1") ?? "{}"),
+    ).toEqual({
+      expectedVersion: 7,
+      plateContent: draftContent,
+      source: "in-flight",
+    });
+
+    act(() => {
+      if (!saveVariables) throw new Error("save variables missing");
+      latestMutationOptions?.onSuccess?.(
+        { plateContentVersion: 8 },
+        saveVariables,
+      );
+    });
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
+    expect(setQueryDataMock).toHaveBeenCalledWith(["formContent", "form-1"], {
+      plateContent: draftContent,
+      plateContentVersion: 8,
+    });
+    expect(setQueryDataMock).not.toHaveBeenCalledWith(
+      ["formContent", "form-2"],
+      expect.anything(),
+    );
+
+    act(() => {
+      root.unmount();
+    });
   });
 
   it("does not overwrite a conflict-blocked pending save with in-flight fallback", () => {
@@ -743,7 +1062,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
       restoreGeneration: 0,
     });
@@ -793,7 +1114,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
       restoreGeneration: 0,
     });
@@ -835,7 +1158,9 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
 
     expect(mutateMock).toHaveBeenCalledWith({
+      contentQueryKey: ["formContent", "form-1"],
       expectedVersion: 7,
+      formId: "form-1",
       plateContent: draftContent,
       restoreGeneration: 0,
     });

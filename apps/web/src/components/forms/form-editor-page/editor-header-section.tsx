@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ExternalLink, Eye } from "lucide-react";
 import type { FC } from "react";
 import { EDITOR_TAB_DEFINITIONS } from "@/components/forms/form-editor-page/editor-tab-definitions";
+import { isEditOnlyEditorTab } from "@/components/forms/form-editor-tabs";
 import { FormHeader } from "@/components/forms/form-header";
 import { FormPublishMenu } from "@/components/forms/form-publish-menu";
 import { FormStatusBadge } from "@/components/forms/form-status-badge";
@@ -14,6 +15,7 @@ import {
 import type { FormStatus } from "@/types/validation/shared";
 
 export interface EditorHeaderSectionProps {
+  canEditForm: boolean;
   formId: string;
   formTitle: string;
   formStatus: FormStatus;
@@ -29,6 +31,7 @@ export interface EditorHeaderSectionProps {
 }
 
 export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
+  canEditForm,
   formId,
   formTitle,
   formStatus,
@@ -46,8 +49,8 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
     <section>
       <FormHeader
         title={formTitle}
-        onTitleBlur={onTitleBlur}
-        onTitleDraftChange={onTitleDraftChange}
+        onTitleBlur={canEditForm ? onTitleBlur : undefined}
+        onTitleDraftChange={canEditForm ? onTitleDraftChange : undefined}
         isTitleSaving={isTitleSaving}
         titleSaveFailureCount={titleSaveFailureCount}
         action={
@@ -80,7 +83,7 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
                 プレビュー
               </Link>
             </Button>
-            {hasFormData && (
+            {hasFormData && canEditForm && (
               <FormPublishMenu
                 formId={formId}
                 formStatus={formStatus}
@@ -99,8 +102,14 @@ export const EditorHeaderSection: FC<EditorHeaderSectionProps> = ({
       >
         {EDITOR_TAB_DEFINITIONS.map((tab) => {
           const Icon = tab.icon;
+          const disabled = !canEditForm && isEditOnlyEditorTab(tab.key);
           return (
-            <TabsTrigger key={tab.key} value={tab.key} className="px-4">
+            <TabsTrigger
+              key={tab.key}
+              value={tab.key}
+              className="px-4"
+              disabled={disabled}
+            >
               <Icon className="h-4 w-4" />
               {tab.label}
             </TabsTrigger>

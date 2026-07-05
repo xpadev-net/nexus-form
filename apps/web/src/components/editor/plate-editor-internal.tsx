@@ -2,12 +2,14 @@ import type { Value as PlateValue } from "platejs";
 import { Plate, usePlateEditor } from "platejs/react";
 import { useEffect, useRef } from "react";
 import { EditorKit } from "@/components/editor/editor-kit";
+import { ViewerKit } from "@/components/editor/viewer-kit";
 import { Editor, EditorContainer } from "@/components/ui/editor";
 import { sanitizeFormPlateContentForSave } from "@/lib/rich-text";
 
 type Props = {
   value: string;
   onChange: (value: string) => void;
+  readOnly?: boolean;
 };
 
 function parseValue(strValue: string): PlateValue {
@@ -26,12 +28,13 @@ function parseValue(strValue: string): PlateValue {
 export function PlateEditorInternal({
   value: strValue,
   onChange: onChangeValue,
+  readOnly = false,
 }: Props) {
   const lastExternalValue = useRef(strValue);
   const lastInternalValue = useRef(strValue);
 
   const editor = usePlateEditor({
-    plugins: [...EditorKit],
+    plugins: readOnly ? [...ViewerKit] : [...EditorKit],
     value: parseValue(strValue),
   });
 
@@ -52,7 +55,9 @@ export function PlateEditorInternal({
   return (
     <Plate
       editor={editor}
+      readOnly={readOnly}
       onChange={(v) => {
+        if (readOnly) return;
         const serialized = JSON.stringify(
           sanitizeFormPlateContentForSave(v.value),
         );

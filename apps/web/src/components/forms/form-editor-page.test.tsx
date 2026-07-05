@@ -10,12 +10,19 @@ import { NetworkError } from "@/lib/fetch-json";
 import { buildPublicFormUrl } from "@/lib/forms/public-url";
 import { FormEditorPage } from "./form-editor-page";
 
-const { hasUnsavedLocalEditsMock, toastErrorMock, toastSuccessMock } =
-  vi.hoisted(() => ({
-    hasUnsavedLocalEditsMock: vi.fn(() => false),
-    toastErrorMock: vi.fn(),
-    toastSuccessMock: vi.fn(),
-  }));
+const {
+  autosaveOptionsMock,
+  hasUnsavedLocalEditsMock,
+  toastErrorMock,
+  toastInfoMock,
+  toastSuccessMock,
+} = vi.hoisted(() => ({
+  autosaveOptionsMock: vi.fn(),
+  hasUnsavedLocalEditsMock: vi.fn(() => false),
+  toastErrorMock: vi.fn(),
+  toastInfoMock: vi.fn(),
+  toastSuccessMock: vi.fn(),
+}));
 
 let searchTab: string | undefined;
 let searchShareToken: string | undefined;
@@ -50,6 +57,7 @@ function readMockOperation(value: unknown): string | undefined {
 
 let formQueryState: QueryState;
 let contentQueryState: QueryState;
+let permissionQueryState: QueryState;
 let pendingTitleSaveResolver: (() => void) | undefined;
 const retryByQueryKey = new Map<string, RetryFn>();
 const optionsByQueryKey = new Map<string, QueryOptions>();
@@ -125,6 +133,12 @@ vi.mock("@tanstack/react-query", () => ({
         refetch: vi.fn(),
       };
     }
+    if (queryKey[0] === "formPermissionMe") {
+      return {
+        ...permissionQueryState,
+        refetch: vi.fn(),
+      };
+    }
     return {
       ...formQueryState,
       refetch: vi.fn(),
@@ -137,19 +151,22 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@/hooks/forms/use-form-content-autosave", () => ({
-  useFormContentAutosave: () => ({
-    conflictResolutions: {},
-    conflictState: null,
-    dismissConflict: vi.fn(),
-    draftContent: "[]",
-    handleContentChange: vi.fn(),
-    hasUnsavedLocalEdits: hasUnsavedLocalEditsMock,
-    isMerging: false,
-    isSaving: false,
-    resolveConflicts: vi.fn(),
-    setConflictResolutions: vi.fn(),
-    snapshotEditorToDraft: () => snapshotEditorToDraftMock(),
-  }),
+  useFormContentAutosave: (options: { enabled?: boolean }) => {
+    autosaveOptionsMock(options);
+    return {
+      conflictResolutions: {},
+      conflictState: null,
+      dismissConflict: vi.fn(),
+      draftContent: "[]",
+      handleContentChange: vi.fn(),
+      hasUnsavedLocalEdits: hasUnsavedLocalEditsMock,
+      isMerging: false,
+      isSaving: false,
+      resolveConflicts: vi.fn(),
+      setConflictResolutions: vi.fn(),
+      snapshotEditorToDraft: () => snapshotEditorToDraftMock(),
+    };
+  },
 }));
 
 vi.mock("@/components/ui/tabs", async () => {
@@ -188,11 +205,18 @@ vi.mock("@/components/ui/tabs", async () => {
     TabsList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
     TabsTrigger: ({
       children,
+      disabled,
       value,
     }: ComponentProps<"button"> & { value: string }) => {
       const context = React.useContext(TabContext);
       return (
-        <button type="button" onClick={() => context?.onValueChange(value)}>
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => {
+            if (!disabled) context?.onValueChange(value);
+          }}
+        >
           {children}
         </button>
       );
@@ -201,7 +225,12 @@ vi.mock("@/components/ui/tabs", async () => {
 });
 
 vi.mock("@/components/editor/plate-editor", () => ({
-  PlateEditor: () => <div data-testid="plate-editor" />,
+  PlateEditor: ({ readOnly }: { readOnly?: boolean }) => (
+    <div
+      data-read-only={readOnly ? "true" : "false"}
+      data-testid="plate-editor"
+    />
+  ),
 }));
 
 vi.mock("@/components/forms/form-responses-page", () => ({
@@ -246,12 +275,16 @@ vi.mock("@/components/forms/form-header", () => ({
     title: string;
   }) => (
     <header>
-      <input
-        aria-label="フォーム名"
-        defaultValue={title}
-        onBlur={(event) => onTitleBlur?.(event.currentTarget.value)}
-        onChange={(event) => onTitleDraftChange?.(event.currentTarget.value)}
-      />
+      {onTitleBlur ? (
+        <input
+          aria-label="フォーム名"
+          defaultValue={title}
+          onBlur={(event) => onTitleBlur(event.currentTarget.value)}
+          onChange={(event) => onTitleDraftChange?.(event.currentTarget.value)}
+        />
+      ) : (
+        <h1>{title}</h1>
+      )}
       {action}
     </header>
   ),
@@ -316,6 +349,7 @@ vi.mock("@/hooks/use-page-title", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: toastErrorMock,
+    info: toastInfoMock,
     success: toastSuccessMock,
   },
 }));
@@ -338,6 +372,11 @@ vi.mock("@/lib/api", () => ({
           },
           duplicate: {
             $post: vi.fn(() => ({ operation: "duplicate" })),
+          },
+          permissions: {
+            me: {
+              $get: vi.fn(() => ({ operation: "get-permission" })),
+            },
           },
           unarchive: {
             $post: vi.fn(() => ({ operation: "unarchive" })),
@@ -411,11 +450,18 @@ describe("FormEditorPage tab synchronization", () => {
       isError: false,
       isLoading: false,
     };
+    permissionQueryState = {
+      data: { role: "OWNER" },
+      isError: false,
+      isLoading: false,
+    };
     navigateMock.mockClear();
+    autosaveOptionsMock.mockClear();
     hasUnsavedLocalEditsMock.mockReset();
     hasUnsavedLocalEditsMock.mockReturnValue(false);
     snapshotEditorToDraftMock.mockClear();
     toastErrorMock.mockReset();
+    toastInfoMock.mockReset();
     toastSuccessMock.mockReset();
     pendingTitleSaveResolver = undefined;
     vi.mocked(usePageTitle).mockClear();
@@ -455,12 +501,17 @@ describe("FormEditorPage tab synchronization", () => {
 
     await optionsByQueryKey.get("formDetail")?.queryFn();
     await optionsByQueryKey.get("formContent")?.queryFn();
+    await optionsByQueryKey.get("formPermissionMe")?.queryFn();
 
     expect(client.api.forms[":id"].$get).toHaveBeenCalledWith(
       { param: { id: "form-1" } },
       { headers: { Authorization: "Bearer shared-editor-token" } },
     );
     expect(client.api.forms[":id"].content.$get).toHaveBeenCalledWith(
+      { param: { id: "form-1" } },
+      { headers: { Authorization: "Bearer shared-editor-token" } },
+    );
+    expect(client.api.forms[":id"].permissions.me.$get).toHaveBeenCalledWith(
       { param: { id: "form-1" } },
       { headers: { Authorization: "Bearer shared-editor-token" } },
     );
@@ -569,6 +620,114 @@ describe("FormEditorPage tab synchronization", () => {
       search: { tab: "responses" },
       to: "/forms/$id/edit",
     });
+
+    act(() => root.unmount());
+  });
+
+  it("renders viewer share links as read-only and disables edit-only tabs", () => {
+    searchShareToken = "shared-viewer-token";
+    permissionQueryState = {
+      data: { role: "VIEWER" },
+      isError: false,
+      isLoading: false,
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(
+      container
+        .querySelector("[data-testid='plate-editor']")
+        ?.getAttribute("data-read-only"),
+    ).toBe("true");
+    expect(
+      container.querySelector('input[aria-label="フォーム名"]'),
+    ).toBeNull();
+
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("設定"));
+    const validationButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("検証"));
+    const sharingButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("共有"),
+    );
+    const responsesButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答"));
+    expect(settingsButton?.disabled).toBe(true);
+    expect(validationButton?.disabled).toBe(true);
+    expect(sharingButton?.disabled).toBe(true);
+    expect(responsesButton?.disabled).toBe(true);
+    expect(autosaveOptionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: false }),
+    );
+    expect(container.textContent).not.toContain("フォーム管理");
+
+    act(() => root.unmount());
+  });
+
+  it("waits for permission before rendering an editable owner share page", () => {
+    searchShareToken = "shared-editor-token";
+    permissionQueryState = {
+      data: undefined,
+      isError: false,
+      isLoading: true,
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(container.textContent).toContain("読み込み中...");
+    expect(container.querySelector("[data-testid='plate-editor']")).toBeNull();
+
+    permissionQueryState = {
+      data: { role: "OWNER" },
+      isError: false,
+      isLoading: false,
+    };
+    rerenderPage(root);
+
+    expect(
+      container
+        .querySelector("[data-testid='plate-editor']")
+        ?.getAttribute("data-read-only"),
+    ).toBe("false");
+    const settingsButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("設定"));
+    expect(settingsButton?.disabled).toBe(false);
+    expect(autosaveOptionsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ enabled: true }),
+    );
+
+    act(() => root.unmount());
+  });
+
+  it.each([
+    "settings",
+    "validation",
+    "sharing",
+    "responses",
+  ])("redirects viewer share links away from %s tab URLs", (blockedTab) => {
+    searchShareToken = "shared-viewer-token";
+    searchTab = blockedTab;
+    permissionQueryState = {
+      data: { role: "VIEWER" },
+      isError: false,
+      isLoading: false,
+    };
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    expect(navigateMock).toHaveBeenCalledWith({
+      params: { id: "form-1" },
+      replace: true,
+      search: { shareToken: "shared-viewer-token", tab: "editor" },
+      to: "/forms/$id/edit",
+    });
+    expect(
+      container.querySelector("[data-testid='appearance-settings']"),
+    ).toBeNull();
 
     act(() => root.unmount());
   });

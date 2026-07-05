@@ -117,12 +117,18 @@ function storeInFlightPendingSave(
   );
 }
 
+function areQueryKeysEqual(a: readonly unknown[], b: readonly unknown[]) {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 interface ContentQueryData {
   plateContent: string | null;
   plateContentVersion: number;
 }
 
 interface ContentSaveInput {
+  contentQueryKey: readonly unknown[];
+  formId: string;
   plateContent: string;
   expectedVersion: number;
   restoreGeneration: number;
@@ -134,6 +140,7 @@ interface UseFormContentAutosaveOptions {
   contentQueryKey?: readonly unknown[];
   contentRefetch: () => Promise<unknown>;
   getActiveTab: () => string;
+  enabled?: boolean;
   enableRealtimeSync?: boolean;
 }
 
@@ -164,6 +171,7 @@ export function useFormContentAutosave({
   contentQueryKey: providedContentQueryKey,
   contentRefetch,
   getActiveTab,
+  enabled = true,
   enableRealtimeSync = false,
 }: UseFormContentAutosaveOptions): UseFormContentAutosaveReturn {
   const queryClient = useQueryClient();
@@ -192,6 +200,9 @@ export function useFormContentAutosave({
   const inFlightExpectedVersionRef = useRef<number | null>(null);
   const restoreGenerationRef = useRef(0);
   const suspendAutosaveRef = useRef(false);
+  const enabledRef = useRef(enabled);
+  const contentQueryKeyRef = useRef(contentQueryKey);
+  const formIdRef = useRef(formId);
   const mutateRef = useRef<(data: ContentSaveInput) => void>(() => {});
   const lastSavedVersionRef = useRef<number | null>(null);
   const isConflictActiveRef = useRef(false);
@@ -199,6 +210,31 @@ export function useFormContentAutosave({
   refetchRef.current = contentRefetch;
   const getActiveTabRef = useRef(getActiveTab);
   getActiveTabRef.current = getActiveTab;
+  enabledRef.current = enabled;
+  contentQueryKeyRef.current = contentQueryKey;
+  formIdRef.current = formId;
+
+  const enqueueContentSave = useCallback(
+    (input: Omit<ContentSaveInput, "contentQueryKey" | "formId">) => {
+      mutateRef.current({
+        ...input,
+        contentQueryKey,
+        formId,
+      });
+    },
+    [contentQueryKey, formId],
+  );
+
+  const enqueueCurrentContentSave = useCallback(
+    (input: Omit<ContentSaveInput, "contentQueryKey" | "formId">) => {
+      mutateRef.current({
+        ...input,
+        contentQueryKey: contentQueryKeyRef.current,
+        formId: formIdRef.current,
+      });
+    },
+    [],
+  );
 
   const handleMergeSuccess = useCallback(
     (mergedContent: string, newVersion: number, mergeLocalContent: string) => {
@@ -236,7 +272,7 @@ export function useFormContentAutosave({
           pendingValueRef.current = null;
           lastSavedVersionRef.current = saveBaseVersion + 1;
           inFlightExpectedVersionRef.current = saveBaseVersion;
-          mutateRef.current({
+          enqueueContentSave({
             plateContent: pendingValue,
             expectedVersion: saveBaseVersion,
             restoreGeneration: restoreGenerationRef.current,
@@ -244,7 +280,7 @@ export function useFormContentAutosave({
         }, 2000);
       }
     },
-    [contentQueryKey, formId, queryClient],
+    [contentQueryKey, enqueueContentSave, formId, queryClient],
   );
 
   const handleConflict = useCallback(() => {
@@ -306,12 +342,13 @@ export function useFormContentAutosave({
   }, []);
 
   const hasUnsavedLocalEdits = useCallback((): boolean => {
+    if (!enabled) return false;
     return (
       editorValueRef.current !== baseContentRef.current ||
       pendingValueRef.current != null ||
       inFlightValueRef.current != null
     );
-  }, []);
+  }, [enabled]);
 
   // Initialize refs and draft from server data.
   // When local edits are pending, keep versionRef/baseContentRef on the last
@@ -374,7 +411,7 @@ export function useFormContentAutosave({
       const saveBaseVersion = versionRef.current;
       lastSavedVersionRef.current = saveBaseVersion + 1;
       inFlightExpectedVersionRef.current = saveBaseVersion;
-      mutateRef.current({
+      enqueueContentSave({
         plateContent: valueToSave,
         expectedVersion: saveBaseVersion,
         restoreGeneration: restoreGenerationRef.current,
@@ -383,6 +420,7 @@ export function useFormContentAutosave({
   }, [
     canonicalizePlateContent,
     contentData,
+    enqueueContentSave,
     hasUnsavedLocalEdits,
     isMergingRef,
   ]);
@@ -441,19 +479,44 @@ export function useFormContentAutosave({
 
   // Content save mutation
   const contentMutation = useMutation({
-    mutationFn: ({ plateContent, expectedVersion }: ContentSaveInput) =>
+    mutationFn: ({
+      expectedVersion,
+      formId: saveFormId,
+      plateContent,
+    }: ContentSaveInput) =>
       rpc(
         client.api.forms[":id"].content.$put({
-          param: { id: formId },
+          param: { id: saveFormId },
           json: { plateContent, expectedVersion },
         }),
       ),
     onSuccess: (data, variables) => {
-      clearResolvedPendingSave(formId, {
+      clearResolvedPendingSave(variables.formId, {
         expectedVersion: variables.expectedVersion,
         plateContent: variables.plateContent,
       });
-      if (variables.restoreGeneration !== restoreGenerationRef.current) return;
+      const isCurrentSaveScope =
+        variables.formId === formIdRef.current &&
+        areQueryKeysEqual(
+          variables.contentQueryKey,
+          contentQueryKeyRef.current,
+        );
+      if (
+        isCurrentSaveScope &&
+        variables.restoreGeneration !== restoreGenerationRef.current
+      ) {
+        return;
+      }
+      if (data && "plateContentVersion" in data) {
+        queryClient.setQueryData(variables.contentQueryKey, {
+          plateContent: variables.plateContent,
+          plateContentVersion: data.plateContentVersion,
+        });
+      }
+      void queryClient.invalidateQueries({
+        queryKey: formDiffQueryKey(variables.formId),
+      });
+      if (!isCurrentSaveScope) return;
       inFlightValueRef.current = null;
       inFlightExpectedVersionRef.current = null;
       if (data && "plateContentVersion" in data) {
@@ -462,17 +525,21 @@ export function useFormContentAutosave({
         lastSavedVersionRef.current = data.plateContentVersion;
         pendingRemoteContentRef.current = null;
         pendingRemoteVersionRef.current = null;
-        queryClient.setQueryData(contentQueryKey, {
-          plateContent: variables.plateContent,
-          plateContentVersion: data.plateContentVersion,
-        });
       }
-      void queryClient.invalidateQueries({
-        queryKey: formDiffQueryKey(formId),
-      });
       setIsSaving(false);
     },
     onError: (err, variables) => {
+      if (variables.formId !== formIdRef.current) {
+        return;
+      }
+      if (
+        !areQueryKeysEqual(
+          variables.contentQueryKey,
+          contentQueryKeyRef.current,
+        )
+      ) {
+        return;
+      }
       if (variables.restoreGeneration !== restoreGenerationRef.current) return;
       inFlightValueRef.current = null;
       inFlightExpectedVersionRef.current = null;
@@ -488,54 +555,133 @@ export function useFormContentAutosave({
 
   mutateRef.current = contentMutation.mutate;
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — all values read through refs
-  const handleContentChange = useCallback((value: string) => {
-    editorValueRef.current = value;
-    if (isConflictActiveRef.current || isMergingRef.current) {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        pendingValueRef.current = null;
-      }
-      return;
-    }
-    if (value === baseContentRef.current && pendingValueRef.current == null) {
-      return;
-    }
-    setIsSaving(true);
-    pendingValueRef.current = value;
-    if (suspendAutosaveRef.current) {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
-      return;
-    }
+  useEffect(() => {
+    if (enabled) return;
     if (saveTimerRef.current != null) {
       window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
     }
-    saveTimerRef.current = window.setTimeout(() => {
-      if (isMergingRef.current || isConflictActiveRef.current) {
-        saveTimerRef.current = null;
+    pendingValueRef.current = null;
+    inFlightValueRef.current = null;
+    inFlightExpectedVersionRef.current = null;
+    setIsSaving(false);
+  }, [enabled]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally stable — all values read through refs
+  const handleContentChange = useCallback(
+    (value: string) => {
+      if (!enabledRef.current) return;
+      editorValueRef.current = value;
+      if (isConflictActiveRef.current || isMergingRef.current) {
+        if (saveTimerRef.current != null) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+          pendingValueRef.current = null;
+        }
         return;
       }
-      const pendingValue = pendingValueRef.current;
-      saveTimerRef.current = null;
-      if (pendingValue == null) return;
-      inFlightValueRef.current = pendingValue;
-      pendingValueRef.current = null;
-      const saveBaseVersion = versionRef.current;
-      lastSavedVersionRef.current = saveBaseVersion + 1;
-      inFlightExpectedVersionRef.current = saveBaseVersion;
-      mutateRef.current({
-        plateContent: pendingValue,
-        expectedVersion: saveBaseVersion,
-        restoreGeneration: restoreGenerationRef.current,
-      });
-    }, 2000);
-  }, []);
+      if (value === baseContentRef.current && pendingValueRef.current == null) {
+        return;
+      }
+      setIsSaving(true);
+      pendingValueRef.current = value;
+      if (suspendAutosaveRef.current) {
+        if (saveTimerRef.current != null) {
+          window.clearTimeout(saveTimerRef.current);
+          saveTimerRef.current = null;
+        }
+        return;
+      }
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+      }
+      saveTimerRef.current = window.setTimeout(() => {
+        if (isMergingRef.current || isConflictActiveRef.current) {
+          saveTimerRef.current = null;
+          return;
+        }
+        const pendingValue = pendingValueRef.current;
+        saveTimerRef.current = null;
+        if (pendingValue == null) return;
+        inFlightValueRef.current = pendingValue;
+        pendingValueRef.current = null;
+        const saveBaseVersion = versionRef.current;
+        lastSavedVersionRef.current = saveBaseVersion + 1;
+        inFlightExpectedVersionRef.current = saveBaseVersion;
+        enqueueCurrentContentSave({
+          plateContent: pendingValue,
+          expectedVersion: saveBaseVersion,
+          restoreGeneration: restoreGenerationRef.current,
+        });
+      }, 2000);
+    },
+    [enqueueCurrentContentSave],
+  );
 
-  // Unmount: clear timer and best-effort save via keepalive fetch.
+  const flushPendingSaveOnExit = useCallback(
+    (targetFormId: string, shouldFlush: boolean) => {
+      if (!shouldFlush) return;
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const valueToSave = pendingValueRef.current;
+      if (valueToSave == null && inFlightValueRef.current != null) {
+        storeInFlightPendingSave(targetFormId, {
+          plateContent: inFlightValueRef.current,
+          expectedVersion:
+            inFlightExpectedVersionRef.current ?? versionRef.current,
+        });
+        inFlightValueRef.current = null;
+        inFlightExpectedVersionRef.current = null;
+        editorValueRef.current = baseContentRef.current;
+        return;
+      }
+      if (valueToSave == null) return;
+      pendingValueRef.current = null;
+      inFlightValueRef.current = null;
+      inFlightExpectedVersionRef.current = null;
+      editorValueRef.current = baseContentRef.current;
+
+      // Pending content is newer than any in-flight content, so it is the
+      // only fallback stored when both refs are set.
+      const keepaliveVersion = versionRef.current;
+      const body = JSON.stringify({
+        plateContent: valueToSave,
+        expectedVersion: keepaliveVersion,
+      });
+      if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
+        fetch(`${baseUrl}/api/forms/${targetFormId}/content`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...getShareTokenAuthorizationHeader(),
+          },
+          credentials: "include",
+          keepalive: true,
+          body,
+        })
+          .then((response) => {
+            if (response.ok) {
+              clearResolvedPendingSave(targetFormId, {
+                expectedVersion: keepaliveVersion,
+                plateContent: valueToSave,
+              });
+            } else {
+              storePendingSave(targetFormId, body);
+            }
+          })
+          .catch(() => {
+            storePendingSave(targetFormId, body);
+          });
+      } else {
+        storePendingSave(targetFormId, body);
+      }
+    },
+    [],
+  );
+
+  // Unmount/form switch: clear timer and best-effort save via keepalive fetch.
   // Only save pendingValueRef (debounce not yet fired).
   // Do NOT send inFlightValueRef via keepalive: the regular autosave PUT is
   // already in flight for that value, and a duplicate keepalive PUT with the
@@ -544,62 +690,29 @@ export function useFormContentAutosave({
   // normal success can clear the fallback, while failed/aborted navigation can
   // retry it on the next mount.
   useEffect(() => {
+    const cleanupFormId = formId;
+    const cleanupEnabled = enabled;
     return () => {
-      if (saveTimerRef.current != null) {
-        window.clearTimeout(saveTimerRef.current);
-      }
-      const valueToSave = pendingValueRef.current;
-      if (valueToSave == null && inFlightValueRef.current != null) {
-        storeInFlightPendingSave(formId, {
-          plateContent: inFlightValueRef.current,
-          expectedVersion:
-            inFlightExpectedVersionRef.current ?? versionRef.current,
-        });
+      const isSameMountedForm = formIdRef.current === cleanupFormId;
+      const isEnabledOnlyCleanup =
+        isSameMountedForm && enabledRef.current !== cleanupEnabled;
+      if (isEnabledOnlyCleanup) {
+        if (cleanupEnabled && !enabledRef.current) {
+          flushPendingSaveOnExit(cleanupFormId, true);
+          setIsSaving(false);
+        }
         return;
       }
-      if (valueToSave != null) {
-        // Pending content is newer than any in-flight content, so it is the
-        // only fallback stored when both refs are set.
-        const keepaliveVersion = versionRef.current;
-        const body = JSON.stringify({
-          plateContent: valueToSave,
-          expectedVersion: keepaliveVersion,
-        });
-        if (new Blob([body]).size <= KEEPALIVE_LIMIT) {
-          fetch(`${baseUrl}/api/forms/${formId}/content`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              ...getShareTokenAuthorizationHeader(),
-            },
-            credentials: "include",
-            keepalive: true,
-            body,
-          })
-            .then((response) => {
-              if (response.ok) {
-                clearResolvedPendingSave(formId, {
-                  expectedVersion: keepaliveVersion,
-                  plateContent: valueToSave,
-                });
-              } else if (baseContentRef.current === valueToSave) {
-                // Regular autosave already saved this content; do not write a duplicate fallback.
-              } else {
-                storePendingSave(formId, body);
-              }
-            })
-            .catch(() => {
-              storePendingSave(formId, body);
-            });
-        } else {
-          storePendingSave(formId, body);
-        }
+      flushPendingSaveOnExit(cleanupFormId, cleanupEnabled);
+      if (!isSameMountedForm) {
+        setIsSaving(false);
       }
     };
-  }, [formId]);
+  }, [enabled, flushPendingSaveOnExit, formId]);
 
   // On mount: retry any pending save from localStorage using rpc()
   useEffect(() => {
+    if (!enabled) return;
     const saved = readCurrentPendingSave(formId);
     if (!saved) {
       clearPendingSave(formId);
@@ -691,7 +804,7 @@ export function useFormContentAutosave({
     return () => {
       window.clearTimeout(retryTimer);
     };
-  }, [contentQueryKey, formId, queryClient]);
+  }, [contentQueryKey, enabled, formId, queryClient]);
 
   return {
     isSaving,
