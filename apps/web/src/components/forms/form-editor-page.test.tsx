@@ -18,6 +18,7 @@ const { hasUnsavedLocalEditsMock, toastErrorMock, toastSuccessMock } =
   }));
 
 let searchTab: string | undefined;
+let searchShareToken: string | undefined;
 const navigateMock = vi.fn();
 const snapshotEditorToDraftMock = vi.fn();
 type QueryState = {
@@ -29,6 +30,7 @@ type QueryState = {
 type RetryFn = (failureCount: number, error: unknown) => boolean;
 type QueryOptions = {
   enabled?: boolean;
+  queryFn: () => Promise<unknown>;
   queryKey: string[];
   retry?: RetryFn;
 };
@@ -87,7 +89,7 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="/">{children}</a>,
   useParams: () => ({ id: "form-1" }),
   useRouter: () => ({ navigate: navigateMock }),
-  useSearch: () => ({ tab: searchTab }),
+  useSearch: () => ({ shareToken: searchShareToken, tab: searchTab }),
 }));
 
 vi.mock("@tanstack/react-query", () => ({
@@ -354,6 +356,8 @@ vi.mock("@/lib/api", () => ({
       this.status = status;
     }
   },
+  getShareTokenAuthorizationHeader: (shareToken?: string | null) =>
+    shareToken ? { Authorization: `Bearer ${shareToken}` } : {},
   rpc: vi.fn(async (request: { operation?: string; title?: string }) => {
     if (request.operation === "update-title") {
       if (request.title === "保存失敗タイトル") {
@@ -389,6 +393,7 @@ describe("FormEditorPage tab synchronization", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     searchTab = undefined;
+    searchShareToken = undefined;
     formQueryState = {
       data: {
         form: {
@@ -438,6 +443,32 @@ describe("FormEditorPage tab synchronization", () => {
     expect(
       container.querySelector("[data-testid='responses-content']"),
     ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("passes shareToken from the edit route to initial form requests", async () => {
+    searchShareToken = "shared-editor-token";
+    const { client } = await import("@/lib/api");
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    await optionsByQueryKey.get("formDetail")?.queryFn();
+    await optionsByQueryKey.get("formContent")?.queryFn();
+
+    expect(client.api.forms[":id"].$get).toHaveBeenCalledWith(
+      { param: { id: "form-1" } },
+      { headers: { Authorization: "Bearer shared-editor-token" } },
+    );
+    expect(client.api.forms[":id"].content.$get).toHaveBeenCalledWith(
+      { param: { id: "form-1" } },
+      { headers: { Authorization: "Bearer shared-editor-token" } },
+    );
+    expect(optionsByQueryKey.get("formDetail")?.queryKey).toEqual([
+      "formDetail",
+      "form-1",
+      "shared-editor-token",
+    ]);
 
     act(() => root.unmount());
   });

@@ -61,8 +61,13 @@ export function withShareTokenSearchParam(
  */
 export function getShareTokenAuthorizationHeader():
   | { Authorization: string }
-  | Record<string, never> {
-  const shareToken = getShareTokenFromCurrentUrl();
+  | Record<string, never>;
+export function getShareTokenAuthorizationHeader(
+  shareToken: string | null | undefined,
+): { Authorization: string } | Record<string, never>;
+export function getShareTokenAuthorizationHeader(
+  shareToken = getShareTokenFromCurrentUrl(),
+): { Authorization: string } | Record<string, never> {
   return shareToken ? { Authorization: `Bearer ${shareToken}` } : {};
 }
 

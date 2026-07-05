@@ -8,7 +8,12 @@ import {
 } from "@/components/forms/form-editor-tabs";
 import { useFormContentAutosave } from "@/hooks/forms/use-form-content-autosave";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { client, RpcError, rpc } from "@/lib/api";
+import {
+  client,
+  getShareTokenAuthorizationHeader,
+  RpcError,
+  rpc,
+} from "@/lib/api";
 import { logWarn } from "@/lib/logger";
 import { shouldRetryQuery } from "@/lib/query-retry";
 import { FormStatus } from "@/types/validation/shared";
@@ -63,10 +68,23 @@ export function useFormEditorPageModel(formId: string) {
     () => ["formContent", formId, shareToken ?? null] as const,
     [formId, shareToken],
   );
+  const shareTokenRequestOptionsArgs = useMemo(
+    () =>
+      shareToken
+        ? ([{ headers: getShareTokenAuthorizationHeader(shareToken) }] as const)
+        : ([] as const),
+    [shareToken],
+  );
 
   const formQuery = useQuery({
     queryKey: formDetailQueryKey,
-    queryFn: () => rpc(client.api.forms[":id"].$get({ param: { id: formId } })),
+    queryFn: () =>
+      rpc(
+        client.api.forms[":id"].$get(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
     retry: shouldRetryQuery,
   });
   const isNotFound =
@@ -82,7 +100,12 @@ export function useFormEditorPageModel(formId: string) {
     enabled: !formQuery.isError,
     queryKey: contentQueryKey,
     queryFn: () =>
-      rpc(client.api.forms[":id"].content.$get({ param: { id: formId } })),
+      rpc(
+        client.api.forms[":id"].content.$get(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
     retry: shouldRetryQuery,
   });
 
@@ -113,10 +136,13 @@ export function useFormEditorPageModel(formId: string) {
   const updateTitleMutation = useMutation({
     mutationFn: (title: string) =>
       rpc(
-        client.api.forms[":id"].$put({
-          param: { id: formId },
-          json: { title },
-        }),
+        client.api.forms[":id"].$put(
+          {
+            param: { id: formId },
+            json: { title },
+          },
+          ...shareTokenRequestOptionsArgs,
+        ),
       ),
     onSuccess: (data) => {
       if (data?.form) {
@@ -168,7 +194,12 @@ export function useFormEditorPageModel(formId: string) {
 
   const deleteMutation = useMutation({
     mutationFn: () =>
-      rpc(client.api.forms[":id"].$delete({ param: { id: formId } })),
+      rpc(
+        client.api.forms[":id"].$delete(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
     onSuccess: () => {
       toast.success("フォームを削除しました");
       void queryClient.invalidateQueries({ queryKey: ["forms"] });
@@ -183,7 +214,10 @@ export function useFormEditorPageModel(formId: string) {
     mutationFn: async () => {
       await saveTitleBeforeDuplicate();
       return rpc(
-        client.api.forms[":id"].duplicate.$post({ param: { id: formId } }),
+        client.api.forms[":id"].duplicate.$post(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
       );
     },
     onSuccess: (data) => {
@@ -209,7 +243,12 @@ export function useFormEditorPageModel(formId: string) {
 
   const archiveMutation = useMutation({
     mutationFn: () =>
-      rpc(client.api.forms[":id"].archive.$post({ param: { id: formId } })),
+      rpc(
+        client.api.forms[":id"].archive.$post(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
     onSuccess: () => {
       toast.success("フォームをアーカイブしました");
       queryClient.setQueryData<typeof formQuery.data>(
@@ -237,7 +276,12 @@ export function useFormEditorPageModel(formId: string) {
 
   const unarchiveMutation = useMutation({
     mutationFn: () =>
-      rpc(client.api.forms[":id"].unarchive.$post({ param: { id: formId } })),
+      rpc(
+        client.api.forms[":id"].unarchive.$post(
+          { param: { id: formId } },
+          ...shareTokenRequestOptionsArgs,
+        ),
+      ),
     onSuccess: () => {
       toast.success("アーカイブを解除しました");
       queryClient.setQueryData<typeof formQuery.data>(
