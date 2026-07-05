@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ScheduleManager } from "./schedule-manager";
 
 (
@@ -182,6 +182,10 @@ describe("ScheduleManager", () => {
       isLoading: false,
       refetch: mocks.snapshotsRefetch,
     };
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("shows a retryable schedules error instead of the empty state", () => {
@@ -432,7 +436,6 @@ describe("ScheduleManager", () => {
     expect(container.textContent).toContain("公開版を 未選択 へ切り替えます。");
 
     act(() => root.unmount());
-    vi.useRealTimers();
   });
 
   it("shows failed feedback on the clicked schedule log copy control", async () => {
@@ -488,7 +491,6 @@ describe("ScheduleManager", () => {
     expect(logButton?.getAttribute("aria-label")).toBe("ログ確認");
 
     act(() => root.unmount());
-    vi.useRealTimers();
   });
 
   it("keeps failed recovery visible when snapshots loaded as empty", () => {

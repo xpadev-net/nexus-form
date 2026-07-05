@@ -11,7 +11,7 @@ import {
   RefreshCw,
   Trash2,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { type ReactElement, useCallback, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -214,7 +214,10 @@ interface ScheduleLogCopyButtonProps {
   onCopy: (entry: ScheduleEntry) => Promise<boolean>;
 }
 
-function ScheduleLogCopyButton({ entry, onCopy }: ScheduleLogCopyButtonProps) {
+function ScheduleLogCopyButton({
+  entry,
+  onCopy,
+}: ScheduleLogCopyButtonProps): ReactElement {
   const { markCopied, markFailed, status } = useCopyFeedback();
 
   const handleClick = async () => {

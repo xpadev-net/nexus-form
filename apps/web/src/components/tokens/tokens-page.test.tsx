@@ -3,7 +3,7 @@
 import { fireEvent } from "@testing-library/dom";
 import { act, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TokensPage } from "./tokens-page";
 
 (
@@ -23,6 +23,33 @@ function renderTokensPage(container: HTMLElement): Root {
     root.render(<TokensPage />);
   });
   return root;
+}
+
+async function createDeployToken(container: HTMLElement): Promise<void> {
+  const nameInput = container.querySelector<HTMLInputElement>(
+    'input[placeholder="トークン名"]',
+  );
+  expect(nameInput).not.toBeNull();
+
+  act(() => {
+    if (nameInput) {
+      fireEvent.input(nameInput, { target: { value: "Deploy token" } });
+    }
+  });
+
+  const createButton = Array.from(container.querySelectorAll("button")).find(
+    (button) => button.textContent === "作成",
+  );
+
+  await act(async () => {
+    createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+function findCopyButton(container: HTMLElement): HTMLButtonElement | undefined {
+  return Array.from(
+    container.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((button) => button.textContent?.includes("クリップボードにコピー"));
 }
 
 vi.mock("sonner", () => ({
@@ -98,33 +125,17 @@ describe("TokensPage", () => {
     });
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("shows copied feedback on the token reveal copy button and resets it", async () => {
     vi.useFakeTimers();
     const container = document.createElement("div");
     const root = renderTokensPage(container);
 
-    const nameInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="トークン名"]',
-    );
-    expect(nameInput).not.toBeNull();
-
-    act(() => {
-      if (nameInput) {
-        fireEvent.input(nameInput, { target: { value: "Deploy token" } });
-      }
-    });
-
-    const createButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "作成",
-    );
-
-    await act(async () => {
-      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const copyButton = Array.from(
-      container.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("クリップボードにコピー"));
+    await createDeployToken(container);
+    const copyButton = findCopyButton(container);
     expect(copyButton).toBeDefined();
 
     await act(async () => {
@@ -145,7 +156,6 @@ describe("TokensPage", () => {
     expect(copyButton?.textContent).toContain("クリップボードにコピー");
 
     act(() => root.unmount());
-    vi.useRealTimers();
   });
 
   it("shows failed feedback and keeps the failure toast when token copy rejects", async () => {
@@ -154,25 +164,8 @@ describe("TokensPage", () => {
     const container = document.createElement("div");
     const root = renderTokensPage(container);
 
-    const nameInput = container.querySelector<HTMLInputElement>(
-      'input[placeholder="トークン名"]',
-    );
-    act(() => {
-      if (nameInput) {
-        fireEvent.input(nameInput, { target: { value: "Deploy token" } });
-      }
-    });
-
-    const createButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent === "作成",
-    );
-    await act(async () => {
-      createButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const copyButton = Array.from(
-      container.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((button) => button.textContent?.includes("クリップボードにコピー"));
+    await createDeployToken(container);
+    const copyButton = findCopyButton(container);
     await act(async () => {
       copyButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -191,6 +184,5 @@ describe("TokensPage", () => {
     expect(copyButton?.textContent).toContain("クリップボードにコピー");
 
     act(() => root.unmount());
-    vi.useRealTimers();
   });
 });
