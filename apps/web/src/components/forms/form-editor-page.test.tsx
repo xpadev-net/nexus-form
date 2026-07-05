@@ -473,6 +473,39 @@ describe("FormEditorPage tab synchronization", () => {
     act(() => root.unmount());
   });
 
+  it("passes shareToken from the edit route to title update requests", async () => {
+    searchShareToken = "shared-editor-token";
+    const { client } = await import("@/lib/api");
+    const container = document.createElement("div");
+    const root = renderPage(container);
+
+    const titleInput = container.querySelector(
+      'input[aria-label="フォーム名"]',
+    );
+    expect(titleInput).toBeInstanceOf(HTMLInputElement);
+    await act(async () => {
+      if (!(titleInput instanceof HTMLInputElement)) {
+        throw new Error("Title input not found");
+      }
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      valueSetter?.call(titleInput, "共有リンクタイトル");
+      titleInput.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(client.api.forms[":id"].$put).toHaveBeenCalledWith(
+      {
+        json: { title: "共有リンクタイトル" },
+        param: { id: "form-1" },
+      },
+      { headers: { Authorization: "Bearer shared-editor-token" } },
+    );
+
+    act(() => root.unmount());
+  });
+
   it("prevents browser unload while autosave reports unsaved local edits", () => {
     hasUnsavedLocalEditsMock.mockReturnValue(true);
     const container = document.createElement("div");
