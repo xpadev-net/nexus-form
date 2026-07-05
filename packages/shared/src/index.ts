@@ -163,6 +163,7 @@ export type {
 export {
   buildResponseExportColumnsFromBlocks,
   buildResponseExportTable,
+  denormalizeSpreadsheetFormulaValue,
   mapRecordToSheetRow,
   neutralizeSpreadsheetFormulaValue,
   normalizeResponseExportColumns,

@@ -932,4 +932,49 @@ describe("response export", () => {
     expect(newLayoutRow.titleRow).toEqual(["回答ID", "名前", "名前 (2)"]);
     expect(newLayoutRow.row).toEqual(["response-duplicate", "山田", "太郎"]);
   });
+
+  it("does not treat literal numeric suffix sheet titles as generated suffixes", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-literal-suffix",
+        form_id: "form-literal-suffix",
+        respondent_uuid: "respondent-literal-suffix",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        ua_uuid: null,
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "new-literal-suffix-name",
+          block_type: "short_text",
+          question_title: "名前 (1)",
+          value: "花子",
+        },
+      ],
+    };
+    const literalSuffixTitleMap = new Map([
+      ["existing-literal-suffix-name", "名前 (1)"],
+      ["new-literal-suffix-name", "名前 (1)"],
+    ]);
+
+    const existingLayoutRow = mapRecordToSheetRow(
+      record,
+      ["Response ID", "existing-literal-suffix-name"],
+      literalSuffixTitleMap,
+      undefined,
+      ["回答ID", "名前 (1)"],
+    );
+
+    expect(existingLayoutRow.titleRow).toEqual([
+      "回答ID",
+      "名前 (1)",
+      "名前 (1) (2)",
+    ]);
+    expect(existingLayoutRow.row).toEqual([
+      "response-literal-suffix",
+      "",
+      "花子",
+    ]);
+  });
 });

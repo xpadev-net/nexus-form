@@ -64,6 +64,14 @@ export function neutralizeSpreadsheetFormulaValue(value: string): string {
     : value;
 }
 
+export function denormalizeSpreadsheetFormulaValue(value: string): string {
+  if (!value.startsWith("'")) return value;
+  const possibleOriginal = value.slice(1);
+  return neutralizeSpreadsheetFormulaValue(possibleOriginal) === value
+    ? possibleOriginal
+    : value;
+}
+
 function neutralizeSpreadsheetFormulaValues(values: string[]): string[] {
   return values.map(neutralizeSpreadsheetFormulaValue);
 }
@@ -122,12 +130,13 @@ function buildMetadataValues(
 
 function getBlockTitle(
   block: Pick<ResponseExportFormBlock, "blockId" | "content">,
-) {
-  const content =
-    block.content && typeof block.content === "object"
-      ? (block.content as Record<string, unknown>)
-      : null;
-  return (content?.title as string) || block.blockId;
+): string {
+  const title = isRecord(block.content) ? block.content.title : undefined;
+  return typeof title === "string" && title ? title : block.blockId;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function buildResponseExportColumnsFromBlocks(
@@ -292,13 +301,33 @@ export function mapRecordToSheetRow(
     return m?.[1] ?? name;
   };
   const getTitleCountKey = (name: string): string => {
-    const base = getBase(name);
-    if (!base.startsWith("'")) return base;
+    return denormalizeSpreadsheetFormulaValue(name);
+  };
+  const getExistingTitleCountKey = (name: string): string => {
+    return denormalizeSpreadsheetFormulaValue(getBase(name));
+  };
+  const reserveTitle = (
+    title: string,
+    usedTitleCount: Record<string, number>,
+  ): void => {
+    usedTitleCount[title] = (usedTitleCount[title] ?? 0) + 1;
+  };
+  const allocateTitle = (
+    base: string,
+    usedTitleCount: Record<string, number>,
+  ): string => {
+    let titleCount = usedTitleCount[base] ?? 0;
+    let finalTitle: string;
+    do {
+      titleCount += 1;
+      finalTitle = titleCount === 1 ? base : `${base} (${titleCount})`;
+    } while (usedTitleCount[finalTitle] != null);
 
-    const possibleOriginal = base.slice(1);
-    return neutralizeSpreadsheetFormulaValue(possibleOriginal) === base
-      ? possibleOriginal
-      : base;
+    usedTitleCount[base] = titleCount;
+    if (finalTitle !== base) {
+      reserveTitle(finalTitle, usedTitleCount);
+    }
+    return finalTitle;
   };
 
   const hasIdRow =
@@ -316,9 +345,7 @@ export function mapRecordToSheetRow(
     const usedTitleCount: Record<string, number> = {};
     const componentTitles = rawComponentTitles.map((rawTitle) => {
       const base = getTitleCountKey(rawTitle);
-      usedTitleCount[base] = (usedTitleCount[base] ?? 0) + 1;
-      const titleCount = usedTitleCount[base];
-      return titleCount === 1 ? base : `${base} (${titleCount})`;
+      return allocateTitle(base, usedTitleCount);
     });
 
     const idRow = [...metadataIdHeaders, ...componentIds];
@@ -365,9 +392,18 @@ export function mapRecordToSheetRow(
   const row: string[] = Array(idRow.length).fill("");
 
   const usedTitleCount: Record<string, number> = {};
-  for (const title of titleRow) {
+  const existingTitles = new Set(
+    titleRow
+      .filter(Boolean)
+      .map((title) => denormalizeSpreadsheetFormulaValue(title)),
+  );
+  for (const title of existingTitles) {
+    reserveTitle(title, usedTitleCount);
+  }
+  for (const title of existingTitles) {
     if (!title) continue;
-    const base = getTitleCountKey(title);
+    const base = getExistingTitleCountKey(title);
+    if (!existingTitles.has(base)) continue;
     const current = usedTitleCount[base] ?? 0;
     const maybeNumber = title.match(suffixRegex)?.[2];
     const n = maybeNumber ? Number(maybeNumber) : 1;
@@ -418,12 +454,24 @@ export function mapRecordToSheetRow(
     const existing =
       idIndexByBlockId.get(blockId) ??
       idIndexByBlockId.get(neutralizeSpreadsheetFormulaValue(blockId));
-    if (existing != null) return existing;
-
     const base = getTitleCountKey(title);
-    usedTitleCount[base] = (usedTitleCount[base] ?? 0) + 1;
-    const titleCount = usedTitleCount[base];
-    const finalTitle = titleCount === 1 ? base : `${base} (${titleCount})`;
+    if (existing != null) {
+      const currentTitle = titleRow[existing] ?? "";
+      const normalizedCurrentTitle =
+        denormalizeSpreadsheetFormulaValue(currentTitle);
+      if (
+        currentTitle &&
+        (normalizedCurrentTitle === base ||
+          getExistingTitleCountKey(currentTitle) === base)
+      ) {
+        return existing;
+      }
+
+      titleRow[existing] = allocateTitle(base, usedTitleCount);
+      return existing;
+    }
+
+    const finalTitle = allocateTitle(base, usedTitleCount);
 
     const colIndex = idRow.length;
     idRow.push(blockId);

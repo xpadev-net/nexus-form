@@ -15,6 +15,7 @@ import {
   buildResponseLabelLookupFromQuestions,
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,
+  denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
   isAnswerableBlockType,
@@ -58,7 +59,15 @@ export type SheetsSyncJob = SheetsSyncJobData;
 const RESPONSE_ID_HEADER = "Response ID";
 const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
 const UNIQUENESS_SCORE_ID_HEADER = "Uniqueness Score";
-const SHARED_TITLE_RESPONSE_ID_HEADER = "回答ID";
+const SHARED_BASE_ID_HEADERS = [
+  RESPONSE_ID_HEADER,
+  "Respondent UUID",
+  "Submitted At",
+  "Updated At",
+  "Country Code",
+  "UA UUID",
+  UNIQUENESS_SCORE_ID_HEADER,
+];
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
 // + 1 conditional uniqueness-score backfill + 1 append
@@ -479,10 +488,15 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           uniquenessScores.targetFingerprintUuids,
         );
 
+        const titleHeadersChanged =
+          sheetCheck.layout !== "legacy" &&
+          hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
+
         // 8. ヘッダーが変更された場合は更新
         if (
           existingHeaders.length === 0 ||
-          headers.length > existingHeaders.length
+          headers.length > existingHeaders.length ||
+          titleHeadersChanged
         ) {
           throwIfShuttingDown();
           const headerUpdateResult = await updateRange(token, {
@@ -817,8 +831,7 @@ async function readSheetForIdempotency(
       headerRowCount: 1,
     };
   }
-  const isSharedLayout =
-    secondRow[responseIdIndex] === SHARED_TITLE_RESPONSE_ID_HEADER;
+  const isSharedLayout = isSharedSheetLayout(headers, responseIdIndex);
   const layout: SheetLayout = isSharedLayout ? "shared" : "legacy";
   const headerRowCount = isSharedLayout ? 2 : 1;
   const titleHeaders = isSharedLayout ? secondRow : [];
@@ -854,6 +867,23 @@ async function readSheetForIdempotency(
     responseIds,
     headerRowCount,
   };
+}
+
+function isSharedSheetLayout(
+  headers: string[],
+  responseIdIndex: number,
+): boolean {
+  return (
+    responseIdIndex === 0 &&
+    SHARED_BASE_ID_HEADERS.every((header, index) => headers[index] === header)
+  );
+}
+
+function hasSheetRowChanged(nextRow: string[], existingRow: string[]): boolean {
+  return (
+    nextRow.length !== existingRow.length ||
+    nextRow.some((value, index) => value !== (existingRow[index] ?? ""))
+  );
 }
 
 async function updateExistingUniquenessScoreCells(
@@ -1067,14 +1097,6 @@ function getUniquenessScoreForSheetResponseId(
   return rawResponseId === sheetResponseId
     ? undefined
     : uniquenessScores.get(rawResponseId);
-}
-
-function denormalizeSpreadsheetFormulaValue(value: string): string {
-  if (!value.startsWith("'")) return value;
-  const possibleOriginal = value.slice(1);
-  return neutralizeSpreadsheetFormulaValue(possibleOriginal) === value
-    ? possibleOriginal
-    : value;
 }
 
 function buildResponseExportRecord(

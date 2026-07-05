@@ -16,11 +16,9 @@ const LabelItemSchema = z.object({
 
 const LabelItemsSchema = z.array(LabelItemSchema);
 
-const BlockContentSchema = z
-  .object({
-    validation: z.record(z.string(), z.unknown()).optional().default({}),
-  })
-  .passthrough();
+const BlockContentSchema = z.looseObject({
+  validation: z.record(z.string(), z.unknown()).optional().default({}),
+});
 
 export interface ResponseQuestionLabelLookup {
   options: Map<string, string>;
@@ -72,6 +70,7 @@ function buildLookupFromValidation(
   };
 }
 
+/** Build choice/grid label lookup maps from validator questions. */
 export function buildResponseLabelLookupFromQuestions(
   questions: ValidatorQuestion[],
 ): ResponseLabelLookupByQuestion {
@@ -82,6 +81,7 @@ export function buildResponseLabelLookupFromQuestions(
   return lookup;
 }
 
+/** Build choice/grid label lookup maps from block content validation. */
 export function buildResponseLabelLookupFromBlocks(
   blocks: ResponseLabelBlock[],
 ): ResponseLabelLookupByQuestion {
@@ -147,6 +147,7 @@ function formatGridDisplayValue(
   return lines.length > 0 ? lines.join("\n") : undefined;
 }
 
+/** Resolve a response item to its display label value, or undefined when raw output should be used. */
 export function resolveResponseDisplayValue(
   item: ResponseDisplayItem | undefined,
   lookup: ResponseQuestionLabelLookup | undefined,
@@ -184,6 +185,7 @@ function getDisplayFields(
   return { display_value: displayValue };
 }
 
+/** Add display labels to stored response JSON while preserving the original internal answer values. */
 export function addDisplayLabelsToResponseDataJson(
   responseDataJson: string,
   lookup: ResponseLabelLookupByQuestion,

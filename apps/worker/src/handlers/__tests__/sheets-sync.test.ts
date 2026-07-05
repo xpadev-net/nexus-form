@@ -38,6 +38,8 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
   );
   return {
     ...actual,
+    denormalizeSpreadsheetFormulaValue:
+      responseExport.denormalizeSpreadsheetFormulaValue,
     mapRecordToSheetRow: responseExport.mapRecordToSheetRow,
     neutralizeSpreadsheetFormulaValue:
       responseExport.neutralizeSpreadsheetFormulaValue,
@@ -1205,6 +1207,87 @@ describe("handleSheetsSync — write path", () => {
     );
   });
 
+  it("updates shared sheet title rows when only title headers changed", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const sharedIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "UA UUID",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [sharedIdRow, ["回答ID"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["回答ID"]],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        sharedIdRow,
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "UA UUID",
+          "ユニーク度スコア",
+          "block-1",
+        ],
+      ],
+    });
+  });
+
+  it("does not treat a legacy first data row value as a shared title row", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            ["Response ID", "block-1"],
+            ["回答ID", "legacy answer"],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["回答ID"]],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:1",
+      values: [["Response ID", "block-1", "ユニーク度スコア"]],
+    });
+    expect(mockUpdateRange).not.toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({ rangeA1: "Sheet1!1:2" }),
+    );
+  });
+
   it("uses the shared export sheet contract for empty-sheet headers, metadata, and formula neutralization", async () => {
     const responseDataJson = JSON.stringify([
       {
@@ -1430,6 +1513,12 @@ describe("handleSheetsSync — write path", () => {
               question_title: "名前",
               value: "太郎",
             },
+            {
+              question_id: "literal-suffix-name",
+              question_type: "short_text",
+              question_title: "名前 (1)",
+              value: "花子",
+            },
           ]),
           respondentUuid: "respondent-duplicate",
           submittedAt: new Date("2026-05-17T01:00:00.000Z"),
@@ -1448,6 +1537,7 @@ describe("handleSheetsSync — write path", () => {
     } as never);
     mockSafeParseResponseData.mockReturnValue({
       "first-name": "山田",
+      "literal-suffix-name": "花子",
       "second-name": "太郎",
     } as never);
     mockExtractQuestionsFromPlateContent.mockReturnValue([
@@ -1463,6 +1553,12 @@ describe("handleSheetsSync — write path", () => {
         type: "short_text",
         validation: {},
       },
+      {
+        blockId: "literal-suffix-name",
+        title: "名前 (1)",
+        type: "short_text",
+        validation: {},
+      },
     ]);
     mockUpdateRange.mockResolvedValue({ ok: true } as never);
     mockAppendRows.mockResolvedValue({
@@ -1472,9 +1568,10 @@ describe("handleSheetsSync — write path", () => {
 
     await handleSheetsSync(makeJob());
 
-    expect(getUpdateRow(getFirstUpdateValues(), 1).slice(-2)).toEqual([
+    expect(getUpdateRow(getFirstUpdateValues(), 1).slice(-3)).toEqual([
       "名前",
       "名前 (2)",
+      "名前 (1)",
     ]);
   });
 
