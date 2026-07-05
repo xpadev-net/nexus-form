@@ -234,6 +234,7 @@ function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
 }
 
 import type { DualAuthContext } from "../lib/dual-auth";
+import { FormPermissionErrorCode } from "../lib/errors/form-errors";
 
 // ── R2-C1: Share-link token exposure prevention ─────────────────────────────
 
@@ -298,7 +299,45 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
 
     await expect(
       checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      code: FormPermissionErrorCode.INSUFFICIENT_PERMISSIONS,
+      details: {
+        effective_role: "VIEWER",
+        form_id: FORM_ID,
+        required_role: "EDITOR",
+      },
+      statusCode: 403,
+    });
+  });
+
+  it("keeps content saves gated from share-link VIEWER tokens", async () => {
+    const { db } = await import("@nexus-form/database");
+    mockDbSelectChain(db, [
+      [{ id: FORM_ID, creatorId: OWNER_ID }],
+      [{ id: "link-viewer", role: "VIEWER", isActive: true, formId: FORM_ID }],
+    ]);
+
+    const { checkFormPermissionLevel } = await import("../lib/dual-auth");
+    const shareViewerCtx: DualAuthContext = {
+      user_id: "anon:tok-viewer",
+      auth_type: "api_token",
+      token_id: "tok-viewer",
+      scopes: ["read", "write"],
+      form_ids: [FORM_ID],
+      share_link_id: "link-viewer",
+    };
+
+    await expect(
+      checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
+    ).rejects.toMatchObject({
+      code: FormPermissionErrorCode.INSUFFICIENT_PERMISSIONS,
+      details: {
+        effective_role: "VIEWER",
+        form_id: FORM_ID,
+        required_role: "EDITOR",
+      },
+      statusCode: 403,
+    });
   });
 
   it("uses the share-link VIEWER role instead of the token user's owner identity", async () => {
