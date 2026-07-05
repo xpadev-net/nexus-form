@@ -234,6 +234,7 @@ function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
 }
 
 import type { DualAuthContext } from "../lib/dual-auth";
+import { FormPermissionErrorCode } from "../lib/errors/form-errors";
 
 // ── R2-C1: Share-link token exposure prevention ─────────────────────────────
 
@@ -298,7 +299,15 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
 
     await expect(
       checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      code: FormPermissionErrorCode.INSUFFICIENT_PERMISSIONS,
+      details: {
+        effective_role: "VIEWER",
+        form_id: FORM_ID,
+        required_role: "EDITOR",
+      },
+      statusCode: 403,
+    });
   });
 
   it("keeps content saves gated from share-link VIEWER tokens", async () => {
@@ -320,7 +329,15 @@ describe("R2-C1: VIEWER cannot access share-links (EDITOR gate)", () => {
 
     await expect(
       checkFormPermissionLevel(shareViewerCtx, FORM_ID, "EDITOR"),
-    ).rejects.toThrow();
+    ).rejects.toMatchObject({
+      code: FormPermissionErrorCode.INSUFFICIENT_PERMISSIONS,
+      details: {
+        effective_role: "VIEWER",
+        form_id: FORM_ID,
+        required_role: "EDITOR",
+      },
+      statusCode: 403,
+    });
   });
 
   it("uses the share-link VIEWER role instead of the token user's owner identity", async () => {

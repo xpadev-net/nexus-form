@@ -34,8 +34,8 @@ const pendingSaveSchema = z.object({
 const KEEPALIVE_LIMIT = 64 * 1024;
 const IN_FLIGHT_FALLBACK_RETRY_DELAY_MS = 1000;
 
-type PendingSave = z.infer<typeof pendingSaveSchema>;
-type PendingSaveAuthScope = PendingSave["authScope"];
+export type PendingSave = z.infer<typeof pendingSaveSchema>;
+export type PendingSaveAuthScope = PendingSave["authScope"];
 
 function fingerprintPrincipal(value: string): string {
   let hash = 0x811c9dc5;
@@ -161,7 +161,11 @@ function storeInFlightPendingSave(
     const existing = localStorage.getItem(key);
     if (existing) {
       const pendingSave = parsePendingSave(existing);
-      if (pendingSave?.retryBlocked === "conflict") {
+      if (
+        pendingSave?.retryBlocked === "conflict" ||
+        (pendingSave &&
+          !arePendingSaveAuthScopesEqual(pendingSave.authScope, save.authScope))
+      ) {
         return;
       }
     }

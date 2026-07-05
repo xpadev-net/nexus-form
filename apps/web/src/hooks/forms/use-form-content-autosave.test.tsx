@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESTORE_EDIT_EVENT } from "@/hooks/forms/events";
 import {
+  type PendingSave,
+  type PendingSaveAuthScope,
   type UseFormContentAutosaveReturn,
   useFormContentAutosave,
 } from "./use-form-content-autosave";
@@ -38,7 +40,7 @@ const { MockRpcError, putContentMock, rpcMock, toastWarningMock } = vi.hoisted(
 );
 
 interface TestMutationVariables {
-  authScope: typeof defaultAuthScope;
+  authScope: PendingSaveAuthScope;
   contentQueryKey: readonly unknown[];
   formId: string;
   expectedVersion: number;
@@ -62,23 +64,10 @@ const defaultAuthScope = {
   role: "EDITOR",
   type: "session",
 } as const;
-type TestAuthScope = {
-  principalKey: string;
-  role: "EDITOR" | "VIEWER";
-  type: "session" | "share-token";
-};
-type TestPendingSave = {
-  authScope?: TestAuthScope;
-  expectedVersion: number;
-  failureStatus?: number;
-  failureType?: "http" | "network" | "unknown";
-  formId?: string;
-  plateContent: string;
-  retryBlocked?: "conflict";
-  source?: "in-flight";
-};
+type TestPendingSaveOverrides = Omit<PendingSave, "authScope" | "formId"> &
+  Partial<Pick<PendingSave, "authScope" | "formId">>;
 
-function makePendingSave(overrides: TestPendingSave) {
+function makePendingSave(overrides: TestPendingSaveOverrides): PendingSave {
   return {
     authScope: defaultAuthScope,
     formId: "form-1",
@@ -86,7 +75,7 @@ function makePendingSave(overrides: TestPendingSave) {
   };
 }
 
-function stringifyPendingSave(overrides: TestPendingSave): string {
+function stringifyPendingSave(overrides: TestPendingSaveOverrides): string {
   return JSON.stringify(makePendingSave(overrides));
 }
 
@@ -495,6 +484,13 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     await flushPromises();
 
     expect(fetchMock).toHaveBeenCalledOnce();
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit | undefined;
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      authScope: defaultAuthScope,
+      expectedVersion: 7,
+      formId: "form-1",
+      plateContent: draftContent,
+    });
     expect(localStorage.getItem("pendingSave:form-1")).toBeNull();
   });
 
@@ -953,6 +949,40 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     expect(localStorage.getItem("pendingSave:form-1")).toBe(
       conflictBlockedSave,
     );
+  });
+
+  it("does not overwrite a different auth scope pending save with in-flight fallback", () => {
+    vi.useFakeTimers();
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    const draftContent = '[{"type":"p","children":[{"text":"editor draft"}]}]';
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    let hook: UseFormContentAutosaveReturn | undefined;
+    const root = renderAutosave((currentHook) => {
+      hook = currentHook;
+    });
+
+    act(() => {
+      hook?.handleContentChange(draftContent);
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    act(() => {
+      root.unmount();
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
   });
 
   it("keeps in-flight fallback when regular autosave fails after unmount", async () => {
