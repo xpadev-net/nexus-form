@@ -505,6 +505,44 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("does not delete a different auth scope pending save when mount retry authorization fails", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      stringifyPendingSave({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    let rejectRetry: ((error: Error) => void) | undefined;
+    rpcMock.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectRetry = reject;
+      }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    rejectRetry?.(new MockRpcError(403));
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not persist a keepalive fallback when the server rejects authorization", async () => {
     const draftContent = '[{"type":"p","children":[{"text":"draft"}]}]';
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 403 });

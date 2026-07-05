@@ -945,7 +945,7 @@ export function useFormContentAutosave({
           err instanceof RpcError &&
           (err.status === 401 || err.status === 403)
         ) {
-          clearPendingSave(formId);
+          clearPendingSaveForAuthScope(formId, currentAuthScope);
           return;
         }
         const currentPendingSave = readCurrentPendingSave(formId);
