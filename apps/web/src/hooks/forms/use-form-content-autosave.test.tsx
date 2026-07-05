@@ -234,13 +234,16 @@ function renderAutosaveWithEnabledToggle(
 
 function renderAutosaveWithFormId(
   onReady: (hook: UseFormContentAutosaveReturn) => void,
-) {
+): {
+  root: ReturnType<typeof createRoot>;
+  switchForm: (nextFormId: string, nextPlateContent?: string) => void;
+} {
   const container = document.createElement("div");
   const root = createRoot(container);
   let formId = "form-1";
   let plateContent = "[]";
 
-  function Harness({ currentFormId }: { currentFormId: string }) {
+  function Harness({ currentFormId }: { currentFormId: string }): null {
     const hook = useFormContentAutosave({
       contentData: { plateContent, plateContentVersion: 7 },
       contentRefetch: refetchMock,
