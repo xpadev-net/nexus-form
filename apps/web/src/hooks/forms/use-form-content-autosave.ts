@@ -930,8 +930,9 @@ export function useFormContentAutosave({
         });
       } catch (err) {
         if (err instanceof RpcError && err.status === 409) {
-          storePendingSave(
+          storeScopedPendingSave(
             formId,
+            currentAuthScope,
             buildPendingSaveBody(formId, {
               ...retryPayload,
               authScope: currentAuthScope,

@@ -543,6 +543,44 @@ describe("useFormContentAutosave unmount keepalive fallback", () => {
     });
   });
 
+  it("does not overwrite a different auth scope pending save when mount retry conflicts", async () => {
+    localStorage.setItem(
+      "pendingSave:form-1",
+      stringifyPendingSave({
+        expectedVersion: 7,
+        plateContent: '[{"type":"p","children":[{"text":"draft"}]}]',
+      }),
+    );
+    const differentScopeSave = stringifyPendingSave({
+      authScope: {
+        principalKey: "fnv1a:viewer",
+        role: "VIEWER",
+        type: "share-token",
+      },
+      expectedVersion: 6,
+      plateContent: '[{"type":"p","children":[{"text":"viewer draft"}]}]',
+    });
+    let rejectRetry: ((error: Error) => void) | undefined;
+    rpcMock.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectRetry = reject;
+      }),
+    );
+
+    const root = renderAutosave(() => {});
+    await flushPromises();
+
+    localStorage.setItem("pendingSave:form-1", differentScopeSave);
+    rejectRetry?.(new MockRpcError(409));
+    await flushPromises();
+
+    expect(localStorage.getItem("pendingSave:form-1")).toBe(differentScopeSave);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
   it("does not delete a different auth scope pending save before storing mount retry in-flight fallback", async () => {
     const pendingSave = stringifyPendingSave({
       expectedVersion: 7,
