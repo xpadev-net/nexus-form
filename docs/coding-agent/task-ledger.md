@@ -486,14 +486,16 @@
   - PR #625 was squash-merged as `30d1b189f922f810df20afe9c74467147e496fba`; the initial merge command returned non-zero only when deleting the local branch that remained checked out in the worker worktree. Remote branch was deleted separately and worker thread archived.
 
 ### REVAL-1: Historical response revalidation API and worker
-- status: in progress
+- status: complete
 - branch: `codex/historical-response-revalidation-core`
 - pending_worktree: resolved from `local:02dca7ee-276e-4254-94eb-e3d31bd259e0`
 - worker_thread: `019f3721-b1a0-7721-97df-7fa7b523e035`
 - worktree: `/Users/xpadev/.codex/worktrees/a906/nexus-form`
-- current_head: `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`
+- current_head: `a02012b20a5dad6832264c6267de6738ad05e313`
 - pr: #626 `https://github.com/xpadev-net/nexus-form/pull/626`
-- hook_state: CodeRabbit requested changes on remote head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`; worker is applying fixes and local branch is ahead at `f9c6959a981cf3e324db28ecfa3bcf7b548b3aa0`
+- hook_state: worker and parent `gh-review-hook 626` exited 0
+- merge_commit: `3355bcf7385719be216ff759f3efe779073390cc`
+- archived: true
 - source_plan_tasks:
   - `historical-response-revalidation-plan.md` Task_1
   - `historical-response-revalidation-plan.md` Task_2
@@ -513,6 +515,9 @@
   - `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/generic-validation.test.ts`
   - `pnpm lint:fix`
   - `pnpm type-check`
+- completion_notes:
+  - Parent merge gate passed: PR diff/deep-review found no blocking issues; `gh-review-hook 626` exited 0; focused API validation/response tests, focused worker generic-validation tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` passed from the PR worktree.
+  - PR #626 was squash-merged as `3355bcf7385719be216ff759f3efe779073390cc`; worker thread archived.
 
 ### REVAL-2: Historical response revalidation UI
 - status: unstarted
@@ -625,3 +630,4 @@
 - 2026-07-06: REVAL-1 worker merged current `origin/master` and pushed head `41092429a90b71fdebfebad3e5ed2ffe92117c1b`. GitHub CI checks are successful and reviewDecision is approved, but Greptile is still in progress and the worker is still active in `gh-review-hook 626`, so parent merge gate is not started yet.
 - 2026-07-06: REVAL-1 worker pushed head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4` after fixing another hook finding for active `PENDING` rows with `nextRetryAt: null`. GitHub CI and Greptile are successful, but CodeRabbit is still pending and the worker is still active in `gh-review-hook 626`, so parent merge gate is not started yet.
 - 2026-07-06: CodeRabbit requested changes on REVAL-1 PR #626 after head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`. Worker accepted the review as actionable, added scoped fixes for bounded parallel enqueue, per-item failure isolation, shared job-id helper cleanup, and rate limiting, then committed locally through `f9c6959a981cf3e324db28ecfa3bcf7b548b3aa0`; push/hook rerun is still in progress, so parent merge gate is not started yet.
+- 2026-07-06: REVAL-1 worker reported merge-ready at head `a02012b20a5dad6832264c6267de6738ad05e313` after merging current `origin/master`, fixing review-hook findings, and getting `gh-review-hook 626` exit 0. Parent verified PR #626 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 626`, focused API validation/response tests, focused worker generic-validation tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #626 as `3355bcf7385719be216ff759f3efe779073390cc`. Worker thread archived.
