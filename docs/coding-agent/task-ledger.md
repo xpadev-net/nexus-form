@@ -525,6 +525,9 @@
 - pending_worktree: `local:b5460406-0e49-4199-8ae2-84a7903a8a39`
 - worker_thread: `019f3799-91fc-7a52-b6e0-ca7f15a18cca`
 - worktree: `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`
+- current_head: `08ca6a4eac5f9d698f0f99bb88be011ec6794cda`
+- pr: #628 `https://github.com/xpadev-net/nexus-form/pull/628`
+- hook_state: worker `gh-review-hook 628` still running in active thread; GitHub checks are currently successful
 - source_plan_task: `historical-response-revalidation-plan.md` Task_4
 - scope:
   - `apps/web/src/components/forms/**`
@@ -544,6 +547,9 @@
 - pending_worktree: `local:6379c464-4496-4dee-808b-73efed865595`
 - worker_thread: `019f3799-91fc-7a52-b6e0-ca85f37e152f`
 - worktree: `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`
+- current_head: `6f2fad9b07c1ad38716309a79e0e5b618b26a8fa`
+- pr: #627 `https://github.com/xpadev-net/nexus-form/pull/627`
+- hook_state: worker `gh-review-hook 627` still running in active thread; CodeRabbit remains pending and mergeStateStatus is `UNSTABLE`
 - source_plan_tasks:
   - `validation-result-export-plan.md` Task_1
   - `validation-result-export-plan.md` Task_2
@@ -637,3 +643,5 @@
 - 2026-07-06: Started VEXPORT-1 worker as pending worktree `local:6379c464-4496-4dee-808b-73efed865595` on branch `codex/validation-output-contract`. Scope is limited to plugin validation output contract/shared/provider/worker/database support; web UI, CSV/Sheets export rendering, response deletion, and historical revalidation UI remain out of scope.
 - 2026-07-06: REVAL-2 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca7f15a18cca` in worktree `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, investigation, and initial UI/test edits.
 - 2026-07-06: VEXPORT-1 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca85f37e152f` in worktree `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, contract investigation, and initial shared/provider/worker/API edits.
+- 2026-07-06: VEXPORT-1 worker opened PR #627 (`https://github.com/xpadev-net/nexus-form/pull/627`) at head `6f2fad9b07c1ad38716309a79e0e5b618b26a8fa`. GitHub shows CI, Greptile, and Socket checks successful, but CodeRabbit remains pending and `mergeStateStatus` is `UNSTABLE`; worker is still active in `gh-review-hook 627`, so parent merge gate is not started yet.
+- 2026-07-06: REVAL-2 worker opened PR #628 (`https://github.com/xpadev-net/nexus-form/pull/628`) at head `08ca6a4eac5f9d698f0f99bb88be011ec6794cda`. GitHub shows CI, Greptile, CodeRabbit, and Socket checks successful with `mergeStateStatus` `CLEAN`, but the worker thread is still active in `gh-review-hook 628`; parent merge gate waits for the worker's explicit merge-ready report.
