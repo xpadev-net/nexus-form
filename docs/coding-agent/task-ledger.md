@@ -493,7 +493,7 @@
 - worktree: `/Users/xpadev/.codex/worktrees/a906/nexus-form`
 - current_head: `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`
 - pr: #626 `https://github.com/xpadev-net/nexus-form/pull/626`
-- hook_state: worker fixed repeated `gh-review-hook 626` findings; latest CI and Greptile are successful, CodeRabbit is still pending
+- hook_state: CodeRabbit requested changes on remote head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`; worker is applying fixes and local branch is ahead at `f9c6959a981cf3e324db28ecfa3bcf7b548b3aa0`
 - source_plan_tasks:
   - `historical-response-revalidation-plan.md` Task_1
   - `historical-response-revalidation-plan.md` Task_2
@@ -624,3 +624,4 @@
 - 2026-07-06: REVAL-1 worker pushed additional hook fixes through head `d359f5c8c6a8740644682f65a77513cda68c74ba` after addressing typed missing-response handling, attempt-count reset, and duplicate insert race findings. GitHub reviewDecision is approved, but CI and Greptile are still in progress on the latest head and the worker is active, so parent merge gate is not started yet.
 - 2026-07-06: REVAL-1 worker merged current `origin/master` and pushed head `41092429a90b71fdebfebad3e5ed2ffe92117c1b`. GitHub CI checks are successful and reviewDecision is approved, but Greptile is still in progress and the worker is still active in `gh-review-hook 626`, so parent merge gate is not started yet.
 - 2026-07-06: REVAL-1 worker pushed head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4` after fixing another hook finding for active `PENDING` rows with `nextRetryAt: null`. GitHub CI and Greptile are successful, but CodeRabbit is still pending and the worker is still active in `gh-review-hook 626`, so parent merge gate is not started yet.
+- 2026-07-06: CodeRabbit requested changes on REVAL-1 PR #626 after head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`. Worker accepted the review as actionable, added scoped fixes for bounded parallel enqueue, per-item failure isolation, shared job-id helper cleanup, and rate limiting, then committed locally through `f9c6959a981cf3e324db28ecfa3bcf7b548b3aa0`; push/hook rerun is still in progress, so parent merge gate is not started yet.
