@@ -1,10 +1,28 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { BarChart3, List, X } from "lucide-react";
+import type { ResponsesListResponse } from "@nexus-form/api/src/types/domain/form-responses";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { BarChart3, List, Loader2, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useReducer } from "react";
+import { toast } from "sonner";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
 import { ResponseExport } from "@/components/forms/response-export";
 import { ResponseFilter } from "@/components/forms/response-filter";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
@@ -26,6 +44,7 @@ type FormResponsesAction =
   | { type: "commit-keyword"; keyword: string }
   | { type: "select-response"; responseId: string }
   | { type: "close-detail" }
+  | { type: "close-deleted-response"; responseId: string }
   | { type: "set-page"; page: number }
   | { type: "set-view-mode"; viewMode: ViewMode };
 
@@ -56,6 +75,10 @@ function formResponsesReducer(
       return { ...state, selectedResponseId: action.responseId };
     case "close-detail":
       return { ...state, selectedResponseId: null };
+    case "close-deleted-response":
+      return state.selectedResponseId === action.responseId
+        ? { ...state, selectedResponseId: null }
+        : state;
     case "set-page":
       return { ...state, page: action.page, selectedResponseId: null };
     case "set-view-mode":
@@ -71,6 +94,7 @@ export function FormResponsesContent({
   shareToken?: string;
 }) {
   useValidationSSE(formId, shareToken);
+  const queryClient = useQueryClient();
 
   const [state, dispatch] = useReducer(
     formResponsesReducer,
@@ -115,6 +139,56 @@ export function FormResponsesContent({
     placeholderData: keepPreviousData,
   });
 
+  const deleteResponseMutation = useMutation({
+    mutationFn: (responseId: string) =>
+      rpc(
+        client.api.forms[":id"].responses[":responseId"].$delete({
+          param: { id: formId, responseId },
+        }),
+      ),
+    onSuccess: async (_data, responseId) => {
+      dispatch({ type: "close-deleted-response", responseId });
+      queryClient.setQueriesData<ResponsesListResponse>(
+        { queryKey: ["formResponses", formId] },
+        (current) => {
+          if (!current) return current;
+          return {
+            ...current,
+            responses: current.responses.filter(
+              (response) => response.id !== responseId,
+            ),
+          };
+        },
+      );
+      toast.success("回答を削除しました");
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["formResponses", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["validationResults", formId, responseId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseAnalytics", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseAggregate", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseStatuses", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseBlockAnalytics", formId],
+        }),
+      ]);
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "回答の削除に失敗しました",
+      );
+    },
+  });
+
   const data = responsesQuery.data;
   const hasCurrentPageData = data?.page === state.page;
   const isStalePageData =
@@ -137,6 +211,11 @@ export function FormResponsesContent({
   const handleCloseDetail = useCallback(() => {
     dispatch({ type: "close-detail" });
   }, []);
+
+  const handleDeleteSelectedResponse = useCallback(() => {
+    if (!state.selectedResponseId) return;
+    deleteResponseMutation.mutate(state.selectedResponseId);
+  }, [deleteResponseMutation, state.selectedResponseId]);
 
   const handlePageChange = useCallback((newPage: number) => {
     dispatch({ type: "set-page", page: newPage });
@@ -361,15 +440,65 @@ export function FormResponsesContent({
             <section className="w-1/2 rounded-lg border bg-card p-6 shadow-sm">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">回答詳細</h2>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleCloseDetail}
-                  className="h-8 w-8 p-0"
-                  aria-label="回答詳細を閉じる"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                        aria-label="回答を削除"
+                        disabled={deleteResponseMutation.isPending}
+                      >
+                        {deleteResponseMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>
+                          回答を削除しますか？
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="space-y-2">
+                          <span className="block">
+                            回答 #{state.selectedResponseId.slice(0, 8)}
+                            を削除します。この操作は取り消せません。
+                          </span>
+                          <span className="block">
+                            関連する検証結果も削除され、一覧・分析・エクスポートから除外されます。
+                          </span>
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel
+                          disabled={deleteResponseMutation.isPending}
+                        >
+                          キャンセル
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          variant="destructive"
+                          onClick={handleDeleteSelectedResponse}
+                          disabled={deleteResponseMutation.isPending}
+                        >
+                          削除する
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCloseDetail}
+                    className="h-8 w-8 p-0"
+                    aria-label="回答詳細を閉じる"
+                    disabled={deleteResponseMutation.isPending}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <ResponseDetailView
                 formId={formId}
