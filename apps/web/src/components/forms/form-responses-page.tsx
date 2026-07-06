@@ -1,3 +1,4 @@
+import type { ResponsesListResponse } from "@nexus-form/api/src/types/domain/form-responses";
 import {
   keepPreviousData,
   useMutation,
@@ -36,13 +37,6 @@ interface FormResponsesState {
   selectedResponseId: string | null;
   viewMode: ViewMode;
 }
-
-type FormResponsesQueryCache = {
-  responses: { id: string }[];
-  hasNext: boolean;
-  page: number;
-  limit: number;
-};
 
 type FormResponsesAction =
   | { type: "reset" }
@@ -154,7 +148,7 @@ export function FormResponsesContent({
       ),
     onSuccess: async (_data, responseId) => {
       dispatch({ type: "close-deleted-response", responseId });
-      queryClient.setQueriesData<FormResponsesQueryCache>(
+      queryClient.setQueriesData<ResponsesListResponse>(
         { queryKey: ["formResponses", formId] },
         (current) => {
           if (!current) return current;
@@ -500,6 +494,7 @@ export function FormResponsesContent({
                     onClick={handleCloseDetail}
                     className="h-8 w-8 p-0"
                     aria-label="回答詳細を閉じる"
+                    disabled={deleteResponseMutation.isPending}
                   >
                     <X className="h-4 w-4" />
                   </Button>

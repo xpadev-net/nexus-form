@@ -59,6 +59,7 @@ function renderResponses(container: HTMLElement, shareToken?: string): Root {
 const queryMock = vi.hoisted(
   (): {
     invalidateQueries: ReturnType<typeof vi.fn>;
+    isDeletePending: boolean;
     lastOptions: CapturedUseQueryOptions | null;
     mutationOptions: CapturedUseMutationOptions | null;
     refetch: ReturnType<typeof vi.fn<ResponsesQueryState["refetch"]>>;
@@ -66,6 +67,7 @@ const queryMock = vi.hoisted(
     state: ResponsesQueryState;
   } => ({
     invalidateQueries: vi.fn(() => Promise.resolve()),
+    isDeletePending: false,
     lastOptions: null,
     mutationOptions: null,
     refetch: vi.fn<ResponsesQueryState["refetch"]>(),
@@ -131,7 +133,7 @@ vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: CapturedUseMutationOptions) => {
     queryMock.mutationOptions = options;
     return {
-      isPending: false,
+      isPending: queryMock.isDeletePending,
       mutate: async (responseId: string) => {
         try {
           const data = await options.mutationFn(responseId);
@@ -317,6 +319,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
   filterMock.onKeywordChange = null;
+  queryMock.isDeletePending = false;
   queryMock.lastOptions = null;
   queryMock.mutationOptions = null;
   queryMock.invalidateQueries.mockResolvedValue(undefined);
@@ -689,6 +692,33 @@ describe("FormResponsesContent accessibility", () => {
       container.querySelector("[data-testid='response-detail']"),
     ).not.toBeNull();
     expect(queryMock.state.data?.responses).toHaveLength(1);
+
+    act(() => root.unmount());
+  });
+
+  it("disables response delete and close controls while deletion is pending", () => {
+    queryMock.isDeletePending = true;
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const deleteControl = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を削除"]',
+    );
+    const closeControl = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答詳細を閉じる"]',
+    );
+
+    expect(deleteControl?.disabled).toBe(true);
+    expect(closeControl?.disabled).toBe(true);
+    expect(deleteControl?.querySelector(".animate-spin")).not.toBeNull();
 
     act(() => root.unmount());
   });
