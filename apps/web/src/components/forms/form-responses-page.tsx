@@ -1,12 +1,15 @@
-import type { ResponsesListResponse } from "@nexus-form/api/src/types/domain/form-responses";
+import type {
+  ResponsesListResponse,
+  ValidationRevalidationResponse,
+} from "@nexus-form/api/src/types/domain/form-responses";
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { BarChart3, List, Loader2, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useReducer } from "react";
+import { BarChart3, List, Loader2, RefreshCw, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { toast } from "sonner";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
@@ -35,6 +38,7 @@ interface FormResponsesState {
   keyword: string;
   debouncedKeyword: string;
   selectedResponseId: string | null;
+  selectedResponseIds: string[];
   viewMode: ViewMode;
 }
 
@@ -43,6 +47,8 @@ type FormResponsesAction =
   | { type: "set-keyword"; keyword: string }
   | { type: "commit-keyword"; keyword: string }
   | { type: "select-response"; responseId: string }
+  | { type: "toggle-response-selection"; responseId: string }
+  | { type: "clear-response-selection" }
   | { type: "close-detail" }
   | { type: "close-deleted-response"; responseId: string }
   | { type: "set-page"; page: number }
@@ -53,6 +59,7 @@ const initialFormResponsesState: FormResponsesState = {
   keyword: "",
   debouncedKeyword: "",
   selectedResponseId: null,
+  selectedResponseIds: [],
   viewMode: "list",
 };
 
@@ -64,7 +71,12 @@ function formResponsesReducer(
     case "reset":
       return initialFormResponsesState;
     case "set-keyword":
-      return { ...state, keyword: action.keyword, selectedResponseId: null };
+      return {
+        ...state,
+        keyword: action.keyword,
+        selectedResponseId: null,
+        selectedResponseIds: [],
+      };
     case "commit-keyword":
       return {
         ...state,
@@ -73,14 +85,43 @@ function formResponsesReducer(
       };
     case "select-response":
       return { ...state, selectedResponseId: action.responseId };
+    case "toggle-response-selection":
+      return {
+        ...state,
+        selectedResponseIds: state.selectedResponseIds.includes(
+          action.responseId,
+        )
+          ? state.selectedResponseIds.filter(
+              (responseId) => responseId !== action.responseId,
+            )
+          : [...state.selectedResponseIds, action.responseId],
+      };
+    case "clear-response-selection":
+      return { ...state, selectedResponseIds: [] };
     case "close-detail":
       return { ...state, selectedResponseId: null };
     case "close-deleted-response":
       return state.selectedResponseId === action.responseId
-        ? { ...state, selectedResponseId: null }
-        : state;
+        ? {
+            ...state,
+            selectedResponseId: null,
+            selectedResponseIds: state.selectedResponseIds.filter(
+              (selectedId) => selectedId !== action.responseId,
+            ),
+          }
+        : {
+            ...state,
+            selectedResponseIds: state.selectedResponseIds.filter(
+              (selectedId) => selectedId !== action.responseId,
+            ),
+          };
     case "set-page":
-      return { ...state, page: action.page, selectedResponseId: null };
+      return {
+        ...state,
+        page: action.page,
+        selectedResponseId: null,
+        selectedResponseIds: [],
+      };
     case "set-view-mode":
       return { ...state, viewMode: action.viewMode };
   }
@@ -189,6 +230,83 @@ export function FormResponsesContent({
     },
   });
 
+  const invalidateRevalidationQueries = useCallback(
+    async (responseIds: string[]) => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["formResponses", formId],
+        }),
+        ...responseIds.map((responseId) =>
+          queryClient.invalidateQueries({
+            queryKey: ["validationResults", formId, responseId],
+          }),
+        ),
+        queryClient.invalidateQueries({
+          queryKey: ["responseAnalytics", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseAggregate", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseStatuses", formId],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["responseBlockAnalytics", formId],
+        }),
+      ]);
+    },
+    [formId, queryClient],
+  );
+
+  const revalidateResponsesMutation = useMutation({
+    mutationFn: (responseIds: string[]) => {
+      if (responseIds.length === 1) {
+        const [responseId] = responseIds;
+        if (!responseId) {
+          throw new Error("再検証する回答を選択してください");
+        }
+        return rpc(
+          client.api.forms[":id"].responses[
+            ":responseId"
+          ].validation.revalidate.$post({
+            param: { id: formId, responseId },
+          }),
+        );
+      }
+
+      return rpc(
+        client.api.forms[":id"].responses.validation.revalidate.$post({
+          param: { id: formId },
+          json: { responseIds },
+        }),
+      );
+    },
+    onSuccess: async (result: ValidationRevalidationResponse, responseIds) => {
+      await invalidateRevalidationQueries(responseIds);
+      const message =
+        result.enqueued > 0 && result.skipped > 0
+          ? `${result.enqueued}件の再検証を開始しました。${result.skipped}件はスキップされました。`
+          : result.enqueued > 0
+            ? `${result.enqueued}件の再検証を開始しました。`
+            : `${result.skipped}件の回答は再検証対象がないためスキップされました。`;
+
+      if (result.enqueued > 0 && result.skipped > 0) {
+        toast.warning(message);
+      } else if (result.enqueued > 0) {
+        toast.success(message);
+      } else {
+        toast.info(message);
+      }
+
+      dispatch({ type: "clear-response-selection" });
+    },
+    onError: (error) => {
+      toast.error(
+        error instanceof Error ? error.message : "回答の再検証に失敗しました",
+      );
+    },
+  });
+
   const data = responsesQuery.data;
   const hasCurrentPageData = data?.page === state.page;
   const isStalePageData =
@@ -217,6 +335,16 @@ export function FormResponsesContent({
     deleteResponseMutation.mutate(state.selectedResponseId);
   }, [deleteResponseMutation, state.selectedResponseId]);
 
+  const handleRevalidateSelectedResponses = useCallback(() => {
+    if (state.selectedResponseIds.length === 0) return;
+    revalidateResponsesMutation.mutate(state.selectedResponseIds);
+  }, [revalidateResponsesMutation, state.selectedResponseIds]);
+
+  const handleRevalidateCurrentResponse = useCallback(() => {
+    if (!state.selectedResponseId) return;
+    revalidateResponsesMutation.mutate([state.selectedResponseId]);
+  }, [revalidateResponsesMutation, state.selectedResponseId]);
+
   const handlePageChange = useCallback((newPage: number) => {
     dispatch({ type: "set-page", page: newPage });
   }, []);
@@ -224,6 +352,13 @@ export function FormResponsesContent({
   const handleKeywordChange = useCallback((value: string) => {
     dispatch({ type: "set-keyword", keyword: value });
   }, []);
+
+  const selectedResponseIdSet = useMemo(
+    () => new Set(state.selectedResponseIds),
+    [state.selectedResponseIds],
+  );
+  const isActionPending =
+    deleteResponseMutation.isPending || revalidateResponsesMutation.isPending;
 
   return (
     <div className="space-y-4">
@@ -279,12 +414,12 @@ export function FormResponsesContent({
 
       {/* リストビュー */}
       {state.viewMode === "list" && (
-        <div className="flex gap-4">
+        <div className="flex flex-col gap-4 lg:flex-row">
           {/* 回答リスト */}
           <section
             className={[
               "rounded-lg border bg-card p-6 shadow-sm",
-              state.selectedResponseId ? "w-1/2" : "w-full",
+              state.selectedResponseId ? "w-full lg:w-1/2" : "w-full",
             ].join(" ")}
           >
             {/* フィルタ */}
@@ -293,6 +428,47 @@ export function FormResponsesContent({
                 keyword={state.keyword}
                 onKeywordChange={handleKeywordChange}
               />
+            </div>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
+              <p className="text-sm text-muted-foreground">
+                {state.selectedResponseIds.length > 0
+                  ? `${state.selectedResponseIds.length}件を選択中`
+                  : "回答を選択して再検証できます"}
+              </p>
+              <div className="flex items-center gap-2">
+                {state.selectedResponseIds.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      dispatch({ type: "clear-response-selection" })
+                    }
+                    disabled={isActionPending}
+                  >
+                    選択解除
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleRevalidateSelectedResponses}
+                  disabled={
+                    state.selectedResponseIds.length === 0 ||
+                    isStalePageData ||
+                    isActionPending
+                  }
+                >
+                  {revalidateResponsesMutation.isPending &&
+                  state.selectedResponseIds.length > 0 ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  )}
+                  選択を再検証
+                </Button>
+              </div>
             </div>
 
             {/* 読み込み中 */}
@@ -357,12 +533,9 @@ export function FormResponsesContent({
                   <ul className="space-y-2">
                     {data.responses.map((response) => (
                       <li key={response.id}>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectResponse(response.id)}
-                          disabled={isStalePageData}
+                        <div
                           className={[
-                            "flex w-full items-center justify-between rounded border p-3 text-left transition-colors hover:bg-muted/50",
+                            "flex w-full items-start gap-3 rounded border p-3 transition-colors hover:bg-muted/50",
                             isStalePageData
                               ? "cursor-not-allowed opacity-60 hover:bg-transparent"
                               : "",
@@ -371,35 +544,59 @@ export function FormResponsesContent({
                               : "",
                           ].join(" ")}
                         >
-                          <div className="flex flex-col gap-1">
-                            <span className="text-sm font-medium">
-                              {response.respondentUuid
-                                ? `回答者: ${response.respondentUuid.slice(0, 8)}...`
-                                : `回答 #${response.id.slice(0, 8)}`}
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              提出:{" "}
-                              {formatJapanLocaleDateTime(response.submittedAt)}
-                            </span>
-                            {response.updatedAt && (
+                          <input
+                            type="checkbox"
+                            aria-label={`回答 #${response.id.slice(0, 8)} を選択`}
+                            checked={selectedResponseIdSet.has(response.id)}
+                            disabled={isStalePageData || isActionPending}
+                            onChange={() =>
+                              dispatch({
+                                type: "toggle-response-selection",
+                                responseId: response.id,
+                              })
+                            }
+                            className="mt-1 h-4 w-4 rounded border-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSelectResponse(response.id)}
+                            disabled={isStalePageData}
+                            className="flex min-w-0 flex-1 items-center justify-between text-left disabled:cursor-not-allowed"
+                          >
+                            <span className="flex flex-col gap-1">
+                              <span className="text-sm font-medium">
+                                {response.respondentUuid
+                                  ? `回答者: ${response.respondentUuid.slice(0, 8)}...`
+                                  : `回答 #${response.id.slice(0, 8)}`}
+                              </span>
                               <span className="text-xs text-muted-foreground">
-                                更新:{" "}
-                                {formatJapanLocaleDateTime(response.updatedAt)}
+                                提出:{" "}
+                                {formatJapanLocaleDateTime(
+                                  response.submittedAt,
+                                )}
+                              </span>
+                              {response.updatedAt && (
+                                <span className="text-xs text-muted-foreground">
+                                  更新:{" "}
+                                  {formatJapanLocaleDateTime(
+                                    response.updatedAt,
+                                  )}
+                                </span>
+                              )}
+                              {typeof response.uniquenessScore === "number" && (
+                                <span className="text-xs text-muted-foreground">
+                                  ユニーク度:{" "}
+                                  {response.uniquenessScore.toFixed(4)}
+                                </span>
+                              )}
+                            </span>
+                            {response.countryCode && (
+                              <span className="ml-2 shrink-0 text-xs text-muted-foreground">
+                                {response.countryCode}
                               </span>
                             )}
-                            {typeof response.uniquenessScore === "number" && (
-                              <span className="text-xs text-muted-foreground">
-                                ユニーク度:{" "}
-                                {response.uniquenessScore.toFixed(4)}
-                              </span>
-                            )}
-                          </div>
-                          {response.countryCode && (
-                            <span className="text-xs text-muted-foreground">
-                              {response.countryCode}
-                            </span>
-                          )}
-                        </button>
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -416,7 +613,7 @@ export function FormResponsesContent({
                         variant="outline"
                         size="sm"
                         onClick={() => handlePageChange(state.page - 1)}
-                        disabled={state.page <= 1}
+                        disabled={state.page <= 1 || isActionPending}
                       >
                         前へ
                       </Button>
@@ -424,7 +621,9 @@ export function FormResponsesContent({
                         variant="outline"
                         size="sm"
                         onClick={() => handlePageChange(state.page + 1)}
-                        disabled={!hasCurrentPageData || !hasNextPage}
+                        disabled={
+                          !hasCurrentPageData || !hasNextPage || isActionPending
+                        }
                       >
                         次へ
                       </Button>
@@ -437,10 +636,24 @@ export function FormResponsesContent({
 
           {/* 回答詳細 */}
           {state.selectedResponseId && (
-            <section className="w-1/2 rounded-lg border bg-card p-6 shadow-sm">
+            <section className="w-full rounded-lg border bg-card p-6 shadow-sm lg:w-1/2">
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">回答詳細</h2>
                 <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    aria-label="回答を再検証"
+                    onClick={handleRevalidateCurrentResponse}
+                    disabled={isActionPending}
+                  >
+                    {revalidateResponsesMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </Button>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -448,7 +661,7 @@ export function FormResponsesContent({
                         size="sm"
                         className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                         aria-label="回答を削除"
-                        disabled={deleteResponseMutation.isPending}
+                        disabled={isActionPending}
                       >
                         {deleteResponseMutation.isPending ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -473,15 +686,13 @@ export function FormResponsesContent({
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <AlertDialogFooter>
-                        <AlertDialogCancel
-                          disabled={deleteResponseMutation.isPending}
-                        >
+                        <AlertDialogCancel disabled={isActionPending}>
                           キャンセル
                         </AlertDialogCancel>
                         <AlertDialogAction
                           variant="destructive"
                           onClick={handleDeleteSelectedResponse}
-                          disabled={deleteResponseMutation.isPending}
+                          disabled={isActionPending}
                         >
                           削除する
                         </AlertDialogAction>
@@ -494,7 +705,7 @@ export function FormResponsesContent({
                     onClick={handleCloseDetail}
                     className="h-8 w-8 p-0"
                     aria-label="回答詳細を閉じる"
-                    disabled={deleteResponseMutation.isPending}
+                    disabled={isActionPending}
                   >
                     <X className="h-4 w-4" />
                   </Button>
