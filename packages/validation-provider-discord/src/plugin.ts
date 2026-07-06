@@ -144,6 +144,36 @@ function filterMemberRoles(
     }));
 }
 
+function buildDiscordOutputValues(params: {
+  username: string;
+  displayName: string;
+  guildMember: boolean;
+  roles: Array<{ name: string }>;
+}): ValidationProviderResult["outputValues"] {
+  return [
+    {
+      key: "username",
+      label: "Discord username",
+      value: params.username,
+    },
+    {
+      key: "display_name",
+      label: "Display name",
+      value: params.displayName,
+    },
+    {
+      key: "guild_member",
+      label: "Guild member",
+      value: params.guildMember,
+    },
+    {
+      key: "roles",
+      label: "Roles",
+      value: params.roles.map((role) => role.name).join(", "),
+    },
+  ];
+}
+
 function evaluateRoleConditions(
   guildRoles: DiscordGuildRole[],
   member: DiscordGuildMember,
@@ -413,6 +443,12 @@ const guildMemberRule: ValidationProviderRule = {
             guildMember: true,
             roles,
           },
+          outputValues: buildDiscordOutputValues({
+            username: member.user.username,
+            displayName,
+            guildMember: true,
+            roles,
+          }),
         };
       }
 
@@ -426,6 +462,12 @@ const guildMemberRule: ValidationProviderRule = {
           guildMember: true,
           roles,
         },
+        outputValues: buildDiscordOutputValues({
+          username: member.user.username,
+          displayName,
+          guildMember: true,
+          roles,
+        }),
       };
     } catch (error) {
       if (error instanceof DiscordHttpError) {

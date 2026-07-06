@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   getValidationResultId,
+  mergeValidationOutputValuesIntoMetadata,
+  parseValidationOutputValuesFromMetadata,
+  VALIDATION_OUTPUT_METADATA_KEY,
+  type ValidationOutputValue,
+  validationOutputValuesSchema,
   validationResultIdentitySchema,
 } from "../validation-results";
 
@@ -44,5 +49,81 @@ describe("getValidationResultId", () => {
     expect(getValidationResultId(base)).not.toBe(
       getValidationResultId({ ...base, referencedBlockId: "question-2" }),
     );
+  });
+});
+
+describe("validationOutputValuesSchema", () => {
+  it("accepts any number of named scalar output values", () => {
+    expect(
+      validationOutputValuesSchema.parse([
+        { key: "username", label: "Username", value: "octocat" },
+        { key: "followers", value: 42 },
+        { key: "verified", value: true },
+        { key: "bio", value: null },
+      ]),
+    ).toEqual([
+      { key: "username", label: "Username", value: "octocat" },
+      { key: "followers", value: 42 },
+      { key: "verified", value: true },
+      { key: "bio", value: null },
+    ]);
+  });
+
+  it("rejects duplicate keys and non-scalar values", () => {
+    expect(() =>
+      validationOutputValuesSchema.parse([
+        { key: "username", value: "octocat" },
+        { key: "username", value: "duplicate" },
+      ]),
+    ).toThrow();
+
+    expect(() =>
+      validationOutputValuesSchema.parse([
+        { key: "profile", value: { url: "https://example.com" } },
+      ]),
+    ).toThrow();
+  });
+});
+
+describe("validation output metadata helpers", () => {
+  it("stores output values under a reserved metadata key without dropping legacy metadata", () => {
+    const metadata = mergeValidationOutputValuesIntoMetadata(
+      { providerField: "kept" },
+      [
+        { key: "username", label: "Username", value: "octocat" },
+        { key: "followers", value: 42 },
+      ],
+    );
+
+    expect(metadata).toEqual({
+      providerField: "kept",
+      [VALIDATION_OUTPUT_METADATA_KEY]: [
+        { key: "username", label: "Username", value: "octocat" },
+        { key: "followers", value: 42 },
+      ],
+    });
+    expect(parseValidationOutputValuesFromMetadata(metadata)).toEqual([
+      { key: "username", label: "Username", value: "octocat" },
+      { key: "followers", value: 42 },
+    ]);
+  });
+
+  it("treats legacy rows without output metadata as empty output values", () => {
+    expect(parseValidationOutputValuesFromMetadata({ legacy: true })).toEqual(
+      [],
+    );
+    expect(parseValidationOutputValuesFromMetadata(null)).toEqual([]);
+  });
+
+  it("keeps existing metadata if output values are malformed at a direct call site", () => {
+    const metadata = { providerField: "kept" };
+    const malformedOutputValues = [
+      { key: "username", value: "octocat" },
+      { key: "username", value: "duplicate" },
+    ] as unknown as ValidationOutputValue[];
+
+    expect(
+      mergeValidationOutputValuesIntoMetadata(metadata, malformedOutputValues),
+    ).toBe(metadata);
   });
 });

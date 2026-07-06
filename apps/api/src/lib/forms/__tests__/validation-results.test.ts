@@ -42,6 +42,13 @@ vi.mock("@nexus-form/shared", () => ({
         title: block.children?.[0]?.text ?? block.blockId,
       })),
   ),
+  parseValidationOutputValuesFromMetadata: vi.fn((metadata: unknown) => {
+    if (typeof metadata !== "object" || metadata === null) return [];
+    const outputValues = (
+      metadata as { validationOutputs?: Array<Record<string, unknown>> }
+    ).validationOutputs;
+    return Array.isArray(outputValues) ? outputValues : [];
+  }),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -150,6 +157,64 @@ describe("getExternalValidationResults", () => {
         referenced_block_missing: false,
         service: "discord",
         status: "PENDING",
+        output_values: [],
+      }),
+    ]);
+  });
+
+  it("returns validation output values parsed from result metadata", async () => {
+    useSelectResults([
+      [{ formId: "form-1" }],
+      [
+        {
+          result: {
+            id: "result-1",
+            responseId: "response-1",
+            ruleId: "rule-1",
+            referencedBlockId: "block-1",
+            snapshotVersion: null,
+            service: "github",
+            status: "COMPLETED",
+            success: true,
+            attemptCount: 1,
+            lastAttemptAt: null,
+            nextRetryAt: null,
+            metadata: {
+              validationOutputs: [
+                { key: "username", label: "Username", value: "octocat" },
+                { key: "followers", value: 42 },
+              ],
+              legacy: "kept",
+            },
+            errorCode: null,
+            errorMessage: null,
+            jobId: null,
+            createdAt: new Date("2026-05-24T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-24T00:01:00.000Z"),
+          },
+          rule: {
+            id: "rule-1",
+            name: "GitHub user",
+            providerName: "github",
+            ruleType: "user_exists",
+            orderIndex: 0,
+          },
+        },
+      ],
+      [{ plateContent: "[]" }],
+    ]);
+
+    const { getExternalValidationResults } = await import(
+      "../validation-results"
+    );
+
+    await expect(getExternalValidationResults("response-1")).resolves.toEqual([
+      expect.objectContaining({
+        id: "result-1",
+        output_values: [
+          { key: "username", label: "Username", value: "octocat" },
+          { key: "followers", value: 42 },
+        ],
       }),
     ]);
   });

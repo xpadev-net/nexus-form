@@ -111,6 +111,33 @@ const userExistsRule: ValidationProviderRule = {
           tweetCount: user.public_metrics?.tweet_count ?? null,
           createdAt: user.created_at ?? null,
         },
+        outputValues: [
+          {
+            key: "username",
+            label: "Twitter/X username",
+            value: user.username,
+          },
+          {
+            key: "display_name",
+            label: "Display name",
+            value: user.name || user.username,
+          },
+          {
+            key: "profile_url",
+            label: "Profile URL",
+            value: `https://twitter.com/${user.username}`,
+          },
+          {
+            key: "followers",
+            label: "Followers",
+            value: user.public_metrics?.followers_count ?? null,
+          },
+          {
+            key: "verified",
+            label: "Verified",
+            value: user.verified ?? false,
+          },
+        ],
       };
     } catch (error) {
       const parsed = parseTwitterError(error);

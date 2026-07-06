@@ -15,6 +15,8 @@ export {
   type ValidationProviderPatternTemplate,
   type ValidationProviderResult,
   type ValidationProviderRule,
+  validationOutputValueSchema,
+  validationOutputValuesSchema,
   validationProviderResultSchema,
 } from "./plugin-interface";
 export { PluginLoader } from "./plugin-loader";

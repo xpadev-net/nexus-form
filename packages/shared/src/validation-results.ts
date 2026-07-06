@@ -1,5 +1,52 @@
 import { z } from "zod";
 
+export const VALIDATION_OUTPUT_METADATA_KEY = "validationOutputs";
+
+export const validationOutputKeySchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/);
+
+export const validationOutputScalarValueSchema = z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const validationOutputValueSchema = z
+  .object({
+    key: validationOutputKeySchema,
+    label: z.string().min(1).max(120).optional(),
+    value: validationOutputScalarValueSchema,
+  })
+  .strict();
+
+export const validationOutputValuesSchema = z
+  .array(validationOutputValueSchema)
+  .superRefine((values, ctx) => {
+    const seenKeys = new Set<string>();
+    for (const [index, value] of values.entries()) {
+      if (seenKeys.has(value.key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate validation output key: ${value.key}`,
+          path: [index, "key"],
+        });
+      }
+      seenKeys.add(value.key);
+    }
+  });
+
+const validationOutputMetadataSchema = z
+  .object({
+    [VALIDATION_OUTPUT_METADATA_KEY]: validationOutputValuesSchema.optional(),
+  })
+  .passthrough();
+
+export type ValidationOutputValue = z.infer<typeof validationOutputValueSchema>;
+
 /**
  * Runtime contract for the unique identity of an external validation result.
  */
@@ -48,4 +95,27 @@ export function getValidationResultId(
 ): string {
   const identity = validationResultIdentitySchema.parse(params);
   return `validation-result:${hashValidationResultIdentity(identity)}`;
+}
+
+export function mergeValidationOutputValuesIntoMetadata(
+  metadata: Record<string, unknown> | undefined,
+  outputValues: readonly ValidationOutputValue[] | undefined,
+): Record<string, unknown> | undefined {
+  if (outputValues === undefined) return metadata;
+  const parsedOutputValues =
+    validationOutputValuesSchema.safeParse(outputValues);
+  if (!parsedOutputValues.success) return metadata;
+  return {
+    ...(metadata ?? {}),
+    [VALIDATION_OUTPUT_METADATA_KEY]: parsedOutputValues.data,
+  };
+}
+
+export function parseValidationOutputValuesFromMetadata(
+  metadata: unknown,
+): ValidationOutputValue[] {
+  const parsed = validationOutputMetadataSchema.safeParse(metadata);
+  return parsed.success
+    ? (parsed.data[VALIDATION_OUTPUT_METADATA_KEY] ?? [])
+    : [];
 }

@@ -100,6 +100,16 @@ describe("githubProvider.rules.user_exists.validate", () => {
     expect(result).toEqual({
       isValid: true,
       metadata: validUserData,
+      outputValues: [
+        { key: "username", label: "GitHub username", value: "octocat" },
+        { key: "display_name", label: "Display name", value: "Octocat" },
+        {
+          key: "profile_url",
+          label: "Profile URL",
+          value: "https://github.com/octocat",
+        },
+        { key: "followers", label: "Followers", value: 5000 },
+      ],
     });
   });
 

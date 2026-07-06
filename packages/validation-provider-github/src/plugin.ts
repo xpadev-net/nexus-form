@@ -128,6 +128,28 @@ const userExistsRule: ValidationProviderRule = {
       return {
         isValid: true,
         metadata: parsedUserData.data,
+        outputValues: [
+          {
+            key: "username",
+            label: "GitHub username",
+            value: parsedUserData.data.username,
+          },
+          {
+            key: "display_name",
+            label: "Display name",
+            value: parsedUserData.data.displayName,
+          },
+          {
+            key: "profile_url",
+            label: "Profile URL",
+            value: parsedUserData.data.profileUrl,
+          },
+          {
+            key: "followers",
+            label: "Followers",
+            value: parsedUserData.data.followers,
+          },
+        ],
       };
     } catch (error) {
       if (isGitHubProviderError(error)) {

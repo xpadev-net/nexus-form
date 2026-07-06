@@ -5,7 +5,10 @@ import {
   formResponse,
   formValidationRule,
 } from "@nexus-form/database/schema";
-import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
+import {
+  extractQuestionsFromPlateContent,
+  parseValidationOutputValuesFromMetadata,
+} from "@nexus-form/shared";
 import { desc, eq } from "drizzle-orm";
 import { getSnapshotByVersion } from "./snapshot-repository";
 import { parseValidationRuleSnapshot } from "./validation-rule-repository";
@@ -185,6 +188,7 @@ export async function getExternalValidationResults(responseId: string) {
       last_attempt_at: result.lastAttemptAt?.toISOString(),
       next_retry_at: result.nextRetryAt?.toISOString(),
       metadata: result.metadata,
+      output_values: parseValidationOutputValuesFromMetadata(result.metadata),
       error_code: result.errorCode,
       error_message: result.errorMessage,
       job_id: result.jobId ?? null,

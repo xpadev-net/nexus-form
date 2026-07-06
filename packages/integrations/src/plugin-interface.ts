@@ -4,7 +4,14 @@
  * Docker 利用者が動的に追加できる検証プロバイダーのインターフェース
  */
 
+import {
+  type ValidationOutputValue,
+  validationOutputValueSchema,
+  validationOutputValuesSchema,
+} from "@nexus-form/shared";
 import { z } from "zod";
+
+export { validationOutputValueSchema, validationOutputValuesSchema };
 
 export interface ValidationProviderPatternTemplate {
   readonly id: string;
@@ -74,6 +81,7 @@ export type ValidationProviderApiResponseSchemas = Readonly<
 export const validationProviderResultSchema = z.object({
   isValid: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  outputValues: validationOutputValuesSchema.optional(),
   errorCode: z.string().optional(),
   errorMessage: z.string().optional(),
   retryAfter: z.number().optional(),
@@ -121,6 +129,7 @@ export interface ValidationProvider {
 export interface ValidationProviderResult {
   isValid: boolean;
   metadata?: Record<string, unknown>;
+  outputValues?: readonly ValidationOutputValue[];
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number;
