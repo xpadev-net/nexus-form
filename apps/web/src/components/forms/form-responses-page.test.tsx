@@ -41,9 +41,9 @@ type CapturedUseQueryOptions = {
 };
 
 type CapturedUseMutationOptions = {
-  mutationFn: (responseId: string) => Promise<unknown>;
-  onError?: (error: unknown, responseId: string) => void;
-  onSuccess?: (data: unknown, responseId: string) => void | Promise<void>;
+  mutationFn: (variables: unknown) => Promise<unknown>;
+  onError?: (error: unknown, variables: unknown) => void;
+  onSuccess?: (data: unknown, variables: unknown) => void | Promise<void>;
 };
 
 function renderResponses(container: HTMLElement, shareToken?: string): Root {
@@ -60,6 +60,7 @@ const queryMock = vi.hoisted(
   (): {
     invalidateQueries: ReturnType<typeof vi.fn>;
     isDeletePending: boolean;
+    isRevalidatePending: boolean;
     lastOptions: CapturedUseQueryOptions | null;
     mutationOptions: CapturedUseMutationOptions | null;
     refetch: ReturnType<typeof vi.fn<ResponsesQueryState["refetch"]>>;
@@ -68,6 +69,7 @@ const queryMock = vi.hoisted(
   } => ({
     invalidateQueries: vi.fn(() => Promise.resolve()),
     isDeletePending: false,
+    isRevalidatePending: false,
     lastOptions: null,
     mutationOptions: null,
     refetch: vi.fn<ResponsesQueryState["refetch"]>(),
@@ -103,6 +105,30 @@ const apiMock = vi.hoisted(() => ({
     Promise.resolve(new Response(JSON.stringify({ ok: true }))),
   ),
   getResponses: vi.fn(() => Promise.resolve({ ok: true })),
+  revalidateResponses: vi.fn(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          enqueued: 1,
+          skipped: 0,
+          jobIds: ["job-1"],
+          results: [{ responseId: "response-1", status: "enqueued" }],
+        }),
+      ),
+    ),
+  ),
+  revalidateSingleResponse: vi.fn(() =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({
+          enqueued: 1,
+          skipped: 0,
+          jobIds: ["job-1"],
+          results: [{ responseId: "response-1", status: "enqueued" }],
+        }),
+      ),
+    ),
+  ),
   rpc: vi.fn(async (value: unknown) => {
     const resolved = await value;
     if (resolved instanceof Response) {
@@ -117,7 +143,9 @@ const apiMock = vi.hoisted(() => ({
     return resolved;
   }),
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
+  toastWarning: vi.fn(),
 }));
 
 const filterMock = vi.hoisted(
@@ -133,13 +161,13 @@ vi.mock("@tanstack/react-query", () => ({
   useMutation: (options: CapturedUseMutationOptions) => {
     queryMock.mutationOptions = options;
     return {
-      isPending: queryMock.isDeletePending,
-      mutate: async (responseId: string) => {
+      isPending: queryMock.isDeletePending || queryMock.isRevalidatePending,
+      mutate: async (variables: unknown) => {
         try {
-          const data = await options.mutationFn(responseId);
-          await options.onSuccess?.(data, responseId);
+          const data = await options.mutationFn(variables);
+          await options.onSuccess?.(data, variables);
         } catch (error) {
-          options.onError?.(error, responseId);
+          options.onError?.(error, variables);
         }
       },
     };
@@ -299,6 +327,16 @@ vi.mock("@/lib/api", () => ({
           responses: {
             ":responseId": {
               $delete: apiMock.deleteResponse,
+              validation: {
+                revalidate: {
+                  $post: apiMock.revalidateSingleResponse,
+                },
+              },
+            },
+            validation: {
+              revalidate: {
+                $post: apiMock.revalidateResponses,
+              },
             },
             $get: apiMock.getResponses,
           },
@@ -311,7 +349,9 @@ vi.mock("@/lib/api", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: apiMock.toastError,
+    info: apiMock.toastInfo,
     success: apiMock.toastSuccess,
+    warning: apiMock.toastWarning,
   },
 }));
 
@@ -320,6 +360,7 @@ beforeEach(() => {
   vi.useRealTimers();
   filterMock.onKeywordChange = null;
   queryMock.isDeletePending = false;
+  queryMock.isRevalidatePending = false;
   queryMock.lastOptions = null;
   queryMock.mutationOptions = null;
   queryMock.invalidateQueries.mockResolvedValue(undefined);
@@ -328,6 +369,26 @@ beforeEach(() => {
   });
   apiMock.deleteResponse.mockResolvedValue(
     new Response(JSON.stringify({ ok: true })),
+  );
+  apiMock.revalidateResponses.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        enqueued: 1,
+        skipped: 0,
+        jobIds: ["job-1"],
+        results: [{ responseId: "response-1", status: "enqueued" }],
+      }),
+    ),
+  );
+  apiMock.revalidateSingleResponse.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        enqueued: 1,
+        skipped: 0,
+        jobIds: ["job-1"],
+        results: [{ responseId: "response-1", status: "enqueued" }],
+      }),
+    ),
   );
   queryMock.state = {
     data: {
@@ -644,6 +705,263 @@ describe("FormResponsesContent accessibility", () => {
     expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["responseBlockAnalytics", "form-1"],
     });
+
+    act(() => root.unmount());
+  });
+
+  it("revalidates selected responses, clears selection, and invalidates dependent queries", async () => {
+    queryMock.state = {
+      ...queryMock.state,
+      data: {
+        responses: [
+          {
+            countryCode: "JP",
+            id: "response-1",
+            respondentUuid: "respondent-uuid-1",
+            submittedAt: "2026-01-01T00:00:00.000Z",
+            uniquenessScore: 1,
+            updatedAt: null,
+          },
+          {
+            countryCode: "US",
+            id: "response-2",
+            respondentUuid: "respondent-uuid-2",
+            submittedAt: "2026-01-02T00:00:00.000Z",
+            uniquenessScore: 0.5,
+            updatedAt: null,
+          },
+        ],
+        hasNext: false,
+        page: 1,
+        limit: 20,
+      },
+    };
+    apiMock.revalidateResponses.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          enqueued: 1,
+          skipped: 1,
+          jobIds: ["job-1"],
+          results: [
+            { responseId: "response-1", status: "enqueued" },
+            {
+              responseId: "response-2",
+              status: "skipped",
+              reason: "no_validation_rules",
+            },
+          ],
+        }),
+      ),
+    );
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const checkboxes = Array.from(
+      container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'),
+    );
+    expect(checkboxes).toHaveLength(2);
+
+    act(() => {
+      checkboxes[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      checkboxes[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("2件を選択中");
+
+    const revalidateButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("選択を再検証"));
+    expect(revalidateButton).toBeDefined();
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.revalidateResponses).toHaveBeenCalledWith({
+      param: { id: "form-1" },
+      json: { responseIds: ["response-1", "response-2"] },
+    });
+    expect(apiMock.revalidateSingleResponse).not.toHaveBeenCalled();
+    expect(apiMock.toastWarning).toHaveBeenCalledWith(
+      "1件の再検証を開始しました。1件はスキップされました。",
+    );
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formResponses", "form-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["validationResults", "form-1", "response-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["validationResults", "form-1", "response-2"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["responseStatuses", "form-1"],
+    });
+    expect(container.textContent).toContain("回答を選択して再検証できます");
+
+    act(() => root.unmount());
+  });
+
+  it("revalidates the selected detail with the single response endpoint", async () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const revalidateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を再検証"]',
+    );
+    expect(revalidateButton).not.toBeNull();
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.revalidateSingleResponse).toHaveBeenCalledWith({
+      param: { id: "form-1", responseId: "response-1" },
+    });
+    expect(apiMock.revalidateResponses).not.toHaveBeenCalled();
+    expect(apiMock.toastSuccess).toHaveBeenCalledWith(
+      "1件の再検証を開始しました。",
+    );
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["validationResults", "form-1", "response-1"],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("preserves checked responses when revalidating from the detail panel", async () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+    expect(checkbox).not.toBeNull();
+
+    act(() => {
+      checkbox?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("1件を選択中");
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const revalidateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を再検証"]',
+    );
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.revalidateSingleResponse).toHaveBeenCalledWith({
+      param: { id: "form-1", responseId: "response-1" },
+    });
+    expect(container.textContent).toContain("1件を選択中");
+    expect(checkbox?.checked).toBe(true);
+
+    act(() => root.unmount());
+  });
+
+  it("keeps selection and shows an error toast when revalidation fails", async () => {
+    apiMock.revalidateSingleResponse.mockResolvedValue(
+      new Response(JSON.stringify({ error: "Response not found" }), {
+        status: 404,
+      }),
+    );
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const revalidateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を再検証"]',
+    );
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.toastError).toHaveBeenCalledWith("Response not found");
+    expect(apiMock.toastSuccess).not.toHaveBeenCalled();
+    expect(queryMock.invalidateQueries).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-testid='response-detail']"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("shows skipped-only revalidation outcome without optimistic success", async () => {
+    apiMock.revalidateSingleResponse.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          enqueued: 0,
+          skipped: 1,
+          jobIds: [],
+          results: [
+            {
+              responseId: "response-1",
+              status: "skipped",
+              reason: "no_validation_rules",
+            },
+          ],
+        }),
+      ),
+    );
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const revalidateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を再検証"]',
+    );
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.toastInfo).toHaveBeenCalledWith(
+      "1件の回答は再検証対象がないためスキップされました。",
+    );
+    expect(apiMock.toastSuccess).not.toHaveBeenCalled();
 
     act(() => root.unmount());
   });
