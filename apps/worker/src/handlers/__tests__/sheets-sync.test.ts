@@ -17,6 +17,7 @@ vi.mock("@nexus-form/database", () => ({
   formResponse: {
     id: "formResponse.id",
     formId: "formResponse.formId",
+    submittedAt: "formResponse.submittedAt",
   },
 }));
 
@@ -49,6 +50,7 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions: unknown[]) => ({ conditions, type: "and" })),
+  asc: vi.fn((column: unknown) => ({ column, direction: "asc" })),
   eq: vi.fn((column: unknown, value: unknown) => ({
     column,
     type: "eq",
@@ -168,6 +170,7 @@ function makeJob(
   data: {
     formId: string;
     integrationId: string;
+    mode?: "incremental" | "full";
     responseId: string;
     snapshotVersion?: number;
   } = {
@@ -193,6 +196,7 @@ function setupDbSelect(...results: unknown[][]) {
     const promise = Promise.resolve(result);
     return {
       from: vi.fn().mockReturnThis(),
+      orderBy: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue(result),
       // biome-ignore lint/suspicious/noThenProperty: Drizzle query builders are thenable, and this mock must support direct await.
@@ -424,7 +428,7 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
-    expect(mockDb.select).toHaveBeenCalledTimes(3);
+    expect(mockDb.select).toHaveBeenCalledTimes(4);
   });
 
   it('waits out a stale "pending" idempotency key under the integration lock and writes without BullMQ retry', async () => {
@@ -1073,6 +1077,200 @@ describe("handleSheetsSync — idempotency states", () => {
 });
 
 describe("handleSheetsSync — write path", () => {
+  it("full mode processes historical responses and skips rows already present in the sheet", async () => {
+    setupDbSelect(
+      // 1. formIntegration lookup
+      [INTEGRATION],
+      // 2. full-mode target response query, ordered by submittedAt/id
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+        {
+          ...RESPONSE,
+          id: "response-2",
+          responseDataJson: '{"block-1":"second"}',
+        },
+      ],
+      // 3. plate content lookup
+      [],
+      // 4. uniqueness-score cohort query, using the same stable order
+      [{ id: "response-1" }, { id: "response-2" }],
+      // 5. fingerprint detail query for the cohort
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    let lockReleased = false;
+    let insideLock = false;
+    mockWithRedisLock.mockImplementation(async (_key, fn) => {
+      insideLock = true;
+      const result = await fn();
+      insideLock = false;
+      lockReleased = true;
+      return result;
+    });
+    mockGetIdempotencyKeyValue.mockImplementation(async () => {
+      expect(insideLock).toBe(true);
+      return null;
+    });
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [] },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID", "block-1"]] },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID"], ["response-2"]] },
+      } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(String(json));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as never)
+        : null;
+    });
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockImplementation(async () => {
+      expect(lockReleased).toBe(false);
+      return {
+        ok: true,
+        data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+      } as never;
+    });
+
+    const job = makeJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-1",
+    });
+
+    const result = await handleSheetsSync(job);
+
+    expect(result).toEqual({
+      ok: true,
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "full",
+      processed: 2,
+      total: 2,
+      skipped: 1,
+      updatedRange: "Sheet1!A2",
+      updatedRows: 1,
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockWithRedisLock).toHaveBeenCalledOnce();
+    expect(mockWithRedisLock).toHaveBeenCalledWith(
+      "sheets-sync:integration-1",
+      expect.any(Function),
+      expect.objectContaining({
+        ttlMs: SHEETS_SYNC_LOCK_TTL_MS * 2,
+        waitTimeoutMs:
+          SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS + SHEETS_SYNC_LOCK_TTL_MS,
+      }),
+    );
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "", "", "", "", "", "1.0000", "first"]],
+      }),
+    );
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-2",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    );
+    expect(mockDb.select).toHaveBeenCalledTimes(5);
+    expect(lockReleased).toBe(true);
+    expect(job.updateProgress).toHaveBeenLastCalledWith({
+      processed: 2,
+      stage: 100,
+      total: 2,
+    });
+  });
+
+  it("full mode uses a non-leading response job only for that response", async () => {
+    setupDbSelect(
+      // 1. formIntegration lookup
+      [INTEGRATION],
+      // 2. full-mode target response query; response-2 is not the batch owner
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+        {
+          ...RESPONSE,
+          id: "response-2",
+          responseDataJson: '{"block-1":"second"}',
+        },
+      ],
+      // 3. plate content lookup
+      [],
+      // 4. uniqueness-score cohort query, using the same stable order
+      [{ id: "response-1" }, { id: "response-2" }],
+      // 5. fingerprint detail query for the cohort
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(String(json));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as never)
+        : null;
+    });
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "full",
+        responseId: "response-2",
+      }),
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "full",
+      processed: 1,
+      total: 1,
+      skipped: 0,
+      updatedRange: "Sheet1!A2",
+      updatedRows: 1,
+    });
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-2", "second", "1.0000"]],
+      }),
+    );
+    expect(mockDb.select).toHaveBeenCalledTimes(5);
+  });
+
   it("uses withRedisLock on the integration key", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
