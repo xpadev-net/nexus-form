@@ -587,7 +587,9 @@
 ### VEXPORT-2: Validation output export settings UI/API
 - status: in progress
 - branch: `codex/validation-output-export-settings`
-- pending_worktree: `local:73433277-d963-4c40-b993-0c31c2633f97`
+- pending_worktree: `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`
+- stale_pending_worktrees:
+  - `local:73433277-d963-4c40-b993-0c31c2633f97`
 - worker_thread: pending
 - worktree: pending
 - source_plan_task: `validation-result-export-plan.md` Task_3
@@ -608,6 +610,8 @@
   - Reviewer-owned Playwright evidence for settings UI
   - `pnpm lint:fix`
   - `pnpm type-check`
+- notes:
+  - Previous pending worktree `local:73433277-d963-4c40-b993-0c31c2633f97` did not resolve to a child thread after repeated heartbeat checks, so the parent started replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`. Product code remains untouched in the parent thread.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
