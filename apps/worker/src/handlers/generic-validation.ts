@@ -12,6 +12,7 @@ import {
 import {
   type GenericValidationJobData,
   genericValidationJobDataSchema,
+  VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
@@ -19,6 +20,7 @@ import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
 import { workerShutdownSignal } from "../lib/shutdown-signal";
 import {
   ConcurrentDeleteError,
+  FormResponseNotFoundError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -177,6 +179,13 @@ export const handleGenericValidation = async (
         jobId: job.id?.toString(),
       });
       return { ok: false, error: "Referenced block missing" };
+    }
+    if (
+      job.id?.toString().startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) &&
+      error instanceof FormResponseNotFoundError &&
+      error.responseId === responseId
+    ) {
+      return { ok: false, error: "Response deleted" };
     }
     throw error;
   }

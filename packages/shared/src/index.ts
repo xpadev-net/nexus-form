@@ -311,6 +311,7 @@ export {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
   buildValidationRetryJobId,
+  buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
@@ -318,4 +319,5 @@ export {
   sheetsSyncJobDataSchema,
   sheetsSyncModeSchema,
   VALIDATION_RETRY_JOB_PREFIX,
+  VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "./worker-jobs";

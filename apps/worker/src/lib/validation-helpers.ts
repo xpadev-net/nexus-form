@@ -13,6 +13,7 @@ import {
   extractQuestionsFromPlateContent,
   getValidationResultId,
   VALIDATION_RETRY_JOB_PREFIX,
+  VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
@@ -73,6 +74,13 @@ export class ReferencedBlockMissingError extends Error {
   }
 }
 
+export class FormResponseNotFoundError extends Error {
+  constructor(public readonly responseId: string) {
+    super(`Form response not found: ${responseId}`);
+    this.name = "FormResponseNotFoundError";
+  }
+}
+
 /**
  * バリデーションルールとレスポンスデータを取得する。
  * ブロック存在確認は公開済みスナップショットの plateContent を基準とする。
@@ -127,7 +135,7 @@ export async function getValidationContext(
       }
     : null;
   if (!response) {
-    throw new Error(`Form response not found: ${responseId}`);
+    throw new FormResponseNotFoundError(responseId);
   }
 
   let snapshotPlateContent = contextRow?.snapshotPlateContent ?? null;
@@ -299,7 +307,8 @@ export async function markValidationProcessing(params: {
   }
 
   const usesStrictJobOwnership =
-    params.jobId?.startsWith(VALIDATION_RETRY_JOB_PREFIX) === true;
+    params.jobId?.startsWith(VALIDATION_RETRY_JOB_PREFIX) === true ||
+    params.jobId?.startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) === true;
   const ownershipCondition =
     params.jobId === undefined
       ? isNull(externalServiceValidationResult.jobId)

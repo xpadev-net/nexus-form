@@ -127,6 +127,14 @@ vi.mock("../../lib/validation-helpers", () => {
       this.name = "ReferencedBlockMissingError";
     }
   }
+
+  class FormResponseNotFoundError extends Error {
+    constructor(public readonly responseId: string) {
+      super(`Form response not found: ${responseId}`);
+      this.name = "FormResponseNotFoundError";
+    }
+  }
+
   return {
     getValidationContext: vi.fn(),
     markValidationProcessing: vi.fn(),
@@ -135,6 +143,7 @@ vi.mock("../../lib/validation-helpers", () => {
     StaleValidationJobError,
     ValidationCancelledError,
     ReferencedBlockMissingError,
+    FormResponseNotFoundError,
   };
 });
 
@@ -173,6 +182,7 @@ import {
 } from "../../lib/redis-lock";
 import {
   ConcurrentDeleteError,
+  FormResponseNotFoundError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -776,6 +786,25 @@ describe("handleGenericValidation", () => {
         jobId: retryJobId,
       }),
     );
+  });
+
+  it("revalidation job ignores a response deleted after enqueue", async () => {
+    mockGetValidationContext.mockRejectedValueOnce(
+      new FormResponseNotFoundError("response-1"),
+    );
+    const { baseJobData } = setupMockExternalProvider();
+
+    const result = await handleGenericValidation(
+      makeJob({
+        ...baseJobData,
+        responseId: "response-1",
+        jobId: "validation-revalidation-result-fixture-rerun",
+      }),
+    );
+
+    expect(result).toEqual({ ok: false, error: "Response deleted" });
+    expect(mockMarkValidationProcessing).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   type R26M3ResolvedSmokeCase = {
