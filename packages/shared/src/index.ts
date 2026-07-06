@@ -297,9 +297,19 @@ export {
   StoryFixtureStructureSchema,
   ValidatedStoryFixtureSetSchema,
 } from "./validation/story-fixture";
-export type { ValidationResultIdentity } from "./validation-results";
+export type {
+  ValidationOutputValue,
+  ValidationResultIdentity,
+} from "./validation-results";
 export {
   getValidationResultId,
+  mergeValidationOutputValuesIntoMetadata,
+  parseValidationOutputValuesFromMetadata,
+  VALIDATION_OUTPUT_METADATA_KEY,
+  validationOutputKeySchema,
+  validationOutputScalarValueSchema,
+  validationOutputValueSchema,
+  validationOutputValuesSchema,
   validationResultIdentitySchema,
 } from "./validation-results";
 export type {

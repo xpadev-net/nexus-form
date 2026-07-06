@@ -1,3 +1,4 @@
+import { validationOutputValuesSchema } from "@nexus-form/shared";
 import { z } from "zod";
 import { FormResponseRowSchema } from "./form-row";
 
@@ -234,6 +235,7 @@ export const ExternalValidationResultSchema = z.object({
   last_attempt_at: z.string().optional(),
   next_retry_at: z.string().optional(),
   metadata: z.unknown(),
+  output_values: validationOutputValuesSchema,
   error_code: z.string().nullable(),
   error_message: z.string().nullable(),
   job_id: z.string().nullable(),

@@ -71,9 +71,47 @@ export type ValidationProviderApiResponseSchemas = Readonly<
   Record<string, z.ZodType<Record<string, unknown>>>
 >;
 
+const validationOutputKeySchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z][a-z0-9_]*$/);
+
+const validationOutputScalarValueSchema = z.union([
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
+export const validationOutputValueSchema = z
+  .object({
+    key: validationOutputKeySchema,
+    label: z.string().min(1).max(120).optional(),
+    value: validationOutputScalarValueSchema,
+  })
+  .strict();
+
+export const validationOutputValuesSchema = z
+  .array(validationOutputValueSchema)
+  .superRefine((values, ctx) => {
+    const seenKeys = new Set<string>();
+    for (const [index, value] of values.entries()) {
+      if (seenKeys.has(value.key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate validation output key: ${value.key}`,
+          path: [index, "key"],
+        });
+      }
+      seenKeys.add(value.key);
+    }
+  });
+
 export const validationProviderResultSchema = z.object({
   isValid: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  outputValues: validationOutputValuesSchema.optional(),
   errorCode: z.string().optional(),
   errorMessage: z.string().optional(),
   retryAfter: z.number().optional(),
@@ -121,6 +159,7 @@ export interface ValidationProvider {
 export interface ValidationProviderResult {
   isValid: boolean;
   metadata?: Record<string, unknown>;
+  outputValues?: readonly z.infer<typeof validationOutputValueSchema>[];
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number;

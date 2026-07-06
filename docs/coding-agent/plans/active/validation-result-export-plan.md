@@ -269,6 +269,10 @@
   - Summary: Isolated plugin output contract, export settings, and CSV/Sheets validation result output.
   - Validation evidence: Not run; planning only.
   - Notes: Repository rule suite is absent.
+- 2026-07-06 VEXPORT-1 worker slice completed investigation/implementation.
+  - Summary: Existing provider `metadata` could store arbitrary JSON, but there was no explicit plugin contract for arbitrary named export output values. Added additive `ValidationProviderResult.outputValues` with key/label/scalar value validation, stored normalized values under the existing validation result `metadata` JSON reserved key, and exposed parsed `output_values` from validation result reads.
+  - Validation evidence: Worker thread will report targeted/full command results in PR handoff.
+  - Notes: No database migration is required for this slice because storage uses existing nullable JSON metadata. Follow-up tasks still need export settings UI/API and CSV/Sheets rendering decisions.
 
 ## Decision Log
 
@@ -277,6 +281,11 @@
   - Plan delta: Created a dedicated validation-result export plan with plugin contract, settings UI/API, and CSV/Sheets output tasks.
   - Tradeoffs considered: Bundling with revalidation would couple output schema work to queue semantics and make rollback harder.
   - User approval: yes
+- 2026-07-06 Decision:
+  - Trigger / new insight: VEXPORT-1 audit found `metadata` is arbitrary but not a stable output contract; arbitrary exportable values need validated keys, labels, and scalar values.
+  - Plan delta: Task_2 is implemented as an additive plugin result field, `outputValues`, persisted in existing result metadata and parsed back as `output_values`.
+  - Tradeoffs considered: A new DB column would make the contract more explicit but would require migration sequencing; storing under existing metadata preserves rolling deploy/rollback safety for old workers/API readers and old DB rows.
+  - User approval: delegated task scope
 
 ## Notes
 - Risks:

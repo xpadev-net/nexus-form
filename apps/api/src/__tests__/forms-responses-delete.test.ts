@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => {
       transaction: vi.fn(),
     },
     deleteTables: [] as string[],
+    externalValidationResults: [] as Array<Record<string, unknown>>,
     formAuthRoles: [] as Array<unknown>,
     schema,
     tx: {
@@ -95,7 +96,7 @@ vi.mock("../lib/forms/snapshot-repository", () => ({
 }));
 
 vi.mock("../lib/forms/validation-results", () => ({
-  getExternalValidationResults: vi.fn(() => []),
+  getExternalValidationResults: vi.fn(() => mocks.externalValidationResults),
 }));
 
 vi.mock("../lib/logger", () => ({
@@ -153,6 +154,17 @@ function selectLimitQuery(result: unknown[]) {
   return query;
 }
 
+function selectWhereQuery(result: unknown[]) {
+  const query = {
+    from: vi.fn(() => query),
+    where: vi.fn((condition: unknown) => {
+      mocks.whereConditions.push(condition);
+      return Promise.resolve(result);
+    }),
+  };
+  return query;
+}
+
 function deleteQuery(tableName: string) {
   return {
     where: vi.fn((condition: unknown) => {
@@ -178,6 +190,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.authAllowed = true;
   mocks.deleteTables.length = 0;
+  mocks.externalValidationResults.length = 0;
   mocks.formAuthRoles.length = 0;
   mocks.whereConditions.length = 0;
   mocks.db.select.mockReset();
@@ -291,5 +304,68 @@ describe("response deletion API", () => {
 
     expect(res.status).toBe(404);
     await expect(res.json()).resolves.toEqual({ error: "Response not found" });
+  });
+
+  it("preserves validation output values through the response detail schema boundary", async () => {
+    mocks.externalValidationResults.push({
+      id: "validation-result-1",
+      response_id: "response-1",
+      rule_id: "rule-1",
+      rule_name: "GitHub user",
+      provider_name: "github",
+      rule_type: "user_exists",
+      referenced_block_id: "block-1",
+      referenced_block_label: "GitHub username",
+      referenced_block_missing: false,
+      service: "github",
+      status: "COMPLETED",
+      success: true,
+      attempt_count: 1,
+      metadata: {
+        validationOutputs: [
+          { key: "username", label: "Username", value: "octocat" },
+        ],
+      },
+      output_values: [
+        { key: "username", label: "Username", value: "octocat" },
+        { key: "followers", value: 42 },
+      ],
+      error_code: null,
+      error_message: null,
+      job_id: null,
+      created_at: "2026-07-06T00:00:00.000Z",
+      updated_at: "2026-07-06T00:00:01.000Z",
+    });
+    mocks.db.select
+      .mockReturnValueOnce(
+        selectLimitQuery([
+          {
+            response: {
+              id: "response-1",
+              formId: "form-1",
+              responseDataJson: "[]",
+              submittedAt: new Date("2026-07-06T00:00:00.000Z"),
+              updatedAt: null,
+              respondentUuid: "respondent-1",
+              userAgent: null,
+              sessionId: null,
+              countryCode: null,
+            },
+            plateContent: "[]",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(selectLimitQuery([{ id: "response-1" }]))
+      .mockReturnValueOnce(selectWhereQuery([]));
+    const router = await importRouter();
+
+    const res = await router.request("/form-1/responses/response-1");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.externalValidations[0].output_values).toEqual([
+      { key: "username", label: "Username", value: "octocat" },
+      { key: "followers", value: 42 },
+    ]);
   });
 });

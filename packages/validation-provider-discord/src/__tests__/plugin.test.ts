@@ -308,6 +308,12 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
           },
         ],
       },
+      outputValues: [
+        { key: "username", label: "Discord username", value: "targetuser" },
+        { key: "display_name", label: "Display name", value: "Fixture Nick" },
+        { key: "guild_member", label: "Guild member", value: true },
+        { key: "roles", label: "Roles", value: "Member, Contributor" },
+      ],
     });
     expect(
       fetchMock.mock.calls.filter(([calledUrl]) =>

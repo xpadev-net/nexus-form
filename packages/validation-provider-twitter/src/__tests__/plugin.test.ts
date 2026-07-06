@@ -124,6 +124,25 @@ describe("twitterProvider.rules.user_exists.validate", () => {
         tweetCount: 25,
         createdAt: "2024-01-01T00:00:00.000Z",
       },
+      outputValues: [
+        {
+          key: "username",
+          label: "Twitter/X username",
+          value: "TwitterDev",
+        },
+        {
+          key: "display_name",
+          label: "Display name",
+          value: "Twitter Dev",
+        },
+        {
+          key: "profile_url",
+          label: "Profile URL",
+          value: "https://twitter.com/TwitterDev",
+        },
+        { key: "followers", label: "Followers", value: 100 },
+        { key: "verified", label: "Verified", value: true },
+      ],
     });
   });
 

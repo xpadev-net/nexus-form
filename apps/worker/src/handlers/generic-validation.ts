@@ -12,6 +12,7 @@ import {
 import {
   type GenericValidationJobData,
   genericValidationJobDataSchema,
+  mergeValidationOutputValuesIntoMetadata,
   VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
@@ -561,7 +562,10 @@ export const handleGenericValidation = async (
     referencedBlockId,
     service: serviceType,
     success: result.isValid,
-    metadata: validatedMetadata,
+    metadata: mergeValidationOutputValuesIntoMetadata(
+      validatedMetadata,
+      result.outputValues,
+    ),
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
     jobId: job.id?.toString(),
