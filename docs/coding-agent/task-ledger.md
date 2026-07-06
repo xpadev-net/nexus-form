@@ -585,8 +585,9 @@
   - PR #627 was squash-merged as `3098454078e6f6a3807de5bd64ee1d59b69ee02c`; worker thread archived.
 
 ### VEXPORT-2: Validation output export settings UI/API
-- status: unstarted
+- status: in progress
 - branch: `codex/validation-output-export-settings`
+- pending_worktree: `local:73433277-d963-4c40-b993-0c31c2633f97`
 - worker_thread: pending
 - worktree: pending
 - source_plan_task: `validation-result-export-plan.md` Task_3
@@ -662,3 +663,4 @@
 - 2026-07-06: REVAL-2 worker reported merge-ready at head `232947b70fdcc791b4b17838dbb72d51c8528212` after fixing review-hook findings, merging current `master` normally, rerunning required validation, collecting Playwright evidence, and getting `gh-review-hook 628` exit 0. Parent verified PR #628 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 628`, focused web forms tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and reviewed worker UI evidence artifacts, then squash-merged PR #628 as `7066bd06f37f4627aeb933184a54ce67e8472375`. Worker thread archived.
 - 2026-07-06: VEXPORT-1 worker pushed follow-up fixes and current `master` merges through head `51bf28232505c10e486c7159b01ed24c639dbd6f`. GitHub shows reviewDecision approved and Greptile/CodeRabbit successful, but Type Check failed on that head. Worker inspected the CI log and found the failure was in the runner `hashFiles('**/pnpm-lock.yaml')` step rather than a local type error, then merged current `master` normally and is rerunning validation; parent merge gate is not started yet.
 - 2026-07-06: VEXPORT-1 worker reported merge-ready at head `c8cd6a99b01190b675002e4c34739016e46fd267` after fixing review-hook findings, merging current `master` normally, rerunning required validation, and getting `gh-review-hook 627` exit 0. Parent verified PR #627 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 627`, focused shared/integrations/worker tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #627 as `3098454078e6f6a3807de5bd64ee1d59b69ee02c`. Worker thread archived.
+- 2026-07-06: Started VEXPORT-2 worker as pending worktree `local:73433277-d963-4c40-b993-0c31c2633f97` on branch `codex/validation-output-export-settings`. Scope is limited to validation output export settings UI/API and related tests; CSV/Sheets rendering remains blocked on VEXPORT-2 and is not started.
