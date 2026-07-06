@@ -523,8 +523,11 @@
 - status: in progress
 - branch: `codex/historical-response-revalidation-ui`
 - pending_worktree: `local:b5460406-0e49-4199-8ae2-84a7903a8a39`
-- worker_thread: pending worktree resolution
-- worktree: pending
+- worker_thread: `019f3799-91fc-7a52-b6e0-ca7f15a18cca`
+- worktree: `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`
+- current_head: `08ca6a4eac5f9d698f0f99bb88be011ec6794cda`
+- pr: #628 `https://github.com/xpadev-net/nexus-form/pull/628`
+- hook_state: worker `gh-review-hook 628` returned exit 2 and worker is actively applying fixes after merging current `master`
 - source_plan_task: `historical-response-revalidation-plan.md` Task_4
 - scope:
   - `apps/web/src/components/forms/**`
@@ -542,8 +545,11 @@
 - status: in progress
 - branch: `codex/validation-output-contract`
 - pending_worktree: `local:6379c464-4496-4dee-808b-73efed865595`
-- worker_thread: pending worktree resolution
-- worktree: pending
+- worker_thread: `019f3799-91fc-7a52-b6e0-ca85f37e152f`
+- worktree: `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`
+- current_head: `6f2fad9b07c1ad38716309a79e0e5b618b26a8fa`
+- pr: #627 `https://github.com/xpadev-net/nexus-form/pull/627`
+- hook_state: worker `gh-review-hook 627` still running in active thread; CodeRabbit remains pending and mergeStateStatus is `UNSTABLE`
 - source_plan_tasks:
   - `validation-result-export-plan.md` Task_1
   - `validation-result-export-plan.md` Task_2
@@ -635,3 +641,8 @@
 - 2026-07-06: REVAL-1 worker reported merge-ready at head `a02012b20a5dad6832264c6267de6738ad05e313` after merging current `origin/master`, fixing review-hook findings, and getting `gh-review-hook 626` exit 0. Parent verified PR #626 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 626`, focused API validation/response tests, focused worker generic-validation tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #626 as `3355bcf7385719be216ff759f3efe779073390cc`. Worker thread archived.
 - 2026-07-06: Started REVAL-2 worker as pending worktree `local:b5460406-0e49-4199-8ae2-84a7903a8a39` on branch `codex/historical-response-revalidation-ui`. Scope is limited to historical revalidation UI and related web tests; API/worker core, response deletion, and validation-result export settings remain out of scope.
 - 2026-07-06: Started VEXPORT-1 worker as pending worktree `local:6379c464-4496-4dee-808b-73efed865595` on branch `codex/validation-output-contract`. Scope is limited to plugin validation output contract/shared/provider/worker/database support; web UI, CSV/Sheets export rendering, response deletion, and historical revalidation UI remain out of scope.
+- 2026-07-06: REVAL-2 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca7f15a18cca` in worktree `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, investigation, and initial UI/test edits.
+- 2026-07-06: VEXPORT-1 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca85f37e152f` in worktree `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, contract investigation, and initial shared/provider/worker/API edits.
+- 2026-07-06: VEXPORT-1 worker opened PR #627 (`https://github.com/xpadev-net/nexus-form/pull/627`) at head `6f2fad9b07c1ad38716309a79e0e5b618b26a8fa`. GitHub shows CI, Greptile, and Socket checks successful, but CodeRabbit remains pending and `mergeStateStatus` is `UNSTABLE`; worker is still active in `gh-review-hook 627`, so parent merge gate is not started yet.
+- 2026-07-06: REVAL-2 worker opened PR #628 (`https://github.com/xpadev-net/nexus-form/pull/628`) at head `08ca6a4eac5f9d698f0f99bb88be011ec6794cda`. GitHub shows CI, Greptile, CodeRabbit, and Socket checks successful with `mergeStateStatus` `CLEAN`, but the worker thread is still active in `gh-review-hook 628`; parent merge gate waits for the worker's explicit merge-ready report.
+- 2026-07-06: REVAL-2 worker's `gh-review-hook 628` returned exit 2 with two in-scope findings and branch-behind-base state. Worker merged current `master` normally, is applying fixes for selection clearing and pending spinner behavior, and has not reported merge-ready; parent merge gate is not started yet.
