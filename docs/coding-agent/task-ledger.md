@@ -488,9 +488,10 @@
 ### REVAL-1: Historical response revalidation API and worker
 - status: in progress
 - branch: `codex/historical-response-revalidation-core`
-- pending_worktree: `local:02dca7ee-276e-4254-94eb-e3d31bd259e0`
-- worker_thread: pending
-- worktree: pending
+- pending_worktree: resolved from `local:02dca7ee-276e-4254-94eb-e3d31bd259e0`
+- worker_thread: `019f3721-b1a0-7721-97df-7fa7b523e035`
+- worktree: `/Users/xpadev/.codex/worktrees/a906/nexus-form`
+- current_head: `04cbefc7f224f2665145cdbd437c72ea0e32acdc`
 - source_plan_tasks:
   - `historical-response-revalidation-plan.md` Task_1
   - `historical-response-revalidation-plan.md` Task_2
@@ -616,3 +617,4 @@
 - 2026-07-06: RESPDEL-2 worker pushed review-hook fixes at head `d8c7f643a14f01c9c38516e731d986f441e76695` and reran `gh-review-hook 625`. GitHub shows Lint, Type Check, Unit & Integration Tests, E2E Harness, production build, color guard, and Socket checks successful; Greptile Review remains in progress, `mergeStateStatus` is `UNSTABLE`, and worker is still active, so parent merge gate is not started yet.
 - 2026-07-06: RESPDEL-2 worker reported merge-ready at head `dbdd966c61234c54f1ac63ebc29d3b7cf5f6c000` after normal merge from `origin/master`, required validation, and `gh-review-hook 625` exit 0. Parent verified PR #625 was `CLEAN` and approved, inspected the PR diff, reran `gh-review-hook 625`, focused web forms tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and browser route reachability/console checks, then squash-merged PR #625 as `30d1b189f922f810df20afe9c74467147e496fba`. Remote branch `codex/response-delete-ui` was deleted separately after local branch deletion failed because the worker worktree still had it checked out; worker thread archived.
 - 2026-07-06: Started REVAL-1 worker as pending worktree `local:02dca7ee-276e-4254-94eb-e3d31bd259e0` on branch `codex/historical-response-revalidation-core`. Scope is limited to historical revalidation API/worker/core and plan investigation updates; revalidation UI and validation-result export remain unstarted.
+- 2026-07-06: REVAL-1 worker resolved to thread `019f3721-b1a0-7721-97df-7fa7b523e035` in worktree `/Users/xpadev/.codex/worktrees/a906/nexus-form`. Startup stability check found the worker stopped after branch creation without a concrete blocker, so the parent sent one resume instruction to continue from the current branch and report before any future stop.
