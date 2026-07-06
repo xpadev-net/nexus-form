@@ -7,7 +7,9 @@ import { fetchJson, HttpError } from "@/lib/fetch-json";
 import { logError } from "@/lib/logger";
 import { isRecord } from "@/lib/type-guards";
 import type {
+  GoogleSheetsSyncMode,
   SyncJobStatusResponse,
+  SyncStartRequest,
   SyncStartResponse,
 } from "@/types/integrations/google-sheets";
 import { apiRequestInit } from "./api-request-init";
@@ -217,6 +219,7 @@ export function buildUiSyncState(
   activeJobId: string,
 ): UiSyncState {
   const uiStatus = mapBullMqStateToUiStatus(jobData.job.state);
+  const progress = extractProgress(jobData.job.progress);
   const jobResult = isJobResult(jobData.job.result)
     ? jobData.job.result
     : undefined;
@@ -227,7 +230,10 @@ export function buildUiSyncState(
   return {
     jobId: activeJobId,
     status: uiStatus,
-    progress: extractProgress(jobData.job.progress),
+    progress:
+      uiStatus === "completed" && progress
+        ? { ...progress, percentage: 100 }
+        : progress,
     result: jobResult,
     error,
     errorCode,
@@ -313,7 +319,7 @@ export interface UseGoogleSheetsSyncResult {
   activeJobId: string | null;
   dismissSyncStatus: () => void;
   isSyncing: boolean;
-  startSync: () => Promise<void>;
+  startSync: (mode: GoogleSheetsSyncMode) => Promise<void>;
   syncStatus: UiSyncState | null;
 }
 
@@ -421,83 +427,96 @@ export function useGoogleSheetsSync({
     dispatchSyncMonitor({ type: "clear" });
   }, [activeJobId, clearSyncTimeout, removeSyncJobQuery, syncJobError]);
 
-  const startSync = useCallback(async () => {
-    const pendingStatus: UiSyncState = {
-      jobId: "",
-      status: "queued",
-    };
-    lastDispatchedStatusRef.current = pendingStatus;
-    notifiedTerminalStatusRef.current = null;
-    dispatchSyncMonitor({
-      type: "start",
-      status: pendingStatus,
-    });
-
-    try {
-      const requestSyncStart = (force: boolean): Promise<unknown> =>
-        fetchJson<unknown>(
-          apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
-          apiRequestInit({
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ force }),
-          }),
-        );
-      let fellBackToLatest = false;
-      let rawData: unknown;
-      try {
-        rawData = await requestSyncStart(true);
-      } catch (error) {
-        if (!(error instanceof HttpError && error.status === 413)) {
-          throw error;
-        }
-        fellBackToLatest = true;
-        rawData = await requestSyncStart(false);
-      }
-      const data = syncStartResponseSchema.parse(rawData);
-      const startedStatus: UiSyncState = {
-        jobId: data.jobId,
-        status: data.status,
+  const startSync = useCallback(
+    async (mode: GoogleSheetsSyncMode) => {
+      const pendingStatus: UiSyncState = {
+        jobId: "",
+        status: "queued",
       };
-      lastDispatchedStatusRef.current = startedStatus;
+      lastDispatchedStatusRef.current = pendingStatus;
+      notifiedTerminalStatusRef.current = null;
       dispatchSyncMonitor({
         type: "start",
-        status: startedStatus,
+        status: pendingStatus,
       });
-      clearSyncTimeout();
-      syncTimeoutRef.current = window.setTimeout(() => {
-        syncTimeoutRef.current = null;
-        toast.error("同期状態の監視がタイムアウトしました");
+
+      try {
+        const requestSyncStart = (
+          syncMode: GoogleSheetsSyncMode,
+        ): Promise<unknown> => {
+          const requestBody: SyncStartRequest = { mode: syncMode };
+          return fetchJson<unknown>(
+            apiUrl(`/api/forms/${formId}/integrations/google-sheets/sync`),
+            apiRequestInit({
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            }),
+          );
+        };
+
+        let fellBackToIncremental = false;
+        let rawData: unknown;
+        try {
+          rawData = await requestSyncStart(mode);
+        } catch (error) {
+          if (
+            mode !== "full" ||
+            !(error instanceof HttpError && error.status === 413)
+          ) {
+            throw error;
+          }
+          fellBackToIncremental = true;
+          rawData = await requestSyncStart("incremental");
+        }
+        const data = syncStartResponseSchema.parse(rawData);
+        const startedStatus: UiSyncState = {
+          jobId: data.jobId,
+          status: data.status,
+        };
+        lastDispatchedStatusRef.current = startedStatus;
+        dispatchSyncMonitor({
+          type: "start",
+          status: startedStatus,
+        });
+        clearSyncTimeout();
+        syncTimeoutRef.current = window.setTimeout(() => {
+          syncTimeoutRef.current = null;
+          toast.error("同期状態の監視がタイムアウトしました");
+          lastDispatchedStatusRef.current = null;
+          notifiedTerminalStatusRef.current = null;
+          dispatchSyncMonitor({ type: "clear" });
+        }, 60_000);
+
+        toast.success("同期を開始しました");
+        if (fellBackToIncremental) {
+          toast.warning(
+            "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
+          );
+        }
+
+        try {
+          await queryClient.invalidateQueries({
+            queryKey: configQueryKey,
+          });
+        } catch (error) {
+          logError("Failed to refresh config after sync start:", "ui", {
+            error: error,
+          });
+          toast.error(
+            "設定の再取得に失敗しました。手動で再読み込みしてください",
+          );
+        }
+      } catch (error) {
+        logError("Failed to start sync:", "ui", { error: error });
+        toast.error("同期の開始に失敗しました");
         lastDispatchedStatusRef.current = null;
         notifiedTerminalStatusRef.current = null;
         dispatchSyncMonitor({ type: "clear" });
-      }, 60_000);
-
-      toast.success("同期を開始しました");
-      if (fellBackToLatest) {
-        toast.warning(
-          "回答数が多いため全件同期は開始できません。最新の回答のみ同期します",
-        );
       }
-
-      try {
-        await queryClient.invalidateQueries({
-          queryKey: configQueryKey,
-        });
-      } catch (error) {
-        logError("Failed to refresh config after sync start:", "ui", {
-          error: error,
-        });
-        toast.error("設定の再取得に失敗しました。手動で再読み込みしてください");
-      }
-    } catch (error) {
-      logError("Failed to start sync:", "ui", { error: error });
-      toast.error("同期の開始に失敗しました");
-      lastDispatchedStatusRef.current = null;
-      notifiedTerminalStatusRef.current = null;
-      dispatchSyncMonitor({ type: "clear" });
-    }
-  }, [clearSyncTimeout, configQueryKey, formId, queryClient]);
+    },
+    [clearSyncTimeout, configQueryKey, formId, queryClient],
+  );
 
   const dismissSyncStatus = useCallback(() => {
     dispatchSyncMonitor({ type: "dismiss-status" });

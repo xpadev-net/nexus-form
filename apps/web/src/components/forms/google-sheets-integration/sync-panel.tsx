@@ -1,4 +1,4 @@
-import { Loader2, RefreshCw, X } from "lucide-react";
+import { Loader2, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
@@ -90,7 +90,8 @@ interface SyncActionButtonsProps {
   hasUnsavedChanges: boolean;
   hasSavedConfig: boolean;
   onSaveConfig: () => void;
-  onSync: () => void;
+  onFullSync: () => void;
+  onIncrementalSync: () => void;
 }
 
 export function SyncActionButtons({
@@ -100,33 +101,33 @@ export function SyncActionButtons({
   hasUnsavedChanges,
   hasSavedConfig,
   onSaveConfig,
-  onSync,
+  onFullSync,
+  onIncrementalSync,
 }: SyncActionButtonsProps) {
+  const isSyncDisabled =
+    !selectedSpreadsheetId ||
+    !selectedSheetName ||
+    isSyncing ||
+    hasUnsavedChanges ||
+    !hasSavedConfig;
+  const syncDisabledTitle =
+    hasUnsavedChanges || !hasSavedConfig
+      ? "設定を保存してから同期してください"
+      : undefined;
+
   return (
-    <div className="flex gap-3">
+    <div className="grid gap-3 sm:grid-cols-3">
       <Button
         onClick={onSaveConfig}
         disabled={!selectedSpreadsheetId || !selectedSheetName || isSyncing}
-        className="flex-1"
       >
         設定を保存
       </Button>
       <Button
-        onClick={onSync}
-        disabled={
-          !selectedSpreadsheetId ||
-          !selectedSheetName ||
-          isSyncing ||
-          hasUnsavedChanges ||
-          !hasSavedConfig
-        }
+        onClick={onIncrementalSync}
+        disabled={isSyncDisabled}
         variant="default"
-        className="flex-1"
-        title={
-          hasUnsavedChanges || !hasSavedConfig
-            ? "設定を保存してから同期してください"
-            : undefined
-        }
+        title={syncDisabledTitle}
       >
         {isSyncing ? (
           <>
@@ -137,6 +138,24 @@ export function SyncActionButtons({
           <>
             <RefreshCw className="h-4 w-4 mr-2" />
             今すぐ差分同期
+          </>
+        )}
+      </Button>
+      <Button
+        onClick={onFullSync}
+        disabled={isSyncDisabled}
+        variant="outline"
+        title={syncDisabledTitle}
+      >
+        {isSyncing ? (
+          <>
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            同期中...
+          </>
+        ) : (
+          <>
+            <RotateCcw className="h-4 w-4 mr-2" />
+            全件同期
           </>
         )}
       </Button>

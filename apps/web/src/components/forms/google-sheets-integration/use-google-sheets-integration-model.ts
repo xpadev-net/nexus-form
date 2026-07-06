@@ -7,6 +7,7 @@ import { logError } from "@/lib/logger";
 import type {
   FormIntegrationResponse,
   GoogleSheetsIntegrationSetting,
+  GoogleSheetsSyncMode,
 } from "@/types/integrations/google-sheets";
 import { apiRequestInit } from "./api-request-init";
 import {
@@ -135,7 +136,8 @@ export interface GoogleSheetsIntegrationModel {
   handleSelectSpreadsheet: (spreadsheetId: string) => void;
   handleSheetDialogOpenChange: (open: boolean) => void;
   handleSpreadsheetDialogOpenChange: (open: boolean) => void;
-  handleSyncClick: () => void;
+  handleFullSyncClick: () => void;
+  handleIncrementalSyncClick: () => void;
   hasUnsavedChanges: boolean;
   isAddingSheet: boolean;
   isCheckingConnection: boolean;
@@ -440,27 +442,30 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     (selectedSpreadsheetId !== savedConfig.spreadsheetId ||
       selectedSheetName !== savedConfig.sheetName);
 
-  const handleSync = useCallback(async () => {
-    if (
-      !selectedSpreadsheetId ||
-      !selectedSheetName ||
-      !savedConfig ||
-      hasUnsavedChanges ||
-      isSyncing
-    ) {
-      toast.error("設定を保存してから同期してください");
-      return;
-    }
+  const handleSync = useCallback(
+    async (mode: GoogleSheetsSyncMode) => {
+      if (
+        !selectedSpreadsheetId ||
+        !selectedSheetName ||
+        !savedConfig ||
+        hasUnsavedChanges ||
+        isSyncing
+      ) {
+        toast.error("設定を保存してから同期してください");
+        return;
+      }
 
-    await startSync();
-  }, [
-    hasUnsavedChanges,
-    isSyncing,
-    savedConfig,
-    selectedSpreadsheetId,
-    selectedSheetName,
-    startSync,
-  ]);
+      await startSync(mode);
+    },
+    [
+      hasUnsavedChanges,
+      isSyncing,
+      savedConfig,
+      selectedSpreadsheetId,
+      selectedSheetName,
+      startSync,
+    ],
+  );
 
   const filteredSpreadsheets = useMemo(() => {
     if (!searchQuery) return spreadsheetsData?.spreadsheets ?? [];
@@ -524,8 +529,17 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     void handleSaveConfig();
   }, [handleSaveConfig]);
 
-  const handleSyncClick = useCallback(() => {
-    void handleSync();
+  const handleIncrementalSyncClick = useCallback(() => {
+    void handleSync("incremental");
+  }, [handleSync]);
+
+  const handleFullSyncClick = useCallback(() => {
+    const confirmed = window.confirm(
+      "全件同期を開始します。既存の回答も含めてGoogle Sheetsへ再同期しますか？",
+    );
+    if (!confirmed) return;
+
+    void handleSync("full");
   }, [handleSync]);
 
   return {
@@ -544,7 +558,8 @@ export function useGoogleSheetsIntegrationModel(formId: string) {
     handleSelectSpreadsheet,
     handleSheetDialogOpenChange,
     handleSpreadsheetDialogOpenChange,
-    handleSyncClick,
+    handleFullSyncClick,
+    handleIncrementalSyncClick,
     hasUnsavedChanges,
     isAddingSheet,
     isCheckingConnection,

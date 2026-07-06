@@ -121,7 +121,8 @@ export function GoogleSheetsIntegration({
           hasUnsavedChanges={model.hasUnsavedChanges}
           hasSavedConfig={Boolean(model.savedConfig)}
           onSaveConfig={model.handleSaveConfigClick}
-          onSync={model.handleSyncClick}
+          onFullSync={model.handleFullSyncClick}
+          onIncrementalSync={model.handleIncrementalSyncClick}
         />
 
         <GoogleSheetsSyncDescription />
