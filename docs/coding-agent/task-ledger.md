@@ -520,9 +520,10 @@
   - PR #626 was squash-merged as `3355bcf7385719be216ff759f3efe779073390cc`; worker thread archived.
 
 ### REVAL-2: Historical response revalidation UI
-- status: unstarted
+- status: in progress
 - branch: `codex/historical-response-revalidation-ui`
-- worker_thread: pending
+- pending_worktree: `local:b5460406-0e49-4199-8ae2-84a7903a8a39`
+- worker_thread: pending worktree resolution
 - worktree: pending
 - source_plan_task: `historical-response-revalidation-plan.md` Task_4
 - scope:
@@ -538,9 +539,10 @@
   - `pnpm type-check`
 
 ### VEXPORT-1: Plugin validation output contract
-- status: unstarted
+- status: in progress
 - branch: `codex/validation-output-contract`
-- worker_thread: pending
+- pending_worktree: `local:6379c464-4496-4dee-808b-73efed865595`
+- worker_thread: pending worktree resolution
 - worktree: pending
 - source_plan_tasks:
   - `validation-result-export-plan.md` Task_1
@@ -631,3 +633,5 @@
 - 2026-07-06: REVAL-1 worker pushed head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4` after fixing another hook finding for active `PENDING` rows with `nextRetryAt: null`. GitHub CI and Greptile are successful, but CodeRabbit is still pending and the worker is still active in `gh-review-hook 626`, so parent merge gate is not started yet.
 - 2026-07-06: CodeRabbit requested changes on REVAL-1 PR #626 after head `778aa98c053ea008ad39adde4dcf91dd69dd0cb4`. Worker accepted the review as actionable, added scoped fixes for bounded parallel enqueue, per-item failure isolation, shared job-id helper cleanup, and rate limiting, then committed locally through `f9c6959a981cf3e324db28ecfa3bcf7b548b3aa0`; push/hook rerun is still in progress, so parent merge gate is not started yet.
 - 2026-07-06: REVAL-1 worker reported merge-ready at head `a02012b20a5dad6832264c6267de6738ad05e313` after merging current `origin/master`, fixing review-hook findings, and getting `gh-review-hook 626` exit 0. Parent verified PR #626 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 626`, focused API validation/response tests, focused worker generic-validation tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #626 as `3355bcf7385719be216ff759f3efe779073390cc`. Worker thread archived.
+- 2026-07-06: Started REVAL-2 worker as pending worktree `local:b5460406-0e49-4199-8ae2-84a7903a8a39` on branch `codex/historical-response-revalidation-ui`. Scope is limited to historical revalidation UI and related web tests; API/worker core, response deletion, and validation-result export settings remain out of scope.
+- 2026-07-06: Started VEXPORT-1 worker as pending worktree `local:6379c464-4496-4dee-808b-73efed865595` on branch `codex/validation-output-contract`. Scope is limited to plugin validation output contract/shared/provider/worker/database support; web UI, CSV/Sheets export rendering, response deletion, and historical revalidation UI remain out of scope.
