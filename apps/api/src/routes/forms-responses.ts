@@ -86,6 +86,7 @@ const LIKE_ESCAPE_CHAR = "!";
 const RESPONSE_SEARCH_MIN_BATCH_SIZE = 200;
 const RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT = 5000;
 const RESPONSE_EXPORT_ROW_LIMIT = 5000;
+const VALIDATION_REVALIDATION_ENQUEUE_CONCURRENCY = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = RESPONSE_EXPORT_ROW_LIMIT;
 
 const listResponsesQuerySchema = z.object({
@@ -985,6 +986,36 @@ type CurrentValidationRuleTarget = {
   configJson: Record<string, unknown>;
 };
 
+type RevalidationWorkTarget = {
+  responseId: string;
+  rule: CurrentValidationRuleTarget;
+};
+
+type RevalidationWorkResult = {
+  jobId?: string;
+  result: RevalidationResultItem;
+};
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex++;
+        results[currentIndex] = await worker(items[currentIndex] as T);
+      }
+    }),
+  );
+  return results;
+}
+
 async function getCurrentValidationRuleTargets(formId: string): Promise<{
   blockIds: Set<string>;
   rules: CurrentValidationRuleTarget[];
@@ -1109,6 +1140,145 @@ async function claimValidationRevalidationPending(params: {
   });
 }
 
+async function enqueueValidationRevalidationTarget(params: {
+  formId: string;
+  responseId: string;
+  rule: CurrentValidationRuleTarget;
+}): Promise<RevalidationWorkResult> {
+  const { formId, responseId, rule } = params;
+  const validationResultId = getValidationResultId({
+    responseId,
+    ruleId: rule.ruleId,
+    referencedBlockId: rule.referencedBlockId,
+  });
+  const jobId = buildValidationRevalidationJobId(
+    validationResultId,
+    randomUUID(),
+  );
+
+  let jobData: z.infer<typeof genericValidationJobDataSchema>;
+  try {
+    jobData = genericValidationJobDataSchema.parse({
+      responseId,
+      ruleId: rule.ruleId,
+      referencedBlockId: rule.referencedBlockId,
+      snapshotProviderName: rule.providerName,
+      snapshotRuleType: rule.ruleType,
+      snapshotConfigJson: rule.configJson,
+    });
+  } catch (error) {
+    logError(
+      "Failed to build validation revalidation job data",
+      "forms-responses",
+      {
+        error,
+        responseId,
+        ruleId: rule.ruleId,
+        service: rule.providerName,
+        formId,
+      },
+    );
+    return {
+      result: {
+        responseId,
+        validationResultId,
+        status: "skipped",
+        reason: "enqueue_failed",
+      },
+    };
+  }
+
+  const claimed = await claimValidationRevalidationPending({
+    resultId: validationResultId,
+    responseId,
+    ruleId: rule.ruleId,
+    referencedBlockId: rule.referencedBlockId,
+    service: rule.providerName,
+    jobId,
+  });
+  if (!claimed) {
+    return {
+      result: {
+        responseId,
+        validationResultId,
+        status: "skipped",
+      },
+    };
+  }
+
+  try {
+    const queue = getValidationQueue(rule.providerName);
+    const job = await queue.add(`validate-${rule.providerName}`, jobData, {
+      jobId,
+    });
+    return {
+      jobId: job.id,
+      result: {
+        responseId,
+        validationResultId,
+        status: "enqueued",
+      },
+    };
+  } catch (error) {
+    logError(
+      "Failed to enqueue validation revalidation job",
+      "forms-responses",
+      {
+        error,
+        responseId,
+        ruleId: rule.ruleId,
+        service: rule.providerName,
+        formId,
+        jobId,
+      },
+    );
+    try {
+      await db
+        .update(externalServiceValidationResult)
+        .set({
+          status: "FAILED",
+          errorCode: "ENQUEUE_FAILED",
+          errorMessage: "Failed to enqueue revalidation job",
+        })
+        .where(
+          and(
+            eq(externalServiceValidationResult.id, validationResultId),
+            eq(externalServiceValidationResult.jobId, jobId),
+          ),
+        );
+    } catch (cleanupError) {
+      logError(
+        "Failed to mark validation revalidation enqueue failure",
+        "forms-responses",
+        {
+          error: cleanupError,
+          responseId,
+          ruleId: rule.ruleId,
+          service: rule.providerName,
+          formId,
+          jobId,
+        },
+      );
+    }
+    return {
+      result: {
+        responseId,
+        validationResultId,
+        status: "skipped",
+        reason: "enqueue_failed",
+      },
+    };
+  }
+}
+
+/**
+ * Enqueues historical validation revalidation jobs for selected responses.
+ *
+ * @param params.formId Form that owns the selected responses.
+ * @param params.responseIds Response ids requested by the caller.
+ * @returns `jobIds` for queued jobs plus stable `enqueuedCount`, `skippedCount`,
+ * and per-response/rule `results` describing enqueued or skipped work.
+ */
 export async function enqueueValidationRevalidations(params: {
   formId: string;
   responseIds: string[];
@@ -1165,6 +1335,7 @@ export async function enqueueValidationRevalidations(params: {
     };
   }
 
+  const workTargets: RevalidationWorkTarget[] = [];
   for (const responseId of responseIds) {
     if (!existingResponseIds.has(responseId)) continue;
 
@@ -1213,81 +1384,23 @@ export async function enqueueValidationRevalidations(params: {
         continue;
       }
 
-      const jobId = buildValidationRevalidationJobId(
-        validationResultId,
-        randomUUID(),
-      );
-      const jobData = genericValidationJobDataSchema.parse({
-        responseId,
-        ruleId: rule.ruleId,
-        referencedBlockId: rule.referencedBlockId,
-        snapshotProviderName: rule.providerName,
-        snapshotRuleType: rule.ruleType,
-        snapshotConfigJson: rule.configJson,
-      });
-
-      const claimed = await claimValidationRevalidationPending({
-        resultId: validationResultId,
-        responseId,
-        ruleId: rule.ruleId,
-        referencedBlockId: rule.referencedBlockId,
-        service: rule.providerName,
-        jobId,
-      });
-      if (!claimed) {
-        results.push({
-          responseId,
-          validationResultId,
-          status: "skipped",
-        });
-        continue;
-      }
-
-      try {
-        const queue = getValidationQueue(rule.providerName);
-        const job = await queue.add(`validate-${rule.providerName}`, jobData, {
-          jobId,
-        });
-        if (job.id) jobIds.push(job.id);
-        results.push({
-          responseId,
-          validationResultId,
-          status: "enqueued",
-        });
-      } catch (error) {
-        logError(
-          "Failed to enqueue validation revalidation job",
-          "forms-responses",
-          {
-            error,
-            responseId,
-            ruleId: rule.ruleId,
-            service: rule.providerName,
-            formId: params.formId,
-            jobId,
-          },
-        );
-        await db
-          .update(externalServiceValidationResult)
-          .set({
-            status: "FAILED",
-            errorCode: "ENQUEUE_FAILED",
-            errorMessage: "Failed to enqueue revalidation job",
-          })
-          .where(
-            and(
-              eq(externalServiceValidationResult.id, validationResultId),
-              eq(externalServiceValidationResult.jobId, jobId),
-            ),
-          );
-        results.push({
-          responseId,
-          validationResultId,
-          status: "skipped",
-          reason: "enqueue_failed",
-        });
-      }
+      workTargets.push({ responseId, rule });
     }
+  }
+
+  const workResults = await mapWithConcurrency(
+    workTargets,
+    VALIDATION_REVALIDATION_ENQUEUE_CONCURRENCY,
+    (target) =>
+      enqueueValidationRevalidationTarget({
+        formId: params.formId,
+        responseId: target.responseId,
+        rule: target.rule,
+      }),
+  );
+  for (const workResult of workResults) {
+    if (workResult.jobId) jobIds.push(workResult.jobId);
+    results.push(workResult.result);
   }
 
   const enqueuedCount = results.filter(
@@ -1858,6 +1971,7 @@ export const formsResponsesRouter = createHonoApp()
   .post(
     "/:id/responses/validation/revalidate",
     withDualFormAuth("EDITOR"),
+    createRateLimit({ windowMs: 60_000, maxRequests: 10 }),
     zValidator("json", bulkRevalidationSchema),
     async (c) => {
       const formId = c.req.param("id");

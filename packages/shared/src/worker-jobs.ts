@@ -21,6 +21,14 @@ function sanitizeRetryJobNonce(nonce: string): string {
   return nonce.replaceAll(":", "-");
 }
 
+function buildValidationJobId(
+  prefix: string,
+  validationResultId: string,
+  nonce: string,
+): string {
+  return `${prefix}${sanitizeValidationResultIdForRetryJob(validationResultId)}-${sanitizeRetryJobNonce(nonce)}`;
+}
+
 function encodeSheetsSyncJobIdSegment(value: string): string {
   return Array.from(new TextEncoder().encode(value), (byte) =>
     byte.toString(16).padStart(2, "0"),
@@ -31,14 +39,22 @@ export function buildValidationRetryJobId(
   validationResultId: string,
   nonce: string,
 ): string {
-  return `${VALIDATION_RETRY_JOB_PREFIX}${sanitizeValidationResultIdForRetryJob(validationResultId)}-${sanitizeRetryJobNonce(nonce)}`;
+  return buildValidationJobId(
+    VALIDATION_RETRY_JOB_PREFIX,
+    validationResultId,
+    nonce,
+  );
 }
 
 export function buildValidationRevalidationJobId(
   validationResultId: string,
   nonce: string,
 ): string {
-  return `${VALIDATION_REVALIDATION_JOB_PREFIX}${sanitizeValidationResultIdForRetryJob(validationResultId)}-${sanitizeRetryJobNonce(nonce)}`;
+  return buildValidationJobId(
+    VALIDATION_REVALIDATION_JOB_PREFIX,
+    validationResultId,
+    nonce,
+  );
 }
 
 export function buildAutoSheetsSyncJobId(

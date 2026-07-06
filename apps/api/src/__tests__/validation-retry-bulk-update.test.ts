@@ -243,49 +243,53 @@ function retryTarget(id: string) {
   };
 }
 
+function setupValidationEnqueueMocks() {
+  vi.clearAllMocks();
+  mocks.where.mockResolvedValue([{ affectedRows: 1 }]);
+  mocks.formLimit.mockResolvedValue([
+    {
+      plateContent: JSON.stringify([
+        {
+          type: "form_short_text",
+          blockId: "block-1",
+          children: [{ text: "Discord handle" }],
+        },
+      ]),
+    },
+  ]);
+  mocks.responseWhere.mockResolvedValue([{ id: "response-1" }]);
+  mocks.ruleOrderBy.mockResolvedValue([
+    {
+      ruleId: "rule-current",
+      providerName: "discord",
+      ruleType: "member",
+      configJson: { guildId: "current-guild" },
+      referencedBlockId: "block-1",
+      orderIndex: 0,
+      blockOrderIndex: 0,
+    },
+  ]);
+  mocks.values.mockReturnValue({
+    onDuplicateKeyUpdate: mocks.onDuplicateKeyUpdate,
+  });
+  mocks.onDuplicateKeyUpdate.mockResolvedValue(undefined);
+  mocks.txForUpdate.mockResolvedValue([]);
+  mocks.txInsertValues.mockResolvedValue(undefined);
+  mocks.txUpdateWhere.mockResolvedValue([{ affectedRows: 1 }]);
+  mocks.queueAdd.mockImplementation(
+    async (
+      _name: string,
+      _data: unknown,
+      options: { jobId?: string } | undefined,
+    ) => ({
+      id: options?.jobId,
+    }),
+  );
+}
+
 describe("R6-M9: validation retry bulk updates", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.where.mockResolvedValue([{ affectedRows: 1 }]);
-    mocks.formLimit.mockResolvedValue([
-      {
-        plateContent: JSON.stringify([
-          {
-            type: "form_short_text",
-            blockId: "block-1",
-            children: [{ text: "Discord handle" }],
-          },
-        ]),
-      },
-    ]);
-    mocks.responseWhere.mockResolvedValue([{ id: "response-1" }]);
-    mocks.ruleOrderBy.mockResolvedValue([
-      {
-        ruleId: "rule-current",
-        providerName: "discord",
-        ruleType: "member",
-        configJson: { guildId: "current-guild" },
-        referencedBlockId: "block-1",
-        orderIndex: 0,
-        blockOrderIndex: 0,
-      },
-    ]);
-    mocks.values.mockReturnValue({
-      onDuplicateKeyUpdate: mocks.onDuplicateKeyUpdate,
-    });
-    mocks.onDuplicateKeyUpdate.mockResolvedValue(undefined);
-    mocks.txForUpdate.mockResolvedValue([]);
-    mocks.txInsertValues.mockResolvedValue(undefined);
-    mocks.txUpdateWhere.mockResolvedValue([{ affectedRows: 1 }]);
-    mocks.queueAdd.mockImplementation(
-      async (
-        _name: string,
-        _data: unknown,
-        options: { jobId?: string } | undefined,
-      ) => ({
-        id: options?.jobId,
-      }),
-    );
+    setupValidationEnqueueMocks();
     mocks.getSnapshotByVersion.mockResolvedValue({
       id: "snapshot-1",
       formId: "form-1",
@@ -483,46 +487,7 @@ describe("R6-M9: validation retry bulk updates", () => {
 
 describe("REVAL-1: historical response revalidation enqueue", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.formLimit.mockResolvedValue([
-      {
-        plateContent: JSON.stringify([
-          {
-            type: "form_short_text",
-            blockId: "block-1",
-            children: [{ text: "Discord handle" }],
-          },
-        ]),
-      },
-    ]);
-    mocks.responseWhere.mockResolvedValue([{ id: "response-1" }]);
-    mocks.ruleOrderBy.mockResolvedValue([
-      {
-        ruleId: "rule-current",
-        providerName: "discord",
-        ruleType: "member",
-        configJson: { guildId: "current-guild" },
-        referencedBlockId: "block-1",
-        orderIndex: 0,
-        blockOrderIndex: 0,
-      },
-    ]);
-    mocks.values.mockReturnValue({
-      onDuplicateKeyUpdate: mocks.onDuplicateKeyUpdate,
-    });
-    mocks.onDuplicateKeyUpdate.mockResolvedValue(undefined);
-    mocks.txForUpdate.mockResolvedValue([]);
-    mocks.txInsertValues.mockResolvedValue(undefined);
-    mocks.txUpdateWhere.mockResolvedValue([{ affectedRows: 1 }]);
-    mocks.queueAdd.mockImplementation(
-      async (
-        _name: string,
-        _data: unknown,
-        options: { jobId?: string } | undefined,
-      ) => ({
-        id: options?.jobId,
-      }),
-    );
+    setupValidationEnqueueMocks();
   });
 
   it("enqueues current validation config without a submitted snapshot version", async () => {
@@ -802,6 +767,33 @@ describe("REVAL-1: historical response revalidation enqueue", () => {
       errorCode: "ENQUEUE_FAILED",
       errorMessage: "Failed to enqueue revalidation job",
     });
+    expect(mocks.where).toHaveBeenCalledTimes(1);
+  });
+
+  it("continues when enqueue failure cleanup update fails", async () => {
+    mocks.queueAdd.mockRejectedValueOnce(new Error("queue unavailable"));
+    mocks.where.mockRejectedValueOnce(new Error("database unavailable"));
+    const { enqueueValidationRevalidations } = await import(
+      "../routes/forms-responses"
+    );
+
+    const result = await enqueueValidationRevalidations({
+      formId: "form-1",
+      responseIds: ["response-1"],
+    });
+
+    expect(result).toMatchObject({
+      enqueuedCount: 0,
+      skippedCount: 1,
+      results: [
+        expect.objectContaining({
+          responseId: "response-1",
+          status: "skipped",
+          reason: "enqueue_failed",
+        }),
+      ],
+    });
+    expect(mocks.update).toHaveBeenCalledTimes(1);
     expect(mocks.where).toHaveBeenCalledTimes(1);
   });
 });
