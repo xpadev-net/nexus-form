@@ -523,8 +523,8 @@
 - status: in progress
 - branch: `codex/historical-response-revalidation-ui`
 - pending_worktree: `local:b5460406-0e49-4199-8ae2-84a7903a8a39`
-- worker_thread: pending worktree resolution
-- worktree: pending
+- worker_thread: `019f3799-91fc-7a52-b6e0-ca7f15a18cca`
+- worktree: `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`
 - source_plan_task: `historical-response-revalidation-plan.md` Task_4
 - scope:
   - `apps/web/src/components/forms/**`
@@ -542,8 +542,8 @@
 - status: in progress
 - branch: `codex/validation-output-contract`
 - pending_worktree: `local:6379c464-4496-4dee-808b-73efed865595`
-- worker_thread: pending worktree resolution
-- worktree: pending
+- worker_thread: `019f3799-91fc-7a52-b6e0-ca85f37e152f`
+- worktree: `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`
 - source_plan_tasks:
   - `validation-result-export-plan.md` Task_1
   - `validation-result-export-plan.md` Task_2
@@ -635,3 +635,5 @@
 - 2026-07-06: REVAL-1 worker reported merge-ready at head `a02012b20a5dad6832264c6267de6738ad05e313` after merging current `origin/master`, fixing review-hook findings, and getting `gh-review-hook 626` exit 0. Parent verified PR #626 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 626`, focused API validation/response tests, focused worker generic-validation tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #626 as `3355bcf7385719be216ff759f3efe779073390cc`. Worker thread archived.
 - 2026-07-06: Started REVAL-2 worker as pending worktree `local:b5460406-0e49-4199-8ae2-84a7903a8a39` on branch `codex/historical-response-revalidation-ui`. Scope is limited to historical revalidation UI and related web tests; API/worker core, response deletion, and validation-result export settings remain out of scope.
 - 2026-07-06: Started VEXPORT-1 worker as pending worktree `local:6379c464-4496-4dee-808b-73efed865595` on branch `codex/validation-output-contract`. Scope is limited to plugin validation output contract/shared/provider/worker/database support; web UI, CSV/Sheets export rendering, response deletion, and historical revalidation UI remain out of scope.
+- 2026-07-06: REVAL-2 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca7f15a18cca` in worktree `/Users/xpadev/.codex/worktrees/d4b3/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, investigation, and initial UI/test edits.
+- 2026-07-06: VEXPORT-1 pending worktree resolved to thread `019f3799-91fc-7a52-b6e0-ca85f37e152f` in worktree `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`. Startup stability check shows the worker is active after onboarding, branch setup, contract investigation, and initial shared/provider/worker/API edits.
