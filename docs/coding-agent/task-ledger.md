@@ -413,13 +413,15 @@
 ## Tasks
 
 ### RESPDEL-1: Response deletion API and derived-output exclusion
-- status: in progress
+- status: completed
 - branch: `codex/response-delete-api`
 - pending_worktree: `local:d0c93f5b-4c2b-4077-9dc4-6fd9374b486a`
 - worker_thread: `019f367e-8c2d-7d21-837a-ca8b3aaaf3b9`
 - worktree: `/Users/xpadev/.codex/worktrees/a488/nexus-form`
-- current_head: `f678ee480358bfccccbf0502b374ad2556fd65ff`
+- current_head: `2d539b237652aefecfde24ba81aeb7b8b402f62b`
 - pr: `https://github.com/xpadev-net/nexus-form/pull/624`
+- merge_commit: `59fc2fa155d380c4993e55f70f7b320d7c9de275`
+- archived: true
 - source_plan_tasks:
   - `response-deletion-plan.md` Task_1
   - `response-deletion-plan.md` Task_2
@@ -449,6 +451,7 @@
 - notes:
   - Start first because response deletion defines deleted-response semantics used by revalidation/export follow-ups.
   - If hard delete is unsafe, worker must stop and request orchestrator decision rather than broadening into soft-delete migration without approval.
+  - Completed after worker fixed Greptile test-fidelity findings and merged current `origin/master` without history rewrite. Parent merge gate passed on head `2d539b237652aefecfde24ba81aeb7b8b402f62b`: PR diff/deep-review found no blocking issues; `gh-review-hook 624` exited 0; targeted API response delete/export/analytics tests, targeted worker Sheets sync tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` passed. PR #624 was squash-merged as `59fc2fa155d380c4993e55f70f7b320d7c9de275`; `gh pr merge --delete-branch` returned non-zero only because local `master` is checked out in the parent worktree, but the PR merge was verified.
 
 ### RESPDEL-2: Response deletion UI
 - status: unstarted
@@ -596,3 +599,4 @@
 - 2026-07-06: Started RESPDEL-1 worker as pending worktree `local:d0c93f5b-4c2b-4077-9dc4-6fd9374b486a` on branch `codex/response-delete-api`. Scope is limited to deletion API/data semantics plus analytics/export/Sheets exclusion; response deletion UI, historical revalidation, and validation-result export remain unstarted.
 - 2026-07-06: RESPDEL-1 worker resolved to thread `019f367e-8c2d-7d21-837a-ca8b3aaaf3b9` in worktree `/Users/xpadev/.codex/worktrees/a488/nexus-form`; startup stability check shows it is active after loading instructions and beginning repository/plan inspection.
 - 2026-07-06: RESPDEL-1 worker opened PR #624 (`https://github.com/xpadev-net/nexus-form/pull/624`) at head `f678ee480358bfccccbf0502b374ad2556fd65ff`. Worker reports targeted tests, lint, type-check, full `pnpm test -- --silent`, and independent review passed before PR; `gh-review-hook 624` is still running with CI/Greptile pending, so parent merge gate is not started yet.
+- 2026-07-06: RESPDEL-1 worker reported final merge-ready at head `2d539b237652aefecfde24ba81aeb7b8b402f62b` after fixing Greptile findings and merging current `origin/master`. Parent verified PR #624 was `CLEAN` with all checks successful, reran `gh-review-hook 624`, focused API/worker tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #624 as `59fc2fa155d380c4993e55f70f7b320d7c9de275`. Worker thread archived.
