@@ -102,10 +102,12 @@ export function mergeValidationOutputValuesIntoMetadata(
   outputValues: readonly ValidationOutputValue[] | undefined,
 ): Record<string, unknown> | undefined {
   if (outputValues === undefined) return metadata;
-  const parsedOutputValues = validationOutputValuesSchema.parse(outputValues);
+  const parsedOutputValues =
+    validationOutputValuesSchema.safeParse(outputValues);
+  if (!parsedOutputValues.success) return metadata;
   return {
     ...(metadata ?? {}),
-    [VALIDATION_OUTPUT_METADATA_KEY]: parsedOutputValues,
+    [VALIDATION_OUTPUT_METADATA_KEY]: parsedOutputValues.data,
   };
 }
 

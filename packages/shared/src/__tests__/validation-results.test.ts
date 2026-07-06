@@ -4,6 +4,7 @@ import {
   mergeValidationOutputValuesIntoMetadata,
   parseValidationOutputValuesFromMetadata,
   VALIDATION_OUTPUT_METADATA_KEY,
+  type ValidationOutputValue,
   validationOutputValuesSchema,
   validationResultIdentitySchema,
 } from "../validation-results";
@@ -112,5 +113,17 @@ describe("validation output metadata helpers", () => {
       [],
     );
     expect(parseValidationOutputValuesFromMetadata(null)).toEqual([]);
+  });
+
+  it("keeps existing metadata if output values are malformed at a direct call site", () => {
+    const metadata = { providerField: "kept" };
+    const malformedOutputValues = [
+      { key: "username", value: "octocat" },
+      { key: "username", value: "duplicate" },
+    ] as unknown as ValidationOutputValue[];
+
+    expect(
+      mergeValidationOutputValuesIntoMetadata(metadata, malformedOutputValues),
+    ).toBe(metadata);
   });
 });
