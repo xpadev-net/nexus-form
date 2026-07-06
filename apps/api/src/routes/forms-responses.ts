@@ -1061,8 +1061,7 @@ async function claimValidationRevalidationPending(params: {
         existing.updatedAt > staleProcessingCutoff;
       const activePending =
         existing.status === "PENDING" &&
-        existing.nextRetryAt !== null &&
-        existing.nextRetryAt > now;
+        (existing.nextRetryAt === null || existing.nextRetryAt > now);
       if (activeProcessing || activePending) return false;
 
       await tx

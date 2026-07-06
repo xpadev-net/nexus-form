@@ -680,6 +680,38 @@ describe("REVAL-1: historical response revalidation enqueue", () => {
     expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
 
+  it("skips pending initial validation rows without a retry lease", async () => {
+    mocks.txForUpdate.mockResolvedValue([
+      {
+        status: "PENDING",
+        nextRetryAt: null,
+        updatedAt: new Date(),
+      },
+    ]);
+    const { enqueueValidationRevalidations } = await import(
+      "../routes/forms-responses"
+    );
+
+    const result = await enqueueValidationRevalidations({
+      formId: "form-1",
+      responseIds: ["response-1"],
+    });
+
+    expect(result).toMatchObject({
+      enqueuedCount: 0,
+      skippedCount: 1,
+      results: [
+        expect.objectContaining({
+          responseId: "response-1",
+          status: "skipped",
+        }),
+      ],
+    });
+    expect(mocks.txUpdate).not.toHaveBeenCalled();
+    expect(mocks.txInsert).not.toHaveBeenCalled();
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+  });
+
   it("skips overlapping revalidation while a processing claim is active", async () => {
     mocks.txForUpdate.mockResolvedValue([
       {
