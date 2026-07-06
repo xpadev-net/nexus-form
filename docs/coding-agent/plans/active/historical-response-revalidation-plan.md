@@ -239,6 +239,14 @@
   - Deleted-response exclusion points: response deletion is hard delete. API selection must inner-join/verify `FormResponse` rows for the target form so deleted, missing, and unauthorized response ids are excluded before enqueue. Worker must also treat `Form response not found` after enqueue as a safe ignored job because a response can be deleted after the API claims the result row.
   - Chosen REVAL-1 scope: support owner/editor-triggered single-response revalidation and bounded selected-response bulk revalidation using the latest current validation rules and currently installed providers. Do not implement all-form revalidation, UI, or export behavior in REVAL-1.
   - Validation evidence: Not run yet; investigation only.
+- 2026-07-06 REVAL-2 UI slice implementation completed.
+  - Scope implemented: `apps/web/src/components/forms/form-responses-page.tsx` now exposes selected-response bulk revalidation from the response list and single-response revalidation from the detail panel. The UI uses the merged REVAL-1 endpoints: `POST /forms/:id/responses/validation/revalidate` for selected responses and `POST /forms/:id/responses/:responseId/validation/revalidate` for a single response.
+  - User states: selection count and clear-selection controls are visible in list view; revalidation controls show disabled/loading states while response actions are pending; toast outcomes distinguish fully enqueued success, partial enqueued/skipped warning, skipped-only informational outcome, and request errors.
+  - Refresh behavior: successful revalidation invalidates `formResponses`, per-response `validationResults`, `responseAnalytics`, `responseAggregate`, `responseStatuses`, and `responseBlockAnalytics`, matching existing response action cache refresh coverage.
+  - Tests added: component coverage for selected bulk revalidation, single detail revalidation, failure handling, and skipped-only outcomes in `apps/web/src/components/forms/form-responses-page.test.tsx`.
+  - UI evidence: Playwright flow with mocked API responses reached `/forms/form-1/edit?shareToken=browser-token&tab=responses`, selected two responses, called the bulk revalidation endpoint with `{"responseIds":["response-1","response-2"]}`, called the single-response success endpoint for `response-1`, and called the single-response 404 path for `response-2`. Desktop and mobile screenshots were captured under `.playwright-cli/historical-response-revalidation/` during validation; mobile layout was adjusted to stack list/detail below `lg`.
+  - Review evidence: independent reviewer approved the local diff with no actionable findings; reviewer noted the existing Playwright artifacts and recommended standard final validation.
+  - Validation evidence: `rtk pnpm --filter @nexus-form/web exec vitest run src/components/forms` passed after building `@nexus-form/shared` because the fresh worktree initially lacked package `dist` output.
 
 ## Decision Log
 
