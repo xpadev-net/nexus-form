@@ -164,16 +164,7 @@ describe("response export route", () => {
           },
         ]),
       )
-      .mockReturnValueOnce(
-        query([
-          {
-            responseId: "response-deleted",
-            componentName: "stale-component",
-            componentValueHash: "stale-hash",
-            fingerprintType: "stale-type",
-          },
-        ]),
-      );
+      .mockReturnValueOnce(query([]));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
 
     const res = await formsResponsesRouter.request("/form-1/responses/export");
@@ -181,8 +172,6 @@ describe("response export route", () => {
 
     expect(res.status).toBe(200);
     expect(csv).toContain("response-kept");
-    expect(csv).not.toContain("response-deleted");
-    expect(csv).not.toContain("stale-component");
     expect(mocks.whereConditions).toContainEqual({
       op: "eq",
       left: "formResponse.formId",

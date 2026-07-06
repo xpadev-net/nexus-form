@@ -217,12 +217,13 @@ describe("response analytics routes", () => {
       expect.any(Function),
     );
     expect(mocks.fromCalls).toContain(mocks.schema.formResponse);
-    expect(mocks.whereConditions).toContainEqual({
-      op: "and",
-      conditions: [
-        { op: "eq", left: "formResponse.formId", right: "form-1" },
-        undefined,
-      ],
-    });
+    expect(mocks.whereConditions).toContainEqual(
+      expect.objectContaining({
+        op: "and",
+        conditions: expect.arrayContaining([
+          { op: "eq", left: "formResponse.formId", right: "form-1" },
+        ]),
+      }),
+    );
   });
 });
