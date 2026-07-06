@@ -1064,6 +1064,7 @@ async function claimValidationRevalidationPending(params: {
           service: params.service,
           status: "PENDING",
           success: null,
+          attemptCount: 0,
           lastAttemptAt: null,
           nextRetryAt: leaseUntil,
           metadata: null,

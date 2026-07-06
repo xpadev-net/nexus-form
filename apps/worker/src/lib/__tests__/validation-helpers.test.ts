@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { extractReferencedValueFromJson } from "../response-data-extractor";
 import {
   ConcurrentDeleteError,
+  FormResponseNotFoundError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -325,7 +326,7 @@ describe("getValidationContext", () => {
 
     await expect(
       getValidationContext("missing-response", "rule-1", "question-1"),
-    ).rejects.toThrow("Form response not found: missing-response");
+    ).rejects.toBeInstanceOf(FormResponseNotFoundError);
   });
 });
 

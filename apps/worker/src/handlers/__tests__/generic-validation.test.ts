@@ -127,6 +127,14 @@ vi.mock("../../lib/validation-helpers", () => {
       this.name = "ReferencedBlockMissingError";
     }
   }
+
+  class FormResponseNotFoundError extends Error {
+    constructor(public readonly responseId: string) {
+      super(`Form response not found: ${responseId}`);
+      this.name = "FormResponseNotFoundError";
+    }
+  }
+
   return {
     getValidationContext: vi.fn(),
     markValidationProcessing: vi.fn(),
@@ -135,6 +143,7 @@ vi.mock("../../lib/validation-helpers", () => {
     StaleValidationJobError,
     ValidationCancelledError,
     ReferencedBlockMissingError,
+    FormResponseNotFoundError,
   };
 });
 
@@ -173,6 +182,7 @@ import {
 } from "../../lib/redis-lock";
 import {
   ConcurrentDeleteError,
+  FormResponseNotFoundError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -780,7 +790,7 @@ describe("handleGenericValidation", () => {
 
   it("revalidation job ignores a response deleted after enqueue", async () => {
     mockGetValidationContext.mockRejectedValueOnce(
-      new Error("Form response not found: response-1"),
+      new FormResponseNotFoundError("response-1"),
     );
     const { baseJobData } = setupMockExternalProvider();
 

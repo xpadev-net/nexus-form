@@ -20,6 +20,7 @@ import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
 import { workerShutdownSignal } from "../lib/shutdown-signal";
 import {
   ConcurrentDeleteError,
+  FormResponseNotFoundError,
   getValidationContext,
   markValidationProcessing,
   ReferencedBlockMissingError,
@@ -144,13 +145,6 @@ const metadataRecordSchema = z.record(z.string(), z.unknown());
 
 export type GenericValidationJob = GenericValidationJobData;
 
-function isFormResponseNotFoundError(error: unknown, responseId: string) {
-  return (
-    error instanceof Error &&
-    error.message === `Form response not found: ${responseId}`
-  );
-}
-
 export const handleGenericValidation = async (
   job: Job<GenericValidationJob>,
   token?: string,
@@ -188,7 +182,8 @@ export const handleGenericValidation = async (
     }
     if (
       job.id?.toString().startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) &&
-      isFormResponseNotFoundError(error, responseId)
+      error instanceof FormResponseNotFoundError &&
+      error.responseId === responseId
     ) {
       return { ok: false, error: "Response deleted" };
     }
