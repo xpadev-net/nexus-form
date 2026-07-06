@@ -33,6 +33,11 @@ import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ViewMode = "list" | "analytics";
 
+type RevalidationRequest = {
+  responseIds: string[];
+  clearSelectionOnSuccess: boolean;
+};
+
 interface FormResponsesState {
   page: number;
   keyword: string;
@@ -259,7 +264,7 @@ export function FormResponsesContent({
   );
 
   const revalidateResponsesMutation = useMutation({
-    mutationFn: (responseIds: string[]) => {
+    mutationFn: ({ responseIds }: RevalidationRequest) => {
       if (responseIds.length === 1) {
         const [responseId] = responseIds;
         if (!responseId) {
@@ -281,7 +286,10 @@ export function FormResponsesContent({
         }),
       );
     },
-    onSuccess: async (result: ValidationRevalidationResponse, responseIds) => {
+    onSuccess: async (
+      result: ValidationRevalidationResponse,
+      { responseIds, clearSelectionOnSuccess },
+    ) => {
       await invalidateRevalidationQueries(responseIds);
       const message =
         result.enqueued > 0 && result.skipped > 0
@@ -298,7 +306,9 @@ export function FormResponsesContent({
         toast.info(message);
       }
 
-      dispatch({ type: "clear-response-selection" });
+      if (clearSelectionOnSuccess) {
+        dispatch({ type: "clear-response-selection" });
+      }
     },
     onError: (error) => {
       toast.error(
@@ -337,12 +347,18 @@ export function FormResponsesContent({
 
   const handleRevalidateSelectedResponses = useCallback(() => {
     if (state.selectedResponseIds.length === 0) return;
-    revalidateResponsesMutation.mutate(state.selectedResponseIds);
+    revalidateResponsesMutation.mutate({
+      responseIds: state.selectedResponseIds,
+      clearSelectionOnSuccess: true,
+    });
   }, [revalidateResponsesMutation, state.selectedResponseIds]);
 
   const handleRevalidateCurrentResponse = useCallback(() => {
     if (!state.selectedResponseId) return;
-    revalidateResponsesMutation.mutate([state.selectedResponseId]);
+    revalidateResponsesMutation.mutate({
+      responseIds: [state.selectedResponseId],
+      clearSelectionOnSuccess: false,
+    });
   }, [revalidateResponsesMutation, state.selectedResponseId]);
 
   const handlePageChange = useCallback((newPage: number) => {
@@ -460,8 +476,7 @@ export function FormResponsesContent({
                     isActionPending
                   }
                 >
-                  {revalidateResponsesMutation.isPending &&
-                  state.selectedResponseIds.length > 0 ? (
+                  {revalidateResponsesMutation.isPending ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <RefreshCw className="mr-1.5 h-3.5 w-3.5" />

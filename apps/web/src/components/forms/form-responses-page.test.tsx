@@ -41,12 +41,9 @@ type CapturedUseQueryOptions = {
 };
 
 type CapturedUseMutationOptions = {
-  mutationFn: (variables: string | string[]) => Promise<unknown>;
-  onError?: (error: unknown, variables: string | string[]) => void;
-  onSuccess?: (
-    data: unknown,
-    variables: string | string[],
-  ) => void | Promise<void>;
+  mutationFn: (variables: unknown) => Promise<unknown>;
+  onError?: (error: unknown, variables: unknown) => void;
+  onSuccess?: (data: unknown, variables: unknown) => void | Promise<void>;
 };
 
 function renderResponses(container: HTMLElement, shareToken?: string): Root {
@@ -165,7 +162,7 @@ vi.mock("@tanstack/react-query", () => ({
     queryMock.mutationOptions = options;
     return {
       isPending: queryMock.isDeletePending || queryMock.isRevalidatePending,
-      mutate: async (variables: string | string[]) => {
+      mutate: async (variables: unknown) => {
         try {
           const data = await options.mutationFn(variables);
           await options.onSuccess?.(data, variables);
@@ -840,6 +837,48 @@ describe("FormResponsesContent accessibility", () => {
     expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["validationResults", "form-1", "response-1"],
     });
+
+    act(() => root.unmount());
+  });
+
+  it("preserves checked responses when revalidating from the detail panel", async () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const checkbox = container.querySelector<HTMLInputElement>(
+      'input[type="checkbox"]',
+    );
+    expect(checkbox).not.toBeNull();
+
+    act(() => {
+      checkbox?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("1件を選択中");
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const revalidateButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="回答を再検証"]',
+    );
+
+    await act(async () => {
+      revalidateButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(apiMock.revalidateSingleResponse).toHaveBeenCalledWith({
+      param: { id: "form-1", responseId: "response-1" },
+    });
+    expect(container.textContent).toContain("1件を選択中");
+    expect(checkbox?.checked).toBe(true);
 
     act(() => root.unmount());
   });
