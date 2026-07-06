@@ -68,6 +68,14 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+function isDuplicateKeyError(error: unknown, depth: number = 0): boolean {
+  if (typeof error !== "object" || error === null || depth > 2) return false;
+  const code = Reflect.get(error, "code");
+  const errno = Reflect.get(error, "errno");
+  if (code === "ER_DUP_ENTRY" || errno === 1062) return true;
+  return isDuplicateKeyError(Reflect.get(error, "cause"), depth + 1);
+}
+
 const MAX_USER_AGENT_LENGTH = 512;
 const MAX_SESSION_ID_LENGTH = 128;
 const VALIDATION_RETRY_CLAIM_LEASE_MS = 5 * 60 * 1000;
@@ -1076,23 +1084,28 @@ async function claimValidationRevalidationPending(params: {
       return true;
     }
 
-    await tx.insert(externalServiceValidationResult).values({
-      id: params.resultId,
-      responseId: params.responseId,
-      ruleId: params.ruleId,
-      referencedBlockId: params.referencedBlockId,
-      snapshotVersion: null,
-      service: params.service,
-      status: "PENDING",
-      success: null,
-      attemptCount: 0,
-      lastAttemptAt: null,
-      nextRetryAt: leaseUntil,
-      metadata: null,
-      errorCode: null,
-      errorMessage: null,
-      jobId: params.jobId,
-    });
+    try {
+      await tx.insert(externalServiceValidationResult).values({
+        id: params.resultId,
+        responseId: params.responseId,
+        ruleId: params.ruleId,
+        referencedBlockId: params.referencedBlockId,
+        snapshotVersion: null,
+        service: params.service,
+        status: "PENDING",
+        success: null,
+        attemptCount: 0,
+        lastAttemptAt: null,
+        nextRetryAt: leaseUntil,
+        metadata: null,
+        errorCode: null,
+        errorMessage: null,
+        jobId: params.jobId,
+      });
+    } catch (error) {
+      if (isDuplicateKeyError(error)) return false;
+      throw error;
+    }
     return true;
   });
 }

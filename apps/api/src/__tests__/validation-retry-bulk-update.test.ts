@@ -712,6 +712,36 @@ describe("REVAL-1: historical response revalidation enqueue", () => {
     expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
 
+  it("skips when a concurrent revalidation creates the missing result row first", async () => {
+    mocks.txInsertValues.mockRejectedValueOnce(
+      Object.assign(new Error("Duplicate entry"), {
+        code: "ER_DUP_ENTRY",
+        errno: 1062,
+      }),
+    );
+    const { enqueueValidationRevalidations } = await import(
+      "../routes/forms-responses"
+    );
+
+    const result = await enqueueValidationRevalidations({
+      formId: "form-1",
+      responseIds: ["response-1"],
+    });
+
+    expect(result).toMatchObject({
+      enqueuedCount: 0,
+      skippedCount: 1,
+      results: [
+        expect.objectContaining({
+          responseId: "response-1",
+          status: "skipped",
+        }),
+      ],
+    });
+    expect(mocks.txInsert).toHaveBeenCalledTimes(1);
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
+  });
+
   it("marks only the claimed revalidation row failed when enqueue fails", async () => {
     mocks.queueAdd.mockRejectedValueOnce(new Error("queue unavailable"));
     const { enqueueValidationRevalidations } = await import(
