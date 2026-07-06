@@ -332,7 +332,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).not.toHaveBeenCalled();
   });
 
-  it("response が job の formId に属さない場合はSheets API呼び出し前に失敗する", async () => {
+  it("deleted or cross-form response rows are excluded before any Sheets write", async () => {
     setupDbSelect([INTEGRATION], []);
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
     mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
@@ -1194,6 +1194,77 @@ describe("handleSheetsSync — write path", () => {
       stage: 100,
       total: 2,
     });
+  });
+
+  it("full mode excludes response ids absent from the current FormResponse set", async () => {
+    setupDbSelect(
+      // 1. formIntegration lookup
+      [INTEGRATION],
+      // 2. full-mode target response query; deleted response rows are absent
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+        {
+          ...RESPONSE,
+          id: "response-3",
+          responseDataJson: '{"block-1":"third"}',
+        },
+      ],
+      // 3. plate content lookup
+      [],
+      // 4. uniqueness-score cohort query, using only current response ids
+      [{ id: "response-1" }, { id: "response-3" }],
+      // 5. fingerprint detail query for the cohort
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(String(json));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as never)
+        : null;
+    });
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 2 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "full",
+        responseId: "response-1",
+      }),
+    );
+
+    expect(result).toMatchObject({
+      mode: "full",
+      processed: 2,
+      skipped: 0,
+      total: 2,
+    });
+    expect(mockAppendRows).toHaveBeenCalledTimes(2);
+    const appendedRows = mockAppendRows.mock.calls.flatMap(
+      ([, params]) => params.rows,
+    );
+    expect(appendedRows).toEqual([
+      ["response-1", "first", "1.0000"],
+      ["response-3", "third", "1.0000"],
+    ]);
+    expect(appendedRows.flat()).not.toContain("response-deleted");
   });
 
   it("full mode uses a non-leading response job only for that response", async () => {

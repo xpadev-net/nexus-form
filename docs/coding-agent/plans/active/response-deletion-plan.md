@@ -234,6 +234,25 @@
   - Summary: Isolated web/API response deletion from revalidation and validation export work.
   - Validation evidence: Not run; planning only.
   - Notes: Repository rule suite is absent.
+- 2026-07-06 RESPDEL-1 bounded investigation completed.
+  - Summary: `FormResponse` has no tombstone columns. Direct dependent rows are `FingerprintDetail.responseId` and `ExternalServiceValidationResult.responseId`, both FK cascade to `FormResponse.id`; current API delete routes also explicitly delete those child rows before deleting the response row. Validation and Sheets jobs carry `responseId` as non-FK payload data, so a later worker run naturally fails before writing when the response row no longer exists.
+  - Deletion dependency map:
+    - `FormResponse.formId` -> `Form.id` cascade; `FormResponse.sessionId` -> `FormSession.id` set null.
+    - `FingerprintDetail.responseId` -> `FormResponse.id` cascade; deleted with the response.
+    - `ExternalServiceValidationResult.responseId` -> `FormResponse.id` cascade; deleted with the response.
+    - BullMQ validation, Sheets sync, and notification payloads store response ids outside the database FK graph; workers must tolerate missing response rows.
+  - Exclusion points:
+    - Response list/search/detail/ids/export all read from `FormResponse`, so hard-deleted rows are excluded by absence.
+    - Analytics/status/aggregate/timeline/block analytics read from `FormResponse` or inner-join validation results through `FormResponse`, so hard-deleted rows are excluded by absence.
+    - CSV export and uniqueness calculation read current `FormResponse` ids and fingerprint rows for those ids only.
+    - Manual/full Sheets sync target selection and worker replay read current `FormResponse` rows; existing external Sheets rows are left unchanged.
+  - Validation evidence: investigation only; targeted tests to be added and run by RESPDEL-1.
+  - Notes: No migration is needed for hard delete. A soft-delete/tombstone design would require new schema columns/indexes and adding a non-deleted predicate to every `FormResponse` query, so it is intentionally not implemented in RESPDEL-1.
+- 2026-07-06 RESPDEL-1 API/derived-output test slice completed.
+  - Summary: Added focused regression coverage for existing owner-authorized hard-delete behavior, dependent fingerprint/validation cleanup, repeated delete/detail not-found behavior, CSV export exclusion, analytics exclusion, and Sheets sync exclusion for missing/deleted response ids.
+  - Review response: Initial independent review requested stronger non-vacuous assertions for child cleanup predicates, export fingerprint lookup scoping, analytics query sources, and full-mode Sheets sync. Tests were tightened to cover those exact predicates and stale-row hazards.
+  - Validation evidence: `rtk pnpm exec vitest run src/__tests__/forms-responses*.test.ts` from `apps/api` passed; `rtk pnpm exec vitest run src/__tests__/response-export.test.ts src/__tests__/*analytics*.test.ts` from `apps/api` passed; `rtk pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/sheets-sync.test.ts` passed; `rtk pnpm lint:fix` passed; `rtk pnpm type-check` passed; `rtk pnpm test -- --silent` passed.
+  - Notes: No production schema or route changes were required for RESPDEL-1 because the existing API already hard-deletes scoped response rows and current DB-derived readers naturally exclude deleted rows by absence from `FormResponse`.
 
 ## Decision Log
 
@@ -242,6 +261,16 @@
   - Plan delta: Created a dedicated response deletion plan with independent UI/API/export exclusion validation.
   - Tradeoffs considered: Keeping deletion bundled with revalidation would complicate review and rollback.
   - User approval: yes
+- 2026-07-06 Decision:
+  - Trigger / new insight: RESPDEL-1 investigation found existing hard-delete routes and cascade-safe dependent tables, with no tombstone schema.
+  - Plan delta: Keep hard delete semantics for the API slice; add focused tests documenting repeated delete as 404/not-found, dependency cleanup, and derived-output exclusion by absence from `FormResponse`.
+  - Tradeoffs considered: Hard delete is narrow, needs no migration, and excludes deleted rows from all current DB-derived outputs. Soft delete would preserve audit/undo state but materially expands scope into migration, query predicates, validation/fingerprint retention policy, and response-limit semantics.
+  - User approval: delegated assumption A1 accepted because hard delete is safe under current FK/dependent-state graph.
+- 2026-07-06 Decision:
+  - Trigger / new insight: Existing Google Sheets rows are external copies and cannot be reliably reconciled from API hard delete without broad sync semantics.
+  - Plan delta: Exclude deleted responses from future manual/worker syncs by relying on current `FormResponse` target selection and missing-row guard; do not physically remove existing Sheets rows in RESPDEL-1.
+  - Tradeoffs considered: Removing existing rows would require matching/update policy for already-synced sheets and risks deleting user-managed rows. Leaving historical external rows unchanged keeps this API/worker slice narrow and consistent with the delegated scope.
+  - User approval: delegated assumption A2 accepted.
 
 ## Notes
 - Risks:
