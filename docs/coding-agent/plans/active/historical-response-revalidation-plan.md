@@ -232,6 +232,13 @@
   - Summary: Isolated historical revalidation from deletion and validation-result export work.
   - Validation evidence: Not run; planning only.
   - Notes: Repository rule suite is absent.
+- 2026-07-06 REVAL-1 bounded investigation completed before implementation.
+  - Validation result identity/selection semantics: `ExternalServiceValidationResult` is keyed by `responseId + ruleId + referencedBlockId` in both `packages/shared/src/validation-results.ts` and the database unique index. There is no run id or history dimension, so the latest/admin-visible state is the mutable row for that identity. `getExternalValidationResults()` sorts rows for display, but the schema permits only one row per identity.
+  - Provider queue payloads: BullMQ validation jobs use `genericValidationJobDataSchema` with `responseId`, `ruleId`, `referencedBlockId`, `snapshotProviderName`, `snapshotRuleType`, `snapshotConfigJson`, optional `snapshotVersion`, and retry-after bookkeeping. Existing retry jobs use `validation-retry-...` job ids and preserve the original snapshot rule/config when `snapshotVersion` is present.
+  - SSE/status API behavior: worker transitions call `markValidationProcessing()` and `writeValidationResult()`, both publishing the existing `validation_status_changed` SSE event. Response detail and status APIs read the current validation result rows; no revalidation-specific SSE event exists or is needed for this API/worker slice.
+  - Deleted-response exclusion points: response deletion is hard delete. API selection must inner-join/verify `FormResponse` rows for the target form so deleted, missing, and unauthorized response ids are excluded before enqueue. Worker must also treat `Form response not found` after enqueue as a safe ignored job because a response can be deleted after the API claims the result row.
+  - Chosen REVAL-1 scope: support owner/editor-triggered single-response revalidation and bounded selected-response bulk revalidation using the latest current validation rules and currently installed providers. Do not implement all-form revalidation, UI, or export behavior in REVAL-1.
+  - Validation evidence: Not run yet; investigation only.
 
 ## Decision Log
 

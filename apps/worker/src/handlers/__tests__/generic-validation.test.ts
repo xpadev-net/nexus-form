@@ -778,6 +778,25 @@ describe("handleGenericValidation", () => {
     );
   });
 
+  it("revalidation job ignores a response deleted after enqueue", async () => {
+    mockGetValidationContext.mockRejectedValueOnce(
+      new Error("Form response not found: response-1"),
+    );
+    const { baseJobData } = setupMockExternalProvider();
+
+    const result = await handleGenericValidation(
+      makeJob({
+        ...baseJobData,
+        responseId: "response-1",
+        jobId: "validation-revalidation-result-fixture-rerun",
+      }),
+    );
+
+    expect(result).toEqual({ ok: false, error: "Response deleted" });
+    expect(mockMarkValidationProcessing).not.toHaveBeenCalled();
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   type R26M3ResolvedSmokeCase = {
     formId: string;
     jobId: string;

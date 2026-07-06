@@ -12,6 +12,7 @@ import {
 import {
   type GenericValidationJobData,
   genericValidationJobDataSchema,
+  VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
@@ -143,6 +144,13 @@ const metadataRecordSchema = z.record(z.string(), z.unknown());
 
 export type GenericValidationJob = GenericValidationJobData;
 
+function isFormResponseNotFoundError(error: unknown, responseId: string) {
+  return (
+    error instanceof Error &&
+    error.message === `Form response not found: ${responseId}`
+  );
+}
+
 export const handleGenericValidation = async (
   job: Job<GenericValidationJob>,
   token?: string,
@@ -177,6 +185,12 @@ export const handleGenericValidation = async (
         jobId: job.id?.toString(),
       });
       return { ok: false, error: "Referenced block missing" };
+    }
+    if (
+      job.id?.toString().startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) &&
+      isFormResponseNotFoundError(error, responseId)
+    ) {
+      return { ok: false, error: "Response deleted" };
     }
     throw error;
   }

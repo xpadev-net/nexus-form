@@ -7,13 +7,16 @@ import {
   form,
   formResponse,
   formValidationRule,
+  formValidationRuleBlock,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import type { ValidationStatusValue } from "@nexus-form/shared";
 import {
   buildValidationRetryJobId,
+  buildValidationRevalidationJobId,
   extractQuestionsFromPlateContent,
   genericValidationJobDataSchema,
+  getValidationResultId,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
@@ -57,6 +60,7 @@ import {
   ResponsesListResponseSchema,
   ValidationRetryEnqueueErrorResponseSchema,
   ValidationRetryResponseSchema,
+  ValidationRevalidationResponseSchema,
 } from "../types/domain/form-responses";
 import { OkResponseSchema } from "../types/domain/form-row";
 
@@ -109,6 +113,13 @@ const bulkRetrySchema = z.object({
     .array(z.string().min(1))
     .min(1)
     .max(100, "Cannot retry more than 100 validation results at once"),
+});
+
+const bulkRevalidationSchema = z.object({
+  responseIds: z
+    .array(z.string().min(1))
+    .min(1, "At least one response ID is required")
+    .max(100, "Cannot revalidate more than 100 responses at once"),
 });
 
 const cancellableValidationStatusValues = [
@@ -576,6 +587,21 @@ function snapshotRuleMapKey(
   return `${formId}:${snapshotVersion ?? "latest"}:${ruleId}`;
 }
 
+function extractCurrentBlockIds(plateContent: string | null): Set<string> {
+  if (!plateContent) return new Set();
+  try {
+    const parsed: unknown = JSON.parse(plateContent);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(
+      extractQuestionsFromPlateContent(parsed).map(
+        (question) => question.blockId,
+      ),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
 function validationRetryClaimableCondition(now: Date) {
   const staleProcessingCutoff = new Date(
     now.getTime() - VALIDATION_RETRY_CLAIM_LEASE_MS,
@@ -925,6 +951,341 @@ async function claimValidationRetryPending(
       ),
     );
   return (updateResult[0]?.affectedRows ?? 0) > 0;
+}
+
+type RevalidationResultReason =
+  | "response_not_found"
+  | "no_validation_rules"
+  | "referenced_block_missing"
+  | "invalid_service_name"
+  | "provider_not_registered"
+  | "unknown_rule_type"
+  | "enqueue_failed";
+
+type RevalidationResultItem = {
+  responseId: string;
+  validationResultId?: string;
+  status: "enqueued" | "skipped";
+  reason?: RevalidationResultReason;
+};
+
+type CurrentValidationRuleTarget = {
+  ruleId: string;
+  providerName: string;
+  ruleType: string;
+  referencedBlockId: string;
+  configJson: Record<string, unknown>;
+};
+
+async function getCurrentValidationRuleTargets(formId: string): Promise<{
+  blockIds: Set<string>;
+  rules: CurrentValidationRuleTarget[];
+}> {
+  const [targetForm] = await db
+    .select({ plateContent: form.plateContent })
+    .from(form)
+    .where(eq(form.id, formId))
+    .limit(1);
+  const blockIds = extractCurrentBlockIds(targetForm?.plateContent ?? null);
+  const ruleRows = await db
+    .select({
+      ruleId: formValidationRule.id,
+      providerName: formValidationRule.providerName,
+      ruleType: formValidationRule.ruleType,
+      configJson: formValidationRule.configJson,
+      referencedBlockId: formValidationRuleBlock.referencedBlockId,
+      orderIndex: formValidationRule.orderIndex,
+      blockOrderIndex: formValidationRuleBlock.orderIndex,
+    })
+    .from(formValidationRule)
+    .innerJoin(
+      formValidationRuleBlock,
+      eq(formValidationRuleBlock.ruleId, formValidationRule.id),
+    )
+    .where(eq(formValidationRule.formId, formId))
+    .orderBy(formValidationRule.orderIndex, formValidationRuleBlock.orderIndex);
+
+  return {
+    blockIds,
+    rules: ruleRows.flatMap((row) => {
+      if (!isRecord(row.configJson)) return [];
+      return [
+        {
+          ruleId: row.ruleId,
+          providerName: row.providerName,
+          ruleType: row.ruleType,
+          referencedBlockId: row.referencedBlockId,
+          configJson: row.configJson,
+        },
+      ];
+    }),
+  };
+}
+
+async function claimValidationRevalidationPending(params: {
+  resultId: string;
+  responseId: string;
+  ruleId: string;
+  referencedBlockId: string;
+  service: string;
+  jobId: string;
+}): Promise<boolean> {
+  const now = new Date();
+  const leaseUntil = new Date(now.getTime() + VALIDATION_RETRY_CLAIM_LEASE_MS);
+
+  return db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({
+        status: externalServiceValidationResult.status,
+        nextRetryAt: externalServiceValidationResult.nextRetryAt,
+        updatedAt: externalServiceValidationResult.updatedAt,
+      })
+      .from(externalServiceValidationResult)
+      .where(eq(externalServiceValidationResult.id, params.resultId))
+      .for("update");
+
+    if (existing) {
+      const staleProcessingCutoff = new Date(
+        now.getTime() - VALIDATION_RETRY_CLAIM_LEASE_MS,
+      );
+      const activeProcessing =
+        existing.status === "PROCESSING" &&
+        existing.updatedAt > staleProcessingCutoff;
+      const activePending =
+        existing.status === "PENDING" &&
+        existing.nextRetryAt !== null &&
+        existing.nextRetryAt > now;
+      if (activeProcessing || activePending) return false;
+
+      await tx
+        .update(externalServiceValidationResult)
+        .set({
+          snapshotVersion: null,
+          service: params.service,
+          status: "PENDING",
+          success: null,
+          lastAttemptAt: null,
+          nextRetryAt: leaseUntil,
+          metadata: null,
+          errorCode: null,
+          errorMessage: null,
+          jobId: params.jobId,
+        })
+        .where(eq(externalServiceValidationResult.id, params.resultId));
+      return true;
+    }
+
+    await tx.insert(externalServiceValidationResult).values({
+      id: params.resultId,
+      responseId: params.responseId,
+      ruleId: params.ruleId,
+      referencedBlockId: params.referencedBlockId,
+      snapshotVersion: null,
+      service: params.service,
+      status: "PENDING",
+      success: null,
+      attemptCount: 0,
+      lastAttemptAt: null,
+      nextRetryAt: leaseUntil,
+      metadata: null,
+      errorCode: null,
+      errorMessage: null,
+      jobId: params.jobId,
+    });
+    return true;
+  });
+}
+
+export async function enqueueValidationRevalidations(params: {
+  formId: string;
+  responseIds: string[];
+}): Promise<{
+  jobIds: string[];
+  enqueuedCount: number;
+  skippedCount: number;
+  results: RevalidationResultItem[];
+}> {
+  const responseIds = [...new Set(params.responseIds)];
+  const results: RevalidationResultItem[] = [];
+  const jobIds: string[] = [];
+
+  const responseRows =
+    responseIds.length > 0
+      ? await db
+          .select({ id: formResponse.id })
+          .from(formResponse)
+          .where(
+            and(
+              eq(formResponse.formId, params.formId),
+              inArray(formResponse.id, responseIds),
+            ),
+          )
+      : [];
+  const existingResponseIds = new Set(responseRows.map((row) => row.id));
+
+  for (const responseId of responseIds) {
+    if (!existingResponseIds.has(responseId)) {
+      results.push({
+        responseId,
+        status: "skipped",
+        reason: "response_not_found",
+      });
+    }
+  }
+
+  const { blockIds, rules } = await getCurrentValidationRuleTargets(
+    params.formId,
+  );
+  if (rules.length === 0) {
+    for (const responseId of existingResponseIds) {
+      results.push({
+        responseId,
+        status: "skipped",
+        reason: "no_validation_rules",
+      });
+    }
+    return {
+      jobIds,
+      enqueuedCount: 0,
+      skippedCount: results.length,
+      results,
+    };
+  }
+
+  for (const responseId of responseIds) {
+    if (!existingResponseIds.has(responseId)) continue;
+
+    for (const rule of rules) {
+      const validationResultId = getValidationResultId({
+        responseId,
+        ruleId: rule.ruleId,
+        referencedBlockId: rule.referencedBlockId,
+      });
+
+      if (!blockIds.has(rule.referencedBlockId)) {
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+          reason: "referenced_block_missing",
+        });
+        continue;
+      }
+      if (!isValidServiceName(rule.providerName)) {
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+          reason: "invalid_service_name",
+        });
+        continue;
+      }
+      const provider = providerRegistry.get(rule.providerName);
+      if (!provider) {
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+          reason: "provider_not_registered",
+        });
+        continue;
+      }
+      if (!provider.rules[rule.ruleType]) {
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+          reason: "unknown_rule_type",
+        });
+        continue;
+      }
+
+      const jobId = buildValidationRevalidationJobId(
+        validationResultId,
+        randomUUID(),
+      );
+      const jobData = genericValidationJobDataSchema.parse({
+        responseId,
+        ruleId: rule.ruleId,
+        referencedBlockId: rule.referencedBlockId,
+        snapshotProviderName: rule.providerName,
+        snapshotRuleType: rule.ruleType,
+        snapshotConfigJson: rule.configJson,
+      });
+
+      const claimed = await claimValidationRevalidationPending({
+        resultId: validationResultId,
+        responseId,
+        ruleId: rule.ruleId,
+        referencedBlockId: rule.referencedBlockId,
+        service: rule.providerName,
+        jobId,
+      });
+      if (!claimed) {
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+        });
+        continue;
+      }
+
+      try {
+        const queue = getValidationQueue(rule.providerName);
+        const job = await queue.add(`validate-${rule.providerName}`, jobData, {
+          jobId,
+        });
+        if (job.id) jobIds.push(job.id);
+        results.push({
+          responseId,
+          validationResultId,
+          status: "enqueued",
+        });
+      } catch (error) {
+        logError(
+          "Failed to enqueue validation revalidation job",
+          "forms-responses",
+          {
+            error,
+            responseId,
+            ruleId: rule.ruleId,
+            service: rule.providerName,
+            formId: params.formId,
+            jobId,
+          },
+        );
+        await db
+          .update(externalServiceValidationResult)
+          .set({
+            status: "FAILED",
+            errorCode: "ENQUEUE_FAILED",
+            errorMessage: "Failed to enqueue revalidation job",
+          })
+          .where(
+            and(
+              eq(externalServiceValidationResult.id, validationResultId),
+              eq(externalServiceValidationResult.jobId, jobId),
+            ),
+          );
+        results.push({
+          responseId,
+          validationResultId,
+          status: "skipped",
+          reason: "enqueue_failed",
+        });
+      }
+    }
+  }
+
+  const enqueuedCount = results.filter(
+    (result) => result.status === "enqueued",
+  ).length;
+  return {
+    jobIds,
+    enqueuedCount,
+    skippedCount: results.length - enqueuedCount,
+    results,
+  };
 }
 
 async function discardQueuedValidationJob(params: {
@@ -1482,6 +1843,28 @@ export const formsResponsesRouter = createHonoApp()
     },
   )
   .post(
+    "/:id/responses/validation/revalidate",
+    withDualFormAuth("EDITOR"),
+    zValidator("json", bulkRevalidationSchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { responseIds } = c.req.valid("json");
+      const result = await enqueueValidationRevalidations({
+        formId,
+        responseIds,
+      });
+
+      return c.json(
+        ValidationRevalidationResponseSchema.parse({
+          enqueued: result.enqueuedCount,
+          skipped: result.skippedCount,
+          jobIds: result.jobIds,
+          results: result.results,
+        }),
+      );
+    },
+  )
+  .post(
     "/:id/responses/validation/bulk-retry",
     withDualFormAuth("EDITOR"),
     zValidator("json", bulkRetrySchema),
@@ -1572,6 +1955,35 @@ export const formsResponsesRouter = createHonoApp()
           enqueued: enqueuedCount,
           skipped: skippedCount,
           jobIds,
+        }),
+      );
+    },
+  )
+  .post(
+    "/:id/responses/:responseId/validation/revalidate",
+    withDualFormAuth("EDITOR"),
+    async (c) => {
+      const formId = c.req.param("id");
+      const responseId = c.req.param("responseId");
+
+      const result = await enqueueValidationRevalidations({
+        formId,
+        responseIds: [responseId],
+      });
+      if (
+        result.enqueuedCount === 0 &&
+        result.results.length === 1 &&
+        result.results[0]?.reason === "response_not_found"
+      ) {
+        return c.json(errorResponse("Response not found"), 404);
+      }
+
+      return c.json(
+        ValidationRevalidationResponseSchema.parse({
+          enqueued: result.enqueuedCount,
+          skipped: result.skippedCount,
+          jobIds: result.jobIds,
+          results: result.results,
         }),
       );
     },

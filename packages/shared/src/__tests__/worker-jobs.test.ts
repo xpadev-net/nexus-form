@@ -3,6 +3,7 @@ import {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
   buildValidationRetryJobId,
+  buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
@@ -10,6 +11,7 @@ import {
   sheetsSyncJobDataSchema,
   sheetsSyncModeSchema,
   VALIDATION_RETRY_JOB_PREFIX,
+  VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "../worker-jobs";
 
 describe("validation retry job ids", () => {
@@ -34,6 +36,21 @@ describe("validation retry job ids", () => {
     );
     expect(jobIdWithColonNonce).not.toContain(":");
     expect(jobIdWithColonNonce.endsWith("-job-nonce")).toBe(true);
+  });
+});
+
+describe("validation revalidation job ids", () => {
+  it("uses a colon-free prefix and sanitizes result ids", () => {
+    expect(VALIDATION_REVALIDATION_JOB_PREFIX).toBe("validation-revalidation-");
+    expect(VALIDATION_REVALIDATION_JOB_PREFIX).not.toContain(":");
+
+    const resultId = "validation-result:d7210b09421b8eb30c7a872f2e5b666a";
+    const jobId = buildValidationRevalidationJobId(resultId, "job:nonce");
+
+    expect(jobId).toBe(
+      "validation-revalidation-validation-result-d7210b09421b8eb30c7a872f2e5b666a-job-nonce",
+    );
+    expect(jobId).not.toContain(":");
   });
 });
 

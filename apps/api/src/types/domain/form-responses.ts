@@ -298,3 +298,35 @@ export const ValidationRetryEnqueueErrorResponseSchema = z.object({
 export type ValidationRetryEnqueueErrorResponse = z.infer<
   typeof ValidationRetryEnqueueErrorResponseSchema
 >;
+
+/** historical response revalidation の 1 件結果。 */
+export const ValidationRevalidationResultItemSchema = z.object({
+  responseId: z.string(),
+  validationResultId: z.string().optional(),
+  status: z.enum(["enqueued", "skipped"]),
+  reason: z
+    .enum([
+      "response_not_found",
+      "no_validation_rules",
+      "referenced_block_missing",
+      "invalid_service_name",
+      "provider_not_registered",
+      "unknown_rule_type",
+      "enqueue_failed",
+    ])
+    .optional(),
+});
+export type ValidationRevalidationResultItem = z.infer<
+  typeof ValidationRevalidationResultItemSchema
+>;
+
+/** POST revalidation endpoints のレスポンス。 */
+export const ValidationRevalidationResponseSchema = z.object({
+  enqueued: z.number().int(),
+  skipped: z.number().int(),
+  jobIds: z.array(z.string()),
+  results: z.array(ValidationRevalidationResultItemSchema),
+});
+export type ValidationRevalidationResponse = z.infer<
+  typeof ValidationRevalidationResponseSchema
+>;
