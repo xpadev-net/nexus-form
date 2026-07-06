@@ -40,6 +40,12 @@ type CapturedUseQueryOptions = {
   queryKey: readonly unknown[];
 };
 
+type CapturedUseMutationOptions = {
+  mutationFn: (responseId: string) => Promise<unknown>;
+  onError?: (error: unknown, responseId: string) => void;
+  onSuccess?: (data: unknown, responseId: string) => void | Promise<void>;
+};
+
 function renderResponses(container: HTMLElement, shareToken?: string): Root {
   const root = createRoot(container);
   act(() => {
@@ -52,12 +58,18 @@ function renderResponses(container: HTMLElement, shareToken?: string): Root {
 
 const queryMock = vi.hoisted(
   (): {
+    invalidateQueries: ReturnType<typeof vi.fn>;
     lastOptions: CapturedUseQueryOptions | null;
+    mutationOptions: CapturedUseMutationOptions | null;
     refetch: ReturnType<typeof vi.fn<ResponsesQueryState["refetch"]>>;
+    setQueriesData: ReturnType<typeof vi.fn>;
     state: ResponsesQueryState;
   } => ({
+    invalidateQueries: vi.fn(() => Promise.resolve()),
     lastOptions: null,
+    mutationOptions: null,
     refetch: vi.fn<ResponsesQueryState["refetch"]>(),
+    setQueriesData: vi.fn(),
     state: {
       data: {
         responses: [
@@ -85,8 +97,25 @@ const queryMock = vi.hoisted(
 );
 
 const apiMock = vi.hoisted(() => ({
+  deleteResponse: vi.fn(() =>
+    Promise.resolve(new Response(JSON.stringify({ ok: true }))),
+  ),
   getResponses: vi.fn(() => Promise.resolve({ ok: true })),
-  rpc: vi.fn((value: unknown) => value),
+  rpc: vi.fn(async (value: unknown) => {
+    const resolved = await value;
+    if (resolved instanceof Response) {
+      if (!resolved.ok) {
+        const payload = (await resolved.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        throw new Error(payload?.error ?? `HTTP ${resolved.status}`);
+      }
+      return resolved.json();
+    }
+    return resolved;
+  }),
+  toastError: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 const filterMock = vi.hoisted(
@@ -99,10 +128,28 @@ const filterMock = vi.hoisted(
 
 vi.mock("@tanstack/react-query", () => ({
   keepPreviousData: Symbol("keepPreviousData"),
+  useMutation: (options: CapturedUseMutationOptions) => {
+    queryMock.mutationOptions = options;
+    return {
+      isPending: false,
+      mutate: async (responseId: string) => {
+        try {
+          const data = await options.mutationFn(responseId);
+          await options.onSuccess?.(data, responseId);
+        } catch (error) {
+          options.onError?.(error, responseId);
+        }
+      },
+    };
+  },
   useQuery: (options: CapturedUseQueryOptions) => {
     queryMock.lastOptions = options;
     return queryMock.state;
   },
+  useQueryClient: () => ({
+    invalidateQueries: queryMock.invalidateQueries,
+    setQueriesData: queryMock.setQueriesData,
+  }),
 }));
 
 vi.mock("@/hooks/forms/use-validation-sse", () => ({
@@ -112,7 +159,9 @@ vi.mock("@/components/forms/form-response-analytics", () => ({
   FormResponseAnalytics: () => <section data-testid="analytics" />,
 }));
 vi.mock("@/components/forms/response-detail-view", () => ({
-  ResponseDetailView: () => <section data-testid="response-detail" />,
+  ResponseDetailView: ({ responseId }: { responseId: string }) => (
+    <section data-testid="response-detail">{responseId}</section>
+  ),
 }));
 vi.mock("@/components/forms/response-export", () => ({
   ResponseExport: () => <button type="button">Export</button>,
@@ -137,6 +186,101 @@ vi.mock("@/components/forms/response-filter", () => ({
     );
   },
 }));
+vi.mock("@/components/ui/alert-dialog", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  const DialogContext = React.createContext<{
+    open: boolean;
+    setOpen: (open: boolean) => void;
+  } | null>(null);
+
+  const useDialogContext = () => {
+    const context = React.useContext(DialogContext);
+    if (!context) throw new Error("AlertDialog context is missing");
+    return context;
+  };
+
+  return {
+    AlertDialog: ({ children }: { children: ReactNode }) => {
+      const [open, setOpen] = React.useState(false);
+      return (
+        <DialogContext.Provider value={{ open, setOpen }}>
+          <div>{children}</div>
+        </DialogContext.Provider>
+      );
+    },
+    AlertDialogAction: ({
+      children,
+      onClick,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+      children: ReactNode;
+    }) => {
+      const { setOpen } = useDialogContext();
+      return (
+        <button
+          {...props}
+          onClick={(event) => {
+            onClick?.(event);
+            setOpen(false);
+          }}
+        >
+          {children}
+        </button>
+      );
+    },
+    AlertDialogCancel: ({
+      children,
+      onClick,
+      ...props
+    }: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+      children: ReactNode;
+    }) => {
+      const { setOpen } = useDialogContext();
+      return (
+        <button
+          {...props}
+          onClick={(event) => {
+            onClick?.(event);
+            setOpen(false);
+          }}
+        >
+          {children}
+        </button>
+      );
+    },
+    AlertDialogContent: ({ children }: { children: ReactNode }) => {
+      const { open } = useDialogContext();
+      return open ? <div>{children}</div> : null;
+    },
+    AlertDialogDescription: ({ children }: { children: ReactNode }) => (
+      <p>{children}</p>
+    ),
+    AlertDialogFooter: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    AlertDialogHeader: ({ children }: { children: ReactNode }) => (
+      <div>{children}</div>
+    ),
+    AlertDialogTitle: ({ children }: { children: ReactNode }) => (
+      <h2>{children}</h2>
+    ),
+    AlertDialogTrigger: ({
+      children,
+    }: {
+      children: React.ReactElement<
+        React.ButtonHTMLAttributes<HTMLButtonElement>
+      >;
+    }) => {
+      const { setOpen } = useDialogContext();
+      return React.cloneElement(children, {
+        onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+          children.props.onClick?.(event);
+          setOpen(true);
+        },
+      });
+    },
+  };
+});
 vi.mock("@/components/ui/button", () => ({
   Button: ({
     children,
@@ -151,6 +295,9 @@ vi.mock("@/lib/api", () => ({
       forms: {
         ":id": {
           responses: {
+            ":responseId": {
+              $delete: apiMock.deleteResponse,
+            },
             $get: apiMock.getResponses,
           },
         },
@@ -159,12 +306,26 @@ vi.mock("@/lib/api", () => ({
   },
   rpc: apiMock.rpc,
 }));
+vi.mock("sonner", () => ({
+  toast: {
+    error: apiMock.toastError,
+    success: apiMock.toastSuccess,
+  },
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
   filterMock.onKeywordChange = null;
   queryMock.lastOptions = null;
+  queryMock.mutationOptions = null;
+  queryMock.invalidateQueries.mockResolvedValue(undefined);
+  queryMock.setQueriesData.mockImplementation((_filter, updater) => {
+    queryMock.state.data = updater(queryMock.state.data);
+  });
+  apiMock.deleteResponse.mockResolvedValue(
+    new Response(JSON.stringify({ ok: true })),
+  );
   queryMock.state = {
     data: {
       responses: [
@@ -369,6 +530,253 @@ describe("FormResponsesContent accessibility", () => {
         q: "Needle",
       },
     });
+
+    act(() => root.unmount());
+  });
+
+  it("cancels response deletion without calling the API", () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const openDeleteDialogButton = container.querySelector(
+      'button[aria-label="回答を削除"]',
+    );
+    expect(openDeleteDialogButton).not.toBeNull();
+
+    act(() => {
+      openDeleteDialogButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const cancelButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "キャンセル",
+    );
+    expect(cancelButton).toBeDefined();
+
+    act(() => {
+      cancelButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMock.deleteResponse).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-testid='response-detail']"),
+    ).not.toBeNull();
+
+    act(() => root.unmount());
+  });
+
+  it("deletes the selected response, clears detail, updates cached list, and invalidates dependent queries", async () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const openDeleteDialogButton = container.querySelector(
+      'button[aria-label="回答を削除"]',
+    );
+    expect(openDeleteDialogButton).not.toBeNull();
+
+    act(() => {
+      openDeleteDialogButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    expect(container.textContent).toContain("回答 #response");
+    expect(
+      container.querySelector("[data-testid='response-detail']"),
+    ).not.toBeNull();
+
+    const deleteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "削除する",
+    );
+    expect(deleteButton).toBeDefined();
+
+    await act(async () => {
+      deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMock.deleteResponse).toHaveBeenCalledWith({
+      param: { id: "form-1", responseId: "response-1" },
+    });
+    expect(apiMock.toastSuccess).toHaveBeenCalledWith("回答を削除しました");
+    expect(
+      container.querySelector("[data-testid='response-detail']"),
+    ).toBeNull();
+    expect(queryMock.state.data?.responses).toEqual([]);
+    expect(queryMock.setQueriesData).toHaveBeenCalledWith(
+      { queryKey: ["formResponses", "form-1"] },
+      expect.any(Function),
+    );
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["formResponses", "form-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["validationResults", "form-1", "response-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["responseAnalytics", "form-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["responseAggregate", "form-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["responseStatuses", "form-1"],
+    });
+    expect(queryMock.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["responseBlockAnalytics", "form-1"],
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("keeps the selected detail visible and shows an error toast when deletion fails", async () => {
+    apiMock.deleteResponse.mockResolvedValue(
+      new Response(JSON.stringify({ error: "Response not found" }), {
+        status: 404,
+      }),
+    );
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButton = Array.from(
+      container.querySelectorAll("button"),
+    ).find((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const openDeleteDialogButton = container.querySelector(
+      'button[aria-label="回答を削除"]',
+    );
+    expect(openDeleteDialogButton).not.toBeNull();
+
+    act(() => {
+      openDeleteDialogButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const deleteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "削除する",
+    );
+
+    await act(async () => {
+      deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(apiMock.toastError).toHaveBeenCalledWith("Response not found");
+    expect(apiMock.toastSuccess).not.toHaveBeenCalled();
+    expect(queryMock.setQueriesData).not.toHaveBeenCalled();
+    expect(queryMock.invalidateQueries).not.toHaveBeenCalled();
+    expect(
+      container.querySelector("[data-testid='response-detail']"),
+    ).not.toBeNull();
+    expect(queryMock.state.data?.responses).toHaveLength(1);
+
+    act(() => root.unmount());
+  });
+
+  it("does not close a newly selected detail when an older delete finishes", async () => {
+    let resolveDelete: (response: Response) => void = () => {};
+    apiMock.deleteResponse.mockReturnValue(
+      new Promise<Response>((resolve) => {
+        resolveDelete = resolve;
+      }),
+    );
+    queryMock.state = {
+      ...queryMock.state,
+      data: {
+        responses: [
+          {
+            countryCode: "JP",
+            id: "response-1",
+            respondentUuid: "respondent-uuid-1",
+            submittedAt: "2026-01-01T00:00:00.000Z",
+            uniquenessScore: 1,
+            updatedAt: null,
+          },
+          {
+            countryCode: "US",
+            id: "response-2",
+            respondentUuid: "respondent-uuid-2",
+            submittedAt: "2026-01-02T00:00:00.000Z",
+            uniquenessScore: 0.5,
+            updatedAt: null,
+          },
+        ],
+        hasNext: false,
+        page: 1,
+        limit: 20,
+      },
+    };
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    const responseButtons = Array.from(
+      container.querySelectorAll("button"),
+    ).filter((button) => button.textContent?.includes("回答者:"));
+
+    act(() => {
+      responseButtons[0]?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(
+      container.querySelector("[data-testid='response-detail']")?.textContent,
+    ).toBe("response-1");
+
+    const openDeleteDialogButton = container.querySelector(
+      'button[aria-label="回答を削除"]',
+    );
+    act(() => {
+      openDeleteDialogButton?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+
+    const deleteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "削除する",
+    );
+    act(() => {
+      deleteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      responseButtons[1]?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(
+      container.querySelector("[data-testid='response-detail']")?.textContent,
+    ).toBe("response-2");
+
+    await act(async () => {
+      resolveDelete(new Response(JSON.stringify({ ok: true })));
+    });
+
+    expect(
+      container.querySelector("[data-testid='response-detail']")?.textContent,
+    ).toBe("response-2");
+    expect(
+      queryMock.state.data?.responses.map((response) => response.id),
+    ).toEqual(["response-2"]);
 
     act(() => root.unmount());
   });
