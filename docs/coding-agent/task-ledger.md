@@ -491,9 +491,9 @@
 - pending_worktree: resolved from `local:02dca7ee-276e-4254-94eb-e3d31bd259e0`
 - worker_thread: `019f3721-b1a0-7721-97df-7fa7b523e035`
 - worktree: `/Users/xpadev/.codex/worktrees/a906/nexus-form`
-- current_head: remote PR head `726348ded2d4e5c8a63015dd756802c5bdd3bbdc`; worker local branch currently ahead after review fixes
+- current_head: `d359f5c8c6a8740644682f65a77513cda68c74ba`
 - pr: #626 `https://github.com/xpadev-net/nexus-form/pull/626`
-- hook_state: worker `gh-review-hook 626` returned exit 2 with actionable findings; worker is applying fixes
+- hook_state: worker fixed repeated `gh-review-hook 626` findings and is waiting on the latest hook/CI pass
 - source_plan_tasks:
   - `historical-response-revalidation-plan.md` Task_1
   - `historical-response-revalidation-plan.md` Task_2
@@ -621,3 +621,4 @@
 - 2026-07-06: Started REVAL-1 worker as pending worktree `local:02dca7ee-276e-4254-94eb-e3d31bd259e0` on branch `codex/historical-response-revalidation-core`. Scope is limited to historical revalidation API/worker/core and plan investigation updates; revalidation UI and validation-result export remain unstarted.
 - 2026-07-06: REVAL-1 worker resolved to thread `019f3721-b1a0-7721-97df-7fa7b523e035` in worktree `/Users/xpadev/.codex/worktrees/a906/nexus-form`. Startup stability check found the worker stopped after branch creation without a concrete blocker, so the parent sent one resume instruction to continue from the current branch and report before any future stop.
 - 2026-07-06: REVAL-1 worker opened PR #626 (`https://github.com/xpadev-net/nexus-form/pull/626`) at remote head `726348ded2d4e5c8a63015dd756802c5bdd3bbdc`. GitHub checks are successful on that head, but worker `gh-review-hook 626` returned exit 2 and the worker is actively applying review fixes; the worker worktree is currently ahead of the remote branch, so parent merge gate is not started yet.
+- 2026-07-06: REVAL-1 worker pushed additional hook fixes through head `d359f5c8c6a8740644682f65a77513cda68c74ba` after addressing typed missing-response handling, attempt-count reset, and duplicate insert race findings. GitHub reviewDecision is approved, but CI and Greptile are still in progress on the latest head and the worker is active, so parent merge gate is not started yet.
