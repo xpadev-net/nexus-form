@@ -413,8 +413,9 @@
 ## Tasks
 
 ### RESPDEL-1: Response deletion API and derived-output exclusion
-- status: unstarted
+- status: in progress
 - branch: `codex/response-delete-api`
+- pending_worktree: `local:d0c93f5b-4c2b-4077-9dc4-6fd9374b486a`
 - worker_thread: pending
 - worktree: pending
 - source_plan_tasks:
@@ -590,3 +591,4 @@
 ## Activity Log
 
 - 2026-07-06: Ledger section created after plan split commit `Split response validation export plans`. Initial implementation dispatch will start with RESPDEL-1 only because remaining tasks overlap its shared/API/worker ownership.
+- 2026-07-06: Started RESPDEL-1 worker as pending worktree `local:d0c93f5b-4c2b-4077-9dc4-6fd9374b486a` on branch `codex/response-delete-api`. Scope is limited to deletion API/data semantics plus analytics/export/Sheets exclusion; response deletion UI, historical revalidation, and validation-result export remain unstarted.
