@@ -454,14 +454,15 @@
   - Completed after worker fixed Greptile test-fidelity findings and merged current `origin/master` without history rewrite. Parent merge gate passed on head `2d539b237652aefecfde24ba81aeb7b8b402f62b`: PR diff/deep-review found no blocking issues; `gh-review-hook 624` exited 0; targeted API response delete/export/analytics tests, targeted worker Sheets sync tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` passed. PR #624 was squash-merged as `59fc2fa155d380c4993e55f70f7b320d7c9de275`; `gh pr merge --delete-branch` returned non-zero only because local `master` is checked out in the parent worktree, but the PR merge was verified.
 
 ### RESPDEL-2: Response deletion UI
-- status: in progress
+- status: complete
 - branch: `codex/response-delete-ui`
 - pending_worktree: resolved from `local:0a67588a-9363-4dea-8e07-10c86deae205`
 - worker_thread: `019f36e1-9465-7081-94ca-2d61734bfd62`
 - worktree: `/Users/xpadev/.codex/worktrees/2a38/nexus-form`
-- current_head: `d8c7f643a14f01c9c38516e731d986f441e76695`
+- current_head: `dbdd966c61234c54f1ac63ebc29d3b7cf5f6c000`
 - pr: #625 `https://github.com/xpadev-net/nexus-form/pull/625`
-- hook_state: worker reran `gh-review-hook 625`; CI checks passed and Greptile remains in progress
+- hook_state: worker and parent `gh-review-hook 625` exited 0
+- merge_commit: `30d1b189f922f810df20afe9c74467147e496fba`
 - source_plan_task: `response-deletion-plan.md` Task_4
 - scope:
   - `apps/web/src/components/forms/**`
@@ -479,6 +480,10 @@
   - Reviewer-owned Playwright evidence for response delete UI
   - `pnpm lint:fix`
   - `pnpm type-check`
+- completion_notes:
+  - Parent merge gate passed: PR diff/deep-review found no blocking issues; `gh-review-hook 625` exited 0; `pnpm --filter @nexus-form/web exec vitest run src/components/forms`, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` passed from the PR worktree.
+  - Parent UI evidence: GitHub E2E Harness succeeded at head `dbdd966c61234c54f1ac63ebc29d3b7cf5f6c000`; local browser route check reached `/login?redirect=%2Fforms%2Fform-1%2Fresponses` with no console errors because local auth/API seed data for a real deletion flow was unavailable; component tests cover delete confirmation/cancel/success/error/pending/stale-completion behavior. Local `pnpm test:e2e:ci` list check failed with existing Playwright environment error `context.conditions?.includes is not a function`, while the same CI E2E Harness step succeeded on GitHub.
+  - PR #625 was squash-merged as `30d1b189f922f810df20afe9c74467147e496fba`; the initial merge command returned non-zero only when deleting the local branch that remained checked out in the worker worktree. Remote branch was deleted separately and worker thread archived.
 
 ### REVAL-1: Historical response revalidation API and worker
 - status: unstarted
@@ -608,3 +613,4 @@
 - 2026-07-06: RESPDEL-2 worker resolved to thread `019f36e1-9465-7081-94ca-2d61734bfd62` in worktree `/Users/xpadev/.codex/worktrees/2a38/nexus-form`; startup stability check shows it is active after implementation, validation, independent review, and commit `a5e179c215d80aa03af817b9cd6a235838898825`, with PR creation not yet visible from `gh pr list`.
 - 2026-07-06: RESPDEL-2 worker opened PR #625 (`https://github.com/xpadev-net/nexus-form/pull/625`) at head `a5e179c215d80aa03af817b9cd6a235838898825`. Worker reports targeted web forms tests, lint, type-check, full `pnpm test -- --silent`, browser reachability probe, and independent review passed before PR; `gh-review-hook 625` returned exit 2 with in-scope UI/test/type cleanup findings and the worker is actively applying fixes, so parent merge gate is not started yet.
 - 2026-07-06: RESPDEL-2 worker pushed review-hook fixes at head `d8c7f643a14f01c9c38516e731d986f441e76695` and reran `gh-review-hook 625`. GitHub shows Lint, Type Check, Unit & Integration Tests, E2E Harness, production build, color guard, and Socket checks successful; Greptile Review remains in progress, `mergeStateStatus` is `UNSTABLE`, and worker is still active, so parent merge gate is not started yet.
+- 2026-07-06: RESPDEL-2 worker reported merge-ready at head `dbdd966c61234c54f1ac63ebc29d3b7cf5f6c000` after normal merge from `origin/master`, required validation, and `gh-review-hook 625` exit 0. Parent verified PR #625 was `CLEAN` and approved, inspected the PR diff, reran `gh-review-hook 625`, focused web forms tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and browser route reachability/console checks, then squash-merged PR #625 as `30d1b189f922f810df20afe9c74467147e496fba`. Remote branch `codex/response-delete-ui` was deleted separately after local branch deletion failed because the worker worktree still had it checked out; worker thread archived.
