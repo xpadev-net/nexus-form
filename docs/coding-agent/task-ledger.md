@@ -553,9 +553,9 @@
 - pending_worktree: `local:6379c464-4496-4dee-808b-73efed865595`
 - worker_thread: `019f3799-91fc-7a52-b6e0-ca85f37e152f`
 - worktree: `/Users/xpadev/.codex/worktrees/0cd2/nexus-form`
-- current_head: `6f2fad9b07c1ad38716309a79e0e5b618b26a8fa`
+- current_head: `51bf28232505c10e486c7159b01ed24c639dbd6f`
 - pr: #627 `https://github.com/xpadev-net/nexus-form/pull/627`
-- hook_state: worker `gh-review-hook 627` returned exit 2 with in-scope contract findings; worker is actively applying fixes and pushing follow-up commits
+- hook_state: worker fixed prior hook findings and merged current `master`; latest GitHub Type Check failed while worker is actively inspecting CI logs
 - source_plan_tasks:
   - `validation-result-export-plan.md` Task_1
   - `validation-result-export-plan.md` Task_2
@@ -655,3 +655,4 @@
 - 2026-07-06: VEXPORT-1 worker's `gh-review-hook 627` returned exit 2 with in-scope findings for duplicated schemas, uncaught parse risk, and branch-behind-base state. Worker is applying fixes, including shared schema reuse and defensive parsing, and is currently pushing follow-up commits; parent merge gate is not started yet.
 - 2026-07-06: REVAL-2 worker pushed follow-up fixes and current `master` merges through head `b0f26ae2a4a923708b7a9a478ef6ce65902c06f9`. GitHub shows reviewDecision approved, but Unit & Integration Tests and Greptile are still in progress on the latest head while the worker remains active in `gh-review-hook 628`; parent merge gate is not started yet.
 - 2026-07-06: REVAL-2 worker reported merge-ready at head `232947b70fdcc791b4b17838dbb72d51c8528212` after fixing review-hook findings, merging current `master` normally, rerunning required validation, collecting Playwright evidence, and getting `gh-review-hook 628` exit 0. Parent verified PR #628 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 628`, focused web forms tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and reviewed worker UI evidence artifacts, then squash-merged PR #628 as `7066bd06f37f4627aeb933184a54ce67e8472375`. Worker thread archived.
+- 2026-07-06: VEXPORT-1 worker pushed follow-up fixes and current `master` merges through head `51bf28232505c10e486c7159b01ed24c639dbd6f`. GitHub shows reviewDecision approved and most checks successful, but Type Check failed on the latest head while Greptile is still in progress; worker is active and inspecting CI logs, so parent merge gate is not started yet.
