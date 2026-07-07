@@ -380,7 +380,7 @@
 - pending_worktree: `local:286640af-0ee5-4a73-8683-5e733178d870`
 - worker_thread: `019f3db3-fb8d-7922-9cbc-cd308aa4619b`
 - worktree: `/Users/xpadev/.codex/worktrees/a05f/nexus-form`
-- current_head: `2f708d8f37d420ebf96d17c715ebefa9b2508d23`
+- current_head: `dffe31df9b269141fb9ede6f2db47e83db4bbf51`
 - pr: `https://github.com/xpadev-net/nexus-form/pull/633`
 - source_plan_task: `pattern-other-validation-output-plan.md` Task_1
 - scope:
@@ -402,7 +402,8 @@
 - notes:
   - Started first because the shared pattern/other-validation contract gates API/Web behavior and export/Sheets metadata follow-ups. Export column product decisions remain deferred to PATTERN-3.
   - Startup stability check found the worker stopped after branch creation/setup without a concrete blocker; a resume instruction was sent on 2026-07-08.
-  - Worker opened PR #633 at head `2f708d8f37d420ebf96d17c715ebefa9b2508d23`; initial GitHub checks and AI reviews passed, but `gh-review-hook 633` returned scoped shared-contract findings. Worker is active with follow-up commits and a normal `origin/master` merge locally ahead of the remote while rerunning validation before push/hook retry.
+  - Worker opened PR #633 at head `2f708d8f37d420ebf96d17c715ebefa9b2508d23`; initial GitHub checks and AI reviews passed, but `gh-review-hook 633` returned scoped shared-contract findings.
+  - Worker pushed follow-up head `dffe31df9b269141fb9ede6f2db47e83db4bbf51` after addressing review-hook findings and merging current `origin/master`; GitHub checks and Greptile are successful, PR is `CLEAN`, and the worker is active waiting for `gh-review-hook 633` final readiness output before merge-ready report.
 
 ### SEC-6: Verify and close telemetry findings
 - status: completed
