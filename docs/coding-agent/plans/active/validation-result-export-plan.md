@@ -151,7 +151,7 @@
   - kind: command
     required: true
     owner: worker
-    detail: "pnpm --filter @nexus-form/api exec vitest run src/__tests__/*forms*.test.ts"
+    detail: "cd apps/api && pnpm exec vitest run src/__tests__/*forms*.test.ts"
   - kind: command
     required: true
     owner: worker
@@ -273,6 +273,11 @@
   - Summary: Existing provider `metadata` could store arbitrary JSON, but there was no explicit plugin contract for arbitrary named export output values. Added additive `ValidationProviderResult.outputValues` with key/label/scalar value validation, stored normalized values under the existing validation result `metadata` JSON reserved key, and exposed parsed `output_values` from validation result reads.
   - Validation evidence: Worker thread will report targeted/full command results in PR handoff.
   - Notes: No database migration is required for this slice because storage uses existing nullable JSON metadata. Follow-up tasks still need export settings UI/API and CSV/Sheets rendering decisions.
+- 2026-07-07 VEXPORT-2 worker slice completed investigation/implementation for Task_3 only.
+  - Summary: Added zod-backed `settings.validation_output_export` storage for per-rule/per-output-key toggles, API load/save endpoints under form structure routes, and a form settings UI section for independent validation output value toggles. Missing explicit settings continue to default each discovered value to enabled.
+  - Investigation notes: VEXPORT-1 output values are available from validation result metadata as `output_values`; built-in rule output keys are discoverable before results exist, and saved/result-only unknown keys remain configurable with fallback labels. Storage stays in the existing form structure JSON settings object, so no database migration is required.
+  - Rejected stopgaps: Did not add a new settings table or modify CSV/Google Sheets rendering, because export rendering belongs to Task_4/VEXPORT-3. Did not change worker validation execution or provider contracts beyond consuming the existing VEXPORT-1 output value contract.
+  - Validation evidence: Focused API/web tests, full repo validation, UI evidence, independent review, and review-hook results are reported in the VEXPORT-2 PR handoff. UI evidence for this settings slice was captured with the non-escalated in-app browser after a local Playwright package attempt failed with `Cannot find module '/Users/xpadev/IdeaProjects/nexus-form/node_modules/playwright'`; artifacts are under `/tmp/nexus-form-vexport2-evidence/`, including `validation-output-export-settings-desktop-focused-section.png`, `validation-output-export-settings-mobile-focused-section.png`, `validation-output-export-iab-initial.json`, `validation-output-export-iab-reloaded.json`, and `mutable-fixture-log.json`.
 
 ## Decision Log
 

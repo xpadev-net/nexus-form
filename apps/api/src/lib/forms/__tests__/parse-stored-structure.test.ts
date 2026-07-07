@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { logWarn } from "../../logger";
 import { parseStoredStructure } from "../parse-stored-structure";
+
+vi.mock("../../logger", () => ({
+  logWarn: vi.fn(),
+}));
+
+const logWarnMock = vi.mocked(logWarn);
+
+beforeEach(() => {
+  logWarnMock.mockClear();
+});
 
 describe("R12-P2 legacy logic rule compatibility", () => {
   it("drops empty legacy logic rules instead of failing structure parse", () => {
@@ -57,5 +68,88 @@ describe("legacy appearance image URL compatibility", () => {
     expect(structure.appearance?.theme.brand_name).toBe("Nexus");
     expect(structure.appearance?.theme.logo_url).toBeUndefined();
     expect(structure.appearance?.theme.cover_image_url).toBeUndefined();
+  });
+});
+
+describe("validation output export settings compatibility", () => {
+  it("keeps valid validation output export entries when stored settings contain malformed entries", () => {
+    const structure = parseStoredStructure(
+      JSON.stringify({
+        version: 1,
+        settings: {
+          validation_output_export: {
+            values: [
+              {
+                rule_id: "rule-1",
+                provider_name: "github",
+                rule_type: "user_exists",
+                output_key: "username",
+                enabled: false,
+              },
+              {
+                rule_id: "rule-1",
+                provider_name: "github",
+                rule_type: "user_exists",
+                output_key: "bad-key",
+                enabled: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(structure.settings.validation_output_export).toEqual({
+      values: [
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: false,
+        },
+      ],
+    });
+    expect(logWarnMock).toHaveBeenCalledWith(
+      "parseStoredStructure: normalized validation output export settings",
+      "general",
+    );
+  });
+
+  it("does not log normalization for valid validation output export settings", () => {
+    const structure = parseStoredStructure(
+      JSON.stringify({
+        version: 1,
+        settings: {
+          validation_output_export: {
+            values: [
+              {
+                rule_id: "rule-1",
+                provider_name: "github",
+                rule_type: "user_exists",
+                output_key: "username",
+                enabled: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(structure.settings.validation_output_export).toEqual({
+      values: [
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: false,
+        },
+      ],
+    });
+    expect(logWarnMock).not.toHaveBeenCalledWith(
+      "parseStoredStructure: normalized validation output export settings",
+      "general",
+    );
   });
 });

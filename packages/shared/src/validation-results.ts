@@ -47,6 +47,71 @@ const validationOutputMetadataSchema = z
 
 export type ValidationOutputValue = z.infer<typeof validationOutputValueSchema>;
 
+export const validationOutputExportSettingSchema = z
+  .object({
+    rule_id: z.string().min(1).max(128),
+    provider_name: z.string().min(1).max(64),
+    rule_type: z.string().min(1).max(64),
+    output_key: validationOutputKeySchema,
+    enabled: z.boolean(),
+  })
+  .strict();
+
+export const validationOutputExportSettingsSchema = z
+  .object({
+    values: z.array(validationOutputExportSettingSchema).max(1000).default([]),
+  })
+  .strict()
+  .superRefine((settings, ctx) => {
+    const seenKeys = new Set<string>();
+    for (const [index, value] of settings.values.entries()) {
+      const key = `${value.rule_id}:${value.output_key}`;
+      if (seenKeys.has(key)) {
+        ctx.addIssue({
+          code: "custom",
+          message: `Duplicate validation output export setting: ${key}`,
+          path: ["values", index, "output_key"],
+        });
+      }
+      seenKeys.add(key);
+    }
+  });
+
+export type ValidationOutputExportSetting = z.infer<
+  typeof validationOutputExportSettingSchema
+>;
+export type ValidationOutputExportSettings = z.infer<
+  typeof validationOutputExportSettingsSchema
+>;
+
+export function parseValidationOutputExportSettings(
+  settings: unknown,
+): ValidationOutputExportSettings {
+  const parsed = validationOutputExportSettingsSchema.safeParse(settings);
+  if (parsed.success) return parsed.data;
+
+  if (
+    settings === null ||
+    typeof settings !== "object" ||
+    !("values" in settings) ||
+    !Array.isArray(settings.values)
+  ) {
+    return { values: [] };
+  }
+
+  const validValues: ValidationOutputExportSetting[] = [];
+  const seenKeys = new Set<string>();
+  for (const value of settings.values) {
+    const parsedValue = validationOutputExportSettingSchema.safeParse(value);
+    if (!parsedValue.success) continue;
+    const key = `${parsedValue.data.rule_id}:${parsedValue.data.output_key}`;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    validValues.push(parsedValue.data);
+  }
+  return { values: validValues };
+}
+
 /**
  * Runtime contract for the unique identity of an external validation result.
  */

@@ -298,14 +298,19 @@ export {
   ValidatedStoryFixtureSetSchema,
 } from "./validation/story-fixture";
 export type {
+  ValidationOutputExportSetting,
+  ValidationOutputExportSettings,
   ValidationOutputValue,
   ValidationResultIdentity,
 } from "./validation-results";
 export {
   getValidationResultId,
   mergeValidationOutputValuesIntoMetadata,
+  parseValidationOutputExportSettings,
   parseValidationOutputValuesFromMetadata,
   VALIDATION_OUTPUT_METADATA_KEY,
+  validationOutputExportSettingSchema,
+  validationOutputExportSettingsSchema,
   validationOutputKeySchema,
   validationOutputScalarValueSchema,
   validationOutputValueSchema,

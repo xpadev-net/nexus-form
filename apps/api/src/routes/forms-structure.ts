@@ -4,6 +4,9 @@ import {
   PasswordProtectionPublicationSnapshotSchema,
   type PasswordProtectionPublicationState,
   PasswordProtectionPublicationStateSchema,
+  type ValidationOutputExportSettings,
+  validationOutputExportSettingsSchema,
+  validationOutputKeySchema,
 } from "@nexus-form/shared";
 import { z } from "zod";
 import { withDualFormAuth } from "../lib/dual-auth";
@@ -18,6 +21,7 @@ import {
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
+import { getValidationOutputExportSettings } from "../lib/forms/validation-output-export-settings";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
@@ -121,6 +125,9 @@ const postSubmitSettingsUpdateSchema = z.object({
   notifications: postSubmitNotificationsUpdateSchema,
 });
 
+const validationOutputExportSettingsUpdateSchema =
+  validationOutputExportSettingsSchema;
+
 const logicUpdateSchema = z.object({
   logic: z.array(StoredLogicRuleSchema),
 });
@@ -149,6 +156,25 @@ const FormStructureEnvelopeSchema = z.object({
     PasswordProtectionPublicationStateSchema.optional(),
 });
 export type FormStructureEnvelope = z.infer<typeof FormStructureEnvelopeSchema>;
+
+const ValidationOutputExportValueOptionSchema = z.object({
+  rule_id: z.string().min(1),
+  rule_name: z.string().min(1),
+  provider_name: z.string().min(1),
+  rule_type: z.string().min(1),
+  output_key: validationOutputKeySchema,
+  label: z.string().min(1),
+  enabled: z.boolean(),
+  source: z.enum(["builtin", "result", "saved"]),
+});
+
+const ValidationOutputExportSettingsResponseSchema = z.object({
+  settings: validationOutputExportSettingsSchema,
+  values: z.array(ValidationOutputExportValueOptionSchema),
+});
+export type ValidationOutputExportSettingsResponse = z.infer<
+  typeof ValidationOutputExportSettingsResponseSchema
+>;
 
 const FormStructureErrorResponseSchema = z.object({
   error: z.string().min(1),
@@ -633,6 +659,61 @@ export const formsStructureRouter = createHonoApp()
         }
         throw error;
       });
+      if (!result) {
+        return c.json(formStructureError("Form structure not found"), 404);
+      }
+      return c.json(
+        FormStructureVersionResponseSchema.parse({ structure: result }),
+      );
+    },
+  )
+  .get("/:id/structure/validation-output-export", async (c) => {
+    const formId = c.req.param("id");
+    const result = await getValidationOutputExportSettings(formId).catch(
+      (error) => {
+        if (error instanceof FormStructureNotFoundError) {
+          return null;
+        }
+        throw error;
+      },
+    );
+    if (!result) {
+      return c.json(formStructureError("Form structure not found"), 404);
+    }
+    return c.json(ValidationOutputExportSettingsResponseSchema.parse(result));
+  })
+  .patch(
+    "/:id/structure/validation-output-export",
+    withDualFormAuth("EDITOR"),
+    formStructureMutationRateLimit,
+    zValidator("json", validationOutputExportSettingsUpdateSchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const auth = c.get("dualAuthContext");
+      if (!auth) return c.json(formStructureError("Unauthorized"), 401);
+      const payload: ValidationOutputExportSettings = c.req.valid("json");
+
+      const result = await withFormStructureMutationLock(formId, async () => {
+        const currentStructure = await getFormStructure(formId);
+        return saveFormStructure(
+          formId,
+          {
+            ...currentStructure,
+            settings: {
+              ...currentStructure.settings,
+              validation_output_export: payload,
+            },
+          },
+          resolveAuditUserId(auth.user_id),
+          "Update validation output export settings",
+        );
+      }).catch((error) => {
+        if (error instanceof FormStructureNotFoundError) {
+          return null;
+        }
+        throw error;
+      });
+
       if (!result) {
         return c.json(formStructureError("Form structure not found"), 404);
       }
