@@ -55,7 +55,7 @@ export function hashIPAddress(ip: string): string {
  * @param tokens - Telemetry token values submitted by the public form.
  * @param currentIp - Normalized client IP address observed during submission.
  * @returns Resolves when at least one token is valid, unused, unexpired, and IP-bound to currentIp.
- * Matching tokens authorize the submit; other submitted unused/unexpired candidates bound to the same IP are consumed too.
+ * Matching tokens authorize the submit; other submitted unused/unexpired candidates are consumed too.
  * @throws When no tokens are provided or no token is valid for the current IP.
  */
 export async function consumeTokensOrThrow(
@@ -93,7 +93,6 @@ export async function consumeTokensOrThrow(
       .where(
         and(
           inArray(telemetryToken.token, unique),
-          eq(telemetryToken.ip, hashIPAddress(currentIp)),
           isNull(telemetryToken.usedAt),
           gt(telemetryToken.expiresAt, now),
         ),
