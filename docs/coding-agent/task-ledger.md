@@ -613,6 +613,7 @@
 - notes:
   - Previous pending worktree `local:73433277-d963-4c40-b993-0c31c2633f97` did not resolve to a child thread after repeated heartbeat checks, so the parent started replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`. Product code remains untouched in the parent thread.
   - Replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8` resolved to worker thread `019f383e-7a7b-7873-b68b-761113174ee9` in worktree `/Users/xpadev/.codex/worktrees/709e/nexus-form`; parent sent the VEXPORT-2 delegation prompt. Earlier duplicate candidate thread `019f37e6-1aef-7c40-9329-98d8a4a3fa59` was archived unused to avoid competing workers.
+  - 2026-07-07 heartbeat checks: worker thread remains active but stuck waiting on an approval-gated Playwright/browser command after local UI evidence attempts failed with environment sandbox errors; parent sent non-escalated resume instructions and no PR exists yet. Do not start VEXPORT-3 until VEXPORT-2 has a merge-ready PR and passes the orchestrator merge gate.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
