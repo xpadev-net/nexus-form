@@ -22,11 +22,11 @@ import {
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  groupResponseExportValidationOutputsByResponseId,
   isAnswerableBlockType,
   mapRecordToSheetRow,
   neutralizeSpreadsheetFormulaValue,
   parseValidationOutputExportSettings,
-  parseValidationOutputValuesFromMetadata,
   type ResponseDataItem,
   type ResponseExportRecord,
   type ResponseExportValidationOutputValue,
@@ -689,33 +689,8 @@ async function getValidationOutputsByResponseId(params: {
       desc(externalServiceValidationResult.createdAt),
     );
 
-  const outputsByResponseId = new Map<
-    string,
-    ResponseExportValidationOutputValue[]
-  >();
-  const seenByResponseId = new Map<string, Set<string>>();
-  for (const row of rows) {
-    const outputValues = parseValidationOutputValuesFromMetadata(row.metadata);
-    if (outputValues.length === 0) continue;
-    const seen = seenByResponseId.get(row.responseId) ?? new Set<string>();
-    seenByResponseId.set(row.responseId, seen);
-    const current = outputsByResponseId.get(row.responseId) ?? [];
-    for (const outputValue of outputValues) {
-      const key = `${row.ruleId}:${outputValue.key}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      current.push({
-        rule_id: row.ruleId,
-        rule_name: row.ruleName ?? row.ruleId,
-        provider_name: row.providerName ?? row.service ?? "unknown",
-        rule_type: row.ruleType ?? "unknown",
-        output_key: outputValue.key,
-        label: outputValue.label ?? outputValue.key,
-        value: outputValue.value,
-      });
-    }
-    outputsByResponseId.set(row.responseId, current);
-  }
+  const outputsByResponseId =
+    groupResponseExportValidationOutputsByResponseId(rows);
 
   const selectedColumns = buildResponseExportValidationOutputColumns(
     params.settings,

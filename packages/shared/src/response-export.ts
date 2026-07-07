@@ -1,5 +1,8 @@
 import { isAnswerableBlockType } from "./forms/form-block";
-import type { ValidationOutputExportSettings } from "./validation-results";
+import {
+  parseValidationOutputValuesFromMetadata,
+  type ValidationOutputExportSettings,
+} from "./validation-results";
 
 export type ResponseExportRecord = {
   metadata: {
@@ -49,6 +52,16 @@ export type ResponseExportValidationOutputColumn = {
   ruleType: string;
   outputKey: string;
   label: string;
+};
+
+export type ResponseExportValidationOutputRow = {
+  responseId: string;
+  ruleId: string;
+  metadata: unknown;
+  service: string | null;
+  ruleName: string | null;
+  providerName: string | null;
+  ruleType: string | null;
 };
 
 export type ResponseExportTable = {
@@ -233,7 +246,19 @@ function buildValidationOutputColumnTitle(params: {
   outputKey: string;
   label: string;
 }): string {
-  return `Validation: ${params.ruleName} (${params.ruleId}) / ${params.label} [${params.outputKey}]`;
+  const ruleIdentity =
+    params.ruleName === params.ruleId || params.ruleName.includes(params.ruleId)
+      ? params.ruleName
+      : `${params.ruleName} (${params.ruleId})`;
+  return `Validation: ${ruleIdentity} / ${params.label} [${params.outputKey}]`;
+}
+
+function ruleNameFromValidationOutputSetting(
+  setting: ValidationOutputExportSettings["values"][number],
+): string {
+  // Saved settings do not include the validation rule display name. Until a
+  // result row supplies one, use stable provider/type/id identity for headers.
+  return `${setting.provider_name}:${setting.rule_type}:${setting.rule_id}`;
 }
 
 function toValidationOutputColumn(params: {
@@ -275,7 +300,7 @@ export function buildResponseExportValidationOutputColumns(
       key,
       toValidationOutputColumn({
         ruleId: setting.rule_id,
-        ruleName: setting.rule_id,
+        ruleName: ruleNameFromValidationOutputSetting(setting),
         providerName: setting.provider_name,
         ruleType: setting.rule_type,
         outputKey: setting.output_key,
@@ -308,6 +333,43 @@ export function buildResponseExportValidationOutputColumns(
     if (ruleIdOrder !== 0) return ruleIdOrder;
     return a.outputKey.localeCompare(b.outputKey);
   });
+}
+
+export function groupResponseExportValidationOutputsByResponseId(
+  rows: readonly ResponseExportValidationOutputRow[],
+): Map<string, ResponseExportValidationOutputValue[]> {
+  const outputsByResponseId = new Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >();
+  const seenByResponseId = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const outputValues = parseValidationOutputValuesFromMetadata(row.metadata);
+    if (outputValues.length === 0) continue;
+    const seen = seenByResponseId.get(row.responseId) ?? new Set<string>();
+    seenByResponseId.set(row.responseId, seen);
+    const current = outputsByResponseId.get(row.responseId) ?? [];
+
+    for (const outputValue of outputValues) {
+      const key = validationOutputSettingKey(row.ruleId, outputValue.key);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      current.push({
+        rule_id: row.ruleId,
+        rule_name: row.ruleName ?? row.ruleId,
+        provider_name: row.providerName ?? row.service ?? "unknown",
+        rule_type: row.ruleType ?? "unknown",
+        output_key: outputValue.key,
+        label: outputValue.label ?? outputValue.key,
+        value: outputValue.value,
+      });
+    }
+
+    outputsByResponseId.set(row.responseId, current);
+  }
+
+  return outputsByResponseId;
 }
 
 function buildValidationOutputColumnsFromRecords(

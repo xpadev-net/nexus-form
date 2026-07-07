@@ -160,6 +160,7 @@ export type {
   ResponseExportSheetMapping,
   ResponseExportTable,
   ResponseExportValidationOutputColumn,
+  ResponseExportValidationOutputRow,
   ResponseExportValidationOutputValue,
 } from "./response-export";
 export {
@@ -167,6 +168,7 @@ export {
   buildResponseExportTable,
   buildResponseExportValidationOutputColumns,
   denormalizeSpreadsheetFormulaValue,
+  groupResponseExportValidationOutputsByResponseId,
   mapRecordToSheetRow,
   neutralizeSpreadsheetFormulaValue,
   normalizeResponseExportColumns,

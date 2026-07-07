@@ -283,6 +283,9 @@
   - Investigation notes: Saved settings live in `structureJson.settings.validation_output_export`; validation output values are parsed from `metadata.validationOutputs`. CSV can pass the selected validation column set separately, while Sheets row mapping needs per-response selected output placeholders so saved enabled columns without a current value still create blank columns.
   - Rejected stopgaps: Did not add provider-specific output keys or fixed columns; output values are arbitrary validated scalar values keyed by rule ID and output key. Did not change deletion/revalidation paths; deleted/missing response exclusions continue to come from existing `formResponse` target queries and joins.
   - Validation evidence: Focused API and worker tests pass locally for `response-export.test.ts` and `sheets-sync.test.ts`; full repo validation and review evidence are reported in the VEXPORT-3 PR handoff.
+- 2026-07-08 VEXPORT-3 review-hook follow-up completed.
+  - Summary: Merged current `origin/master` with a normal merge commit, clarified settings-only validation output headers with a stable provider/type/rule ID fallback, and centralized validation output row normalization in shared export code so CSV and Sheets cannot drift in metadata parsing semantics.
+  - Validation evidence: Follow-up focused and full validation evidence is reported in the VEXPORT-3 PR #630 handoff.
 
 ## Decision Log
 

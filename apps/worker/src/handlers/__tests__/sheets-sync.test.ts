@@ -67,6 +67,8 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
     ...actual,
     denormalizeSpreadsheetFormulaValue:
       responseExport.denormalizeSpreadsheetFormulaValue,
+    groupResponseExportValidationOutputsByResponseId:
+      responseExport.groupResponseExportValidationOutputsByResponseId,
     mapRecordToSheetRow: responseExport.mapRecordToSheetRow,
     neutralizeSpreadsheetFormulaValue:
       responseExport.neutralizeSpreadsheetFormulaValue,
