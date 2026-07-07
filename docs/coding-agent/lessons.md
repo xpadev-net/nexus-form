@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-06: Split requested plans as separate artifacts, not only waves
+
+- tags: planning, output-contract, assumptions
+- symptom: User asked to split a fix plan as needed, but the response created one large plan and only separated work by Task Waves.
+- root cause: Treated harness wave decomposition as equivalent to the user's requested plan-level split.
+- fix: Replace the single omnibus plan with multiple active plan files grouped by coherent product/implementation areas.
+- prevention: When a user asks to split a plan, choose whether the split should be separate plan artifacts before using Task Waves; use waves only for execution sequencing inside each plan.
+
 ## 2026-07-04: Confirm all-of vs any-of semantics for multi-token validation
 
 - tags: telemetry, validation, assumptions
