@@ -1,8 +1,8 @@
 # Plan: Security Findings Remediation
 
-- status: draft
+- status: in_progress
 - generated: 2026-07-06
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - work_type: code
 
 ## Goal
@@ -390,6 +390,10 @@
   - Summary: Triaged 22 CSV findings and grouped them into eight remediation tasks.
   - Validation evidence: CSV parsed locally; code validation not run.
   - Notes: Existing active plans were updated with overlapping finding references.
+- 2026-07-08 Work continued.
+  - Summary: Dispatched SEC-6 worker for telemetry finding verification/regression coverage while other active security-overlap work remains in separate feature plans.
+  - Validation evidence: Pending worker validation.
+  - Notes: Worker pending worktree `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27`, branch `codex/sec-telemetry-token-regressions`.
 
 ## Decision Log
 - 2026-07-06 Decision:
