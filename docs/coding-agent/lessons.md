@@ -31,3 +31,11 @@
 - root cause: Closeout relied on hook exit status and CI success without separately checking the current PR review decision metadata.
 - fix: Re-check PR metadata with `gh pr view --json reviewDecision,headRefOid,mergeStateStatus` after hook completion and continue iterating until the review decision is no longer `CHANGES_REQUESTED`.
 - prevention: Treat `reviewDecision` as an explicit closeout guard for PR-worker handoff, alongside hook exit status, CI status, clean worktree, and local/remote head equality.
+
+## 2026-07-08: Set explicit worker goals before implementation
+
+- tags: orchestration, worker-delegation, goal-tracking
+- symptom: Background workers can stop after setup or drift from the delegated task when no explicit goal is set in the worker thread.
+- root cause: Worker delegation prompts described the task, but did not require the worker to create a Codex goal that persists across turns and resumptions.
+- fix: Add a required instruction to worker delegation prompts: create a goal for the delegated task before implementation and keep it active until merge-ready, blocked, or intentionally stopped.
+- prevention: Before starting or resuming a worker, verify the delegation includes goal setup. If an already-running worker lacks that instruction, send a follow-up asking it to create the task goal before continuing.

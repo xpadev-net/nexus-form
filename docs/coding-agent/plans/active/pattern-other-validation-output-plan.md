@@ -1,8 +1,8 @@
 # Plan: Pattern And Other Validation Outputs
 
-- status: draft
+- status: in_progress
 - generated: 2026-07-06
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - work_type: code
 
 ## Goal
@@ -193,6 +193,10 @@
   - Summary: Added security finding #14 safe-regex/ReDoS constraint.
   - Validation evidence: Not run; planning only.
   - Notes: Detailed remediation tracking lives in `security-findings-remediation-plan.md`.
+- 2026-07-08 Work started.
+  - Summary: Dispatched PATTERN-1 worker for shared pattern mismatch modes, choice other validation contract, and export metadata types.
+  - Validation evidence: Pending worker validation.
+  - Notes: Worker pending worktree `local:286640af-0ee5-4a73-8683-5e733178d870`, branch `codex/pattern-validation-contract`.
 
 ## Decision Log
 - 2026-07-06 Decision:
