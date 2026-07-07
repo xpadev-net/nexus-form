@@ -640,9 +640,9 @@
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: in progress
 - branch: `codex/validation-result-csv-sheets`
-- pending_worktree: `local:d139dcdf-02f4-4081-855e-a5dfd4b1eec9`
-- worker_thread: pending
-- worktree: pending
+- pending_worktree: resolved
+- worker_thread: `019f3d30-6272-7252-ac6f-69ab471db304`
+- worktree: `/Users/xpadev/.codex/worktrees/d38b/nexus-form`
 - source_plan_task: `validation-result-export-plan.md` Task_4
 - scope:
   - `packages/shared/src/response-export.ts`
@@ -661,6 +661,7 @@
   - `pnpm type-check`
 - notes:
   - 2026-07-08: parent started VEXPORT-3 worker pending worktree `local:d139dcdf-02f4-4081-855e-a5dfd4b1eec9` after VEXPORT-2 PR #629 merged and the worker thread was archived. Scope is CSV/Sheets output consumption of saved validation output export settings only.
+  - 2026-07-08: pending worktree resolved to active worker thread `019f3d30-6272-7252-ac6f-69ab471db304` in `/Users/xpadev/.codex/worktrees/d38b/nexus-form`; worker is active with local implementation changes and no PR yet, so parent leaves it running.
 
 ## Activity Log
 
