@@ -5,6 +5,7 @@ import { FormAppearanceSettings } from "@/components/forms/form-appearance-setti
 import { FormArchiveManager } from "@/components/forms/form-archive-manager";
 import { FormPostSubmitSettings } from "@/components/forms/form-post-submit-settings";
 import { FormPublicUrlSettings } from "@/components/forms/form-public-url-settings";
+import { FormValidationOutputExportSettings } from "@/components/forms/form-validation-output-export-settings";
 import { GoogleSheetsIntegration } from "@/components/forms/google-sheets-integration";
 import { ScheduleManager } from "@/components/forms/schedule-manager";
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,8 @@ export const FormSettingsTab: FC<FormSettingsTabProps> = ({
       <FormAccessControlSettings formId={formId} />
 
       <GoogleSheetsIntegration formId={formId} />
+
+      <FormValidationOutputExportSettings formId={formId} />
 
       <section className="rounded-lg border bg-card p-6 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold">フォーム管理</h2>

@@ -326,6 +326,9 @@ vi.mock("@/components/forms/form-status-badge", () => ({
 vi.mock("@/components/forms/form-validation-rules-page", () => ({
   FormValidationRulesPage: () => null,
 }));
+vi.mock("@/components/forms/form-validation-output-export-settings", () => ({
+  FormValidationOutputExportSettings: () => null,
+}));
 vi.mock("@/components/forms/google-sheets-integration", () => ({
   GoogleSheetsIntegration: () => null,
 }));

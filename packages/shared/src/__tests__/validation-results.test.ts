@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   getValidationResultId,
   mergeValidationOutputValuesIntoMetadata,
+  parseValidationOutputExportSettings,
   parseValidationOutputValuesFromMetadata,
+  VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES,
   VALIDATION_OUTPUT_METADATA_KEY,
   type ValidationOutputValue,
+  validationOutputExportSettingsSchema,
   validationOutputValuesSchema,
   validationResultIdentitySchema,
 } from "../validation-results";
@@ -125,5 +128,123 @@ describe("validation output metadata helpers", () => {
     expect(
       mergeValidationOutputValuesIntoMetadata(metadata, malformedOutputValues),
     ).toBe(metadata);
+  });
+});
+
+describe("validation output export settings", () => {
+  it("accepts independent settings per rule and output key", () => {
+    const parsed = validationOutputExportSettingsSchema.parse({
+      values: [
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: true,
+        },
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "followers",
+          enabled: false,
+        },
+        {
+          rule_id: "rule-2",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: false,
+        },
+      ],
+    });
+
+    expect(parsed.values).toHaveLength(3);
+  });
+
+  it("rejects duplicate settings for the same rule and output key", () => {
+    const result = validationOutputExportSettingsSchema.safeParse({
+      values: [
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: true,
+        },
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: false,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("falls back to default export settings for wholly invalid stored settings", () => {
+    expect(parseValidationOutputExportSettings({ values: "invalid" })).toEqual({
+      values: [],
+    });
+  });
+
+  it("keeps valid stored settings when some entries are malformed", () => {
+    expect(
+      parseValidationOutputExportSettings({
+        values: [
+          {
+            rule_id: "rule-1",
+            provider_name: "github",
+            rule_type: "user_exists",
+            output_key: "username",
+            enabled: false,
+          },
+          {
+            rule_id: "rule-1",
+            provider_name: "github",
+            rule_type: "user_exists",
+            output_key: "bad-key",
+            enabled: false,
+          },
+          {
+            rule_id: "rule-1",
+            provider_name: "github",
+            rule_type: "user_exists",
+            output_key: "username",
+            enabled: true,
+          },
+        ],
+      }),
+    ).toEqual({
+      values: [
+        {
+          rule_id: "rule-1",
+          provider_name: "github",
+          rule_type: "user_exists",
+          output_key: "username",
+          enabled: false,
+        },
+      ],
+    });
+  });
+
+  it("caps recovered export settings at the schema maximum", () => {
+    const values = Array.from(
+      { length: VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES + 5 },
+      (_, index) => ({
+        rule_id: `rule-${index}`,
+        provider_name: "github",
+        rule_type: "user_exists",
+        output_key: "username",
+        enabled: index % 2 === 0,
+      }),
+    );
+
+    expect(parseValidationOutputExportSettings({ values })).toEqual({
+      values: values.slice(0, VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES),
+    });
   });
 });

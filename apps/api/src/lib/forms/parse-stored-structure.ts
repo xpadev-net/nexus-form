@@ -1,4 +1,8 @@
-import { isSafeFormAppearanceImageUrl } from "@nexus-form/shared";
+import {
+  isSafeFormAppearanceImageUrl,
+  parseValidationOutputExportSettings,
+  validationOutputExportSettingsSchema,
+} from "@nexus-form/shared";
 import {
   FormStructure,
   type FormStructure as FormStructureType,
@@ -49,6 +53,29 @@ function normalizeLegacyStructure(raw: unknown): unknown {
         "general",
       );
       normalized = { ...normalized, logic: normalizedLogic };
+    }
+  }
+
+  const settings = normalized.settings;
+  if (isRecord(settings) && settings.validation_output_export !== undefined) {
+    const validationOutputExportResult =
+      validationOutputExportSettingsSchema.safeParse(
+        settings.validation_output_export,
+      );
+    if (!validationOutputExportResult.success) {
+      const normalizedValidationOutputExport =
+        parseValidationOutputExportSettings(settings.validation_output_export);
+      logWarn(
+        "parseStoredStructure: normalized validation output export settings",
+        "general",
+      );
+      normalized = {
+        ...normalized,
+        settings: {
+          ...settings,
+          validation_output_export: normalizedValidationOutputExport,
+        },
+      };
     }
   }
 

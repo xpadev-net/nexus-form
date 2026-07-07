@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { FORM_STATUS_VALUES } from "../constants/status";
+import { validationOutputExportSettingsSchema } from "../validation-results";
 
 // FormStatus is defined here to avoid circular dependencies
 export const FormStatus = z.enum(FORM_STATUS_VALUES);
@@ -32,6 +33,7 @@ export const FormSettingsSchema = z.object({
       interval_seconds: z.number().int().min(10).max(600).default(30),
     })
     .optional(),
+  validation_output_export: validationOutputExportSettingsSchema.optional(),
 });
 
 // フォームメタデータスキーマ（snake_case統一）
