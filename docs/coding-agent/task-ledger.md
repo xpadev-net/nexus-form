@@ -165,11 +165,9 @@
 - repository: `xpadev-net/nexus-form`
 - orchestrator_thread: parent
 - created: 2026-07-06
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - source_plans:
   - `docs/coding-agent/plans/active/security-findings-remediation-plan.md`
-  - `docs/coding-agent/plans/active/google-sheets-sync-modes-plan.md`
-  - `docs/coding-agent/plans/active/copy-feedback-ui-plan.md`
   - `docs/coding-agent/plans/active/prefill-reachability-validation-plan.md`
   - `docs/coding-agent/plans/active/pattern-other-validation-output-plan.md`
   - `docs/coding-agent/plans/active/plate-review-experience-plan.md`
@@ -344,8 +342,103 @@
   - After GSYNC-2 merged, parent reran `gh-review-hook 623`; it exited 2 only because the branch is one commit behind `master`. Worker was instructed to merge `origin/master` normally, rerun focused web tests, lint, type-check, full test, and `gh-review-hook 623`, then report a new head.
   - Completed after worker merged `origin/master` normally to head `830311080778779fd1f86e7a3bc344dc3563c306`; parent verified PR `CLEAN`/`APPROVED`, reran focused web tests, `gh-review-hook 623`, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test --silent`, then squash-merged PR #623.
 
+### PREFILL-1: Move reachability calculation into shared code
+- status: in_progress
+- branch: `codex/prefill-reachability-core`
+- pending_worktree: `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220`
+- worker_thread: `019f3db3-fb8d-7922-9cbc-cd295c67c95b`
+- worktree: `/Users/xpadev/.codex/worktrees/fd24/nexus-form`
+- source_plan_task: `prefill-reachability-validation-plan.md` Task_1
+- scope:
+  - `packages/shared/src/plate-content-utils.ts`
+  - `packages/shared/src/forms/condition-evaluator.ts`
+  - `packages/shared/src/__tests__/plate-content-utils.test.ts`
+  - `apps/web/src/hooks/forms/use-form-paging.ts`
+  - minimal corresponding web test changes for reachability parity
+- must_not_touch:
+  - prefill URL generation UI/lib beyond compile-time integration
+  - public submit API enforcement
+  - pattern validation/export metadata work
+  - broad editor/Plate review UI work
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/shared exec vitest run src/__tests__/plate-content-utils.test.ts`
+  - `pnpm --filter @nexus-form/web exec vitest run src/hooks/forms/use-form-paging.test.ts`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started first because shared reachability semantics unblock prefill generation, public submit rejection, and security finding #20 closure.
+
+### PATTERN-1: Extend shared schemas and helpers
+- status: in_progress
+- branch: `codex/pattern-validation-contract`
+- pending_worktree: `local:286640af-0ee5-4a73-8683-5e733178d870`
+- worker_thread: `019f3db3-fb8d-7922-9cbc-cd308aa4619b`
+- worktree: `/Users/xpadev/.codex/worktrees/a05f/nexus-form`
+- source_plan_task: `pattern-other-validation-output-plan.md` Task_1
+- scope:
+  - `packages/shared/src/forms/form-block.ts`
+  - `packages/shared/src/response-data.ts`
+  - `packages/shared/src/response-export.ts`
+  - focused shared tests under `packages/shared/src/__tests__/**`
+- must_not_touch:
+  - `apps/api/**` validation behavior
+  - `apps/web/**` editor/form validation UI
+  - `apps/worker/**` Sheets sync
+  - response detail/export UI behavior
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/shared test`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started first because the shared pattern/other-validation contract gates API/Web behavior and export/Sheets metadata follow-ups. Export column product decisions remain deferred to PATTERN-3.
+  - Startup stability check found the worker stopped after branch creation/setup without a concrete blocker; a resume instruction was sent on 2026-07-08.
+
+### SEC-6: Verify and close telemetry findings
+- status: in_progress
+- branch: `codex/sec-telemetry-token-regressions`
+- pending_worktree: `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27`
+- worker_thread: `019f3db3-fc26-75c3-8be9-bcf7a0283f5f`
+- worktree: `/Users/xpadev/.codex/worktrees/766e/nexus-form`
+- source_plan_task: `security-findings-remediation-plan.md` Task_6
+- scope:
+  - `apps/api/src/lib/telemetry/tokens.ts`
+  - `apps/api/src/lib/telemetry/__tests__/tokens.test.ts` (approved minimal expansion for direct unit coverage of SEC-6 burn semantics)
+  - `apps/api/src/routes/telemetry.ts`
+  - `apps/api/src/routes/forms-public.ts`
+  - `apps/api/src/__tests__/authz-regression.test.ts`
+  - `apps/web/src/lib/telemetry-token.ts`
+  - `apps/web/src/components/forms/public-form-page.tsx`
+  - `apps/web/src/components/forms/public-form-page.test.tsx`
+  - `docs/coding-agent/lessons.md` only if a durable lesson is warranted
+- must_not_touch:
+  - prefill reachability or condition evaluator semantics
+  - pattern validation contracts
+  - upload/S3/media policy
+  - CI/release/migration files
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/authz-regression.test.ts`
+  - `pnpm --filter @nexus-form/web exec vitest run src/components/forms/public-form-page.test.tsx`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started as an independent security verification slice for findings #13, #17, and #18 while shared validation contract workers are active.
+
 ## Activity Log
 
+- 2026-07-08: Started PREFILL-1 worker as pending worktree `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220` on branch `codex/prefill-reachability-core`.
+- 2026-07-08: Started PATTERN-1 worker as pending worktree `local:286640af-0ee5-4a73-8683-5e733178d870` on branch `codex/pattern-validation-contract`.
+- 2026-07-08: Started SEC-6 worker as pending worktree `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27` on branch `codex/sec-telemetry-token-regressions`.
+- 2026-07-08: Resolved PREFILL-1 to thread `019f3db3-fb8d-7922-9cbc-cd295c67c95b` in worktree `/Users/xpadev/.codex/worktrees/fd24/nexus-form`; worker is active with scoped shared/Web edits.
+- 2026-07-08: Resolved PATTERN-1 to thread `019f3db3-fb8d-7922-9cbc-cd308aa4619b` in worktree `/Users/xpadev/.codex/worktrees/a05f/nexus-form`; worker stopped after branch setup without a concrete blocker, so a resume instruction was sent.
+- 2026-07-08: Resolved SEC-6 to thread `019f3db3-fc26-75c3-8be9-bcf7a0283f5f` in worktree `/Users/xpadev/.codex/worktrees/766e/nexus-form`; worker is active investigating telemetry token consumption semantics.
+- 2026-07-08: Sent follow-up instructions to PREFILL-1, PATTERN-1, and SEC-6 requiring each worker to create an explicit Codex goal for its delegated task before continuing; updated the backlog heartbeat to preserve this startup/resume guardrail.
+- 2026-07-08: Approved SEC-6 minimal scope expansion to `apps/api/src/lib/telemetry/__tests__/tokens.test.ts` because full validation failed only on existing unit expectations that directly contradict the new candidate-burn acceptance criteria for finding #13.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
