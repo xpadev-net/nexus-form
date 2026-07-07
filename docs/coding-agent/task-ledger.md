@@ -624,6 +624,7 @@
   - 2026-07-07: worker pushed review fixes and normal master merge to PR head `0c6b900d6daca17dffe1e00df7a1fefd97aa6a4e`; `gh-review-hook` rerun is waiting on the new CI/Greptile set, so the task remains in progress.
   - 2026-07-07: worker's hook run passed CI/AI review but required another normal master merge; worker pushed head `7451771475a7c1f1115a9107a4363251abb82690` and is waiting on the new CI/Greptile set. No merge-ready handoff yet.
   - 2026-07-07: worker merged another master-only ledger update and pushed PR head `b01f981aa5f0fd8321bd6ffeaa57eae2d51ffc33`; latest `gh-review-hook` rerun is waiting on CI, CodeRabbit, and Greptile. No merge-ready handoff yet.
+  - 2026-07-07: CI reached 10 passing / 0 failing, but `gh-review-hook` produced additional implementation/test/copy findings and PR reviewDecision is `CHANGES_REQUESTED`; worker remains active fixing them.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
