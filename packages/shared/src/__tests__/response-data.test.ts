@@ -6,6 +6,8 @@ import {
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_SELECTIONS,
   MAX_RESPONSE_TEXT_LENGTH,
+  questionValidationSchema,
+  responseDataItemSchema,
   responsePayloadItemSchema,
 } from "../response-data";
 
@@ -19,6 +21,25 @@ describe("isIsoCalendarDate", () => {
     expect(isIsoCalendarDate("2026-02-31")).toBe(false);
     expect(isIsoCalendarDate("2026-6-15")).toBe(false);
     expect(isIsoCalendarDate(" 2026-06-15 ")).toBe(false);
+  });
+});
+
+describe("questionValidationSchema", () => {
+  it("accepts pattern mismatch modes and choice other validation rules", () => {
+    const result = questionValidationSchema.safeParse({
+      type: "radio",
+      patternMismatchMode: "hidden",
+      allowPatternMismatch: true,
+      otherTextValidation: {
+        required: true,
+        minLength: 2,
+        maxLength: 10,
+        pattern: "^.+$",
+        patternMismatchMode: "warn",
+      },
+    });
+
+    expect(result.success).toBe(true);
   });
 });
 
@@ -117,6 +138,81 @@ describe("responsePayloadItemSchema", () => {
     const result = responsePayloadItemSchema.safeParse({
       ...baseResponse,
       question_id: "q".repeat(MAX_RESPONSE_ID_LENGTH + 1),
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("strips client-supplied pattern match metadata from response payloads", () => {
+    const result = responsePayloadItemSchema.safeParse({
+      ...baseResponse,
+      value: "NF-123",
+      validation_metadata: {
+        pattern_match: {
+          status: "mismatch",
+          mode: "hidden",
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("Expected payload parse success");
+    expect("validation_metadata" in result.data).toBe(false);
+  });
+});
+
+describe("responseDataItemSchema", () => {
+  const baseResponse = {
+    question_id: "question-1",
+    question_type: "short_text",
+  };
+
+  it("accepts pattern match metadata for later response consumers", () => {
+    const result = responseDataItemSchema.safeParse({
+      ...baseResponse,
+      value: "NF-123",
+      validation_metadata: {
+        pattern_match: {
+          status: "match",
+          mode: "warn",
+          pattern: "^NF-[0-9]+$",
+          patternTemplate: "nexus_id",
+        },
+        other_text_pattern_match: {
+          status: "unchecked",
+          mode: "hidden",
+        },
+      },
+    });
+
+    expect(result.success).toBe(true);
+    if (!result.success) throw new Error("Expected metadata parse success");
+    expect(result.data.validation_metadata).toEqual({
+      pattern_match: {
+        status: "match",
+        mode: "warn",
+        pattern: "^NF-[0-9]+$",
+        patternTemplate: "nexus_id",
+      },
+      other_text_pattern_match: {
+        status: "unchecked",
+        mode: "hidden",
+      },
+    });
+  });
+
+  it("rejects unknown validation metadata keys", () => {
+    const result = responseDataItemSchema.safeParse({
+      ...baseResponse,
+      value: "NF-123",
+      validation_metadata: {
+        pattern_match: {
+          status: "match",
+        },
+        future_field: {
+          status: "unchecked",
+        },
+      },
     });
 
     expect(result.success).toBe(false);

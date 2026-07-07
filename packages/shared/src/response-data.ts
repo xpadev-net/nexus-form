@@ -7,6 +7,8 @@ import { z } from "zod";
 import {
   ANSWERABLE_BLOCK_TYPES,
   type AnswerableBlockTypeValue,
+  PatternMismatchMode,
+  ShortTextCompatibleValidationConfig,
 } from "./forms/form-block";
 
 /** ユーザー回答を受け付けるバリデーション対象の質問タイプ。 */
@@ -38,7 +40,9 @@ export const questionValidationSchema = z
     minTime: z.string().optional(),
     maxTime: z.string().optional(),
     pattern: z.string().optional(),
+    patternMismatchMode: PatternMismatchMode.optional(),
     allowPatternMismatch: z.boolean().optional(),
+    otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
   })
   .passthrough();
 
@@ -95,63 +99,124 @@ const responseSelectionSchema = z.union([
   z.boolean(),
 ]);
 
-/** 回答ペイロードの個別項目を検証する Zod スキーマ */
-export const responsePayloadItemSchema = z
-  .object({
-    question_id: z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
-    question_type: z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
-    question_title: z.string().max(MAX_RESPONSE_TITLE_LENGTH).optional(),
-    value: responseScalarSchema.optional(),
-    values: z
-      .array(responseSelectionSchema)
-      .max(MAX_RESPONSE_SELECTIONS)
-      .optional(),
-    responses: z
-      .record(
-        z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
-        z.union([
-          responseTextSchema,
-          z.array(responseTextSchema).max(MAX_RESPONSE_GRID_SELECTIONS_PER_ROW),
-        ]),
-      )
-      .refine(
-        (responses) => Object.keys(responses).length <= MAX_RESPONSE_GRID_ROWS,
-        {
-          message: `Cannot include more than ${MAX_RESPONSE_GRID_ROWS} response rows`,
-        },
-      )
-      .optional(),
-    other_value: responseTextSchema.optional(),
-    other_values: z
-      .array(responseTextSchema)
-      .max(MAX_RESPONSE_SELECTIONS)
-      .optional(),
-  })
-  .superRefine((item, ctx) => {
-    if (!item.responses) return;
-    if (item.question_type === "choice_grid") {
-      for (const [rowId, value] of Object.entries(item.responses)) {
-        if (typeof value !== "string") {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["responses", rowId],
-            message: "choice_grid rows must contain a single selection string",
-          });
-        }
-      }
-    }
-    if (item.question_type === "checkbox_grid") {
-      for (const [rowId, value] of Object.entries(item.responses)) {
-        if (!Array.isArray(value)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: ["responses", rowId],
-            message: "checkbox_grid rows must contain selection arrays",
-          });
-        }
-      }
-    }
-  });
+/** Pattern validation result states: matched, mismatched, or not checked. */
+export const PATTERN_MATCH_STATUSES = [
+  "match",
+  "mismatch",
+  "unchecked",
+] as const;
 
-/** 回答データの個別項目の型。responsePayloadItemSchema から導出。 */
-export type ResponseDataItem = z.infer<typeof responsePayloadItemSchema>;
+/** Zod schema for pattern validation result states. */
+export const PatternMatchStatus = z.enum(PATTERN_MATCH_STATUSES);
+/** Pattern validation result status inferred from PatternMatchStatus. */
+export type PatternMatchStatus = z.infer<typeof PatternMatchStatus>;
+
+/** Metadata describing one pattern validation result for a response value. */
+export const responsePatternMatchMetadataSchema = z.object({
+  status: PatternMatchStatus,
+  mode: PatternMismatchMode.optional(),
+  pattern: z.string().max(MAX_RESPONSE_TEXT_LENGTH).optional(),
+  patternTemplate: z.string().max(MAX_RESPONSE_TEXT_LENGTH).optional(),
+});
+
+/** Pattern match metadata inferred from responsePatternMatchMetadataSchema. */
+export type ResponsePatternMatchMetadata = z.infer<
+  typeof responsePatternMatchMetadataSchema
+>;
+
+/**
+ * Strict response item validation metadata contract.
+ * Unknown top-level metadata keys are rejected.
+ */
+export const responseItemValidationMetadataSchema = z
+  .object({
+    pattern_match: responsePatternMatchMetadataSchema.optional(),
+    other_text_pattern_match: responsePatternMatchMetadataSchema.optional(),
+  })
+  .strict();
+
+/** Response item validation metadata inferred from the strict metadata schema. */
+export type ResponseItemValidationMetadata = z.infer<
+  typeof responseItemValidationMetadataSchema
+>;
+
+function validateGridResponseItem(
+  item: { question_type: string; responses?: Record<string, unknown> },
+  ctx: z.RefinementCtx,
+): void {
+  if (!item.responses) return;
+  if (item.question_type === "choice_grid") {
+    for (const [rowId, value] of Object.entries(item.responses)) {
+      if (typeof value !== "string") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["responses", rowId],
+          message: "choice_grid rows must contain a single selection string",
+        });
+      }
+    }
+  }
+  if (item.question_type === "checkbox_grid") {
+    for (const [rowId, value] of Object.entries(item.responses)) {
+      if (!Array.isArray(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["responses", rowId],
+          message: "checkbox_grid rows must contain selection arrays",
+        });
+      }
+    }
+  }
+}
+
+/** 回答ペイロードの個別項目を検証する Zod スキーマ */
+const responsePayloadItemBaseSchema = z.object({
+  question_id: z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
+  question_type: z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
+  question_title: z.string().max(MAX_RESPONSE_TITLE_LENGTH).optional(),
+  value: responseScalarSchema.optional(),
+  values: z
+    .array(responseSelectionSchema)
+    .max(MAX_RESPONSE_SELECTIONS)
+    .optional(),
+  responses: z
+    .record(
+      z.string().min(1).max(MAX_RESPONSE_ID_LENGTH),
+      z.union([
+        responseTextSchema,
+        z.array(responseTextSchema).max(MAX_RESPONSE_GRID_SELECTIONS_PER_ROW),
+      ]),
+    )
+    .refine(
+      (responses) => Object.keys(responses).length <= MAX_RESPONSE_GRID_ROWS,
+      {
+        message: `Cannot include more than ${MAX_RESPONSE_GRID_ROWS} response rows`,
+      },
+    )
+    .optional(),
+  other_value: responseTextSchema.optional(),
+  other_values: z
+    .array(responseTextSchema)
+    .max(MAX_RESPONSE_SELECTIONS)
+    .optional(),
+});
+
+export const responsePayloadItemSchema =
+  responsePayloadItemBaseSchema.superRefine(validateGridResponseItem);
+
+export const responseDataItemSchema = responsePayloadItemBaseSchema
+  .extend({
+    validation_metadata: responseItemValidationMetadataSchema.optional(),
+  })
+  .superRefine(validateGridResponseItem);
+
+/** 回答投稿ペイロードの個別項目の型。 */
+export type ResponsePayloadItem = z.infer<typeof responsePayloadItemSchema>;
+
+/** 既存利用箇所との互換性のため、ResponseDataItem は投稿ペイロード相当の狭い型を維持する。 */
+export type ResponseDataItem = ResponsePayloadItem;
+
+/** サーバー保存済み回答など、検証メタデータを持てる回答データの個別項目の型。 */
+export type ResponseDataItemWithValidationMetadata = z.infer<
+  typeof responseDataItemSchema
+>;
