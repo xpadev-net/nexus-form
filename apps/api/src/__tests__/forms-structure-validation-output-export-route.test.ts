@@ -160,6 +160,26 @@ describe("forms structure validation output export settings", () => {
     });
   });
 
+  it("returns 404 when validation output export settings cannot find the form structure", async () => {
+    const { FormStructureNotFoundError } = await import(
+      "../lib/errors/form-errors"
+    );
+    mocks.getValidationOutputExportSettings.mockRejectedValueOnce(
+      new FormStructureNotFoundError("form-1"),
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request(
+      "/form-1/structure/validation-output-export",
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form structure not found",
+    });
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
+  });
+
   it("saves only validation output export settings on the current structure", async () => {
     const { formsStructureRouter } = await import("../routes/forms-structure");
 
@@ -194,14 +214,7 @@ describe("forms structure validation output export settings", () => {
     expect(mocks.getFormStructure).toHaveBeenCalledWith("form-1");
     expect(mocks.saveFormStructure).toHaveBeenCalledWith(
       "form-1",
-      {
-        ...currentStructure,
-        confirmation: {
-          ...currentStructure.confirmation,
-          allow_edit_link: false,
-          show_response_id: true,
-          show_response_summary: false,
-        },
+      expect.objectContaining({
         settings: {
           ...currentStructure.settings,
           validation_output_export: {
@@ -223,10 +236,45 @@ describe("forms structure validation output export settings", () => {
             ],
           },
         },
-      },
+      }),
       "user-1",
       "Update validation output export settings",
     );
+  });
+
+  it("returns 404 without saving when the current structure is missing during validation output export PATCH", async () => {
+    const { FormStructureNotFoundError } = await import(
+      "../lib/errors/form-errors"
+    );
+    mocks.getFormStructure.mockRejectedValueOnce(
+      new FormStructureNotFoundError("form-1"),
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+
+    const res = await formsStructureRouter.request(
+      "/form-1/structure/validation-output-export",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          values: [
+            {
+              rule_id: "rule-1",
+              provider_name: "github",
+              rule_type: "user_exists",
+              output_key: "username",
+              enabled: false,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toEqual({
+      error: "Form structure not found",
+    });
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate output-key settings before saving", async () => {

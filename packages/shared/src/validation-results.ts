@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const VALIDATION_OUTPUT_METADATA_KEY = "validationOutputs";
+export const VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES = 1000;
 
 export const validationOutputKeySchema = z
   .string()
@@ -59,7 +60,10 @@ export const validationOutputExportSettingSchema = z
 
 export const validationOutputExportSettingsSchema = z
   .object({
-    values: z.array(validationOutputExportSettingSchema).max(1000).default([]),
+    values: z
+      .array(validationOutputExportSettingSchema)
+      .max(VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES)
+      .default([]),
   })
   .strict()
   .superRefine((settings, ctx) => {
@@ -102,6 +106,9 @@ export function parseValidationOutputExportSettings(
   const validValues: ValidationOutputExportSetting[] = [];
   const seenKeys = new Set<string>();
   for (const value of settings.values) {
+    if (validValues.length >= VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES) {
+      break;
+    }
     const parsedValue = validationOutputExportSettingSchema.safeParse(value);
     if (!parsedValue.success) continue;
     const key = `${parsedValue.data.rule_id}:${parsedValue.data.output_key}`;

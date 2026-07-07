@@ -1,4 +1,3 @@
-import { db } from "@nexus-form/database";
 import {
   externalServiceValidationResult,
   formResponse,
@@ -12,8 +11,8 @@ import {
 } from "@nexus-form/shared";
 import { desc, eq } from "drizzle-orm";
 import { getFormStructure } from "./form-structure-service";
-import { listValidationRules } from "./validation-rule-repository";
 
+/** Display-ready validation output value option returned by the settings API. */
 export interface ValidationOutputExportValueOption {
   rule_id: string;
   rule_name: string;
@@ -27,6 +26,8 @@ export interface ValidationOutputExportValueOption {
 
 const UNKNOWN_PROVIDER_NAME = "unknown";
 const UNKNOWN_RULE_TYPE = "unknown";
+
+/** Maximum recent validation result rows scanned when discovering output keys. */
 export const VALIDATION_OUTPUT_EXPORT_RESULT_DISCOVERY_LIMIT = 500;
 
 const BUILTIN_OUTPUT_DEFINITIONS: Record<
@@ -102,6 +103,16 @@ function upsertOption(
   });
 }
 
+async function getDatabase() {
+  const { db } = await import("@nexus-form/database");
+  return db;
+}
+
+async function getValidationRuleRepository() {
+  return import("./validation-rule-repository");
+}
+
+/** Loads validation output export settings and discovered output value options. */
 export async function getValidationOutputExportSettings(formId: string) {
   const structure = await getFormStructure(formId);
   const settings = parseValidationOutputExportSettings(
@@ -110,28 +121,32 @@ export async function getValidationOutputExportSettings(formId: string) {
   const settingsByKey = buildSettingMap(settings);
   const options = new Map<string, ValidationOutputExportValueOption>();
 
-  const rulesPromise = listValidationRules(formId);
-  const resultRowsPromise = db
-    .select({
-      metadata: externalServiceValidationResult.metadata,
-      ruleId: externalServiceValidationResult.ruleId,
-      service: externalServiceValidationResult.service,
-      ruleName: formValidationRule.name,
-      providerName: formValidationRule.providerName,
-      ruleType: formValidationRule.ruleType,
-    })
-    .from(externalServiceValidationResult)
-    .innerJoin(
-      formResponse,
-      eq(externalServiceValidationResult.responseId, formResponse.id),
-    )
-    .leftJoin(
-      formValidationRule,
-      eq(externalServiceValidationResult.ruleId, formValidationRule.id),
-    )
-    .where(eq(formResponse.formId, formId))
-    .orderBy(desc(externalServiceValidationResult.createdAt))
-    .limit(VALIDATION_OUTPUT_EXPORT_RESULT_DISCOVERY_LIMIT);
+  const rulesPromise = getValidationRuleRepository().then(
+    ({ listValidationRules }) => listValidationRules(formId),
+  );
+  const resultRowsPromise = getDatabase().then((database) =>
+    database
+      .select({
+        metadata: externalServiceValidationResult.metadata,
+        ruleId: externalServiceValidationResult.ruleId,
+        service: externalServiceValidationResult.service,
+        ruleName: formValidationRule.name,
+        providerName: formValidationRule.providerName,
+        ruleType: formValidationRule.ruleType,
+      })
+      .from(externalServiceValidationResult)
+      .innerJoin(
+        formResponse,
+        eq(externalServiceValidationResult.responseId, formResponse.id),
+      )
+      .leftJoin(
+        formValidationRule,
+        eq(externalServiceValidationResult.ruleId, formValidationRule.id),
+      )
+      .where(eq(formResponse.formId, formId))
+      .orderBy(desc(externalServiceValidationResult.createdAt))
+      .limit(VALIDATION_OUTPUT_EXPORT_RESULT_DISCOVERY_LIMIT),
+  );
 
   const [rules, resultRows] = await Promise.all([
     rulesPromise,

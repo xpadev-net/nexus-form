@@ -4,6 +4,7 @@ import {
   mergeValidationOutputValuesIntoMetadata,
   parseValidationOutputExportSettings,
   parseValidationOutputValuesFromMetadata,
+  VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES,
   VALIDATION_OUTPUT_METADATA_KEY,
   type ValidationOutputValue,
   validationOutputExportSettingsSchema,
@@ -227,6 +228,23 @@ describe("validation output export settings", () => {
           enabled: false,
         },
       ],
+    });
+  });
+
+  it("caps recovered export settings at the schema maximum", () => {
+    const values = Array.from(
+      { length: VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES + 5 },
+      (_, index) => ({
+        rule_id: `rule-${index}`,
+        provider_name: "github",
+        rule_type: "user_exists",
+        output_key: "username",
+        enabled: index % 2 === 0,
+      }),
+    );
+
+    expect(parseValidationOutputExportSettings({ values })).toEqual({
+      values: values.slice(0, VALIDATION_OUTPUT_EXPORT_SETTINGS_MAX_VALUES),
     });
   });
 });

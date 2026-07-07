@@ -15,16 +15,19 @@ interface FormValidationOutputExportSettingsProps {
   formId: string;
 }
 
-interface ValidationOutputExportValueOption {
-  rule_id: string;
-  rule_name: string;
-  provider_name: string;
-  rule_type: string;
-  output_key: string;
-  label: string;
-  enabled: boolean;
-  source: "builtin" | "result" | "saved";
+function fetchValidationOutputExportSettings(formId: string) {
+  return rpc(
+    client.api.forms[":id"].structure["validation-output-export"].$get({
+      param: { id: formId },
+    }),
+  );
 }
+
+type ValidationOutputExportSettingsResponse = Awaited<
+  ReturnType<typeof fetchValidationOutputExportSettings>
+>;
+type ValidationOutputExportValueOption =
+  ValidationOutputExportSettingsResponse["values"][number];
 
 const EMPTY_VALUES: ValidationOutputExportValueOption[] = [];
 
@@ -48,6 +51,63 @@ function groupValues(values: ValidationOutputExportValueOption[]) {
   return [...groups.values()];
 }
 
+interface ValidationOutputExportRuleGroupProps {
+  group: ValidationOutputExportValueOption[];
+  draft: Record<string, boolean>;
+  disabled: boolean;
+  onChange: (
+    value: ValidationOutputExportValueOption,
+    enabled: boolean,
+  ) => void;
+}
+
+const ValidationOutputExportRuleGroup: FC<
+  ValidationOutputExportRuleGroupProps
+> = ({ group, draft, disabled, onChange }) => {
+  const first = group[0];
+  if (!first) return null;
+
+  return (
+    <div className="rounded-md border p-4">
+      <div className="mb-3">
+        <h3 className="text-sm font-semibold">{first.rule_name}</h3>
+        <p className="text-xs text-muted-foreground">
+          {first.provider_name} / {first.rule_type}
+        </p>
+      </div>
+      <div className="space-y-3">
+        {group.map((value) => {
+          const id = `validation-output-export-${value.rule_id}-${value.output_key}`;
+          const checked = draft[settingKey(value)] ?? value.enabled;
+          return (
+            <div
+              key={settingKey(value)}
+              className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <Label htmlFor={id} className="font-medium">
+                  {value.label}
+                </Label>
+                <p className="break-all text-xs text-muted-foreground">
+                  {value.output_key}
+                  {value.source === "saved" ? " / 保存済み設定" : ""}
+                </p>
+              </div>
+              <Switch
+                id={id}
+                aria-label={`${value.label} を出力する`}
+                checked={checked}
+                disabled={disabled}
+                onCheckedChange={(enabled) => onChange(value, enabled)}
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export const FormValidationOutputExportSettings: FC<
   FormValidationOutputExportSettingsProps
 > = ({ formId }) => {
@@ -57,12 +117,7 @@ export const FormValidationOutputExportSettings: FC<
 
   const settingsQuery = useQuery({
     queryKey: ["validationOutputExportSettings", formId],
-    queryFn: () =>
-      rpc(
-        client.api.forms[":id"].structure["validation-output-export"].$get({
-          param: { id: formId },
-        }),
-      ),
+    queryFn: () => fetchValidationOutputExportSettings(formId),
     enabled: !!formId,
   });
 
@@ -141,7 +196,8 @@ export const FormValidationOutputExportSettings: FC<
             <h2 className="text-lg font-semibold">検証結果の出力</h2>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            CSV と Google Sheets に含める検証結果の値をルールごとに選択します。
+            今後のCSVとGoogle
+            Sheets出力で使う検証結果の値をルールごとに選択します。
           </p>
         </div>
         <Button
@@ -198,53 +254,15 @@ export const FormValidationOutputExportSettings: FC<
         className="space-y-4"
         onSubmit={handleSubmit}
       >
-        {valueGroups.map((group) => {
-          const first = group[0];
-          if (!first) return null;
-          return (
-            <div key={first.rule_id} className="rounded-md border p-4">
-              <div className="mb-3">
-                <h3 className="text-sm font-semibold">{first.rule_name}</h3>
-                <p className="text-xs text-muted-foreground">
-                  {first.provider_name} / {first.rule_type}
-                </p>
-              </div>
-              <div className="space-y-3">
-                {group.map((value) => {
-                  const id = `validation-output-export-${value.rule_id}-${value.output_key}`;
-                  const checked = draft[settingKey(value)] ?? value.enabled;
-                  return (
-                    <div
-                      key={settingKey(value)}
-                      className="flex items-center justify-between gap-3 rounded-md bg-muted/30 px-3 py-2"
-                    >
-                      <div className="min-w-0">
-                        <Label htmlFor={id} className="font-medium">
-                          {value.label}
-                        </Label>
-                        <p className="break-all text-xs text-muted-foreground">
-                          {value.output_key}
-                          {value.source === "saved" ? " / 保存済み設定" : ""}
-                        </p>
-                      </div>
-                      <Switch
-                        id={id}
-                        aria-label={`${value.label} を出力する`}
-                        checked={checked}
-                        disabled={
-                          saveMutation.isPending || settingsQuery.isLoading
-                        }
-                        onCheckedChange={(enabled) =>
-                          updateDraft(value, enabled)
-                        }
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+        {valueGroups.map((group) => (
+          <ValidationOutputExportRuleGroup
+            key={group[0]?.rule_id}
+            group={group}
+            draft={draft}
+            disabled={saveMutation.isPending || settingsQuery.isLoading}
+            onChange={updateDraft}
+          />
+        ))}
       </form>
     </section>
   );
