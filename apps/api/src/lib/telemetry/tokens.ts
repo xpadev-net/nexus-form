@@ -87,6 +87,8 @@ export async function consumeTokensOrThrow(
       throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
     }
 
+    // Omit the IP predicate here so authorized dual-stack submits also burn
+    // the submitted sibling token bound to the other address family.
     await tx
       .update(telemetryToken)
       .set({ usedAt: now })
