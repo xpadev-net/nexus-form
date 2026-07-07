@@ -641,7 +641,7 @@
 - status: in progress
 - branch: `codex/validation-result-csv-sheets`
 - pr: [#630](https://github.com/xpadev-net/nexus-form/pull/630)
-- head_sha: `59522ce4be4691aa6fc3cbec855cd1199a967c8b`
+- head_sha: `ebe7751de710ce903680c7ecbc9d74e0bcc18dbf`
 - pending_worktree: resolved
 - worker_thread: `019f3d30-6272-7252-ac6f-69ab471db304`
 - worktree: `/Users/xpadev/.codex/worktrees/d38b/nexus-form`
@@ -668,6 +668,8 @@
   - 2026-07-08: worker reported merge-ready; parent marked PR ready, reran focused API/worker/pagination tests plus `pnpm lint:fix`, `pnpm type-check`, and `pnpm test -- --silent`, all passing in the worker worktree. Parent `gh-review-hook 630` then exited 2 after draft removal because Greptile returned two non-blocking-but-actionable review items (settings-only placeholder rule name and duplicated validation output query) and the branch was 1 commit behind `master` due to the parent ledger commit. Parent did not merge and sent worker follow-up to merge `origin/master` normally, address the hook items, rerun validation, and report merge-ready again.
   - 2026-07-08: worker pushed follow-up head `1e06686c397f8ed2728ffabff603ded21e9fa294` after merging `origin/master` normally and addressing the review-hook findings; worker thread remains active waiting for `gh-review-hook 630` to finish, with Greptile still in progress, so parent leaves it running and does not merge.
   - 2026-07-08: worker pushed base-update head `59522ce4be4691aa6fc3cbec855cd1199a967c8b`; GitHub checks are all success and PR merge state is CLEAN, but worker thread is still active and has not yet sent the final merge-ready report after the latest hook run, so parent leaves it running and does not merge.
+  - 2026-07-08: worker reported merge-ready at head `59522ce4be4691aa6fc3cbec855cd1199a967c8b`; parent reran the merge gate, found PR #630 one commit behind `master` due to the parent ledger commit, normally merged `origin/master` into the worker branch, and pushed head `eccf81a98bccb50c8da0f6a78f1867bea36ee462`. Parent `$deep-review` found no local actionable issue, and focused API response-export, worker Sheets sync, shared response-export, API unbounded pagination, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` all passed. Latest parent `gh-review-hook 630` exited 2 with additional actionable findings for validation-output pagination coverage, public API JSDoc, and plan date cleanup; parent did not merge and sent worker follow-up to verify/fix, rerun validation/reviews/hook, and report merge-ready again.
+  - 2026-07-08: worker pushed follow-up head `ebe7751de710ce903680c7ecbc9d74e0bcc18dbf` after addressing the parent hook findings, rerunning focused tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, `$deep-review`, and independent review. PR #630 CI and CodeRabbit are successful; Greptile remains in progress and the worker is still active in `gh-review-hook 630`, so parent leaves it running and does not merge.
 
 ## Activity Log
 
