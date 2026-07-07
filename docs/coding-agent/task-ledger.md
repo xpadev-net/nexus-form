@@ -591,8 +591,8 @@
 - stale_pending_worktrees:
   - `local:73433277-d963-4c40-b993-0c31c2633f97`
   - `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`
-- worker_thread: pending
-- worktree: pending
+- worker_thread: `019f3c31-2aed-79e3-9b6b-2fd193eb7be7`
+- worktree: `/Users/xpadev/.codex/worktrees/e572/nexus-form`
 - replaced_worker_threads:
   - `019f383e-7a7b-7873-b68b-761113174ee9` (`/Users/xpadev/.codex/worktrees/709e/nexus-form`)
 - source_plan_task: `validation-result-export-plan.md` Task_3
@@ -618,6 +618,9 @@
   - Replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8` resolved to worker thread `019f383e-7a7b-7873-b68b-761113174ee9` in worktree `/Users/xpadev/.codex/worktrees/709e/nexus-form`; parent sent the VEXPORT-2 delegation prompt. Earlier duplicate candidate thread `019f37e6-1aef-7c40-9329-98d8a4a3fa59` was archived unused to avoid competing workers.
   - 2026-07-07 heartbeat checks: worker thread remains active but stuck waiting on an approval-gated Playwright/browser command after local UI evidence attempts failed with environment sandbox errors; parent sent non-escalated resume instructions and no PR exists yet. Do not start VEXPORT-3 until VEXPORT-2 has a merge-ready PR and passes the orchestrator merge gate.
   - 2026-07-07: parent treated worker thread `019f383e-7a7b-7873-b68b-761113174ee9` as replaced after repeated unchanged approval-wait heartbeats with no PR, archived it, and started replacement pending worktree `local:ec2f7b1f-ae08-41e2-ad3b-eee7500d2077` on branch `codex/validation-output-export-settings-retry`. Replacement must start clean from master and must not reuse old uncommitted worktree changes.
+  - 2026-07-07: replacement pending worktree resolved to worker thread `019f3c31-2aed-79e3-9b6b-2fd193eb7be7` in `/Users/xpadev/.codex/worktrees/e572/nexus-form`; worker stopped after setup/branch creation without a concrete blocker, so parent sent one resume instruction to continue investigation and implementation.
+  - 2026-07-07: replacement worker opened PR [#629](https://github.com/xpadev-net/nexus-form/pull/629) at head `dce7ab3f4379a5f06dd5c81285d42ae4e1773849`; CI checks are passing except Greptile Review is still in progress, so the worker remains active in `gh-review-hook` waiting and the orchestrator merge gate has not started.
+  - 2026-07-07: PR checks reached 10 passing / 0 failing, but worker `gh-review-hook` returned exit 2 with in-scope implementation findings and master追従要求; worker remains active applying fixes, so the orchestrator merge gate is still not started.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
