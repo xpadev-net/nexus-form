@@ -1,6 +1,6 @@
 # Plan: R22-M5 validation shutdown AbortError terminalization
 
-- status: in_progress
+- status: completed
 - generated: 2026-05-31
 - last_updated: 2026-05-31
 - work_type: code

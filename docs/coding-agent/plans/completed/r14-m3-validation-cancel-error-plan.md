@@ -1,6 +1,6 @@
 # Plan: R14-M3 Validation Cancel Error
 
-- status: in_progress
+- status: completed
 - generated: 2026-06-01
 - last_updated: 2026-06-01
 - work_type: code

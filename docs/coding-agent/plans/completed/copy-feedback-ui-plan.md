@@ -1,6 +1,6 @@
 # Plan: Copy Feedback UI
 
-- status: draft
+- status: completed
 - generated: 2026-07-06
 - last_updated: 2026-07-06
 - work_type: code

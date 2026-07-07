@@ -1,6 +1,6 @@
 # Plan: R22-M1 Sheets AUTH_REQUIRED terminal handling and worker error context
 
-- status: done
+- status: completed
 - generated: 2026-05-31
 - last_updated: 2026-05-31
 - work_type: code
