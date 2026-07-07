@@ -5,6 +5,7 @@ import {
   extractTitleFromChildren,
   getCompletionTargetReferences,
   removeNestedQuestionsFromPlateContent,
+  resolveReachableFormContent,
   splitPlateContentIntoPages,
   validateCompletionTargetPages,
   validateCompletionTargetsInPlateContent,
@@ -231,6 +232,179 @@ describe("completion target validation", () => {
     ]);
 
     expect(issues).toEqual([]);
+  });
+});
+
+describe("resolveReachableFormContent", () => {
+  it("follows next/default navigation and returns reachable question ids", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-2", "詳細", {
+        default_action: { type: "next" },
+      }),
+      questionNode("long_text", "question-2", "詳細"),
+    ]);
+
+    expect(resolveReachableFormContent(pages, {}).pageIndexes).toEqual([0, 1]);
+    expect(resolveReachableFormContent(pages, {}).questionIds).toEqual([
+      "question-1",
+      "question-2",
+    ]);
+  });
+
+  it("follows matching jump_to_section rules and skips unreachable pages", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("radio", "question-kind", "種別"),
+      sectionNode("section-a", "A", {
+        navigation_rules: [
+          {
+            id: "rule-jump-b",
+            name: "B へ移動",
+            conditions: [
+              {
+                question_id: "question-kind",
+                operator: "equals",
+                value: "b",
+              },
+            ],
+            condition_match: "all",
+            action: { type: "jump_to_section", target_id: "section-b" },
+          },
+        ],
+        default_action: { type: "next" },
+      }),
+      questionNode("short_text", "question-a", "A の質問"),
+      sectionNode("section-b", "B", {
+        default_action: { type: "submit" },
+      }),
+      questionNode("short_text", "question-b", "B の質問"),
+    ]);
+
+    expect(
+      resolveReachableFormContent(pages, { "question-kind": "b" }),
+    ).toEqual({
+      pageIndexes: [0, 2],
+      questionIds: ["question-kind", "question-b"],
+    });
+  });
+
+  it("stops at submit actions and does not include completion target questions", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-complete", "完了", {
+        default_action: { type: "submit", target_id: "section-complete" },
+      }),
+      paragraph("送信ありがとうございました。"),
+    ]);
+
+    expect(resolveReachableFormContent(pages, {})).toEqual({
+      pageIndexes: [0],
+      questionIds: ["question-1"],
+    });
+  });
+
+  it("keeps cycle protection when navigation loops between pages", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("short_text", "question-1", "氏名"),
+      sectionNode("section-2", "2", {
+        default_action: { type: "jump_to_section", target_id: "section-2" },
+      }),
+      questionNode("short_text", "question-2", "2 の質問"),
+      sectionNode("section-3", "3", {
+        default_action: { type: "jump_to_section", target_id: "section-2" },
+      }),
+      questionNode("short_text", "question-3", "3 の質問"),
+    ]);
+
+    expect(resolveReachableFormContent(pages, {})).toEqual({
+      pageIndexes: [0, 1],
+      questionIds: ["question-1", "question-2"],
+    });
+  });
+
+  it("does not match includes_any or includes_all rules for unanswered values", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("checkbox", "question-options", "選択"),
+      sectionNode("section-any", "Any", {
+        navigation_rules: [
+          {
+            id: "rule-any",
+            name: "未回答 any",
+            conditions: [
+              {
+                question_id: "question-options",
+                operator: "includes_any",
+              },
+            ],
+            condition_match: "all",
+            action: { type: "jump_to_section", target_id: "section-all" },
+          },
+        ],
+        default_action: { type: "next" },
+      }),
+      questionNode("short_text", "question-any", "Any の質問"),
+      sectionNode("section-all", "All", {
+        navigation_rules: [
+          {
+            id: "rule-all",
+            name: "未回答 all",
+            conditions: [
+              {
+                question_id: "question-options",
+                operator: "includes_all",
+              },
+            ],
+            condition_match: "all",
+            action: { type: "submit" },
+          },
+        ],
+        default_action: { type: "next" },
+      }),
+      questionNode("short_text", "question-all", "All の質問"),
+    ]);
+
+    expect(resolveReachableFormContent(pages, {})).toEqual({
+      pageIndexes: [0, 1, 2],
+      questionIds: ["question-options", "question-any", "question-all"],
+    });
+  });
+
+  it("matches branch-dependent reachability when includes_all is answered", () => {
+    const pages = splitPlateContentIntoPages([
+      questionNode("checkbox", "question-options", "選択"),
+      sectionNode("section-regular", "通常", {
+        navigation_rules: [
+          {
+            id: "rule-premium",
+            name: "プレミアム",
+            conditions: [
+              {
+                question_id: "question-options",
+                operator: "includes_all",
+                value: ["premium", "support"],
+              },
+            ],
+            condition_match: "all",
+            action: { type: "jump_to_section", target_id: "section-premium" },
+          },
+        ],
+        default_action: { type: "next" },
+      }),
+      questionNode("short_text", "question-regular", "通常質問"),
+      sectionNode("section-premium", "プレミアム", {
+        default_action: { type: "submit" },
+      }),
+      questionNode("short_text", "question-premium", "追加質問"),
+    ]);
+
+    expect(
+      resolveReachableFormContent(pages, {
+        "question-options": ["premium", "support"],
+      }),
+    ).toEqual({
+      pageIndexes: [0, 2],
+      questionIds: ["question-options", "question-premium"],
+    });
   });
 });
 
