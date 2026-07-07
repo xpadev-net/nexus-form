@@ -641,7 +641,7 @@
 - status: in progress
 - branch: `codex/validation-result-csv-sheets`
 - pr: [#630](https://github.com/xpadev-net/nexus-form/pull/630)
-- head_sha: `aeb31e554984d3e89a9be93a31fc8f383bd8b088`
+- head_sha: `1e06686c397f8ed2728ffabff603ded21e9fa294`
 - pending_worktree: resolved
 - worker_thread: `019f3d30-6272-7252-ac6f-69ab471db304`
 - worktree: `/Users/xpadev/.codex/worktrees/d38b/nexus-form`
@@ -665,6 +665,8 @@
   - 2026-07-08: parent started VEXPORT-3 worker pending worktree `local:d139dcdf-02f4-4081-855e-a5dfd4b1eec9` after VEXPORT-2 PR #629 merged and the worker thread was archived. Scope is CSV/Sheets output consumption of saved validation output export settings only.
   - 2026-07-08: pending worktree resolved to active worker thread `019f3d30-6272-7252-ac6f-69ab471db304` in `/Users/xpadev/.codex/worktrees/d38b/nexus-form`; worker is active with local implementation changes and no PR yet, so parent leaves it running.
   - 2026-07-08: worker opened draft PR [#630](https://github.com/xpadev-net/nexus-form/pull/630) at head `aeb31e554984d3e89a9be93a31fc8f383bd8b088`; PR is draft, CLEAN, and worker thread remains active, so parent merge gate has not started.
+  - 2026-07-08: worker reported merge-ready; parent marked PR ready, reran focused API/worker/pagination tests plus `pnpm lint:fix`, `pnpm type-check`, and `pnpm test -- --silent`, all passing in the worker worktree. Parent `gh-review-hook 630` then exited 2 after draft removal because Greptile returned two non-blocking-but-actionable review items (settings-only placeholder rule name and duplicated validation output query) and the branch was 1 commit behind `master` due to the parent ledger commit. Parent did not merge and sent worker follow-up to merge `origin/master` normally, address the hook items, rerun validation, and report merge-ready again.
+  - 2026-07-08: worker pushed follow-up head `1e06686c397f8ed2728ffabff603ded21e9fa294` after merging `origin/master` normally and addressing the review-hook findings; worker thread remains active waiting for `gh-review-hook 630` to finish, with Greptile still in progress, so parent leaves it running and does not merge.
 
 ## Activity Log
 
