@@ -196,6 +196,12 @@ describe("forms structure validation output export settings", () => {
       "form-1",
       {
         ...currentStructure,
+        confirmation: {
+          ...currentStructure.confirmation,
+          allow_edit_link: false,
+          show_response_id: true,
+          show_response_summary: false,
+        },
         settings: {
           ...currentStructure.settings,
           validation_output_export: {

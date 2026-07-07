@@ -22,6 +22,7 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   externalServiceValidationResult: {
+    createdAt: "externalServiceValidationResult.createdAt",
     metadata: "externalServiceValidationResult.metadata",
     responseId: "externalServiceValidationResult.responseId",
     ruleId: "externalServiceValidationResult.ruleId",
@@ -101,7 +102,11 @@ describe("getValidationOutputExportSettings", () => {
         }),
       ]),
     );
-    expect(mocks.select.mock.results[0]?.value.limit).toHaveBeenCalledWith(500);
+    const query = mocks.select.mock.results[0]?.value;
+    expect(query.orderBy).toHaveBeenCalledWith({
+      desc: "externalServiceValidationResult.createdAt",
+    });
+    expect(query.limit).toHaveBeenCalledWith(500);
   });
 
   it("applies saved toggles and preserves saved historical keys", async () => {

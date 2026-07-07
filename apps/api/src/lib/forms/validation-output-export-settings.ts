@@ -1,3 +1,9 @@
+import { db } from "@nexus-form/database";
+import {
+  externalServiceValidationResult,
+  formResponse,
+  formValidationRule,
+} from "@nexus-form/database/schema";
 import {
   parseValidationOutputExportSettings,
   parseValidationOutputValuesFromMetadata,
@@ -6,6 +12,7 @@ import {
 } from "@nexus-form/shared";
 import { desc, eq } from "drizzle-orm";
 import { getFormStructure } from "./form-structure-service";
+import { listValidationRules } from "./validation-rule-repository";
 
 export interface ValidationOutputExportValueOption {
   rule_id: string;
@@ -103,29 +110,8 @@ export async function getValidationOutputExportSettings(formId: string) {
   const settingsByKey = buildSettingMap(settings);
   const options = new Map<string, ValidationOutputExportValueOption>();
 
-  const { listValidationRules } = await import("./validation-rule-repository");
-  const rules = await listValidationRules(formId);
-  for (const rule of rules) {
-    const definitions =
-      BUILTIN_OUTPUT_DEFINITIONS[rule.providerName]?.[rule.ruleType] ?? [];
-    for (const definition of definitions) {
-      upsertOption(options, settingsByKey, {
-        rule_id: rule.id,
-        rule_name: rule.name,
-        provider_name: rule.providerName,
-        rule_type: rule.ruleType,
-        output_key: definition.key,
-        label: definition.label,
-        source: "builtin",
-      });
-    }
-  }
-
-  const { db } = await import("@nexus-form/database");
-  const { externalServiceValidationResult, formResponse, formValidationRule } =
-    await import("@nexus-form/database/schema");
-
-  const resultRows = await db
+  const rulesPromise = listValidationRules(formId);
+  const resultRowsPromise = db
     .select({
       metadata: externalServiceValidationResult.metadata,
       ruleId: externalServiceValidationResult.ruleId,
@@ -146,6 +132,27 @@ export async function getValidationOutputExportSettings(formId: string) {
     .where(eq(formResponse.formId, formId))
     .orderBy(desc(externalServiceValidationResult.createdAt))
     .limit(VALIDATION_OUTPUT_EXPORT_RESULT_DISCOVERY_LIMIT);
+
+  const [rules, resultRows] = await Promise.all([
+    rulesPromise,
+    resultRowsPromise,
+  ]);
+
+  for (const rule of rules) {
+    const definitions =
+      BUILTIN_OUTPUT_DEFINITIONS[rule.providerName]?.[rule.ruleType] ?? [];
+    for (const definition of definitions) {
+      upsertOption(options, settingsByKey, {
+        rule_id: rule.id,
+        rule_name: rule.name,
+        provider_name: rule.providerName,
+        rule_type: rule.ruleType,
+        output_key: definition.key,
+        label: definition.label,
+        source: "builtin",
+      });
+    }
+  }
 
   for (const row of resultRows) {
     const outputValues = parseValidationOutputValuesFromMetadata(row.metadata);

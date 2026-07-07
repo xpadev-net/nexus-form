@@ -21,7 +21,6 @@ import {
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
-import { getValidationOutputExportSettings } from "../lib/forms/validation-output-export-settings";
 import { createHonoApp } from "../lib/hono";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
@@ -669,6 +668,9 @@ export const formsStructureRouter = createHonoApp()
   )
   .get("/:id/structure/validation-output-export", async (c) => {
     const formId = c.req.param("id");
+    const { getValidationOutputExportSettings } = await import(
+      "../lib/forms/validation-output-export-settings"
+    );
     const result = await getValidationOutputExportSettings(formId).catch(
       (error) => {
         if (error instanceof FormStructureNotFoundError) {
@@ -697,13 +699,13 @@ export const formsStructureRouter = createHonoApp()
         const currentStructure = await getFormStructure(formId);
         return saveFormStructure(
           formId,
-          {
+          FormStructure.parse({
             ...currentStructure,
             settings: {
               ...currentStructure.settings,
               validation_output_export: payload,
             },
-          },
+          }),
           resolveAuditUserId(auth.user_id),
           "Update validation output export settings",
         );
