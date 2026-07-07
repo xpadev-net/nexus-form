@@ -265,6 +265,15 @@ export function buildResponseExportRecords(
   return { records, fingerprintComponents };
 }
 
+/**
+ * Builds the deterministic validation output columns used by response CSV export.
+ *
+ * @param settings Saved per-rule/per-output export settings. Missing settings
+ * keep discovered validation outputs enabled by default.
+ * @param validationOutputsByResponseId Parsed validation output values grouped
+ * by response ID from the constrained export query.
+ * @returns Selected validation output columns in shared export order.
+ */
 export function buildValidationOutputColumnsForResponseExport(
   settings: ValidationOutputExportSettings | undefined,
   validationOutputsByResponseId: Map<

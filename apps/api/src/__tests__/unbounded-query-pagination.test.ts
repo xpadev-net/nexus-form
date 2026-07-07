@@ -916,6 +916,67 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.limitCalls).toContain(5001);
   });
 
+  it("constrains the CSV validation output lookup to exported response ids", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    const validationOutputQuery = emptySelectQuery([]);
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            plateContent: JSON.stringify([
+              { type: "form_short_text", blockId: "name-block" },
+            ]),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        orderedQuery(
+          Array.from({ length: 50 }, (_, index) => ({
+            id: `response-${index}`,
+            formId: "form-1",
+            responseDataJson: "[]",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: `respondent-${index}`,
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          })),
+        ),
+      )
+      .mockReturnValueOnce(emptySelectQuery([]))
+      .mockReturnValueOnce(
+        orderedQuery([
+          {
+            structureJson:
+              '{"version":1,"settings":{"allow_edit_responses":false}}',
+          },
+        ]),
+      )
+      .mockReturnValueOnce(validationOutputQuery);
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(200);
+    expect(validationOutputQuery.where).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          expect.objectContaining({
+            left: "formResponse.id",
+            op: "inArray",
+            values: Array.from(
+              { length: 50 },
+              (_, index) => `response-${index}`,
+            ),
+          }),
+        ]),
+        op: "and",
+      }),
+    );
+    expect(validationOutputQuery.limit).not.toHaveBeenCalled();
+  });
+
   it("returns a header-only CSV when there are no saved responses", async () => {
     mocks.db.select
       .mockReturnValueOnce(

@@ -33,6 +33,11 @@ export type ResponseExportColumn = {
   blockType?: string;
 };
 
+/**
+ * A single exportable validation output value from one validation result.
+ * Missing rule/provider fields are normalized by the DB row grouping helper
+ * before values reach CSV or Sheets rendering.
+ */
 export type ResponseExportValidationOutputValue = {
   rule_id: string;
   rule_name: string;
@@ -43,6 +48,10 @@ export type ResponseExportValidationOutputValue = {
   value: string | number | boolean | null;
 };
 
+/**
+ * Stable CSV/Sheets column metadata for one selected validation output key.
+ * The column ID is rule/output-key based to avoid collisions across rules.
+ */
 export type ResponseExportValidationOutputColumn = {
   id: string;
   title: string;
@@ -54,6 +63,10 @@ export type ResponseExportValidationOutputColumn = {
   label: string;
 };
 
+/**
+ * Minimal validation result DB row shape used to normalize validation output
+ * metadata without duplicating parsing semantics in API and worker code.
+ */
 export type ResponseExportValidationOutputRow = {
   responseId: string;
   ruleId: string;
@@ -281,6 +294,14 @@ function toValidationOutputColumn(params: {
   };
 }
 
+/**
+ * Builds deterministic validation output columns from saved settings and
+ * discovered result values.
+ *
+ * Missing settings keep discovered values enabled. Enabled settings without a
+ * result still produce an empty column, using provider/type/rule ID as the
+ * fallback rule identity until a result row can provide the display name.
+ */
 export function buildResponseExportValidationOutputColumns(
   settings: ValidationOutputExportSettings | undefined,
   values: readonly ResponseExportValidationOutputValue[],
@@ -335,6 +356,13 @@ export function buildResponseExportValidationOutputColumns(
   });
 }
 
+/**
+ * Groups parsed validation output metadata by response ID.
+ *
+ * Rows are expected in latest-first order; duplicate rule/output keys per
+ * response keep the first value. Missing rule/provider fields fall back to the
+ * rule ID, result service, or "unknown" so export rendering remains stable.
+ */
 export function groupResponseExportValidationOutputsByResponseId(
   rows: readonly ResponseExportValidationOutputRow[],
 ): Map<string, ResponseExportValidationOutputValue[]> {
