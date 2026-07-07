@@ -99,15 +99,19 @@ const responseSelectionSchema = z.union([
   z.boolean(),
 ]);
 
+/** Pattern validation result states: matched, mismatched, or not checked. */
 export const PATTERN_MATCH_STATUSES = [
   "match",
   "mismatch",
   "unchecked",
 ] as const;
 
+/** Zod schema for pattern validation result states. */
 export const PatternMatchStatus = z.enum(PATTERN_MATCH_STATUSES);
+/** Pattern validation result status inferred from PatternMatchStatus. */
 export type PatternMatchStatus = z.infer<typeof PatternMatchStatus>;
 
+/** Metadata describing one pattern validation result for a response value. */
 export const responsePatternMatchMetadataSchema = z.object({
   status: PatternMatchStatus,
   mode: PatternMismatchMode.optional(),
@@ -115,10 +119,15 @@ export const responsePatternMatchMetadataSchema = z.object({
   patternTemplate: z.string().max(MAX_RESPONSE_TEXT_LENGTH).optional(),
 });
 
+/** Pattern match metadata inferred from responsePatternMatchMetadataSchema. */
 export type ResponsePatternMatchMetadata = z.infer<
   typeof responsePatternMatchMetadataSchema
 >;
 
+/**
+ * Strict response item validation metadata contract.
+ * Unknown top-level metadata keys are rejected.
+ */
 export const responseItemValidationMetadataSchema = z
   .object({
     pattern_match: responsePatternMatchMetadataSchema.optional(),
@@ -126,6 +135,7 @@ export const responseItemValidationMetadataSchema = z
   })
   .strict();
 
+/** Response item validation metadata inferred from the strict metadata schema. */
 export type ResponseItemValidationMetadata = z.infer<
   typeof responseItemValidationMetadataSchema
 >;

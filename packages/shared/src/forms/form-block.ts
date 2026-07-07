@@ -201,16 +201,24 @@ export const BaseValidationConfig = z.object({
 
 export type BaseValidationConfig = z.infer<typeof BaseValidationConfig>;
 
+/** Pattern mismatch handling modes supported by short-text-compatible validation. */
 export const PATTERN_MISMATCH_MODES = ["block", "warn", "hidden"] as const;
 
+/** Zod schema for pattern mismatch handling: block, warn, or hidden. */
 export const PatternMismatchMode = z.enum(PATTERN_MISMATCH_MODES);
+/** Pattern mismatch handling mode inferred from PatternMismatchMode. */
 export type PatternMismatchMode = z.infer<typeof PatternMismatchMode>;
 
+/** Compatibility shape for new patternMismatchMode and legacy allowPatternMismatch. */
 export type PatternMismatchCompatibilityConfig = {
   patternMismatchMode?: PatternMismatchMode;
   allowPatternMismatch?: boolean;
 };
 
+/**
+ * Normalizes pattern mismatch behavior, preferring patternMismatchMode and mapping
+ * legacy allowPatternMismatch true to hidden, otherwise block.
+ */
 export function normalizePatternMismatchMode(
   config: PatternMismatchCompatibilityConfig | undefined,
 ): PatternMismatchMode {
@@ -220,6 +228,7 @@ export function normalizePatternMismatchMode(
   return config?.allowPatternMismatch === true ? "hidden" : "block";
 }
 
+/** Short-text-compatible validation shared by short text and choice "Other" text. */
 export const ShortTextCompatibleValidationConfig = BaseValidationConfig.extend({
   maxLength: z.number().min(1).max(1000).optional(),
   minLength: z.number().min(0).optional(),
@@ -249,6 +258,7 @@ export type NormalizedShortTextValidationConfig = ShortTextValidationConfig & {
   patternMismatchMode: PatternMismatchMode;
 };
 
+/** Returns a short-text config with patternMismatchMode populated for callers. */
 export function normalizeShortTextValidationConfig(
   config: ShortTextValidationConfig,
 ): NormalizedShortTextValidationConfig {
@@ -282,6 +292,14 @@ export const RadioValidationConfig = BaseValidationConfig.extend({
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
   otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
+}).superRefine((config, ctx) => {
+  if (config.allowOther === false && config.otherTextValidation) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["otherTextValidation"],
+      message: "otherTextValidation requires allowOther to be true",
+    });
+  }
 });
 
 export type RadioValidationConfig = z.infer<typeof RadioValidationConfig>;
@@ -295,6 +313,14 @@ export const CheckboxValidationConfig = BaseValidationConfig.extend({
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
   otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
+}).superRefine((config, ctx) => {
+  if (config.allowOther === false && config.otherTextValidation) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["otherTextValidation"],
+      message: "otherTextValidation requires allowOther to be true",
+    });
+  }
 });
 
 export type CheckboxValidationConfig = z.infer<typeof CheckboxValidationConfig>;
@@ -306,6 +332,14 @@ export const DropdownValidationConfig = BaseValidationConfig.extend({
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
   otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
+}).superRefine((config, ctx) => {
+  if (config.allowOther === false && config.otherTextValidation) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["otherTextValidation"],
+      message: "otherTextValidation requires allowOther to be true",
+    });
+  }
 });
 
 export type DropdownValidationConfig = z.infer<typeof DropdownValidationConfig>;

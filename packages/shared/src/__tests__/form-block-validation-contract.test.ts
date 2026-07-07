@@ -103,4 +103,35 @@ describe("choice other text validation contract", () => {
 
     expect(parsed.otherTextValidation).toEqual(otherTextValidation);
   });
+
+  it("rejects other validation when choice other input is disabled", () => {
+    expect(
+      RadioValidationConfig.safeParse({
+        type: "radio",
+        options: [{ id: "known", label: "Known" }],
+        otherTextValidation,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      CheckboxValidationConfig.safeParse({
+        type: "checkbox",
+        options: [{ id: "known", label: "Known" }],
+        allowOther: false,
+        otherTextValidation,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      DropdownValidationConfig.safeParse({
+        type: "dropdown",
+        options: [
+          { id: "known", label: "Known" },
+          { id: "other-known", label: "Other known" },
+        ],
+        allowOther: false,
+        otherTextValidation,
+      }).success,
+    ).toBe(false);
+  });
 });
