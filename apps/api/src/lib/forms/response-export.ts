@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   buildResponseExportColumnsFromBlocks,
   buildResponseExportTable,
+  buildResponseExportValidationOutputColumns,
   isAnswerableBlockType,
   mapRecordToSheetRow,
   normalizeResponseExportColumns,
@@ -9,6 +10,9 @@ import {
   type ResponseExportFormBlock,
   type ResponseExportRecord,
   type ResponseExportTable,
+  type ResponseExportValidationOutputColumn,
+  type ResponseExportValidationOutputValue,
+  type ValidationOutputExportSettings,
 } from "@nexus-form/shared";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
@@ -54,6 +58,7 @@ export type { ResponseExportColumn, ResponseExportRecord, ResponseExportTable };
 export {
   buildResponseExportColumnsFromBlocks,
   buildResponseExportTable,
+  buildResponseExportValidationOutputColumns,
   mapRecordToSheetRow,
 };
 
@@ -117,6 +122,10 @@ export function buildResponseExportRecords(
     }>;
   }>,
   formBlocks: ExportFormBlock[],
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  > = new Map(),
 ): { records: ResponseExportRecord[]; fingerprintComponents: Set<string> } {
   // ブロックタイトルマップを作成
   const blockTitleMap = new Map<string, string>();
@@ -248,10 +257,34 @@ export function buildResponseExportRecords(
           : undefined,
       },
       component_columns: componentColumns,
+      validation_output_columns:
+        validationOutputsByResponseId.get(response.id) ?? [],
     };
   });
 
   return { records, fingerprintComponents };
+}
+
+/**
+ * Builds the deterministic validation output columns used by response CSV export.
+ *
+ * @param settings Saved per-rule/per-output export settings. Missing settings
+ * keep discovered validation outputs enabled by default.
+ * @param validationOutputsByResponseId Parsed validation output values grouped
+ * by response ID from the constrained export query.
+ * @returns Selected validation output columns in shared export order.
+ */
+export function buildValidationOutputColumnsForResponseExport(
+  settings: ValidationOutputExportSettings | undefined,
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >,
+): ResponseExportValidationOutputColumn[] {
+  return buildResponseExportValidationOutputColumns(
+    settings,
+    [...validationOutputsByResponseId.values()].flat(),
+  );
 }
 
 /**
@@ -262,6 +295,7 @@ export function formatRecordsToCsv(
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
   emptyRecordBlockIds: Array<string | ResponseExportColumn> = [],
+  emptyValidationOutputColumns?: ResponseExportValidationOutputColumn[],
 ): string {
   try {
     const table = buildResponseExportTable(
@@ -269,6 +303,7 @@ export function formatRecordsToCsv(
       fingerprintComponents,
       blockTitleMap,
       normalizeResponseExportColumns(emptyRecordBlockIds, blockTitleMap),
+      emptyValidationOutputColumns,
     );
     const csvRows = [table.headerTitles.map(escapeCSV).join(",")];
 

@@ -1,4 +1,8 @@
 import { isAnswerableBlockType } from "./forms/form-block";
+import {
+  parseValidationOutputValuesFromMetadata,
+  type ValidationOutputExportSettings,
+} from "./validation-results";
 
 export type ResponseExportRecord = {
   metadata: {
@@ -20,12 +24,57 @@ export type ResponseExportRecord = {
     value: unknown;
     display_value?: unknown;
   }>;
+  validation_output_columns?: ResponseExportValidationOutputValue[];
 };
 
 export type ResponseExportColumn = {
   id: string;
   title: string;
   blockType?: string;
+};
+
+/**
+ * A single exportable validation output value from one validation result.
+ * Missing rule/provider fields are normalized by the DB row grouping helper
+ * before values reach CSV or Sheets rendering.
+ */
+export type ResponseExportValidationOutputValue = {
+  rule_id: string;
+  rule_name: string;
+  provider_name: string;
+  rule_type: string;
+  output_key: string;
+  label: string;
+  value: string | number | boolean | null;
+};
+
+/**
+ * Stable CSV/Sheets column metadata for one selected validation output key.
+ * The column ID is rule/output-key based to avoid collisions across rules.
+ */
+export type ResponseExportValidationOutputColumn = {
+  id: string;
+  title: string;
+  ruleId: string;
+  ruleName: string;
+  providerName: string;
+  ruleType: string;
+  outputKey: string;
+  label: string;
+};
+
+/**
+ * Minimal validation result DB row shape used to normalize validation output
+ * metadata without duplicating parsing semantics in API and worker code.
+ */
+export type ResponseExportValidationOutputRow = {
+  responseId: string;
+  ruleId: string;
+  metadata: unknown;
+  service: string | null;
+  ruleName: string | null;
+  providerName: string | null;
+  ruleType: string | null;
 };
 
 export type ResponseExportTable = {
@@ -185,6 +234,202 @@ function buildComponentColumnsFromRecords(
   return Array.from(componentHeaders.values());
 }
 
+function labelFromValidationOutputKey(outputKey: string): string {
+  return outputKey
+    .split("_")
+    .filter((part) => part.length > 0)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function validationOutputSettingKey(ruleId: string, outputKey: string): string {
+  return `${ruleId}:${outputKey}`;
+}
+
+function buildValidationOutputColumnId(
+  ruleId: string,
+  outputKey: string,
+): string {
+  return `validation_output:${ruleId}:${outputKey}`;
+}
+
+function buildValidationOutputColumnTitle(params: {
+  ruleId: string;
+  ruleName: string;
+  outputKey: string;
+  label: string;
+}): string {
+  const ruleIdentity =
+    params.ruleName === params.ruleId || params.ruleName.includes(params.ruleId)
+      ? params.ruleName
+      : `${params.ruleName} (${params.ruleId})`;
+  return `Validation: ${ruleIdentity} / ${params.label} [${params.outputKey}]`;
+}
+
+function ruleNameFromValidationOutputSetting(
+  setting: ValidationOutputExportSettings["values"][number],
+): string {
+  // Saved settings do not include the validation rule display name. Until a
+  // result row supplies one, use stable provider/type/id identity for headers.
+  return `${setting.provider_name}:${setting.rule_type}:${setting.rule_id}`;
+}
+
+function toValidationOutputColumn(params: {
+  ruleId: string;
+  ruleName: string;
+  providerName: string;
+  ruleType: string;
+  outputKey: string;
+  label: string;
+}): ResponseExportValidationOutputColumn {
+  return {
+    id: buildValidationOutputColumnId(params.ruleId, params.outputKey),
+    title: buildValidationOutputColumnTitle(params),
+    ruleId: params.ruleId,
+    ruleName: params.ruleName,
+    providerName: params.providerName,
+    ruleType: params.ruleType,
+    outputKey: params.outputKey,
+    label: params.label,
+  };
+}
+
+/**
+ * Builds deterministic validation output columns from saved settings and
+ * discovered result values.
+ *
+ * Missing settings keep discovered values enabled. Enabled settings without a
+ * result still produce an empty column, using provider/type/rule ID as the
+ * fallback rule identity until a result row can provide the display name.
+ */
+export function buildResponseExportValidationOutputColumns(
+  settings: ValidationOutputExportSettings | undefined,
+  values: readonly ResponseExportValidationOutputValue[],
+): ResponseExportValidationOutputColumn[] {
+  const settingsByKey = new Map(
+    (settings?.values ?? []).map((setting) => [
+      validationOutputSettingKey(setting.rule_id, setting.output_key),
+      setting,
+    ]),
+  );
+  const columnsByKey = new Map<string, ResponseExportValidationOutputColumn>();
+
+  for (const setting of settings?.values ?? []) {
+    if (!setting.enabled) continue;
+    const key = validationOutputSettingKey(setting.rule_id, setting.output_key);
+    columnsByKey.set(
+      key,
+      toValidationOutputColumn({
+        ruleId: setting.rule_id,
+        ruleName: ruleNameFromValidationOutputSetting(setting),
+        providerName: setting.provider_name,
+        ruleType: setting.rule_type,
+        outputKey: setting.output_key,
+        label: labelFromValidationOutputKey(setting.output_key),
+      }),
+    );
+  }
+
+  for (const value of values) {
+    const key = validationOutputSettingKey(value.rule_id, value.output_key);
+    const setting = settingsByKey.get(key);
+    if (setting?.enabled === false) continue;
+    columnsByKey.set(
+      key,
+      toValidationOutputColumn({
+        ruleId: value.rule_id,
+        ruleName: value.rule_name,
+        providerName: value.provider_name,
+        ruleType: value.rule_type,
+        outputKey: value.output_key,
+        label: value.label || labelFromValidationOutputKey(value.output_key),
+      }),
+    );
+  }
+
+  return [...columnsByKey.values()].sort((a, b) => {
+    const ruleNameOrder = a.ruleName.localeCompare(b.ruleName);
+    if (ruleNameOrder !== 0) return ruleNameOrder;
+    const ruleIdOrder = a.ruleId.localeCompare(b.ruleId);
+    if (ruleIdOrder !== 0) return ruleIdOrder;
+    return a.outputKey.localeCompare(b.outputKey);
+  });
+}
+
+/**
+ * Groups parsed validation output metadata by response ID.
+ *
+ * Rows are expected in latest-first order; duplicate rule/output keys per
+ * response keep the first value. Missing rule/provider fields fall back to the
+ * rule ID, result service, or "unknown" so export rendering remains stable.
+ */
+export function groupResponseExportValidationOutputsByResponseId(
+  rows: readonly ResponseExportValidationOutputRow[],
+): Map<string, ResponseExportValidationOutputValue[]> {
+  const outputsByResponseId = new Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >();
+  const seenByResponseId = new Map<string, Set<string>>();
+
+  for (const row of rows) {
+    const outputValues = parseValidationOutputValuesFromMetadata(row.metadata);
+    if (outputValues.length === 0) continue;
+    const seen = seenByResponseId.get(row.responseId) ?? new Set<string>();
+    seenByResponseId.set(row.responseId, seen);
+    const current = outputsByResponseId.get(row.responseId) ?? [];
+
+    for (const outputValue of outputValues) {
+      const key = validationOutputSettingKey(row.ruleId, outputValue.key);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      current.push({
+        rule_id: row.ruleId,
+        rule_name: row.ruleName ?? row.ruleId,
+        provider_name: row.providerName ?? row.service ?? "unknown",
+        rule_type: row.ruleType ?? "unknown",
+        output_key: outputValue.key,
+        label: outputValue.label ?? outputValue.key,
+        value: outputValue.value,
+      });
+    }
+
+    outputsByResponseId.set(row.responseId, current);
+  }
+
+  return outputsByResponseId;
+}
+
+function buildValidationOutputColumnsFromRecords(
+  records: ResponseExportRecord[],
+  emptyValidationOutputColumns: ResponseExportValidationOutputColumn[],
+): ResponseExportValidationOutputColumn[] {
+  const columns = new Map<string, ResponseExportValidationOutputColumn>();
+  for (const column of emptyValidationOutputColumns) {
+    columns.set(column.id, column);
+  }
+  for (const record of records) {
+    for (const value of record.validation_output_columns ?? []) {
+      const column = toValidationOutputColumn({
+        ruleId: value.rule_id,
+        ruleName: value.rule_name,
+        providerName: value.provider_name,
+        ruleType: value.rule_type,
+        outputKey: value.output_key,
+        label: value.label || labelFromValidationOutputKey(value.output_key),
+      });
+      columns.set(column.id, column);
+    }
+  }
+  return [...columns.values()].sort((a, b) => {
+    const ruleNameOrder = a.ruleName.localeCompare(b.ruleName);
+    if (ruleNameOrder !== 0) return ruleNameOrder;
+    const ruleIdOrder = a.ruleId.localeCompare(b.ruleId);
+    if (ruleIdOrder !== 0) return ruleIdOrder;
+    return a.outputKey.localeCompare(b.outputKey);
+  });
+}
+
 export function normalizeResponseExportColumns(
   emptyRecordBlockIds: Array<string | ResponseExportColumn>,
   blockTitleMap: Map<string, string>,
@@ -204,6 +449,7 @@ export function buildResponseExportTable(
   fingerprintComponents: Set<string>,
   blockTitleMap: Map<string, string>,
   emptyRecordColumns: ResponseExportColumn[] = [],
+  emptyValidationOutputColumns?: ResponseExportValidationOutputColumn[],
 ): ResponseExportTable {
   const metadataIdHeaders = buildMetadataHeaders(fingerprintComponents, false);
   const metadataTitleHeaders = buildMetadataHeaders(
@@ -215,13 +461,18 @@ export function buildResponseExportTable(
     blockTitleMap,
     emptyRecordColumns,
   );
+  const validationOutputColumns =
+    emptyValidationOutputColumns ??
+    buildValidationOutputColumnsFromRecords(records, []);
   const headerIds = [
     ...metadataIdHeaders,
     ...componentColumns.map((column) => column.id),
+    ...validationOutputColumns.map((column) => column.id),
   ];
   const headerTitles = [
     ...metadataTitleHeaders,
     ...componentColumns.map((column) => column.title),
+    ...validationOutputColumns.map((column) => column.title),
   ];
   const rows = records.map((record) => {
     const metadataValues = buildMetadataValues(record, fingerprintComponents);
@@ -236,9 +487,19 @@ export function buildResponseExportTable(
           )
         : "";
     });
+    const validationOutputValueByColumnId = new Map(
+      (record.validation_output_columns ?? []).map((value) => [
+        buildValidationOutputColumnId(value.rule_id, value.output_key),
+        stringifyValidationOutputValue(value.value),
+      ]),
+    );
+    const validationOutputValues = validationOutputColumns.map(
+      (column) => validationOutputValueByColumnId.get(column.id) ?? "",
+    );
     return neutralizeSpreadsheetFormulaValues([
       ...metadataValues,
       ...componentValues,
+      ...validationOutputValues,
     ]);
   });
 
@@ -247,6 +508,12 @@ export function buildResponseExportTable(
     headerTitles: neutralizeSpreadsheetFormulaValues(headerTitles),
     rows,
   };
+}
+
+function stringifyValidationOutputValue(
+  value: ResponseExportValidationOutputValue["value"],
+): string {
+  return value === null ? "" : String(value);
 }
 
 function stringifyResponseExportValue(
@@ -341,15 +608,30 @@ export function mapRecordToSheetRow(
     );
     const componentIds = componentColumns.map((column) => column.id);
     const rawComponentTitles = componentColumns.map((column) => column.title);
+    const validationOutputColumns = buildValidationOutputColumnsFromRecords(
+      [record],
+      [],
+    );
+    const validationOutputIds = validationOutputColumns.map(
+      (column) => column.id,
+    );
+    const rawValidationOutputTitles = validationOutputColumns.map(
+      (column) => column.title,
+    );
 
     const usedTitleCount: Record<string, number> = {};
-    const componentTitles = rawComponentTitles.map((rawTitle) => {
+    const outputTitles = [...rawComponentTitles, ...rawValidationOutputTitles];
+    const allocatedOutputTitles = outputTitles.map((rawTitle) => {
       const base = getTitleCountKey(rawTitle);
       return allocateTitle(base, usedTitleCount);
     });
 
-    const idRow = [...metadataIdHeaders, ...componentIds];
-    const titleRow = [...metadataTitleHeaders, ...componentTitles];
+    const idRow = [
+      ...metadataIdHeaders,
+      ...componentIds,
+      ...validationOutputIds,
+    ];
+    const titleRow = [...metadataTitleHeaders, ...allocatedOutputTitles];
 
     const rowValues: string[] = [];
     if (fingerprintComponents) {
@@ -369,8 +651,17 @@ export function mapRecordToSheetRow(
           )
         : "";
     });
+    const validationOutputValueByColumnId = new Map(
+      (record.validation_output_columns ?? []).map((value) => [
+        buildValidationOutputColumnId(value.rule_id, value.output_key),
+        stringifyValidationOutputValue(value.value),
+      ]),
+    );
+    const validationOutputValues = validationOutputColumns.map(
+      (column) => validationOutputValueByColumnId.get(column.id) ?? "",
+    );
 
-    const row = [...rowValues, ...componentValues];
+    const row = [...rowValues, ...componentValues, ...validationOutputValues];
 
     return {
       idRow: neutralizeSpreadsheetFormulaValues(idRow),
@@ -494,6 +785,50 @@ export function mapRecordToSheetRow(
       );
       row[colIndex] = value ?? "";
     }
+  }
+
+  const ensureColumnForValidationOutput = (
+    column: ResponseExportValidationOutputColumn,
+  ): number => {
+    const existing =
+      idIndexByBlockId.get(column.id) ??
+      idIndexByBlockId.get(neutralizeSpreadsheetFormulaValue(column.id));
+    const base = getTitleCountKey(column.title);
+    if (existing != null) {
+      const currentTitle = titleRow[existing] ?? "";
+      const normalizedCurrentTitle =
+        denormalizeSpreadsheetFormulaValue(currentTitle);
+      if (
+        currentTitle &&
+        (normalizedCurrentTitle === base ||
+          getExistingTitleCountKey(currentTitle) === base)
+      ) {
+        return existing;
+      }
+
+      titleRow[existing] = allocateTitle(base, usedTitleCount);
+      return existing;
+    }
+
+    const finalTitle = allocateTitle(base, usedTitleCount);
+    const colIndex = idRow.length;
+    idRow.push(column.id);
+    titleRow.push(finalTitle);
+    row.push("");
+    idIndexByBlockId.set(column.id, colIndex);
+    return colIndex;
+  };
+
+  for (const column of buildValidationOutputColumnsFromRecords([record], [])) {
+    const value = record.validation_output_columns?.find(
+      (candidate) =>
+        buildValidationOutputColumnId(
+          candidate.rule_id,
+          candidate.output_key,
+        ) === column.id,
+    );
+    const colIndex = ensureColumnForValidationOutput(column);
+    row[colIndex] = value ? stringifyValidationOutputValue(value.value) : "";
   }
 
   while (titleRow.length < idRow.length) {

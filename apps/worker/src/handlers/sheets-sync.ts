@@ -7,30 +7,38 @@
 import { createHash } from "node:crypto";
 import { db, formIntegration, formResponse } from "@nexus-form/database";
 import {
+  externalServiceValidationResult,
   fingerprintDetail,
   form,
   formSnapshot,
+  formStructure,
+  formValidationRule,
 } from "@nexus-form/database/schema";
 import {
+  buildResponseExportValidationOutputColumns,
   buildResponseLabelLookupFromQuestions,
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  groupResponseExportValidationOutputsByResponseId,
   isAnswerableBlockType,
   mapRecordToSheetRow,
   neutralizeSpreadsheetFormulaValue,
+  parseValidationOutputExportSettings,
   type ResponseDataItem,
   type ResponseExportRecord,
+  type ResponseExportValidationOutputValue,
   resolveResponseDisplayValue,
   responsePayloadItemSchema,
   type SheetsSyncJobData,
   sheetsSyncJobDataSchema,
+  type ValidationOutputExportSettings,
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -361,7 +369,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           .where(eq(form.id, formId))
           .limit(1)
       : await db
-          .select({ plateContent: formSnapshot.plateContent })
+          .select({
+            plateContent: formSnapshot.plateContent,
+            structureJson: formSnapshot.structureJson,
+          })
           .from(formSnapshot)
           .where(
             and(
@@ -393,6 +404,23 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
+  const currentStructureJson =
+    snapshotVersion === undefined
+      ? await getActiveFormStructureJson(formId)
+      : undefined;
+  const validationOutputExportSettings =
+    parseValidationOutputExportSettingsFromStructureJson(
+      snapshotVersion === undefined
+        ? currentStructureJson
+        : getSnapshotStructureJson(plateRecord),
+    );
+  const validationOutputsByResponseId = await getValidationOutputsByResponseId({
+    formId,
+    responseIds: preparedResponses.flatMap((prepared) =>
+      prepared.status === "ready" ? [prepared.response.id] : [],
+    ),
+    settings: validationOutputExportSettings,
+  });
   const total = preparedResponses.length;
   let processed = 0;
   let skipped = 0;
@@ -419,6 +447,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 sheetName,
                 spreadsheetId,
                 token,
+                validationOutputsByResponseId,
               })
             : {
                 ok: true,
@@ -578,6 +607,124 @@ async function prepareSheetsSyncResponses(
   });
 }
 
+async function getActiveFormStructureJson(
+  formId: string,
+): Promise<string | undefined> {
+  const [activeStructure] = await db
+    .select({ structureJson: formStructure.structureJson })
+    .from(formStructure)
+    .where(
+      and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+    )
+    .orderBy(desc(formStructure.version))
+    .limit(1);
+  return activeStructure?.structureJson;
+}
+
+function getSnapshotStructureJson(
+  plateRecord:
+    | { plateContent: string | null }
+    | { plateContent: string; structureJson: string }
+    | undefined,
+): string | undefined {
+  return plateRecord && "structureJson" in plateRecord
+    ? plateRecord.structureJson
+    : undefined;
+}
+
+function parseValidationOutputExportSettingsFromStructureJson(
+  structureJson: string | null | undefined,
+): ValidationOutputExportSettings {
+  if (!structureJson) return { values: [] };
+  try {
+    const parsed: unknown = JSON.parse(structureJson);
+    const settings =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as { settings?: { validation_output_export?: unknown } })
+            .settings
+        : undefined;
+    return parseValidationOutputExportSettings(
+      settings?.validation_output_export,
+    );
+  } catch {
+    return { values: [] };
+  }
+}
+
+async function getValidationOutputsByResponseId(params: {
+  formId: string;
+  responseIds: string[];
+  settings: ValidationOutputExportSettings;
+}): Promise<Map<string, ResponseExportValidationOutputValue[]>> {
+  if (params.responseIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      responseId: externalServiceValidationResult.responseId,
+      ruleId: externalServiceValidationResult.ruleId,
+      metadata: externalServiceValidationResult.metadata,
+      service: externalServiceValidationResult.service,
+      ruleName: formValidationRule.name,
+      providerName: formValidationRule.providerName,
+      ruleType: formValidationRule.ruleType,
+    })
+    .from(externalServiceValidationResult)
+    .innerJoin(
+      formResponse,
+      eq(externalServiceValidationResult.responseId, formResponse.id),
+    )
+    .leftJoin(
+      formValidationRule,
+      eq(externalServiceValidationResult.ruleId, formValidationRule.id),
+    )
+    .where(
+      and(
+        eq(formResponse.formId, params.formId),
+        inArray(formResponse.id, params.responseIds),
+        eq(externalServiceValidationResult.status, "COMPLETED"),
+      ),
+    )
+    .orderBy(
+      desc(externalServiceValidationResult.updatedAt),
+      desc(externalServiceValidationResult.createdAt),
+    );
+
+  const outputsByResponseId =
+    groupResponseExportValidationOutputsByResponseId(rows);
+
+  const selectedColumns = buildResponseExportValidationOutputColumns(
+    params.settings,
+    [...outputsByResponseId.values()].flat(),
+  );
+  return new Map(
+    params.responseIds.map((responseId) => {
+      const valueByColumnKey = new Map(
+        (outputsByResponseId.get(responseId) ?? []).map((value) => [
+          `${value.rule_id}:${value.output_key}`,
+          value,
+        ]),
+      );
+      return [
+        responseId,
+        selectedColumns.map((column) => {
+          const value = valueByColumnKey.get(
+            `${column.ruleId}:${column.outputKey}`,
+          );
+          return {
+            rule_id: column.ruleId,
+            rule_name: column.ruleName,
+            provider_name: column.providerName,
+            rule_type: column.ruleType,
+            output_key: column.outputKey,
+            label: column.label,
+            value: value?.value ?? null,
+          };
+        }),
+      ];
+    }),
+  );
+}
+
 async function writePreparedSheetsSyncResponse(params: {
   blockTitleMap: Map<string, string>;
   extractedQuestions: ExtractedQuestion[];
@@ -588,6 +735,10 @@ async function writePreparedSheetsSyncResponse(params: {
   sheetName: string;
   spreadsheetId: string;
   token: OAuthToken;
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >;
 }) {
   const {
     blockTitleMap,
@@ -599,6 +750,7 @@ async function writePreparedSheetsSyncResponse(params: {
     sheetName,
     spreadsheetId,
     token,
+    validationOutputsByResponseId,
   } = params;
   const { response, responseData, uniquenessScores } = prepared;
   const idempotencyKey = getSheetsSyncIdempotencyKey(
@@ -686,6 +838,7 @@ async function writePreparedSheetsSyncResponse(params: {
       uniquenessScores.targetScore,
       uniquenessScores.fingerprintComponents,
       uniquenessScores.targetFingerprintUuids,
+      validationOutputsByResponseId.get(response.id) ?? [],
     );
 
     const titleHeadersChanged =
@@ -1253,6 +1406,7 @@ function buildRowFromResponse(
   uniquenessScore: number | null,
   fingerprintComponents: Set<string>,
   fingerprintUuids: Record<string, string | null>,
+  validationOutputValues: ResponseExportValidationOutputValue[],
 ): { headers: string[]; titleHeaders: string[]; row: string[] } {
   if (layout !== "legacy") {
     const record = buildResponseExportRecord(
@@ -1262,6 +1416,7 @@ function buildRowFromResponse(
       blockTitleMap,
       uniquenessScore,
       fingerprintUuids,
+      validationOutputValues,
     );
     const mapped = mapRecordToSheetRow(
       record,
@@ -1317,6 +1472,24 @@ function buildRowFromResponse(
     row[colIdx] = stringifyValue(value);
   }
 
+  for (const column of buildResponseExportValidationOutputColumns(
+    undefined,
+    validationOutputValues,
+  )) {
+    let colIdx = headers.indexOf(column.title);
+    if (colIdx === -1) {
+      headers.push(column.title);
+      row.push("");
+      colIdx = headers.length - 1;
+    }
+    const value = validationOutputValues.find(
+      (candidate) =>
+        candidate.rule_id === column.ruleId &&
+        candidate.output_key === column.outputKey,
+    );
+    row[colIdx] = value ? stringifyValue(value.value) : "";
+  }
+
   // 行の長さをヘッダーに合わせる
   while (row.length < headers.length) {
     row.push("");
@@ -1360,6 +1533,7 @@ function buildResponseExportRecord(
   blockTitleMap: Map<string, string>,
   uniquenessScore: number | null,
   fingerprintUuids: Record<string, string | null>,
+  validationOutputValues: ResponseExportValidationOutputValue[],
 ): ResponseExportRecord {
   const responseItemsByQuestionId = parseResponseDataItems(
     response.responseDataJson,
@@ -1413,6 +1587,7 @@ function buildResponseExportRecord(
       uniqueness_score: uniquenessScore ?? undefined,
     },
     component_columns: componentColumns,
+    validation_output_columns: validationOutputValues,
   };
 }
 

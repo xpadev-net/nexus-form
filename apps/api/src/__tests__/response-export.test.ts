@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
     select: vi.fn(),
   },
   schema: {
-    externalServiceValidationResult: {},
     fingerprintDetail: {
       responseId: "fingerprintDetail.responseId",
       componentName: "fingerprintDetail.componentName",
@@ -29,7 +28,27 @@ const mocks = vi.hoisted(() => ({
       sessionId: "formResponse.sessionId",
       countryCode: "formResponse.countryCode",
     },
-    formValidationRule: {},
+    formStructure: {
+      formId: "formStructure.formId",
+      isActive: "formStructure.isActive",
+      structureJson: "formStructure.structureJson",
+      version: "formStructure.version",
+    },
+    externalServiceValidationResult: {
+      responseId: "externalServiceValidationResult.responseId",
+      ruleId: "externalServiceValidationResult.ruleId",
+      metadata: "externalServiceValidationResult.metadata",
+      service: "externalServiceValidationResult.service",
+      status: "externalServiceValidationResult.status",
+      updatedAt: "externalServiceValidationResult.updatedAt",
+      createdAt: "externalServiceValidationResult.createdAt",
+    },
+    formValidationRule: {
+      id: "formValidationRule.id",
+      name: "formValidationRule.name",
+      providerName: "formValidationRule.providerName",
+      ruleType: "formValidationRule.ruleType",
+    },
   },
   whereConditions: [] as Array<unknown>,
 }));
@@ -123,6 +142,7 @@ function query(result: unknown[]) {
   const builder = {
     from: vi.fn(() => builder),
     innerJoin: vi.fn(() => builder),
+    leftJoin: vi.fn(() => builder),
     where: vi.fn((condition: unknown) => {
       mocks.whereConditions.push(condition);
       return builder;
@@ -164,6 +184,15 @@ describe("response export route", () => {
           },
         ]),
       )
+      .mockReturnValueOnce(query([]))
+      .mockReturnValueOnce(
+        query([
+          {
+            structureJson:
+              '{"version":1,"settings":{"allow_edit_responses":false}}',
+          },
+        ]),
+      )
       .mockReturnValueOnce(query([]));
     const { formsResponsesRouter } = await import("../routes/forms-responses");
 
@@ -182,5 +211,83 @@ describe("response export route", () => {
       left: "fingerprintDetail.responseId",
       values: ["response-kept"],
     });
+  });
+
+  it("exports selected arbitrary validation output values as CSV columns", async () => {
+    const submittedAt = new Date("2026-07-06T01:00:00.000Z");
+    const structureJson = JSON.stringify({
+      version: 1,
+      settings: {
+        validation_output_export: {
+          values: [
+            {
+              rule_id: "rule-gh",
+              provider_name: "github",
+              rule_type: "user_exists",
+              output_key: "followers",
+              enabled: false,
+            },
+          ],
+        },
+      },
+    });
+    mocks.db.select
+      .mockReturnValueOnce(query([{ plateContent: "[]" }]))
+      .mockReturnValueOnce(
+        query([
+          {
+            id: "response-1",
+            formId: "form-1",
+            responseDataJson: "[]",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: "respondent-1",
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          },
+        ]),
+      )
+      .mockReturnValueOnce(query([]))
+      .mockReturnValueOnce(query([{ structureJson }]))
+      .mockReturnValueOnce(
+        query([
+          {
+            responseId: "response-1",
+            ruleId: "rule-gh",
+            metadata: {
+              validationOutputs: [
+                {
+                  key: "username",
+                  label: "GitHub username",
+                  value: "octocat",
+                },
+                { key: "followers", label: "Followers", value: 42 },
+                { key: "profile_score", label: "Profile score", value: 98.5 },
+              ],
+            },
+            service: "github",
+            ruleName: "GitHub rule",
+            providerName: "github",
+            ruleType: "user_exists",
+          },
+        ]),
+      );
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+    const csv = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(csv).toContain(
+      '"Validation: GitHub rule (rule-gh) / GitHub username [username]"',
+    );
+    expect(csv).toContain(
+      '"Validation: GitHub rule (rule-gh) / Profile score [profile_score]"',
+    );
+    expect(csv).toContain('"octocat"');
+    expect(csv).toContain('"98.5"');
+    expect(csv).not.toContain("Followers");
+    expect(csv).not.toContain('"42"');
   });
 });

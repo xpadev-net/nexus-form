@@ -31,8 +31,13 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("@nexus-form/database/schema", () => ({
   externalServiceValidationResult: {
+    metadata: "externalServiceValidationResult.metadata",
     responseId: "externalServiceValidationResult.responseId",
+    ruleId: "externalServiceValidationResult.ruleId",
+    service: "externalServiceValidationResult.service",
     status: "externalServiceValidationResult.status",
+    updatedAt: "externalServiceValidationResult.updatedAt",
+    createdAt: "externalServiceValidationResult.createdAt",
   },
   fingerprintDetail: {
     responseId: "fingerprintDetail.responseId",
@@ -55,6 +60,12 @@ vi.mock("@nexus-form/database/schema", () => ({
     sessionId: "formResponse.sessionId",
     countryCode: "formResponse.countryCode",
   },
+  formStructure: {
+    formId: "formStructure.formId",
+    isActive: "formStructure.isActive",
+    structureJson: "formStructure.structureJson",
+    version: "formStructure.version",
+  },
   formSchedule: {
     id: "formSchedule.id",
     formId: "formSchedule.formId",
@@ -72,7 +83,12 @@ vi.mock("@nexus-form/database/schema", () => ({
     description: "formSnapshot.description",
     parentVersion: "formSnapshot.parentVersion",
   },
-  formValidationRule: {},
+  formValidationRule: {
+    id: "formValidationRule.id",
+    name: "formValidationRule.name",
+    providerName: "formValidationRule.providerName",
+    ruleType: "formValidationRule.ruleType",
+  },
 }));
 
 vi.mock("../lib/dual-auth", () => ({
@@ -230,7 +246,7 @@ function orderedQuery(result: unknown[]) {
   };
 }
 
-function whereQuery(result: unknown[]) {
+function _whereQuery(result: unknown[]) {
   return {
     from: vi.fn().mockReturnThis(),
     where: vi.fn(() => Promise.resolve(result)),
@@ -241,6 +257,8 @@ function emptySelectQuery(result: unknown[]) {
   const promise = Promise.resolve(result);
   const query = {
     from: vi.fn(() => query),
+    innerJoin: vi.fn(() => query),
+    leftJoin: vi.fn(() => query),
     where: vi.fn(() => query),
     groupBy: vi.fn(() => query),
     orderBy: vi.fn(() => query),
@@ -859,7 +877,16 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
           },
         ]),
       )
-      .mockReturnValueOnce(whereQuery([]));
+      .mockReturnValueOnce(emptySelectQuery([]))
+      .mockReturnValueOnce(
+        orderedQuery([
+          {
+            structureJson:
+              '{"version":1,"settings":{"allow_edit_responses":false}}',
+          },
+        ]),
+      )
+      .mockReturnValueOnce(emptySelectQuery([]));
     const { extractQuestionsFromPlateContent } = await import(
       "@nexus-form/shared"
     );
@@ -885,8 +912,69 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(csv.split("\n")[1]).toBe(
       '"response-1","respondent-alpha","2026-01-01T00:00:00.000Z","","JP","","1.0000","山田 太郎"',
     );
-    expect(mocks.db.select).toHaveBeenCalledTimes(3);
+    expect(mocks.db.select).toHaveBeenCalledTimes(5);
     expect(mocks.limitCalls).toContain(5001);
+  });
+
+  it("constrains the CSV validation output lookup to exported response ids", async () => {
+    const submittedAt = new Date("2026-01-01T00:00:00.000Z");
+    const validationOutputQuery = emptySelectQuery([]);
+    mocks.db.select
+      .mockReturnValueOnce(
+        limitedQuery([
+          {
+            plateContent: JSON.stringify([
+              { type: "form_short_text", blockId: "name-block" },
+            ]),
+          },
+        ]),
+      )
+      .mockReturnValueOnce(
+        orderedQuery(
+          Array.from({ length: 50 }, (_, index) => ({
+            id: `response-${index}`,
+            formId: "form-1",
+            responseDataJson: "[]",
+            submittedAt,
+            updatedAt: null,
+            respondentUuid: `respondent-${index}`,
+            userAgent: null,
+            sessionId: null,
+            countryCode: "JP",
+          })),
+        ),
+      )
+      .mockReturnValueOnce(emptySelectQuery([]))
+      .mockReturnValueOnce(
+        orderedQuery([
+          {
+            structureJson:
+              '{"version":1,"settings":{"allow_edit_responses":false}}',
+          },
+        ]),
+      )
+      .mockReturnValueOnce(validationOutputQuery);
+    const { formsResponsesRouter } = await import("../routes/forms-responses");
+
+    const res = await formsResponsesRouter.request("/form-1/responses/export");
+
+    expect(res.status).toBe(200);
+    expect(validationOutputQuery.where).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conditions: expect.arrayContaining([
+          expect.objectContaining({
+            left: "formResponse.id",
+            op: "inArray",
+            values: Array.from(
+              { length: 50 },
+              (_, index) => `response-${index}`,
+            ),
+          }),
+        ]),
+        op: "and",
+      }),
+    );
+    expect(validationOutputQuery.limit).not.toHaveBeenCalled();
   });
 
   it("returns a header-only CSV when there are no saved responses", async () => {
@@ -900,7 +988,15 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
           },
         ]),
       )
-      .mockReturnValueOnce(orderedQuery([]));
+      .mockReturnValueOnce(orderedQuery([]))
+      .mockReturnValueOnce(
+        orderedQuery([
+          {
+            structureJson:
+              '{"version":1,"settings":{"allow_edit_responses":false}}',
+          },
+        ]),
+      );
     const { extractQuestionsFromPlateContent } = await import(
       "@nexus-form/shared"
     );
@@ -920,7 +1016,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     await expect(res.text()).resolves.toBe(
       '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名"',
     );
-    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.db.select).toHaveBeenCalledTimes(3);
     expect(mocks.limitCalls).toContain(5001);
   });
 
