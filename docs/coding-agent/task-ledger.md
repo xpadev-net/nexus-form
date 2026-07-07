@@ -586,12 +586,15 @@
 
 ### VEXPORT-2: Validation output export settings UI/API
 - status: in progress
-- branch: `codex/validation-output-export-settings`
-- pending_worktree: resolved from `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`
+- branch: `codex/validation-output-export-settings-retry`
+- pending_worktree: `local:ec2f7b1f-ae08-41e2-ad3b-eee7500d2077`
 - stale_pending_worktrees:
   - `local:73433277-d963-4c40-b993-0c31c2633f97`
-- worker_thread: `019f383e-7a7b-7873-b68b-761113174ee9`
-- worktree: `/Users/xpadev/.codex/worktrees/709e/nexus-form`
+  - `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`
+- worker_thread: pending
+- worktree: pending
+- replaced_worker_threads:
+  - `019f383e-7a7b-7873-b68b-761113174ee9` (`/Users/xpadev/.codex/worktrees/709e/nexus-form`)
 - source_plan_task: `validation-result-export-plan.md` Task_3
 - scope:
   - `packages/shared/src/**`
@@ -614,6 +617,7 @@
   - Previous pending worktree `local:73433277-d963-4c40-b993-0c31c2633f97` did not resolve to a child thread after repeated heartbeat checks, so the parent started replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`. Product code remains untouched in the parent thread.
   - Replacement pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8` resolved to worker thread `019f383e-7a7b-7873-b68b-761113174ee9` in worktree `/Users/xpadev/.codex/worktrees/709e/nexus-form`; parent sent the VEXPORT-2 delegation prompt. Earlier duplicate candidate thread `019f37e6-1aef-7c40-9329-98d8a4a3fa59` was archived unused to avoid competing workers.
   - 2026-07-07 heartbeat checks: worker thread remains active but stuck waiting on an approval-gated Playwright/browser command after local UI evidence attempts failed with environment sandbox errors; parent sent non-escalated resume instructions and no PR exists yet. Do not start VEXPORT-3 until VEXPORT-2 has a merge-ready PR and passes the orchestrator merge gate.
+  - 2026-07-07: parent treated worker thread `019f383e-7a7b-7873-b68b-761113174ee9` as replaced after repeated unchanged approval-wait heartbeats with no PR, archived it, and started replacement pending worktree `local:ec2f7b1f-ae08-41e2-ad3b-eee7500d2077` on branch `codex/validation-output-export-settings-retry`. Replacement must start clean from master and must not reuse old uncommitted worktree changes.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
