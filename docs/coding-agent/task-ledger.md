@@ -375,13 +375,15 @@
   - Completed after parent verified PR diff, ran `$deep-review` with no blocking findings, reran focused shared/web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 631` exit 0, then squash-merged PR #631. Worker thread was archived; local branch deletion was skipped because the worker worktree still had the branch checked out.
 
 ### PATTERN-1: Extend shared schemas and helpers
-- status: in_progress
+- status: completed
 - branch: `codex/pattern-validation-contract`
 - pending_worktree: `local:286640af-0ee5-4a73-8683-5e733178d870`
 - worker_thread: `019f3db3-fb8d-7922-9cbc-cd308aa4619b`
 - worktree: `/Users/xpadev/.codex/worktrees/a05f/nexus-form`
-- current_head: `dffe31df9b269141fb9ede6f2db47e83db4bbf51`
+- current_head: `022eae9729f59a8a3d738d834d2eba1503ee35ed`
 - pr: `https://github.com/xpadev-net/nexus-form/pull/633`
+- merge_commit: `a842caa06059cefc9280bcfedf56a153233e280f`
+- archived: true
 - source_plan_task: `pattern-other-validation-output-plan.md` Task_1
 - scope:
   - `packages/shared/src/forms/form-block.ts`
@@ -403,7 +405,7 @@
   - Started first because the shared pattern/other-validation contract gates API/Web behavior and export/Sheets metadata follow-ups. Export column product decisions remain deferred to PATTERN-3.
   - Startup stability check found the worker stopped after branch creation/setup without a concrete blocker; a resume instruction was sent on 2026-07-08.
   - Worker opened PR #633 at head `2f708d8f37d420ebf96d17c715ebefa9b2508d23`; initial GitHub checks and AI reviews passed, but `gh-review-hook 633` returned scoped shared-contract findings.
-  - Worker pushed follow-up head `dffe31df9b269141fb9ede6f2db47e83db4bbf51` after addressing review-hook findings and merging current `origin/master`; GitHub checks and Greptile are successful, PR is `CLEAN`, and the worker is active waiting for `gh-review-hook 633` final readiness output before merge-ready report.
+  - Completed after worker pushed final head `022eae9729f59a8a3d738d834d2eba1503ee35ed`; parent verified PR diff, ran `$deep-review` with no blocking findings, reran `gh-review-hook 633`, `pnpm --filter @nexus-form/shared test`, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #633. Worker thread was archived; local branch deletion was skipped because the worker worktree still had the branch checked out.
 
 ### SEC-6: Verify and close telemetry findings
 - status: completed
@@ -456,6 +458,7 @@
 - 2026-07-08: PREFILL-1 worker reported merge-ready for PR #631 at head `6dcf9ea15fa55504ff0f4d504af63f151bbdc749`; parent reran PR diff review, `$deep-review`, focused shared/web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 631` successfully, then squash-merged PR #631 as merge commit `35ca14209dbf0cfaa082928521f86883257005cd` and archived worker thread `019f3db3-fb8d-7922-9cbc-cd295c67c95b`.
 - 2026-07-08: PATTERN-1 opened PR #633 at head `2f708d8f37d420ebf96d17c715ebefa9b2508d23`; worker is active after `gh-review-hook 633` returned scoped shared-contract findings, with follow-up commits and a normal `origin/master` merge still local while validation continues. No parent merge gate has started for PATTERN-1.
 - 2026-07-08: SEC-6 worker reported the Greptile documentation follow-up complete at head `c1138c0fe748f27fe644d53d3969f42e46b15743`; parent reran `gh-review-hook 632` successfully after prior diff/deep-review and validation gates, then squash-merged PR #632 as merge commit `d595ad74e7e7792a58b24158bcd588e383900f0e`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
+- 2026-07-08: PATTERN-1 worker reported merge-ready for PR #633 at head `022eae9729f59a8a3d738d834d2eba1503ee35ed`; parent reran PR diff review, `$deep-review`, `gh-review-hook 633`, focused shared tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #633 as merge commit `a842caa06059cefc9280bcfedf56a153233e280f` and archived worker thread `019f3db3-fb8d-7922-9cbc-cd308aa4619b`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
