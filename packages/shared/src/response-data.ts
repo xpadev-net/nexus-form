@@ -111,8 +111,8 @@ export type PatternMatchStatus = z.infer<typeof PatternMatchStatus>;
 export const responsePatternMatchMetadataSchema = z.object({
   status: PatternMatchStatus,
   mode: PatternMismatchMode.optional(),
-  pattern: z.string().optional(),
-  patternTemplate: z.string().optional(),
+  pattern: z.string().max(MAX_RESPONSE_TEXT_LENGTH).optional(),
+  patternTemplate: z.string().max(MAX_RESPONSE_TEXT_LENGTH).optional(),
 });
 
 export type ResponsePatternMatchMetadata = z.infer<
@@ -124,7 +124,7 @@ export const responseItemValidationMetadataSchema = z
     pattern_match: responsePatternMatchMetadataSchema.optional(),
     other_text_pattern_match: responsePatternMatchMetadataSchema.optional(),
   })
-  .passthrough();
+  .strict();
 
 export type ResponseItemValidationMetadata = z.infer<
   typeof responseItemValidationMetadataSchema
@@ -200,6 +200,13 @@ export const responseDataItemSchema = responsePayloadItemBaseSchema
   })
   .superRefine(validateGridResponseItem);
 
-/** 回答投稿ペイロードと保存済み回答データの個別項目の型。 */
+/** 回答投稿ペイロードの個別項目の型。 */
 export type ResponsePayloadItem = z.infer<typeof responsePayloadItemSchema>;
-export type ResponseDataItem = z.infer<typeof responseDataItemSchema>;
+
+/** 既存利用箇所との互換性のため、ResponseDataItem は投稿ペイロード相当の狭い型を維持する。 */
+export type ResponseDataItem = ResponsePayloadItem;
+
+/** サーバー保存済み回答など、検証メタデータを持てる回答データの個別項目の型。 */
+export type ResponseDataItemWithValidationMetadata = z.infer<
+  typeof responseDataItemSchema
+>;

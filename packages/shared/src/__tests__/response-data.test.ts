@@ -200,4 +200,21 @@ describe("responseDataItemSchema", () => {
       },
     });
   });
+
+  it("rejects unknown validation metadata keys", () => {
+    const result = responseDataItemSchema.safeParse({
+      ...baseResponse,
+      value: "NF-123",
+      validation_metadata: {
+        pattern_match: {
+          status: "match",
+        },
+        future_field: {
+          status: "unchecked",
+        },
+      },
+    });
+
+    expect(result.success).toBe(false);
+  });
 });

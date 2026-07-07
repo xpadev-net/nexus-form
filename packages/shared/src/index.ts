@@ -143,6 +143,7 @@ export type {
   AnswerableQuestionType,
   QuestionValidation,
   ResponseDataItem,
+  ResponseDataItemWithValidationMetadata,
   ResponseItemValidationMetadata,
   ResponsePatternMatchMetadata,
   ResponsePayloadItem,

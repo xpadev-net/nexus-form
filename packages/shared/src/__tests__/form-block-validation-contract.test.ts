@@ -24,6 +24,10 @@ describe("pattern mismatch validation contract", () => {
   });
 
   it("normalizes legacy allowPatternMismatch values compatibly", () => {
+    expect(normalizePatternMismatchMode(undefined)).toBe("block");
+    expect(normalizePatternMismatchMode({ patternMismatchMode: "block" })).toBe(
+      "block",
+    );
     expect(normalizePatternMismatchMode({ allowPatternMismatch: false })).toBe(
       "block",
     );
