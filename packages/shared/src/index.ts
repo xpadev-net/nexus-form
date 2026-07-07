@@ -159,10 +159,13 @@ export type {
   ResponseExportRecord,
   ResponseExportSheetMapping,
   ResponseExportTable,
+  ResponseExportValidationOutputColumn,
+  ResponseExportValidationOutputValue,
 } from "./response-export";
 export {
   buildResponseExportColumnsFromBlocks,
   buildResponseExportTable,
+  buildResponseExportValidationOutputColumns,
   denormalizeSpreadsheetFormulaValue,
   mapRecordToSheetRow,
   neutralizeSpreadsheetFormulaValue,

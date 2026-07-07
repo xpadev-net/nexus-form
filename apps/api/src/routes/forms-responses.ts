@@ -6,11 +6,11 @@ import {
   fingerprintDetail,
   form,
   formResponse,
+  formStructure,
   formValidationRule,
   formValidationRuleBlock,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
-import type { ValidationStatusValue } from "@nexus-form/shared";
 import {
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
@@ -20,12 +20,18 @@ import {
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
+  parseValidationOutputExportSettings,
+  parseValidationOutputValuesFromMetadata,
+  type ResponseExportValidationOutputValue,
   responsePayloadItemSchema,
+  type ValidationOutputExportSettings,
+  type ValidationStatusValue,
 } from "@nexus-form/shared";
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { paginationQuerySchema } from "../lib/constants/pagination";
 import { withDualFormAuth } from "../lib/dual-auth";
+import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { buildQuestionsFromPlateContent } from "../lib/forms/plate-question-builder";
 import {
   addDisplayLabelsToResponseDataJson,
@@ -34,6 +40,7 @@ import {
 import {
   buildResponseExportColumnsFromBlocks,
   buildResponseExportRecords,
+  buildValidationOutputColumnsForResponseExport,
   formatRecordsToCsv,
 } from "../lib/forms/response-export";
 import { validateResponseData } from "../lib/forms/response-validator";
@@ -579,6 +586,89 @@ function buildExportBlocksFromPlateContent(plateContent: string | null): Array<{
 
 function csvAttachmentFilename(formId: string): string {
   return `responses-${encodeURIComponent(formId)}.csv`;
+}
+
+function parseValidationOutputExportSettingsFromStructureJson(
+  structureJson: string | null | undefined,
+): ValidationOutputExportSettings {
+  if (!structureJson) return { values: [] };
+  try {
+    return (
+      parseStoredStructure(structureJson).settings.validation_output_export ?? {
+        values: [],
+      }
+    );
+  } catch {
+    return parseValidationOutputExportSettings(undefined);
+  }
+}
+
+async function getValidationOutputsByResponseId(params: {
+  formId: string;
+  responseIds: string[];
+}): Promise<Map<string, ResponseExportValidationOutputValue[]>> {
+  if (params.responseIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      responseId: externalServiceValidationResult.responseId,
+      ruleId: externalServiceValidationResult.ruleId,
+      metadata: externalServiceValidationResult.metadata,
+      service: externalServiceValidationResult.service,
+      ruleName: formValidationRule.name,
+      providerName: formValidationRule.providerName,
+      ruleType: formValidationRule.ruleType,
+    })
+    .from(externalServiceValidationResult)
+    .innerJoin(
+      formResponse,
+      eq(externalServiceValidationResult.responseId, formResponse.id),
+    )
+    .leftJoin(
+      formValidationRule,
+      eq(externalServiceValidationResult.ruleId, formValidationRule.id),
+    )
+    .where(
+      and(
+        eq(formResponse.formId, params.formId),
+        inArray(formResponse.id, params.responseIds),
+        eq(externalServiceValidationResult.status, "COMPLETED"),
+      ),
+    )
+    .orderBy(
+      desc(externalServiceValidationResult.updatedAt),
+      desc(externalServiceValidationResult.createdAt),
+    );
+
+  const outputsByResponseId = new Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >();
+  const seenByResponseId = new Map<string, Set<string>>();
+  for (const row of rows) {
+    const outputValues = parseValidationOutputValuesFromMetadata(row.metadata);
+    if (outputValues.length === 0) continue;
+    const seen = seenByResponseId.get(row.responseId) ?? new Set<string>();
+    seenByResponseId.set(row.responseId, seen);
+    const current = outputsByResponseId.get(row.responseId) ?? [];
+    for (const outputValue of outputValues) {
+      const key = `${row.ruleId}:${outputValue.key}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      current.push({
+        rule_id: row.ruleId,
+        rule_name: row.ruleName ?? row.ruleId,
+        provider_name: row.providerName ?? row.service ?? "unknown",
+        rule_type: row.ruleType ?? "unknown",
+        output_key: outputValue.key,
+        label: outputValue.label ?? outputValue.key,
+        value: outputValue.value,
+      });
+    }
+    outputsByResponseId.set(row.responseId, current);
+  }
+
+  return outputsByResponseId;
 }
 
 const bulkDeleteSchema = z.object({
@@ -1700,6 +1790,23 @@ export const formsResponsesRouter = createHonoApp()
     const formBlocks = buildExportBlocksFromPlateContent(
       targetForm.plateContent,
     );
+    const [activeStructure] = await db
+      .select({ structureJson: formStructure.structureJson })
+      .from(formStructure)
+      .where(
+        and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
+      )
+      .orderBy(desc(formStructure.version))
+      .limit(1);
+    const validationOutputExportSettings =
+      parseValidationOutputExportSettingsFromStructureJson(
+        activeStructure?.structureJson,
+      );
+    const validationOutputsByResponseId =
+      await getValidationOutputsByResponseId({
+        formId,
+        responseIds,
+      });
     const blockTitleMap = new Map(
       formBlocks.map((block) => {
         const content =
@@ -1717,12 +1824,19 @@ export const formsResponsesRouter = createHonoApp()
         fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
       })),
       formBlocks,
+      validationOutputsByResponseId,
     );
+    const validationOutputColumns =
+      buildValidationOutputColumnsForResponseExport(
+        validationOutputExportSettings,
+        validationOutputsByResponseId,
+      );
     const csv = formatRecordsToCsv(
       records,
       fingerprintComponents,
       blockTitleMap,
       buildResponseExportColumnsFromBlocks(formBlocks),
+      validationOutputColumns,
     );
 
     return c.body(csv, 200, {

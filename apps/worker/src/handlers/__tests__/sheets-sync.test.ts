@@ -22,14 +22,40 @@ vi.mock("@nexus-form/database", () => ({
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
+  externalServiceValidationResult: {
+    responseId: "externalServiceValidationResult.responseId",
+    ruleId: "externalServiceValidationResult.ruleId",
+    metadata: "externalServiceValidationResult.metadata",
+    service: "externalServiceValidationResult.service",
+    status: "externalServiceValidationResult.status",
+    updatedAt: "externalServiceValidationResult.updatedAt",
+    createdAt: "externalServiceValidationResult.createdAt",
+  },
   fingerprintDetail: {
     componentName: "fingerprintDetail.componentName",
     componentValueHash: "fingerprintDetail.componentValueHash",
     fingerprintType: "fingerprintDetail.fingerprintType",
     responseId: "fingerprintDetail.responseId",
   },
-  form: {},
-  formSnapshot: {},
+  form: {
+    plateContent: "form.plateContent",
+  },
+  formSnapshot: {
+    plateContent: "formSnapshot.plateContent",
+    structureJson: "formSnapshot.structureJson",
+  },
+  formStructure: {
+    formId: "formStructure.formId",
+    isActive: "formStructure.isActive",
+    structureJson: "formStructure.structureJson",
+    version: "formStructure.version",
+  },
+  formValidationRule: {
+    id: "formValidationRule.id",
+    name: "formValidationRule.name",
+    providerName: "formValidationRule.providerName",
+    ruleType: "formValidationRule.ruleType",
+  },
 }));
 
 vi.mock("@nexus-form/shared", async (importOriginal) => {
@@ -51,6 +77,7 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions: unknown[]) => ({ conditions, type: "and" })),
   asc: vi.fn((column: unknown) => ({ column, direction: "asc" })),
+  desc: vi.fn((column: unknown) => ({ column, direction: "desc" })),
   eq: vi.fn((column: unknown, value: unknown) => ({
     column,
     type: "eq",
@@ -196,6 +223,8 @@ function setupDbSelect(...results: unknown[][]) {
     const promise = Promise.resolve(result);
     return {
       from: vi.fn().mockReturnThis(),
+      innerJoin: vi.fn().mockReturnThis(),
+      leftJoin: vi.fn().mockReturnThis(),
       orderBy: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       limit: vi.fn().mockResolvedValue(result),
@@ -428,7 +457,7 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
-    expect(mockDb.select).toHaveBeenCalledTimes(4);
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
   });
 
   it('waits out a stale "pending" idempotency key under the integration lock and writes without BullMQ retry', async () => {
@@ -609,7 +638,7 @@ describe("handleSheetsSync — idempotency states", () => {
       spreadsheetId: "spreadsheet-id",
       rangeA1: "Sheet1!A:A",
     });
-    expect(mockDb.select).toHaveBeenCalledTimes(4);
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
   });
 
   it("skips append when the idempotency key expired but the response row already exists", async () => {
@@ -1058,7 +1087,7 @@ describe("handleSheetsSync — idempotency states", () => {
       }),
     );
     expect(mockUpdateRange).not.toHaveBeenCalled();
-    expect(mockDb.select).toHaveBeenCalledTimes(4);
+    expect(mockDb.select).toHaveBeenCalledTimes(6);
   });
 
   it("does not throw when best-effort done promotion fails", async () => {
@@ -1187,7 +1216,7 @@ describe("handleSheetsSync — write path", () => {
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     );
-    expect(mockDb.select).toHaveBeenCalledTimes(5);
+    expect(mockDb.select).toHaveBeenCalledTimes(7);
     expect(lockReleased).toBe(true);
     expect(job.updateProgress).toHaveBeenLastCalledWith({
       processed: 2,
@@ -1339,7 +1368,7 @@ describe("handleSheetsSync — write path", () => {
         rows: [["response-2", "second", "1.0000"]],
       }),
     );
-    expect(mockDb.select).toHaveBeenCalledTimes(5);
+    expect(mockDb.select).toHaveBeenCalledTimes(7);
   });
 
   it("uses withRedisLock on the integration key", async () => {
@@ -1766,6 +1795,231 @@ describe("handleSheetsSync — write path", () => {
           ],
         ],
       }),
+    );
+  });
+
+  it("writes selected arbitrary validation output values with shared sheet headers", async () => {
+    const structureJson = JSON.stringify({
+      version: 1,
+      settings: {
+        validation_output_export: {
+          values: [
+            {
+              rule_id: "rule-gh",
+              provider_name: "github",
+              rule_type: "user_exists",
+              output_key: "followers",
+              enabled: false,
+            },
+          ],
+        },
+      },
+    });
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: "[]",
+          respondentUuid: "respondent-1",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+          updatedAt: null,
+          countryCode: "JP",
+          userAgent: null,
+        },
+      ],
+      [{ plateContent: "[]" }],
+      [{ id: "response-1" }],
+      [],
+      [{ structureJson }],
+      [
+        {
+          responseId: "response-1",
+          ruleId: "rule-gh",
+          metadata: {
+            validationOutputs: [
+              {
+                key: "username",
+                label: "GitHub username",
+                value: "octocat",
+              },
+              { key: "followers", label: "Followers", value: 42 },
+              { key: "profile_score", label: "Profile score", value: 98.5 },
+            ],
+          },
+          service: "github",
+          ruleName: "GitHub rule",
+          providerName: "github",
+          ruleType: "user_exists",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A3", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        [
+          "Response ID",
+          "Respondent UUID",
+          "Submitted At",
+          "Updated At",
+          "Country Code",
+          "UA UUID",
+          "Uniqueness Score",
+          "validation_output:rule-gh:profile_score",
+          "validation_output:rule-gh:username",
+        ],
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "UA UUID",
+          "ユニーク度スコア",
+          "Validation: GitHub rule (rule-gh) / Profile score [profile_score]",
+          "Validation: GitHub rule (rule-gh) / GitHub username [username]",
+        ],
+      ],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [
+          [
+            "response-1",
+            "respondent-1",
+            "2026-05-17T01:00:00.000Z",
+            "",
+            "JP",
+            "",
+            "1.0000",
+            "98.5",
+            "octocat",
+          ],
+        ],
+      }),
+    );
+    expect(mockUpdateRange.mock.calls[0]?.[1].values.flat()).not.toContain(
+      "Followers",
+    );
+  });
+
+  it("writes selected validation output values to legacy sheet headers", async () => {
+    const structureJson = JSON.stringify({
+      version: 1,
+      settings: {
+        validation_output_export: {
+          values: [
+            {
+              rule_id: "rule-gh",
+              provider_name: "github",
+              rule_type: "user_exists",
+              output_key: "followers",
+              enabled: false,
+            },
+          ],
+        },
+      },
+    });
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: "[]",
+          submittedAt: new Date("2026-05-17T01:00:00.000Z"),
+        },
+      ],
+      [{ plateContent: "[]" }],
+      [{ id: "response-1" }],
+      [],
+      [{ structureJson }],
+      [
+        {
+          responseId: "response-1",
+          ruleId: "rule-gh",
+          metadata: {
+            validationOutputs: [
+              {
+                key: "username",
+                label: "GitHub username",
+                value: "octocat",
+              },
+              { key: "followers", label: "Followers", value: 42 },
+              { key: "profile_score", label: "Profile score", value: 98.5 },
+            ],
+          },
+          service: "github",
+          ruleName: "GitHub rule",
+          providerName: "github",
+          ruleType: "user_exists",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID"]] },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: { values: [["Response ID"]] },
+      } as never);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:1",
+      values: [
+        [
+          "Response ID",
+          "ユニーク度スコア",
+          "Validation: GitHub rule (rule-gh) / Profile score [profile_score]",
+          "Validation: GitHub rule (rule-gh) / GitHub username [username]",
+        ],
+      ],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "1.0000", "98.5", "octocat"]],
+      }),
+    );
+    expect(mockUpdateRange.mock.calls[0]?.[1].values.flat()).not.toContain(
+      "Followers",
     );
   });
 
