@@ -622,6 +622,7 @@
   - 2026-07-07: replacement worker opened PR [#629](https://github.com/xpadev-net/nexus-form/pull/629) at head `dce7ab3f4379a5f06dd5c81285d42ae4e1773849`; CI checks are passing except Greptile Review is still in progress, so the worker remains active in `gh-review-hook` waiting and the orchestrator merge gate has not started.
   - 2026-07-07: PR checks reached 10 passing / 0 failing, but worker `gh-review-hook` returned exit 2 with in-scope implementation findings and master追従要求; worker remains active applying fixes, so the orchestrator merge gate is still not started.
   - 2026-07-07: worker pushed review fixes and normal master merge to PR head `0c6b900d6daca17dffe1e00df7a1fefd97aa6a4e`; `gh-review-hook` rerun is waiting on the new CI/Greptile set, so the task remains in progress.
+  - 2026-07-07: worker's hook run passed CI/AI review but required another normal master merge; worker pushed head `7451771475a7c1f1115a9107a4363251abb82690` and is waiting on the new CI/Greptile set. No merge-ready handoff yet.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
