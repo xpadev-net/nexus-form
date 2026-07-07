@@ -1,4 +1,5 @@
 import { isAnswerableBlockType } from "./forms/form-block";
+import type { ResponseItemValidationMetadata } from "./response-data";
 import {
   parseValidationOutputValuesFromMetadata,
   type ValidationOutputExportSettings,
@@ -23,6 +24,7 @@ export type ResponseExportRecord = {
     question_title?: string;
     value: unknown;
     display_value?: unknown;
+    validation_metadata?: ResponseExportComponentValidationMetadata;
   }>;
   validation_output_columns?: ResponseExportValidationOutputValue[];
 };
@@ -32,6 +34,9 @@ export type ResponseExportColumn = {
   title: string;
   blockType?: string;
 };
+
+export type ResponseExportComponentValidationMetadata =
+  ResponseItemValidationMetadata;
 
 /**
  * A single exportable validation output value from one validation result.

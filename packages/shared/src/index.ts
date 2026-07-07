@@ -63,6 +63,8 @@ export type {
   AnswerableBlockTypeValue,
   AnswerablePlateQuestionType,
   BlockTypeValue,
+  NormalizedShortTextValidationConfig,
+  PatternMismatchCompatibilityConfig,
   PlateQuestionType,
 } from "./forms/form-block";
 export {
@@ -76,6 +78,11 @@ export {
   isAnswerablePlateQuestionType,
   isBlockType,
   isPlateQuestionType,
+  normalizePatternMismatchMode,
+  normalizeShortTextValidationConfig,
+  PATTERN_MISMATCH_MODES,
+  PatternMismatchMode,
+  ShortTextCompatibleValidationConfig,
   toPlateQuestionType,
 } from "./forms/form-block";
 export type {
@@ -136,6 +143,9 @@ export type {
   AnswerableQuestionType,
   QuestionValidation,
   ResponseDataItem,
+  ResponseItemValidationMetadata,
+  ResponsePatternMatchMetadata,
+  ResponsePayloadItem,
   ValidatorQuestion,
 } from "./response-data";
 export {
@@ -150,11 +160,17 @@ export {
   MAX_RESPONSE_SELECTIONS,
   MAX_RESPONSE_TEXT_LENGTH,
   MAX_RESPONSE_TITLE_LENGTH,
+  PATTERN_MATCH_STATUSES,
+  PatternMatchStatus,
   questionValidationSchema,
+  responseDataItemSchema,
+  responseItemValidationMetadataSchema,
+  responsePatternMatchMetadataSchema,
   responsePayloadItemSchema,
 } from "./response-data";
 export type {
   ResponseExportColumn,
+  ResponseExportComponentValidationMetadata,
   ResponseExportFormBlock,
   ResponseExportRecord,
   ResponseExportSheetMapping,

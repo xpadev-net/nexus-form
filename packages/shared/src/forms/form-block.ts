@@ -201,20 +201,62 @@ export const BaseValidationConfig = z.object({
 
 export type BaseValidationConfig = z.infer<typeof BaseValidationConfig>;
 
-// 短文入力のバリデーション設定
-export const ShortTextValidationConfig = BaseValidationConfig.extend({
-  type: z.literal("short_text"),
+export const PATTERN_MISMATCH_MODES = ["block", "warn", "hidden"] as const;
+
+export const PatternMismatchMode = z.enum(PATTERN_MISMATCH_MODES);
+export type PatternMismatchMode = z.infer<typeof PatternMismatchMode>;
+
+export type PatternMismatchCompatibilityConfig = {
+  patternMismatchMode?: PatternMismatchMode;
+  allowPatternMismatch?: boolean;
+};
+
+export function normalizePatternMismatchMode(
+  config: PatternMismatchCompatibilityConfig | undefined,
+): PatternMismatchMode {
+  if (config?.patternMismatchMode) {
+    return config.patternMismatchMode;
+  }
+  return config?.allowPatternMismatch === true ? "hidden" : "block";
+}
+
+export const ShortTextCompatibleValidationConfig = BaseValidationConfig.extend({
   maxLength: z.number().min(1).max(1000).optional(),
   minLength: z.number().min(0).optional(),
-  pattern: z.string().optional(), // 正規表現パターン
-  patternTemplate: z.string().optional(), // パターンテンプレートのID
-  allowPatternMismatch: z.boolean().default(false), // パターン不一致を許容するか
-  placeholder: z.string().max(200).optional(),
+  pattern: z.string().optional(),
+  patternTemplate: z.string().optional(),
+  patternMismatchMode: PatternMismatchMode.optional(),
+  allowPatternMismatch: z.boolean().optional(),
 });
+
+export type ShortTextCompatibleValidationConfig = z.infer<
+  typeof ShortTextCompatibleValidationConfig
+>;
+
+// 短文入力のバリデーション設定
+export const ShortTextValidationConfig =
+  ShortTextCompatibleValidationConfig.extend({
+    type: z.literal("short_text"),
+    allowPatternMismatch: z.boolean().default(false), // パターン不一致を許容するか
+    placeholder: z.string().max(200).optional(),
+  });
 
 export type ShortTextValidationConfig = z.infer<
   typeof ShortTextValidationConfig
 >;
+
+export type NormalizedShortTextValidationConfig = ShortTextValidationConfig & {
+  patternMismatchMode: PatternMismatchMode;
+};
+
+export function normalizeShortTextValidationConfig(
+  config: ShortTextValidationConfig,
+): NormalizedShortTextValidationConfig {
+  return {
+    ...config,
+    patternMismatchMode: normalizePatternMismatchMode(config),
+  };
+}
 
 // 長文入力のバリデーション設定
 export const LongTextValidationConfig = BaseValidationConfig.extend({
@@ -239,6 +281,7 @@ export const RadioValidationConfig = BaseValidationConfig.extend({
   options: z.array(Option),
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
+  otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
 });
 
 export type RadioValidationConfig = z.infer<typeof RadioValidationConfig>;
@@ -251,6 +294,7 @@ export const CheckboxValidationConfig = BaseValidationConfig.extend({
   maxSelections: z.number().min(1).optional(),
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
+  otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
 });
 
 export type CheckboxValidationConfig = z.infer<typeof CheckboxValidationConfig>;
@@ -261,6 +305,7 @@ export const DropdownValidationConfig = BaseValidationConfig.extend({
   options: z.array(Option).min(2),
   allowOther: z.boolean().default(false),
   otherLabel: z.string().optional(),
+  otherTextValidation: ShortTextCompatibleValidationConfig.optional(),
 });
 
 export type DropdownValidationConfig = z.infer<typeof DropdownValidationConfig>;
