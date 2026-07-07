@@ -214,6 +214,8 @@ function isAnswered(responseValue: unknown): boolean {
 }
 
 function includesAny(responseValue: unknown, conditionValue: unknown): boolean {
+  if (!isAnswered(responseValue)) return false;
+
   const conditionValues = Array.isArray(conditionValue)
     ? conditionValue
     : [conditionValue];
@@ -227,6 +229,8 @@ function includesAny(responseValue: unknown, conditionValue: unknown): boolean {
 }
 
 function includesAll(responseValue: unknown, conditionValue: unknown): boolean {
+  if (!isAnswered(responseValue)) return false;
+
   const conditionValues = Array.isArray(conditionValue)
     ? conditionValue
     : [conditionValue];

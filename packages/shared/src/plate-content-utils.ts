@@ -4,6 +4,7 @@
  */
 
 import type { FormLogicRule } from "./forms/condition-evaluator";
+import { evaluateRule } from "./forms/condition-evaluator";
 import {
   type AnswerableBlockTypeValue,
   FORM_QUESTION_TYPES,
@@ -261,6 +262,11 @@ export interface PlatePage {
   };
 }
 
+export interface ReachableFormContent {
+  pageIndexes: number[];
+  questionIds: string[];
+}
+
 export type CompletionTargetActionSource = "default_action" | "navigation_rule";
 
 export interface CompletionTargetReference {
@@ -388,6 +394,77 @@ export function resolvePageIndexByPageId(
 ): number {
   if (!targetPageId) return -1;
   return pages.findIndex((p) => p.pageId === targetPageId);
+}
+
+/**
+ * Evaluate the resolved navigation action for a page and response record.
+ * The first matching navigation rule wins; otherwise the page default action
+ * is used.
+ */
+export function resolvePlatePageAction(
+  page: PlatePage,
+  responses: Record<string, unknown>,
+): PlatePage["defaultAction"] | undefined {
+  if (page.navigationRules && page.navigationRules.length > 0) {
+    for (const rule of page.navigationRules) {
+      const matched = evaluateRule(rule, {
+        responses,
+        questionId: page.pageId,
+      });
+      if (matched && rule.action) {
+        return {
+          type: rule.action.type as "jump_to_section" | "next" | "submit",
+          target_id: rule.action.target_id,
+          metadata: rule.action.metadata,
+        };
+      }
+    }
+  }
+
+  return page.defaultAction;
+}
+
+/**
+ * Resolve the pages and answerable questions reachable through normal form
+ * navigation from the first page for the supplied responses.
+ */
+export function resolveReachableFormContent(
+  pages: PlatePage[],
+  responses: Record<string, unknown>,
+): ReachableFormContent {
+  if (pages.length === 0) {
+    return { pageIndexes: [], questionIds: [] };
+  }
+
+  const pageIndexes: number[] = [];
+  const questionIds: string[] = [];
+  const seen = new Set<number>();
+  let pageIndex = 0;
+
+  while (pageIndex >= 0 && pageIndex < pages.length && !seen.has(pageIndex)) {
+    const page = pages[pageIndex];
+    if (!page) break;
+
+    pageIndexes.push(pageIndex);
+    questionIds.push(...page.questionIds);
+    seen.add(pageIndex);
+
+    const action = resolvePlatePageAction(page, responses);
+    if (action?.type === "submit") break;
+
+    if (action?.type === "jump_to_section" && action.target_id) {
+      const targetIndex = resolvePageIndexByPageId(pages, action.target_id);
+      if (targetIndex !== -1) {
+        pageIndex = targetIndex;
+        continue;
+      }
+    }
+
+    if (pageIndex >= pages.length - 1) break;
+    pageIndex += 1;
+  }
+
+  return { pageIndexes, questionIds };
 }
 
 /**

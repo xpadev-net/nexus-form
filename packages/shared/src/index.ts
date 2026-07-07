@@ -95,6 +95,7 @@ export type {
   ExtractedAnswerableQuestion,
   ExtractedQuestion,
   PlatePage,
+  ReachableFormContent,
 } from "./plate-content-utils";
 export {
   ensureNodeIds,
@@ -107,6 +108,8 @@ export {
   regenerateBlockIds,
   removeNestedQuestionsFromPlateContent,
   resolvePageIndexByPageId,
+  resolvePlatePageAction,
+  resolveReachableFormContent,
   splitPlateContentIntoPages,
   validateCompletionTargetPages,
   validateCompletionTargetsInPlateContent,
