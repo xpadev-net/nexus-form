@@ -638,8 +638,9 @@
   - PR #629 was merge-committed as `bbd42c76162ec77fa44d04d62f9ca877f0408f98`; worker thread `019f3c31-2aed-79e3-9b6b-2fd193eb7be7` was archived.
 
 ### VEXPORT-3: CSV and Sheets validation result output
-- status: unstarted
+- status: in progress
 - branch: `codex/validation-result-csv-sheets`
+- pending_worktree: `local:d139dcdf-02f4-4081-855e-a5dfd4b1eec9`
 - worker_thread: pending
 - worktree: pending
 - source_plan_task: `validation-result-export-plan.md` Task_4
@@ -658,6 +659,8 @@
   - `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/sheets-sync.test.ts`
   - `pnpm lint:fix`
   - `pnpm type-check`
+- notes:
+  - 2026-07-08: parent started VEXPORT-3 worker pending worktree `local:d139dcdf-02f4-4081-855e-a5dfd4b1eec9` after VEXPORT-2 PR #629 merged and the worker thread was archived. Scope is CSV/Sheets output consumption of saved validation output export settings only.
 
 ## Activity Log
 
