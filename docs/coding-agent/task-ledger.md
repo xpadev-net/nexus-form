@@ -346,6 +346,8 @@
 - status: in_progress
 - branch: `codex/prefill-reachability-core`
 - pending_worktree: `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220`
+- worker_thread: `019f3db3-fb8d-7922-9cbc-cd295c67c95b`
+- worktree: `/Users/xpadev/.codex/worktrees/fd24/nexus-form`
 - source_plan_task: `prefill-reachability-validation-plan.md` Task_1
 - scope:
   - `packages/shared/src/plate-content-utils.ts`
@@ -372,6 +374,8 @@
 - status: in_progress
 - branch: `codex/pattern-validation-contract`
 - pending_worktree: `local:286640af-0ee5-4a73-8683-5e733178d870`
+- worker_thread: `019f3db3-fb8d-7922-9cbc-cd308aa4619b`
+- worktree: `/Users/xpadev/.codex/worktrees/a05f/nexus-form`
 - source_plan_task: `pattern-other-validation-output-plan.md` Task_1
 - scope:
   - `packages/shared/src/forms/form-block.ts`
@@ -391,11 +395,14 @@
   - `pnpm test -- --silent`
 - notes:
   - Started first because the shared pattern/other-validation contract gates API/Web behavior and export/Sheets metadata follow-ups. Export column product decisions remain deferred to PATTERN-3.
+  - Startup stability check found the worker stopped after branch creation/setup without a concrete blocker; a resume instruction was sent on 2026-07-08.
 
 ### SEC-6: Verify and close telemetry findings
 - status: in_progress
 - branch: `codex/sec-telemetry-token-regressions`
 - pending_worktree: `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27`
+- worker_thread: `019f3db3-fc26-75c3-8be9-bcf7a0283f5f`
+- worktree: `/Users/xpadev/.codex/worktrees/766e/nexus-form`
 - source_plan_task: `security-findings-remediation-plan.md` Task_6
 - scope:
   - `apps/api/src/lib/telemetry/tokens.ts`
@@ -426,6 +433,9 @@
 - 2026-07-08: Started PREFILL-1 worker as pending worktree `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220` on branch `codex/prefill-reachability-core`.
 - 2026-07-08: Started PATTERN-1 worker as pending worktree `local:286640af-0ee5-4a73-8683-5e733178d870` on branch `codex/pattern-validation-contract`.
 - 2026-07-08: Started SEC-6 worker as pending worktree `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27` on branch `codex/sec-telemetry-token-regressions`.
+- 2026-07-08: Resolved PREFILL-1 to thread `019f3db3-fb8d-7922-9cbc-cd295c67c95b` in worktree `/Users/xpadev/.codex/worktrees/fd24/nexus-form`; worker is active with scoped shared/Web edits.
+- 2026-07-08: Resolved PATTERN-1 to thread `019f3db3-fb8d-7922-9cbc-cd308aa4619b` in worktree `/Users/xpadev/.codex/worktrees/a05f/nexus-form`; worker stopped after branch setup without a concrete blocker, so a resume instruction was sent.
+- 2026-07-08: Resolved SEC-6 to thread `019f3db3-fc26-75c3-8be9-bcf7a0283f5f` in worktree `/Users/xpadev/.codex/worktrees/766e/nexus-form`; worker is active investigating telemetry token consumption semantics.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
