@@ -585,9 +585,13 @@
   - PR #627 was squash-merged as `3098454078e6f6a3807de5bd64ee1d59b69ee02c`; worker thread archived.
 
 ### VEXPORT-2: Validation output export settings UI/API
-- status: in progress
+- status: complete
 - branch: `codex/validation-output-export-settings-retry`
-- pending_worktree: `local:ec2f7b1f-ae08-41e2-ad3b-eee7500d2077`
+- pr: [#629](https://github.com/xpadev-net/nexus-form/pull/629)
+- head_sha: `e47190dd2c1e16595666a95bc2e470aa34d8034b`
+- merge_commit: `bbd42c76162ec77fa44d04d62f9ca877f0408f98`
+- archived: true
+- pending_worktree: resolved
 - stale_pending_worktrees:
   - `local:73433277-d963-4c40-b993-0c31c2633f97`
   - `local:50de6f53-42f9-451c-bb06-7bf3580e34a8`
@@ -626,6 +630,12 @@
   - 2026-07-07: worker merged another master-only ledger update and pushed PR head `b01f981aa5f0fd8321bd6ffeaa57eae2d51ffc33`; latest `gh-review-hook` rerun is waiting on CI, CodeRabbit, and Greptile. No merge-ready handoff yet.
   - 2026-07-07: CI reached 10 passing / 0 failing, but `gh-review-hook` produced additional implementation/test/copy findings and PR reviewDecision is `CHANGES_REQUESTED`; worker remains active fixing them.
   - 2026-07-07: worker pushed additional review fixes and master merge to PR head `0871d670c92b084b14b10b6763288fd2c01ec21e`; CI and CodeRabbit are passing/approved, Greptile remains pending, and no merge-ready handoff has been reported.
+- completion_notes:
+  - Worker reported PR #629 merge-ready at head `e47190dd2c1e16595666a95bc2e470aa34d8034b` with local/remote clean, independent review approved, worker `gh-review-hook 629` exit 0, CI/CodeRabbit/Greptile success, and no worker-side merge.
+  - Parent merge gate passed: PR diff and `$deep-review` found no actionable issues; parent `gh-review-hook 629` exited 0; PR was open, non-draft, approved, CLEAN, and had 10 passing / 0 failing checks before merge.
+  - Parent reran required validation from the clean PR worktree: shared validation-results targeted test passed (1 file / 13 tests), API validation-output-export targeted tests passed (3 files / 11 tests), API forms focused tests passed (24 files / 194 tests), Web editor/forms focused tests passed (39 files / 282 tests), `pnpm lint:fix` passed with no fixes, `pnpm type-check` passed, and full `pnpm test -- --silent` passed (15 turbo tasks).
+  - Parent inspected UI evidence under `/tmp/nexus-form-vexport2-evidence/`; desktop/mobile screenshots showed the settings section, rule/output toggles, saved unknown key display, and the captured PATCH body persisted per-output enabled flags.
+  - PR #629 was merge-committed as `bbd42c76162ec77fa44d04d62f9ca877f0408f98`; worker thread `019f3c31-2aed-79e3-9b6b-2fd193eb7be7` was archived.
 
 ### VEXPORT-3: CSV and Sheets validation result output
 - status: unstarted
