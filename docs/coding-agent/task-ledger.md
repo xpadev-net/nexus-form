@@ -343,11 +343,14 @@
   - Completed after worker merged `origin/master` normally to head `830311080778779fd1f86e7a3bc344dc3563c306`; parent verified PR `CLEAN`/`APPROVED`, reran focused web tests, `gh-review-hook 623`, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test --silent`, then squash-merged PR #623.
 
 ### PREFILL-1: Move reachability calculation into shared code
-- status: in_progress
+- status: completed
 - branch: `codex/prefill-reachability-core`
 - pending_worktree: `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220`
 - worker_thread: `019f3db3-fb8d-7922-9cbc-cd295c67c95b`
 - worktree: `/Users/xpadev/.codex/worktrees/fd24/nexus-form`
+- current_head: `6dcf9ea15fa55504ff0f4d504af63f151bbdc749`
+- pr: `https://github.com/xpadev-net/nexus-form/pull/631`
+- merge_commit: `35ca14209dbf0cfaa082928521f86883257005cd`
 - source_plan_task: `prefill-reachability-validation-plan.md` Task_1
 - scope:
   - `packages/shared/src/plate-content-utils.ts`
@@ -369,6 +372,7 @@
   - `pnpm test -- --silent`
 - notes:
   - Started first because shared reachability semantics unblock prefill generation, public submit rejection, and security finding #20 closure.
+  - Completed after parent verified PR diff, ran `$deep-review` with no blocking findings, reran focused shared/web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 631` exit 0, then squash-merged PR #631. Worker thread was archived; local branch deletion was skipped because the worker worktree still had the branch checked out.
 
 ### PATTERN-1: Extend shared schemas and helpers
 - status: in_progress
@@ -439,6 +443,8 @@
 - 2026-07-08: Resolved SEC-6 to thread `019f3db3-fc26-75c3-8be9-bcf7a0283f5f` in worktree `/Users/xpadev/.codex/worktrees/766e/nexus-form`; worker is active investigating telemetry token consumption semantics.
 - 2026-07-08: Sent follow-up instructions to PREFILL-1, PATTERN-1, and SEC-6 requiring each worker to create an explicit Codex goal for its delegated task before continuing; updated the backlog heartbeat to preserve this startup/resume guardrail.
 - 2026-07-08: Approved SEC-6 minimal scope expansion to `apps/api/src/lib/telemetry/__tests__/tokens.test.ts` because full validation failed only on existing unit expectations that directly contradict the new candidate-burn acceptance criteria for finding #13.
+- 2026-07-08: SEC-6 parent merge gate passed diff review, `$deep-review`, focused API/Web tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, but ready-state `gh-review-hook 632` exited 2 after Greptile requested a concise inline comment explaining the intentional no-IP second burn pass. Worker thread `019f3db3-fc26-75c3-8be9-bcf7a0283f5f` was instructed to add documentation only, rerun validation and `gh-review-hook 632`, and report a new head without merging.
+- 2026-07-08: PREFILL-1 worker reported merge-ready for PR #631 at head `6dcf9ea15fa55504ff0f4d504af63f151bbdc749`; parent reran PR diff review, `$deep-review`, focused shared/web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 631` successfully, then squash-merged PR #631 as merge commit `35ca14209dbf0cfaa082928521f86883257005cd` and archived worker thread `019f3db3-fb8d-7922-9cbc-cd295c67c95b`.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
