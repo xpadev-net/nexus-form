@@ -183,14 +183,22 @@ export function FormPrefillGenerator({
   }, [plateContent]);
 
   const questions = useMemo(() => {
-    return extractQuestionsFromPlateContent(parsedPlateContent).filter(
-      (q) => q.type !== "section_separator",
-    );
+    try {
+      return extractQuestionsFromPlateContent(parsedPlateContent).filter(
+        (q) => q.type !== "section_separator",
+      );
+    } catch {
+      return [];
+    }
   }, [parsedPlateContent]);
 
   const pages = useMemo(() => {
     if (parsedPlateContent.length === 0) return [];
-    return splitPlateContentIntoPages(parsedPlateContent);
+    try {
+      return splitPlateContentIntoPages(parsedPlateContent);
+    } catch {
+      return [];
+    }
   }, [parsedPlateContent]);
 
   const reachableQuestionIds = useMemo(() => {

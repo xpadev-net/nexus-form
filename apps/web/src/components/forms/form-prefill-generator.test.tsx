@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import * as SharedPlateContent from "@nexus-form/shared";
 import { fireEvent } from "@testing-library/dom";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -164,6 +165,33 @@ describe("FormPrefillGenerator", () => {
     );
 
     act(() => root.unmount());
+  });
+
+  it("degrades gracefully when shared Plate content helpers throw", () => {
+    const extractSpy = vi
+      .spyOn(SharedPlateContent, "extractQuestionsFromPlateContent")
+      .mockImplementation(() => {
+        throw new Error("malformed questions");
+      });
+    const splitSpy = vi
+      .spyOn(SharedPlateContent, "splitPlateContentIntoPages")
+      .mockImplementation(() => {
+        throw new Error("malformed pages");
+      });
+    const container = document.createElement("div");
+    const root = renderGenerator(
+      container,
+      JSON.stringify([{ type: "form_short_text", blockId: "q-malformed" }]),
+    );
+
+    expect(container.textContent).toContain("フォームに質問がありません。");
+    expect(
+      container.querySelector('[data-testid="prefill-url-preview"]'),
+    ).toBeNull();
+
+    act(() => root.unmount());
+    extractSpy.mockRestore();
+    splitSpy.mockRestore();
   });
 
   it("previews reflected and unreflected questions, then gives local copy feedback", async () => {
