@@ -132,6 +132,8 @@
 - notes:
   - Final integration validation passed on updated `master` after ORCH-3 merge.
 
+
+
 ## Activity Log
 
 - 2026-07-05: Ledger created. Initial safe parallel work selected: ORCH-1 and ORCH-4.
@@ -443,6 +445,41 @@
 - notes:
   - Started as an independent security verification slice for findings #13, #17, and #18 while shared validation contract workers are active.
   - Completed after worker added the requested inline documentation for the intentional no-IP second burn pass and parent reran PR diff review, `$deep-review`, focused API/Web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 632`.
+
+### SEC-7: Harden CI, release workflow, startup migrations, and migration journal
+- status: in_progress
+- branch: `codex/sec-ci-release-migration-hardening`
+- worker_thread: `019f3f73-f806-7980-996d-8d963a664185`
+- worktree: `/Users/xpadev/.codex/worktrees/e385/nexus-form`
+- source_plan_task: `security-findings-remediation-plan.md` Task_7
+- scope:
+  - `package.json`
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/release.yml`
+  - `docker/start.mjs`
+  - `start.sh`
+  - `k8s/base/api-migration-job.yaml`
+  - `packages/database/drizzle/meta/_journal.json`
+  - `packages/database/drizzle/0012_config_json_column_type.sql`
+  - `packages/database/drizzle/0013_active_snapshot_structure_live_security_compat.sql`
+  - `packages/database/src/migrate.ts`
+  - `apps/api/src/routes/forms-public.ts`
+  - `apps/api/src/__tests__/database-migration-journal.test.ts`
+  - `apps/api/src/__tests__/database-snapshot-structure-migration.test.ts`
+- must_not_touch:
+  - runtime validation behavior unrelated to startup/migration gates
+  - prefill/pattern/Plate UI work
+  - upload/S3/media policy
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/database-migration-journal.test.ts src/__tests__/database-snapshot-structure-migration.test.ts`
+  - `pnpm type-check`
+  - `pnpm lint:fix`
+  - `pnpm test -- --silent`
+- notes:
+  - Active branch work is scoped to security finding #6, #10, #21, and #22 fixes.
+
+
 
 ## Activity Log
 

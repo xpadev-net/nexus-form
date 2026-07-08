@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/mysql2";
@@ -10,8 +11,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
+export const REQUIRED_SECURITY_MIGRATION_TAGS = [
+  "0012_config_json_column_type",
+  "0013_active_snapshot_structure_live_security_compat",
+] as const;
 export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
 export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
+
+type RunMigrationsOptions = {
+  migrationsFolder?: string;
+};
 
 type CountRow = RowDataPacket & {
   count: number | string;
@@ -23,6 +32,10 @@ type ColumnNameRow = RowDataPacket & {
 
 type MigrationTimestampRow = RowDataPacket & {
   createdAt: number | string | bigint;
+};
+
+type MigrationTagRow = RowDataPacket & {
+  tag: string;
 };
 
 export type ConfigJsonMigrationCompatibilityState = {
@@ -45,7 +58,9 @@ export function shouldNormalizeConfigJsonMigrationTimestamp(
   );
 }
 
-export async function runMigrations(): Promise<void> {
+export async function runMigrations(
+  options: RunMigrationsOptions = {},
+): Promise<void> {
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) {
     throw new Error(
@@ -58,12 +73,27 @@ export async function runMigrations(): Promise<void> {
     const db = drizzle(migrationClient);
     console.log("Running database migrations...");
     await normalizeConfigJsonMigrationTimestamp(migrationClient);
-    const migrationsFolder = resolve(__dirname, "../drizzle");
+    const migrationsFolder = resolveMigrationsFolder(options.migrationsFolder);
     await migrate(db, { migrationsFolder });
+    await assertRequiredSecurityMigrationsAppliedWithPool(migrationClient);
     console.log("Database migrations completed successfully");
   } catch (error) {
     console.error("Database migration failed:", error);
     throw error;
+  } finally {
+    await migrationClient.end();
+  }
+}
+
+export async function assertRequiredSecurityMigrationsApplied(): Promise<void> {
+  const connectionString = process.env.DATABASE_URL?.trim();
+  if (!connectionString) {
+    throw new Error("DATABASE_URL environment variable is required");
+  }
+
+  const migrationClient = mysql.createPool(connectionString);
+  try {
+    await assertRequiredSecurityMigrationsAppliedWithPool(migrationClient);
   } finally {
     await migrationClient.end();
   }
@@ -94,6 +124,79 @@ async function normalizeConfigJsonMigrationTimestamp(
       "Normalized legacy 0012_config_json_column_type migration timestamp for Drizzle compatibility",
     );
   }
+}
+
+async function assertRequiredSecurityMigrationsAppliedWithPool(
+  migrationClient: Pool,
+): Promise<void> {
+  const hasDrizzleMigrationsTable =
+    await readHasDrizzleMigrationsTable(migrationClient);
+  if (!hasDrizzleMigrationsTable) {
+    throw new Error(
+      "Required security migrations were not applied: __drizzle_migrations table is missing",
+    );
+  }
+
+  const [rows] = await migrationClient.query<MigrationTagRow[]>(
+    `SELECT tag
+      FROM ${DRIZZLE_MIGRATIONS_TABLE}
+      WHERE tag IN (?, ?)`,
+    [...REQUIRED_SECURITY_MIGRATION_TAGS],
+  );
+
+  const appliedTags = new Set(rows.map((row) => row.tag));
+  const missing = REQUIRED_SECURITY_MIGRATION_TAGS.filter(
+    (tag) => !appliedTags.has(tag),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Required security migrations were not applied: ${missing.join(", ")}`,
+    );
+  }
+
+  const [timestampRows] = await migrationClient.query<MigrationTimestampRow[]>(
+    `SELECT created_at AS createdAt
+     FROM ${DRIZZLE_MIGRATIONS_TABLE}
+     WHERE tag = ?`,
+    ["0012_config_json_column_type"],
+  );
+  const configJsonMigrationTimestamp = timestampRows[0]?.createdAt;
+  if (
+    configJsonMigrationTimestamp !== undefined &&
+    Number(configJsonMigrationTimestamp) !==
+      CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP
+  ) {
+    throw new Error(
+      `0012 migration timestamp must be ${CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP} but found ${configJsonMigrationTimestamp}`,
+    );
+  }
+}
+
+function resolveMigrationsFolder(explicitPath?: string): string {
+  const explicitMigrationsFolder = explicitPath?.trim();
+  if (explicitMigrationsFolder) {
+    return resolve(explicitMigrationsFolder);
+  }
+
+  const packageMigrationsFolder = resolve(__dirname, "../drizzle");
+  if (existsSync(packageMigrationsFolder)) {
+    return packageMigrationsFolder;
+  }
+
+  const workspaceMigrationsFolder = resolve(
+    process.cwd(),
+    "packages/database/drizzle",
+  );
+  if (existsSync(workspaceMigrationsFolder)) {
+    return workspaceMigrationsFolder;
+  }
+
+  const rootMigrationsFolder = resolve(process.cwd(), "drizzle");
+  if (existsSync(rootMigrationsFolder)) {
+    return rootMigrationsFolder;
+  }
+
+  return packageMigrationsFolder;
 }
 
 async function readConfigJsonMigrationCompatibilityState(
