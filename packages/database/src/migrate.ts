@@ -154,10 +154,13 @@ export async function assertRequiredSecurityMigrationsAppliedWithPool(
   const requiredCreatedAts = REQUIRED_SECURITY_MIGRATIONS.map(
     (migration) => migration.createdAt,
   );
+  const requiredCreatedAtPlaceholders = requiredCreatedAts
+    .map(() => "?")
+    .join(", ");
   const [rows] = await migrationClient.query<MigrationTimestampRow[]>(
     `SELECT created_at AS createdAt
       FROM ${DRIZZLE_MIGRATIONS_TABLE}
-      WHERE created_at IN (?, ?)`,
+      WHERE created_at IN (${requiredCreatedAtPlaceholders})`,
     requiredCreatedAts,
   );
 
