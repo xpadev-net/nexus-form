@@ -2,6 +2,7 @@ import {
   getTextLengthViolations,
   isBlankResponseValue,
   isIsoCalendarDate,
+  normalizePatternMismatchMode,
   parseFiniteResponseNumber,
   type ResponseDataItem,
   textMatchesPattern,
@@ -27,6 +28,67 @@ function isSafeRegex(pattern: string): boolean {
   } catch {
     return false;
   }
+}
+
+type ShortTextCompatibleValidation = {
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  patternTemplate?: string;
+  patternMismatchMode?: "block" | "warn" | "hidden";
+  allowPatternMismatch?: boolean;
+};
+
+function validateTextLength(
+  value: string,
+  validation: ShortTextCompatibleValidation,
+  pushError: (message: string) => void,
+): void {
+  for (const violation of getTextLengthViolations(value, validation)) {
+    if (violation.code === "MIN_LENGTH") {
+      pushError(`Text must be at least ${violation.limit} character(s)`);
+    }
+    if (violation.code === "MAX_LENGTH") {
+      pushError(`Text must be at most ${violation.limit} character(s)`);
+    }
+  }
+}
+
+function validateBlockingPattern(
+  value: string,
+  validation: ShortTextCompatibleValidation,
+  questionId: string,
+  pushError: (message: string) => void,
+): void {
+  if (!validation.pattern) return;
+  if (normalizePatternMismatchMode(validation) !== "block") return;
+
+  try {
+    if (!isSafeRegex(validation.pattern)) {
+      logWarn(
+        `Skipping unsafe regex pattern for question ${questionId}: ${validation.pattern}`,
+        "validation",
+        { questionId },
+      );
+      return;
+    }
+    if (!textMatchesPattern(value, validation.pattern)) {
+      pushError("Value does not match the required pattern");
+    }
+  } catch {
+    // invalid regex in form config -- skip pattern check
+  }
+}
+
+function validateShortTextCompatibleValue(
+  value: string,
+  validation: ShortTextCompatibleValidation | undefined,
+  questionId: string,
+  pushError: (message: string) => void,
+): void {
+  if (!validation || isBlankResponseValue(value)) return;
+  validateTextLength(value, validation, pushError);
+  validateBlockingPattern(value, validation, questionId, pushError);
 }
 
 /**
@@ -153,6 +215,23 @@ export function validateResponseData(
             `Response ${i + 1}: Other value text is required when "other" is selected for question ${response.question_id}`,
           );
         }
+        if (
+          response.value === "other" &&
+          question?.validation?.allowOther !== false &&
+          typeof response.other_value === "string" &&
+          response.other_value.trim() !== ""
+        ) {
+          validateShortTextCompatibleValue(
+            response.other_value,
+            question?.validation?.otherTextValidation,
+            response.question_id,
+            (message) => {
+              errors.push(
+                `Response ${i + 1}: Other value ${message.toLowerCase()} for question ${response.question_id}`,
+              );
+            },
+          );
+        }
         break;
       case "checkbox":
         if (isRequired && (!response.values || response.values.length === 0)) {
@@ -204,6 +283,28 @@ export function validateResponseData(
           errors.push(
             `Response ${i + 1}: Other value text is required when "other" is selected for question ${response.question_id}`,
           );
+        }
+        if (
+          Array.isArray(response.values) &&
+          response.values.includes("other") &&
+          question?.validation?.allowOther !== false &&
+          Array.isArray(response.other_values)
+        ) {
+          for (const otherValue of response.other_values) {
+            if (typeof otherValue !== "string" || otherValue.trim() === "") {
+              continue;
+            }
+            validateShortTextCompatibleValue(
+              otherValue,
+              question?.validation?.otherTextValidation,
+              response.question_id,
+              (message) => {
+                errors.push(
+                  `Response ${i + 1}: Other value ${message.toLowerCase()} for question ${response.question_id}`,
+                );
+              },
+            );
+          }
         }
         break;
       case "linear_scale":
@@ -439,22 +540,11 @@ export function validateResponseData(
         typeof response.value === "string" &&
         !isBlankResponseValue(response.value)
       ) {
-        const violations = getTextLengthViolations(
-          response.value,
-          question.validation,
-        );
-        for (const violation of violations) {
-          if (violation.code === "MIN_LENGTH") {
-            errors.push(
-              `Response ${i + 1}: Text must be at least ${violation.limit} character(s) for question ${response.question_id}`,
-            );
-          }
-          if (violation.code === "MAX_LENGTH") {
-            errors.push(
-              `Response ${i + 1}: Text must be at most ${violation.limit} character(s) for question ${response.question_id}`,
-            );
-          }
-        }
+        validateTextLength(response.value, question.validation, (message) => {
+          errors.push(
+            `Response ${i + 1}: ${message} for question ${response.question_id}`,
+          );
+        });
       }
 
       // 数値範囲チェック (linear_scale / rating)
@@ -480,33 +570,22 @@ export function validateResponseData(
         }
       }
 
-      // 正規表現パターンチェック（allowPatternMismatch が true の場合はスキップ）
+      // 正規表現パターンチェック（block mode の場合のみ拒否）
       if (
         response.question_type === "short_text" &&
         typeof response.value === "string" &&
-        !isBlankResponseValue(response.value) &&
-        question.validation.pattern &&
-        !question.validation.allowPatternMismatch
+        !isBlankResponseValue(response.value)
       ) {
-        try {
-          if (!isSafeRegex(question.validation.pattern)) {
-            logWarn(
-              `Skipping unsafe regex pattern for question ${question.id}: ${question.validation.pattern}`,
-              "validation",
-              { questionId: question.id },
+        validateBlockingPattern(
+          response.value,
+          question.validation,
+          question.id,
+          (message) => {
+            errors.push(
+              `Response ${i + 1}: ${message} for question ${response.question_id}`,
             );
-          } else {
-            if (
-              !textMatchesPattern(response.value, question.validation.pattern)
-            ) {
-              errors.push(
-                `Response ${i + 1}: Value does not match the required pattern for question ${response.question_id}`,
-              );
-            }
-          }
-        } catch {
-          // invalid regex in form config — skip pattern check
-        }
+          },
+        );
       }
 
       // 日付範囲チェック

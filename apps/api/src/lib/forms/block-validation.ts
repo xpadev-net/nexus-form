@@ -6,6 +6,7 @@ import {
 
 // 選択肢型の質問タイプの定数
 const CHOICE_QUESTION_TYPES = ["radio", "checkbox", "dropdown"] as const;
+const PATTERN_MISMATCH_MODES = ["block", "warn", "hidden"] as const;
 
 // チェックボックスの最小選択肢数
 const MIN_CHECKBOX_OPTIONS_COUNT = 1;
@@ -26,6 +27,13 @@ interface ChoiceValidation {
 interface GridValidation {
   rows?: Array<{ id: string; label: string }>;
   columns?: Array<{ id: string; label: string }>;
+}
+
+interface PatternValidation {
+  patternMismatchMode?: unknown;
+  otherTextValidation?: {
+    patternMismatchMode?: unknown;
+  };
 }
 
 // グリッド型の質問タイプの定数
@@ -173,6 +181,26 @@ export const hasEmptyGridLabels = (block: Block): boolean => {
   return hasEmptyRow || hasEmptyCol;
 };
 
+function hasInvalidPatternMismatchModeValue(value: unknown): boolean {
+  return (
+    value !== undefined &&
+    !PATTERN_MISMATCH_MODES.includes(
+      value as (typeof PATTERN_MISMATCH_MODES)[number],
+    )
+  );
+}
+
+export const hasInvalidPatternMismatchMode = (block: Block): boolean => {
+  const validation = block.validation as PatternValidation | undefined;
+  if (!validation) return false;
+  return (
+    hasInvalidPatternMismatchModeValue(validation.patternMismatchMode) ||
+    hasInvalidPatternMismatchModeValue(
+      validation.otherTextValidation?.patternMismatchMode,
+    )
+  );
+};
+
 // ===== Block版のバリデーション関数（新規追加） =====
 
 // Blockのタイトルが空かどうかチェック
@@ -272,6 +300,13 @@ export const validateBlocks = (blocks: Block[]): FormValidationResult => {
     errors.push(
       "グリッドの行または列のラベルが空のブロックがあります。すべての行・列にラベルを入力してください。",
     );
+  }
+
+  const invalidPatternModeBlocks = activeBlocks.filter(
+    hasInvalidPatternMismatchMode,
+  );
+  if (invalidPatternModeBlocks.length > 0) {
+    errors.push("入力パターンの不一致時の動作が不正なブロックがあります。");
   }
 
   return {

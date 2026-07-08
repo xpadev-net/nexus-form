@@ -3,6 +3,8 @@ import {
   getTextLengthViolations,
   isBlankResponseValue,
   isBlockType,
+  normalizePatternMismatchMode,
+  type PatternMismatchMode,
   parseFiniteResponseNumber,
   textMatchesPattern,
 } from "@nexus-form/shared";
@@ -60,9 +62,77 @@ const createValidationError = (
   value,
 });
 
-function safelyTextMatchesPattern(value: string, pattern: string): boolean {
+type ShortTextCompatibleValidation = {
+  minLength?: number;
+  maxLength?: number;
+  pattern?: string;
+  patternTemplate?: string;
+  patternMismatchMode?: PatternMismatchMode;
+  allowPatternMismatch?: boolean;
+};
+
+function hasNestedQuantifier(pattern: string): boolean {
+  let inCharacterClass = false;
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    const previous = pattern[index - 1];
+    if (previous === "\\") continue;
+    if (char === "[") {
+      inCharacterClass = true;
+      continue;
+    }
+    if (char === "]") {
+      inCharacterClass = false;
+      continue;
+    }
+    if (inCharacterClass || char !== "(") continue;
+
+    let depth = 1;
+    let hasInnerQuantifier = false;
+    for (
+      let groupIndex = index + 1;
+      groupIndex < pattern.length;
+      groupIndex += 1
+    ) {
+      const groupChar = pattern[groupIndex];
+      const groupPrevious = pattern[groupIndex - 1];
+      if (groupChar === undefined) continue;
+      if (groupPrevious === "\\") continue;
+      if (groupChar === "[") {
+        inCharacterClass = true;
+        continue;
+      }
+      if (groupChar === "]") {
+        inCharacterClass = false;
+        continue;
+      }
+      if (inCharacterClass) continue;
+      if (["+", "*", "?"].includes(groupChar) || groupChar === "{") {
+        hasInnerQuantifier = true;
+      }
+      if (groupChar === "(") depth += 1;
+      if (groupChar !== ")") continue;
+      depth -= 1;
+      if (depth > 0) continue;
+      const nextChar = pattern[groupIndex + 1];
+      if (
+        hasInnerQuantifier &&
+        (nextChar === "+" ||
+          nextChar === "*" ||
+          nextChar === "?" ||
+          nextChar === "{")
+      ) {
+        return true;
+      }
+      break;
+    }
+  }
+  return false;
+}
+
+function isSafeRegexPattern(pattern: string): boolean {
   try {
-    return textMatchesPattern(value, pattern);
+    new RegExp(pattern);
   } catch (error) {
     logWarn(
       "Invalid short text validation regex; skipping pattern check",
@@ -72,8 +142,89 @@ function safelyTextMatchesPattern(value: string, pattern: string): boolean {
         error,
       },
     );
+    return false;
+  }
+  if (hasNestedQuantifier(pattern)) {
+    logWarn(
+      "Unsafe short text validation regex; skipping pattern check",
+      "form-validation",
+      { pattern },
+    );
+    return false;
+  }
+  return true;
+}
+
+function safelyTextMatchesPattern(value: string, pattern: string): boolean {
+  if (!isSafeRegexPattern(pattern)) {
     return true;
   }
+  return textMatchesPattern(value, pattern);
+}
+
+function getPatternMismatchMessage(
+  validation: ShortTextCompatibleValidation | undefined,
+): string {
+  if (!validation?.patternTemplate) {
+    return "入力形式が正しくありません";
+  }
+  return (
+    getPatternTemplate(validation.patternTemplate)?.errorMessage ??
+    "入力形式が正しくありません"
+  );
+}
+
+function validateShortTextCompatibleValue(
+  field: string,
+  value: string,
+  validation: ShortTextCompatibleValidation | undefined,
+): Pick<ValidationResult, "errors" | "warnings"> {
+  const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
+  if (!validation || isBlankResponseValue(value)) {
+    return { errors, warnings };
+  }
+
+  for (const violation of getTextLengthViolations(value, validation)) {
+    if (violation.code === "MIN_LENGTH") {
+      errors.push(
+        createValidationError(
+          field,
+          `${violation.limit}文字以上で入力してください`,
+          "MIN_LENGTH",
+          violation.length,
+        ),
+      );
+    }
+    if (violation.code === "MAX_LENGTH") {
+      errors.push(
+        createValidationError(
+          field,
+          `${violation.limit}文字以下で入力してください`,
+          "MAX_LENGTH",
+          violation.length,
+        ),
+      );
+    }
+  }
+
+  if (
+    validation.pattern &&
+    !safelyTextMatchesPattern(value, validation.pattern)
+  ) {
+    const patternMismatch = createValidationError(
+      field,
+      getPatternMismatchMessage(validation),
+      "PATTERN_MISMATCH",
+    );
+    if (normalizePatternMismatchMode(validation) === "warn") {
+      warnings.push(patternMismatch);
+    } else if (normalizePatternMismatchMode(validation) === "block") {
+      errors.push(patternMismatch);
+    }
+  }
+
+  return { errors, warnings };
 }
 
 // 型安全な型ガード関数
@@ -149,6 +300,7 @@ export const validateShortText = (
   response: Extract<QuestionResponseData, { question_type: "short_text" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
   const { validation } = question;
   const { value } = response;
   const shortTextValidation = isShortTextValidation(validation)
@@ -188,71 +340,32 @@ export const validateShortText = (
     return { is_valid: false, errors };
   }
 
-  for (const violation of getTextLengthViolations(
+  const textResult = validateShortTextCompatibleValue(
+    question.blockId,
     value,
-    shortTextValidation ?? {},
-  )) {
-    if (violation.code === "MIN_LENGTH") {
-      errors.push(
-        createValidationError(
-          question.blockId,
-          `${violation.limit}文字以上で入力してください`,
-          "MIN_LENGTH",
-          violation.length,
-        ),
-      );
-    }
-    if (violation.code === "MAX_LENGTH") {
-      errors.push(
-        createValidationError(
-          question.blockId,
-          `${violation.limit}文字以下で入力してください`,
-          "MAX_LENGTH",
-          violation.length,
-        ),
-      );
-    }
-  }
+    shortTextValidation,
+  );
+  errors.push(...textResult.errors);
+  warnings.push(...(textResult.warnings ?? []));
 
-  // パターンマッチングチェック
-  if (
-    shortTextValidation?.pattern &&
-    !shortTextValidation.allowPatternMismatch
-  ) {
-    if (!safelyTextMatchesPattern(value, shortTextValidation.pattern)) {
-      // テンプレートが設定されている場合は具体的なエラーメッセージを表示
-      let errorMessage = "入力形式が正しくありません";
-      if (template) {
-        errorMessage = template.errorMessage;
-      }
-
-      errors.push(
-        createValidationError(
-          question.blockId,
-          errorMessage,
-          "PATTERN_MISMATCH",
-        ),
-      );
-    }
-  }
-
-  if (
-    requiresEmailFormat &&
-    !shortTextValidation?.allowPatternMismatch &&
-    !isValidEmail(value)
-  ) {
-    errors.push(
-      createValidationError(
-        question.blockId,
-        template?.errorMessage ?? "有効なメールアドレスを入力してください",
-        "EMAIL_INVALID",
-      ),
+  if (requiresEmailFormat && !isValidEmail(value)) {
+    const emailInvalid = createValidationError(
+      question.blockId,
+      template?.errorMessage ?? "有効なメールアドレスを入力してください",
+      "EMAIL_INVALID",
     );
+    const mismatchMode = normalizePatternMismatchMode(shortTextValidation);
+    if (mismatchMode === "warn") {
+      warnings.push(emailInvalid);
+    } else if (mismatchMode === "block") {
+      errors.push(emailInvalid);
+    }
   }
 
   return {
     is_valid: errors.length === 0,
     errors,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 };
 
@@ -332,6 +445,7 @@ export const validateRadio = (
   response: Extract<QuestionResponseData, { question_type: "radio" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
   const { validation } = question;
   const { value, other_value } = response;
 
@@ -380,6 +494,14 @@ export const validateRadio = (
             "OTHER_VALUE_REQUIRED",
           ),
         );
+      } else {
+        const otherResult = validateShortTextCompatibleValue(
+          question.blockId,
+          other_value,
+          validation.otherTextValidation,
+        );
+        errors.push(...otherResult.errors);
+        warnings.push(...(otherResult.warnings ?? []));
       }
     }
   }
@@ -387,6 +509,7 @@ export const validateRadio = (
   return {
     is_valid: errors.length === 0,
     errors,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 };
 
@@ -396,6 +519,7 @@ export const validateCheckbox = (
   response: Extract<QuestionResponseData, { question_type: "checkbox" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
   const { validation } = question;
   const { values, other_values } = response;
 
@@ -462,7 +586,11 @@ export const validateCheckbox = (
 
     // その他の選択肢のチェック
     if (values.includes("other") && validation.allowOther) {
-      if (!other_values || other_values.length === 0) {
+      if (
+        !other_values ||
+        other_values.length === 0 ||
+        other_values.every((otherValue) => otherValue.trim() === "")
+      ) {
         errors.push(
           createValidationError(
             question.blockId,
@@ -470,6 +598,17 @@ export const validateCheckbox = (
             "OTHER_VALUES_REQUIRED",
           ),
         );
+      } else {
+        for (const otherValue of other_values) {
+          if (otherValue.trim() === "") continue;
+          const otherResult = validateShortTextCompatibleValue(
+            question.blockId,
+            otherValue,
+            validation.otherTextValidation,
+          );
+          errors.push(...otherResult.errors);
+          warnings.push(...(otherResult.warnings ?? []));
+        }
       }
     }
   }
@@ -477,6 +616,7 @@ export const validateCheckbox = (
   return {
     is_valid: errors.length === 0,
     errors,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 };
 
@@ -486,6 +626,7 @@ export const validateDropdown = (
   response: Extract<QuestionResponseData, { question_type: "dropdown" }>,
 ): ValidationResult => {
   const errors: ValidationError[] = [];
+  const warnings: ValidationError[] = [];
   const { validation } = question;
   const { value, other_value } = response;
 
@@ -534,6 +675,14 @@ export const validateDropdown = (
             "OTHER_VALUE_REQUIRED",
           ),
         );
+      } else {
+        const otherResult = validateShortTextCompatibleValue(
+          question.blockId,
+          other_value,
+          validation.otherTextValidation,
+        );
+        errors.push(...otherResult.errors);
+        warnings.push(...(otherResult.warnings ?? []));
       }
     }
   }
@@ -541,6 +690,7 @@ export const validateDropdown = (
   return {
     is_valid: errors.length === 0,
     errors,
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 };
 

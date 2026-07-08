@@ -317,6 +317,9 @@ export function FormBody({
   const [questionErrors, setQuestionErrors] = useState<
     QuestionValidationMessage[]
   >([]);
+  const [questionWarnings, setQuestionWarnings] = useState<
+    QuestionValidationMessage[]
+  >([]);
   const [touchedQuestionIds, setTouchedQuestionIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
@@ -430,15 +433,59 @@ export function FormBody({
     () => new Set(currentPageQuestionErrors.map((error) => error.questionId)),
     [currentPageQuestionErrors],
   );
-  const currentPageErrorMessagesByQuestionId = useMemo(
-    () =>
-      new Map(
-        currentPageQuestionErrors.map((error) => [
-          error.questionId,
-          `${error.title}: ${error.messages.join("、")}`,
-        ]),
-      ),
-    [currentPageQuestionErrors],
+  const currentPageQuestionWarnings = useMemo(() => {
+    const showPageWarnings = validationDisplayPageIndexes.has(
+      paging.currentPageIndex,
+    );
+    const pageQuestionIds = new Set(paging.currentPage.questionIds);
+    return questionWarnings.filter(
+      (warning) =>
+        pageQuestionIds.has(warning.questionId) &&
+        (showPageWarnings || touchedQuestionIds.has(warning.questionId)),
+    );
+  }, [
+    questionWarnings,
+    paging.currentPage.questionIds,
+    paging.currentPageIndex,
+    touchedQuestionIds,
+    validationDisplayPageIndexes,
+  ]);
+  const currentPageFeedbackMessagesByQuestionId = useMemo(() => {
+    const messages = new Map<string, string>();
+    for (const warning of currentPageQuestionWarnings) {
+      messages.set(
+        warning.questionId,
+        `${warning.title}: ${warning.messages.join("、")}`,
+      );
+    }
+    for (const error of currentPageQuestionErrors) {
+      messages.set(
+        error.questionId,
+        `${error.title}: ${error.messages.join("、")}`,
+      );
+    }
+    return messages;
+  }, [currentPageQuestionErrors, currentPageQuestionWarnings]);
+  const collectQuestionWarnings = useCallback(
+    (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
+      return questions.flatMap((question) => {
+        const result = validateExtractedQuestionAnswer(
+          question,
+          answers.get(question.blockId),
+        );
+        if (!result.warnings || result.warnings.length === 0) return [];
+        return [
+          {
+            questionId: question.blockId,
+            title: question.title || "無題の質問",
+            messages: uniqueMessages(
+              result.warnings.map((warning) => warning.message),
+            ),
+          },
+        ];
+      });
+    },
+    [answers],
   );
   const collectQuestionErrors = useCallback(
     (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
@@ -480,6 +527,26 @@ export function FormBody({
     [],
   );
 
+  const collectSingleQuestionWarning = useCallback(
+    (
+      question: ExtractedQuestion,
+      answer?: AnswerEntry,
+    ): QuestionValidationMessage[] => {
+      const result = validateExtractedQuestionAnswer(question, answer);
+      if (!result.warnings || result.warnings.length === 0) return [];
+      return [
+        {
+          questionId: question.blockId,
+          title: question.title || "無題の質問",
+          messages: uniqueMessages(
+            result.warnings.map((warning) => warning.message),
+          ),
+        },
+      ];
+    },
+    [],
+  );
+
   const updateSingleQuestionError = useCallback(
     (questionId: string, answer?: AnswerEntry) => {
       const question = questionById.get(questionId);
@@ -488,11 +555,23 @@ export function FormBody({
         question,
         answer ?? answers.get(questionId),
       );
+      const nextWarnings = collectSingleQuestionWarning(
+        question,
+        answer ?? answers.get(questionId),
+      );
       setQuestionErrors((currentErrors) =>
         replaceQuestionErrors(currentErrors, questionId, nextErrors),
       );
+      setQuestionWarnings((currentWarnings) =>
+        replaceQuestionErrors(currentWarnings, questionId, nextWarnings),
+      );
     },
-    [answers, collectSingleQuestionError, questionById],
+    [
+      answers,
+      collectSingleQuestionError,
+      collectSingleQuestionWarning,
+      questionById,
+    ],
   );
 
   const markQuestionTouched = useCallback(
@@ -602,6 +681,21 @@ export function FormBody({
 
   const validateCurrentPage = useCallback((): boolean => {
     const errors = collectQuestionErrors(currentPageQuestions);
+    const warnings = collectQuestionWarnings(currentPageQuestions);
+    setQuestionWarnings((currentWarnings) => {
+      const currentPageQuestionIds = new Set(
+        currentPageQuestions.map((question) => question.blockId),
+      );
+      const nextWarnings = [
+        ...currentWarnings.filter(
+          (warning) => !currentPageQuestionIds.has(warning.questionId),
+        ),
+        ...warnings,
+      ];
+      return questionValidationMessagesEqual(currentWarnings, nextWarnings)
+        ? currentWarnings
+        : nextWarnings;
+    });
     if (errors.length > 0) {
       showOnlyValidationDisplayPage(paging.currentPageIndex);
       return applyQuestionErrors(errors);
@@ -624,6 +718,7 @@ export function FormBody({
   }, [
     currentPageQuestions,
     collectQuestionErrors,
+    collectQuestionWarnings,
     applyQuestionErrors,
     showOnlyValidationDisplayPage,
     paging.currentPageIndex,
@@ -684,6 +779,12 @@ export function FormBody({
         paging.reachablePageIndexes,
       );
       const errors = collectQuestionErrors(reachableQuestions);
+      const warnings = collectQuestionWarnings(reachableQuestions);
+      setQuestionWarnings((currentWarnings) =>
+        questionValidationMessagesEqual(currentWarnings, warnings)
+          ? currentWarnings
+          : warnings,
+      );
       if (errors.length > 0) {
         const firstErrorQuestionId = errors[0]?.questionId;
         let displayPageIndex = paging.currentPageIndex;
@@ -720,6 +821,7 @@ export function FormBody({
     [
       pages,
       collectQuestionErrors,
+      collectQuestionWarnings,
       applyQuestionErrors,
       buildSubmitPayload,
       allQuestions,
@@ -809,7 +911,9 @@ export function FormBody({
             ref={viewerRef}
           >
             <FormQuestionA11yProvider
-              errorMessagesByQuestionId={currentPageErrorMessagesByQuestionId}
+              errorMessagesByQuestionId={
+                currentPageFeedbackMessagesByQuestionId
+              }
               invalidQuestionIds={currentPageInvalidQuestionIds}
               markQuestionTouched={markQuestionTouched}
               notifyQuestionAnswerChange={notifyQuestionAnswerChange}
