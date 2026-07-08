@@ -333,6 +333,21 @@ describe("question validators", () => {
     expect(result).toEqual({ is_valid: true, errors: [] });
   });
 
+  it("does not treat ? after an escaped literal parenthesis as a group modifier", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "(\\(?)+",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "((((((((((((((((((!" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
   it("keeps block validation active for safe optional group patterns", () => {
     const result = validateShortText(
       shortTextQuestion({

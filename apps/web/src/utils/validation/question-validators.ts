@@ -118,7 +118,9 @@ function hasNestedQuantifier(pattern: string): boolean {
       if (
         ["+", "*"].includes(groupChar) ||
         (groupChar === "{" && isOpenEndedQuantifier(pattern, groupIndex)) ||
-        (groupChar === "?" && groupPrevious !== "(")
+        (groupChar === "?" &&
+          (groupPrevious !== "(" ||
+            isEscapedRegexCharacter(pattern, groupIndex - 1)))
       ) {
         hasInnerQuantifier = true;
       }
