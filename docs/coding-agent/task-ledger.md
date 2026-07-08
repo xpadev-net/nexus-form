@@ -582,7 +582,7 @@
 - status: pending
 - branch: `codex/submit-transition-labels`
 - pending_worktree: `local:118a6fdc-cf66-406c-80af-92a5397c575c`
-- worker_thread: pending
+- worker_thread: `019f3f90-15fb-7e03-9d80-2ad6d7a18d22`
 - previous_worker_thread: `019f3f73-f7f8-7941-b4fb-12f4e6f3d98b` (archived after usage-limit/systemError)
 - previous_worktree: `/Users/xpadev/.codex/worktrees/d153/nexus-form`
 - previous_pr: `https://github.com/xpadev-net/nexus-form/pull/634`
@@ -606,6 +606,7 @@
   - Started as the narrowest draft-plan task with low conflict risk.
   - Worker must create and keep an explicit Codex goal before continuing implementation.
   - Previous 5.3-spark worker reached PR #634 at head `c7fc5ca89a329d4a57dc57d1fd0079052a2f7e71` with a clean worktree, then stopped before final handoff; replacement worker was launched with `gpt-5.5` and `medium` thinking to take over the same branch/PR.
+  - Replacement worker reported PR #634 at head `be4ef44880e613b6e2c26eafbb463119b4ca6db1`; parent reran `$deep-review`-guided diff inspection and the focused web test successfully, but `gh-review-hook 634` exited 2 for a scoped Greptile test-organization finding and branch-behind-base. Worker thread `019f3f90-15fb-7e03-9d80-2ad6d7a18d22` was instructed to keep the explicit goal, move the new `SectionTransitionEditor` tests into a dedicated describe/file, merge `origin/master` normally, rerun validation, push, and report back without merging.
 
 ## Activity Log
 
@@ -628,6 +629,7 @@
 - 2026-07-08: User clarified that implementation workers must be launched with `gpt-5.5` and `medium` thinking. Parent started a new PREFILL-3 replacement pending worktree `local:5ff914a6-d055-4057-ba2f-3ebf111a5b2c` on branch `codex/prefill-public-submit-reachability-retry-gpt55`; the model-unspecified pending worktree `local:e367d256-006c-4098-bf0f-32e198ba224b` is abandoned and should be archived if it resolves.
 - 2026-07-08: SUBMIT-4 worker thread `019f3f73-f7f8-7941-b4fb-12f4e6f3d98b` was found stopped with usage-limit/systemError after pushing branch `codex/submit-transition-labels` and opening draft PR #634. Old worktree `/Users/xpadev/.codex/worktrees/d153/nexus-form` was clean at `c7fc5ca89a329d4a57dc57d1fd0079052a2f7e71`; parent archived the stopped thread and launched replacement pending worktree `local:118a6fdc-cf66-406c-80af-92a5397c575c` with `gpt-5.5` and `medium` thinking to continue the same branch/PR.
 - 2026-07-08: PREFILL-3 worker thread `019f3f78-ce4c-7292-ad32-7f1156a23c1f` reported PR #635 blocked only on missing `gh-review-hook` in the worker PATH. Parent found `/Users/xpadev/go/bin/gh-review-hook`, merged `origin/master` into the PR branch normally, reran targeted API/Web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 635` successfully. Because repeated independent reviewer attempts failed due platform usage-limit routing, parent applied a tooling waiver after `$deep-review` found no blockers, then marked PR #635 ready and squash-merged it as `6b21352b6204f12da379852e5a648c51121c95a3`; worker thread was archived.
+- 2026-07-08: Resolved SUBMIT-4 replacement worker to thread `019f3f90-15fb-7e03-9d80-2ad6d7a18d22`. Parent inspected PR #634 at head `be4ef44880e613b6e2c26eafbb463119b4ca6db1`; all GitHub checks and external reviews were green, and the focused web test passed locally, but parent `gh-review-hook 634` exited 2 due the scoped Greptile test-organization finding plus branch-behind-base. Follow-up was sent to the worker to address both and report a new head without merging.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
