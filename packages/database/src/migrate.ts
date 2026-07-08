@@ -45,6 +45,13 @@ type MigrationTimestampRow = RowDataPacket & {
   createdAt: number | string | bigint;
 };
 
+type RequiredMigrationQueryClient = {
+  query<T extends RowDataPacket[]>(
+    sql: string,
+    values?: unknown[],
+  ): Promise<[T, unknown]>;
+};
+
 export type ConfigJsonMigrationCompatibilityState = {
   hasDrizzleMigrationsTable: boolean;
   hasLegacyConfigJsonColumn: boolean;
@@ -133,8 +140,8 @@ async function normalizeConfigJsonMigrationTimestamp(
   }
 }
 
-async function assertRequiredSecurityMigrationsAppliedWithPool(
-  migrationClient: Pool,
+export async function assertRequiredSecurityMigrationsAppliedWithPool(
+  migrationClient: RequiredMigrationQueryClient,
 ): Promise<void> {
   const hasDrizzleMigrationsTable =
     await readHasDrizzleMigrationsTable(migrationClient);
@@ -246,7 +253,7 @@ async function readConfigJsonMigrationCompatibilityState(
 }
 
 async function readHasDrizzleMigrationsTable(
-  migrationClient: Pool,
+  migrationClient: RequiredMigrationQueryClient,
 ): Promise<boolean> {
   const [rows] = await migrationClient.query<CountRow[]>(
     `SELECT COUNT(*) AS count
