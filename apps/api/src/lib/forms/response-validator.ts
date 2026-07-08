@@ -22,6 +22,10 @@ interface FormStructure {
   [key: string]: unknown;
 }
 
+type ReachabilityResponseItem = Pick<ResponseDataItem, "question_id"> &
+  Pick<ResponseDataItem, "question_type"> &
+  Partial<Pick<ResponseDataItem, "value" | "values" | "responses">>;
+
 function isSafeRegex(pattern: string): boolean {
   try {
     return safeRegex(pattern);
@@ -640,6 +644,48 @@ export function validateResponseData(
 
       // NOTE: "other" 回答の other_value/other_values テキスト必須チェックは
       // 第1ループの switch 内で実施済み (question メタデータ不要のため)。
+    }
+  }
+
+  return { isValid: errors.length === 0, errors };
+}
+
+export function buildResponseAnswerRecord(
+  responses: readonly ReachabilityResponseItem[],
+): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+
+  for (const response of responses) {
+    switch (response.question_type) {
+      case "checkbox":
+        record[response.question_id] = response.values;
+        break;
+      case "choice_grid":
+      case "checkbox_grid":
+        record[response.question_id] = response.responses;
+        break;
+      default:
+        record[response.question_id] = response.value;
+        break;
+    }
+  }
+
+  return record;
+}
+
+export function validateReachableResponseData(
+  responses: readonly Pick<ResponseDataItem, "question_id">[],
+  reachableQuestionIds: ReadonlySet<string>,
+): { isValid: boolean; errors: string[] } {
+  const errors: string[] = [];
+
+  for (let i = 0; i < responses.length; i++) {
+    const response = responses[i];
+    if (!response) continue;
+    if (!reachableQuestionIds.has(response.question_id)) {
+      errors.push(
+        `Response ${i + 1}: Question ${response.question_id} is not reachable`,
+      );
     }
   }
 
