@@ -39,7 +39,7 @@ interface LogicActionBuilderProps {
 const ACTION_TYPE_LABELS: Record<FormLogicAction["type"], string> = {
   jump_to_section: "セクションへ移動",
   next: "次へ進む",
-  submit: "送信する",
+  submit: "送信後セクションへ移動",
 };
 
 export function getCompletionTargetStatus(
