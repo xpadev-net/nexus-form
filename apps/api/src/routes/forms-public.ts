@@ -33,10 +33,15 @@ import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { validateShareLink } from "../lib/forms/permission-service";
 import {
   buildQuestionsFromPlateContentStrict,
+  buildReachableQuestionIdsFromPlateContentStrict,
   PlateQuestionBuildError,
 } from "../lib/forms/plate-question-builder";
 import { buildPublicFormStructure } from "../lib/forms/public-structure";
-import { validateResponseData } from "../lib/forms/response-validator";
+import {
+  buildResponseAnswerRecord,
+  validateReachableResponseData,
+  validateResponseData,
+} from "../lib/forms/response-validator";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
@@ -627,6 +632,17 @@ export const formsPublicRouter = createHonoApp()
       // 4. Answer validation against active snapshot's plateContent-derived questions.
       // Run before quota checks to reject malformed payloads cheaply.
       const publishedContent = activeSnapshot?.plateContent;
+      if (!publishedContent) {
+        logInvalidPublishedConfiguration(
+          "Published form is missing plateContent",
+          {
+            formId: target.id,
+            publicId,
+            operation: "POST /public/:publicId/submit",
+          },
+        );
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
       const questions = buildPublishedQuestions(publishedContent, {
         formId: target.id,
         publicId,
@@ -648,6 +664,26 @@ export const formsPublicRouter = createHonoApp()
           publicId,
           errors: answerValidation.errors,
         });
+        return c.json(errorResponse("Invalid response data"), 400);
+      }
+      const reachableQuestionIds =
+        buildReachableQuestionIdsFromPlateContentStrict(
+          publishedContent,
+          buildResponseAnswerRecord(payload.responses),
+        );
+      const reachabilityValidation = validateReachableResponseData(
+        payload.responses,
+        reachableQuestionIds,
+      );
+      if (!reachabilityValidation.isValid) {
+        logWarn(
+          "POST: response reachability validation failed",
+          "forms-public",
+          {
+            publicId,
+            errors: reachabilityValidation.errors,
+          },
+        );
         return c.json(errorResponse("Invalid response data"), 400);
       }
 
