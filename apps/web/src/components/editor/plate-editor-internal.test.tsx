@@ -380,7 +380,9 @@ describe("PlateEditorInternal", () => {
       root.unmount();
     });
   });
+});
 
+describe("SectionTransitionEditor", () => {
   it("shows submit transitions as post-submit section moves without renaming the saved action type", () => {
     const { container, root, setNodes } = renderSectionTransitionEditor();
     const actionTypeSelect = container.querySelector("select");
