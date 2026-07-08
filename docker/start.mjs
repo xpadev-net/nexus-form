@@ -104,11 +104,11 @@ const replaceEnvironment = async () => {
   }
 };
 
-const runNode = (args) => {
+const runNode = (args, env = process.env) => {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       stdio: "inherit",
-      env: process.env,
+      env,
     });
 
     const handleSignal = (signal) => {
@@ -139,6 +139,7 @@ const runNode = (args) => {
 };
 
 const ensureMigrationPath = "/migration/run-migrations.mjs";
+const migrationsDir = process.env.DRIZZLE_MIGRATIONS_DIR || "/migration/drizzle";
 const hasMigrationPath = async () => {
   try {
     await access(ensureMigrationPath);
@@ -153,7 +154,10 @@ const runStartupMigrations = async () => {
     return;
   }
 
-  const status = await runNode([ensureMigrationPath]);
+  const status = await runNode([ensureMigrationPath], {
+    ...process.env,
+    DRIZZLE_MIGRATIONS_DIR: migrationsDir,
+  });
   if (status !== 0) {
     throw new Error("Database migration step failed during startup");
   }
