@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-08: Return unmet merge gates to workers immediately
+
+- tags: orchestration, merge-gate, ci, review
+- symptom: Parent orchestrator waited for a PR's Greptile status to finish during merge gate instead of returning the unmet gate to the worker.
+- root cause: Treated pending CI/AI review as an acceptable parent-side wait state even after the worker had handed off merge-ready status.
+- fix: Interrupt parent-side long waits when any required merge gate remains incomplete and send the PR back to the worker with the exact unmet gate.
+- prevention: During orchestrator merge gate, if CI, AI review, review decision, base currency, conflict status, validation, or hook exit 0 is not currently satisfied, stop parent-side merging and require the worker to continue until the gate is satisfied or a concrete blocker is reported.
+
 ## 2026-07-06: Split requested plans as separate artifacts, not only waves
 
 - tags: planning, output-contract, assumptions
