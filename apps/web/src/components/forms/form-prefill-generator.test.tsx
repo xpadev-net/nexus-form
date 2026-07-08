@@ -320,6 +320,44 @@ describe("FormPrefillGenerator", () => {
     act(() => root.unmount());
   });
 
+  it("shows unreachable-only exclusions even when no URL is generated", () => {
+    const container = document.createElement("div");
+    const root = renderGenerator(container, prefillBranchFixturePlateContent());
+
+    const inputs = container.querySelectorAll<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    const vipInput = inputs.item(2);
+    if (vipInput === null) {
+      throw new Error("Expected the VIP prefill input to exist");
+    }
+
+    act(() => {
+      fireEvent.input(vipInput, { target: { value: "vip value" } });
+    });
+
+    const preview = container.querySelector(
+      '[data-testid="prefill-preview-filled-questions"]',
+    );
+    expect(preview?.textContent).toContain("反映される設問");
+    expect(preview?.textContent).toContain(
+      "現在、反映される設問はありません。",
+    );
+    expect(preview?.textContent).toContain("到達不能で除外される設問");
+    expect(preview?.textContent).toContain("VIP質問 (短文)");
+    expect(preview?.textContent).toContain(
+      "分岐条件で到達できないため除外されます。",
+    );
+    expect(container.querySelector<HTMLInputElement>("input[readonly]")).toBe(
+      null,
+    );
+    expect(
+      container.querySelector<HTMLAnchorElement>('a[target="_blank"]'),
+    ).toBeNull();
+
+    act(() => root.unmount());
+  });
+
   it("shows failed feedback on the clicked generated URL copy control", async () => {
     vi.useFakeTimers();
     mocks.writeText.mockRejectedValueOnce(new Error("denied"));

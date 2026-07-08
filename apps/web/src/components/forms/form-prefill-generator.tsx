@@ -270,6 +270,8 @@ export function FormPrefillGenerator({
     if (Object.keys(supportedReachablePrefillValues).length === 0) return "";
     return buildPrefillUrl(publicId, supportedReachablePrefillValues);
   }, [supportedReachablePrefillValues, publicId]);
+  const shouldShowPreviewDetails =
+    generatedUrl.length > 0 || unreachableQuestions.length > 0;
   const generatedUrlRef = useRef(generatedUrl);
   generatedUrlRef.current = generatedUrl;
 
@@ -348,43 +350,51 @@ export function FormPrefillGenerator({
 
       <PrefillSupportLegend />
 
-      {generatedUrl && (
+      {shouldShowPreviewDetails && (
         <div className="space-y-2" data-testid="prefill-url-preview">
-          <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
-            <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
-              readOnly
-              value={generatedUrl}
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <PrefillCopyButton
-              key={`preview:${generatedUrl}`}
-              copyText={generatedUrl}
-              onCopy={handleGeneratedUrlCopy}
-              variant="ghost"
-              size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
-              idleLabel="コピー"
-              iconClassName="mr-1 h-3 w-3"
-            />
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
-            >
-              <a href={generatedUrl} target="_blank" rel="noreferrer noopener">
-                <ExternalLink className="mr-1 h-3 w-3" />
-                別タブで確認
-              </a>
-            </Button>
-          </div>
-          {isUrlTooLong && (
-            <p className="flex items-center gap-1 text-xs text-amber-600">
-              <AlertTriangle className="h-3 w-3" />
-              URLが長いため、一部の環境で正しく開けない可能性があります
-            </p>
+          {generatedUrl && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
+                <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <input
+                  className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
+                  readOnly
+                  value={generatedUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <PrefillCopyButton
+                  key={`preview:${generatedUrl}`}
+                  copyText={generatedUrl}
+                  onCopy={handleGeneratedUrlCopy}
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-xs"
+                  idleLabel="コピー"
+                  iconClassName="mr-1 h-3 w-3"
+                />
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-xs"
+                >
+                  <a
+                    href={generatedUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    別タブで確認
+                  </a>
+                </Button>
+              </div>
+              {isUrlTooLong && (
+                <p className="flex items-center gap-1 text-xs text-amber-600">
+                  <AlertTriangle className="h-3 w-3" />
+                  URLが長いため、一部の環境で正しく開けない可能性があります
+                </p>
+              )}
+            </>
           )}
           <div
             className="grid gap-3 rounded-md border border-dashed bg-muted/20 p-2 text-xs sm:grid-cols-2"
