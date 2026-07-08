@@ -227,9 +227,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      - name: Run Playwright E2E tests
-        run: pnpm test:e2e:ci
-
       - name: Apply database migrations
         run: |
           set -euo pipefail
@@ -282,6 +279,9 @@ jobs:
           set -euo pipefail
           curl -fsS http://127.0.0.1:3001/api/healthz
           curl -fsS "$BASE_URL/" > /dev/null
+
+      - name: Run Playwright E2E tests
+        run: pnpm test:e2e:ci
 
       - name: Stop E2E servers
         if: always()

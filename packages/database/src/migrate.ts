@@ -17,6 +17,17 @@ export const REQUIRED_SECURITY_MIGRATION_TAGS = [
 ] as const;
 export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
 export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
+export const ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP = 1780203531326;
+const REQUIRED_SECURITY_MIGRATIONS = [
+  {
+    tag: "0012_config_json_column_type",
+    createdAt: CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+  },
+  {
+    tag: "0013_active_snapshot_structure_live_security_compat",
+    createdAt: ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+  },
+] as const;
 
 type RunMigrationsOptions = {
   migrationsFolder?: string;
@@ -32,10 +43,6 @@ type ColumnNameRow = RowDataPacket & {
 
 type MigrationTimestampRow = RowDataPacket & {
   createdAt: number | string | bigint;
-};
-
-type MigrationTagRow = RowDataPacket & {
-  tag: string;
 };
 
 export type ConfigJsonMigrationCompatibilityState = {
@@ -137,17 +144,20 @@ async function assertRequiredSecurityMigrationsAppliedWithPool(
     );
   }
 
-  const [rows] = await migrationClient.query<MigrationTagRow[]>(
-    `SELECT tag
+  const requiredCreatedAts = REQUIRED_SECURITY_MIGRATIONS.map(
+    (migration) => migration.createdAt,
+  );
+  const [rows] = await migrationClient.query<MigrationTimestampRow[]>(
+    `SELECT created_at AS createdAt
       FROM ${DRIZZLE_MIGRATIONS_TABLE}
-      WHERE tag IN (?, ?)`,
-    [...REQUIRED_SECURITY_MIGRATION_TAGS],
+      WHERE created_at IN (?, ?)`,
+    requiredCreatedAts,
   );
 
-  const appliedTags = new Set(rows.map((row) => row.tag));
-  const missing = REQUIRED_SECURITY_MIGRATION_TAGS.filter(
-    (tag) => !appliedTags.has(tag),
-  );
+  const appliedCreatedAts = new Set(rows.map((row) => Number(row.createdAt)));
+  const missing = REQUIRED_SECURITY_MIGRATIONS.filter(
+    (migration) => !appliedCreatedAts.has(migration.createdAt),
+  ).map((migration) => migration.tag);
   if (missing.length > 0) {
     throw new Error(
       `Required security migrations were not applied: ${missing.join(", ")}`,
@@ -157,17 +167,20 @@ async function assertRequiredSecurityMigrationsAppliedWithPool(
   const [timestampRows] = await migrationClient.query<MigrationTimestampRow[]>(
     `SELECT created_at AS createdAt
      FROM ${DRIZZLE_MIGRATIONS_TABLE}
-     WHERE tag = ?`,
-    ["0012_config_json_column_type"],
+     WHERE created_at IN (?, ?)`,
+    [
+      LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP,
+      CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+    ],
   );
-  const configJsonMigrationTimestamp = timestampRows[0]?.createdAt;
+  const configJsonMigrationTimestamps = new Set(
+    timestampRows.map((row) => Number(row.createdAt)),
+  );
   if (
-    configJsonMigrationTimestamp !== undefined &&
-    Number(configJsonMigrationTimestamp) !==
-      CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP
+    configJsonMigrationTimestamps.has(LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP)
   ) {
     throw new Error(
-      `0012 migration timestamp must be ${CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP} but found ${configJsonMigrationTimestamp}`,
+      `0012 migration timestamp must be ${CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP} but found ${LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP}`,
     );
   }
 }

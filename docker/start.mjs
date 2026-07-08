@@ -153,7 +153,7 @@ const runStartupMigrations = async () => {
     return;
   }
 
-  const status = await runNode([process.execPath, ensureMigrationPath]);
+  const status = await runNode([ensureMigrationPath]);
   if (status !== 0) {
     throw new Error("Database migration step failed during startup");
   }

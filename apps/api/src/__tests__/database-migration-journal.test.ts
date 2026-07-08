@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import {
+  ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
   CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
   REQUIRED_SECURITY_MIGRATION_TAGS,
   shouldNormalizeConfigJsonMigrationTimestamp,
@@ -126,6 +127,14 @@ describe("database migration journal", () => {
         expect(currentEntry.when).toBe(CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP);
       }
     }
+
+    const activeSnapshotStructure = findJournalEntryOrThrow(
+      journal,
+      "0013_active_snapshot_structure_live_security_compat",
+    );
+    expect(activeSnapshotStructure.when).toBe(
+      ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+    );
   });
 
   it("normalizes the legacy 0012 timestamp only after the configJson rename already ran", () => {
