@@ -132,6 +132,8 @@
 - notes:
   - Final integration validation passed on updated `master` after ORCH-3 merge.
 
+
+
 ## Activity Log
 
 - 2026-07-05: Ledger created. Initial safe parallel work selected: ORCH-1 and ORCH-4.
@@ -445,10 +447,13 @@
   - Completed after worker added the requested inline documentation for the intentional no-IP second burn pass and parent reran PR diff review, `$deep-review`, focused API/Web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 632`.
 
 ### PREFILL-2: Validate prefill generation against reachability
-- status: in progress
+- status: completed
 - branch: `codex/prefill-reachability-generator`
 - pending_worktree: `local:f55bf848-4faa-43d6-b303-6a73bf6293d4`
-- worker_thread: `019f3f73-f7ef-7032-80a2-ab8f616db38c`
+- worker_thread: `019f3f73-f7ef-7032-80a2-ab8f616db38c` (archived after merge)
+- pr: `https://github.com/xpadev-net/nexus-form/pull/637`
+- pr_head: `297fa161865641deb4fd15a364b08a74808e8a6e`
+- merge_commit: `afb8b061c200c13a8c894ef4ca114f5c427c39eb`
 - source_plan_task: `prefill-reachability-validation-plan.md` Task_2
 - scope:
   - `apps/web/src/lib/forms/prefill.ts`
@@ -477,6 +482,8 @@
   - Worker reported head `53fd5b711617e4ec738f0f3f34d166af552772da` after adding the generated URL input accessible name and regression coverage. Parent reran focused prefill tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent` successfully, then merged a ledger-only `origin/master` update normally to head `2d564e0b8ab23670f141cc0a602f1a9609ef97c9` and pushed after pre-push validation passed. Parent `gh-review-hook 637` remained unmet because `Greptile Review` stayed pending while all other checks were successful, so the hook wait was interrupted under the merge-gate policy and the worker was instructed to monitor/fix/re-report from the current head.
   - Worker confirmed PR #637 checks all passed at head `2d564e0b8ab23670f141cc0a602f1a9609ef97c9` without new Greptile findings. Parent rechecked PR state (`CLEAN`, approved, checks successful) and reran `$deep-review`-guided diff inspection, but parent `gh-review-hook 637` exited 2 because the PR was two commits behind `master`. Per merge-gate policy, the PR was returned to the worker to merge current `origin/master` normally, rerun validation/hook, and re-report.
   - Worker merged current `origin/master` normally and reported head `693fe0c04290998be14246cbbf672e355ec0b39b` with focused prefill tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, pre-push validation, and all PR checks passing. Parent rechecked the PR (`CLEAN`, approved, non-draft, checks successful) and reran `$deep-review`-guided inspection with no blocking findings, but parent `gh-review-hook 637` exited 2 because the PR was one commit behind `master`. Per merge-gate policy, the PR was returned to the worker to merge current `origin/master` normally, rerun required validation/hook, and re-report.
+  - Worker merged current `origin/master` normally and reported head `7e9004a740281cc6d3d1c4f891ca8c2d850f7f76` with focused prefill tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, pre-push validation, and all PR checks passing. Parent rechecked the PR (`CLEAN`, approved, non-draft, checks successful), but parent `gh-review-hook 637` exited 2 because the PR was one commit behind `master`. Per merge-gate policy, the PR was returned to the worker to merge current `origin/master` normally, rerun required validation/hook, and re-report.
+  - Completed after worker merged current `origin/master` normally and reported final head `297fa161865641deb4fd15a364b08a74808e8a6e`. Parent verified PR state (`CLEAN`, approved, non-draft, all checks successful), reran focused prefill tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 637` successfully, then squash-merged PR #637.
 
 ### PREFILL-3: Reject unreachable answers on public submit
 - status: completed
@@ -557,10 +564,13 @@
   - Worker reported head `d7006920bf3c872c0dc611ac8e8cb1755b20322f` after fixing the scoped regex/email/warning feedback findings with validation and `gh-review-hook 638` exit 0 from the worker. Parent inspected PR state and diff; GitHub checks, Greptile, CodeRabbit, and Socket were successful, but parent `gh-review-hook 638` exited 2 because the PR was one commit behind `master`. Per merge-gate policy, the PR was returned to the worker to merge `origin/master` normally, rerun validation/hook, and re-report.
 
 ### SEC-7: Harden CI, release workflow, startup migrations, and migration journal
-- status: in progress
+- status: completed
 - branch: `codex/sec-ci-release-migration-hardening`
 - pending_worktree: `local:8e955967-632f-4019-9d40-c06e831351ed`
-- worker_thread: `019f3f73-f806-7980-996d-8d963a664185`
+- worker_thread: `019f3f73-f806-7980-996d-8d963a664185` (archive after merge)
+- pr: `https://github.com/xpadev-net/nexus-form/pull/636`
+- pr_head: `7802046ddfacb9aca63ac83b7a96b2cb3e04ca7d`
+- merge_commit: `b10f6d668e8de199e58a446c3b7085aa5cfbe459`
 - source_plan_task: `security-findings-remediation-plan.md` Task_7
 - scope:
   - `package.json`
@@ -590,7 +600,9 @@
   - Independent infra/security slice for findings #6, #10, #21, and #22.
   - Worker must create and keep an explicit Codex goal before continuing implementation.
   - Initial worker stopped with `systemError` under GPT-5.3-Codex-Spark before meaningful local changes. Parent resumed the same thread/worktree with `gpt-5.5` and `medium` thinking.
+  - Active branch work is scoped to security finding #6, #10, #21, and #22 fixes.
   - Worker reported head `8e3d39cfe0400bbd249e083553957cc19245aa8d` with validation, independent review, and `gh-review-hook 636` exit 0 from the worker. Parent checked PR state before starting deep merge gate and found PR #636 still draft (`isDraft=true`), `reviewDecision` empty, and `mergeStateStatus` UNKNOWN. Per merge-gate policy, the PR was returned to the worker to make it ready for review only when appropriate, merge `origin/master` normally if needed, rerun validation/hook, and re-report.
+  - Completed after worker reported final head `7802046ddfacb9aca63ac83b7a96b2cb3e04ca7d` with PR #636 ready, approved, `CLEAN`, and all checks successful. Parent reran `$deep-review`-guided diff inspection, `gh-review-hook 636`, focused migration tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #636.
 
 ### SUBMIT-4: Rename submit-transition action labels
 - status: completed
@@ -658,6 +670,8 @@
 - 2026-07-08: PATTERN-2 worker reported merge-ready at head `d7006920bf3c872c0dc611ac8e8cb1755b20322f`. Parent inspected PR #638 and reran `gh-review-hook 638`; all CI/AI checks were successful, but the hook exited 2 because the PR was one commit behind `master`, so parent returned the PR to the worker for a normal `origin/master` merge, validation/hook rerun, and fresh merge-ready report.
 - 2026-07-08: SEC-7 worker reported merge-ready at head `8e3d39cfe0400bbd249e083553957cc19245aa8d`. Parent checked PR #636 before deep merge gate and found it still draft with empty review decision and unknown merge state, so parent returned the PR to the worker to ready the PR only when appropriate, update from `origin/master` if needed, rerun validation/hook, and re-report.
 - 2026-07-08: PREFILL-2 worker confirmed PR #637 checks all passed at head `2d564e0b8ab23670f141cc0a602f1a9609ef97c9` with no new Greptile findings. Parent rechecked PR state and reran `$deep-review`-guided diff inspection; parent `gh-review-hook 637` exited 2 because the PR was two commits behind `master`, so parent returned it to the worker for a normal `origin/master` merge, validation/hook rerun, and fresh merge-ready report.
+- 2026-07-08: PREFILL-2 worker reported final head `297fa161865641deb4fd15a364b08a74808e8a6e` after a normal `origin/master` merge. Parent verified PR #637 was `CLEAN`, approved, non-draft, and all checks were successful; reran focused prefill tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 637` successfully; then squash-merged PR #637 as merge commit `afb8b061c200c13a8c894ef4ca114f5c427c39eb`.
+- 2026-07-08: SEC-7 worker reported final head `7802046ddfacb9aca63ac83b7a96b2cb3e04ca7d` after PR #636 became ready, approved, `CLEAN`, and all checks were successful. Parent reran `$deep-review`-guided diff inspection, `gh-review-hook 636`, focused migration tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`; then squash-merged PR #636 as merge commit `b10f6d668e8de199e58a446c3b7085aa5cfbe459`.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.

@@ -66,6 +66,8 @@ vi.mock("../load-env", () => ({}));
 
 vi.mock("@nexus-form/database", () => ({
   db: mocks.db,
+  assertRequiredSecurityMigrationsApplied: vi.fn().mockResolvedValue(undefined),
+  runMigrations: vi.fn(),
 }));
 
 vi.mock("@nexus-form/database/schema", () => mocks.schema);

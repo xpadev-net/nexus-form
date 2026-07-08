@@ -1,7 +1,11 @@
 import "./load-env";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { closeDatabase, db } from "@nexus-form/database";
+import {
+  assertRequiredSecurityMigrationsApplied,
+  closeDatabase,
+  db,
+} from "@nexus-form/database";
 import {
   BUILTIN_VALIDATION_PLUGIN_SPECIFIERS,
   getValidationPluginsDir,
@@ -178,6 +182,7 @@ export type AppType = typeof app;
 async function startServer() {
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
+  await assertRequiredSecurityMigrationsApplied();
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
     (specifier) => {

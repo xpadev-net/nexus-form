@@ -1,6 +1,7 @@
 import {
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import {
   AlertTriangle,
@@ -47,11 +48,13 @@ import {
 } from "@/hooks/use-copy-feedback";
 import {
   encodePrefillData,
-  filterPrefillDataForSupportedQuestions,
+  filterPrefillDataForReachableQuestionIds,
   getPrefilledQuestions,
   getPrefillQuestionTypeInfo,
   getPrefillQuestionTypeLabel,
+  getReachableQuestionIdsFromPrefillValues,
   isEntryEmpty,
+  isPrefillSupportedQuestionType,
   PREFILL_SUPPORTED_QUESTION_TYPES,
   PREFILL_UNSUPPORTED_QUESTION_TYPES,
   type PrefillData,
@@ -169,17 +172,89 @@ export function FormPrefillGenerator({
 }: FormPrefillGeneratorProps) {
   const [prefillValues, setPrefillValues] = useState<PrefillData>({});
 
-  const questions = useMemo(() => {
+  const parsedPlateContent = useMemo(() => {
     try {
       const parsed: unknown = JSON.parse(plateContent);
       if (!Array.isArray(parsed)) return [];
-      return extractQuestionsFromPlateContent(parsed).filter(
+      return parsed;
+    } catch {
+      return [];
+    }
+  }, [plateContent]);
+
+  const questions = useMemo(() => {
+    try {
+      return extractQuestionsFromPlateContent(parsedPlateContent).filter(
         (q) => q.type !== "section_separator",
       );
     } catch {
       return [];
     }
-  }, [plateContent]);
+  }, [parsedPlateContent]);
+
+  const pages = useMemo(() => {
+    if (parsedPlateContent.length === 0) return [];
+    try {
+      return splitPlateContentIntoPages(parsedPlateContent);
+    } catch {
+      return [];
+    }
+  }, [parsedPlateContent]);
+
+  const reachableQuestionIds = useMemo(() => {
+    return new Set(
+      getReachableQuestionIdsFromPrefillValues(pages, prefillValues),
+    );
+  }, [pages, prefillValues]);
+
+  const supportedReachablePrefillValues = useMemo(
+    () =>
+      filterPrefillDataForReachableQuestionIds(
+        questions,
+        reachableQuestionIds,
+        prefillValues,
+      ),
+    [questions, prefillValues, reachableQuestionIds],
+  );
+  const prefilledQuestions = useMemo(
+    () => getPrefilledQuestions(questions, supportedReachablePrefillValues),
+    [questions, supportedReachablePrefillValues],
+  );
+  const unsupportedQuestions = useMemo(
+    () =>
+      questions.filter(
+        (question) => !isPrefillSupportedQuestionType(question.type),
+      ),
+    [questions],
+  );
+  const unreachableQuestions = useMemo(
+    () =>
+      questions.filter((question) => {
+        if (!isPrefillSupportedQuestionType(question.type)) {
+          return false;
+        }
+        const entry = prefillValues[question.blockId];
+        if (entry === undefined || isEntryEmpty(entry)) {
+          return false;
+        }
+        return !reachableQuestionIds.has(question.blockId);
+      }),
+    [questions, prefillValues, reachableQuestionIds],
+  );
+  const emptyQuestions = useMemo(
+    () =>
+      questions.filter((question) => {
+        if (!isPrefillSupportedQuestionType(question.type)) {
+          return false;
+        }
+        if (reachableQuestionIds.has(question.blockId) === false) {
+          return false;
+        }
+        const entry = prefillValues[question.blockId];
+        return entry === undefined || isEntryEmpty(entry);
+      }),
+    [questions, prefillValues, reachableQuestionIds],
+  );
 
   const setValue = useCallback((blockId: string, entry: AnswerEntry) => {
     setPrefillValues((prev) => {
@@ -196,27 +271,15 @@ export function FormPrefillGenerator({
     setPrefillValues({});
   }, []);
 
-  const supportedPrefillValues = useMemo(
-    () => filterPrefillDataForSupportedQuestions(questions, prefillValues),
-    [questions, prefillValues],
-  );
-  const prefilledQuestions = useMemo(
-    () => getPrefilledQuestions(questions, supportedPrefillValues),
-    [questions, supportedPrefillValues],
-  );
-  const notPrefilledQuestions = useMemo(
-    () =>
-      questions.filter(
-        (question) => supportedPrefillValues[question.blockId] === undefined,
-      ),
-    [questions, supportedPrefillValues],
-  );
-  const hasPrefillValues = Object.keys(supportedPrefillValues).length > 0;
+  const hasPrefillValues =
+    Object.keys(supportedReachablePrefillValues).length > 0;
 
   const generatedUrl = useMemo(() => {
-    if (Object.keys(supportedPrefillValues).length === 0) return "";
-    return buildPrefillUrl(publicId, supportedPrefillValues);
-  }, [supportedPrefillValues, publicId]);
+    if (Object.keys(supportedReachablePrefillValues).length === 0) return "";
+    return buildPrefillUrl(publicId, supportedReachablePrefillValues);
+  }, [supportedReachablePrefillValues, publicId]);
+  const shouldShowPreviewDetails =
+    generatedUrl.length > 0 || unreachableQuestions.length > 0;
   const generatedUrlRef = useRef(generatedUrl);
   generatedUrlRef.current = generatedUrl;
 
@@ -295,43 +358,52 @@ export function FormPrefillGenerator({
 
       <PrefillSupportLegend />
 
-      {generatedUrl && (
+      {shouldShowPreviewDetails && (
         <div className="space-y-2" data-testid="prefill-url-preview">
-          <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
-            <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
-              readOnly
-              value={generatedUrl}
-              onFocus={(e) => e.currentTarget.select()}
-            />
-            <PrefillCopyButton
-              key={`preview:${generatedUrl}`}
-              copyText={generatedUrl}
-              onCopy={handleGeneratedUrlCopy}
-              variant="ghost"
-              size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
-              idleLabel="コピー"
-              iconClassName="mr-1 h-3 w-3"
-            />
-            <Button
-              asChild
-              variant="ghost"
-              size="sm"
-              className="h-6 shrink-0 px-2 text-xs"
-            >
-              <a href={generatedUrl} target="_blank" rel="noreferrer noopener">
-                <ExternalLink className="mr-1 h-3 w-3" />
-                別タブで確認
-              </a>
-            </Button>
-          </div>
-          {isUrlTooLong && (
-            <p className="flex items-center gap-1 text-xs text-amber-600">
-              <AlertTriangle className="h-3 w-3" />
-              URLが長いため、一部の環境で正しく開けない可能性があります
-            </p>
+          {generatedUrl && (
+            <>
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
+                <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <input
+                  aria-label="生成されたプリフィルURL"
+                  className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
+                  readOnly
+                  value={generatedUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <PrefillCopyButton
+                  key={`preview:${generatedUrl}`}
+                  copyText={generatedUrl}
+                  onCopy={handleGeneratedUrlCopy}
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-xs"
+                  idleLabel="コピー"
+                  iconClassName="mr-1 h-3 w-3"
+                />
+                <Button
+                  asChild
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 shrink-0 px-2 text-xs"
+                >
+                  <a
+                    href={generatedUrl}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    <ExternalLink className="mr-1 h-3 w-3" />
+                    別タブで確認
+                  </a>
+                </Button>
+              </div>
+              {isUrlTooLong && (
+                <p className="flex items-center gap-1 text-xs text-amber-600">
+                  <AlertTriangle className="h-3 w-3" />
+                  URLが長いため、一部の環境で正しく開けない可能性があります
+                </p>
+              )}
+            </>
           )}
           <div
             className="grid gap-3 rounded-md border border-dashed bg-muted/20 p-2 text-xs sm:grid-cols-2"
@@ -339,37 +411,79 @@ export function FormPrefillGenerator({
           >
             <div>
               <p className="font-medium text-foreground">反映される設問</p>
-              <ul className="mt-1 space-y-1 text-muted-foreground">
-                {prefilledQuestions.map((question) => (
-                  <li key={question.blockId}>
-                    {question.title || "無題の質問"} (
-                    {getPrefillQuestionTypeLabel(question.type)})
-                  </li>
-                ))}
-              </ul>
+              {prefilledQuestions.length > 0 ? (
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {prefilledQuestions.map((question) => (
+                    <li key={question.blockId}>
+                      {question.title || "無題の質問"} (
+                      {getPrefillQuestionTypeLabel(question.type)})
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-muted-foreground">
+                  現在、反映される設問はありません。
+                </p>
+              )}
             </div>
             <div>
-              <p className="font-medium text-foreground">反映されない設問</p>
-              {notPrefilledQuestions.length > 0 ? (
+              <p className="font-medium text-foreground">
+                到達不能で除外される設問
+              </p>
+              {unreachableQuestions.length > 0 ? (
                 <ul className="mt-1 space-y-1 text-muted-foreground">
-                  {notPrefilledQuestions.map((question) => {
+                  {unreachableQuestions.map((question) => (
+                    <li key={question.blockId}>
+                      {question.title || "無題の質問"} (
+                      {getPrefillQuestionTypeLabel(question.type)})
+                      <span className="block">
+                        分岐条件で到達できないため除外されます。
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-muted-foreground">なし</p>
+              )}
+            </div>
+            <div>
+              <p className="font-medium text-foreground">未入力設問</p>
+              {emptyQuestions.length > 0 ? (
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {emptyQuestions.map((question) => {
                     const typeInfo = getPrefillQuestionTypeInfo(question.type);
                     return (
                       <li key={question.blockId}>
                         {question.title || "無題の質問"} ({typeInfo.label})
                         <span className="block">
-                          {typeInfo.supported
-                            ? "初期値が入力されていません。"
-                            : "未対応のためURLに含まれません。"}
+                          初期値が入力されていません。
                         </span>
                       </li>
                     );
                   })}
                 </ul>
               ) : (
-                <p className="mt-1 text-muted-foreground">
-                  すべての設問に初期値が入ります。
-                </p>
+                <p className="mt-1 text-muted-foreground">なし</p>
+              )}
+            </div>
+            <div>
+              <p className="font-medium text-foreground">未対応設問</p>
+              {unsupportedQuestions.length > 0 ? (
+                <ul className="mt-1 space-y-1 text-muted-foreground">
+                  {unsupportedQuestions.map((question) => {
+                    const typeInfo = getPrefillQuestionTypeInfo(question.type);
+                    return (
+                      <li key={question.blockId}>
+                        {question.title || "無題の質問"} ({typeInfo.label})
+                        <span className="block">
+                          未対応のためURLに含まれません。
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="mt-1 text-muted-foreground">なし</p>
               )}
             </div>
           </div>
