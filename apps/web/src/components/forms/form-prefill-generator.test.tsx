@@ -227,6 +227,9 @@ describe("FormPrefillGenerator", () => {
 
     const generatedUrlInput =
       container.querySelector<HTMLInputElement>("input[readonly]");
+    expect(generatedUrlInput?.getAttribute("aria-label")).toBe(
+      "生成されたプリフィルURL",
+    );
     const generatedUrl = generatedUrlInput?.value;
     expect(generatedUrl).toBeDefined();
     expect(generatedUrl).toContain(

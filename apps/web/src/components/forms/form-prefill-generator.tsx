@@ -365,6 +365,7 @@ export function FormPrefillGenerator({
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2 transition-colors">
                 <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <input
+                  aria-label="生成されたプリフィルURL"
                   className="min-w-0 flex-1 basis-48 bg-transparent text-xs"
                   readOnly
                   value={generatedUrl}
