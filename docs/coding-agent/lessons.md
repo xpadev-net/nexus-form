@@ -55,3 +55,11 @@
 - root cause: The parent reused the default create-thread path after restarting a broken worker instead of applying the desired implementation-worker model default.
 - fix: Start implementation worker threads with `model: gpt-5.5` and `thinking: medium`; if a model-unspecified replacement was just queued, supersede it and mark it abandoned in the ledger.
 - prevention: Before creating any implementation worker, check the create-thread call includes `model: gpt-5.5` and `thinking: medium`. Non-implementation orchestration/status work can continue without this default unless explicitly requested.
+
+## 2026-07-08: Run independent reviewer subagents as default GPT-5.5 when role routing misfires
+
+- tags: review-gate, subagent, model-selection, validation
+- symptom: A worker stopped with the independent reviewer gate unmet after harness_reviewer subagents errored through GPT-5.3-Codex-Spark usage limits, even when a GPT-5.5 override was attempted.
+- root cause: Treated the role-specific reviewer failure as a hard blocker instead of retrying with a default subagent explicitly pinned to GPT-5.5.
+- fix: Retry independent PR review with a default subagent using model `gpt-5.5` and a narrow review-only prompt.
+- prevention: Before reporting an independent-review gate blocked by model routing or usage limits, attempt a default GPT-5.5 reviewer subagent and record the result.

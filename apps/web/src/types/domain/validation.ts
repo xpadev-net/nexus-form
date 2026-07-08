@@ -12,6 +12,7 @@ export interface ValidationError {
 export interface ValidationResult {
   is_valid: boolean;
   errors: ValidationError[];
+  warnings?: ValidationError[];
 }
 
 /** External service validation result */

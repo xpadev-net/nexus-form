@@ -4,6 +4,9 @@ import {
   fromPlateQuestionType,
   isCompletionTargetPage,
   isPlateQuestionType,
+  normalizePatternMismatchMode,
+  PatternMismatchMode,
+  type PatternMismatchMode as PatternMismatchModeValue,
   splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
@@ -454,6 +457,7 @@ export function ShortTextPatternEditor() {
     | {
         patternTemplate?: string;
         pattern?: string;
+        patternMismatchMode?: PatternMismatchModeValue;
         allowPatternMismatch?: boolean;
         placeholder?: string;
       }
@@ -462,7 +466,7 @@ export function ShortTextPatternEditor() {
   const NONE_SENTINEL = "__none__";
   const templateId = validation?.patternTemplate || NONE_SENTINEL;
   const isCustom = templateId === CUSTOM_TEMPLATE_ID;
-  const mismatchId = `allow-pattern-mismatch-${element.id}`;
+  const mismatchMode = normalizePatternMismatchMode(validation);
 
   const patternError = useMemo(() => {
     if (!isCustom || !validation?.pattern) {
@@ -482,6 +486,7 @@ export function ShortTextPatternEditor() {
       update({
         patternTemplate: undefined,
         pattern: undefined,
+        patternMismatchMode: undefined,
         allowPatternMismatch: undefined,
         placeholder: undefined,
         minLength: undefined,
@@ -499,6 +504,7 @@ export function ShortTextPatternEditor() {
       placeholder: template?.placeholder ?? "",
       minLength: template?.minLength,
       maxLength: template?.maxLength,
+      patternMismatchMode: "block",
       allowPatternMismatch: undefined,
     });
   };
@@ -548,21 +554,27 @@ export function ShortTextPatternEditor() {
               className="h-8 text-sm"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Switch
-              size="sm"
-              id={mismatchId}
-              checked={validation?.allowPatternMismatch ?? false}
-              onCheckedChange={(checked) =>
-                update({ allowPatternMismatch: checked === true })
-              }
-            />
-            <Label
-              htmlFor={mismatchId}
-              className="text-xs font-normal"
+          <div className="space-y-1">
+            <Label className="text-xs">パターン不一致時の動作</Label>
+            <Select
+              value={mismatchMode}
+              onValueChange={(mode) => {
+                const patternMismatchMode = PatternMismatchMode.parse(mode);
+                update({
+                  patternMismatchMode,
+                  allowPatternMismatch: patternMismatchMode === "hidden",
+                });
+              }}
             >
-              パターン不一致を許可（警告のみ）
-            </Label>
+              <SelectTrigger className="h-8 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="block">送信をブロック</SelectItem>
+                <SelectItem value="warn">警告して許可</SelectItem>
+                <SelectItem value="hidden">表示せず許可</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </>
       )}

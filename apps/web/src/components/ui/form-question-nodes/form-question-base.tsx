@@ -134,17 +134,25 @@ export function getFormQuestionErrorId(blockId: string): string {
 interface FormQuestionA11yState {
   invalidQuestionIds: ReadonlySet<string>;
   errorMessagesByQuestionId: ReadonlyMap<string, string>;
+  warningMessagesByQuestionId: ReadonlyMap<string, string>;
   markQuestionTouched: (questionId: string, answer?: AnswerEntry) => void;
   notifyQuestionAnswerChange: (questionId: string, answer: AnswerEntry) => void;
 }
 
 const emptyInvalidQuestionIds = new Set<string>();
 const emptyErrorMessagesByQuestionId = new Map<string, string>();
+const emptyWarningMessagesByQuestionId = new Map<string, string>();
 const noopQuestionFeedback = () => {};
+
+type FormQuestionFeedbackMessage = {
+  kind: "error" | "warning";
+  message: string;
+};
 
 const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
   invalidQuestionIds: emptyInvalidQuestionIds,
   errorMessagesByQuestionId: emptyErrorMessagesByQuestionId,
+  warningMessagesByQuestionId: emptyWarningMessagesByQuestionId,
   markQuestionTouched: noopQuestionFeedback,
   notifyQuestionAnswerChange: noopQuestionFeedback,
 });
@@ -152,12 +160,14 @@ const FormQuestionA11yContext = createContext<FormQuestionA11yState>({
 export function FormQuestionA11yProvider({
   children,
   errorMessagesByQuestionId = emptyErrorMessagesByQuestionId,
+  warningMessagesByQuestionId = emptyWarningMessagesByQuestionId,
   invalidQuestionIds,
   markQuestionTouched = noopQuestionFeedback,
   notifyQuestionAnswerChange = noopQuestionFeedback,
 }: {
   children: ReactNode;
   errorMessagesByQuestionId?: ReadonlyMap<string, string>;
+  warningMessagesByQuestionId?: ReadonlyMap<string, string>;
   invalidQuestionIds: ReadonlySet<string>;
   markQuestionTouched?: (questionId: string, answer?: AnswerEntry) => void;
   notifyQuestionAnswerChange?: (questionId: string, answer: AnswerEntry) => void;
@@ -166,6 +176,7 @@ export function FormQuestionA11yProvider({
     <FormQuestionA11yContext.Provider
       value={{
         errorMessagesByQuestionId,
+        warningMessagesByQuestionId,
         invalidQuestionIds,
         markQuestionTouched,
         notifyQuestionAnswerChange,
@@ -180,14 +191,35 @@ export function useFormQuestionErrorA11y(blockId: string): {
   "aria-describedby"?: string;
   "aria-invalid"?: true;
 } {
-  const { invalidQuestionIds } = use(FormQuestionA11yContext);
-  if (!invalidQuestionIds.has(blockId)) {
+  const { invalidQuestionIds, warningMessagesByQuestionId } = use(
+    FormQuestionA11yContext,
+  );
+  if (invalidQuestionIds.has(blockId)) {
+    return {
+      "aria-describedby": getFormQuestionErrorId(blockId),
+      "aria-invalid": true,
+    };
+  }
+  if (!warningMessagesByQuestionId.has(blockId)) {
     return {};
   }
   return {
     "aria-describedby": getFormQuestionErrorId(blockId),
-    "aria-invalid": true,
   };
+}
+
+function useFormQuestionFeedbackMessage(
+  blockId: string | undefined,
+): FormQuestionFeedbackMessage | undefined {
+  const { errorMessagesByQuestionId, warningMessagesByQuestionId } = use(
+    FormQuestionA11yContext,
+  );
+  if (!blockId) return undefined;
+  const errorMessage = errorMessagesByQuestionId.get(blockId);
+  if (errorMessage) return { kind: "error", message: errorMessage };
+  const warningMessage = warningMessagesByQuestionId.get(blockId);
+  if (warningMessage) return { kind: "warning", message: warningMessage };
+  return undefined;
 }
 
 export function useFormQuestionErrorMessage(
@@ -217,16 +249,26 @@ export function FormQuestionErrorMessage({
 }: {
   questionId: string | undefined;
 }) {
-  const errorMessage = useFormQuestionErrorMessage(questionId);
-  if (!questionId || !errorMessage) return null;
+  const feedbackMessage = useFormQuestionFeedbackMessage(questionId);
+  if (!questionId || !feedbackMessage) return null;
   return (
     <p
-      className="mt-2 text-sm text-destructive outline-none"
-      data-question-error-for={questionId}
+      className={cn(
+        "mt-2 text-sm outline-none",
+        feedbackMessage.kind === "error"
+          ? "text-destructive"
+          : "text-amber-700 dark:text-amber-400",
+      )}
+      data-question-error-for={
+        feedbackMessage.kind === "error" ? questionId : undefined
+      }
+      data-question-warning-for={
+        feedbackMessage.kind === "warning" ? questionId : undefined
+      }
       id={getFormQuestionErrorId(questionId)}
       tabIndex={-1}
     >
-      {errorMessage}
+      {feedbackMessage.message}
     </p>
   );
 }
@@ -258,7 +300,7 @@ export const FormQuestionElement = withRef<
       typeof element.blockId === "string" ? element.blockId : undefined;
     const titleId = blockId ? getQuestionLabelId(blockId) : undefined;
     const titleText = getQuestionAccessibleName(element);
-    const errorMessage = useFormQuestionErrorMessage(blockId);
+    const feedbackMessage = useFormQuestionFeedbackMessage(blockId);
 
     return (
       <PlateElement
@@ -312,7 +354,7 @@ export const FormQuestionElement = withRef<
             {editorControls}
           </div>
         )}
-        {readOnly && (viewerControls || errorMessage) && (
+        {readOnly && (viewerControls || feedbackMessage) && (
           <div
             className={cn("mt-3", viewerControls && "border-t pt-3")}
             contentEditable={false}

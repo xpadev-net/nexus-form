@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { Block } from "@/types/domain/form-block";
 import {
   type AnswerLike,
+  validateCheckbox,
   validateDate,
+  validateDropdown,
   validateExtractedQuestionAnswer,
+  validateRadio,
   validateShortText,
   validateTime,
 } from "./question-validators";
@@ -72,6 +75,69 @@ function timeQuestion(
   };
 }
 
+function radioQuestion(
+  validation: Extract<Block, { type: "radio" }>["validation"],
+): Extract<Block, { type: "radio" }> {
+  return {
+    id: "block-row-4",
+    formId: "form-1",
+    blockId: "q4",
+    type: "radio",
+    category: "question",
+    order: 3,
+    version: 1,
+    isDeleted: false,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    createdBy: "user-1",
+    updatedBy: "user-1",
+    title: "Radio",
+    validation,
+  };
+}
+
+function checkboxQuestion(
+  validation: Extract<Block, { type: "checkbox" }>["validation"],
+): Extract<Block, { type: "checkbox" }> {
+  return {
+    id: "block-row-5",
+    formId: "form-1",
+    blockId: "q5",
+    type: "checkbox",
+    category: "question",
+    order: 4,
+    version: 1,
+    isDeleted: false,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    createdBy: "user-1",
+    updatedBy: "user-1",
+    title: "Checkbox",
+    validation,
+  };
+}
+
+function dropdownQuestion(
+  validation: Extract<Block, { type: "dropdown" }>["validation"],
+): Extract<Block, { type: "dropdown" }> {
+  return {
+    id: "block-row-6",
+    formId: "form-1",
+    blockId: "q6",
+    type: "dropdown",
+    category: "question",
+    order: 5,
+    version: 1,
+    isDeleted: false,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    createdBy: "user-1",
+    updatedBy: "user-1",
+    title: "Dropdown",
+    validation,
+  };
+}
+
 function extractedQuestion(
   type: string,
   validation: Record<string, unknown>,
@@ -126,6 +192,24 @@ describe("question validators", () => {
     ]);
   });
 
+  it("rejects non-matching values for safe non-capturing group patterns", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^(?:[A-Z]{2}-\\d{4})+$",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
   it("allows short_text pattern mismatches when the validation permits them", () => {
     const result = validateShortText(
       shortTextQuestion({
@@ -135,6 +219,71 @@ describe("question validators", () => {
         allowPatternMismatch: true,
       }),
       { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("returns a respondent-visible warning for short_text warn mode", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^NF-\\d{4}$",
+        patternMismatchMode: "warn",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result.is_valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings?.map((warning) => warning.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
+  it("hides short_text pattern mismatches in hidden mode", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^NF-\\d{4}$",
+        patternMismatchMode: "hidden",
+        allowPatternMismatch: true,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("keeps email template validation blocking unless legacy mismatch allowance is enabled", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        patternTemplate: "email",
+        patternMismatchMode: "hidden",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "not-an-email" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual(["EMAIL_INVALID"]);
+  });
+
+  it("allows email template mismatches when legacy mismatch allowance is enabled", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        patternTemplate: "email",
+        patternMismatchMode: "hidden",
+        allowPatternMismatch: true,
+      }),
+      { question_type: "short_text", value: "not-an-email" },
     );
 
     expect(result).toEqual({ is_valid: true, errors: [] });
@@ -152,6 +301,151 @@ describe("question validators", () => {
     );
 
     expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("does not execute unsafe short_text regex patterns during inline validation", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "((?:a|b)+)+",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("does not bypass unsafe regex detection after escaped literal backslashes", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "\\\\(a+)+",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "aaaaaaaaaaaaaaaaaaaaaaaa!" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("does not treat ? after an escaped literal parenthesis as a group modifier", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "(\\(?)+",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "((((((((((((((((((!" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
+  it("keeps block validation active for safe optional group patterns", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^([A-Z]+)?$",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "abc" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
+  it("validates radio other text with short-text-equivalent rules", () => {
+    const result = validateRadio(
+      radioQuestion({
+        type: "radio",
+        required: false,
+        options: [{ id: "a", label: "A" }],
+        allowOther: true,
+        otherTextValidation: {
+          required: false,
+          minLength: 3,
+          pattern: "^NF-\\d{4}$",
+          patternMismatchMode: "block",
+        },
+      }),
+      { question_type: "radio", value: "other", other_value: "x" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "MIN_LENGTH",
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
+  it("validates dropdown other text with short-text-equivalent rules", () => {
+    const result = validateDropdown(
+      dropdownQuestion({
+        type: "dropdown",
+        required: false,
+        options: [
+          { id: "a", label: "A" },
+          { id: "b", label: "B" },
+        ],
+        allowOther: true,
+        otherTextValidation: {
+          required: false,
+          maxLength: 4,
+          pattern: "^NF-\\d{4}$",
+          patternMismatchMode: "block",
+        },
+      }),
+      {
+        question_type: "dropdown",
+        value: "other",
+        other_value: "too-long",
+      },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "MAX_LENGTH",
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
+  it("returns warnings for checkbox other text warn mode", () => {
+    const result = validateCheckbox(
+      checkboxQuestion({
+        type: "checkbox",
+        required: false,
+        options: [{ id: "a", label: "A" }],
+        allowOther: true,
+        otherTextValidation: {
+          required: false,
+          pattern: "^NF-\\d{4}$",
+          patternMismatchMode: "warn",
+        },
+      }),
+      {
+        question_type: "checkbox",
+        values: ["other"],
+        other_values: ["draft"],
+      },
+    );
+
+    expect(result.is_valid).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings?.map((warning) => warning.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
   });
 
   it("treats whitespace-only optional date as blank before format checks", () => {
