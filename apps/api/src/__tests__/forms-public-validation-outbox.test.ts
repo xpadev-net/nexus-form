@@ -331,6 +331,90 @@ function mixedQuestionSnapshot() {
   };
 }
 
+function sectionBranchingSnapshot() {
+  return {
+    ...activeSnapshot([]),
+    id: "snapshot-branching",
+    version: 31,
+    plateContent: JSON.stringify([
+      questionNode("radio", "q-entity-type", {
+        required: true,
+        options: [
+          { id: "individual", label: "Individual" },
+          { id: "corporate", label: "Corporate" },
+        ],
+      }),
+      questionNode("section_separator", "section-corporate", {
+        navigation_rules: [
+          {
+            id: "rule-corporate",
+            name: "Corporate branch",
+            conditions: [
+              {
+                question_id: "q-entity-type",
+                operator: "equals",
+                value: "corporate",
+              },
+            ],
+            condition_match: "all",
+            action: {
+              type: "jump_to_section",
+              target_id: "section-corporate",
+            },
+            enabled: true,
+          },
+        ],
+        default_action: { type: "submit" },
+      }),
+      questionNode("short_text", "q-company-name", {
+        required: true,
+      }),
+    ]),
+  };
+}
+
+function checkboxBranchingSnapshot() {
+  return {
+    ...activeSnapshot([]),
+    id: "snapshot-checkbox-branching",
+    version: 32,
+    plateContent: JSON.stringify([
+      questionNode("checkbox", "q-plan", {
+        required: false,
+        options: [
+          { id: "basic", label: "Basic" },
+          { id: "premium", label: "Premium" },
+        ],
+      }),
+      questionNode("section_separator", "section-premium", {
+        navigation_rules: [
+          {
+            id: "rule-premium",
+            name: "Premium branch",
+            conditions: [
+              {
+                question_id: "q-plan",
+                operator: "includes_all",
+                value: ["premium"],
+              },
+            ],
+            condition_match: "all",
+            action: {
+              type: "jump_to_section",
+              target_id: "section-premium",
+            },
+            enabled: true,
+          },
+        ],
+        default_action: { type: "submit" },
+      }),
+      questionNode("short_text", "q-premium-note", {
+        required: true,
+      }),
+    ]),
+  };
+}
+
 type PublicGetBody = {
   form: { status: string; title: string };
   plateContent: string | null;
@@ -1417,6 +1501,102 @@ describe("R23-T1 public form input validation submit slice", () => {
     expect(body.error).toBe("Invalid response data");
     expect(mocks.db.transaction).not.toHaveBeenCalled();
     expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+  });
+
+  it("rejects unreachable branch answers before tokens, persistence, and enqueue", async () => {
+    const snapshot = sectionBranchingSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm([
+      {
+        question_id: "q-entity-type",
+        question_type: "radio",
+        value: "individual",
+      },
+      {
+        question_id: "q-company-name",
+        question_type: "short_text",
+        value: "Acme Secret",
+      },
+    ]);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid response data",
+    });
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+    expect(mocks.addSheetsSyncJob).not.toHaveBeenCalled();
+    expect(JSON.stringify(mocks.logWarn.mock.calls)).not.toContain(
+      "Acme Secret",
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "POST: response reachability validation failed",
+      "forms-public",
+      {
+        publicId: "public-form-1",
+        errors: ["Response 2: Question q-company-name is not reachable"],
+      },
+    );
+  });
+
+  it("accepts reachable branch answers selected by submitted responses", async () => {
+    const snapshot = sectionBranchingSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm([
+      {
+        question_id: "q-entity-type",
+        question_type: "radio",
+        value: "corporate",
+      },
+      {
+        question_id: "q-company-name",
+        question_type: "short_text",
+        value: "Acme",
+      },
+    ]);
+
+    expect(response.status).toBe(201);
+    expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
+      ["telemetry-token"],
+      "203.0.113.10",
+    );
+    expect(mocks.db.transaction).toHaveBeenCalledOnce();
+  });
+
+  it("uses the response field for the submitted question type when computing reachability", async () => {
+    const snapshot = checkboxBranchingSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm([
+      {
+        question_id: "q-plan",
+        question_type: "checkbox",
+        value: "premium",
+        values: ["basic"],
+      },
+      {
+        question_id: "q-premium-note",
+        question_type: "short_text",
+        value: "crafted premium answer",
+      },
+    ]);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Invalid response data",
+    });
+    expect(mocks.consumeTokensOrThrow).not.toHaveBeenCalled();
+    expect(mocks.db.transaction).not.toHaveBeenCalled();
+    expect(JSON.stringify(mocks.logWarn.mock.calls)).not.toContain(
+      "crafted premium answer",
+    );
   });
 });
 

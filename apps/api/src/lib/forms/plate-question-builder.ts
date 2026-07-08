@@ -7,6 +7,8 @@ import {
   type AnswerableQuestionType,
   extractQuestionsFromPlateContent,
   questionValidationSchema,
+  resolveReachableFormContent,
+  splitPlateContentIntoPages,
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 
@@ -92,6 +94,15 @@ export function buildQuestionsFromPlateContentStrict(
   return buildQuestionsFromPlateContentWithMode(plateContentJson, {
     strictValidation: true,
   });
+}
+
+export function buildReachableQuestionIdsFromPlateContentStrict(
+  plateContentJson: string,
+  responses: Record<string, unknown>,
+): Set<string> {
+  const parsed = parsePlateContentArray(plateContentJson);
+  const pages = splitPlateContentIntoPages(parsed);
+  return new Set(resolveReachableFormContent(pages, responses).questionIds);
 }
 
 /**
