@@ -583,13 +583,15 @@
   - Initial worker stopped with `systemError` under GPT-5.3-Codex-Spark before meaningful local changes. Parent resumed the same thread/worktree with `gpt-5.5` and `medium` thinking.
 
 ### SUBMIT-4: Rename submit-transition action labels
-- status: pending
+- status: completed
 - branch: `codex/submit-transition-labels`
 - pending_worktree: `local:118a6fdc-cf66-406c-80af-92a5397c575c`
 - worker_thread: `019f3f90-15fb-7e03-9d80-2ad6d7a18d22`
 - previous_worker_thread: `019f3f73-f7f8-7941-b4fb-12f4e6f3d98b` (archived after usage-limit/systemError)
 - previous_worktree: `/Users/xpadev/.codex/worktrees/d153/nexus-form`
-- previous_pr: `https://github.com/xpadev-net/nexus-form/pull/634`
+- pr: `https://github.com/xpadev-net/nexus-form/pull/634`
+- pr_head: `02b67cd478e7c46b800decd40d4a4bc8d384e062`
+- merge_commit: `ce1389a21c53bf808571a2da4e9a19b41ed1ec61`
 - source_plan_task: `submit-completion-appearance-plan.md` Task_4
 - scope:
   - `apps/web/src/components/forms/logic-action-builder.tsx`
@@ -611,6 +613,7 @@
   - Worker must create and keep an explicit Codex goal before continuing implementation.
   - Previous 5.3-spark worker reached PR #634 at head `c7fc5ca89a329d4a57dc57d1fd0079052a2f7e71` with a clean worktree, then stopped before final handoff; replacement worker was launched with `gpt-5.5` and `medium` thinking to take over the same branch/PR.
   - Replacement worker reported PR #634 at head `be4ef44880e613b6e2c26eafbb463119b4ca6db1`; parent reran `$deep-review`-guided diff inspection and the focused web test successfully, but `gh-review-hook 634` exited 2 for a scoped Greptile test-organization finding and branch-behind-base. Worker thread `019f3f90-15fb-7e03-9d80-2ad6d7a18d22` was instructed to keep the explicit goal, move the new `SectionTransitionEditor` tests into a dedicated describe/file, merge `origin/master` normally, rerun validation, push, and report back without merging.
+  - Completed after worker fixed the scoped test organization finding and merged current `origin/master` normally. Parent verified PR diff with `$deep-review` guidance, reran focused web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 634` exit 0, then squash-merged PR #634. Local branch deletion was skipped because the worker worktree still had the branch checked out.
 
 ## Activity Log
 
@@ -635,6 +638,7 @@
 - 2026-07-08: PREFILL-3 worker thread `019f3f78-ce4c-7292-ad32-7f1156a23c1f` reported PR #635 blocked only on missing `gh-review-hook` in the worker PATH. Parent found `/Users/xpadev/go/bin/gh-review-hook`, merged `origin/master` into the PR branch normally, reran targeted API/Web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 635` successfully. Because repeated independent reviewer attempts failed due platform usage-limit routing, parent applied a tooling waiver after `$deep-review` found no blockers, then marked PR #635 ready and squash-merged it as `6b21352b6204f12da379852e5a648c51121c95a3`; worker thread was archived.
 - 2026-07-08: Resolved SUBMIT-4 replacement worker to thread `019f3f90-15fb-7e03-9d80-2ad6d7a18d22`. Parent inspected PR #634 at head `be4ef44880e613b6e2c26eafbb463119b4ca6db1`; all GitHub checks and external reviews were green, and the focused web test passed locally, but parent `gh-review-hook 634` exited 2 due the scoped Greptile test-organization finding plus branch-behind-base. Follow-up was sent to the worker to address both and report a new head without merging.
 - 2026-07-08: Found PREFILL-2, PATTERN-2, and SEC-7 initial workers stopped with `systemError` after GPT-5.3-Codex-Spark usage-limit failures. Parent resumed the same worker threads with `gpt-5.5` and `medium` thinking so PREFILL-2 can preserve its local WIP, while PATTERN-2 and SEC-7 continue from clean branches. The abandoned PREFILL-3 model-unspecified retry thread `019f3f78-1b7c-7b41-9950-5021ad08f818` was archived.
+- 2026-07-08: SUBMIT-4 worker reported final head `02b67cd478e7c46b800decd40d4a4bc8d384e062` after moving `SectionTransitionEditor` tests into a dedicated describe block and merging latest `origin/master` normally. Parent reran PR diff review with `$deep-review` guidance, focused web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 634` successfully, then squash-merged PR #634 as merge commit `ce1389a21c53bf808571a2da4e9a19b41ed1ec61`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
