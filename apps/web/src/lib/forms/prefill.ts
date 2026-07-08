@@ -123,17 +123,29 @@ function toPrefillResponseRecord(data: PrefillData): Record<string, unknown> {
   const responseRecord: Record<string, unknown> = {};
   for (const [questionId, entry] of Object.entries(data)) {
     if (isEntryEmpty(entry)) continue;
-    const response =
-      entry.value ??
-      entry.values ??
-      entry.responses ??
-      entry.other_value ??
-      entry.other_values;
+    const response = toPrefillResponseValue(entry);
     if (response !== undefined) {
       responseRecord[questionId] = response;
     }
   }
   return responseRecord;
+}
+
+function toPrefillResponseValue(entry: AnswerEntry): unknown {
+  if (entry.responses !== undefined) return entry.responses;
+
+  if (entry.values !== undefined || entry.other_values !== undefined) {
+    return [...(entry.values ?? []), ...(entry.other_values ?? [])];
+  }
+
+  if (entry.value !== undefined) {
+    if (entry.other_value !== undefined) {
+      return [entry.value, entry.other_value];
+    }
+    return entry.value;
+  }
+
+  return entry.other_value ?? entry.other_values;
 }
 
 export function getReachableQuestionIdsFromPrefillValues(
@@ -150,13 +162,22 @@ export function filterPrefillDataForReachableQuestions(
   pages: PlatePage[],
   data: PrefillData,
 ): PrefillData {
+  return filterPrefillDataForReachableQuestionIds(
+    questions,
+    new Set(getReachableQuestionIdsFromPrefillValues(pages, data)),
+    data,
+  );
+}
+
+export function filterPrefillDataForReachableQuestionIds(
+  questions: ExtractedQuestion[],
+  reachableQuestionIds: ReadonlySet<string>,
+  data: PrefillData,
+): PrefillData {
   const supportedQuestionIds = new Set(
     questions
       .filter((question) => isPrefillSupportedQuestionType(question.type))
       .map((question) => question.blockId),
-  );
-  const reachableQuestionIds = new Set(
-    getReachableQuestionIdsFromPrefillValues(pages, data),
   );
   const filtered: PrefillData = {};
 

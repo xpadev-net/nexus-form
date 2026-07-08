@@ -130,4 +130,50 @@ describe("prefill question type coverage", () => {
       }),
     ).toEqual(["question-branch"]);
   });
+
+  it("keeps checkbox other text available for branch reachability", () => {
+    const plateContent = [
+      questionNode("checkbox", "question-branch", "参加条件", {
+        type: "checkbox",
+        options: [{ id: "other", label: "その他" }],
+        allowOther: true,
+      }),
+      sectionNode("section-regular", "通常ルート", {
+        type: "section_separator",
+        navigation_rules: [
+          {
+            id: "to-vip",
+            name: "VIP へ移動",
+            conditions: [
+              {
+                question_id: "question-branch",
+                operator: "includes_any",
+                value: ["vip-free"],
+              },
+            ],
+            condition_match: "all",
+            action: { type: "jump_to_section", target_id: "section-vip" },
+          },
+        ],
+        default_action: { type: "submit" },
+      }),
+      sectionNode("section-vip", "VIP ルート", {
+        type: "section_separator",
+        default_action: { type: "submit" },
+      }),
+      questionNode("short_text", "question-vip", "VIP質問", {
+        type: "short_text",
+      }),
+    ];
+    const pages = splitPlateContentIntoPages(plateContent);
+
+    expect(
+      getReachableQuestionIdsFromPrefillValues(pages, {
+        "question-branch": {
+          values: ["other"],
+          other_values: ["vip-free"],
+        },
+      }),
+    ).toEqual(["question-branch", "question-vip"]);
+  });
 });

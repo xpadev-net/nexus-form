@@ -48,7 +48,7 @@ import {
 } from "@/hooks/use-copy-feedback";
 import {
   encodePrefillData,
-  filterPrefillDataForReachableQuestions,
+  filterPrefillDataForReachableQuestionIds,
   getPrefilledQuestions,
   getPrefillQuestionTypeInfo,
   getPrefillQuestionTypeLabel,
@@ -201,8 +201,12 @@ export function FormPrefillGenerator({
 
   const supportedReachablePrefillValues = useMemo(
     () =>
-      filterPrefillDataForReachableQuestions(questions, pages, prefillValues),
-    [questions, pages, prefillValues],
+      filterPrefillDataForReachableQuestionIds(
+        questions,
+        reachableQuestionIds,
+        prefillValues,
+      ),
+    [questions, prefillValues, reachableQuestionIds],
   );
   const prefilledQuestions = useMemo(
     () => getPrefilledQuestions(questions, supportedReachablePrefillValues),
