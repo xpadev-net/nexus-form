@@ -566,8 +566,7 @@ export function ShortTextPatternEditor() {
                   | "hidden";
                 update({
                   patternMismatchMode,
-                  allowPatternMismatch:
-                    patternMismatchMode === "hidden" ? true : false,
+                  allowPatternMismatch: patternMismatchMode === "hidden",
                 });
               }}
             >

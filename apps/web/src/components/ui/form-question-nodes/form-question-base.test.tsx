@@ -63,6 +63,10 @@ let getQuestionControlLabelProps: (blockId: string) => {
   "aria-labelledby": string;
 };
 let getFormQuestionTitleId: (blockId: string) => string;
+let useFormQuestionErrorA11y: (blockId: string) => {
+  "aria-describedby"?: string;
+  "aria-invalid"?: true;
+};
 let FormQuestionElement: ComponentType<{
   children?: ReactNode;
   viewerControls?: ReactNode;
@@ -71,6 +75,7 @@ let FormQuestionA11yProvider: ComponentType<{
   children?: ReactNode;
   errorMessagesByQuestionId?: ReadonlyMap<string, string>;
   invalidQuestionIds: ReadonlySet<string>;
+  warningMessagesByQuestionId?: ReadonlyMap<string, string>;
 }>;
 
 beforeAll(async () => {
@@ -82,6 +87,7 @@ beforeAll(async () => {
     ) => string;
   getQuestionControlLabelProps = formQuestionBase.getQuestionControlLabelProps;
   getFormQuestionTitleId = formQuestionBase.getFormQuestionTitleId;
+  useFormQuestionErrorA11y = formQuestionBase.useFormQuestionErrorA11y;
   FormQuestionElement =
     formQuestionBase.FormQuestionElement as unknown as ComponentType<{
       children?: ReactNode;
@@ -92,6 +98,7 @@ beforeAll(async () => {
       children?: ReactNode;
       errorMessagesByQuestionId?: ReadonlyMap<string, string>;
       invalidQuestionIds: ReadonlySet<string>;
+      warningMessagesByQuestionId?: ReadonlyMap<string, string>;
     }>;
 });
 
@@ -271,6 +278,58 @@ describe("FormQuestionElement", () => {
     );
     expect(error?.textContent).toBe("Question title: Required");
     expect(error?.dataset.questionErrorFor).toBe("question-1");
+  });
+
+  it("renders warning-only feedback without destructive error semantics", () => {
+    function WarningAwareInput() {
+      return (
+        <input
+          aria-label="Question title"
+          {...useFormQuestionErrorA11y("question-1")}
+        />
+      );
+    }
+
+    plateState.element = {
+      type: "form_short_text",
+      blockId: "question-1",
+      children: [{ type: "p", children: [{ text: "Question title" }] }],
+    };
+    plateState.readOnly = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    mountedRoots.push(root);
+
+    act(() => {
+      root.render(
+        <FormQuestionA11yProvider
+          invalidQuestionIds={new Set()}
+          warningMessagesByQuestionId={
+            new Map([["question-1", "Question title: Pattern warning"]])
+          }
+        >
+          <FormQuestionElement viewerControls={<WarningAwareInput />}>
+            <p>Question title</p>
+          </FormQuestionElement>
+        </FormQuestionA11yProvider>,
+      );
+    });
+
+    const input = getByRole(container, "textbox", { name: "Question title" });
+    expect(input.getAttribute("aria-describedby")).toBe(
+      "form-question-question-1-error",
+    );
+    expect(input.hasAttribute("aria-invalid")).toBe(false);
+
+    const warning = container.querySelector<HTMLElement>(
+      "#form-question-question-1-error",
+    );
+    expect(warning?.textContent).toBe("Question title: Pattern warning");
+    expect(warning?.dataset.questionWarningFor).toBe("question-1");
+    expect(warning?.dataset.questionErrorFor).toBeUndefined();
+    expect(warning?.className).toContain("text-amber-700");
+    expect(warning?.className).not.toContain("text-destructive");
   });
 
   it("keeps generated question numbers with the title but excludes description text", () => {

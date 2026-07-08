@@ -450,7 +450,7 @@ export function FormBody({
     touchedQuestionIds,
     validationDisplayPageIndexes,
   ]);
-  const currentPageFeedbackMessagesByQuestionId = useMemo(() => {
+  const currentPageWarningMessagesByQuestionId = useMemo(() => {
     const messages = new Map<string, string>();
     for (const warning of currentPageQuestionWarnings) {
       messages.set(
@@ -458,6 +458,10 @@ export function FormBody({
         `${warning.title}: ${warning.messages.join("、")}`,
       );
     }
+    return messages;
+  }, [currentPageQuestionWarnings]);
+  const currentPageErrorMessagesByQuestionId = useMemo(() => {
+    const messages = new Map<string, string>();
     for (const error of currentPageQuestionErrors) {
       messages.set(
         error.questionId,
@@ -465,7 +469,7 @@ export function FormBody({
       );
     }
     return messages;
-  }, [currentPageQuestionErrors, currentPageQuestionWarnings]);
+  }, [currentPageQuestionErrors]);
   const collectQuestionWarnings = useCallback(
     (questions: ExtractedQuestion[]): QuestionValidationMessage[] => {
       return questions.flatMap((question) => {
@@ -911,12 +915,13 @@ export function FormBody({
             ref={viewerRef}
           >
             <FormQuestionA11yProvider
-              errorMessagesByQuestionId={
-                currentPageFeedbackMessagesByQuestionId
-              }
+              errorMessagesByQuestionId={currentPageErrorMessagesByQuestionId}
               invalidQuestionIds={currentPageInvalidQuestionIds}
               markQuestionTouched={markQuestionTouched}
               notifyQuestionAnswerChange={notifyQuestionAnswerChange}
+              warningMessagesByQuestionId={
+                currentPageWarningMessagesByQuestionId
+              }
             >
               <PlateViewer
                 key={displayedPageIndex}

@@ -71,6 +71,12 @@ type ShortTextCompatibleValidation = {
   allowPatternMismatch?: boolean;
 };
 
+function isOpenEndedQuantifier(pattern: string, index: number): boolean {
+  const endIndex = pattern.indexOf("}", index + 1);
+  if (endIndex === -1) return true;
+  return pattern.slice(index + 1, endIndex).includes(",");
+}
+
 function hasNestedQuantifier(pattern: string): boolean {
   let inCharacterClass = false;
   for (let index = 0; index < pattern.length; index += 1) {
@@ -107,7 +113,11 @@ function hasNestedQuantifier(pattern: string): boolean {
         continue;
       }
       if (inCharacterClass) continue;
-      if (["+", "*", "?"].includes(groupChar) || groupChar === "{") {
+      if (
+        ["+", "*"].includes(groupChar) ||
+        (groupChar === "{" && isOpenEndedQuantifier(pattern, groupIndex)) ||
+        (groupChar === "?" && groupPrevious !== "(")
+      ) {
         hasInnerQuantifier = true;
       }
       if (groupChar === "(") depth += 1;
@@ -217,9 +227,10 @@ function validateShortTextCompatibleValue(
       getPatternMismatchMessage(validation),
       "PATTERN_MISMATCH",
     );
-    if (normalizePatternMismatchMode(validation) === "warn") {
+    const mismatchMode = normalizePatternMismatchMode(validation);
+    if (mismatchMode === "warn") {
       warnings.push(patternMismatch);
-    } else if (normalizePatternMismatchMode(validation) === "block") {
+    } else if (mismatchMode === "block") {
       errors.push(patternMismatch);
     }
   }

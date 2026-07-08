@@ -192,6 +192,24 @@ describe("question validators", () => {
     ]);
   });
 
+  it("rejects non-matching values for safe non-capturing group patterns", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^(?:[A-Z]{2}-\\d{4})+$",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "draft" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
   it("allows short_text pattern mismatches when the validation permits them", () => {
     const result = validateShortText(
       shortTextQuestion({
