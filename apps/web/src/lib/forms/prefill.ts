@@ -1,4 +1,5 @@
-import type { ExtractedQuestion } from "@nexus-form/shared";
+import type { ExtractedQuestion, PlatePage } from "@nexus-form/shared";
+import { resolveReachableFormContent } from "@nexus-form/shared";
 import type { AnswerEntry } from "@/contexts/form-response-context";
 
 export type PrefillData = Record<string, AnswerEntry>;
@@ -111,6 +112,110 @@ export function filterPrefillDataForSupportedQuestions(
 
   for (const [questionId, entry] of Object.entries(data)) {
     if (supportedQuestionIds.has(questionId) && !isEntryEmpty(entry)) {
+      filtered[questionId] = entry;
+    }
+  }
+
+  return filtered;
+}
+
+function toPrefillResponseRecord(data: PrefillData): Record<string, unknown> {
+  const responseRecord: Record<string, unknown> = {};
+  for (const [questionId, entry] of Object.entries(data)) {
+    if (isEntryEmpty(entry)) continue;
+    const response = toPrefillResponseValue(entry);
+    if (response !== undefined) {
+      responseRecord[questionId] = response;
+    }
+  }
+  return responseRecord;
+}
+
+function toPrefillResponseValue(entry: AnswerEntry): unknown {
+  if (entry.responses !== undefined) return entry.responses;
+
+  if (entry.values !== undefined || entry.other_values !== undefined) {
+    return [...(entry.values ?? []), ...(entry.other_values ?? [])];
+  }
+
+  if (entry.value !== undefined) {
+    if (entry.other_value !== undefined) {
+      return [entry.value, entry.other_value];
+    }
+    return entry.value;
+  }
+
+  return entry.other_value ?? entry.other_values;
+}
+
+/**
+ * Resolves the question ids reachable from the supplied Plate pages and prefill
+ * answers. The prefill data is first converted to the response-record shape
+ * expected by the shared reachability helper, including compound "other" text.
+ *
+ * @param pages Plate pages produced from the current form content.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Question block ids reachable for the current prefill answers.
+ */
+export function getReachableQuestionIdsFromPrefillValues(
+  pages: PlatePage[],
+  data: PrefillData,
+): string[] {
+  if (pages.length === 0) return [];
+  return resolveReachableFormContent(pages, toPrefillResponseRecord(data))
+    .questionIds;
+}
+
+/**
+ * Filters prefill data to entries that are both supported by the prefill URL
+ * format and reachable from the supplied Plate pages. This variant computes
+ * reachability internally from `pages` and `data`.
+ *
+ * @param questions Extracted form questions used for type support checks.
+ * @param pages Plate pages used to resolve branch reachability.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Prefill entries safe to encode into the generated URL.
+ */
+export function filterPrefillDataForReachableQuestions(
+  questions: ExtractedQuestion[],
+  pages: PlatePage[],
+  data: PrefillData,
+): PrefillData {
+  return filterPrefillDataForReachableQuestionIds(
+    questions,
+    new Set(getReachableQuestionIdsFromPrefillValues(pages, data)),
+    data,
+  );
+}
+
+/**
+ * Filters prefill data using a caller-provided reachable question id set. Use
+ * this when reachability has already been computed for the same pages/data so
+ * the shared reachability traversal is not repeated.
+ *
+ * @param questions Extracted form questions used for type support checks.
+ * @param reachableQuestionIds Precomputed reachable question block ids.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Prefill entries safe to encode into the generated URL.
+ */
+export function filterPrefillDataForReachableQuestionIds(
+  questions: ExtractedQuestion[],
+  reachableQuestionIds: ReadonlySet<string>,
+  data: PrefillData,
+): PrefillData {
+  const supportedQuestionIds = new Set(
+    questions
+      .filter((question) => isPrefillSupportedQuestionType(question.type))
+      .map((question) => question.blockId),
+  );
+  const filtered: PrefillData = {};
+
+  for (const [questionId, entry] of Object.entries(data)) {
+    if (
+      supportedQuestionIds.has(questionId) &&
+      reachableQuestionIds.has(questionId) &&
+      !isEntryEmpty(entry)
+    ) {
       filtered[questionId] = entry;
     }
   }
