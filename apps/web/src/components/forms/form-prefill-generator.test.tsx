@@ -88,7 +88,12 @@ function sectionNode(
   blockId: string,
   title: string,
   validation?: Record<string, unknown>,
-) {
+): {
+  type: "form_section_separator";
+  blockId: string;
+  validation?: Record<string, unknown>;
+  children: Array<{ type: "p"; children: Array<{ text: string }> }>;
+} {
   return {
     type: "form_section_separator",
     blockId,

@@ -148,6 +148,15 @@ function toPrefillResponseValue(entry: AnswerEntry): unknown {
   return entry.other_value ?? entry.other_values;
 }
 
+/**
+ * Resolves the question ids reachable from the supplied Plate pages and prefill
+ * answers. The prefill data is first converted to the response-record shape
+ * expected by the shared reachability helper, including compound "other" text.
+ *
+ * @param pages Plate pages produced from the current form content.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Question block ids reachable for the current prefill answers.
+ */
 export function getReachableQuestionIdsFromPrefillValues(
   pages: PlatePage[],
   data: PrefillData,
@@ -157,6 +166,16 @@ export function getReachableQuestionIdsFromPrefillValues(
     .questionIds;
 }
 
+/**
+ * Filters prefill data to entries that are both supported by the prefill URL
+ * format and reachable from the supplied Plate pages. This variant computes
+ * reachability internally from `pages` and `data`.
+ *
+ * @param questions Extracted form questions used for type support checks.
+ * @param pages Plate pages used to resolve branch reachability.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Prefill entries safe to encode into the generated URL.
+ */
 export function filterPrefillDataForReachableQuestions(
   questions: ExtractedQuestion[],
   pages: PlatePage[],
@@ -169,6 +188,16 @@ export function filterPrefillDataForReachableQuestions(
   );
 }
 
+/**
+ * Filters prefill data using a caller-provided reachable question id set. Use
+ * this when reachability has already been computed for the same pages/data so
+ * the shared reachability traversal is not repeated.
+ *
+ * @param questions Extracted form questions used for type support checks.
+ * @param reachableQuestionIds Precomputed reachable question block ids.
+ * @param data Current prefill answer entries keyed by question block id.
+ * @returns Prefill entries safe to encode into the generated URL.
+ */
 export function filterPrefillDataForReachableQuestionIds(
   questions: ExtractedQuestion[],
   reachableQuestionIds: ReadonlySet<string>,
