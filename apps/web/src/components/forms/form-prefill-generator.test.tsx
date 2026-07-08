@@ -34,12 +34,15 @@ vi.mock("@/components/ui/tooltip", () => ({
   TooltipTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-function renderGenerator(container: HTMLElement): Root {
+function renderGenerator(
+  container: HTMLElement,
+  plateContent = prefillFixturePlateContent(),
+): Root {
   const root = createRoot(container);
   act(() => {
     root.render(
       <FormPrefillGenerator
-        plateContent={prefillFixturePlateContent()}
+        plateContent={plateContent}
         publicId="public-form-1"
       />,
     );
@@ -78,6 +81,48 @@ function prefillFixturePlateContent(): string {
       rows,
       columns,
     }),
+  ]);
+}
+
+function sectionNode(
+  blockId: string,
+  title: string,
+  validation?: Record<string, unknown>,
+) {
+  return {
+    type: "form_section_separator",
+    blockId,
+    ...(validation ? { validation } : {}),
+    children: [{ type: "p", children: [{ text: title }] }],
+  };
+}
+
+function prefillBranchFixturePlateContent(): string {
+  return JSON.stringify([
+    questionNode("short_text", "question-branch", "種別"),
+    sectionNode("section-regular", "通常ルート", {
+      navigation_rules: [
+        {
+          id: "to-vip",
+          name: "VIP へ移動",
+          conditions: [
+            {
+              question_id: "question-branch",
+              operator: "equals",
+              value: "vip",
+            },
+          ],
+          condition_match: "all",
+          action: { type: "jump_to_section", target_id: "section-vip" },
+        },
+      ],
+      default_action: { type: "next" },
+    }),
+    questionNode("short_text", "question-regular", "通常質問"),
+    sectionNode("section-vip", "VIP ルート", {
+      default_action: { type: "submit" },
+    }),
+    questionNode("short_text", "question-vip", "VIP質問"),
   ]);
 }
 
@@ -138,7 +183,9 @@ describe("FormPrefillGenerator", () => {
     );
     expect(preview?.textContent).toContain("反映される設問");
     expect(preview?.textContent).toContain("氏名 (短文)");
-    expect(preview?.textContent).toContain("反映されない設問");
+    expect(preview?.textContent).toContain("到達不能で除外される設問");
+    expect(preview?.textContent).toContain("未入力設問");
+    expect(preview?.textContent).toContain("未対応設問");
     expect(preview?.textContent).toContain("参加枠 (選択グリッド)");
     expect(preview?.textContent).toContain(
       "必要な備品 (チェックボックスグリッド)",
@@ -206,6 +253,66 @@ describe("FormPrefillGenerator", () => {
 
     act(() => root.unmount());
     vi.useRealTimers();
+  });
+
+  it("recomputes reachable prefill exclusions when a branch answer changes", () => {
+    const container = document.createElement("div");
+    const root = renderGenerator(container, prefillBranchFixturePlateContent());
+
+    const inputs = container.querySelectorAll<HTMLInputElement>(
+      'input[placeholder="値を入力"]',
+    );
+    expect(inputs).toHaveLength(3);
+    const branchInput = inputs.item(0);
+    const regularInput = inputs.item(1);
+    const vipInput = inputs.item(2);
+    if (branchInput === null || regularInput === null || vipInput === null) {
+      throw new Error("Expected all three prefill inputs to exist");
+    }
+    expect(branchInput).toBeInstanceOf(HTMLInputElement);
+    expect(regularInput).toBeInstanceOf(HTMLInputElement);
+    expect(vipInput).toBeInstanceOf(HTMLInputElement);
+
+    const safeBranchInput = branchInput;
+    const safeRegularInput = regularInput;
+    const safeVipInput = vipInput;
+    act(() => {
+      fireEvent.input(safeBranchInput, { target: { value: "vip" } });
+      fireEvent.input(safeRegularInput, { target: { value: "regular value" } });
+      fireEvent.input(safeVipInput, { target: { value: "vip value" } });
+    });
+
+    const preview = container.querySelector(
+      '[data-testid="prefill-preview-filled-questions"]',
+    );
+    expect(preview?.textContent).toContain("反映される設問");
+    expect(preview?.textContent).toContain("VIP質問 (短文)");
+    expect(preview?.textContent).toContain("到達不能で除外される設問");
+    expect(preview?.textContent).toContain("通常質問 (短文)");
+
+    const generatedUrlForVip =
+      container.querySelector<HTMLInputElement>("input[readonly]")?.value ?? "";
+    const encodedForVip = new URL(generatedUrlForVip).searchParams.get("p");
+    expect(decodePrefillData(encodedForVip ?? "")).toEqual({
+      "question-branch": { value: "vip" },
+      "question-vip": { value: "vip value" },
+    });
+
+    act(() => {
+      fireEvent.input(safeBranchInput, { target: { value: "regular" } });
+    });
+
+    const generatedUrlForRegular =
+      container.querySelector<HTMLInputElement>("input[readonly]")?.value ?? "";
+    const encodedForRegular = new URL(generatedUrlForRegular).searchParams.get(
+      "p",
+    );
+    expect(decodePrefillData(encodedForRegular ?? "")).toEqual({
+      "question-branch": { value: "regular" },
+      "question-regular": { value: "regular value" },
+    });
+
+    act(() => root.unmount());
   });
 
   it("shows failed feedback on the clicked generated URL copy control", async () => {

@@ -1,4 +1,5 @@
-import type { ExtractedQuestion } from "@nexus-form/shared";
+import type { ExtractedQuestion, PlatePage } from "@nexus-form/shared";
+import { resolveReachableFormContent } from "@nexus-form/shared";
 import type { AnswerEntry } from "@/contexts/form-response-context";
 
 export type PrefillData = Record<string, AnswerEntry>;
@@ -111,6 +112,60 @@ export function filterPrefillDataForSupportedQuestions(
 
   for (const [questionId, entry] of Object.entries(data)) {
     if (supportedQuestionIds.has(questionId) && !isEntryEmpty(entry)) {
+      filtered[questionId] = entry;
+    }
+  }
+
+  return filtered;
+}
+
+function toPrefillResponseRecord(data: PrefillData): Record<string, unknown> {
+  const responseRecord: Record<string, unknown> = {};
+  for (const [questionId, entry] of Object.entries(data)) {
+    if (isEntryEmpty(entry)) continue;
+    const response =
+      entry.value ??
+      entry.values ??
+      entry.responses ??
+      entry.other_value ??
+      entry.other_values;
+    if (response !== undefined) {
+      responseRecord[questionId] = response;
+    }
+  }
+  return responseRecord;
+}
+
+export function getReachableQuestionIdsFromPrefillValues(
+  pages: PlatePage[],
+  data: PrefillData,
+): string[] {
+  if (pages.length === 0) return [];
+  return resolveReachableFormContent(pages, toPrefillResponseRecord(data))
+    .questionIds;
+}
+
+export function filterPrefillDataForReachableQuestions(
+  questions: ExtractedQuestion[],
+  pages: PlatePage[],
+  data: PrefillData,
+): PrefillData {
+  const supportedQuestionIds = new Set(
+    questions
+      .filter((question) => isPrefillSupportedQuestionType(question.type))
+      .map((question) => question.blockId),
+  );
+  const reachableQuestionIds = new Set(
+    getReachableQuestionIdsFromPrefillValues(pages, data),
+  );
+  const filtered: PrefillData = {};
+
+  for (const [questionId, entry] of Object.entries(data)) {
+    if (
+      supportedQuestionIds.has(questionId) &&
+      reachableQuestionIds.has(questionId) &&
+      !isEntryEmpty(entry)
+    ) {
       filtered[questionId] = entry;
     }
   }
