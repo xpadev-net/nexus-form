@@ -333,6 +333,24 @@ describe("question validators", () => {
     expect(result).toEqual({ is_valid: true, errors: [] });
   });
 
+  it("keeps block validation active for safe optional group patterns", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        pattern: "^([A-Z]+)?$",
+        patternMismatchMode: "block",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "abc" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual([
+      "PATTERN_MISMATCH",
+    ]);
+  });
+
   it("validates radio other text with short-text-equivalent rules", () => {
     const result = validateRadio(
       radioQuestion({

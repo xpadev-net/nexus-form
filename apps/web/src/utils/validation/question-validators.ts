@@ -138,10 +138,7 @@ function hasNestedQuantifier(pattern: string): boolean {
       const nextChar = pattern[groupIndex + 1];
       if (
         hasInnerQuantifier &&
-        (nextChar === "+" ||
-          nextChar === "*" ||
-          nextChar === "?" ||
-          nextChar === "{")
+        (nextChar === "+" || nextChar === "*" || nextChar === "{")
       ) {
         return true;
       }
