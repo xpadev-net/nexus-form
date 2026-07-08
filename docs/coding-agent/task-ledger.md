@@ -472,8 +472,14 @@
 
 ### PREFILL-3: Reject unreachable answers on public submit
 - status: pending
-- branch: `codex/prefill-public-submit-reachability`
-- pending_worktree: `local:3cf43411-bd69-4ecc-bcac-a37aed6581b0`
+- branch: `codex/prefill-public-submit-reachability-retry-gpt55`
+- pending_worktree: `local:5ff914a6-d055-4057-ba2f-3ebf111a5b2c`
+- worker_model: `gpt-5.5`
+- worker_thinking: `medium`
+- abandoned_pending_worktree: `local:e367d256-006c-4098-bf0f-32e198ba224b` (started without explicit model; archive if it resolves)
+- previous_thread: `019f3f73-f800-7460-ae3c-96520a7fecdf` (archived after systemError)
+- previous_worktree: `/Users/xpadev/.codex/worktrees/8755/nexus-form`
+- previous_branch: `codex/prefill-public-submit-reachability`
 - worker_thread: pending
 - source_plan_task: `prefill-reachability-validation-plan.md` Task_3
 - scope:
@@ -499,6 +505,8 @@
 - notes:
   - Started after PREFILL-1 merged so API can recompute reachability from shared logic.
   - Worker must create and keep an explicit Codex goal before continuing implementation.
+  - Original worker thread `019f3f73-f800-7460-ae3c-96520a7fecdf` entered `systemError` after creating a partial local helper change in `apps/api/src/lib/forms/plate-question-builder.ts`; parent archived it and started the retry worker on a fresh branch with instructions to inspect the old WIP only as reference.
+  - User clarified implementation workers must be launched with `gpt-5.5` and `medium` thinking. The first retry pending worktree `local:e367d256-006c-4098-bf0f-32e198ba224b` lacked an explicit model and should be ignored/archived if it resolves; replacement pending worktree `local:5ff914a6-d055-4057-ba2f-3ebf111a5b2c` is the active worker.
 
 ### PATTERN-2: Align API and frontend validation behavior
 - status: pending
@@ -607,6 +615,8 @@
 - 2026-07-08: PATTERN-1 worker reported merge-ready for PR #633 at head `022eae9729f59a8a3d738d834d2eba1503ee35ed`; parent reran PR diff review, `$deep-review`, `gh-review-hook 633`, focused shared tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #633 as merge commit `a842caa06059cefc9280bcfedf56a153233e280f` and archived worker thread `019f3db3-fb8d-7922-9cbc-cd308aa4619b`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
 - 2026-07-08: Reviewed all files in `docs/coding-agent/plans/active/`. No active plan is fully implemented yet; PREFILL-1, PATTERN-1, SEC-2, SEC-3, and SEC-6 are completed slices, while prefill Task_2/Task_3, pattern Task_2/Task_3, security Task_1/Task_4/Task_5/Task_7/Task_8, and draft Plate/submit tasks remain.
 - 2026-07-08: Started the next low-conflict wave as pending worker tasks: PREFILL-2 (`codex/prefill-reachability-generator`), PREFILL-3 (`codex/prefill-public-submit-reachability`), PATTERN-2 (`codex/pattern-validation-behavior`), SEC-7 (`codex/sec-ci-release-migration-hardening`), and SUBMIT-4 (`codex/submit-transition-labels`). Each worker must create an explicit Codex goal before implementation.
+- 2026-07-08: PREFILL-3 worker thread `019f3f73-f800-7460-ae3c-96520a7fecdf` was found in `systemError` with one uncommitted WIP file in `/Users/xpadev/.codex/worktrees/8755/nexus-form`; parent archived the broken thread and started replacement pending worktree `local:e367d256-006c-4098-bf0f-32e198ba224b` on branch `codex/prefill-public-submit-reachability-retry`.
+- 2026-07-08: User clarified that implementation workers must be launched with `gpt-5.5` and `medium` thinking. Parent started a new PREFILL-3 replacement pending worktree `local:5ff914a6-d055-4057-ba2f-3ebf111a5b2c` on branch `codex/prefill-public-submit-reachability-retry-gpt55`; the model-unspecified pending worktree `local:e367d256-006c-4098-bf0f-32e198ba224b` is abandoned and should be archived if it resolves.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
