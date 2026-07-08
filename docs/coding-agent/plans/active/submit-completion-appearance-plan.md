@@ -1,8 +1,8 @@
 # Plan: Submit Completion And Editor Appearance
 
-- status: draft
+- status: in_progress
 - generated: 2026-07-06
-- last_updated: 2026-07-06
+- last_updated: 2026-07-08
 - work_type: code
 
 ## Goal
@@ -203,6 +203,10 @@
   - Summary: Added security findings #7 and #15 as constraints for completion validation and public appearance media.
   - Validation evidence: Not run; planning only.
   - Notes: Detailed remediation tracking lives in `security-findings-remediation-plan.md`.
+- 2026-07-08 Work started.
+  - Summary: Preparing SUBMIT-4 worker for the narrow submit-transition label rename task.
+  - Validation evidence: Pending worker validation.
+  - Notes: Worker must create an explicit Codex goal before implementation.
 
 ## Decision Log
 - 2026-07-06 Decision:
