@@ -37,6 +37,9 @@ spec:
             name: nexus-form-config
         - secretRef:
             name: nexus-form-secrets
+        env:
+        - name: DRIZZLE_MIGRATIONS_DIR
+          value: /migration/drizzle
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

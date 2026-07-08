@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { access, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
@@ -104,11 +104,11 @@ const replaceEnvironment = async () => {
   }
 };
 
-const runNode = (args) => {
+const runNode = (args, env = process.env) => {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       stdio: "inherit",
-      env: process.env,
+      env,
     });
 
     const handleSignal = (signal) => {
@@ -138,8 +138,34 @@ const runNode = (args) => {
   });
 };
 
+const ensureMigrationPath = "/migration/run-migrations.mjs";
+const migrationsDir = process.env.DRIZZLE_MIGRATIONS_DIR || "/migration/drizzle";
+const hasMigrationPath = async () => {
+  try {
+    await access(ensureMigrationPath);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const runStartupMigrations = async () => {
+  if (!(await hasMigrationPath())) {
+    return;
+  }
+
+  const status = await runNode([ensureMigrationPath], {
+    ...process.env,
+    DRIZZLE_MIGRATIONS_DIR: migrationsDir,
+  });
+  if (status !== 0) {
+    throw new Error("Database migration step failed during startup");
+  }
+};
+
 (async () => {
   await replaceEnvironment();
+  await runStartupMigrations();
   const apiStatus = await runNode(["./apps/api/dist/index.mjs"]);
   process.exit(apiStatus);
 })();

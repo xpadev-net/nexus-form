@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
-import { db } from "@nexus-form/database";
+import {
+  assertRequiredSecurityMigrationsApplied,
+  db,
+} from "@nexus-form/database";
 import {
   externalServiceValidationResult,
   fingerprintDetail,
@@ -90,6 +93,27 @@ const MAX_USER_AGENT_LENGTH = 512;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
 });
+
+let publicMigrationGate: Promise<void> | null = null;
+function assertPublicMigrationGate(): Promise<void> {
+  if (process.env.NODE_ENV === "test") {
+    return Promise.resolve();
+  }
+
+  if (!publicMigrationGate) {
+    publicMigrationGate = (async () => {
+      try {
+        await assertRequiredSecurityMigrationsApplied();
+      } catch (error) {
+        publicMigrationGate = null;
+        throw error;
+      }
+    })();
+  }
+
+  return publicMigrationGate;
+}
+
 function publicFormRateLimitKey(
   c: Parameters<typeof getClientIp>[0],
   scope: "public_form_get" | "shared_link_get",
@@ -463,6 +487,10 @@ async function resolvePublishedPublicFormAccess(params: {
 // ── Router ───────────────────────────────────────────────────────────
 
 export const formsPublicRouter = createHonoApp()
+  .use(async (_c, next) => {
+    await assertPublicMigrationGate();
+    await next();
+  })
   // ── GET /public/:publicId ────────────────────────────────────────
   .get("/public/:publicId", publicFormGetRateLimit, async (c) => {
     const publicId = c.req.param("publicId");

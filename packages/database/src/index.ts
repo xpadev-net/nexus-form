@@ -20,5 +20,8 @@ export async function closeDatabase(): Promise<void> {
 
 export { sql } from "drizzle-orm";
 export * from "./auth-schema";
-export { runMigrations } from "./migrate";
+export {
+  assertRequiredSecurityMigrationsApplied,
+  runMigrations,
+} from "./migrate";
 export * from "./schema";

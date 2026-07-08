@@ -132,6 +132,8 @@
 - notes:
   - Final integration validation passed on updated `master` after ORCH-3 merge.
 
+
+
 ## Activity Log
 
 - 2026-07-05: Ledger created. Initial safe parallel work selected: ORCH-1 and ORCH-4.
@@ -595,6 +597,7 @@
   - Independent infra/security slice for findings #6, #10, #21, and #22.
   - Worker must create and keep an explicit Codex goal before continuing implementation.
   - Initial worker stopped with `systemError` under GPT-5.3-Codex-Spark before meaningful local changes. Parent resumed the same thread/worktree with `gpt-5.5` and `medium` thinking.
+  - Active branch work is scoped to security finding #6, #10, #21, and #22 fixes.
   - Worker reported head `8e3d39cfe0400bbd249e083553957cc19245aa8d` with validation, independent review, and `gh-review-hook 636` exit 0 from the worker. Parent checked PR state before starting deep merge gate and found PR #636 still draft (`isDraft=true`), `reviewDecision` empty, and `mergeStateStatus` UNKNOWN. Per merge-gate policy, the PR was returned to the worker to make it ready for review only when appropriate, merge `origin/master` normally if needed, rerun validation/hook, and re-report.
 
 ### SUBMIT-4: Rename submit-transition action labels
