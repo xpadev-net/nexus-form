@@ -39,3 +39,11 @@
 - root cause: Worker delegation prompts described the task, but did not require the worker to create a Codex goal that persists across turns and resumptions.
 - fix: Add a required instruction to worker delegation prompts: create a goal for the delegated task before implementation and keep it active until merge-ready, blocked, or intentionally stopped.
 - prevention: Before starting or resuming a worker, verify the delegation includes goal setup. If an already-running worker lacks that instruction, send a follow-up asking it to create the task goal before continuing.
+
+## 2026-07-08: Launch implementation workers with gpt-5.5 medium
+
+- tags: orchestration, worker-delegation, model-selection
+- symptom: A replacement implementation worker was started without explicitly setting the requested model and reasoning effort.
+- root cause: The parent reused the default create-thread path after restarting a broken worker instead of applying the desired implementation-worker model default.
+- fix: Start implementation worker threads with `model: gpt-5.5` and `thinking: medium`; if a model-unspecified replacement was just queued, supersede it and mark it abandoned in the ledger.
+- prevention: Before creating any implementation worker, check the create-thread call includes `model: gpt-5.5` and `thinking: medium`. Non-implementation orchestration/status work can continue without this default unless explicitly requested.

@@ -197,6 +197,14 @@
   - Summary: Dispatched PATTERN-1 worker for shared pattern mismatch modes, choice other validation contract, and export metadata types.
   - Validation evidence: Pending worker validation.
   - Notes: Worker pending worktree `local:286640af-0ee5-4a73-8683-5e733178d870`, branch `codex/pattern-validation-contract`.
+- 2026-07-08 Task_1 completed.
+  - Summary: PATTERN-1 landed shared pattern mismatch modes, choice other validation contract, and export metadata types.
+  - Validation evidence: Parent merge gate reran focused shared tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 633`.
+  - Notes: PR #633 squash-merged as `a842caa06059cefc9280bcfedf56a153233e280f`; Task_2 and Task_3 remain active.
+- 2026-07-08 Work continued.
+  - Summary: Preparing PATTERN-2 worker for API/Web validation behavior alignment.
+  - Validation evidence: Pending worker validation.
+  - Notes: Worker must create an explicit Codex goal before implementation.
 
 ## Decision Log
 - 2026-07-06 Decision:
