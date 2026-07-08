@@ -77,12 +77,23 @@ function isOpenEndedQuantifier(pattern: string, index: number): boolean {
   return pattern.slice(index + 1, endIndex).includes(",");
 }
 
+function isEscapedRegexCharacter(pattern: string, index: number): boolean {
+  let slashCount = 0;
+  for (
+    let slashIndex = index - 1;
+    slashIndex >= 0 && pattern[slashIndex] === "\\";
+    slashIndex -= 1
+  ) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
+}
+
 function hasNestedQuantifier(pattern: string): boolean {
   let inCharacterClass = false;
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index];
-    const previous = pattern[index - 1];
-    if (previous === "\\") continue;
+    if (isEscapedRegexCharacter(pattern, index)) continue;
     if (char === "[") {
       inCharacterClass = true;
       continue;
@@ -103,7 +114,7 @@ function hasNestedQuantifier(pattern: string): boolean {
       const groupChar = pattern[groupIndex];
       const groupPrevious = pattern[groupIndex - 1];
       if (groupChar === undefined) continue;
-      if (groupPrevious === "\\") continue;
+      if (isEscapedRegexCharacter(pattern, groupIndex)) continue;
       if (groupChar === "[") {
         inCharacterClass = true;
         continue;
