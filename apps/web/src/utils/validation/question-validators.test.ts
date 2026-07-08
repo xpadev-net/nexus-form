@@ -258,6 +258,37 @@ describe("question validators", () => {
     expect(result).toEqual({ is_valid: true, errors: [] });
   });
 
+  it("keeps email template validation blocking unless legacy mismatch allowance is enabled", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        patternTemplate: "email",
+        patternMismatchMode: "hidden",
+        allowPatternMismatch: false,
+      }),
+      { question_type: "short_text", value: "not-an-email" },
+    );
+
+    expect(result.is_valid).toBe(false);
+    expect(result.errors.map((error) => error.code)).toEqual(["EMAIL_INVALID"]);
+  });
+
+  it("allows email template mismatches when legacy mismatch allowance is enabled", () => {
+    const result = validateShortText(
+      shortTextQuestion({
+        type: "short_text",
+        required: false,
+        patternTemplate: "email",
+        patternMismatchMode: "hidden",
+        allowPatternMismatch: true,
+      }),
+      { question_type: "short_text", value: "not-an-email" },
+    );
+
+    expect(result).toEqual({ is_valid: true, errors: [] });
+  });
+
   it("does not reject or throw when short_text has an invalid regex pattern", () => {
     const result = validateShortText(
       shortTextQuestion({

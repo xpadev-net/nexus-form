@@ -368,7 +368,7 @@ export const validateShortText = (
     const mismatchMode = normalizePatternMismatchMode(shortTextValidation);
     if (mismatchMode === "warn") {
       warnings.push(emailInvalid);
-    } else if (mismatchMode === "block") {
+    } else if (!shortTextValidation?.allowPatternMismatch) {
       errors.push(emailInvalid);
     }
   }
