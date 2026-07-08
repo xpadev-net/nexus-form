@@ -15,7 +15,6 @@ SET @currentConfigJsonColumns = (
     AND COLUMN_NAME = 'configJson'
 );--> statement-breakpoint
 DROP TABLE IF EXISTS `ConfigJsonColumnTypePreflightFailure`;--> statement-breakpoint
---> statement-breakpoint
 CREATE TABLE `ConfigJsonColumnTypePreflightFailure` (
   `id` varchar(128) NOT NULL,
   `reason` varchar(255) NOT NULL,
@@ -49,4 +48,4 @@ SET @alterSql = IF(
 );--> statement-breakpoint
 PREPARE alterColumnStmt FROM @alterSql;--> statement-breakpoint
 EXECUTE alterColumnStmt;--> statement-breakpoint
-DEALLOCATE PREPARE alterColumnStmt;--> statement-breakpoint
+DEALLOCATE PREPARE alterColumnStmt;
