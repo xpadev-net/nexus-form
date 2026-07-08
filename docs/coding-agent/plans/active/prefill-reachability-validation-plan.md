@@ -222,6 +222,14 @@
   - Summary: Dispatched PREFILL-1 worker for the shared reachability helper and frontend paging parity.
   - Validation evidence: Pending worker validation.
   - Notes: Worker pending worktree `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220`, branch `codex/prefill-reachability-core`.
+- 2026-07-08 Task_1 completed.
+  - Summary: PREFILL-1 landed the shared reachability helper, frontend paging parity, and missing-value includes rule fix.
+  - Validation evidence: Parent merge gate reran focused shared/web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 631`.
+  - Notes: PR #631 squash-merged as `35ca14209dbf0cfaa082928521f86883257005cd`; Task_2 and Task_3 remain active.
+- 2026-07-08 Work continued.
+  - Summary: Preparing PREFILL-2 and PREFILL-3 workers for prefill generation filtering and public submit rejection.
+  - Validation evidence: Pending worker validation.
+  - Notes: Workers must create explicit Codex goals before implementation.
 
 ## Decision Log
 - 2026-07-06 Decision:

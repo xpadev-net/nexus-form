@@ -394,6 +394,14 @@
   - Summary: Dispatched SEC-6 worker for telemetry finding verification/regression coverage while other active security-overlap work remains in separate feature plans.
   - Validation evidence: Pending worker validation.
   - Notes: Worker pending worktree `local:a80d72c2-5f3b-49c8-aa1f-0f0bf541bc27`, branch `codex/sec-telemetry-token-regressions`.
+- 2026-07-08 Completed security slices.
+  - Summary: SEC-2, SEC-3, and SEC-6 have landed for Drive traversal bounds, share-link pending-save replay prevention, and telemetry token regressions.
+  - Validation evidence: Parent merge gates for PR #617, PR #616, and PR #632 passed focused tests, repo validation, review hooks, and independent review.
+  - Notes: Remaining security plan tasks are Task_1, Task_4, Task_5, Task_7, and final Task_8 closure review. Some Task_4 constraints overlap active prefill/pattern/submit work.
+- 2026-07-08 Work continued.
+  - Summary: Preparing SEC-7 worker for CI/release/startup migration/migration-journal hardening.
+  - Validation evidence: Pending worker validation.
+  - Notes: Worker must create an explicit Codex goal before implementation.
 
 ## Decision Log
 - 2026-07-06 Decision:

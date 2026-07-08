@@ -444,6 +444,152 @@
   - Started as an independent security verification slice for findings #13, #17, and #18 while shared validation contract workers are active.
   - Completed after worker added the requested inline documentation for the intentional no-IP second burn pass and parent reran PR diff review, `$deep-review`, focused API/Web tests, `pnpm lint:fix`, `pnpm type-check`, full `pnpm test -- --silent`, and `gh-review-hook 632`.
 
+### PREFILL-2: Validate prefill generation against reachability
+- status: pending
+- branch: `codex/prefill-reachability-generator`
+- pending_worktree: `local:f55bf848-4faa-43d6-b303-6a73bf6293d4`
+- worker_thread: pending
+- source_plan_task: `prefill-reachability-validation-plan.md` Task_2
+- scope:
+  - `apps/web/src/lib/forms/prefill.ts`
+  - `apps/web/src/lib/forms/prefill.test.ts`
+  - `apps/web/src/components/forms/form-prefill-generator.tsx`
+  - `apps/web/src/components/forms/form-prefill-generator.test.tsx`
+- must_not_touch:
+  - public submit API enforcement
+  - shared reachability helper semantics except compile fixes
+  - pattern validation/export behavior
+- depends_on: [PREFILL-1]
+- required_validation:
+  - `pnpm --filter @nexus-form/web exec vitest run src/lib/forms/prefill.test.ts src/components/forms/form-prefill-generator.test.tsx`
+  - mocked/browser evidence for a branching prefill generator flow
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started after PREFILL-1 merged because shared reachability semantics are available.
+  - Worker must create and keep an explicit Codex goal before continuing implementation.
+
+### PREFILL-3: Reject unreachable answers on public submit
+- status: pending
+- branch: `codex/prefill-public-submit-reachability`
+- pending_worktree: `local:3cf43411-bd69-4ecc-bcac-a37aed6581b0`
+- worker_thread: pending
+- source_plan_task: `prefill-reachability-validation-plan.md` Task_3
+- scope:
+  - `apps/api/src/routes/forms-public.ts`
+  - `apps/api/src/lib/forms/response-validator.ts`
+  - `apps/api/src/lib/forms/plate-question-builder.ts`
+  - `apps/api/src/__tests__/forms-public-validation-outbox.test.ts`
+  - `apps/api/src/__tests__/authz-regression.test.ts`
+  - `apps/api/src/__tests__/response-validator.test.ts`
+  - `apps/web/src/components/forms/public-form-page.tsx`
+  - `apps/web/src/components/forms/public-form-page.test.tsx`
+- must_not_touch:
+  - prefill generator UI/lib
+  - pattern validation/export behavior
+  - broad completion-page or appearance redesign
+- depends_on: [PREFILL-1]
+- required_validation:
+  - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-public-validation-outbox.test.ts src/__tests__/authz-regression.test.ts src/__tests__/response-validator.test.ts`
+  - `pnpm --filter @nexus-form/web exec vitest run src/components/forms/public-form-page.test.tsx`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started after PREFILL-1 merged so API can recompute reachability from shared logic.
+  - Worker must create and keep an explicit Codex goal before continuing implementation.
+
+### PATTERN-2: Align API and frontend validation behavior
+- status: pending
+- branch: `codex/pattern-validation-behavior`
+- pending_worktree: `local:ea76082e-3c57-47cc-88d3-6a44ad5f1890`
+- worker_thread: pending
+- source_plan_task: `pattern-other-validation-output-plan.md` Task_2
+- scope:
+  - `apps/api/src/lib/forms/response-validator.ts`
+  - `apps/api/src/lib/forms/block-validation.ts`
+  - `apps/api/src/__tests__/response-validator.test.ts`
+  - `apps/api/src/__tests__/block-validation.test.ts`
+  - `apps/web/src/utils/validation/question-validators.ts`
+  - `apps/web/src/components/editor/plugins/form-questions/**`
+  - `apps/web/src/components/forms/form-body.tsx`
+  - `apps/web/src/utils/validation/question-validators.test.ts`
+  - `apps/web/src/components/editor/plate-editor-internal.test.tsx`
+- must_not_touch:
+  - response export/Sheets output consumption
+  - prefill reachability enforcement
+  - completion/appearance UI unrelated to validation behavior
+- depends_on: [PATTERN-1]
+- required_validation:
+  - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/response-validator.test.ts src/__tests__/block-validation.test.ts`
+  - `pnpm --filter @nexus-form/web exec vitest run src/utils/validation/question-validators.test.ts src/components/editor/plate-editor-internal.test.tsx`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started after PATTERN-1 merged; Task_3 export/admin exposure remains blocked on this behavior slice.
+  - Worker must create and keep an explicit Codex goal before continuing implementation.
+
+### SEC-7: Harden CI, release workflow, startup migrations, and migration journal
+- status: pending
+- branch: `codex/sec-ci-release-migration-hardening`
+- pending_worktree: `local:8e955967-632f-4019-9d40-c06e831351ed`
+- worker_thread: pending
+- source_plan_task: `security-findings-remediation-plan.md` Task_7
+- scope:
+  - `package.json`
+  - `.github/workflows/ci.yml`
+  - `.github/workflows/release.yml`
+  - `docker/start.mjs`
+  - `start.sh`
+  - `k8s/base/api-migration-job.yaml`
+  - `packages/database/drizzle/meta/_journal.json`
+  - `packages/database/drizzle/0012_config_json_column_type.sql`
+  - `packages/database/drizzle/0013_active_snapshot_structure_live_security_compat.sql`
+  - `packages/database/src/migrate.ts`
+  - `apps/api/src/routes/forms-public.ts`
+  - `apps/api/src/__tests__/database-migration-journal.test.ts`
+  - `apps/api/src/__tests__/database-snapshot-structure-migration.test.ts`
+- must_not_touch:
+  - runtime validation behavior unrelated to startup/migration gates
+  - prefill/pattern/Plate UI work
+  - upload/S3/media policy
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/api exec vitest run src/__tests__/database-migration-journal.test.ts src/__tests__/database-snapshot-structure-migration.test.ts`
+  - `pnpm type-check`
+  - `pnpm lint:fix`
+  - `pnpm test -- --silent`
+- notes:
+  - Independent infra/security slice for findings #6, #10, #21, and #22.
+  - Worker must create and keep an explicit Codex goal before continuing implementation.
+
+### SUBMIT-4: Rename submit-transition action labels
+- status: pending
+- branch: `codex/submit-transition-labels`
+- pending_worktree: `local:a65e64cb-1437-4344-a1fe-54cbb924e235`
+- worker_thread: pending
+- source_plan_task: `submit-completion-appearance-plan.md` Task_4
+- scope:
+  - `apps/web/src/components/forms/logic-action-builder.tsx`
+  - `apps/web/src/components/forms/logic-action-builder.test.tsx`
+  - `apps/web/src/components/ui/form-question-nodes/editor-controls.tsx`
+  - `apps/web/src/components/editor/plate-editor-internal.test.tsx`
+- must_not_touch:
+  - underlying `{ type: "submit" }` payload contract
+  - completion target API/runtime behavior
+  - broad Plate deletion/diff/comment work
+- depends_on: []
+- required_validation:
+  - `pnpm --filter @nexus-form/web exec vitest run src/components/forms/logic-action-builder.test.tsx src/components/editor/plate-editor-internal.test.tsx`
+  - `pnpm lint:fix`
+  - `pnpm type-check`
+  - `pnpm test -- --silent`
+- notes:
+  - Started as the narrowest draft-plan task with low conflict risk.
+  - Worker must create and keep an explicit Codex goal before continuing implementation.
+
 ## Activity Log
 
 - 2026-07-08: Started PREFILL-1 worker as pending worktree `local:3e7b16ef-b3b5-4316-be9b-e5d18f9c3220` on branch `codex/prefill-reachability-core`.
@@ -459,6 +605,8 @@
 - 2026-07-08: PATTERN-1 opened PR #633 at head `2f708d8f37d420ebf96d17c715ebefa9b2508d23`; worker is active after `gh-review-hook 633` returned scoped shared-contract findings, with follow-up commits and a normal `origin/master` merge still local while validation continues. No parent merge gate has started for PATTERN-1.
 - 2026-07-08: SEC-6 worker reported the Greptile documentation follow-up complete at head `c1138c0fe748f27fe644d53d3969f42e46b15743`; parent reran `gh-review-hook 632` successfully after prior diff/deep-review and validation gates, then squash-merged PR #632 as merge commit `d595ad74e7e7792a58b24158bcd588e383900f0e`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
 - 2026-07-08: PATTERN-1 worker reported merge-ready for PR #633 at head `022eae9729f59a8a3d738d834d2eba1503ee35ed`; parent reran PR diff review, `$deep-review`, `gh-review-hook 633`, focused shared tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #633 as merge commit `a842caa06059cefc9280bcfedf56a153233e280f` and archived worker thread `019f3db3-fb8d-7922-9cbc-cd308aa4619b`. Local branch deletion was skipped because the worker worktree still had the branch checked out.
+- 2026-07-08: Reviewed all files in `docs/coding-agent/plans/active/`. No active plan is fully implemented yet; PREFILL-1, PATTERN-1, SEC-2, SEC-3, and SEC-6 are completed slices, while prefill Task_2/Task_3, pattern Task_2/Task_3, security Task_1/Task_4/Task_5/Task_7/Task_8, and draft Plate/submit tasks remain.
+- 2026-07-08: Started the next low-conflict wave as pending worker tasks: PREFILL-2 (`codex/prefill-reachability-generator`), PREFILL-3 (`codex/prefill-public-submit-reachability`), PATTERN-2 (`codex/pattern-validation-behavior`), SEC-7 (`codex/sec-ci-release-migration-hardening`), and SUBMIT-4 (`codex/submit-transition-labels`). Each worker must create an explicit Codex goal before implementation.
 - 2026-07-06: Started SEC-3 worker as pending worktree `local:3b832914-09c7-4a56-910e-37cf91d6e5b8` on branch `codex/sec-share-link-pending-save-replay`.
 - 2026-07-06: SEC-3 worker resolved to thread `019f336e-c2c5-7b11-bb93-2f35453144e4` in worktree `/Users/xpadev/.codex/worktrees/b854/nexus-form`; it stopped after branch creation without a concrete blocker, so startup stability follow-up was sent instructing it to continue implementation and report back before any future stop.
 - 2026-07-05 18:19Z: SEC-3 worker opened draft PR #616 at head `0af93b72837ac8efca5d628bfc13ff2b09ed4e69` after reporting targeted web/API tests, lint, type-check, full `pnpm test --silent`, and independent review passed. GitHub CI checks are in progress and worker remains active running `gh-review-hook 616`.
