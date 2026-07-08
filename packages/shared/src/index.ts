@@ -83,6 +83,7 @@ export {
   PATTERN_MISMATCH_MODES,
   PatternMismatchMode,
   ShortTextCompatibleValidationConfig,
+  type ShortTextCompatibleValidationConfigInput,
   toPlateQuestionType,
 } from "./forms/form-block";
 export type {

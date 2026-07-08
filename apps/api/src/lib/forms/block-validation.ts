@@ -1,3 +1,4 @@
+import { PATTERN_MISMATCH_MODES } from "@nexus-form/shared";
 import type { Block, BlockType } from "../../types/domain/form-block";
 import {
   MIN_OPTIONS_COUNT,
@@ -6,7 +7,6 @@ import {
 
 // 選択肢型の質問タイプの定数
 const CHOICE_QUESTION_TYPES = ["radio", "checkbox", "dropdown"] as const;
-const PATTERN_MISMATCH_MODES = ["block", "warn", "hidden"] as const;
 
 // チェックボックスの最小選択肢数
 const MIN_CHECKBOX_OPTIONS_COUNT = 1;

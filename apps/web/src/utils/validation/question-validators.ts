@@ -4,8 +4,8 @@ import {
   isBlankResponseValue,
   isBlockType,
   normalizePatternMismatchMode,
-  type PatternMismatchMode,
   parseFiniteResponseNumber,
+  type ShortTextCompatibleValidationConfigInput as ShortTextCompatibleValidation,
   textMatchesPattern,
 } from "@nexus-form/shared";
 import { getPatternTemplate } from "@/lib/constants/validation-patterns";
@@ -61,15 +61,6 @@ const createValidationError = (
   code,
   value,
 });
-
-type ShortTextCompatibleValidation = {
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-  patternTemplate?: string;
-  patternMismatchMode?: PatternMismatchMode;
-  allowPatternMismatch?: boolean;
-};
 
 function isOpenEndedQuantifier(pattern: string, index: number): boolean {
   const endIndex = pattern.indexOf("}", index + 1);

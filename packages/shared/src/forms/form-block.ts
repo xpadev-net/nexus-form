@@ -241,6 +241,9 @@ export const ShortTextCompatibleValidationConfig = BaseValidationConfig.extend({
 export type ShortTextCompatibleValidationConfig = z.infer<
   typeof ShortTextCompatibleValidationConfig
 >;
+export type ShortTextCompatibleValidationConfigInput = z.input<
+  typeof ShortTextCompatibleValidationConfig
+>;
 
 // 短文入力のバリデーション設定
 export const ShortTextValidationConfig =

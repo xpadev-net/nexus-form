@@ -4,6 +4,9 @@ import {
   fromPlateQuestionType,
   isCompletionTargetPage,
   isPlateQuestionType,
+  normalizePatternMismatchMode,
+  PatternMismatchMode,
+  type PatternMismatchMode as PatternMismatchModeValue,
   splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import { ChevronDown, ChevronRight, Plus, Trash2 } from "lucide-react";
@@ -454,7 +457,7 @@ export function ShortTextPatternEditor() {
     | {
         patternTemplate?: string;
         pattern?: string;
-        patternMismatchMode?: "block" | "warn" | "hidden";
+        patternMismatchMode?: PatternMismatchModeValue;
         allowPatternMismatch?: boolean;
         placeholder?: string;
       }
@@ -463,11 +466,7 @@ export function ShortTextPatternEditor() {
   const NONE_SENTINEL = "__none__";
   const templateId = validation?.patternTemplate || NONE_SENTINEL;
   const isCustom = templateId === CUSTOM_TEMPLATE_ID;
-  const mismatchMode = validation?.patternMismatchMode
-    ? validation.patternMismatchMode
-    : validation?.allowPatternMismatch
-      ? "hidden"
-      : "block";
+  const mismatchMode = normalizePatternMismatchMode(validation);
 
   const patternError = useMemo(() => {
     if (!isCustom || !validation?.pattern) {
@@ -560,10 +559,7 @@ export function ShortTextPatternEditor() {
             <Select
               value={mismatchMode}
               onValueChange={(mode) => {
-                const patternMismatchMode = mode as
-                  | "block"
-                  | "warn"
-                  | "hidden";
+                const patternMismatchMode = PatternMismatchMode.parse(mode);
                 update({
                   patternMismatchMode,
                   allowPatternMismatch: patternMismatchMode === "hidden",

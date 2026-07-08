@@ -257,7 +257,7 @@ export function FormQuestionErrorMessage({
         "mt-2 text-sm outline-none",
         feedbackMessage.kind === "error"
           ? "text-destructive"
-          : "text-amber-700",
+          : "text-amber-700 dark:text-amber-400",
       )}
       data-question-error-for={
         feedbackMessage.kind === "error" ? questionId : undefined

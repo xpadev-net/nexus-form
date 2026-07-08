@@ -5,6 +5,7 @@ import {
   normalizePatternMismatchMode,
   parseFiniteResponseNumber,
   type ResponseDataItem,
+  type ShortTextCompatibleValidationConfigInput as ShortTextCompatibleValidation,
   textMatchesPattern,
   type ValidatorQuestion,
 } from "@nexus-form/shared";
@@ -33,15 +34,6 @@ function isSafeRegex(pattern: string): boolean {
     return false;
   }
 }
-
-type ShortTextCompatibleValidation = {
-  minLength?: number;
-  maxLength?: number;
-  pattern?: string;
-  patternTemplate?: string;
-  patternMismatchMode?: "block" | "warn" | "hidden";
-  allowPatternMismatch?: boolean;
-};
 
 function validateTextLength(
   value: string,
