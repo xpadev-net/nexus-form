@@ -104,8 +104,11 @@ describe("LogicActionBuilder", () => {
     const container = document.createElement("div");
     const onChange = vi.fn();
     const root = renderBuilder(container, { type: "next" }, onChange);
-
     const actionTypeSelect = container.querySelector("select");
+
+    expect(actionTypeSelect?.textContent).toContain("送信後セクションへ移動");
+    expect(actionTypeSelect?.textContent).not.toContain("送信する");
+
     act(() => {
       if (actionTypeSelect instanceof HTMLSelectElement) {
         actionTypeSelect.value = "submit";

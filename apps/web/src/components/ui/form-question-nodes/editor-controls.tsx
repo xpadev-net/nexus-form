@@ -1036,7 +1036,7 @@ function useEditorBlocks(): EditorBlock[] {
 const DEFAULT_ACTION_LABELS: Record<SectionTransitionAction["type"], string> = {
   next: "次のセクションに進む",
   jump_to_section: "セクションに移動",
-  submit: "フォームを送信",
+  submit: "送信後セクションへ移動",
 };
 
 export function SectionTransitionEditor({
