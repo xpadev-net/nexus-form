@@ -1112,12 +1112,17 @@
     detail: Verify admission parity across invitation and direct Better Auth entrypoints.
 
 ### Task_2: Require migration 0014 at startup
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-migration-gate-0014`
 - pending_worktree: `client-new-thread:6d8cc671-9a4f-46c5-b1f6-83372572fa75`
 - worker_thread: `019f4886-2401-76c2-94f2-c2e651effda5`
 - worktree: `/Users/xpadev/.codex/worktrees/7729/nexus-form`
+- pr: [#639](https://github.com/xpadev-net/nexus-form/pull/639)
+- head_sha: `c0b7f342abd13b9763da8d54aa76d5728749917b`
+- merge_commit: `c6350f4fef4fad354052c68a84ce902626409cb4`
+- hook_state: Worker and orchestrator `gh-review-hook 639` exited 0.
+- archived: attempted; Codex archive API did not return, so the thread must not be reused.
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1141,6 +1146,11 @@
     required: true
     owner: reviewer
     detail: Verify journal timestamp compatibility and fail-closed startup behavior.
+- completion_notes:
+  - Worker and independent Reviewer approved the canonical 0014 timestamp gate with no actionable findings.
+  - Parent deep-review found no actionable issues; targeted migration tests passed (2 files / 10 tests).
+  - Parent `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test --silent` passed; GitHub showed CLEAN, APPROVED, 0 behind, and all 10 checks successful immediately before merge.
+  - PR #639 was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`; remote worker branch deleted. Local branch remains owned by the worker worktree.
 
 ### Task_3: Reduce notification retry duplicate delivery
 - status: stopped
@@ -1293,6 +1303,7 @@
 - 2026-07-10: Started Wave 1 Task_1 through Task_5 as separate Codex worktrees; all five are resolving from current `master`. Task_6 remains unstarted pending Task_2 and Task_3 merge.
 - 2026-07-10: Startup stability check passed: Task_1 through Task_5 resolved to active worker threads in distinct worktrees and continued beyond onboarding.
 - 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
+- 2026-07-10: Task_2 PR #639 passed worker and parent merge gates and was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`. Task_6 is now unblocked.
 
 ## Decision Log
 
