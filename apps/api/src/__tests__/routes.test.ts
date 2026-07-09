@@ -259,6 +259,7 @@ describe("API Route Integration Tests", () => {
         expect(setCookie).toContain("HttpOnly");
         expect(setCookie).toContain("SameSite=Lax");
         expect(setCookie).toContain("Max-Age=300");
+        expect(setCookie).not.toContain("Secure");
         const token = setCookie?.match(/invitation-token=([a-f0-9]{64})/)?.[1];
         expect(token).toBeDefined();
         expect(authMocks.createVerificationValue).toHaveBeenCalledWith(
@@ -277,6 +278,50 @@ describe("API Route Integration Tests", () => {
           delete process.env.SIGNUP_INVITATION_CODE;
         } else {
           process.env.SIGNUP_INVITATION_CODE = originalCode;
+        }
+      }
+    });
+
+    it.each([
+      {
+        url: "https://localhost/api/auth-ext/signin-with-invitation",
+        ip: "203.0.113.75",
+      },
+      {
+        url: "http://localhost/api/auth-ext/signin-with-invitation",
+        ip: "203.0.113.76",
+      },
+    ])("sets a Secure invitation cookie outside local HTTP development ($url)", async ({
+      url,
+      ip,
+    }) => {
+      const originalCode = process.env.SIGNUP_INVITATION_CODE;
+      const originalNodeEnv = process.env.NODE_ENV;
+      process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
+      process.env.NODE_ENV = "staging";
+
+      try {
+        const res = await app.request(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": ip,
+          },
+          body: JSON.stringify({ code: "valid-invitation-code" }),
+        });
+
+        expect(res.status).toBe(200);
+        expect(res.headers.get("set-cookie")).toContain("Secure");
+      } finally {
+        if (originalCode === undefined) {
+          delete process.env.SIGNUP_INVITATION_CODE;
+        } else {
+          process.env.SIGNUP_INVITATION_CODE = originalCode;
+        }
+        if (originalNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = originalNodeEnv;
         }
       }
     });
