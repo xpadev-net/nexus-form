@@ -1143,12 +1143,14 @@
     detail: Verify journal timestamp compatibility and fail-closed startup behavior.
 
 ### Task_3: Reduce notification retry duplicate delivery
-- status: in progress
+- status: stopped
 - type: impl
 - branch: `codex/reviewfix-notification-idempotency`
 - pending_worktree: `client-new-thread:c74f021d-cf08-46ae-9163-4407a5405df8`
 - worker_thread: `019f4886-2486-7261-b690-43e352495564`
 - worktree: `/Users/xpadev/.codex/worktrees/d563/nexus-form`
+- stopped_reason: A scoped claimed-before-POST design would trade duplicate delivery for silent notification loss; exactly-once cannot be guaranteed for Discord without downstream idempotency support.
+- disposition: No product-code changes or PR. Preserve at-least-once behavior and move end-to-end producer/delivery semantics into Task_6.
 - owns:
   - `apps/worker/src/handlers/form-submit-notifications.ts`
   - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
@@ -1259,12 +1261,15 @@
   - `apps/api/src/index.ts`
   - `apps/api/src/__tests__/forms-public*.test.ts`
   - `apps/api/src/lib/forms/__tests__/*outbox*.test.ts`
-- depends_on: [Task_2, Task_3]
+  - `apps/worker/src/handlers/form-submit-notifications.ts`
+  - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
+- depends_on: [Task_2]
 - acceptance:
   - Committed responses eventually enqueue enabled notification and Sheets jobs after transient Redis failure or API restart.
   - Recovery is idempotent across multiple API replicas and repeated sweeps.
   - Existing validation outbox behavior remains unchanged.
   - Response-limit rejection does not create an unreachable new FormSession row.
+  - Notification delivery remains explicitly at-least-once; generic webhooks retain a stable delivery ID for receiver-side dedupe, while unavoidable Discord duplicate risk is documented rather than converted into silent loss.
   - Migration and rolling-deploy behavior are documented and tested.
 - validation:
   - kind: command
@@ -1285,6 +1290,7 @@
 - 2026-07-10: Plan approved by explicit user request to proceed under `task-pr-orchestrator`; repository owner is `xpadev-net`, so autonomous PR creation and orchestrator-owned merge are allowed.
 - 2026-07-10: Started Wave 1 Task_1 through Task_5 as separate Codex worktrees; all five are resolving from current `master`. Task_6 remains unstarted pending Task_2 and Task_3 merge.
 - 2026-07-10: Startup stability check passed: Task_1 through Task_5 resolved to active worker threads in distinct worktrees and continued beyond onboarding.
+- 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
 
 ## Decision Log
 
@@ -1292,3 +1298,4 @@
 - 2026-07-10: Parent plan artifact is stored in this ledger rather than a separate active plan because `task-pr-orchestrator` limits parent mutations to the task ledger and merge lifecycle actions.
 - 2026-07-10: User changed future worker-launch policy from a fixed/default model to complexity-based routing. New/replacement workers must be classified low/medium/high and launched with explicit model and effort; Task_6 is classified high (`gpt-5.6-sol`, `xhigh`).
 - 2026-07-10: User capped worker routing at `gpt-5.6-sol` with `medium` effort and prohibited fast-oriented models. Low/medium tasks now use `gpt-5.6-terra` at low/medium effort; Task_6 remains high but is reduced to `gpt-5.6-sol` with `medium` effort.
+- 2026-07-10: For notification delivery, prefer explicit at-least-once semantics over a pre-send claim that creates silent loss. Stable delivery IDs mitigate generic webhook duplicates when receivers dedupe; Discord duplicates remain a documented downstream limitation.
