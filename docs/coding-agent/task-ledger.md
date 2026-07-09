@@ -1060,6 +1060,12 @@
 - non_goals:
   - Unconfirmed review hypotheses and unrelated refactors.
   - Dependency-update PRs #599, #600, and #614.
+- worker_model_routing:
+  - low: `gpt-5.6-luna` with `medium` effort for localized, mechanical, low-risk work.
+  - medium: `gpt-5.6-terra` with `high` effort for cross-module or non-obvious behavior/contract work.
+  - high: `gpt-5.6-sol` with `xhigh` effort for security, migrations/data integrity, concurrency/distributed recovery, multi-service boundaries, or broad rollback risk.
+  - Escalate one level when uncertainty is material, and record the classification rationale before every new or replacement worker launch.
+  - Existing Wave 1 workers keep their current model to avoid mid-task disruption.
 
 ## Task Waves
 
@@ -1238,6 +1244,10 @@
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
 - worker_thread: pending
+- complexity: high
+- model: `gpt-5.6-sol`
+- reasoning_effort: `xhigh`
+- model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
 - owns:
   - `packages/database/src/schema.ts`
   - `packages/database/drizzle/**`
@@ -1278,3 +1288,4 @@
 
 - 2026-07-10: Task_6 is sequenced after Task_2 and Task_3 because it overlaps database migration ownership and consumes notification delivery semantics; the other five tasks have disjoint primary ownership and may run in parallel.
 - 2026-07-10: Parent plan artifact is stored in this ledger rather than a separate active plan because `task-pr-orchestrator` limits parent mutations to the task ledger and merge lifecycle actions.
+- 2026-07-10: User changed future worker-launch policy from a fixed/default model to complexity-based routing. New/replacement workers must be classified low/medium/high and launched with explicit model and effort; Task_6 is classified high (`gpt-5.6-sol`, `xhigh`).
