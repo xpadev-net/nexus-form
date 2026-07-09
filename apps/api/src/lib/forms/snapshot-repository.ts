@@ -7,6 +7,7 @@ import {
   isPlateQuestionType,
 } from "@nexus-form/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
+import type { FormStructure } from "../../types/domain/form";
 import type {
   FormDiffResult,
   FormSnapshot,
@@ -189,6 +190,31 @@ export async function getSnapshotByVersion(
     ),
   });
   return row ? rowToSnapshot(row) : null;
+}
+
+export type SnapshotPreviewContent = {
+  plateContent: string;
+  version: number;
+  publishedAt: Date;
+  appearance: FormStructure["appearance"];
+  confirmation: FormStructure["confirmation"];
+};
+
+export async function getSnapshotPreviewByVersion(
+  formId: string,
+  version: number,
+): Promise<SnapshotPreviewContent | null> {
+  const snapshot = await getSnapshotByVersion(formId, version);
+  if (!snapshot) return null;
+
+  const structure = parseStoredStructure(snapshot.structureJson);
+  return {
+    plateContent: snapshot.plateContent,
+    version: snapshot.version,
+    publishedAt: snapshot.publishedAt,
+    appearance: structure.appearance,
+    confirmation: structure.confirmation,
+  };
 }
 
 // ── Write functions ─────────────────────────────────────────────────

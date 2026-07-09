@@ -30,11 +30,28 @@ const mockAppearance = vi.hoisted(() => ({
     show_question_numbers: true,
   },
 }));
+const historicalAppearance = vi.hoisted(() => ({
+  theme: {
+    primary_color: "#be123c",
+    accent_color: "#0f766e",
+    background_color: "#fff7ed",
+    font_family: "Noto Sans JP",
+  },
+  layout: {
+    width: "full" as const,
+    alignment: "left" as const,
+    spacing: "compact" as const,
+    show_progress_bar: false,
+    progress_position: "bottom" as const,
+    show_question_numbers: false,
+  },
+}));
 const formBodyProps = vi.hoisted(
   () =>
     [] as Array<{
       appearance?: FormAppearance;
       onSubmitRequest?: (data: FormSubmitRequestData) => void;
+      plateContent: string;
       submittedCompletionPageId?: string | null;
     }>,
 );
@@ -43,6 +60,18 @@ const queryMockState = vi.hoisted(() => ({
   loadingKeys: [] as string[],
   plateContent: "[]" as string,
   renderSubmitButton: false,
+  snapshotContent: null as {
+    appearance?: FormAppearance;
+    confirmation?: Record<string, unknown>;
+    plateContent: string;
+    publishedAt: string;
+    version: number;
+  } | null,
+  snapshots: [] as Array<{
+    isActive: boolean;
+    publishedAt: string;
+    version: number;
+  }>,
   useActualFormBody: false,
 }));
 const apiMocks = vi.hoisted(() => ({
@@ -120,6 +149,32 @@ vi.mock("@tanstack/react-query", () => ({
       isLoading: false,
     };
   },
+}));
+
+vi.mock("@/components/ui/select", () => ({
+  Select: ({
+    children,
+    onValueChange,
+    value,
+  }: {
+    children: ReactNode;
+    onValueChange?: (value: string) => void;
+    value?: string;
+  }) => (
+    <select
+      aria-label="プレビューバージョン"
+      value={value}
+      onChange={(event) => onValueChange?.(event.currentTarget.value)}
+    >
+      {children}
+    </select>
+  ),
+  SelectContent: ({ children }: { children: ReactNode }) => <>{children}</>,
+  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
+    <option value={value}>{children}</option>
+  ),
+  SelectTrigger: () => null,
+  SelectValue: () => null,
 }));
 
 vi.mock("@/components/forms/form-status-badge", () => ({
@@ -207,17 +262,13 @@ vi.mock("@/components/forms/form-body", async () => {
     FormBody: (props: {
       appearance?: FormAppearance;
       onSubmitRequest?: (data: FormSubmitRequestData) => void;
+      plateContent: string;
       submittedCompletionPageId?: string | null;
     }) => {
       formBodyProps.push(props);
       if (queryMockState.useActualFormBody) {
         return (
-          <actual.FormBody
-            {...props}
-            mode="preview"
-            plateContent={queryMockState.plateContent}
-            title="Preview form"
-          />
+          <actual.FormBody {...props} mode="preview" title="Preview form" />
         );
       }
       return (
@@ -258,7 +309,7 @@ vi.mock("@/contexts/form-response-context", async () =>
 );
 vi.mock("@/hooks/forms/use-snapshot-content", () => ({
   useSnapshotContent: () => ({
-    data: null,
+    data: queryMockState.snapshotContent,
     error: null,
     isError: false,
     isPending: false,
@@ -266,7 +317,10 @@ vi.mock("@/hooks/forms/use-snapshot-content", () => ({
 }));
 vi.mock("@/hooks/forms/use-snapshots", () => ({
   useSnapshots: () => ({
-    snapshotsQuery: { data: { snapshots: [] }, error: null },
+    snapshotsQuery: {
+      data: { snapshots: queryMockState.snapshots },
+      error: null,
+    },
   }),
 }));
 vi.mock("@/hooks/use-page-title", () => ({
@@ -296,6 +350,8 @@ describe("FormPreviewPage links", () => {
     queryMockState.loadingKeys = [];
     queryMockState.plateContent = "[]";
     queryMockState.renderSubmitButton = false;
+    queryMockState.snapshotContent = null;
+    queryMockState.snapshots = [];
     queryMockState.useActualFormBody = false;
     apiMocks.publicSubmitPost.mockReset();
     apiMocks.rpc.mockReset();
@@ -344,6 +400,152 @@ describe("FormPreviewPage links", () => {
     expect(html).toContain("--card:#ebebeb");
     expect(html).toContain("--primary:#2563eb");
     expect(html).toContain("--accent:#16a34a");
+  });
+
+  it("uses one historical snapshot for content, appearance, and confirmation", async () => {
+    const latestPlateContent = JSON.stringify([
+      { type: "p", children: [{ text: "最新の編集内容" }] },
+    ]);
+    const historicalPlateContent = JSON.stringify([
+      { type: "p", children: [{ text: "履歴版の内容" }] },
+    ]);
+    queryMockState.plateContent = latestPlateContent;
+    queryMockState.confirmation = {
+      title: "最新の確認タイトル",
+      message: "最新の確認メッセージ",
+    };
+    queryMockState.snapshots = [
+      {
+        version: 2,
+        publishedAt: "2026-07-01T00:00:00.000Z",
+        isActive: false,
+      },
+    ];
+    queryMockState.snapshotContent = {
+      version: 2,
+      publishedAt: "2026-07-01T00:00:00.000Z",
+      plateContent: historicalPlateContent,
+      appearance: historicalAppearance,
+      confirmation: {
+        title: "履歴版の確認タイトル",
+        message: "履歴版の確認メッセージ",
+      },
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(<FormPreviewPage />);
+    });
+    await act(async () => {
+      fireEvent.change(
+        getByRole(container, "combobox", { name: "プレビューバージョン" }),
+        { target: { value: "2" } },
+      );
+    });
+
+    expect(formBodyProps.at(-1)?.plateContent).toBe(historicalPlateContent);
+    expect(formBodyProps.at(-1)?.plateContent).not.toBe(latestPlateContent);
+    expect(formBodyProps.at(-1)?.appearance).toEqual(historicalAppearance);
+    const appearanceSurface = container.querySelector<HTMLElement>(
+      "[data-form-appearance-surface]",
+    );
+    expect(appearanceSurface?.style.getPropertyValue("--primary")).toBe(
+      "#be123c",
+    );
+    expect(appearanceSurface?.style.getPropertyValue("--primary")).not.toBe(
+      "#2563eb",
+    );
+
+    await act(async () => {
+      formBodyProps.at(-1)?.onSubmitRequest?.({
+        responses: [],
+        visitedQuestionIds: [],
+      });
+    });
+
+    expect(container.textContent).toContain("履歴版の確認タイトル");
+    expect(container.textContent).toContain("履歴版の確認メッセージ");
+    expect(container.textContent).not.toContain("最新の確認タイトル");
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("resolves historical completion targets against historical content", async () => {
+    const latestPlateContent = JSON.stringify([
+      {
+        type: "form_section_separator",
+        blockId: "latest-completion",
+        validation: {
+          default_action: { type: "submit", target_id: "latest-completion" },
+        },
+        children: [{ type: "p", children: [{ text: "最新完了" }] }],
+      },
+    ]);
+    const historicalPlateContent = JSON.stringify([
+      {
+        type: "form_section_separator",
+        blockId: "historical-completion",
+        validation: {
+          default_action: {
+            type: "submit",
+            target_id: "historical-completion",
+          },
+        },
+        children: [{ type: "p", children: [{ text: "履歴版完了" }] }],
+      },
+    ]);
+    queryMockState.plateContent = latestPlateContent;
+    queryMockState.snapshots = [
+      {
+        version: 2,
+        publishedAt: "2026-07-01T00:00:00.000Z",
+        isActive: false,
+      },
+    ];
+    queryMockState.snapshotContent = {
+      version: 2,
+      publishedAt: "2026-07-01T00:00:00.000Z",
+      plateContent: historicalPlateContent,
+      appearance: historicalAppearance,
+      confirmation: {
+        title: "履歴版の確認タイトル",
+        message: "履歴版の確認メッセージ",
+      },
+    };
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root: Root = createRoot(container);
+
+    await act(async () => {
+      root.render(<FormPreviewPage />);
+    });
+    await act(async () => {
+      fireEvent.change(
+        getByRole(container, "combobox", { name: "プレビューバージョン" }),
+        { target: { value: "2" } },
+      );
+    });
+    await act(async () => {
+      formBodyProps.at(-1)?.onSubmitRequest?.({
+        completionTargetPageId: "historical-completion",
+        responses: [],
+        visitedQuestionIds: [],
+      });
+    });
+
+    expect(formBodyProps.at(-1)?.submittedCompletionPageId).toBe(
+      "historical-completion",
+    );
+    expect(formBodyProps.at(-1)?.plateContent).toBe(historicalPlateContent);
+    expect(container.textContent).not.toContain("履歴版の確認タイトル");
+
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it("shows the preview completion target after submit without calling public submit", async () => {
