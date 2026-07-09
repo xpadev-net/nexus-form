@@ -1151,6 +1151,8 @@
 - worktree: `/Users/xpadev/.codex/worktrees/d563/nexus-form`
 - stopped_reason: A scoped claimed-before-POST design would trade duplicate delivery for silent notification loss; exactly-once cannot be guaranteed for Discord without downstream idempotency support.
 - disposition: No product-code changes or PR. Preserve at-least-once behavior and move end-to-end producer/delivery semantics into Task_6.
+- archived: true
+- closure_evidence: Worktree clean on `codex/reviewfix-notification-idempotency`; no open PR for the branch; worker thread archived.
 - owns:
   - `apps/worker/src/handlers/form-submit-notifications.ts`
   - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
