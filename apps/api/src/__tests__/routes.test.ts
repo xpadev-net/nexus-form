@@ -248,6 +248,7 @@ describe("API Route Integration Tests", () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Origin: "http://localhost:3000",
             "x-forwarded-for": "203.0.113.70",
           },
           body: JSON.stringify({ code: "valid-invitation-code" }),
@@ -285,26 +286,39 @@ describe("API Route Integration Tests", () => {
     it.each([
       {
         url: "https://localhost/api/auth-ext/signin-with-invitation",
+        origin: "http://localhost:3000",
+        nodeEnv: "test",
         ip: "203.0.113.75",
       },
       {
         url: "http://localhost/api/auth-ext/signin-with-invitation",
+        origin: "http://localhost:3000",
+        nodeEnv: "staging",
         ip: "203.0.113.76",
       },
-    ])("sets a Secure invitation cookie outside local HTTP development ($url)", async ({
+      {
+        url: "http://localhost/api/auth-ext/signin-with-invitation",
+        origin: "https://app.example.com",
+        nodeEnv: "development",
+        ip: "203.0.113.77",
+      },
+    ])("sets a Secure invitation cookie outside local HTTP development ($url, $origin, $nodeEnv)", async ({
       url,
+      origin,
+      nodeEnv,
       ip,
     }) => {
       const originalCode = process.env.SIGNUP_INVITATION_CODE;
       const originalNodeEnv = process.env.NODE_ENV;
       process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
-      process.env.NODE_ENV = "staging";
+      process.env.NODE_ENV = nodeEnv;
 
       try {
         const res = await app.request(url, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            Origin: origin,
             "x-forwarded-for": ip,
           },
           body: JSON.stringify({ code: "valid-invitation-code" }),

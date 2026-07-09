@@ -25,11 +25,23 @@ const signInWithInvitationSchema = z.object({
 
 const loopbackHostnames = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
-const shouldUseSecureInvitationCookie = (requestUrl: string): boolean => {
-  const url = new URL(requestUrl);
+const isHttpLoopbackUrl = (value: string | undefined): boolean => {
+  if (!value) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && loopbackHostnames.has(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const shouldUseSecureInvitationCookie = (
+  requestUrl: string,
+  requestOrigin: string | undefined,
+): boolean => {
   const isLocalHttpDevelopment =
-    url.protocol === "http:" &&
-    loopbackHostnames.has(url.hostname) &&
+    isHttpLoopbackUrl(requestUrl) &&
+    isHttpLoopbackUrl(requestOrigin) &&
     (process.env.NODE_ENV === undefined ||
       process.env.NODE_ENV === "development" ||
       process.env.NODE_ENV === "test");
@@ -157,7 +169,9 @@ export const authRouter = createHonoApp()
           "Path=/",
           "HttpOnly",
           "SameSite=Lax",
-          shouldUseSecureInvitationCookie(c.req.url) ? "Secure" : null,
+          shouldUseSecureInvitationCookie(c.req.url, c.req.header("Origin"))
+            ? "Secure"
+            : null,
           `Max-Age=${INVITATION_AUTHORIZATION_TTL_SECONDS}`,
         ]
           .filter(Boolean)
