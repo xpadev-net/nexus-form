@@ -1074,7 +1074,8 @@
 - type: impl
 - branch: `codex/reviewfix-invitation-admission`
 - pending_worktree: `client-new-thread:34fc942a-9415-44e3-b3ee-4a2618fc8f0d`
-- worker_thread: resolving
+- worker_thread: `019f4886-2417-70a0-ae6c-54609dcf4460`
+- worktree: `/Users/xpadev/.codex/worktrees/8f6c/nexus-form`
 - owns:
   - `apps/api/src/routes/auth.ts`
   - `apps/api/src/lib/auth.ts`
@@ -1107,7 +1108,8 @@
 - type: impl
 - branch: `codex/reviewfix-migration-gate-0014`
 - pending_worktree: `client-new-thread:6d8cc671-9a4f-46c5-b1f6-83372572fa75`
-- worker_thread: resolving
+- worker_thread: `019f4886-2401-76c2-94f2-c2e651effda5`
+- worktree: `/Users/xpadev/.codex/worktrees/7729/nexus-form`
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1137,7 +1139,8 @@
 - type: impl
 - branch: `codex/reviewfix-notification-idempotency`
 - pending_worktree: `client-new-thread:c74f021d-cf08-46ae-9163-4407a5405df8`
-- worker_thread: resolving
+- worker_thread: `019f4886-2486-7261-b690-43e352495564`
+- worktree: `/Users/xpadev/.codex/worktrees/d563/nexus-form`
 - owns:
   - `apps/worker/src/handlers/form-submit-notifications.ts`
   - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
@@ -1165,7 +1168,8 @@
 - type: impl
 - branch: `codex/reviewfix-historical-preview`
 - pending_worktree: `client-new-thread:b18b4630-4e85-4e27-bd56-ce82c3bdcef6`
-- worker_thread: resolving
+- worker_thread: `019f4886-2414-77c3-afd0-6a3f5d3a4087`
+- worktree: `/Users/xpadev/.codex/worktrees/c123/nexus-form`
 - owns:
   - `apps/api/src/routes/forms-snapshots.ts`
   - `apps/api/src/lib/forms/snapshot-repository.ts`
@@ -1202,7 +1206,8 @@
 - type: impl
 - branch: `codex/reviewfix-ci-e2e-coverage`
 - pending_worktree: `client-new-thread:29ba9181-da96-4ca7-815c-27db8d7b3d3f`
-- worker_thread: resolving
+- worker_thread: `019f4886-2401-76c2-94f2-c301df5d50ef`
+- worktree: `/Users/xpadev/.codex/worktrees/141c/nexus-form`
 - owns:
   - `package.json`
   - `.github/workflows/ci.yml`
@@ -1267,6 +1272,7 @@
 
 - 2026-07-10: Plan approved by explicit user request to proceed under `task-pr-orchestrator`; repository owner is `xpadev-net`, so autonomous PR creation and orchestrator-owned merge are allowed.
 - 2026-07-10: Started Wave 1 Task_1 through Task_5 as separate Codex worktrees; all five are resolving from current `master`. Task_6 remains unstarted pending Task_2 and Task_3 merge.
+- 2026-07-10: Startup stability check passed: Task_1 through Task_5 resolved to active worker threads in distinct worktrees and continued beyond onboarding.
 
 ## Decision Log
 
