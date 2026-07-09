@@ -4,6 +4,7 @@ import {
   ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
   assertRequiredSecurityMigrationsAppliedWithPool,
   CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+  FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
   LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP,
   REQUIRED_SECURITY_MIGRATION_TAGS,
   shouldNormalizeConfigJsonMigrationTimestamp,
@@ -169,6 +170,14 @@ describe("database migration journal", () => {
     expect(activeSnapshotStructure.when).toBe(
       ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
     );
+
+    const formStructureUniqueConstraints = findJournalEntryOrThrow(
+      journal,
+      "0014_certain_speed_demon",
+    );
+    expect(formStructureUniqueConstraints.when).toBe(
+      FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+    );
   });
 
   it("normalizes the legacy 0012 timestamp only after the configJson rename already ran", () => {
@@ -231,7 +240,10 @@ describe("database migration journal", () => {
       assertRequiredSecurityMigrationsAppliedWithPool(
         createFakeMigrationPool({
           hasDrizzleMigrationsTable: true,
-          createdAts: [CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP],
+          createdAts: [
+            CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+            FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+          ],
         }),
       ),
     ).rejects.toThrow(
@@ -242,11 +254,28 @@ describe("database migration journal", () => {
       assertRequiredSecurityMigrationsAppliedWithPool(
         createFakeMigrationPool({
           hasDrizzleMigrationsTable: true,
-          createdAts: [ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP],
+          createdAts: [
+            ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+            FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+          ],
         }),
       ),
     ).rejects.toThrow(
       "Required security migrations were not applied: 0012_config_json_column_type",
+    );
+
+    await expect(
+      assertRequiredSecurityMigrationsAppliedWithPool(
+        createFakeMigrationPool({
+          hasDrizzleMigrationsTable: true,
+          createdAts: [
+            CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+            ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+          ],
+        }),
+      ),
+    ).rejects.toThrow(
+      "Required security migrations were not applied: 0014_certain_speed_demon",
     );
   });
 
@@ -259,6 +288,7 @@ describe("database migration journal", () => {
             LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP,
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+            FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
@@ -275,6 +305,7 @@ describe("database migration journal", () => {
           createdAts: [
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+            FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
