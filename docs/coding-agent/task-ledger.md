@@ -1070,10 +1070,11 @@
 ## Tasks
 
 ### Task_1: Enforce invitation-gated OAuth registration
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-invitation-admission`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:34fc942a-9415-44e3-b3ee-4a2618fc8f0d`
+- worker_thread: resolving
 - owns:
   - `apps/api/src/routes/auth.ts`
   - `apps/api/src/lib/auth.ts`
@@ -1102,10 +1103,11 @@
     detail: Verify admission parity across invitation and direct Better Auth entrypoints.
 
 ### Task_2: Require migration 0014 at startup
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-migration-gate-0014`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:6d8cc671-9a4f-46c5-b1f6-83372572fa75`
+- worker_thread: resolving
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1131,10 +1133,11 @@
     detail: Verify journal timestamp compatibility and fail-closed startup behavior.
 
 ### Task_3: Reduce notification retry duplicate delivery
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-notification-idempotency`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:c74f021d-cf08-46ae-9163-4407a5405df8`
+- worker_thread: resolving
 - owns:
   - `apps/worker/src/handlers/form-submit-notifications.ts`
   - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
@@ -1158,10 +1161,11 @@
     detail: Verify retry/idempotency claims against realistic crash and ambiguous-response paths.
 
 ### Task_4: Make historical preview version-consistent
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-historical-preview`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:b18b4630-4e85-4e27-bd56-ce82c3bdcef6`
+- worker_thread: resolving
 - owns:
   - `apps/api/src/routes/forms-snapshots.ts`
   - `apps/api/src/lib/forms/snapshot-repository.ts`
@@ -1194,10 +1198,11 @@
     detail: Verify API/UI snapshot contract and no cross-version field mixing.
 
 ### Task_5: Run critical E2E flows in PR CI
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-ci-e2e-coverage`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:29ba9181-da96-4ca7-815c-27db8d7b3d3f`
+- worker_thread: resolving
 - owns:
   - `package.json`
   - `.github/workflows/ci.yml`
@@ -1261,6 +1266,7 @@
 ## Progress Log
 
 - 2026-07-10: Plan approved by explicit user request to proceed under `task-pr-orchestrator`; repository owner is `xpadev-net`, so autonomous PR creation and orchestrator-owned merge are allowed.
+- 2026-07-10: Started Wave 1 Task_1 through Task_5 as separate Codex worktrees; all five are resolving from current `master`. Task_6 remains unstarted pending Task_2 and Task_3 merge.
 
 ## Decision Log
 
