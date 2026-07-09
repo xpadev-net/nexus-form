@@ -163,6 +163,26 @@ describe("snapshot preview content route", () => {
     });
   });
 
+  it("returns content when invalid legacy settings were omitted", async () => {
+    mocks.getSnapshotPreviewByVersion.mockResolvedValue({
+      plateContent: '[{"type":"p","children":[{"text":"legacy"}]}]',
+      version: 1,
+      publishedAt: new Date("2025-01-01T00:00:00.000Z"),
+    });
+    const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
+
+    const response = await formsSnapshotsRouter.request(
+      "/form-1/snapshots/1/content",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      plateContent: '[{"type":"p","children":[{"text":"legacy"}]}]',
+      version: 1,
+      publishedAt: "2025-01-01T00:00:00.000Z",
+    });
+  });
+
   it("rejects an invalid version before reading the repository", async () => {
     const { formsSnapshotsRouter } = await import("../routes/forms-snapshots");
 

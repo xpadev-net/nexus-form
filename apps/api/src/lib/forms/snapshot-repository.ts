@@ -7,7 +7,7 @@ import {
   isPlateQuestionType,
 } from "@nexus-form/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
-import type { FormStructure } from "../../types/domain/form";
+import { FormStructure } from "../../types/domain/form";
 import type {
   FormDiffResult,
   FormSnapshot,
@@ -19,7 +19,7 @@ import {
   NoChangesError,
   SnapshotNotFoundError,
 } from "../errors/form-errors";
-import { logError } from "../logger";
+import { logError, logWarn } from "../logger";
 import { assertCompletionTargetsForSnapshot } from "./completion-target-validation";
 import { DEFAULT_FORM_STRUCTURE_JSON } from "./default-form-structure";
 import { parseStoredStructure } from "./parse-stored-structure";
@@ -33,6 +33,10 @@ import {
 // ── Plate node type ─────────────────────────────────────────────────
 
 type PlateNode = { id?: string; type?: string; [key: string]: unknown };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function parsePlateNodes(content: string): PlateNode[] {
   try {
@@ -192,13 +196,84 @@ export async function getSnapshotByVersion(
   return row ? rowToSnapshot(row) : null;
 }
 
-export type SnapshotPreviewContent = {
+type SnapshotPreviewStructure = Pick<
+  FormStructure,
+  "appearance" | "confirmation"
+>;
+
+export type SnapshotPreviewContent = SnapshotPreviewStructure & {
   plateContent: string;
   version: number;
   publishedAt: Date;
-  appearance: FormStructure["appearance"];
-  confirmation: FormStructure["confirmation"];
 };
+
+function parseSnapshotPreviewStructure(
+  structureJson: string,
+): SnapshotPreviewStructure {
+  try {
+    const structure = parseStoredStructure(structureJson);
+    return {
+      ...(structure.appearance === undefined
+        ? {}
+        : { appearance: structure.appearance }),
+      ...(structure.confirmation === undefined
+        ? {}
+        : { confirmation: structure.confirmation }),
+    };
+  } catch {
+    // Fall through to the compatibility parser below.
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(structureJson);
+  } catch {
+    logWarn(
+      "getSnapshotPreviewByVersion: invalid snapshot structure JSON; using preview defaults",
+      "general",
+    );
+    return {};
+  }
+
+  if (!isRecord(raw)) {
+    logWarn(
+      "getSnapshotPreviewByVersion: invalid snapshot structure value; using preview defaults",
+      "general",
+    );
+    return {};
+  }
+
+  const appearanceResult = FormStructure.shape.appearance.safeParse(
+    raw.appearance,
+  );
+  const confirmationResult = FormStructure.shape.confirmation.safeParse(
+    raw.confirmation,
+  );
+  const invalidFields = [
+    ...(appearanceResult.success ? [] : ["appearance"]),
+    ...(confirmationResult.success ? [] : ["confirmation"]),
+  ];
+  if (invalidFields.length > 0) {
+    logWarn(
+      `getSnapshotPreviewByVersion: omitted invalid snapshot preview fields: ${invalidFields.join(", ")}`,
+      "general",
+    );
+  } else {
+    logWarn(
+      "getSnapshotPreviewByVersion: stored structure failed full validation; using validated preview fields",
+      "general",
+    );
+  }
+
+  return {
+    ...(appearanceResult.success && appearanceResult.data !== undefined
+      ? { appearance: appearanceResult.data }
+      : {}),
+    ...(confirmationResult.success && confirmationResult.data !== undefined
+      ? { confirmation: confirmationResult.data }
+      : {}),
+  };
+}
 
 export async function getSnapshotPreviewByVersion(
   formId: string,
@@ -207,13 +282,11 @@ export async function getSnapshotPreviewByVersion(
   const snapshot = await getSnapshotByVersion(formId, version);
   if (!snapshot) return null;
 
-  const structure = parseStoredStructure(snapshot.structureJson);
   return {
     plateContent: snapshot.plateContent,
     version: snapshot.version,
     publishedAt: snapshot.publishedAt,
-    appearance: structure.appearance,
-    confirmation: structure.confirmation,
+    ...parseSnapshotPreviewStructure(snapshot.structureJson),
   };
 }
 

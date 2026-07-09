@@ -90,11 +90,47 @@ describe("snapshot preview repository", () => {
     });
   });
 
-  it("rejects an invalid stored structure instead of exposing unvalidated data", async () => {
+  it("keeps content previewable when stored structure JSON is invalid", async () => {
     mockSnapshotFind.mockResolvedValue(makeSnapshot("not-json"));
 
-    await expect(getSnapshotPreviewByVersion("form-1", 2)).rejects.toThrow(
-      "parseStoredStructure: invalid JSON in DB",
+    await expect(getSnapshotPreviewByVersion("form-1", 2)).resolves.toEqual({
+      plateContent: '[{"type":"p","children":[{"text":"履歴版"}]}]',
+      version: 2,
+      publishedAt: new Date("2025-02-02T03:04:05.000Z"),
+    });
+  });
+
+  it("recovers only valid preview fields from an otherwise invalid structure", async () => {
+    mockSnapshotFind.mockResolvedValue(
+      makeSnapshot(
+        JSON.stringify({
+          version: 2,
+          settings: "legacy-invalid-settings",
+          appearance: {
+            theme: { primary_color: "invalid-color" },
+          },
+          confirmation: {
+            title: "履歴版の送信完了",
+            message: "履歴版の確認メッセージです。",
+            show_response_summary: false,
+            show_response_id: true,
+            allow_edit_link: false,
+          },
+        }),
+      ),
     );
+
+    await expect(getSnapshotPreviewByVersion("form-1", 2)).resolves.toEqual({
+      plateContent: '[{"type":"p","children":[{"text":"履歴版"}]}]',
+      version: 2,
+      publishedAt: new Date("2025-02-02T03:04:05.000Z"),
+      confirmation: {
+        title: "履歴版の送信完了",
+        message: "履歴版の確認メッセージです。",
+        show_response_summary: false,
+        show_response_id: true,
+        allow_edit_link: false,
+      },
+    });
   });
 });
