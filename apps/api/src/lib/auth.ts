@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import {
   account,
   db,
@@ -8,10 +9,82 @@ import {
 import { discordGuild, discordUser } from "@nexus-form/database/schema";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { brandConfig } from "./brand-config";
 import { logError, logInfo, logWarn } from "./logger";
+
+export const INVITATION_AUTHORIZATION_COOKIE_NAME = "invitation-token";
+export const INVITATION_AUTHORIZATION_TTL_SECONDS = 5 * 60;
+
+const INVITATION_AUTHORIZATION_IDENTIFIER_PREFIX = "signup-invitation";
+const INVITATION_AUTHORIZATION_VALUE = "authorized";
+const invitationAuthorizationTokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const discordSocialSignInSchema = z
+  .object({ provider: z.literal("discord") })
+  .passthrough();
+
+const getInvitationAuthorizationIdentifier = (token: string): string =>
+  `${INVITATION_AUTHORIZATION_IDENTIFIER_PREFIX}:${token}`;
+
+type InvitationAuthorizationFinder = (
+  identifier: string,
+) => Promise<{ expiresAt: Date } | null>;
+
+const discordCallbackSchema = z.object({
+  path: z.literal("/callback/:id"),
+  params: z.object({ id: z.literal("discord") }),
+});
+const discordIdTokenSignInSchema = z.object({
+  path: z.literal("/sign-in/social"),
+  body: z.object({ provider: z.literal("discord") }).passthrough(),
+});
+
+const isDiscordUserCreationContext = (context: unknown): boolean =>
+  discordCallbackSchema.safeParse(context).success ||
+  discordIdTokenSignInSchema.safeParse(context).success;
+
+const signupDisabledError = (): APIError =>
+  new APIError("FORBIDDEN", { message: "signup disabled" });
+
+export async function authorizeDiscordSignupRequest(input: {
+  path: string;
+  body: unknown;
+  invitationToken: string | null;
+  findInvitation: InvitationAuthorizationFinder;
+}): Promise<{ body: unknown; apply: boolean }> {
+  if (input.path !== "/sign-in/social") {
+    return { body: input.body, apply: false };
+  }
+
+  const parsedBody = discordSocialSignInSchema.safeParse(input.body);
+  if (!parsedBody.success) {
+    return { body: input.body, apply: false };
+  }
+
+  const parsedToken = invitationAuthorizationTokenSchema.safeParse(
+    input.invitationToken,
+  );
+  const authorization = parsedToken.success
+    ? await input.findInvitation(
+        getInvitationAuthorizationIdentifier(parsedToken.data),
+      )
+    : null;
+  const authorizationExpiresAt = authorization?.expiresAt.getTime();
+  const requestSignUp =
+    authorizationExpiresAt !== undefined &&
+    Number.isFinite(authorizationExpiresAt) &&
+    authorizationExpiresAt > Date.now();
+
+  return {
+    body: {
+      ...parsedBody.data,
+      requestSignUp,
+    },
+    apply: true,
+  };
+}
 
 const discordGuildResponseSchema = z.array(
   z.object({
@@ -29,7 +102,14 @@ const discordBotGuildResponseSchema = z.array(
 );
 
 function getDiscordProvider():
-  | { discord: { clientId: string; clientSecret: string; scope: string[] } }
+  | {
+      discord: {
+        clientId: string;
+        clientSecret: string;
+        scope: string[];
+        disableImplicitSignUp: true;
+      };
+    }
   | undefined {
   const clientId = process.env.DISCORD_CLIENT_ID;
   const clientSecret = process.env.DISCORD_CLIENT_SECRET;
@@ -42,7 +122,12 @@ function getDiscordProvider():
     return undefined;
   }
   return {
-    discord: { clientId, clientSecret, scope: ["identify", "email", "guilds"] },
+    discord: {
+      clientId,
+      clientSecret,
+      scope: ["identify", "email", "guilds"],
+      disableImplicitSignUp: true,
+    },
   };
 }
 
@@ -113,7 +198,42 @@ export const auth = betterAuth({
     },
   },
   secret: getAuthSecret(),
+  hooks: {
+    before: createAuthMiddleware(async (ctx) => {
+      const invitationToken = ctx.getCookie(
+        INVITATION_AUTHORIZATION_COOKIE_NAME,
+      );
+      const decision = await authorizeDiscordSignupRequest({
+        path: ctx.path,
+        body: ctx.body,
+        invitationToken,
+        findInvitation: (identifier) =>
+          ctx.context.internalAdapter.findVerificationValue(identifier),
+      });
+
+      if (!decision.apply) return;
+      return { context: { body: decision.body } };
+    }),
+  },
   databaseHooks: {
+    user: {
+      create: {
+        before: async (_user, context) => {
+          if (!context || !isDiscordUserCreationContext(context)) return;
+
+          const parsedToken = invitationAuthorizationTokenSchema.safeParse(
+            context.getCookie(INVITATION_AUTHORIZATION_COOKIE_NAME),
+          );
+          if (!parsedToken.success) throw signupDisabledError();
+
+          const authorization =
+            await context.context.internalAdapter.consumeVerificationValue(
+              getInvitationAuthorizationIdentifier(parsedToken.data),
+            );
+          if (!authorization) throw signupDisabledError();
+        },
+      },
+    },
     session: {
       create: {
         after: async (session) => {
@@ -173,6 +293,19 @@ export const auth = betterAuth({
     },
   },
 });
+
+export async function issueInvitationSignupAuthorization(): Promise<string> {
+  const token = randomBytes(32).toString("hex");
+  const context = await auth.$context;
+  await context.internalAdapter.createVerificationValue({
+    identifier: getInvitationAuthorizationIdentifier(token),
+    value: INVITATION_AUTHORIZATION_VALUE,
+    expiresAt: new Date(
+      Date.now() + INVITATION_AUTHORIZATION_TTL_SECONDS * 1_000,
+    ),
+  });
+  return token;
+}
 
 /**
  * Discord サインイン後のギルド同期処理

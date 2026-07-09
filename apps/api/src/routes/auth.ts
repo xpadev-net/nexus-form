@@ -1,12 +1,15 @@
-import { randomBytes } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import { db, user } from "@nexus-form/database";
 import { eq } from "drizzle-orm";
-import jwt from "jsonwebtoken";
 import { z } from "zod";
+import {
+  INVITATION_AUTHORIZATION_COOKIE_NAME,
+  INVITATION_AUTHORIZATION_TTL_SECONDS,
+  issueInvitationSignupAuthorization,
+} from "../lib/auth";
 import { constantTimeEqual } from "../lib/crypto/field-encryption";
 import { createHonoApp } from "../lib/hono";
-import { logWarn } from "../lib/logger";
+import { logError, logWarn } from "../lib/logger";
 import { authMiddleware, requireAuth } from "../lib/middleware";
 import { getClientIp, invitationSignInRateLimiter } from "../lib/rate-limit";
 import { isoDate } from "../types/domain/iso-date";
@@ -123,28 +126,26 @@ export const authRouter = createHonoApp()
         return c.json(authError("招待コードが正しくありません"), 400);
       }
 
-      // 招待コードが正しい場合、一時トークンを生成して署名
-      const invitationToken = randomBytes(32).toString("hex");
-      const secret = process.env.AUTH_SECRET;
-      if (!secret) {
+      let invitationToken: string;
+      try {
+        invitationToken = await issueInvitationSignupAuthorization();
+      } catch (error) {
+        logError("Failed to issue invitation signup authorization", "api", {
+          error,
+        });
         return c.json(authError("サーバー構成エラーが発生しました"), 500);
       }
 
-      const signedToken = jwt.sign({ token: invitationToken }, secret, {
-        algorithm: "HS256",
-        expiresIn: "5m",
-      });
-
-      // 署名付きトークンをCookieに保存（5分で有効期限切れ）
+      // Store an opaque, single-use authorization in a short-lived cookie.
       c.header(
         "Set-Cookie",
         [
-          `invitation-token=${signedToken}`,
+          `${INVITATION_AUTHORIZATION_COOKIE_NAME}=${invitationToken}`,
           "Path=/",
           "HttpOnly",
           "SameSite=Lax",
           process.env.NODE_ENV === "production" ? "Secure" : null,
-          "Max-Age=300",
+          `Max-Age=${INVITATION_AUTHORIZATION_TTL_SECONDS}`,
         ]
           .filter(Boolean)
           .join("; "),

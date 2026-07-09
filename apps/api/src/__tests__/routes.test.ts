@@ -1,7 +1,13 @@
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock load-env to prevent dotenv side effects
 vi.mock("../load-env", () => ({}));
+
+const authMocks = vi.hoisted(() => ({
+  createVerificationValue: vi.fn(async (data: unknown) => data),
+  getSession: vi.fn(async () => null),
+  handler: vi.fn(async (_request: Request) => new Response("ok")),
+}));
 
 // Mock @nexus-form/database to avoid real DB connections
 vi.mock("@nexus-form/database", () => ({
@@ -52,10 +58,15 @@ vi.mock("@nexus-form/database/schema", () => ({
 // Mock better-auth to avoid initialization with real credentials
 vi.mock("better-auth", () => ({
   betterAuth: () => ({
-    handler: vi.fn().mockResolvedValue(new Response("ok")),
+    handler: authMocks.handler,
     api: {
-      getSession: vi.fn().mockResolvedValue(null),
+      getSession: authMocks.getSession,
     },
+    $context: Promise.resolve({
+      internalAdapter: {
+        createVerificationValue: authMocks.createVerificationValue,
+      },
+    }),
   }),
 }));
 
@@ -118,6 +129,10 @@ beforeAll(async () => {
   const mod = await import("../index");
   app = mod.default;
 }, 120_000);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("API Route Integration Tests", () => {
   describe("GET /api/health", () => {
@@ -226,9 +241,7 @@ describe("API Route Integration Tests", () => {
   describe("POST /api/auth-ext/signin-with-invitation", () => {
     it("allows a valid invitation code under the rate limit", async () => {
       const originalCode = process.env.SIGNUP_INVITATION_CODE;
-      const originalSecret = process.env.AUTH_SECRET;
       process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
-      process.env.AUTH_SECRET = "test-auth-secret";
 
       try {
         const res = await app.request("/api/auth-ext/signin-with-invitation", {
@@ -241,7 +254,20 @@ describe("API Route Integration Tests", () => {
         });
 
         expect(res.status).toBe(200);
-        expect(res.headers.get("set-cookie")).toContain("invitation-token=");
+        const setCookie = res.headers.get("set-cookie");
+        expect(setCookie).toContain("invitation-token=");
+        expect(setCookie).toContain("HttpOnly");
+        expect(setCookie).toContain("SameSite=Lax");
+        expect(setCookie).toContain("Max-Age=300");
+        const token = setCookie?.match(/invitation-token=([a-f0-9]{64})/)?.[1];
+        expect(token).toBeDefined();
+        expect(authMocks.createVerificationValue).toHaveBeenCalledWith(
+          expect.objectContaining({
+            identifier: `signup-invitation:${token}`,
+            value: "authorized",
+            expiresAt: expect.any(Date),
+          }),
+        );
         await expect(res.json()).resolves.toMatchObject({
           ok: true,
           redirectUrl: "/api/auth/sign-in/social",
@@ -252,19 +278,40 @@ describe("API Route Integration Tests", () => {
         } else {
           process.env.SIGNUP_INVITATION_CODE = originalCode;
         }
-        if (originalSecret === undefined) {
-          delete process.env.AUTH_SECRET;
+      }
+    });
+
+    it("fails closed when invitation authorization cannot be persisted", async () => {
+      const originalCode = process.env.SIGNUP_INVITATION_CODE;
+      process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
+      authMocks.createVerificationValue.mockRejectedValueOnce(
+        new Error("database unavailable"),
+      );
+
+      try {
+        const res = await app.request("/api/auth-ext/signin-with-invitation", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "203.0.113.73",
+          },
+          body: JSON.stringify({ code: "valid-invitation-code" }),
+        });
+
+        expect(res.status).toBe(500);
+        expect(res.headers.get("set-cookie")).toBeNull();
+      } finally {
+        if (originalCode === undefined) {
+          delete process.env.SIGNUP_INVITATION_CODE;
         } else {
-          process.env.AUTH_SECRET = originalSecret;
+          process.env.SIGNUP_INVITATION_CODE = originalCode;
         }
       }
     });
 
     it("rate limits invalid invitation code attempts by client IP", async () => {
       const originalCode = process.env.SIGNUP_INVITATION_CODE;
-      const originalSecret = process.env.AUTH_SECRET;
       process.env.SIGNUP_INVITATION_CODE = "valid-invitation-code";
-      process.env.AUTH_SECRET = "test-auth-secret";
 
       try {
         let res: Response | null = null;
@@ -290,12 +337,35 @@ describe("API Route Integration Tests", () => {
         } else {
           process.env.SIGNUP_INVITATION_CODE = originalCode;
         }
-        if (originalSecret === undefined) {
-          delete process.env.AUTH_SECRET;
-        } else {
-          process.env.AUTH_SECRET = originalSecret;
-        }
       }
+    });
+  });
+
+  describe("POST /api/auth/sign-in/social", () => {
+    it("forwards direct social sign-in requests without an invitation", async () => {
+      const res = await app.request("/api/auth/sign-in/social", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://localhost:3000",
+          "x-forwarded-for": "203.0.113.74",
+        },
+        body: JSON.stringify({
+          provider: "discord",
+          callbackURL: "http://localhost:3000/",
+          requestSignUp: true,
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(authMocks.handler).toHaveBeenCalledTimes(1);
+      const request = authMocks.handler.mock.calls[0]?.[0];
+      if (!request) throw new Error("Expected Better Auth request");
+      await expect(request.clone().json()).resolves.toEqual({
+        provider: "discord",
+        callbackURL: "http://localhost:3000/",
+        requestSignUp: true,
+      });
     });
   });
 
