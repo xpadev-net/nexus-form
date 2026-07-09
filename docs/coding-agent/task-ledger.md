@@ -1061,10 +1061,12 @@
   - Unconfirmed review hypotheses and unrelated refactors.
   - Dependency-update PRs #599, #600, and #614.
 - worker_model_routing:
-  - low: `gpt-5.6-luna` with `medium` effort for localized, mechanical, low-risk work.
-  - medium: `gpt-5.6-terra` with `high` effort for cross-module or non-obvious behavior/contract work.
-  - high: `gpt-5.6-sol` with `xhigh` effort for security, migrations/data integrity, concurrency/distributed recovery, multi-service boundaries, or broad rollback risk.
-  - Escalate one level when uncertainty is material, and record the classification rationale before every new or replacement worker launch.
+  - low: `gpt-5.6-terra` with `low` effort for localized, mechanical, low-risk work.
+  - medium: `gpt-5.6-terra` with `medium` effort for cross-module or non-obvious behavior/contract work.
+  - high: `gpt-5.6-sol` with `medium` effort for security, migrations/data integrity, concurrency/distributed recovery, multi-service boundaries, or broad rollback risk.
+  - Never use fast-oriented worker models, including `gpt-5.6-luna`, `gpt-5.3-codex-spark`, or mini variants.
+  - Never exceed `gpt-5.6-sol` with `medium` effort. When uncertainty is material, escalate model class rather than effort above medium.
+  - Record the classification rationale before every new or replacement worker launch.
   - Existing Wave 1 workers keep their current model to avoid mid-task disruption.
 
 ## Task Waves
@@ -1246,7 +1248,7 @@
 - worker_thread: pending
 - complexity: high
 - model: `gpt-5.6-sol`
-- reasoning_effort: `xhigh`
+- reasoning_effort: `medium`
 - model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
 - owns:
   - `packages/database/src/schema.ts`
@@ -1289,3 +1291,4 @@
 - 2026-07-10: Task_6 is sequenced after Task_2 and Task_3 because it overlaps database migration ownership and consumes notification delivery semantics; the other five tasks have disjoint primary ownership and may run in parallel.
 - 2026-07-10: Parent plan artifact is stored in this ledger rather than a separate active plan because `task-pr-orchestrator` limits parent mutations to the task ledger and merge lifecycle actions.
 - 2026-07-10: User changed future worker-launch policy from a fixed/default model to complexity-based routing. New/replacement workers must be classified low/medium/high and launched with explicit model and effort; Task_6 is classified high (`gpt-5.6-sol`, `xhigh`).
+- 2026-07-10: User capped worker routing at `gpt-5.6-sol` with `medium` effort and prohibited fast-oriented models. Low/medium tasks now use `gpt-5.6-terra` at low/medium effort; Task_6 remains high but is reduced to `gpt-5.6-sol` with `medium` effort.
