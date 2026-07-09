@@ -1060,6 +1060,14 @@
 - non_goals:
   - Unconfirmed review hypotheses and unrelated refactors.
   - Dependency-update PRs #599, #600, and #614.
+- worker_model_routing:
+  - low: `gpt-5.6-terra` with `low` effort for localized, mechanical, low-risk work.
+  - medium: `gpt-5.6-terra` with `medium` effort for cross-module or non-obvious behavior/contract work.
+  - high: `gpt-5.6-sol` with `medium` effort for security, migrations/data integrity, concurrency/distributed recovery, multi-service boundaries, or broad rollback risk.
+  - Never use fast-oriented worker models, including `gpt-5.6-luna`, `gpt-5.3-codex-spark`, or mini variants.
+  - Never exceed `gpt-5.6-sol` with `medium` effort. When uncertainty is material, escalate model class rather than effort above medium.
+  - Record the classification rationale before every new or replacement worker launch.
+  - Existing Wave 1 workers keep their current model to avoid mid-task disruption.
 
 ## Task Waves
 
@@ -1070,10 +1078,12 @@
 ## Tasks
 
 ### Task_1: Enforce invitation-gated OAuth registration
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-invitation-admission`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:34fc942a-9415-44e3-b3ee-4a2618fc8f0d`
+- worker_thread: `019f4886-2417-70a0-ae6c-54609dcf4460`
+- worktree: `/Users/xpadev/.codex/worktrees/8f6c/nexus-form`
 - owns:
   - `apps/api/src/routes/auth.ts`
   - `apps/api/src/lib/auth.ts`
@@ -1102,10 +1112,12 @@
     detail: Verify admission parity across invitation and direct Better Auth entrypoints.
 
 ### Task_2: Require migration 0014 at startup
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-migration-gate-0014`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:6d8cc671-9a4f-46c5-b1f6-83372572fa75`
+- worker_thread: `019f4886-2401-76c2-94f2-c2e651effda5`
+- worktree: `/Users/xpadev/.codex/worktrees/7729/nexus-form`
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1131,10 +1143,16 @@
     detail: Verify journal timestamp compatibility and fail-closed startup behavior.
 
 ### Task_3: Reduce notification retry duplicate delivery
-- status: unstarted
+- status: stopped
 - type: impl
 - branch: `codex/reviewfix-notification-idempotency`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:c74f021d-cf08-46ae-9163-4407a5405df8`
+- worker_thread: `019f4886-2486-7261-b690-43e352495564`
+- worktree: `/Users/xpadev/.codex/worktrees/d563/nexus-form`
+- stopped_reason: A scoped claimed-before-POST design would trade duplicate delivery for silent notification loss; exactly-once cannot be guaranteed for Discord without downstream idempotency support.
+- disposition: No product-code changes or PR. Preserve at-least-once behavior and move end-to-end producer/delivery semantics into Task_6.
+- archived: true
+- closure_evidence: Worktree clean on `codex/reviewfix-notification-idempotency`; no open PR for the branch; worker thread archived.
 - owns:
   - `apps/worker/src/handlers/form-submit-notifications.ts`
   - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
@@ -1158,10 +1176,12 @@
     detail: Verify retry/idempotency claims against realistic crash and ambiguous-response paths.
 
 ### Task_4: Make historical preview version-consistent
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-historical-preview`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:b18b4630-4e85-4e27-bd56-ce82c3bdcef6`
+- worker_thread: `019f4886-2414-77c3-afd0-6a3f5d3a4087`
+- worktree: `/Users/xpadev/.codex/worktrees/c123/nexus-form`
 - owns:
   - `apps/api/src/routes/forms-snapshots.ts`
   - `apps/api/src/lib/forms/snapshot-repository.ts`
@@ -1194,10 +1214,12 @@
     detail: Verify API/UI snapshot contract and no cross-version field mixing.
 
 ### Task_5: Run critical E2E flows in PR CI
-- status: unstarted
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-ci-e2e-coverage`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:29ba9181-da96-4ca7-815c-27db8d7b3d3f`
+- worker_thread: `019f4886-2401-76c2-94f2-c301df5d50ef`
+- worktree: `/Users/xpadev/.codex/worktrees/141c/nexus-form`
 - owns:
   - `package.json`
   - `.github/workflows/ci.yml`
@@ -1228,6 +1250,10 @@
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
 - worker_thread: pending
+- complexity: high
+- model: `gpt-5.6-sol`
+- reasoning_effort: `medium`
+- model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
 - owns:
   - `packages/database/src/schema.ts`
   - `packages/database/drizzle/**`
@@ -1237,12 +1263,15 @@
   - `apps/api/src/index.ts`
   - `apps/api/src/__tests__/forms-public*.test.ts`
   - `apps/api/src/lib/forms/__tests__/*outbox*.test.ts`
-- depends_on: [Task_2, Task_3]
+  - `apps/worker/src/handlers/form-submit-notifications.ts`
+  - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
+- depends_on: [Task_2]
 - acceptance:
   - Committed responses eventually enqueue enabled notification and Sheets jobs after transient Redis failure or API restart.
   - Recovery is idempotent across multiple API replicas and repeated sweeps.
   - Existing validation outbox behavior remains unchanged.
   - Response-limit rejection does not create an unreachable new FormSession row.
+  - Notification delivery remains explicitly at-least-once; generic webhooks retain a stable delivery ID for receiver-side dedupe, while unavoidable Discord duplicate risk is documented rather than converted into silent loss.
   - Migration and rolling-deploy behavior are documented and tested.
 - validation:
   - kind: command
@@ -1261,8 +1290,14 @@
 ## Progress Log
 
 - 2026-07-10: Plan approved by explicit user request to proceed under `task-pr-orchestrator`; repository owner is `xpadev-net`, so autonomous PR creation and orchestrator-owned merge are allowed.
+- 2026-07-10: Started Wave 1 Task_1 through Task_5 as separate Codex worktrees; all five are resolving from current `master`. Task_6 remains unstarted pending Task_2 and Task_3 merge.
+- 2026-07-10: Startup stability check passed: Task_1 through Task_5 resolved to active worker threads in distinct worktrees and continued beyond onboarding.
+- 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
 
 ## Decision Log
 
 - 2026-07-10: Task_6 is sequenced after Task_2 and Task_3 because it overlaps database migration ownership and consumes notification delivery semantics; the other five tasks have disjoint primary ownership and may run in parallel.
 - 2026-07-10: Parent plan artifact is stored in this ledger rather than a separate active plan because `task-pr-orchestrator` limits parent mutations to the task ledger and merge lifecycle actions.
+- 2026-07-10: User changed future worker-launch policy from a fixed/default model to complexity-based routing. New/replacement workers must be classified low/medium/high and launched with explicit model and effort; Task_6 is classified high (`gpt-5.6-sol`, `xhigh`).
+- 2026-07-10: User capped worker routing at `gpt-5.6-sol` with `medium` effort and prohibited fast-oriented models. Low/medium tasks now use `gpt-5.6-terra` at low/medium effort; Task_6 remains high but is reduced to `gpt-5.6-sol` with `medium` effort.
+- 2026-07-10: For notification delivery, prefer explicit at-least-once semantics over a pre-send claim that creates silent loss. Stable delivery IDs mitigate generic webhook duplicates when receivers dedupe; Discord duplicates remain a documented downstream limitation.
