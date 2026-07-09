@@ -1042,3 +1042,227 @@
 - 2026-07-06: VEXPORT-1 worker reported merge-ready at head `c8cd6a99b01190b675002e4c34739016e46fd267` after fixing review-hook findings, merging current `master` normally, rerunning required validation, and getting `gh-review-hook 627` exit 0. Parent verified PR #627 was `CLEAN` and approved with successful CI/Greptile/CodeRabbit/Socket checks, inspected the PR diff, completed a parent deep-review pass with no blocking findings, reran `gh-review-hook 627`, focused shared/integrations/worker tests, `pnpm lint:fix`, `pnpm type-check`, and full `pnpm test -- --silent`, then squash-merged PR #627 as `3098454078e6f6a3807de5bd64ee1d59b69ee02c`. Worker thread archived.
 - 2026-07-06: Started VEXPORT-2 worker as pending worktree `local:73433277-d963-4c40-b993-0c31c2633f97` on branch `codex/validation-output-export-settings`. Scope is limited to validation output export settings UI/API and related tests; CSV/Sheets rendering remains blocked on VEXPORT-2 and is not started.
 - 2026-07-07: Replacement VEXPORT-2 pending worktree `local:50de6f53-42f9-451c-bb06-7bf3580e34a8` resolved to thread `019f383e-7a7b-7873-b68b-761113174ee9` in worktree `/Users/xpadev/.codex/worktrees/709e/nexus-form`. Parent sent the VEXPORT-2 worker delegation and archived unused duplicate candidate thread `019f37e6-1aef-7c40-9329-98d8a4a3fa59`; VEXPORT-3 remains unstarted until VEXPORT-2 merges.
+
+---
+
+# Full-codebase review remediation backlog
+
+- status: approved
+- generated: 2026-07-10
+- last_updated: 2026-07-10
+- repository: `xpadev-net/nexus-form`
+- source: risk-weighted full-codebase review completed in parent thread
+- research: reused from three completed Researcher passes; no additional pre-dispatch research required
+- goal: close the confirmed registration, migration, delivery, preview, and CI gaps without parent-thread product-code edits
+- definition_of_done:
+  - All Task_1 through Task_6 PRs are independently reviewed, pass required checks and `gh-review-hook`, and are merged by the orchestrator.
+  - Final `pnpm lint:fix`, `pnpm type-check`, `pnpm test --silent`, and `pnpm build` pass on updated `master`.
+- non_goals:
+  - Unconfirmed review hypotheses and unrelated refactors.
+  - Dependency-update PRs #599, #600, and #614.
+
+## Task Waves
+
+- Wave 1 (parallel): [Task_1, Task_2, Task_3, Task_4, Task_5]
+- Wave 2 (after Task_2 and Task_3 merge): [Task_6]
+- Wave 3 (orchestrator integration/review): all merged tasks and final repository validation
+
+## Tasks
+
+### Task_1: Enforce invitation-gated OAuth registration
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-invitation-admission`
+- worker_thread: pending
+- owns:
+  - `apps/api/src/routes/auth.ts`
+  - `apps/api/src/lib/auth.ts`
+  - `apps/api/src/index.ts`
+  - `apps/api/src/__tests__/**auth*.test.ts`
+  - `apps/api/src/__tests__/routes.test.ts`
+  - `apps/web/src/components/auth/**` only when required by the verified Better Auth contract
+- depends_on: []
+- acceptance:
+  - Unknown Discord users cannot begin or complete account creation without a valid, unexpired invitation authorization.
+  - Existing users can continue signing in without an invitation.
+  - Invitation authorization is consumed or otherwise cannot be replayed as an unbounded signup bypass.
+  - Direct Better Auth social-sign-in requests are covered by regression tests.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm --filter @nexus-form/api exec vitest run src/__tests__/routes.test.ts src/__tests__/*auth*.test.ts`
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent`
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify admission parity across invitation and direct Better Auth entrypoints.
+
+### Task_2: Require migration 0014 at startup
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-migration-gate-0014`
+- worker_thread: pending
+- owns:
+  - `packages/database/src/migrate.ts`
+  - `packages/database/drizzle/meta/**`
+  - `apps/api/src/__tests__/database-migration-journal.test.ts`
+  - `apps/api/src/__tests__/form-structure-db-constraints.test.ts`
+- depends_on: []
+- acceptance:
+  - The startup gate rejects a database whose migration journal stops at 0013.
+  - The gate recognizes the canonical 0014 journal timestamp/tag without weakening 0012/0013 compatibility handling.
+  - Tests prove both rejection and successful fully migrated states.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm --filter @nexus-form/api exec vitest run src/__tests__/database-migration-journal.test.ts src/__tests__/form-structure-db-constraints.test.ts`
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent`
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify journal timestamp compatibility and fail-closed startup behavior.
+
+### Task_3: Reduce notification retry duplicate delivery
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-notification-idempotency`
+- worker_thread: pending
+- owns:
+  - `apps/worker/src/handlers/form-submit-notifications.ts`
+  - `apps/worker/src/handlers/__tests__/form-submit-notifications.test.ts`
+- depends_on: []
+- acceptance:
+  - The implementation explicitly mitigates the external-POST-success/progress-save-failure window for Discord and generic webhooks.
+  - Retry behavior does not silently claim exactly-once semantics where the downstream service cannot provide them.
+  - Tests cover progress persistence failure or an equivalent post-delivery retry boundary.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm --filter @nexus-form/worker exec vitest run src/handlers/__tests__/form-submit-notifications.test.ts`
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent`
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify retry/idempotency claims against realistic crash and ambiguous-response paths.
+
+### Task_4: Make historical preview version-consistent
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-historical-preview`
+- worker_thread: pending
+- owns:
+  - `apps/api/src/routes/forms-snapshots.ts`
+  - `apps/api/src/lib/forms/snapshot-repository.ts`
+  - `apps/api/src/__tests__/*snapshot*.test.ts`
+  - `apps/web/src/components/forms/form-preview-page.tsx`
+  - `apps/web/src/components/forms/form-preview-page.test.tsx`
+  - `apps/web/src/hooks/forms/**snapshot*.ts`
+- depends_on: []
+- acceptance:
+  - Selecting a historical version uses that snapshot's content, appearance, and completion/confirmation settings consistently.
+  - The API exposes only the validated snapshot fields needed by the preview.
+  - Current/latest preview behavior remains unchanged.
+  - Regression tests distinguish historical and latest structure values.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: Focused API snapshot tests and `pnpm --filter @nexus-form/web exec vitest run src/components/forms/form-preview-page.test.tsx`.
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent`
+  - kind: e2e
+    required: true
+    owner: reviewer
+    detail: Playwright historical-vs-latest preview flow at desktop and mobile viewports; artifacts under `.playwright-cli/reviewfix-historical-preview/`.
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify API/UI snapshot contract and no cross-version field mixing.
+
+### Task_5: Run critical E2E flows in PR CI
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-ci-e2e-coverage`
+- worker_thread: pending
+- owns:
+  - `package.json`
+  - `.github/workflows/ci.yml`
+  - `scripts/run-playwright.mjs`
+  - `playwright.config.ts`
+  - `e2e/**` only for CI classification, deterministic setup, or documented fixme handling
+- depends_on: []
+- acceptance:
+  - PR CI includes runnable shared-link authorization, realtime collaboration/recovery, and external-validation E2E coverage rather than accessibility-only coverage.
+  - Intentional fixme/skipped cases remain explicit and do not create a false green gate.
+  - CI runtime and service prerequisites remain bounded and reproducible.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: Compare `pnpm exec playwright test --list` with the CI selector and prove critical suites are selected.
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent && pnpm build`
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify workflow syntax, selected test inventory, and bounded CI execution.
+
+### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
+- status: unstarted
+- type: impl
+- branch: `codex/reviewfix-submit-outbox`
+- worker_thread: pending
+- owns:
+  - `packages/database/src/schema.ts`
+  - `packages/database/drizzle/**`
+  - `apps/api/src/routes/forms-public.ts`
+  - `apps/api/src/lib/forms/*outbox*.ts`
+  - `apps/api/src/lib/graceful-shutdown.ts`
+  - `apps/api/src/index.ts`
+  - `apps/api/src/__tests__/forms-public*.test.ts`
+  - `apps/api/src/lib/forms/__tests__/*outbox*.test.ts`
+- depends_on: [Task_2, Task_3]
+- acceptance:
+  - Committed responses eventually enqueue enabled notification and Sheets jobs after transient Redis failure or API restart.
+  - Recovery is idempotent across multiple API replicas and repeated sweeps.
+  - Existing validation outbox behavior remains unchanged.
+  - Response-limit rejection does not create an unreachable new FormSession row.
+  - Migration and rolling-deploy behavior are documented and tested.
+- validation:
+  - kind: command
+    required: true
+    owner: worker
+    detail: Focused public-submit/outbox/migration tests covering queue failure, restart recovery, duplicate sweep, and response-limit rejection.
+  - kind: command
+    required: true
+    owner: worker
+    detail: `pnpm lint:fix && pnpm type-check && pnpm test --silent && pnpm build`
+  - kind: review
+    required: true
+    owner: reviewer
+    detail: Verify transaction boundary, multi-replica claims, stable job IDs, rolling deploy, and cleanup behavior.
+
+## Progress Log
+
+- 2026-07-10: Plan approved by explicit user request to proceed under `task-pr-orchestrator`; repository owner is `xpadev-net`, so autonomous PR creation and orchestrator-owned merge are allowed.
+
+## Decision Log
+
+- 2026-07-10: Task_6 is sequenced after Task_2 and Task_3 because it overlaps database migration ownership and consumes notification delivery semantics; the other five tasks have disjoint primary ownership and may run in parallel.
+- 2026-07-10: Parent plan artifact is stored in this ledger rather than a separate active plan because `task-pr-orchestrator` limits parent mutations to the task ledger and merge lifecycle actions.
