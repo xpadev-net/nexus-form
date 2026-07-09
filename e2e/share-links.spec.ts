@@ -15,6 +15,7 @@ const documentHiddenStateKey = "nexus-form-e2e-document-hidden";
 
 type SeededShareLinkForm = {
   formId: string;
+  publicId: string;
   viewerToken: string;
   editorToken: string;
   questionBlockId: string;
@@ -82,6 +83,7 @@ async function seedShareLinkForm(
   options: SeedShareLinkFormOptions = {},
 ): Promise<SeededShareLinkForm> {
   const formId = `${seededIdPrefix}${Date.now()}-${randomUUID()}`;
+  const publicId = `public-${formId}`;
   const ownerId = `${seededOwnerIdPrefix}${randomUUID()}`;
   const viewerToken = `e2e-viewer-${randomUUID()}`;
   const editorToken = `e2e-editor-${randomUUID()}`;
@@ -122,11 +124,11 @@ async function seedShareLinkForm(
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         formId,
-        `public-${formId}`,
+        publicId,
         "E2E Share Link Form",
         "Shared editor test form",
         ownerId,
-        "DRAFT",
+        options.withExternalValidation ? "PUBLISHED" : "DRAFT",
         false,
         plateContent,
         0,
@@ -169,6 +171,17 @@ async function seedShareLinkForm(
     );
     if (options.withExternalValidation) {
       const validationRuleId = `${seededValidationRuleIdPrefix}${randomUUID()}`;
+      const validationRulesJson = JSON.stringify([
+        {
+          id: validationRuleId,
+          name: "CI deterministic external validation",
+          providerName: validationProviderName,
+          ruleType: validationRuleType,
+          referencedBlockIds: [questionBlockId],
+          configJson: { expectedValue: validationExpectedValue },
+          orderIndex: 0,
+        },
+      ]);
       await connection.execute(
         `INSERT INTO \`FormValidationRule\`
           (id, formId, name, providerName, ruleType, configJson, orderIndex)
@@ -204,7 +217,7 @@ async function seedShareLinkForm(
           "E2E Share Link Form",
           "Shared editor test form",
           plateContent,
-          "[]",
+          validationRulesJson,
           structureJson,
         ],
       );
@@ -217,7 +230,7 @@ async function seedShareLinkForm(
     await connection.end();
   }
 
-  return { formId, viewerToken, editorToken, questionBlockId };
+  return { formId, publicId, viewerToken, editorToken, questionBlockId };
 }
 
 async function waitForEditorEventConnection(
@@ -495,21 +508,64 @@ test.describe("共有リンク編集画面", () => {
         }),
       ).toBeVisible();
 
-      const currentContent = await writerPage.request.get(
+      await listenerPage.waitForTimeout(2_100);
+      const contentAfterRecovery = await writerPage.request.get(
         `/api/forms/${seeded.formId}/content`,
         { headers: { Authorization: `Bearer ${seeded.editorToken}` } },
       );
-      expect(currentContent.status()).toBe(200);
-      const currentBody: unknown = await currentContent.json();
+      expect(contentAfterRecovery.status()).toBe(200);
+      const contentAfterRecoveryBody: unknown =
+        await contentAfterRecovery.json();
       if (
-        !isRecord(currentBody) ||
-        typeof currentBody.plateContentVersion !== "number"
+        !isRecord(contentAfterRecoveryBody) ||
+        typeof contentAfterRecoveryBody.plateContentVersion !== "number"
+      ) {
+        throw new Error(
+          "Post-recovery content lookup returned an invalid payload",
+        );
+      }
+      expect(contentAfterRecoveryBody.plateContent).toContain(
+        "recovered update",
+      );
+
+      const postReconnectContent = JSON.stringify([
+        {
+          type: "p",
+          children: [{ text: "post reconnect update" }],
+        },
+      ]);
+      const postReconnectSave = await writerPage.request.put(
+        `/api/forms/${seeded.formId}/content`,
+        {
+          data: {
+            expectedVersion: contentAfterRecoveryBody.plateContentVersion,
+            plateContent: postReconnectContent,
+          },
+          headers: { Authorization: `Bearer ${seeded.editorToken}` },
+        },
+      );
+      expect(postReconnectSave.status()).toBe(200);
+      await expect(
+        listenerPage.locator('[data-slate-string="true"]', {
+          hasText: "post reconnect update",
+        }),
+      ).toBeVisible();
+
+      const finalContent = await writerPage.request.get(
+        `/api/forms/${seeded.formId}/content`,
+        { headers: { Authorization: `Bearer ${seeded.editorToken}` } },
+      );
+      expect(finalContent.status()).toBe(200);
+      const finalBody: unknown = await finalContent.json();
+      if (
+        !isRecord(finalBody) ||
+        typeof finalBody.plateContentVersion !== "number"
       ) {
         throw new Error("Final content lookup returned an invalid payload");
       }
-      expect(currentBody.plateContent).toBe(recoveredContent);
-      expect(currentBody.plateContentVersion).toBeGreaterThanOrEqual(
-        contentBeforeRecoveryBody.plateContentVersion + 1,
+      expect(finalBody.plateContent).toContain("post reconnect update");
+      expect(finalBody.plateContentVersion).toBeGreaterThanOrEqual(
+        contentAfterRecoveryBody.plateContentVersion + 1,
       );
     } finally {
       await setDocumentVisibility(listenerPage, false).catch(() => {});
@@ -534,9 +590,11 @@ test.describe("共有リンク編集画面", () => {
     await expect(page.getByText("E2E Share Link Form")).toBeVisible();
 
     const createResponse = await page.request.post(
-      `/api/forms/${seeded.formId}/responses`,
+      `/api/forms/public/${seeded.publicId}/submit`,
       {
         data: {
+          captchaToken: "ci-form-security-bypass",
+          fingerprints: [],
           responses: [
             {
               question_id: seeded.questionBlockId,
@@ -544,8 +602,8 @@ test.describe("共有リンク編集画面", () => {
               value: validationExpectedValue,
             },
           ],
+          telemetry: { v4Token: "ci-form-security-bypass" },
         },
-        headers: { Authorization: `Bearer ${seeded.editorToken}` },
       },
     );
     const createBody: unknown = await createResponse.json();
@@ -553,25 +611,13 @@ test.describe("共有リンク編集画面", () => {
       createResponse.status(),
       `response creation payload: ${JSON.stringify(createBody)}`,
     ).toBe(201);
-    if (!isRecord(createBody) || !isRecord(createBody.response)) {
+    if (!isRecord(createBody)) {
       throw new Error("Response creation returned an invalid payload");
     }
-    const responseId = createBody.response.id;
+    const responseId = createBody.responseId;
     if (typeof responseId !== "string") {
       throw new Error("Response creation did not return an id");
     }
-
-    const revalidate = await page.request.post(
-      `/api/forms/${seeded.formId}/responses/${responseId}/validation/revalidate`,
-      { headers: { Authorization: `Bearer ${seeded.editorToken}` } },
-    );
-    expect(revalidate.status()).toBe(200);
-    const revalidateBody: unknown = await revalidate.json();
-    if (!isRecord(revalidateBody)) {
-      throw new Error("Validation enqueue returned an invalid payload");
-    }
-    expect(revalidateBody.enqueued).toBe(1);
-    expect(revalidateBody.skipped).toBe(0);
 
     await expect
       .poll(

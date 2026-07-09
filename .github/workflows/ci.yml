@@ -248,6 +248,9 @@ jobs:
         run: pnpm build
 
       - name: Start API server
+        env:
+          FORM_SECURITY_DEV_BYPASS: "true"
+          NODE_ENV: development
         run: |
           set -euo pipefail
           rm -f /tmp/nexus-form-api.log /tmp/nexus-form-api.pid
