@@ -1256,7 +1256,7 @@
     detail: Verify workflow syntax, selected test inventory, and bounded CI execution.
 
 ### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
-- status: unstarted
+- status: blocked
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
 - worker_thread: pending
@@ -1264,6 +1264,7 @@
 - model: `gpt-5.6-sol`
 - reasoning_effort: `medium`
 - model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
+- blocker: Two explicit `create_thread` attempts with `gpt-5.6-sol` / `medium` did not return and produced no Codex worktree or worker thread. Retry only after the Codex thread API responds; do not create a duplicate while state is ambiguous.
 - owns:
   - `packages/database/src/schema.ts`
   - `packages/database/drizzle/**`
@@ -1304,6 +1305,7 @@
 - 2026-07-10: Startup stability check passed: Task_1 through Task_5 resolved to active worker threads in distinct worktrees and continued beyond onboarding.
 - 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
 - 2026-07-10: Task_2 PR #639 passed worker and parent merge gates and was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`. Task_6 is now unblocked.
+- 2026-07-10: Task_6 launch failed twice because the Codex `create_thread` API did not return; worktree inspection confirms no `codex/reviewfix-submit-outbox` worktree was created. Task_6 is blocked on thread-service recovery.
 
 ## Decision Log
 
