@@ -14,10 +14,12 @@ const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
 export const REQUIRED_SECURITY_MIGRATION_TAGS = [
   "0012_config_json_column_type",
   "0013_active_snapshot_structure_live_security_compat",
+  "0014_certain_speed_demon",
 ] as const;
 export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
 export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
 export const ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP = 1780203531326;
+export const FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP = 1781598249176;
 const REQUIRED_SECURITY_MIGRATIONS = [
   {
     tag: "0012_config_json_column_type",
@@ -26,6 +28,10 @@ const REQUIRED_SECURITY_MIGRATIONS = [
   {
     tag: "0013_active_snapshot_structure_live_security_compat",
     createdAt: ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+  },
+  {
+    tag: "0014_certain_speed_demon",
+    createdAt: FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
   },
 ] as const;
 
