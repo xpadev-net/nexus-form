@@ -1247,7 +1247,7 @@
   - Residual risk: the UI evidence uses deterministic auth/API mocks rather than live DB/auth integration. The pre-existing mobile preview-header overflow remains out of scope.
 
 ### Task_5: Run critical E2E flows in PR CI
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-ci-e2e-coverage`
 - pending_worktree: `client-new-thread:29ba9181-da96-4ca7-815c-27db8d7b3d3f`
@@ -1277,6 +1277,15 @@
     required: true
     owner: reviewer
     detail: Verify workflow syntax, selected test inventory, and bounded CI execution.
+- pr: `#642`
+- worker_head: `603d335e024137e34149abd0479dcf9cf987a58a`
+- merge_commit: `c46040f309a5aef17d5f3ecc3c8801f0b495b958`
+- completion_notes:
+  - Worker and independent final Reviewer approved the six-file CI/E2E diff; parent deep-review found no actionable issues in selector admission, service lifecycle, reconnect semantics, or the public-submit validation path.
+  - Parent `gh-review-hook 642` exited 0. Current-head GitHub gates were non-draft, CLEAN, MERGEABLE, APPROVED, 0 behind, 9/9 checks successful, and 0 unresolved review threads.
+  - On Node 22.13.1, parent validation passed the fail-closed Playwright inventory (full 32 / runnable 30 / fixme 2; CI 14 / runnable 14 / skip/fixme 0), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `pnpm build`, YAML parse, and `git diff --check`.
+  - GitHub E2E Harness passed the actual 14-test run with expected=14, skipped=0, unexpected=0, and flaky=0. A fresh local actual run remained unavailable because the existing Colima disk was held by another instance; no unrelated process was killed or mutated.
+  - PR #642 was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; the remote worker branch was deleted and worker thread archived.
 
 ### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
 - status: in progress
@@ -1334,6 +1343,7 @@
 - 2026-07-10: Task_6 resolved to worker `019f4a01-3a23-7b82-8a1e-8ad09207e26d` in `/Users/xpadev/.codex/worktrees/b0a4/nexus-form` and passed startup stability after completing its bounded design investigation.
 - 2026-07-10: Task_1 PR #641 passed worker and parent merge gates and was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote branch deleted and worker archived.
 - 2026-07-10: Task_4 PR #640 passed worker and parent merge gates and was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote branch deleted and worker archival attempted.
+- 2026-07-10: Task_5 PR #642 passed worker and parent merge gates and was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; remote branch deleted and worker thread archived. Parent validation used the PR-pinned Node 22.13.1 after Node 24.2.0 exposed a dependency-side Playwright discovery incompatibility.
 
 ## Decision Log
 
