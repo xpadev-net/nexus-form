@@ -9,11 +9,11 @@
 
 | ID | Task | Status | Branch | Worker | PR | Next action |
 |---|---|---|---|---|---|---|
-| K8S-1 | Fail-closed API origin validation | ready | `codex/k8s-origin-validation` | — | — | Start worker |
-| K8S-3 | Notification Worker Deployment | ready | `codex/k8s-notification-worker` | — | — | Start worker |
-| LOG-1 | Central request-target sanitizer | ready | `codex/request-log-sanitizer` | — | — | Start worker |
-| PLUGIN-1 | Compatible plugin execution context | ready | `codex/plugin-execution-context` | — | — | Start worker |
-| WEBERR-1 | Runtime-validated client error envelope | ready | `codex/web-api-error-envelope` | — | — | Start worker |
+| K8S-1 | Fail-closed API origin validation | in progress | `codex/k8s-origin-validation` | `client-new-thread:af32609b-8377-48e6-a227-8ebd713fc30f` | — | Startup stability check |
+| K8S-3 | Notification Worker Deployment | in progress | `codex/k8s-notification-worker` | `client-new-thread:c772f348-979c-4d36-a255-02a29918b6b5` | — | Startup stability check |
+| LOG-1 | Central request-target sanitizer | in progress | `codex/request-log-sanitizer` | `client-new-thread:3411f510-75b2-4494-8a1d-39be2fc4dc20` | — | Startup stability check |
+| PLUGIN-1 | Compatible plugin execution context | in progress | `codex/plugin-execution-context` | `client-new-thread:28863c9a-74a8-4089-bfdf-edcd9d1f33cd` | — | Startup stability check |
+| WEBERR-1 | Runtime-validated client error envelope | in progress | `codex/web-api-error-envelope` | `client-new-thread:ea8ed903-29ae-4449-9f4b-70303116ec15` | — | Startup stability check |
 
 ## Queued Plans
 
@@ -32,3 +32,4 @@
 
 - 2026-07-11: Initialized from the comprehensive codebase review remediation plans.
 - 2026-07-11: Selected five bounded, dependency-free, non-overlapping first-wave tasks.
+- 2026-07-11: Started first-wave workers in isolated worktrees with `gpt-5.6-luna` at `high` reasoning.
