@@ -77,11 +77,15 @@ describe("rpc error responses", () => {
   });
 
   it("falls back to the HTTP status for malformed or unusable bodies", async () => {
+    const malformedEnvelope = {
+      error: {
+        code: "INSUFFICIENT_PERMISSIONS",
+        message: 123,
+      },
+      requestId: "request-123",
+    };
     const responses = [
       new Response("not json", { status: 502 }),
-      new Response(JSON.stringify({ error: { message: 123 } }), {
-        status: 400,
-      }),
       new Response(JSON.stringify([]), { status: 422 }),
       new Response(JSON.stringify(null), { status: 500 }),
     ];
@@ -94,6 +98,20 @@ describe("rpc error responses", () => {
         details: null,
       });
     }
+
+    await expect(
+      rejectedRpc(
+        new Response(JSON.stringify(malformedEnvelope), { status: 400 }),
+      ),
+    ).rejects.toMatchObject({
+      message: "HTTP 400",
+      status: 400,
+      code: null,
+      details: {
+        error: { code: "INSUFFICIENT_PERMISSIONS" },
+        requestId: "request-123",
+      },
+    });
   });
 
   it("returns the inferred success JSON without changing the response body", async () => {

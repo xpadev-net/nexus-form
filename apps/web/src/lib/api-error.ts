@@ -40,9 +40,11 @@ export function parseApiErrorResponse(
   status: number,
 ): ParsedApiError {
   const fallback = `HTTP ${status}`;
+  const details = apiErrorRecordSchema.safeParse(body);
+  const parsedDetails = details.success ? details.data : null;
   const parsed = ApiErrorResponseSchema.safeParse(body);
   if (!parsed.success) {
-    return { message: fallback, code: null, details: null };
+    return { message: fallback, code: null, details: parsedDetails };
   }
 
   const error = parsed.data.error;
@@ -55,12 +57,11 @@ export function parseApiErrorResponse(
       parsed.data.message,
     ) ?? fallback;
   const code = nestedError?.code ?? parsed.data.code ?? null;
-  const details = apiErrorRecordSchema.safeParse(body);
 
   return {
     message,
     code,
-    details: details.success ? details.data : null,
+    details: parsedDetails,
   };
 }
 
