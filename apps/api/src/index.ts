@@ -17,7 +17,6 @@ import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
-import { logger } from "hono/logger";
 import { ZodError } from "zod";
 import { auth } from "./lib/auth";
 import { closeRedisClient, getRedisClient } from "./lib/cache/redis-client";
@@ -40,6 +39,7 @@ import { logError } from "./lib/logger";
 import { closeQueues } from "./lib/queues";
 import { authRouteRateLimiter } from "./lib/rate-limit";
 import { closePublisher } from "./lib/redis-publisher";
+import { requestLogger, sanitizeRequestTarget } from "./lib/request-logging";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
@@ -85,7 +85,7 @@ const corsOrigins = getCorsOrigins();
 assertProductionCorsOriginsConfigured();
 
 const app = new Hono()
-  .use("*", logger())
+  .use("*", requestLogger())
   .use(
     "*",
     cors({
@@ -174,7 +174,7 @@ const app = new Hono()
         ? "Response schema validation failed"
         : "Unhandled error in API route",
       "api",
-      { error: err, path: c.req.path },
+      { error: err, path: sanitizeRequestTarget(c.req.url) },
     );
     captureError(err);
     return c.json({ error: "Internal Server Error" }, 500);

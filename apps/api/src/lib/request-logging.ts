@@ -1,7 +1,11 @@
+import type { MiddlewareHandler } from "hono";
+
 const REQUEST_TARGET_BASE_URL = "http://request-target.invalid";
 
 export const INVALID_REQUEST_TARGET = "[INVALID_REQUEST_TARGET]";
 const REDACTED_REQUEST_TARGET_SEGMENT = "[REDACTED]";
+
+type PrintFunc = (message: string, ...rest: string[]) => void;
 
 const CREDENTIAL_ROUTE_SEGMENTS = new Set([
   "code",
@@ -23,6 +27,49 @@ const CREDENTIAL_ROUTE_SEGMENTS = new Set([
 
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i;
 const MALFORMED_PERCENT_ENCODING = /%(?![0-9a-f]{2})/i;
+
+function formatElapsedTime(start: number): string {
+  const elapsed = Date.now() - start;
+  return elapsed < 1_000 ? `${elapsed}ms` : `${Math.round(elapsed / 1_000)}s`;
+}
+
+function logRequest(
+  fn: PrintFunc,
+  prefix: "<--" | "-->",
+  method: string,
+  requestTarget: string,
+  status?: number,
+  elapsed?: string,
+): void {
+  const message =
+    prefix === "<--"
+      ? `${prefix} ${method} ${requestTarget}`
+      : `${prefix} ${method} ${requestTarget} ${status} ${elapsed}`;
+  fn(message);
+}
+
+/**
+ * Log request start and completion without exposing the raw request target.
+ * The target is sanitized once so both entries describe the same request.
+ */
+export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
+  return async (c, next) => {
+    const { method, url } = c.req;
+    const requestTarget = sanitizeRequestTarget(url);
+
+    logRequest(fn, "<--", method, requestTarget);
+    const start = Date.now();
+    await next();
+    logRequest(
+      fn,
+      "-->",
+      method,
+      requestTarget,
+      c.res.status,
+      formatElapsedTime(start),
+    );
+  };
+}
 
 function containsInvalidRequestTargetCharacters(
   requestTarget: string,
