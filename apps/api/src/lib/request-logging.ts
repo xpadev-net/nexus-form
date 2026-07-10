@@ -36,23 +36,30 @@ function containsInvalidRequestTargetCharacters(
   return false;
 }
 
-function containsAmbiguousDotSegments(requestTarget: string): boolean {
+function getRawPath(requestTarget: string): string | undefined {
   const pathStart = requestTarget.startsWith("/")
     ? 0
     : requestTarget.indexOf("/", requestTarget.indexOf("://") + 3);
   if (pathStart < 0) {
-    return false;
+    return undefined;
   }
 
-  const rawPath = requestTarget.slice(pathStart).split(/[?#]/, 1)[0];
+  return requestTarget.slice(pathStart).split(/[?#]/, 1)[0];
+}
+
+function containsAmbiguousPathSyntax(requestTarget: string): boolean {
+  const rawPath = getRawPath(requestTarget);
   if (rawPath === undefined) {
     return false;
   }
 
   try {
-    return rawPath
-      .split("/")
-      .some((segment) => [".", ".."].includes(decodeURIComponent(segment)));
+    return (
+      rawPath.includes(";") ||
+      rawPath
+        .split("/")
+        .some((segment) => [".", ".."].includes(decodeURIComponent(segment)))
+    );
   } catch {
     return true;
   }
@@ -64,7 +71,7 @@ function isValidRequestTargetInput(requestTarget: string): boolean {
     requestTarget === requestTarget.trim() &&
     !containsInvalidRequestTargetCharacters(requestTarget) &&
     !MALFORMED_PERCENT_ENCODING.test(requestTarget) &&
-    !containsAmbiguousDotSegments(requestTarget) &&
+    !containsAmbiguousPathSyntax(requestTarget) &&
     (requestTarget.startsWith("/") || ABSOLUTE_HTTP_URL.test(requestTarget)) &&
     !requestTarget.startsWith("//")
   );

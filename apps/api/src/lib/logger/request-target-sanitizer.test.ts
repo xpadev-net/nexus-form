@@ -73,6 +73,7 @@ describe("sanitizeRequestTarget", () => {
     "/api/forms/%E0%A4%A",
     "/api/forms/%2e%2e/secret",
     "/api/forms/./secret",
+    "/api/auth/callback;code=code-secret;state=state-secret",
     "/api/forms/token%2Fwith-a-slash",
     "/api/forms/%00credential",
     "/api/forms/token%ZZ",
