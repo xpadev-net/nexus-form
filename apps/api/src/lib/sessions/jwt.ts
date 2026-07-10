@@ -4,6 +4,7 @@ import { formSession } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
 import type { Context } from "hono";
 import jwt from "jsonwebtoken";
+import type { TransactionClient } from "../forms/types";
 
 export type SessionJwtPayload = {
   sessionId: string;
@@ -83,18 +84,19 @@ export function hashIp(ip: string): string | null {
 export async function resolveSessionIdOrCreate(
   jwtToken: string | null,
   meta: { ip?: string; ua?: string },
+  executor: TransactionClient | typeof db = db,
 ): Promise<{ sessionId: string; jwt: string }> {
   if (jwtToken) {
     const decoded = verifySessionJwt(jwtToken);
     if (decoded) {
-      const [session] = await db
+      const [session] = await executor
         .select({ id: formSession.id })
         .from(formSession)
         .where(eq(formSession.id, decoded.sessionId))
         .limit(1);
 
       if (session) {
-        await db
+        await executor
           .update(formSession)
           .set({ lastSeenAt: new Date() })
           .where(eq(formSession.id, decoded.sessionId));
@@ -104,7 +106,7 @@ export async function resolveSessionIdOrCreate(
   }
 
   const id = randomUUID();
-  await db.insert(formSession).values({
+  await executor.insert(formSession).values({
     id,
     ipHash: meta.ip ? hashIp(meta.ip) : null,
     userAgent: meta.ua ?? null,

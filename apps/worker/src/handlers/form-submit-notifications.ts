@@ -335,6 +335,10 @@ async function sendDiscordNotification(
     content: renderDiscordMessage(channel.message_template, data),
   });
 
+  // Delivery is intentionally at-least-once. If Discord accepts this POST and
+  // the worker crashes before BullMQ progress is persisted, the stable job can
+  // retry and Discord may receive a duplicate. Marking progress before POST
+  // would instead create silent loss and is deliberately not used.
   await postJsonWithRetries({
     url: channel.webhook_url,
     body,
@@ -378,6 +382,8 @@ async function sendWebhookNotification(
   }
 
   const body = JSON.stringify(buildNotificationPayload(data));
+  // This ID is stable across BullMQ retries and durable-outbox recovery so a
+  // receiver can deduplicate the unavoidable at-least-once crash ambiguity.
   const deliveryId = `${data.formId}:${data.responseId}:webhook`;
   await postJsonWithRetries({
     url: channel.url,

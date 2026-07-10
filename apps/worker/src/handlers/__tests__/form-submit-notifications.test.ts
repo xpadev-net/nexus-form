@@ -163,6 +163,74 @@ describe("handleFormSubmitNotifications", () => {
     expect(job.updateProgress).toHaveBeenCalledWith(result);
   });
 
+  it("reuses the generic webhook delivery ID after receiver success and progress crash", async () => {
+    setupSnapshotNotifications({
+      on_submit: {
+        webhook: {
+          enabled: true,
+          url: WEBHOOK_URL,
+          secret: WEBHOOK_SECRET,
+          timeout_seconds: 30,
+          retry_attempts: 0,
+        },
+      },
+    });
+    const crashedJob = makeJob(baseJobData());
+    vi.mocked(crashedJob.updateProgress).mockRejectedValueOnce(
+      new Error("worker crashed before progress persisted"),
+    );
+
+    await expect(handleFormSubmitNotifications(crashedJob)).rejects.toThrow(
+      "worker crashed before progress persisted",
+    );
+    await handleFormSubmitNotifications(makeJob(baseJobData()));
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const firstHeaders = new Headers(getFetchInit(0).headers);
+    const retryHeaders = new Headers(getFetchInit(1).headers);
+    expect(firstHeaders.get("x-nexus-form-delivery-id")).toBe(
+      "form-1:response-1:webhook",
+    );
+    expect(retryHeaders.get("x-nexus-form-delivery-id")).toBe(
+      firstHeaders.get("x-nexus-form-delivery-id"),
+    );
+  });
+
+  it("retains explicit at-least-once Discord delivery after progress crash", async () => {
+    setupSnapshotNotifications({
+      on_submit: {
+        discord: {
+          enabled: true,
+          webhook_url: DISCORD_URL,
+          message_template: "response {{response_id}}",
+        },
+      },
+    });
+    const crashedJob = makeJob(baseJobData());
+    vi.mocked(crashedJob.updateProgress).mockRejectedValueOnce(
+      new Error("worker crashed before progress persisted"),
+    );
+
+    await expect(handleFormSubmitNotifications(crashedJob)).rejects.toThrow(
+      "worker crashed before progress persisted",
+    );
+    await handleFormSubmitNotifications(makeJob(baseJobData()));
+
+    // Discord offers no receiver-side delivery key, so retrying is allowed to
+    // duplicate rather than marking before POST and risking silent loss.
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      DISCORD_URL,
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      DISCORD_URL,
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("rejects Discord webhook redirects without following the returned location", async () => {
     vi.stubGlobal(
       "fetch",

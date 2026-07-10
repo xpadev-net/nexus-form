@@ -428,6 +428,49 @@ export const formResponse = mysqlTable(
 
 // ── Fingerprint Detail ──────────────────────────────────────────────
 
+// Durable submit side-effect intents are committed with each response.
+export const formSubmitOutbox = mysqlTable(
+  "FormSubmitOutbox",
+  {
+    // The primary key is also the stable BullMQ job ID. Reclaiming an expired
+    // lease therefore cannot create a differently identified delivery.
+    id: varchar("id", { length: 255 }).primaryKey(),
+    responseId: varchar("responseId", { length: 128 })
+      .notNull()
+      .references(() => formResponse.id, { onDelete: "cascade" }),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    effectType: varchar("effectType", { length: 32 }).notNull(),
+    snapshotVersion: int("snapshotVersion"),
+    integrationId: varchar("integrationId", { length: 128 }),
+    claimToken: varchar("claimToken", { length: 128 }),
+    claimExpiresAt: timestamp("claimExpiresAt"),
+    enqueuedAt: timestamp("enqueuedAt"),
+    attemptCount: int("attemptCount").default(0).notNull(),
+    lastAttemptAt: timestamp("lastAttemptAt"),
+    lastError: text("lastError"),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+    updatedAt: timestamp("updatedAt")
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    uniqueIndex("FormSubmitOutbox_responseId_effectType_key").on(
+      table.responseId,
+      table.effectType,
+    ),
+    index("FormSubmitOutbox_pending_claim_idx").on(
+      table.enqueuedAt,
+      table.claimExpiresAt,
+      table.createdAt,
+    ),
+    index("FormSubmitOutbox_formId_idx").on(table.formId),
+  ],
+);
+
+// Fingerprint details collected with a response.
 export const fingerprintDetail = mysqlTable(
   "FingerprintDetail",
   {
