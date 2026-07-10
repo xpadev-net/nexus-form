@@ -27,6 +27,10 @@ import {
 } from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
 import { createCsrfOriginGuard } from "./lib/csrf-origin-guard";
+import {
+  assertSubmitOutboxMigrationApplied,
+  createSubmitOutboxSweeper,
+} from "./lib/forms/submit-outbox-sweeper";
 import { createValidationOutboxSweeper } from "./lib/forms/validation-outbox-sweeper";
 import {
   createApiGracefulShutdown,
@@ -183,6 +187,7 @@ async function startServer() {
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
   await assertRequiredSecurityMigrationsApplied();
+  await assertSubmitOutboxMigrationApplied();
 
   const builtinPlugins = BUILTIN_VALIDATION_PLUGIN_SPECIFIERS.map(
     (specifier) => {
@@ -225,6 +230,8 @@ async function startServer() {
     serviceMonitor.startPeriodicCheck(monitoringInterval);
   }
   const validationOutboxSweeper = createValidationOutboxSweeper();
+  const submitOutboxSweeper = createSubmitOutboxSweeper();
+  submitOutboxSweeper.start();
   validationOutboxSweeper.start();
 
   const port = Number(process.env.PORT) || 3001;
@@ -238,6 +245,7 @@ async function startServer() {
     server,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     stopServiceMonitor: () => serviceMonitor.stopPeriodicCheck(),
+    stopSubmitOutboxSweeper: () => submitOutboxSweeper.stop(),
     stopValidationOutboxSweeper: () => validationOutboxSweeper.stop(),
     stopPluginDriftGuard: async () => {
       await pluginStartupHandle?.stop();

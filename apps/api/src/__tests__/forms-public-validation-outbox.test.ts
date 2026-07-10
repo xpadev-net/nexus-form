@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => {
       id: "formResponse.id",
       formId: "formResponse.formId",
     },
+    formSubmitOutbox: {
+      table: "formSubmitOutbox",
+    },
     formSchedule: {
       id: "formSchedule.id",
       formId: "formSchedule.formId",
@@ -53,9 +56,12 @@ const mocks = vi.hoisted(() => {
     logWarn: vi.fn(),
     processFormSchedule: vi.fn(),
     providerRegistryGet: vi.fn(),
+    recoverSubmitOutboxForResponse: vi.fn(),
     resolveSessionIdOrCreate: vi.fn(),
     schema,
     sequence: [] as string[],
+    submitOutboxRows: [] as unknown[],
+    integrationRows: [] as unknown[],
     updateSetValues: [] as unknown[],
     updateWhereValues: [] as unknown[],
     verifyHCaptcha: vi.fn(),
@@ -95,8 +101,17 @@ vi.mock("../lib/forms/snapshot-repository", () => ({
   getLatestSnapshot: mocks.getLatestSnapshot,
 }));
 
+vi.mock("../lib/forms/submit-outbox-sweeper", () => ({
+  insertSubmitOutboxRows: vi.fn(async (_tx: unknown, rows: unknown[]) => {
+    mocks.sequence.push("tx:submit-outbox");
+    mocks.submitOutboxRows.push(...rows);
+  }),
+  recoverSubmitOutboxForResponse: mocks.recoverSubmitOutboxForResponse,
+}));
+
 vi.mock("../lib/sessions/jwt", () => ({
   extractJwtFromRequest: vi.fn().mockReturnValue(null),
+  hashIp: vi.fn().mockReturnValue("ip-hash"),
   resolveSessionIdOrCreate: mocks.resolveSessionIdOrCreate,
   signSessionJwt: vi.fn().mockReturnValue("session-jwt"),
   verifySessionJwt: vi.fn().mockReturnValue(null),
@@ -452,6 +467,7 @@ function useSuccessfulSubmitSelects(
     responseRows?: unknown[];
   },
 ) {
+  mocks.integrationRows = options?.responseRows ?? [];
   useSelectResults([
     [
       {
@@ -461,8 +477,8 @@ function useSuccessfulSubmitSelects(
         dueScheduleId: null,
       },
     ],
+    mocks.integrationRows,
     options?.finalResponseRows ?? [],
-    options?.responseRows ?? [],
   ]);
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
@@ -483,9 +499,29 @@ function useTransactionWithInsertCapture() {
       return values;
     }),
   }));
+  const txSelect = vi.fn((_selection: { id?: unknown }) => ({
+    from: vi.fn((table: unknown) => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(async () => {
+          if (table === mocks.schema.formIntegration) {
+            return mocks.integrationRows;
+          }
+          return [];
+        }),
+        for: vi.fn(async () => []),
+      })),
+    })),
+  }));
+  const txUpdate = vi.fn(() => ({
+    set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
+  }));
   mocks.db.transaction.mockImplementation(async (fn) => {
     mocks.sequence.push("tx:start");
-    const result = await fn({ insert: txInsert, select: mocks.db.select });
+    const result = await fn({
+      insert: txInsert,
+      select: txSelect,
+      update: txUpdate,
+    });
     mocks.sequence.push("tx:commit");
     return result;
   });
@@ -493,6 +529,7 @@ function useTransactionWithInsertCapture() {
     getInsertedResponseRow: () => insertedResponseRow,
     getInsertedValidationRows: () => insertedValidationRows,
     txInsert,
+    txSelect,
   };
 }
 
@@ -590,6 +627,8 @@ function resetPublicSubmitMocks(
   vi.clearAllMocks();
   vi.unstubAllEnvs();
   mocks.sequence.length = 0;
+  mocks.submitOutboxRows.length = 0;
+  mocks.integrationRows.length = 0;
   mocks.updateSetValues.length = 0;
   mocks.updateWhereValues.length = 0;
   mocks.extractClientIP.mockImplementation(
@@ -681,6 +720,7 @@ describe("R11-C2-a public validation outbox", () => {
       "tx:start",
       "tx:response",
       "tx:validation",
+      "tx:submit-outbox",
       "tx:commit",
       "queue:add",
     ]);
@@ -810,7 +850,7 @@ describe("R11-C2-a public validation outbox", () => {
     );
   });
 
-  it("queues Sheets sync with a deterministic colon-free auto job id", async () => {
+  it("persists Sheets sync with a deterministic colon-free auto job id", async () => {
     const snapshot = activeSnapshot([]);
     useSuccessfulSubmitSelects(snapshot, {
       responseRows: [{ id: "integration:one" }],
@@ -820,25 +860,24 @@ describe("R11-C2-a public validation outbox", () => {
     const response = await submitPublicForm();
 
     expect(response.status).toBe(201);
-    await vi.waitFor(() => {
-      expect(mocks.addSheetsSyncJob).toHaveBeenCalledWith(
-        "auto-sync",
-        expect.objectContaining({
-          formId: "form-1",
-          integrationId: "integration:one",
-          responseId: expect.any(String),
-          snapshotVersion: 7,
-        }),
-        expect.objectContaining({
-          jobId: expect.stringMatching(/^sheets-auto\.[^.]+\.[^.]+$/),
-        }),
-      );
-    });
-    const jobId = mocks.addSheetsSyncJob.mock.calls[0]?.[2]?.jobId;
+    expect(mocks.submitOutboxRows).toEqual([
+      expect.objectContaining({
+        formId: "form-1",
+        integrationId: "integration:one",
+        responseId: expect.any(String),
+        snapshotVersion: 7,
+        effectType: "SHEETS",
+        id: expect.stringMatching(/^sheets-auto\.[^.]+\.[^.]+$/),
+      }),
+    ]);
+    const jobId = (mocks.submitOutboxRows[0] as { id: string }).id;
     expect(jobId).not.toContain(":");
+    expect(mocks.recoverSubmitOutboxForResponse).toHaveBeenCalledWith(
+      expect.any(String),
+    );
   });
 
-  it("queues only enabled submit notification channels after a successful response", async () => {
+  it("persists only enabled submit notification intent after a successful response", async () => {
     const snapshot = {
       ...activeSnapshot([]),
       structureJson: JSON.stringify({
@@ -887,33 +926,22 @@ describe("R11-C2-a public validation outbox", () => {
     const response = await submitPublicForm();
 
     expect(response.status).toBe(201);
-    await vi.waitFor(() => {
-      expect(mocks.addNotificationJob).toHaveBeenCalledWith(
-        "form-submit",
-        expect.objectContaining({
-          formId: "form-1",
-          responseId: expect.any(String),
-          snapshotVersion: 7,
-          submittedAt: "2026-06-03T12:34:56.000Z",
-        }),
-        expect.objectContaining({
-          jobId: expect.stringMatching(
-            /^form-submit-notification\.[^.]+\.[^.]+$/,
-          ),
-        }),
-      );
-    });
-    expect(mocks.addNotificationJob.mock.calls[0]?.[2]?.jobId).not.toContain(
-      ":",
-    );
-    const jobDataJson = JSON.stringify(
-      mocks.addNotificationJob.mock.calls[0]?.[1],
-    );
-    expect(jobDataJson).not.toContain("discord-token");
-    expect(jobDataJson).not.toContain("current-secret");
+    expect(mocks.submitOutboxRows).toEqual([
+      expect.objectContaining({
+        formId: "form-1",
+        responseId: expect.any(String),
+        snapshotVersion: 7,
+        effectType: "NOTIFICATION",
+        integrationId: null,
+        id: expect.stringMatching(/^form-submit-notification\.[^.]+\.[^.]+$/),
+      }),
+    ]);
+    const outboxJson = JSON.stringify(mocks.submitOutboxRows);
+    expect(outboxJson).not.toContain("discord-token");
+    expect(outboxJson).not.toContain("current-secret");
   });
 
-  it("skips submit notification enqueue when the created response timestamp is unavailable", async () => {
+  it("persists notification intent even when the post-commit response read is unavailable", async () => {
     const snapshot = {
       ...activeSnapshot([]),
       structureJson: JSON.stringify({
@@ -938,9 +966,9 @@ describe("R11-C2-a public validation outbox", () => {
     const response = await submitPublicForm();
 
     expect(response.status).toBe(201);
-    await vi.waitFor(() => {
-      expect(mocks.addNotificationJob).not.toHaveBeenCalled();
-    });
+    expect(mocks.submitOutboxRows).toEqual([
+      expect.objectContaining({ effectType: "NOTIFICATION" }),
+    ]);
   });
 
   it("does not queue submit notifications when every channel is off", async () => {
@@ -991,10 +1019,10 @@ describe("R11-C2-a public validation outbox", () => {
     const response = await submitPublicForm();
 
     expect(response.status).toBe(201);
-    expect(mocks.addNotificationJob).not.toHaveBeenCalled();
+    expect(mocks.submitOutboxRows).toEqual([]);
   });
 
-  it("keeps submit success fail-open when notification enqueue fails", async () => {
+  it("keeps submit success independent from immediate notification recovery", async () => {
     const snapshot = {
       ...activeSnapshot([]),
       structureJson: JSON.stringify({
@@ -1032,16 +1060,61 @@ describe("R11-C2-a public validation outbox", () => {
       ],
     });
     useTransactionWithInsertCapture();
-    mocks.addNotificationJob.mockRejectedValueOnce(
-      new Error("Redis unavailable"),
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(mocks.submitOutboxRows).toEqual([
+      expect.objectContaining({ effectType: "NOTIFICATION" }),
+    ]);
+    expect(mocks.recoverSubmitOutboxForResponse).toHaveBeenCalledOnce();
+  });
+
+  it("rejects at the response limit without creating an unreachable session", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+          response_limit: {
+            enabled: true,
+            max_responses: 1,
+            message: "Closed",
+          },
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot);
+    const txInsert = vi.fn(() => ({
+      values: vi.fn(async () => undefined),
+    }));
+    const txSelect = vi.fn((selection: Record<string, unknown>) => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => {
+          if ("count" in selection) {
+            return Promise.resolve([{ count: 1 }]);
+          }
+          return { for: vi.fn(async () => []) };
+        }),
+      })),
+    }));
+    mocks.db.transaction.mockImplementation(async (callback) =>
+      callback({ select: txSelect, insert: txInsert }),
     );
 
     const response = await submitPublicForm();
 
-    expect(response.status).toBe(201);
-    await vi.waitFor(() => {
-      expect(mocks.addNotificationJob).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: "Closed",
+      responseLimitReached: true,
     });
+    expect(txInsert).not.toHaveBeenCalled();
+    expect(mocks.resolveSessionIdOrCreate).not.toHaveBeenCalled();
+    expect(mocks.submitOutboxRows).toEqual([]);
+    expect(mocks.recoverSubmitOutboxForResponse).not.toHaveBeenCalled();
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   it("returns the published confirmation snapshot with the created response", async () => {
@@ -1236,6 +1309,7 @@ describe("R11-C2-a public validation outbox", () => {
       "tx:start",
       "tx:response",
       "tx:validation",
+      "tx:submit-outbox",
       "tx:commit",
     ]);
   });

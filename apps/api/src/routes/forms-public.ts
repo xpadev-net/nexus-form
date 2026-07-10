@@ -20,14 +20,12 @@ import {
   FormConfirmationSchema,
   type FormNotifications,
   type FormStatusValue,
-  FormSubmitNotificationJobDataSchema,
   genericValidationJobDataSchema,
   getValidationResultId,
   MAX_RESPONSE_BODY_BYTES,
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
-  sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
 import { and, count, eq, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
@@ -48,17 +46,17 @@ import {
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import {
+  insertSubmitOutboxRows,
+  recoverSubmitOutboxForResponse,
+  type SubmitOutboxInsert,
+} from "../lib/forms/submit-outbox-sweeper";
 import type { TransactionClient } from "../lib/forms/types";
 import { parseValidationRuleSnapshot } from "../lib/forms/validation-rule-repository";
 import { createHonoApp } from "../lib/hono";
 import { extractClientIP } from "../lib/ip-address";
 import { logError, logWarn } from "../lib/logger";
-import {
-  getFormSubmitNotificationQueue,
-  getSheetsSyncQueue,
-  getValidationQueue,
-  isValidServiceName,
-} from "../lib/queues";
+import { getValidationQueue, isValidServiceName } from "../lib/queues";
 import { createRateLimit, getClientIp } from "../lib/rate-limit";
 import { createRequestBodySizeLimit } from "../lib/request-body-size-limit";
 import { stringifyResponseDataJson } from "../lib/response-data-json";
@@ -282,21 +280,6 @@ function getPasswordProtection(
 
 function buildSubmitConfirmation(parsed: ParsedStructure) {
   return FormConfirmationSchema.parse(parsed.confirmation ?? {});
-}
-
-function formatResponseSubmittedAt(
-  submittedAt: Date | string | null | undefined,
-): string | null {
-  if (submittedAt instanceof Date) {
-    return submittedAt.toISOString();
-  }
-  if (typeof submittedAt === "string") {
-    const parsed = new Date(submittedAt);
-    if (!Number.isNaN(parsed.getTime())) {
-      return parsed.toISOString();
-    }
-  }
-  return null;
 }
 
 function getEnabledSubmitNotificationChannels(
@@ -784,17 +767,19 @@ export const formsPublicRouter = createHonoApp()
       if (!responseDataJson) {
         return c.json(errorResponse("Response payload is too large"), 400);
       }
-      // 8. Session management (resolve before transaction; cookie set only on success)
+      // 8. Session management is resolved inside the response transaction so
+      // response-limit rejection cannot leave an unreachable FormSession row.
       const userAgent = c.req.header("user-agent") ?? undefined;
       if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
         return c.json(errorResponse("User-Agent is too long"), 400);
       }
 
       const jwtToken = extractJwtFromRequest(c);
-      const { sessionId, jwt: newJwt } = await resolveSessionIdOrCreate(
-        jwtToken,
-        { ip, ua: userAgent },
-      );
+      const [submitIntegration] = await db
+        .select({ id: formIntegration.id })
+        .from(formIntegration)
+        .where(eq(formIntegration.formId, target.id))
+        .limit(1);
 
       type PublicSubmitInsertResult =
         | {
@@ -803,7 +788,9 @@ export const formsPublicRouter = createHonoApp()
           }
         | {
             limitReached: false;
+            hasSubmitOutbox: boolean;
             validationOutbox: ValidationOutbox | null;
+            sessionJwt: string;
           };
 
       const insertResult: PublicSubmitInsertResult = await db.transaction(
@@ -821,14 +808,6 @@ export const formsPublicRouter = createHonoApp()
               .for("update");
           }
 
-          const validationOutbox = activeSnapshot
-            ? await buildExternalValidationOutbox(
-                tx,
-                responseId,
-                activeSnapshot,
-              )
-            : null;
-
           if (responseLimit?.enabled && responseLimit.max_responses) {
             const [existingCount] = await tx
               .select({ count: count() })
@@ -843,6 +822,44 @@ export const formsPublicRouter = createHonoApp()
                   "This form has reached its response limit",
               };
             }
+          }
+
+          const { sessionId, jwt: sessionJwt } = await resolveSessionIdOrCreate(
+            jwtToken,
+            { ip, ua: userAgent },
+          );
+
+          const validationOutbox = activeSnapshot
+            ? await buildExternalValidationOutbox(
+                tx,
+                responseId,
+                activeSnapshot,
+              )
+            : null;
+
+          const submitOutboxRows: SubmitOutboxInsert[] = [];
+          if (
+            activeSnapshot &&
+            getEnabledSubmitNotificationChannels(parsedStructure.notifications)
+          ) {
+            submitOutboxRows.push({
+              id: buildFormSubmitNotificationJobId(target.id, responseId),
+              responseId,
+              formId: target.id,
+              effectType: "NOTIFICATION",
+              snapshotVersion: activeSnapshot.version,
+              integrationId: null,
+            });
+          }
+          if (submitIntegration) {
+            submitOutboxRows.push({
+              id: buildAutoSheetsSyncJobId(submitIntegration.id, responseId),
+              responseId,
+              formId: target.id,
+              effectType: "SHEETS",
+              snapshotVersion: activeSnapshot?.version ?? null,
+              integrationId: submitIntegration.id,
+            });
           }
 
           await tx.insert(formResponse).values({
@@ -872,7 +889,14 @@ export const formsPublicRouter = createHonoApp()
             await insertExternalValidationOutbox(tx, validationOutbox);
           }
 
-          return { limitReached: false as const, validationOutbox };
+          await insertSubmitOutboxRows(tx, submitOutboxRows);
+
+          return {
+            limitReached: false as const,
+            hasSubmitOutbox: submitOutboxRows.length > 0,
+            validationOutbox,
+            sessionJwt,
+          };
         },
       );
 
@@ -887,7 +911,7 @@ export const formsPublicRouter = createHonoApp()
       }
 
       // Set session cookie only after a successful submission
-      setSessionCookie(c, newJwt);
+      setSessionCookie(c, insertResult.sessionJwt);
 
       // 11. Load the created response so background jobs can reuse the
       // database-side submittedAt timestamp.
@@ -916,35 +940,12 @@ export const formsPublicRouter = createHonoApp()
         });
       }
 
-      // 13. Queue creator notifications (non-blocking)
-      queueSubmitNotificationsIfNeeded(
-        target.id,
-        responseId,
-        activeSnapshot,
-        parsedStructure,
-        formatResponseSubmittedAt(createdResponse?.submittedAt),
-      ).catch((error) => {
-        logError("Failed to queue submit notifications", "api", {
-          error,
-          responseId,
-          formId: target.id,
-          snapshotVersion: activeSnapshot?.version,
-        });
-        captureError(error);
-      });
-
-      // 14. Queue Google Sheets sync (non-blocking)
-      queueSheetsSyncIfNeeded(target.id, responseId, activeSnapshot).catch(
-        (error) => {
-          logError("Failed to queue Google Sheets sync", "api", {
-            error,
-            responseId,
-            formId: target.id,
-            snapshotVersion: activeSnapshot?.version,
-          });
-          captureError(error);
-        },
-      );
+      // 13+14. Kick durable notification and Sheets recovery. The outbox rows
+      // were committed with the response, so Redis failure or process exit is
+      // recovered by the periodic startup sweeper.
+      if (insertResult.hasSubmitOutbox) {
+        recoverSubmitOutboxForResponse(responseId);
+      }
 
       // 15. Return the created response
       const submitResponse = PublicSubmitResponseSchema.parse({
@@ -1302,61 +1303,4 @@ async function enqueueExternalValidationJobs(
       }
     }),
   );
-}
-
-async function queueSubmitNotificationsIfNeeded(
-  formId: string,
-  responseId: string,
-  activeSnapshot: FormSnapshot | null,
-  parsedStructure: ParsedStructure,
-  submittedAt: string | null,
-): Promise<void> {
-  if (!activeSnapshot) return;
-  const notifications = getEnabledSubmitNotificationChannels(
-    parsedStructure.notifications,
-  );
-  if (!notifications) return;
-  if (!submittedAt) {
-    logError("Skipped submit notification enqueue without submittedAt", "api", {
-      formId,
-      responseId,
-      snapshotVersion: activeSnapshot.version,
-    });
-    return;
-  }
-
-  const jobData = FormSubmitNotificationJobDataSchema.parse({
-    formId,
-    responseId,
-    snapshotVersion: activeSnapshot.version,
-    submittedAt,
-  });
-
-  await getFormSubmitNotificationQueue().add("form-submit", jobData, {
-    jobId: buildFormSubmitNotificationJobId(formId, responseId),
-  });
-}
-
-async function queueSheetsSyncIfNeeded(
-  formId: string,
-  responseId: string,
-  activeSnapshot: FormSnapshot | null,
-): Promise<void> {
-  const [integration] = await db
-    .select({ id: formIntegration.id })
-    .from(formIntegration)
-    .where(eq(formIntegration.formId, formId))
-    .limit(1);
-
-  if (integration) {
-    const jobData = sheetsSyncJobDataSchema.parse({
-      formId,
-      integrationId: integration.id,
-      responseId,
-      snapshotVersion: activeSnapshot?.version,
-    });
-    await getSheetsSyncQueue().add("auto-sync", jobData, {
-      jobId: buildAutoSheetsSyncJobId(integration.id, responseId),
-    });
-  }
 }
