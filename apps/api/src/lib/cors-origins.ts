@@ -13,6 +13,7 @@ function normalizeHttpOrigin(value: string): string | null {
     const url = new URL(trimmed);
     if (
       (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.hostname.includes("*") ||
       url.username ||
       url.password ||
       url.pathname !== "/" ||
