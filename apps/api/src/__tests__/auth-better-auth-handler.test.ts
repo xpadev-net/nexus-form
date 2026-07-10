@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -207,6 +208,57 @@ const completeDiscordSignIn = async (
   );
 };
 
+const runProductionAuthOriginProbe = (input: {
+  baseUrl: string;
+  betterAuthTrustedOrigins?: string;
+}): void => {
+  const childEnvironment: NodeJS.ProcessEnv = {
+    ...process.env,
+    NODE_ENV: "production",
+    TEST: "false",
+    BETTER_AUTH_SECRET: "test-auth-secret-test-auth-secret",
+    BETTER_AUTH_URL: input.baseUrl,
+    DATABASE_URL: "mysql://user:pass@localhost:3306/db",
+    TRUSTED_ORIGINS: "https://app.example.com",
+  };
+  delete childEnvironment.BETTER_AUTH_TRUSTED_ORIGINS;
+  if (input.betterAuthTrustedOrigins) {
+    childEnvironment.BETTER_AUTH_TRUSTED_ORIGINS =
+      input.betterAuthTrustedOrigins;
+  }
+
+  const requestUrl = `${input.baseUrl}/api/auth/sign-out`;
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "--eval",
+      `
+        const { auth } = await import('./src/lib/auth.ts');
+        const response = await auth.handler(
+          new Request(${JSON.stringify(requestUrl)}, {
+            method: 'POST',
+            headers: {
+              Cookie: 'test.session_token=value',
+              Origin: 'https://evil.example.com',
+            },
+          }),
+        );
+        if (response.status !== 403) {
+          throw new Error('Expected 403, received ' + response.status);
+        }
+      `,
+    ],
+    {
+      cwd: process.cwd(),
+      env: childEnvironment,
+      stdio: "pipe",
+    },
+  );
+};
+
 beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
@@ -228,6 +280,135 @@ afterEach(() => {
 });
 
 describe("Better Auth invitation admission handler", () => {
+  it("uses the normalized shared origin contract", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv(
+      "TRUSTED_ORIGINS",
+      " HTTPS://APP.EXAMPLE.COM:443/,https://app.example.com ",
+    );
+
+    const { auth } = await import("../lib/auth");
+
+    expect(auth.options.trustedOrigins).toEqual([
+      "http://localhost:3000",
+      "https://app.example.com",
+    ]);
+  });
+
+  it("keeps localhost as the test default", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    delete process.env.TRUSTED_ORIGINS;
+
+    const { auth } = await import("../lib/auth");
+
+    expect(auth.options.trustedOrigins).toEqual(["http://localhost:3000"]);
+  });
+
+  it.each([
+    [undefined, "missing"],
+    ["", "empty"],
+    ["not-an-origin", "malformed"],
+    ["https://*.example.com", "wildcard"],
+    ["https://app.example.com,not-an-origin", "mixed valid and invalid"],
+  ])("rejects %s production TRUSTED_ORIGINS during direct auth construction (%s)", async (trustedOrigins, _description) => {
+    vi.stubEnv("NODE_ENV", "production");
+    if (trustedOrigins === undefined) {
+      delete process.env.TRUSTED_ORIGINS;
+    } else {
+      vi.stubEnv("TRUSTED_ORIGINS", trustedOrigins);
+    }
+
+    await expect(import("../lib/auth")).rejects.toThrow(
+      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
+    );
+  });
+
+  it("rejects an untrusted cookie origin at the Better Auth boundary", async () => {
+    expect(() =>
+      runProductionAuthOriginProbe({ baseUrl: "http://localhost:3001" }),
+    ).not.toThrow();
+    expect(() =>
+      runProductionAuthOriginProbe({
+        baseUrl: "http://localhost:3001",
+        betterAuthTrustedOrigins: "https://evil.example.com",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      runProductionAuthOriginProbe({ baseUrl: "https://evil.example.com" }),
+    ).not.toThrow();
+  });
+
+  it("fails closed for missing and malformed auth origins with cookie requests", async () => {
+    const { auth } = await import("../lib/auth");
+    const request = (headers: Record<string, string>, method = "POST") =>
+      auth.handler(
+        new Request("http://localhost:3001/api/auth/sign-out", {
+          method,
+          headers,
+        }),
+      );
+
+    const missingOriginResponse = await request({
+      Cookie: "test.session_token=value",
+    });
+    expect(missingOriginResponse.status).toBe(403);
+    await expect(missingOriginResponse.json()).resolves.toMatchObject({
+      message: "Invalid origin",
+    });
+
+    const malformedOriginResponse = await request({
+      Cookie: "test.session_token=value",
+      Origin: "not-an-origin",
+      Referer: "http://localhost:3000/forms/123",
+    });
+    expect(malformedOriginResponse.status).toBe(403);
+
+    const refererFallbackResponse = await request({
+      Cookie: "test.session_token=value",
+      Referer: "http://localhost:3000/forms/123",
+    });
+    expect(refererFallbackResponse.status).toBe(200);
+
+    const noCookieResponse = await request({
+      Origin: "https://evil.example.com",
+    });
+    expect(noCookieResponse.status).toBe(200);
+  });
+
+  it("does not apply the cookie origin guard to safe methods or preflight/callback GETs", async () => {
+    const { auth } = await import("../lib/auth");
+    const getSessionResponse = await auth.handler(
+      new Request("http://localhost:3001/api/auth/get-session", {
+        headers: {
+          Cookie: "test.session_token=value",
+          Origin: "https://evil.example.com",
+        },
+      }),
+    );
+    expect(getSessionResponse.status).not.toBe(403);
+
+    const preflightResponse = await auth.handler(
+      new Request("http://localhost:3001/api/auth/sign-out", {
+        method: "OPTIONS",
+        headers: {
+          Cookie: "test.session_token=value",
+          Origin: "https://evil.example.com",
+        },
+      }),
+    );
+    expect(preflightResponse.status).not.toBe(403);
+
+    const callbackResponse = await auth.handler(
+      new Request("http://localhost:3001/api/auth/callback/discord?code=code", {
+        headers: {
+          Cookie: "test.session_token=value",
+          Origin: "https://evil.example.com",
+        },
+      }),
+    );
+    expect(callbackResponse.status).not.toBe(403);
+  });
+
   it("gates direct, concurrent, existing-user, and expired OAuth callbacks", async () => {
     const { auth, issueInvitationSignupAuthorization } = await import(
       "../lib/auth"
