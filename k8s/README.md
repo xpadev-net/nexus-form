@@ -78,6 +78,7 @@ docker push your-registry/nexus-form-worker:latest
 
 - `REDIS_URL`: Redis接続文字列（例: `redis://redis-service:6379`）
 - `NODE_ENV`: 実行環境（production/staging/development）
+- `TRUSTED_ORIGINS`: APIへのアクセスを許可する、ブラウザから見えるHTTP(S) origin（本番必須）
 - `SIGNUP_INVITATION_CODE`: 新規ユーザー登録時に必要な招待コード（必須）
 - `LOG_LEVEL`: ログレベル（info/debug/error）
 - `VITE_*`: フロントエンドで使用される公開環境変数
@@ -112,6 +113,30 @@ kubectl -n production exec deployment/web -- sed -n '1,120p' /usr/share/nginx/ht
 # ブラウザから参照される内容を確認する場合
 kubectl -n production port-forward service/web 8080:80
 curl http://127.0.0.1:8080/env-config.js
+```
+
+##### TRUSTED_ORIGINS（本番必須）
+
+`TRUSTED_ORIGINS` は、ブラウザの `Origin` ヘッダーと照合するAPIの許可リストです。`k8s/base/configmap.yaml` と production overlay には、置換しない限り有効な origin にならないプレースホルダーを意図的に設定しています。productionでは `k8s/overlays/production/configmap-patch.yaml` の値がbaseの同じキーを上書きするため、デプロイ前にこのproduction用patchの値を実際の公開Webサイトの origin へ置き換えてください。baseだけを編集すると、productionにはpatch側のプレースホルダーが残り、APIはfail-fastで起動失敗します。未設定、空、または不正な値のまま本番APIを起動すると、APIはリクエストを受け付ける前に起動失敗します。
+
+複数のWebサイトから同じAPIを利用する場合は、originをカンマ区切りで指定します。ワイルドカード、パス、クエリ、フラグメントは指定せず、各originを個別に列挙してください。
+
+```yaml
+# 置換前の値（意図的に不正。デプロイ前に必ず変更）
+TRUSTED_ORIGINS: "REPLACE_BEFORE_DEPLOY_WITH_PRODUCTION_WEB_ORIGIN"
+
+# 例: 複数の公開Web originを許可する場合（.invalid は説明用の予約ドメイン）
+TRUSTED_ORIGINS: "https://forms.example.invalid,https://admin.example.invalid"
+```
+
+同一オリジン構成（リバースプロキシ等でWebとAPIを同じ公開originから配信）では、その公開Web originを指定します。WebとAPIが別オリジンの構成では、`TRUSTED_ORIGINS` に指定するのはAPIのoriginではなく、ブラウザでWebページを開くoriginです。例えば `https://forms.example.invalid` のWebから `https://api.example.invalid` のAPIを呼ぶ場合は、`TRUSTED_ORIGINS` に前者を設定し、`VITE_API_URL` には後者を設定します。
+
+production APIは `TRUSTED_ORIGINS` をfail-fastで検証するため、プレースホルダーを実在ドメインへ置き換え、Webの公開originと一致させてからデプロイしてください。ConfigMapは `envFrom` でAPI Podへ読み込まれますが、Pod template checksumやreloaderは設定されていないため、ConfigMapをapplyするだけでは既存のAPI Podへ新しい値は反映されません。値を変更する場合も、以前の値へ戻す場合も、production namespaceでConfigMapを再applyした後にAPI Deploymentを再起動し、rollout完了を確認してください。
+
+```bash
+kubectl apply -k k8s/overlays/production
+kubectl -n production rollout restart deployment/api
+kubectl -n production rollout status deployment/api
 ```
 
 #### Secretの編集
