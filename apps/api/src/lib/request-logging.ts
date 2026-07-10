@@ -47,6 +47,26 @@ function getRawPath(requestTarget: string): string | undefined {
   return requestTarget.slice(pathStart).split(/[?#]/, 1)[0];
 }
 
+function containsAmbiguousDecodedPathSyntax(segment: string): boolean {
+  let decodedSegment = segment;
+  for (let pass = 0; pass < 8; pass += 1) {
+    const nextSegment = decodeURIComponent(decodedSegment);
+    if (
+      containsInvalidRequestTargetCharacters(nextSegment) ||
+      nextSegment.includes("/") ||
+      nextSegment.includes(";") ||
+      [".", ".."].includes(nextSegment)
+    ) {
+      return true;
+    }
+    if (nextSegment === decodedSegment) {
+      return false;
+    }
+    decodedSegment = nextSegment;
+  }
+  return true;
+}
+
 function containsAmbiguousPathSyntax(requestTarget: string): boolean {
   const rawPath = getRawPath(requestTarget);
   if (rawPath === undefined) {
@@ -54,12 +74,7 @@ function containsAmbiguousPathSyntax(requestTarget: string): boolean {
   }
 
   try {
-    return rawPath.split("/").some((segment) => {
-      const decodedSegment = decodeURIComponent(segment);
-      return (
-        decodedSegment.includes(";") || [".", ".."].includes(decodedSegment)
-      );
-    });
+    return rawPath.split("/").some(containsAmbiguousDecodedPathSyntax);
   } catch {
     return true;
   }
