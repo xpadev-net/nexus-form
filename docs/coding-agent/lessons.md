@@ -1,5 +1,33 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Write Orchestrator State Directly to Default Branch  [tags: orchestration, git-workflow, ledger, planning]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/codebase-review-remediation-roadmap-plan.md`
+- Task/Wave: orchestrator bootstrap and ledger persistence
+- Roles involved: Orchestrator
+
+Symptom:
+- The orchestrator opened PR #645 for plan and task-ledger changes, adding an unnecessary review and CI gate before the remote task state became available on the default branch.
+
+Root cause:
+- Applied the implementation-worker PR workflow to orchestrator-owned coordination artifacts instead of distinguishing product-code delivery from plan/ledger state management.
+
+Fix applied:
+- Close the orchestrator-only PR and publish its plan, lesson, and ledger commits directly to `master`.
+
+Prevention:
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: "Write orchestrator-owned plans, lessons, and task-ledger lifecycle updates directly to the default branch unless the user explicitly requests a PR; worker product-code changes still require PRs."
+- Dispatch/plan guardrail:
+  - Before creating a PR, classify the changes as worker implementation or orchestrator state; do not create a PR for the latter by default.
+- Residual risk / waiver:
+  - Direct default-branch writes remain limited to orchestrator-owned coordination artifacts, not product code.
+
+Evidence:
+- User correction on 2026-07-11; PR #645 closed and equivalent commits pushed directly to `master`.
+
 ## 2026-07-11 — Review Task Size Before Plan Approval  [tags: planning, task-sizing, scope, orchestration]
 
 Context:
