@@ -54,12 +54,12 @@ function containsAmbiguousPathSyntax(requestTarget: string): boolean {
   }
 
   try {
-    return (
-      rawPath.includes(";") ||
-      rawPath
-        .split("/")
-        .some((segment) => [".", ".."].includes(decodeURIComponent(segment)))
-    );
+    return rawPath.split("/").some((segment) => {
+      const decodedSegment = decodeURIComponent(segment);
+      return (
+        decodedSegment.includes(";") || [".", ".."].includes(decodedSegment)
+      );
+    });
   } catch {
     return true;
   }
