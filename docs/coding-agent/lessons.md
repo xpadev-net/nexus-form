@@ -1,5 +1,34 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Canonicalize Security Markers at the Same Depth as Validation  [tags: review, logging, encoding, secrets]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/sensitive-request-log-redaction-plan.md`
+- Task/Wave: LOG-1 parent merge review
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- Ambiguity checks repeatedly decoded path segments, but credential-marker matching decoded only once.
+- A multi-encoded marker could therefore pass validation while avoiding redaction and exposing the following token.
+
+Root cause:
+- Validation and security classification used different canonical representations of the same untrusted path segment.
+
+Fix applied:
+- Fail closed when a path segment requires a second decoding pass, while preserving single-encoded marker redaction and testing relative and absolute targets.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: "Security validation and classification must consume the same canonical representation and encoding depth for untrusted identifiers."
+- Dispatch/plan guardrail:
+  - Secret-redaction reviews must test single and multiple encoding of both delimiters and the marker names that trigger redaction.
+- Residual risk / waiver:
+  - Marker allowlists must be updated when new credential-bearing path routes are introduced.
+
+Evidence:
+- Parent findings and fixes on PR #649; focused sanitizer suite passes 28 tests including relative and absolute multi-encoding cases.
+
 ## 2026-07-11 — Test Configuration Authority and Every Startup Entry Path  [tags: review, security, configuration, startup]
 
 Context:
