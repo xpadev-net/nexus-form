@@ -1,5 +1,40 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Review Task Size Before Plan Approval  [tags: planning, task-sizing, scope, orchestration]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/codebase-review-remediation-roadmap-plan.md` and its child plans
+- Task/Wave: plan authoring and pre-dispatch review
+- Roles involved: Orchestrator, Reviewer
+
+Symptom:
+- Several plan Tasks still combined multiple independently shippable responsibilities even after the findings had been split into separate plan files.
+- Schema/migration, runtime behavior, multiple provider implementations, and CI/E2E setup were grouped too broadly for narrow Worker ownership.
+
+Root cause:
+- Plan review emphasized required fields, finding coverage, and file-level splitting, but did not apply an explicit complexity/size gate to each Task.
+
+Fix applied:
+- Re-audited every Task by behavior count, runtime boundary, package count, production-file count, and independent validation path; split oversized Tasks and rebuilt dependencies/waves.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - Before plan approval, split any Task that combines schema/migration with runtime changes, spans independent providers, or mixes product implementation with CI/E2E infrastructure unless inseparability is documented.
+  - Prefer one primary behavior, one runtime boundary, at most four production files, and one package/app per Worker Task.
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: "Run a task-size audit before plan approval and replan any Task with multiple independently shippable behaviors or validation paths."
+- Harness migration candidate:
+  - category: plan-format
+  - proposed_home: `plan-format` plan-integrity checklist
+  - generalized_rule: Task integrity includes bounded size and complexity, not only complete fields and valid `owns`.
+  - suggested_change: Add behavior-count, boundary-count, and independent-validation split prompts to the plan-integrity checklist.
+- Residual risk / waiver:
+  - none
+
+Evidence:
+- Updated remediation plans; independent task-size Reviewer status `APPROVED` after splitting runtime and migration test paths.
+
 ## 2026-07-08: Return unmet merge gates to workers immediately
 
 - tags: orchestration, merge-gate, ci, review
