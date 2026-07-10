@@ -72,6 +72,6 @@ describe("requestLogger", () => {
 
     expect(logs).toHaveLength(2);
     expect(logs[0]).toBe("<-- GET /api/forms/form-123");
-    expect(logs[1]).toMatch(/^--> GET \/api\/forms\/form-123 200 \d+(ms|s)$/);
+    expect(logs[1]).toMatch(/^--> GET \/api\/forms\/form-123 500 \d+(ms|s)$/);
   });
 });

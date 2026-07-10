@@ -59,15 +59,19 @@ export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
 
     logRequest(fn, "<--", method, requestTarget);
     const start = Date.now();
+    let requestFailed = false;
     try {
       await next();
+    } catch (error) {
+      requestFailed = true;
+      throw error;
     } finally {
       logRequest(
         fn,
         "-->",
         method,
         requestTarget,
-        c.res.status,
+        requestFailed ? 500 : c.res.status,
         formatElapsedTime(start),
       );
     }
