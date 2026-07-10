@@ -13,7 +13,7 @@
 | K8S-3 | Notification Worker Deployment | complete | `codex/k8s-notification-worker` | `019f4d76-22ef-7af2-98eb-a610d4774b4e` | [#646](https://github.com/xpadev-net/nexus-form/pull/646) | Merged as `aa4b05912af95de640c2896cc06ab282a26fd150`; archive worker |
 | LOG-1 | Central request-target sanitizer | in progress | `codex/request-log-sanitizer` | `019f4d76-22ef-7af2-98eb-a62260075b68` | — | Worker implementation |
 | PLUGIN-1 | Compatible plugin execution context | complete | `codex/plugin-execution-context` | `019f4d76-22ef-7af2-98eb-a5f274d2fc95` | [#650](https://github.com/xpadev-net/nexus-form/pull/650) | Merged as `16a90c4496a465e5f5efc4446810d85b44fb45d7`; archive worker |
-| WEBERR-1 | Runtime-validated client error envelope | in progress | `codex/web-api-error-envelope` | `019f4d76-22ef-7af2-98eb-a5b4e45c6e62` | — | Worker implementation |
+| WEBERR-1 | Runtime-validated client error envelope | complete | `codex/web-api-error-envelope` | `019f4d76-22ef-7af2-98eb-a5b4e45c6e62` | [#647](https://github.com/xpadev-net/nexus-form/pull/647) | Merged as `f1f9442b2e020d72e1de6931c5f8522182b41ef2`; archive worker |
 
 ## Queued Plans
 
@@ -44,3 +44,4 @@
 - 2026-07-11: K8S-3 merged via PR #646 (`aa4b05912af95de640c2896cc06ab282a26fd150`). Worker and orchestrator `gh-review-hook` exited 0; CI passed; focused Worker test passed 9 tests; base/production manifests rendered with exactly one notification consumer; two independent orchestrator review passes found no actionable issues. Residual risk: live-cluster Pod/probe validation remains unperformed and manifest parity automation is deferred to K8S-4.
 - 2026-07-11: Expanded PLUGIN-1 within `packages/integrations` to include `src/index.ts` and a minimal root-export regression test. Independent review found the new public execution-context type was otherwise unavailable to external TypeScript plugins; deferring would leave the contract incomplete.
 - 2026-07-11: PLUGIN-1 merged via PR #650 (`16a90c4496a465e5f5efc4446810d85b44fb45d7`). Worker and orchestrator `gh-review-hook` exited 0; CI passed; focused integrations suite passed 78 tests; two orchestrator review passes found no actionable issues. Residual risk: Worker propagation and host-enforced deadlines remain intentionally queued in later plugin-timeout tasks.
+- 2026-07-11: WEBERR-1 merged via PR #647 (`f1f9442b2e020d72e1de6931c5f8522182b41ef2`). Parent review found and worker fixed malformed-envelope diagnostic loss; worker and orchestrator hooks exited 0; CI passed; parent focused Web tests passed 5 tests; final independent parent review found no actionable issues. Residual risks: success-body runtime validation and whitespace-only messages remain outside this error-only slice.
