@@ -76,6 +76,8 @@ describe("sanitizeRequestTarget", () => {
     "/api/auth/callback;code=code-secret;state=state-secret",
     "/api/auth/callback%3Bcode=code-secret%3Bstate=state-secret",
     "/api/auth/callback%253Bcode=code-secret%253Bstate=state-secret",
+    "/api/forms/%2573hared/shared-link-secret",
+    "https://api.test/api/forms/sh%2561red/shared-link-secret",
     "/api/forms/token%2Fwith-a-slash",
     "/api/forms/%00credential",
     "/api/forms/token%ZZ",

@@ -49,6 +49,7 @@ function getRawPath(requestTarget: string): string | undefined {
 
 function containsAmbiguousDecodedPathSyntax(segment: string): boolean {
   let decodedSegment = segment;
+  let hasDecodedEncoding = false;
   for (let pass = 0; pass < 8; pass += 1) {
     const nextSegment = decodeURIComponent(decodedSegment);
     if (
@@ -62,6 +63,10 @@ function containsAmbiguousDecodedPathSyntax(segment: string): boolean {
     if (nextSegment === decodedSegment) {
       return false;
     }
+    if (hasDecodedEncoding) {
+      return true;
+    }
+    hasDecodedEncoding = true;
     decodedSegment = nextSegment;
   }
   return true;
