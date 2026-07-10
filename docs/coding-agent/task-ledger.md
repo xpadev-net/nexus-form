@@ -9,11 +9,11 @@
 
 | ID | Task | Status | Branch | Worker | PR | Next action |
 |---|---|---|---|---|---|---|
-| K8S-1 | Fail-closed API origin validation | in progress | `codex/k8s-origin-validation` | `client-new-thread:af32609b-8377-48e6-a227-8ebd713fc30f` | — | Startup stability check |
-| K8S-3 | Notification Worker Deployment | in progress | `codex/k8s-notification-worker` | `client-new-thread:c772f348-979c-4d36-a255-02a29918b6b5` | — | Startup stability check |
-| LOG-1 | Central request-target sanitizer | in progress | `codex/request-log-sanitizer` | `client-new-thread:3411f510-75b2-4494-8a1d-39be2fc4dc20` | — | Startup stability check |
-| PLUGIN-1 | Compatible plugin execution context | in progress | `codex/plugin-execution-context` | `client-new-thread:28863c9a-74a8-4089-bfdf-edcd9d1f33cd` | — | Startup stability check |
-| WEBERR-1 | Runtime-validated client error envelope | in progress | `codex/web-api-error-envelope` | `client-new-thread:ea8ed903-29ae-4449-9f4b-70303116ec15` | — | Startup stability check |
+| K8S-1 | Fail-closed API origin validation | in progress | `codex/k8s-origin-validation` | `019f4d76-22ef-7af2-98eb-a5d27613b1a2` | — | Worker implementation |
+| K8S-3 | Notification Worker Deployment | in progress | `codex/k8s-notification-worker` | `019f4d76-22ef-7af2-98eb-a610d4774b4e` | — | Worker implementation |
+| LOG-1 | Central request-target sanitizer | in progress | `codex/request-log-sanitizer` | `019f4d76-22ef-7af2-98eb-a62260075b68` | — | Worker implementation |
+| PLUGIN-1 | Compatible plugin execution context | in progress | `codex/plugin-execution-context` | `019f4d76-22ef-7af2-98eb-a5f274d2fc95` | — | Worker implementation |
+| WEBERR-1 | Runtime-validated client error envelope | in progress | `codex/web-api-error-envelope` | `019f4d76-22ef-7af2-98eb-a5b4e45c6e62` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -33,3 +33,4 @@
 - 2026-07-11: Initialized from the comprehensive codebase review remediation plans.
 - 2026-07-11: Selected five bounded, dependency-free, non-overlapping first-wave tasks.
 - 2026-07-11: Started first-wave workers in isolated worktrees with `gpt-5.6-luna` at `high` reasoning.
+- 2026-07-11: Startup stability check passed for all five workers; replaced queued client IDs with durable thread IDs.
