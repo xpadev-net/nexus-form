@@ -6,4 +6,6 @@ data:
   # Override with production values
   REDIS_URL: "redis://redis-service.production:6379"
   NODE_ENV: "production"
-
+  # Replace before deploying; use comma-separated browser-visible HTTP(S) origins.
+  # The placeholder is intentionally invalid so production startup fails until it is replaced.
+  TRUSTED_ORIGINS: "REPLACE_BEFORE_DEPLOY_WITH_PRODUCTION_WEB_ORIGIN"
