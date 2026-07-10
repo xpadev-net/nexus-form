@@ -1047,7 +1047,7 @@
 
 # Full-codebase review remediation backlog
 
-- status: approved
+- status: complete
 - generated: 2026-07-10
 - last_updated: 2026-07-10
 - repository: `xpadev-net/nexus-form`
@@ -1288,7 +1288,7 @@
   - PR #642 was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; the remote worker branch was deleted and worker thread archived.
 
 ### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
 - pending_worktree: `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a`
@@ -1305,6 +1305,7 @@
   - `apps/api/src/lib/forms/*outbox*.ts`
   - `apps/api/src/lib/graceful-shutdown.ts`
   - `apps/api/src/index.ts`
+  - `apps/api/src/lib/sessions/jwt.ts` (approved P2 scope expansion)
   - `apps/api/src/__tests__/forms-public*.test.ts`
   - `apps/api/src/lib/forms/__tests__/*outbox*.test.ts`
   - `apps/worker/src/handlers/form-submit-notifications.ts`
@@ -1330,6 +1331,17 @@
     required: true
     owner: reviewer
     detail: Verify transaction boundary, multi-replica claims, stable job IDs, rolling deploy, and cleanup behavior.
+- pr: `#643`
+- worker_head: `4a1692b220c18b11c038ba0aaf73d8f105a8fe91`
+- merge_commit: `f0cb04dadf23d97e7970129f1b10c846af588ec8`
+- completion_notes:
+  - Worker, current-head independent Reviewer, and parent deep-review approved the durable response/session/validation/submit-outbox transaction and recovery contract with no remaining actionable findings.
+  - The approved P2 scope expansion made `resolveSessionIdOrCreate` executor-aware while preserving existing two-argument callers; public submit passes its transaction client, and regression coverage proves later insert failure does not commit an orphan session or cookie.
+  - Submit outbox claims use `FOR UPDATE SKIP LOCKED`, claim-token/lease guards, stable BullMQ IDs, startup/interval recovery, and graceful shutdown. Queue-success/DB-ack ambiguity intentionally replays at least once; generic webhooks retain stable delivery IDs and Discord duplicate risk remains explicit.
+  - Migration 0015 is additive and migration-first; new API replicas fail startup when the outbox table is absent. Old replicas retain documented legacy best-effort behavior only during the rolling-deploy overlap.
+  - Parent current-head validation passed focused API tests (4 files / 92 tests), worker notification tests (1 file / 13 tests), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `pnpm build`, `git diff --check`, and orchestrator `gh-review-hook 643` exit 0.
+  - Final PR gates were non-draft, CLEAN, MERGEABLE, APPROVED, 0 behind, 9/9 checks successful, and 0 unresolved review threads. PR #643 was squash-merged as `f0cb04dadf23d97e7970129f1b10c846af588ec8`; the remote branch was deleted and worker thread archived.
+  - Residual risk: multi-replica locking is mock-tested rather than exercised against concurrent live MySQL connections, and Discord cannot provide receiver-side idempotency.
 
 ## Progress Log
 
@@ -1344,6 +1356,8 @@
 - 2026-07-10: Task_1 PR #641 passed worker and parent merge gates and was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote branch deleted and worker archived.
 - 2026-07-10: Task_4 PR #640 passed worker and parent merge gates and was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote branch deleted and worker archival attempted.
 - 2026-07-10: Task_5 PR #642 passed worker and parent merge gates and was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; remote branch deleted and worker thread archived. Parent validation used the PR-pinned Node 22.13.1 after Node 24.2.0 exposed a dependency-side Playwright discovery incompatibility.
+- 2026-07-10: Task_6 PR #643 passed worker and parent merge gates and was squash-merged as `f0cb04dadf23d97e7970129f1b10c846af588ec8`; remote branch deleted and worker thread archived. The parent recorded the approved `jwt.ts` P2 scope expansion and preserved explicit at-least-once notification semantics.
+- 2026-07-10: Wave 3 final validation passed on updated `master` with Node 22.13.1: `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, and `pnpm build`. The full-codebase review remediation backlog is complete.
 
 ## Decision Log
 
