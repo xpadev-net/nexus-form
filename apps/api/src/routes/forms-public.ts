@@ -827,6 +827,7 @@ export const formsPublicRouter = createHonoApp()
           const { sessionId, jwt: sessionJwt } = await resolveSessionIdOrCreate(
             jwtToken,
             { ip, ua: userAgent },
+            tx,
           );
 
           const validationOutbox = activeSnapshot

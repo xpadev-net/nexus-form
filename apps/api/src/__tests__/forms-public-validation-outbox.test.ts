@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => {
       id: "formResponse.id",
       formId: "formResponse.formId",
     },
+    formSession: {
+      table: "formSession",
+      id: "formSession.id",
+    },
     formSubmitOutbox: {
       table: "formSubmitOutbox",
     },
@@ -515,19 +519,21 @@ function useTransactionWithInsertCapture() {
   const txUpdate = vi.fn(() => ({
     set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
   }));
+  const transactionClient = {
+    insert: txInsert,
+    select: txSelect,
+    update: txUpdate,
+  };
   mocks.db.transaction.mockImplementation(async (fn) => {
     mocks.sequence.push("tx:start");
-    const result = await fn({
-      insert: txInsert,
-      select: txSelect,
-      update: txUpdate,
-    });
+    const result = await fn(transactionClient);
     mocks.sequence.push("tx:commit");
     return result;
   });
   return {
     getInsertedResponseRow: () => insertedResponseRow,
     getInsertedValidationRows: () => insertedValidationRows,
+    transactionClient,
     txInsert,
     txSelect,
   };
@@ -697,7 +703,7 @@ describe("R11-C2-a public validation outbox", () => {
   it("inserts PENDING validation rows in the same transaction as the response before enqueue", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
-    const { getInsertedValidationRows, txInsert } =
+    const { getInsertedValidationRows, transactionClient, txInsert } =
       useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
@@ -706,6 +712,11 @@ describe("R11-C2-a public validation outbox", () => {
     expect(txInsert).toHaveBeenCalledWith(mocks.schema.formResponse);
     expect(txInsert).toHaveBeenCalledWith(
       mocks.schema.externalServiceValidationResult,
+    );
+    expect(mocks.resolveSessionIdOrCreate).toHaveBeenCalledWith(
+      null,
+      { ip: "203.0.113.10", ua: undefined },
+      transactionClient,
     );
     expect(getInsertedValidationRows()).toEqual([
       expect.objectContaining({
@@ -1114,6 +1125,65 @@ describe("R11-C2-a public validation outbox", () => {
     expect(mocks.resolveSessionIdOrCreate).not.toHaveBeenCalled();
     expect(mocks.submitOutboxRows).toEqual([]);
     expect(mocks.recoverSubmitOutboxForResponse).not.toHaveBeenCalled();
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("rolls back a newly created session when a later response insert fails", async () => {
+    const snapshot = {
+      ...activeSnapshot([]),
+      structureJson: JSON.stringify({
+        version: 1,
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: false,
+        },
+      }),
+    };
+    useSuccessfulSubmitSelects(snapshot);
+    const committedSessions: unknown[] = [];
+    const txInsert = vi.fn((table: unknown) => ({
+      values: vi.fn(async (values: unknown) => {
+        if (table === mocks.schema.formResponse) {
+          throw new Error("response insert failed");
+        }
+        return values;
+      }),
+    }));
+    mocks.db.transaction.mockImplementation(async (callback) => {
+      const pendingSessions: unknown[] = [];
+      const insert = vi.fn((table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (table === mocks.schema.formSession) {
+            pendingSessions.push(values);
+          }
+          return txInsert(table).values(values);
+        }),
+      }));
+      const result = await callback({
+        insert,
+        select: vi.fn(),
+        update: vi.fn(),
+      });
+      committedSessions.push(...pendingSessions);
+      return result;
+    });
+    mocks.resolveSessionIdOrCreate.mockImplementationOnce(
+      async (_jwtToken, _meta, executor) => {
+        await executor.insert(mocks.schema.formSession).values({
+          id: "session-rollback",
+        });
+        return { sessionId: "session-rollback", jwt: "session-jwt" };
+      },
+    );
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(500);
+    expect(txInsert).toHaveBeenNthCalledWith(1, mocks.schema.formSession);
+    expect(txInsert).toHaveBeenNthCalledWith(2, mocks.schema.formResponse);
+    expect(committedSessions).toEqual([]);
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+    expect(mocks.resolveSessionIdOrCreate).toHaveBeenCalledOnce();
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
