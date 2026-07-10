@@ -14,11 +14,11 @@
 | LOG-1 | Central request-target sanitizer | complete | `codex/request-log-sanitizer` | `019f4d76-22ef-7af2-98eb-a62260075b68` | [#649](https://github.com/xpadev-net/nexus-form/pull/649) | Merged as `52c7085066ce3dd44f73bd5d34ba4872849ab638`; archive worker |
 | PLUGIN-1 | Compatible plugin execution context | complete | `codex/plugin-execution-context` | `019f4d76-22ef-7af2-98eb-a5f274d2fc95` | [#650](https://github.com/xpadev-net/nexus-form/pull/650) | Merged as `16a90c4496a465e5f5efc4446810d85b44fb45d7`; archive worker |
 | WEBERR-1 | Runtime-validated client error envelope | complete | `codex/web-api-error-envelope` | `019f4d76-22ef-7af2-98eb-a5b4e45c6e62` | [#647](https://github.com/xpadev-net/nexus-form/pull/647) | Merged as `f1f9442b2e020d72e1de6931c5f8522182b41ef2`; archive worker |
-| K8S-2 | Trusted origins in Kubernetes templates | in progress | `codex/k8s-trusted-origins-config` | `client-new-thread:fc5ea026-5107-41fc-8e87-5028ef9f3c19` | — | Startup stability check |
-| LOG-2 | Sanitizer-aware request logger middleware | in progress | `codex/request-log-middleware` | `client-new-thread:0b5694d1-4e04-4602-b0b9-1420fffac343` | — | Startup stability check |
-| PLUGIN-2 | Bounded Worker plugin timeout configuration | in progress | `codex/plugin-timeout-env` | `client-new-thread:b66ef11d-29b9-4efe-92bc-b4e08cb96f8e` | — | Startup stability check |
-| WEBERR-2 | Discord sign-in pending and error state | in progress | `codex/discord-signin-state` | `client-new-thread:44d67939-fbe5-40de-80ff-6d310a4bd631` | — | Startup stability check |
-| AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | in progress | `codex/better-auth-origin-boundary` | `client-new-thread:b227bf25-8833-4fbe-b177-0aecb794b18b` | — | Startup stability check |
+| K8S-2 | Trusted origins in Kubernetes templates | in progress | `codex/k8s-trusted-origins-config` | `019f4e46-668a-7041-9e8e-b2660a938e75` | — | Worker implementation |
+| LOG-2 | Sanitizer-aware request logger middleware | in progress | `codex/request-log-middleware` | `019f4e46-6692-7841-a62a-16799ecfd26a` | — | Worker implementation |
+| PLUGIN-2 | Bounded Worker plugin timeout configuration | in progress | `codex/plugin-timeout-env` | `019f4e46-668d-71f3-807a-4c772ba1e7b9` | — | Worker implementation |
+| WEBERR-2 | Discord sign-in pending and error state | in progress | `codex/discord-signin-state` | `019f4e46-6688-7d92-8e32-4fe6ed7acda5` | — | Worker implementation |
+| AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | in progress | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -53,3 +53,4 @@
 - 2026-07-11: K8S-1 merged via PR #648 (`c068fb6d235e829afaf0950f500181cb619af478`). Parent review found and worker fixed wildcard-origin acceptance and added import-based serving regression coverage; worker and orchestrator hooks exited 0; CI passed; parent focused API tests passed 26 tests; final parent review found no actionable issues. AUTH-ORIGIN-1 remains queued separately.
 - 2026-07-11: LOG-1 merged via PR #649 (`52c7085066ce3dd44f73bd5d34ba4872849ab638`). Parent reviews found and worker fixed multi-encoded marker and path-parameter redaction bypasses; worker and orchestrator hooks exited 0; CI passed after an unrelated E2E flake rerun; parent focused sanitizer tests passed 28 tests; final parent review found no actionable issues. Logger wiring remains queued as LOG-2.
 - 2026-07-11: Started second-wave workers for K8S-2, LOG-2, PLUGIN-2, WEBERR-2, and AUTH-ORIGIN-1 in isolated worktrees with `gpt-5.6-luna` at `high` reasoning. Ownership is non-overlapping across Kubernetes, API logger wiring, Worker env, Web auth UX, and API auth-origin boundaries.
+- 2026-07-11: Second-wave startup stability check passed for all five workers; replaced queued client IDs with durable thread IDs.
