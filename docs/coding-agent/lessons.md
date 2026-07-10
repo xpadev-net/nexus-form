@@ -1,5 +1,34 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Preserve Diagnostic Details Independently of Envelope Validity  [tags: review, api-errors, compatibility, runtime-validation]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/web-api-error-and-discord-auth-ux-plan.md`
+- Task/Wave: WEBERR-1 parent merge review
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- Runtime validation correctly rejected a malformed nested error message, but coupled that failure to clearing the entire `RpcError.details` record.
+- Existing callers could no longer inspect otherwise usable fields such as `details.error.code` and `requestId`.
+
+Root cause:
+- Message/code envelope validity and preservation of the top-level diagnostic object were treated as one all-or-nothing contract, despite the previous implementation preserving every non-array JSON object.
+
+Fix applied:
+- Parse the top-level record independently from the typed message/code envelope; invalid envelope fields fall back safely while the diagnostic record remains available.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: "When tightening runtime validation, audit and preserve independently consumed diagnostic fields instead of discarding the full payload on one invalid field."
+- Dispatch/plan guardrail:
+  - Boundary-parser reviews must trace existing consumers of both normalized fields and retained raw/details payloads, and add a malformed-partial-envelope compatibility test.
+- Residual risk / waiver:
+  - none
+
+Evidence:
+- Parent deep-review finding on PR #647; regression covers malformed `error.message` while retaining `details.error.code` and `requestId`.
+
 ## 2026-07-11 — Write Orchestrator State Directly to Default Branch  [tags: orchestration, git-workflow, ledger, planning]
 
 Context:
