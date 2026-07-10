@@ -28,9 +28,16 @@
 | Validation Outbox Retry Recovery | queued | Design first; serialize submission-route changes |
 | Realtime E2E Auth Fixture | queued | Design first; run after security/reliability slices |
 
+## Follow-up Findings
+
+| ID | Finding | Status | Dependency / next action |
+|---|---|---|---|
+| AUTH-ORIGIN-1 | Better Auth `trustedOrigins` can retain localhost fallback while shared production origin enforcement fails closed | queued | Verify and remediate after K8S-1; own `apps/api/src/lib/auth.ts`, CSRF/auth-route boundaries, and focused auth-origin tests in a separate PR |
+
 ## Lifecycle Log
 
 - 2026-07-11: Initialized from the comprehensive codebase review remediation plans.
 - 2026-07-11: Selected five bounded, dependency-free, non-overlapping first-wave tasks.
 - 2026-07-11: Started first-wave workers in isolated worktrees with `gpt-5.6-luna` at `high` reasoning.
 - 2026-07-11: Startup stability check passed for all five workers; replaced queued client IDs with durable thread IDs.
+- 2026-07-11: Recorded K8S-1 out-of-scope Better Auth origin fallback as separate follow-up AUTH-ORIGIN-1. Checked-in Kubernetes config already sets `NODE_ENV=production`; alternative external deployment environment conventions remain outside current scope.
