@@ -75,9 +75,7 @@ export function SignInSection({ callbackURL }: SignInSectionProps) {
               すでにアカウントをお持ちの場合はこちら
             </p>
           </div>
-          <div aria-live="polite">
-            <DiscordSignInButton callbackURL={callbackURL} className="w-full" />
-          </div>
+          <DiscordSignInButton callbackURL={callbackURL} className="w-full" />
         </div>
 
         <div className="relative">
