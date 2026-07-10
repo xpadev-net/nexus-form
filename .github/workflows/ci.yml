@@ -159,6 +159,7 @@ jobs:
   e2e-harness:
     name: E2E Harness
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
     services:
@@ -188,9 +189,15 @@ jobs:
       REDIS_URL: redis://127.0.0.1:6379
       AUTH_SECRET: ci-test-auth-secret-must-be-at-least-32-characters
       BETTER_AUTH_SECRET: ci-test-auth-secret-must-be-at-least-32-characters
+      TRUSTED_ORIGINS: http://127.0.0.1:3000
       GOOGLE_OAUTH_ENC_KEY: ci-google-oauth-encryption-key
       SERVICE_MONITORING_INTERVAL: "0"
-      VALIDATION_PLUGINS_DIR: plugins/validation
+      VALIDATION_PLUGINS_DIR: e2e/fixtures/validation-plugins
+      WORKER_QUEUES: e2e_validation-validation
+      WORKER_HEALTH_FILE: /tmp/nexus-form-worker-health.json
+      WORKER_HEALTH_MAX_AGE_MS: "5000"
+      WORKER_HEALTH_PULSE_INTERVAL_MS: "1000"
+      WORKER_SHUTDOWN_TIMEOUT_MS: "10000"
       BASE_URL: http://127.0.0.1:3000
       PLAYWRIGHT_SKIP_WEB_SERVER: "1"
       VITE_API_URL: http://127.0.0.1:3001
@@ -205,7 +212,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "24"
+          node-version: "22.13.1"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
@@ -241,26 +248,56 @@ jobs:
         run: pnpm build
 
       - name: Start API server
+        env:
+          FORM_SECURITY_DEV_BYPASS: "true"
+          NODE_ENV: development
         run: |
           set -euo pipefail
+          rm -f /tmp/nexus-form-api.log /tmp/nexus-form-api.pid
           node apps/api/dist/index.mjs > /tmp/nexus-form-api.log 2>&1 &
           echo "$!" > /tmp/nexus-form-api.pid
 
       - name: Wait for API server
         run: |
           set -euo pipefail
+          api_pid="$(cat /tmp/nexus-form-api.pid)"
           for _ in {1..60}; do
-            if curl -fsS http://127.0.0.1:3001/api/healthz; then
+            if ! kill -0 "$api_pid" 2>/dev/null; then
+              exit 1
+            fi
+            if curl --connect-timeout 1 --max-time 2 -fsS http://127.0.0.1:3001/api/healthz > /dev/null; then
               exit 0
             fi
             sleep 2
           done
-          cat /tmp/nexus-form-api.log
+          exit 1
+
+      - name: Start validation worker
+        run: |
+          set -euo pipefail
+          rm -f /tmp/nexus-form-worker.log /tmp/nexus-form-worker.pid "$WORKER_HEALTH_FILE"
+          node apps/worker/dist/index.mjs > /tmp/nexus-form-worker.log 2>&1 &
+          echo "$!" > /tmp/nexus-form-worker.pid
+
+      - name: Wait for validation worker
+        run: |
+          set -euo pipefail
+          worker_pid="$(cat /tmp/nexus-form-worker.pid)"
+          for _ in {1..60}; do
+            if ! kill -0 "$worker_pid" 2>/dev/null; then
+              exit 1
+            fi
+            if node scripts/worker-health-probe.mjs readiness; then
+              exit 0
+            fi
+            sleep 2
+          done
           exit 1
 
       - name: Start web server
         run: |
           set -euo pipefail
+          rm -f /tmp/nexus-form-web.log /tmp/nexus-form-web.pid
           cd apps/web
           node_modules/.bin/vite preview --host 127.0.0.1 --port 3000 > /tmp/nexus-form-web.log 2>&1 &
           echo "$!" > /tmp/nexus-form-web.pid
@@ -268,33 +305,87 @@ jobs:
       - name: Wait for web server
         run: |
           set -euo pipefail
+          web_pid="$(cat /tmp/nexus-form-web.pid)"
           for _ in {1..60}; do
-            if curl -fsS http://127.0.0.1:3000/ > /dev/null; then
+            if ! kill -0 "$web_pid" 2>/dev/null; then
+              exit 1
+            fi
+            if curl --connect-timeout 1 --max-time 2 -fsS http://127.0.0.1:3000/ > /dev/null; then
               exit 0
             fi
             sleep 2
           done
-          cat /tmp/nexus-form-web.log
           exit 1
 
       - name: Validate E2E service endpoints
         run: |
           set -euo pipefail
-          curl -fsS http://127.0.0.1:3001/api/healthz
-          curl -fsS "$BASE_URL/" > /dev/null
+          curl --connect-timeout 1 --max-time 2 -fsS http://127.0.0.1:3001/api/healthz
+          curl --connect-timeout 1 --max-time 2 -fsS "$BASE_URL/" > /dev/null
+          node scripts/worker-health-probe.mjs readiness
+
+      - name: List Playwright E2E tests selected by CI
+        run: pnpm test:e2e:ci -- --list
 
       - name: Run Playwright E2E tests
         run: pnpm test:e2e:ci
 
-      - name: Stop E2E servers
+      - name: Print E2E service logs
+        if: failure()
+        run: |
+          for service in api web worker; do
+            log_file="/tmp/nexus-form-${service}.log"
+            echo "::group::${service} service log (last 64 KiB)"
+            if [ -f "$log_file" ]; then
+              tail -c 65536 "$log_file"
+            else
+              echo "Log file was not created."
+            fi
+            echo "::endgroup::"
+          done
+
+      - name: Stop E2E services
         if: always()
         run: |
-          if [ -f /tmp/nexus-form-web.pid ]; then
-            kill "$(cat /tmp/nexus-form-web.pid)" || true
-          fi
-          if [ -f /tmp/nexus-form-api.pid ]; then
-            kill "$(cat /tmp/nexus-form-api.pid)" || true
-          fi
+          set -u
+          pid_files=(
+            /tmp/nexus-form-web.pid
+            /tmp/nexus-form-worker.pid
+            /tmp/nexus-form-api.pid
+          )
+          pids=()
+
+          for pid_file in "${pid_files[@]}"; do
+            if [ ! -f "$pid_file" ]; then
+              continue
+            fi
+            pid="$(cat "$pid_file")"
+            if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+              kill "$pid" 2>/dev/null || true
+              pids+=("$pid")
+            fi
+          done
+
+          for _ in {1..10}; do
+            running=0
+            for pid in "${pids[@]}"; do
+              if kill -0 "$pid" 2>/dev/null; then
+                running=1
+              fi
+            done
+            if [ "$running" -eq 0 ]; then
+              break
+            fi
+            sleep 1
+          done
+
+          for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+              kill -KILL "$pid" 2>/dev/null || true
+            fi
+          done
+
+          rm -f "${pid_files[@]}" "$WORKER_HEALTH_FILE"
 
   build:
     name: Build (production)

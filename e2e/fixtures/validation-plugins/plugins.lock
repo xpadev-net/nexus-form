@@ -1,0 +1,5 @@
+{
+  "plugins": {
+    "e2e-validation.mjs": "fe4f16b1fc5e3b6bc7fdd59668e494ae85ba10bfead0ca5c0871c7ebf1500363"
+  }
+}

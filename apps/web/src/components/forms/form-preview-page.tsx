@@ -117,17 +117,22 @@ export function FormPreviewPage() {
   const form = formQuery.data?.form;
   const snapshotError =
     typeof selectedVersion === "number" ? snapshotContentQuery.error : null;
+  const previewContent = isLatestPreview
+    ? {
+        plateContent: contentQuery.data?.plateContent ?? "[]",
+        appearance: structureQuery.data?.structure?.appearance,
+        confirmation: structureQuery.data?.structure?.confirmation,
+      }
+    : (snapshotContentQuery.data ?? null);
   const plateContent =
-    selectedVersion === "latest"
-      ? (contentQuery.data?.plateContent ?? "[]")
-      : (snapshotContentQuery.data?.plateContent ?? null);
-  const latestAppearanceResult = FormAppearanceSchema.safeParse(
-    structureQuery.data?.structure?.appearance ?? {},
+    previewContent?.plateContent ?? (isLatestPreview ? "[]" : null);
+  const appearanceResult = FormAppearanceSchema.safeParse(
+    previewContent?.appearance ?? {},
   );
-  const previewAppearance =
-    selectedVersion === "latest" && latestAppearanceResult.success
-      ? latestAppearanceResult.data
-      : undefined;
+  const previewAppearance = appearanceResult.success
+    ? appearanceResult.data
+    : undefined;
+  const previewConfirmation = previewContent?.confirmation;
 
   const isSnapshotLoading =
     typeof selectedVersion === "number" &&
@@ -148,7 +153,7 @@ export function FormPreviewPage() {
         data.completionTargetPageId,
       );
       const confirmationResult = FormConfirmationSchema.safeParse({
-        ...(structureQuery.data?.structure?.confirmation ?? {}),
+        ...(previewConfirmation ?? {}),
         show_response_id: false,
       });
       const confirmation = confirmationResult.success
@@ -164,7 +169,7 @@ export function FormPreviewPage() {
         responseSummary: buildResponseSummary(data.responses),
       });
     },
-    [plateContent, structureQuery.data?.structure?.confirmation],
+    [plateContent, previewConfirmation],
   );
 
   if (isLoading) {

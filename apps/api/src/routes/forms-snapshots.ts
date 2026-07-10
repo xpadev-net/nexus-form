@@ -20,6 +20,7 @@ import {
   checkUnpublishedChanges,
   getLatestSnapshot,
   getLatestSnapshotByVersion,
+  getSnapshotPreviewByVersion,
   publishSnapshot,
   restoreFromSnapshot,
   restoreFromSnapshotVersion,
@@ -32,6 +33,10 @@ import { resolveAuditUserId } from "../lib/resolve-audit-user-id";
 import { ErrorResponseSchema, errorResponse } from "../types/domain/common";
 import { RestoreEditResponseSchema } from "../types/domain/form-snapshot";
 import { isoDate } from "../types/domain/iso-date";
+import {
+  FormAppearanceSchema,
+  FormConfirmationSchema,
+} from "../types/validation/form";
 import {
   formVersionDiffQuerySchema,
   routePaginationSchema,
@@ -78,6 +83,8 @@ const SnapshotContentResponseSchema = z.object({
   plateContent: z.string(),
   version: z.number().int().min(1),
   publishedAt: isoDate,
+  appearance: FormAppearanceSchema.optional(),
+  confirmation: FormConfirmationSchema.optional(),
 });
 
 const formsSnapshotsMutationRateLimit = createRateLimit({
@@ -317,17 +324,7 @@ export const formsSnapshotsRouter = createHonoApp()
       return c.json(errorResponse("Invalid version"), 400);
     }
 
-    const [snapshot] = await db
-      .select({
-        plateContent: formSnapshot.plateContent,
-        version: formSnapshot.version,
-        publishedAt: formSnapshot.publishedAt,
-      })
-      .from(formSnapshot)
-      .where(
-        and(eq(formSnapshot.formId, formId), eq(formSnapshot.version, version)),
-      )
-      .limit(1);
+    const snapshot = await getSnapshotPreviewByVersion(formId, version);
 
     if (!snapshot) {
       return c.json(errorResponse("Snapshot not found"), 404);

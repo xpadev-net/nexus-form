@@ -1078,12 +1078,17 @@
 ## Tasks
 
 ### Task_1: Enforce invitation-gated OAuth registration
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-invitation-admission`
 - pending_worktree: `client-new-thread:34fc942a-9415-44e3-b3ee-4a2618fc8f0d`
 - worker_thread: `019f4886-2417-70a0-ae6c-54609dcf4460`
 - worktree: `/Users/xpadev/.codex/worktrees/8f6c/nexus-form`
+- pr: [#641](https://github.com/xpadev-net/nexus-form/pull/641)
+- head_sha: `228591556e905af0193f83ea12d687bb860fcb46`
+- merge_commit: `246d9d10d9d1289b25a26489ca222f3c0b95df60`
+- hook_state: Worker and orchestrator `gh-review-hook 641` exited 0.
+- archived: true
 - owns:
   - `apps/api/src/routes/auth.ts`
   - `apps/api/src/lib/auth.ts`
@@ -1110,6 +1115,12 @@
     required: true
     owner: reviewer
     detail: Verify admission parity across invitation and direct Better Auth entrypoints.
+- completion_notes:
+  - Worker and independent security/test Reviewers approved the invitation admission gate with no actionable findings.
+  - Parent deep-review verified Better Auth 1.6.14 requestSignUp semantics, callback/user-create coverage, MySQL atomic verification consume, TTL fail-closed behavior, and secure-cookie exceptions; an additional independent parent Reviewer approved with no findings.
+  - Parent validation passed: targeted auth suite (3 files / 41 tests), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `git diff --check`, and orchestrator `gh-review-hook 641` exit 0.
+  - PR #641 was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote worker branch deleted and worker thread archived.
+  - Residual risk: no live MySQL integration test was run, but Better Auth/Drizzle source confirms `SELECT ... FOR UPDATE` plus delete in a transaction. A DB failure after authorization consume can require re-entering the invitation code, but remains fail-closed.
 
 ### Task_2: Require migration 0014 at startup
 - status: complete
@@ -1122,7 +1133,7 @@
 - head_sha: `c0b7f342abd13b9763da8d54aa76d5728749917b`
 - merge_commit: `c6350f4fef4fad354052c68a84ce902626409cb4`
 - hook_state: Worker and orchestrator `gh-review-hook 639` exited 0.
-- archived: attempted; Codex archive API did not return, so the thread must not be reused.
+- archived: true
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1186,12 +1197,17 @@
     detail: Verify retry/idempotency claims against realistic crash and ambiguous-response paths.
 
 ### Task_4: Make historical preview version-consistent
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-historical-preview`
 - pending_worktree: `client-new-thread:b18b4630-4e85-4e27-bd56-ce82c3bdcef6`
 - worker_thread: `019f4886-2414-77c3-afd0-6a3f5d3a4087`
 - worktree: `/Users/xpadev/.codex/worktrees/c123/nexus-form`
+- pr: [#640](https://github.com/xpadev-net/nexus-form/pull/640)
+- head_sha: `ccbad782b7fb766152eec0c55ed9564b118c29c0`
+- merge_commit: `43bddc9ca100f375317f4512b8ab786faf21943e`
+- hook_state: Worker and orchestrator `gh-review-hook 640` exited 0.
+- archived: attempted; Codex archive API did not return, so the thread must not be reused.
 - owns:
   - `apps/api/src/routes/forms-snapshots.ts`
   - `apps/api/src/lib/forms/snapshot-repository.ts`
@@ -1222,9 +1238,16 @@
     required: true
     owner: reviewer
     detail: Verify API/UI snapshot contract and no cross-version field mixing.
+- completion_notes:
+  - Worker and independent API/UI Reviewers approved the single-snapshot preview contract; the previously unresolved legacy `structureJson` thread was resolved with regression evidence and final unresolved count 0.
+  - Parent deep-review found no actionable issues. Invalid stored structure JSON preserves snapshot content while individually Zod-validating appearance and confirmation; the API omits raw invalid fields and the Web resolves completion targets from the same historical plate content.
+  - Parent validation passed: focused API suite (4 files / 29 tests), Web preview suite (1 file / 9 tests), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `git diff --check`, and orchestrator `gh-review-hook 640` exit 0.
+  - Reviewer UI evidence exists under `.playwright-cli/reviewfix-historical-preview/reviewer/` for desktop 1440x900 and mobile 390x844 latest/historical states, with confirmation coverage and no console warnings/errors.
+  - PR #640 was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote worker branch deleted. Worker archive was attempted but the Codex archive API did not return.
+  - Residual risk: the UI evidence uses deterministic auth/API mocks rather than live DB/auth integration. The pre-existing mobile preview-header overflow remains out of scope.
 
 ### Task_5: Run critical E2E flows in PR CI
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-ci-e2e-coverage`
 - pending_worktree: `client-new-thread:29ba9181-da96-4ca7-815c-27db8d7b3d3f`
@@ -1254,17 +1277,27 @@
     required: true
     owner: reviewer
     detail: Verify workflow syntax, selected test inventory, and bounded CI execution.
+- pr: `#642`
+- worker_head: `603d335e024137e34149abd0479dcf9cf987a58a`
+- merge_commit: `c46040f309a5aef17d5f3ecc3c8801f0b495b958`
+- completion_notes:
+  - Worker and independent final Reviewer approved the six-file CI/E2E diff; parent deep-review found no actionable issues in selector admission, service lifecycle, reconnect semantics, or the public-submit validation path.
+  - Parent `gh-review-hook 642` exited 0. Current-head GitHub gates were non-draft, CLEAN, MERGEABLE, APPROVED, 0 behind, 9/9 checks successful, and 0 unresolved review threads.
+  - On Node 22.13.1, parent validation passed the fail-closed Playwright inventory (full 32 / runnable 30 / fixme 2; CI 14 / runnable 14 / skip/fixme 0), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `pnpm build`, YAML parse, and `git diff --check`.
+  - GitHub E2E Harness passed the actual 14-test run with expected=14, skipped=0, unexpected=0, and flaky=0. A fresh local actual run remained unavailable because the existing Colima disk was held by another instance; no unrelated process was killed or mutated.
+  - PR #642 was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; the remote worker branch was deleted and worker thread archived.
 
 ### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
-- status: blocked
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a`
+- worker_thread: `019f4a01-3a23-7b82-8a1e-8ad09207e26d`
+- worktree: `/Users/xpadev/.codex/worktrees/b0a4/nexus-form`
 - complexity: high
 - model: `gpt-5.6-sol`
 - reasoning_effort: `medium`
 - model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
-- blocker: Two explicit `create_thread` attempts with `gpt-5.6-sol` / `medium` did not return and produced no Codex worktree or worker thread. Retry only after the Codex thread API responds; do not create a duplicate while state is ambiguous.
 - owns:
   - `packages/database/src/schema.ts`
   - `packages/database/drizzle/**`
@@ -1306,6 +1339,11 @@
 - 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
 - 2026-07-10: Task_2 PR #639 passed worker and parent merge gates and was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`. Task_6 is now unblocked.
 - 2026-07-10: Task_6 launch failed twice because the Codex `create_thread` API did not return; worktree inspection confirms no `codex/reviewfix-submit-outbox` worktree was created. Task_6 is blocked on thread-service recovery.
+- 2026-07-10: Codex thread service recovered. Task_2 worker archival completed, Wave 1 workers resumed their base-sync validation, and Task_6 was launched as pending worktree `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a` with the recorded HIGH routing (`gpt-5.6-sol`, medium).
+- 2026-07-10: Task_6 resolved to worker `019f4a01-3a23-7b82-8a1e-8ad09207e26d` in `/Users/xpadev/.codex/worktrees/b0a4/nexus-form` and passed startup stability after completing its bounded design investigation.
+- 2026-07-10: Task_1 PR #641 passed worker and parent merge gates and was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote branch deleted and worker archived.
+- 2026-07-10: Task_4 PR #640 passed worker and parent merge gates and was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote branch deleted and worker archival attempted.
+- 2026-07-10: Task_5 PR #642 passed worker and parent merge gates and was squash-merged as `c46040f309a5aef17d5f3ecc3c8801f0b495b958`; remote branch deleted and worker thread archived. Parent validation used the PR-pinned Node 22.13.1 after Node 24.2.0 exposed a dependency-side Playwright discovery incompatibility.
 
 ## Decision Log
 
