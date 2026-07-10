@@ -19,6 +19,7 @@ resources:
   - bullmq-validation-github-deployment.yaml
   - bullmq-validation-twitter-deployment.yaml
   - bullmq-sheets-deployment.yaml
+  - bullmq-notifications-deployment.yaml
 
 # Images to be replaced by overlays
 # Base defines placeholder image names that will be overridden in overlays
