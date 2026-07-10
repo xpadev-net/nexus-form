@@ -1197,12 +1197,17 @@
     detail: Verify retry/idempotency claims against realistic crash and ambiguous-response paths.
 
 ### Task_4: Make historical preview version-consistent
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-historical-preview`
 - pending_worktree: `client-new-thread:b18b4630-4e85-4e27-bd56-ce82c3bdcef6`
 - worker_thread: `019f4886-2414-77c3-afd0-6a3f5d3a4087`
 - worktree: `/Users/xpadev/.codex/worktrees/c123/nexus-form`
+- pr: [#640](https://github.com/xpadev-net/nexus-form/pull/640)
+- head_sha: `ccbad782b7fb766152eec0c55ed9564b118c29c0`
+- merge_commit: `43bddc9ca100f375317f4512b8ab786faf21943e`
+- hook_state: Worker and orchestrator `gh-review-hook 640` exited 0.
+- archived: attempted; Codex archive API did not return, so the thread must not be reused.
 - owns:
   - `apps/api/src/routes/forms-snapshots.ts`
   - `apps/api/src/lib/forms/snapshot-repository.ts`
@@ -1233,6 +1238,13 @@
     required: true
     owner: reviewer
     detail: Verify API/UI snapshot contract and no cross-version field mixing.
+- completion_notes:
+  - Worker and independent API/UI Reviewers approved the single-snapshot preview contract; the previously unresolved legacy `structureJson` thread was resolved with regression evidence and final unresolved count 0.
+  - Parent deep-review found no actionable issues. Invalid stored structure JSON preserves snapshot content while individually Zod-validating appearance and confirmation; the API omits raw invalid fields and the Web resolves completion targets from the same historical plate content.
+  - Parent validation passed: focused API suite (4 files / 29 tests), Web preview suite (1 file / 9 tests), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `git diff --check`, and orchestrator `gh-review-hook 640` exit 0.
+  - Reviewer UI evidence exists under `.playwright-cli/reviewfix-historical-preview/reviewer/` for desktop 1440x900 and mobile 390x844 latest/historical states, with confirmation coverage and no console warnings/errors.
+  - PR #640 was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote worker branch deleted. Worker archive was attempted but the Codex archive API did not return.
+  - Residual risk: the UI evidence uses deterministic auth/API mocks rather than live DB/auth integration. The pre-existing mobile preview-header overflow remains out of scope.
 
 ### Task_5: Run critical E2E flows in PR CI
 - status: in progress
@@ -1321,6 +1333,7 @@
 - 2026-07-10: Codex thread service recovered. Task_2 worker archival completed, Wave 1 workers resumed their base-sync validation, and Task_6 was launched as pending worktree `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a` with the recorded HIGH routing (`gpt-5.6-sol`, medium).
 - 2026-07-10: Task_6 resolved to worker `019f4a01-3a23-7b82-8a1e-8ad09207e26d` in `/Users/xpadev/.codex/worktrees/b0a4/nexus-form` and passed startup stability after completing its bounded design investigation.
 - 2026-07-10: Task_1 PR #641 passed worker and parent merge gates and was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote branch deleted and worker archived.
+- 2026-07-10: Task_4 PR #640 passed worker and parent merge gates and was squash-merged as `43bddc9ca100f375317f4512b8ab786faf21943e`; remote branch deleted and worker archival attempted.
 
 ## Decision Log
 
