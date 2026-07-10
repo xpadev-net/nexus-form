@@ -11,6 +11,7 @@ export {
   type ValidationProviderConfigField,
   type ValidationProviderConfigOption,
   type ValidationProviderConfigOptionSource,
+  type ValidationProviderExecutionContext,
   type ValidationProviderLinkedAccount,
   type ValidationProviderPatternTemplate,
   type ValidationProviderResult,

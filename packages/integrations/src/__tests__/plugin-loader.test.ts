@@ -30,6 +30,29 @@ ${VALID_RULE}
 };
 `;
 
+const CONTEXT_AWARE_PLUGIN_CODE = `
+export default {
+  name: "context_provider",
+  label: "Context Provider",
+  description: "A context-aware test provider",
+  rules: {
+    default: {
+      name: "default",
+      label: "Default Rule",
+      description: "Default rule",
+      inputHint: "Enter a value",
+      inputSchema: { parse: (v) => v },
+      configSchema: { parse: (v) => v },
+      metadataSchema: { parse: (v) => v, safeParse: (v) => ({ success: true, data: v }) },
+      validate: async (_input, _config, context) => ({
+        isValid: context.signal.aborted === false,
+        metadata: { deadlineAt: context.deadlineAt },
+      }),
+    },
+  },
+};
+`;
+
 const SIDE_EFFECT_PLUGIN_CODE = `
 globalThis.TEST_PLUGIN_SIDE_EFFECT = true;
 ${VALID_PLUGIN_CODE}
@@ -212,6 +235,37 @@ describe("PluginLoader", () => {
     expect(plugins[0]?.label).toBe("Test Provider");
     expect(plugins[0]?.description).toBe("A test provider");
     expect(plugins[0]?.rules.default?.name).toBe("default");
+
+    const rule = plugins[0]?.rules.default;
+    if (!rule) throw new Error("Expected legacy plugin rule");
+    await expect(rule.validate("legacy-input", {})).resolves.toEqual({
+      isValid: true,
+    });
+  });
+
+  it("loads context-aware plugins without changing legacy loader compatibility", async () => {
+    await writeLockedPlugin("context-aware.mjs", CONTEXT_AWARE_PLUGIN_CODE);
+    const loader = new PluginLoader(tmpDir);
+    const plugins = await loader.loadPlugins();
+    const provider = plugins[0];
+    const rule = provider?.rules.default;
+    if (!rule) throw new Error("Expected context-aware plugin rule");
+
+    const deadlineAt = Date.now() + 1_000;
+    const result = await rule.validate(
+      "test-input",
+      {},
+      {
+        signal: new AbortController().signal,
+        deadlineAt,
+      },
+    );
+
+    expect(provider?.name).toBe("context_provider");
+    expect(result).toEqual({
+      isValid: true,
+      metadata: { deadlineAt },
+    });
   });
 
   it("skips plugin with missing description", async () => {
