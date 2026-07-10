@@ -1078,12 +1078,17 @@
 ## Tasks
 
 ### Task_1: Enforce invitation-gated OAuth registration
-- status: in progress
+- status: complete
 - type: impl
 - branch: `codex/reviewfix-invitation-admission`
 - pending_worktree: `client-new-thread:34fc942a-9415-44e3-b3ee-4a2618fc8f0d`
 - worker_thread: `019f4886-2417-70a0-ae6c-54609dcf4460`
 - worktree: `/Users/xpadev/.codex/worktrees/8f6c/nexus-form`
+- pr: [#641](https://github.com/xpadev-net/nexus-form/pull/641)
+- head_sha: `228591556e905af0193f83ea12d687bb860fcb46`
+- merge_commit: `246d9d10d9d1289b25a26489ca222f3c0b95df60`
+- hook_state: Worker and orchestrator `gh-review-hook 641` exited 0.
+- archived: true
 - owns:
   - `apps/api/src/routes/auth.ts`
   - `apps/api/src/lib/auth.ts`
@@ -1110,6 +1115,12 @@
     required: true
     owner: reviewer
     detail: Verify admission parity across invitation and direct Better Auth entrypoints.
+- completion_notes:
+  - Worker and independent security/test Reviewers approved the invitation admission gate with no actionable findings.
+  - Parent deep-review verified Better Auth 1.6.14 requestSignUp semantics, callback/user-create coverage, MySQL atomic verification consume, TTL fail-closed behavior, and secure-cookie exceptions; an additional independent parent Reviewer approved with no findings.
+  - Parent validation passed: targeted auth suite (3 files / 41 tests), `pnpm lint:fix`, `pnpm type-check`, full `pnpm test --silent`, `git diff --check`, and orchestrator `gh-review-hook 641` exit 0.
+  - PR #641 was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote worker branch deleted and worker thread archived.
+  - Residual risk: no live MySQL integration test was run, but Better Auth/Drizzle source confirms `SELECT ... FOR UPDATE` plus delete in a transaction. A DB failure after authorization consume can require re-entering the invitation code, but remains fail-closed.
 
 ### Task_2: Require migration 0014 at startup
 - status: complete
@@ -1260,7 +1271,8 @@
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
 - pending_worktree: `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a`
-- worker_thread: pending resolution
+- worker_thread: `019f4a01-3a23-7b82-8a1e-8ad09207e26d`
+- worktree: `/Users/xpadev/.codex/worktrees/b0a4/nexus-form`
 - complexity: high
 - model: `gpt-5.6-sol`
 - reasoning_effort: `medium`
@@ -1307,6 +1319,8 @@
 - 2026-07-10: Task_2 PR #639 passed worker and parent merge gates and was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`. Task_6 is now unblocked.
 - 2026-07-10: Task_6 launch failed twice because the Codex `create_thread` API did not return; worktree inspection confirms no `codex/reviewfix-submit-outbox` worktree was created. Task_6 is blocked on thread-service recovery.
 - 2026-07-10: Codex thread service recovered. Task_2 worker archival completed, Wave 1 workers resumed their base-sync validation, and Task_6 was launched as pending worktree `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a` with the recorded HIGH routing (`gpt-5.6-sol`, medium).
+- 2026-07-10: Task_6 resolved to worker `019f4a01-3a23-7b82-8a1e-8ad09207e26d` in `/Users/xpadev/.codex/worktrees/b0a4/nexus-form` and passed startup stability after completing its bounded design investigation.
+- 2026-07-10: Task_1 PR #641 passed worker and parent merge gates and was squash-merged as `246d9d10d9d1289b25a26489ca222f3c0b95df60`; remote branch deleted and worker archived.
 
 ## Decision Log
 
