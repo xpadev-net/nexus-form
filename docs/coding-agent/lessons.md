@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Document both configuration precedence and runtime reload behavior
+
+- tags: kubernetes, configuration, rollout, documentation
+- symptom: A deployment guide added a required ConfigMap key but did not clearly identify the production overlay as the effective edit point or explain that existing Pods retain the old `envFrom` value.
+- root cause: The review treated rendered configuration and runtime adoption as one step, overlooking Kustomize override precedence and the absence of a Pod-template checksum or reloader.
+- fix: Name the effective production patch explicitly and document apply, Deployment restart, rollout status, and the same procedure for reverting a value.
+- prevention: For every environment-backed Kubernetes setting, verify the final rendered source of truth and how running workloads receive changes and rollbacks.
+
 ## 2026-07-11 — Canonicalize Security Markers at the Same Depth as Validation  [tags: review, logging, encoding, secrets]
 
 Context:
