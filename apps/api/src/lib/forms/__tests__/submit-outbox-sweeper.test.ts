@@ -33,6 +33,7 @@ const mocks = vi.hoisted(() => {
       update: vi.fn(),
     },
     forCalls: [] as unknown[][],
+    responseReadIds: [] as unknown[],
     logError: vi.fn(),
     schema,
     updateSets: [] as unknown[],
@@ -104,22 +105,36 @@ function sheetsRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
 function useClaimBatches(batches: ClaimedRow[][]): void {
   mocks.claimBatches = [...batches];
   mocks.db.transaction.mockImplementation(async (callback) => {
+    let claimedRows: ClaimedRow[] = [];
     const tx = {
       select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          innerJoin: vi.fn(() => ({
+        from: vi.fn((table: unknown) => {
+          if (table === mocks.schema.formResponse) {
+            return {
+              where: vi.fn(async (condition: unknown) => {
+                mocks.responseReadIds.push(condition);
+                return claimedRows.map((row) => ({
+                  id: row.responseId,
+                  submittedAt: row.submittedAt,
+                }));
+              }),
+            };
+          }
+          return {
             where: vi.fn(() => ({
               orderBy: vi.fn(() => ({
                 limit: vi.fn(() => ({
                   for: vi.fn(async (...args: unknown[]) => {
                     mocks.forCalls.push(args);
-                    return mocks.claimBatches.shift() ?? [];
+                    claimedRows = (mocks.claimBatches.shift() ??
+                      []) as ClaimedRow[];
+                    return claimedRows;
                   }),
                 })),
               })),
             })),
-          })),
-        })),
+          };
+        }),
       })),
       update: vi.fn(() => ({
         set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
@@ -144,6 +159,7 @@ describe("submit outbox sweeper", () => {
     vi.clearAllMocks();
     mocks.updateSets.length = 0;
     mocks.forCalls.length = 0;
+    mocks.responseReadIds.length = 0;
     mocks.addNotificationJob.mockResolvedValue({ id: "notification-job" });
     mocks.addSheetsJob.mockResolvedValue({ id: "sheets-job" });
     useSuccessfulUpdates();
@@ -247,6 +263,19 @@ describe("submit outbox sweeper", () => {
       ["update", { skipLocked: true }],
     ]);
     expect(mocks.addNotificationJob).toHaveBeenCalledOnce();
+  });
+
+  it("reads response timestamps after claiming without joining the locking query", async () => {
+    useClaimBatches([[notificationRow()]]);
+    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+
+    await sweepSubmitOutbox();
+
+    expect(mocks.forCalls).toEqual([["update", { skipLocked: true }]]);
+    expect(mocks.responseReadIds).toHaveLength(1);
+    expect(mocks.db.transaction.mock.calls[0]?.[0]).toEqual(
+      expect.any(Function),
+    );
   });
 
   it("replays the same job ID after queue success but DB acknowledgement failure", async () => {

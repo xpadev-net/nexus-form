@@ -115,10 +115,8 @@ async function claimSubmitOutboxRows(options: {
         snapshotVersion: formSubmitOutbox.snapshotVersion,
         integrationId: formSubmitOutbox.integrationId,
         attemptCount: formSubmitOutbox.attemptCount,
-        submittedAt: formResponse.submittedAt,
       })
       .from(formSubmitOutbox)
-      .innerJoin(formResponse, eq(formResponse.id, formSubmitOutbox.responseId))
       .where(and(...pendingConditions))
       .orderBy(asc(formSubmitOutbox.createdAt))
       .limit(options.batchSize)
@@ -139,7 +137,31 @@ async function claimSubmitOutboxRows(options: {
         ),
       );
 
-    return rows.map((row) => ({ ...row, claimToken }));
+    // Keep the locking read scoped to the outbox table. This plain read does
+    // not extend the claim's row locks to FormResponse.
+    const responses = await tx
+      .select({
+        id: formResponse.id,
+        submittedAt: formResponse.submittedAt,
+      })
+      .from(formResponse)
+      .where(
+        inArray(
+          formResponse.id,
+          rows.map((row) => row.responseId),
+        ),
+      );
+    const submittedAtByResponseId = new Map(
+      responses.map((response) => [response.id, response.submittedAt]),
+    );
+
+    return rows.map((row) => {
+      const submittedAt = submittedAtByResponseId.get(row.responseId);
+      if (!submittedAt) {
+        throw new Error(`Submit outbox response not found: ${row.responseId}`);
+      }
+      return { ...row, submittedAt, claimToken };
+    });
   });
 }
 
@@ -177,7 +199,10 @@ async function enqueueClaimedRow(row: ClaimedSubmitOutboxRow): Promise<void> {
   throw new Error(`Unsupported submit outbox effect: ${row.effectType}`);
 }
 
-async function markEnqueued(row: ClaimedSubmitOutboxRow, now: Date) {
+async function markEnqueued(
+  row: ClaimedSubmitOutboxRow,
+  now: Date,
+): Promise<void> {
   await db
     .update(formSubmitOutbox)
     .set({
@@ -201,7 +226,7 @@ async function releaseFailedClaim(
   row: ClaimedSubmitOutboxRow,
   now: Date,
   error: unknown,
-) {
+): Promise<void> {
   await db
     .update(formSubmitOutbox)
     .set({
