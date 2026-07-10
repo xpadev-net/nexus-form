@@ -1,5 +1,35 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Test Configuration Authority and Every Startup Entry Path  [tags: review, security, configuration, startup]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/k8s-runtime-wiring-hardening-plan.md`
+- Task/Wave: K8S-1 parent merge review
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- URL parsing accepted a wildcard hostname that the downstream CORS middleware treats as a literal origin, allowing production startup with unusable configuration.
+- Helper tests proved validation logic but did not initially prove that import-based serving adapters executed the fail-closed assertion.
+
+Root cause:
+- Syntactic URL validity was treated as equivalent to valid application configuration.
+- Tests covered the helper contract without covering every production entry path that must invoke it.
+
+Fix applied:
+- Reject wildcard hostnames explicitly and add an isolated child-process test proving invalid production configuration fails during `index.ts` module import.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: "For security-sensitive environment configuration, validate downstream semantics beyond parser acceptance and test each supported startup/import entry path."
+- Dispatch/plan guardrail:
+  - Configuration hardening tests must include special authority syntax and a wiring test that fails if validation is moved behind only one entrypoint.
+- Residual risk / waiver:
+  - Alternative external production environment conventions and Better Auth origin handling remain separate tracked scope.
+
+Evidence:
+- Parent findings and fixes on PR #648; wildcard and import-based serving regressions pass in the focused suite.
+
 ## 2026-07-11 — Preserve Diagnostic Details Independently of Envelope Validity  [tags: review, api-errors, compatibility, runtime-validation]
 
 Context:
