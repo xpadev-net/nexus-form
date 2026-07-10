@@ -45,8 +45,9 @@ export default {
       configSchema: { parse: (v) => v },
       metadataSchema: { parse: (v) => v, safeParse: (v) => ({ success: true, data: v }) },
       validate: async (_input, _config, context) => ({
-        isValid: context.signal.aborted === false,
-        metadata: { deadlineAt: context.deadlineAt },
+        isValid: context?.signal.aborted === false,
+        metadata:
+          context === undefined ? undefined : { deadlineAt: context.deadlineAt },
       }),
     },
   },
@@ -265,6 +266,10 @@ describe("PluginLoader", () => {
     expect(result).toEqual({
       isValid: true,
       metadata: { deadlineAt },
+    });
+
+    await expect(rule.validate("without-context", {})).resolves.toEqual({
+      isValid: false,
     });
   });
 
