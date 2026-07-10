@@ -39,7 +39,11 @@ import { logError } from "./lib/logger";
 import { closeQueues } from "./lib/queues";
 import { authRouteRateLimiter } from "./lib/rate-limit";
 import { closePublisher } from "./lib/redis-publisher";
-import { requestLogger, sanitizeRequestTarget } from "./lib/request-logging";
+import {
+  INVALID_REQUEST_TARGET,
+  requestLogger,
+  sanitizeRequestTarget,
+} from "./lib/request-logging";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
@@ -169,12 +173,19 @@ const app = new Hono()
       return err.getResponse();
     }
     const isZodError = err instanceof ZodError;
+    const sanitizedRequestTarget = sanitizeRequestTarget(c.req.url);
     logError(
       isZodError
         ? "Response schema validation failed"
         : "Unhandled error in API route",
       "api",
-      { error: err, path: sanitizeRequestTarget(c.req.url) },
+      {
+        error: err,
+        path:
+          sanitizedRequestTarget === INVALID_REQUEST_TARGET
+            ? c.req.routePath
+            : sanitizedRequestTarget,
+      },
     );
     captureError(err);
     return c.json({ error: "Internal Server Error" }, 500);

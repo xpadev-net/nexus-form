@@ -51,4 +51,27 @@ describe("requestLogger", () => {
     expect(logs.join("\n")).not.toContain("code-secret");
     expect(logs.join("\n")).not.toContain("state-secret");
   });
+
+  it("logs completion before propagating an unhandled downstream error", async () => {
+    const logs: string[] = [];
+    const app = new Hono();
+    app.use(
+      "*",
+      requestLogger((message) => logs.push(message)),
+    );
+    app.get("/api/forms/:formId", () => {
+      throw new Error("route failed");
+    });
+    app.onError(() => {
+      throw new Error("error handler failed");
+    });
+
+    await expect(app.request("/api/forms/form-123")).rejects.toThrow(
+      "error handler failed",
+    );
+
+    expect(logs).toHaveLength(2);
+    expect(logs[0]).toBe("<-- GET /api/forms/form-123");
+    expect(logs[1]).toMatch(/^--> GET \/api\/forms\/form-123 200 \d+(ms|s)$/);
+  });
 });
