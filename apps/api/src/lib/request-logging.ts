@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { HTTPException } from "hono/http-exception";
 
 const REQUEST_TARGET_BASE_URL = "http://request-target.invalid";
 
@@ -59,11 +60,11 @@ export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
 
     logRequest(fn, "<--", method, requestTarget);
     const start = Date.now();
-    let requestFailed = false;
+    let failureStatus: number | undefined;
     try {
       await next();
     } catch (error) {
-      requestFailed = true;
+      failureStatus = error instanceof HTTPException ? error.status : 500;
       throw error;
     } finally {
       logRequest(
@@ -71,7 +72,7 @@ export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
         "-->",
         method,
         requestTarget,
-        requestFailed ? 500 : c.res.status,
+        failureStatus ?? c.res.status,
         formatElapsedTime(start),
       );
     }

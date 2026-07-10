@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { describe, expect, it } from "vitest";
 import { requestLogger } from "../request-logging";
 
@@ -73,5 +74,29 @@ describe("requestLogger", () => {
     expect(logs).toHaveLength(2);
     expect(logs[0]).toBe("<-- GET /api/forms/form-123");
     expect(logs[1]).toMatch(/^--> GET \/api\/forms\/form-123 500 \d+(ms|s)$/);
+  });
+
+  it("preserves an HTTPException status when the error becomes a response", async () => {
+    const logs: string[] = [];
+    const app = new Hono();
+    app.use(
+      "*",
+      requestLogger((message) => logs.push(message)),
+    );
+    app.get("/api/forms/:formId", () => {
+      throw new HTTPException(400, { message: "bad request" });
+    });
+    app.onError((error) => {
+      if (error instanceof HTTPException) {
+        return error.getResponse();
+      }
+      return new Response("failed", { status: 500 });
+    });
+
+    const response = await app.request("/api/forms/form-123");
+
+    expect(response.status).toBe(400);
+    expect(logs).toHaveLength(2);
+    expect(logs[1]).toMatch(/^--> GET \/api\/forms\/form-123 400 \d+(ms|s)$/);
   });
 });
