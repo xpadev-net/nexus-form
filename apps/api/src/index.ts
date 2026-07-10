@@ -82,6 +82,7 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
 );
 
 const corsOrigins = getCorsOrigins();
+assertProductionCorsOriginsConfigured();
 
 const app = new Hono()
   .use("*", logger())
@@ -183,7 +184,6 @@ export default app;
 export type AppType = typeof app;
 
 async function startServer() {
-  assertProductionCorsOriginsConfigured();
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
   await assertRequiredSecurityMigrationsApplied();

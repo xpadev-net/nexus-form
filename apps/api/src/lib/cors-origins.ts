@@ -75,9 +75,8 @@ export function getCorsOrigins(): string[] {
  *
  * @returns void
  *
- * This is intentionally called from the server startup path rather than at
- * module import time so tests and tooling can import the app without binding
- * a server or requiring production-only configuration.
+ * This is called while constructing the exported app so direct entrypoints
+ * and import-based serving adapters share the same fail-closed behavior.
  */
 export function assertProductionCorsOriginsConfigured(): void {
   if (process.env.NODE_ENV !== "production") return;
