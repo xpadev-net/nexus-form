@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bullmq-notifications
+  labels:
+    app: nexus-form
+    component: bullmq-notifications
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: nexus-form
+      component: bullmq-notifications
+  template:
+    metadata:
+      labels:
+        app: nexus-form
+        component: bullmq-notifications
+    spec:
+      containers:
+      - name: notifications-worker
+        # Use worker-specific image built from Dockerfile.worker.
+        # dist/index.mjs selects this queue via WORKER_QUEUES.
+        image: nexus-form-worker:latest
+        imagePullPolicy: Always
+        env:
+        - name: WORKER_QUEUES
+          value: "form-submit-notifications"
+        envFrom:
+        - configMapRef:
+            name: nexus-form-config
+        - secretRef:
+            name: nexus-form-secrets
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        # BullMQ workers don't expose HTTP endpoints; use exec-based probes
+        livenessProbe:
+          exec:
+            command:
+              - "/nodejs/bin/node"
+              - "/app/scripts/worker-health-probe.mjs"
+              - "liveness"
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+              - "/nodejs/bin/node"
+              - "/app/scripts/worker-health-probe.mjs"
+              - "readiness"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
