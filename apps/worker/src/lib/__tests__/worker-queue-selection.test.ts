@@ -36,15 +36,29 @@ describe("selectWorkerQueues", () => {
     });
   });
 
+  it("selects only the form submit notification queue", () => {
+    expect(
+      selectWorkerQueues(providers, FORM_SUBMIT_NOTIFICATION_QUEUE),
+    ).toEqual({
+      validationQueues: [],
+      includeSheetsSync: false,
+      includeFormSubmitNotifications: true,
+      unknownQueues: [],
+    });
+  });
+
   it("reports unknown queue names", () => {
-    expect(selectWorkerQueues(providers, "discord-validation,missing")).toEqual(
-      {
-        validationQueues: ["discord-validation"],
-        includeSheetsSync: false,
-        includeFormSubmitNotifications: false,
-        unknownQueues: ["missing"],
-      },
-    );
+    expect(
+      selectWorkerQueues(
+        providers,
+        `discord-validation, ${FORM_SUBMIT_NOTIFICATION_QUEUE}, missing`,
+      ),
+    ).toEqual({
+      validationQueues: ["discord-validation"],
+      includeSheetsSync: false,
+      includeFormSubmitNotifications: true,
+      unknownQueues: ["missing"],
+    });
   });
 
   describe("validateWorkerQueuesEnv", () => {

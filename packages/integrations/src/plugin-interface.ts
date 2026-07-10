@@ -78,6 +78,15 @@ export type ValidationProviderApiResponseSchemas = Readonly<
   Record<string, z.ZodType<Record<string, unknown>>>
 >;
 
+export interface ValidationProviderExecutionContext {
+  readonly signal: AbortSignal;
+  /**
+   * Absolute Unix timestamp in milliseconds after which the host may stop
+   * waiting for the plugin execution.
+   */
+  readonly deadlineAt: number;
+}
+
 export const validationProviderResultSchema = z.object({
   isValid: z.boolean(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -103,6 +112,7 @@ export interface ValidationProviderRule {
   validate(
     input: string,
     config: Record<string, unknown>,
+    context?: ValidationProviderExecutionContext,
   ): Promise<ValidationProviderResult>;
 
   sanitizeConfig?(config: Record<string, unknown>): Record<string, unknown>;

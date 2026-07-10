@@ -46,10 +46,17 @@ export interface ValidationProvider {
   validate(
     input: string,
     config: Record<string, unknown>,
+    context?: ValidationProviderExecutionContext,
   ): Promise<ValidationProviderResult>;
 
   sanitizeConfig?(config: Record<string, unknown>): Record<string, unknown>;
   normalizeInput?(input: string): string;
+}
+
+export interface ValidationProviderExecutionContext {
+  readonly signal: AbortSignal;
+  /** Absolute Unix timestamp in milliseconds. */
+  readonly deadlineAt: number;
 }
 
 export interface ValidationProviderResult {
@@ -70,7 +77,7 @@ export interface ValidationProviderResult {
 | `inputSchema` | 回答値（参照先ブロックの文字列値）の `.parse` |
 | `configSchema` | フォーム作成者が指定する設定 JSON の `.parse`。`getProviderConfig` の返り値が渡る |
 | `metadataSchema` | `validate` が返す metadata の `safeParse`。失敗した場合は DB に metadata を書き込まずに警告ログを出す |
-| `validate` | 実際の検証ロジック。`isValid` と任意の metadata / errorCode / errorMessage / retryAfter を返す |
+| `validate` | 実際の検証ロジック。`isValid` と任意の metadata / errorCode / errorMessage / retryAfter を返す。第3引数の `context` は任意 |
 | `sanitizeConfig` (任意) | DB から取得した raw config を `configSchema` に渡す前に変換 |
 | `normalizeInput` (任意) | `inputSchema.parse` 後にもう一度正規化し、再度 `inputSchema.parse` される |
 
@@ -146,6 +153,24 @@ API/Worker の `startupPlugins` は既定でこれを致命的エラーとして
   }
 }
 ```
+
+### キャンセルと deadline
+
+実行コンテキストは `validate(input, config, context)` の第3引数として渡されます。
+既存の2引数プラグインはそのまま利用でき、コンテキストを受け取らない関数は
+追加引数を無視できます。コンテキストが渡されない実行環境もあるため、対応する
+プラグインは `context` の存在を確認してから利用してください。
+
+`context.signal` は協調キャンセル用です。プラグインは `fetch` などの外部 API
+呼び出しへ signal を渡し、キャンセル後に処理を継続しないようにしてください。
+signal を無視するプラグインや同期的に CPU を占有するコードを、signal だけで
+強制停止することはできません。
+
+`context.deadlineAt` は実行期限を表す絶対 Unix 時刻（ミリ秒）です。プラグインが
+残り時間を判断する場合は `deadlineAt - Date.now()` を使用し、期限切れを安全に
+扱ってください。host 側の期限設定・signal の abort・期限到達後のジョブ処理は
+別の実行責務であり、この契約はプラグインが参照できるメタデータとキャンセルの
+意味だけを定義します。
 
 ハッシュは配置する `.mjs` / `.js` の最終成果物に対して計算してください。
 

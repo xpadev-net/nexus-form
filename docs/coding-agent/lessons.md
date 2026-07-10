@@ -1,5 +1,97 @@
 # Coding Agent Lessons
 
+## 2026-07-11 — Preserve Diagnostic Details Independently of Envelope Validity  [tags: review, api-errors, compatibility, runtime-validation]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/web-api-error-and-discord-auth-ux-plan.md`
+- Task/Wave: WEBERR-1 parent merge review
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- Runtime validation correctly rejected a malformed nested error message, but coupled that failure to clearing the entire `RpcError.details` record.
+- Existing callers could no longer inspect otherwise usable fields such as `details.error.code` and `requestId`.
+
+Root cause:
+- Message/code envelope validity and preservation of the top-level diagnostic object were treated as one all-or-nothing contract, despite the previous implementation preserving every non-array JSON object.
+
+Fix applied:
+- Parse the top-level record independently from the typed message/code envelope; invalid envelope fields fall back safely while the diagnostic record remains available.
+
+Prevention:
+- Repo rule candidate:
+  - audience: worker
+  - proposed rule: "When tightening runtime validation, audit and preserve independently consumed diagnostic fields instead of discarding the full payload on one invalid field."
+- Dispatch/plan guardrail:
+  - Boundary-parser reviews must trace existing consumers of both normalized fields and retained raw/details payloads, and add a malformed-partial-envelope compatibility test.
+- Residual risk / waiver:
+  - none
+
+Evidence:
+- Parent deep-review finding on PR #647; regression covers malformed `error.message` while retaining `details.error.code` and `requestId`.
+
+## 2026-07-11 — Write Orchestrator State Directly to Default Branch  [tags: orchestration, git-workflow, ledger, planning]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/codebase-review-remediation-roadmap-plan.md`
+- Task/Wave: orchestrator bootstrap and ledger persistence
+- Roles involved: Orchestrator
+
+Symptom:
+- The orchestrator opened PR #645 for plan and task-ledger changes, adding an unnecessary review and CI gate before the remote task state became available on the default branch.
+
+Root cause:
+- Applied the implementation-worker PR workflow to orchestrator-owned coordination artifacts instead of distinguishing product-code delivery from plan/ledger state management.
+
+Fix applied:
+- Close the orchestrator-only PR and publish its plan, lesson, and ledger commits directly to `master`.
+
+Prevention:
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: "Write orchestrator-owned plans, lessons, and task-ledger lifecycle updates directly to the default branch unless the user explicitly requests a PR; worker product-code changes still require PRs."
+- Dispatch/plan guardrail:
+  - Before creating a PR, classify the changes as worker implementation or orchestrator state; do not create a PR for the latter by default.
+- Residual risk / waiver:
+  - Direct default-branch writes remain limited to orchestrator-owned coordination artifacts, not product code.
+
+Evidence:
+- User correction on 2026-07-11; PR #645 closed and equivalent commits pushed directly to `master`.
+
+## 2026-07-11 — Review Task Size Before Plan Approval  [tags: planning, task-sizing, scope, orchestration]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/codebase-review-remediation-roadmap-plan.md` and its child plans
+- Task/Wave: plan authoring and pre-dispatch review
+- Roles involved: Orchestrator, Reviewer
+
+Symptom:
+- Several plan Tasks still combined multiple independently shippable responsibilities even after the findings had been split into separate plan files.
+- Schema/migration, runtime behavior, multiple provider implementations, and CI/E2E setup were grouped too broadly for narrow Worker ownership.
+
+Root cause:
+- Plan review emphasized required fields, finding coverage, and file-level splitting, but did not apply an explicit complexity/size gate to each Task.
+
+Fix applied:
+- Re-audited every Task by behavior count, runtime boundary, package count, production-file count, and independent validation path; split oversized Tasks and rebuilt dependencies/waves.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - Before plan approval, split any Task that combines schema/migration with runtime changes, spans independent providers, or mixes product implementation with CI/E2E infrastructure unless inseparability is documented.
+  - Prefer one primary behavior, one runtime boundary, at most four production files, and one package/app per Worker Task.
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: "Run a task-size audit before plan approval and replan any Task with multiple independently shippable behaviors or validation paths."
+- Harness migration candidate:
+  - category: plan-format
+  - proposed_home: `plan-format` plan-integrity checklist
+  - generalized_rule: Task integrity includes bounded size and complexity, not only complete fields and valid `owns`.
+  - suggested_change: Add behavior-count, boundary-count, and independent-validation split prompts to the plan-integrity checklist.
+- Residual risk / waiver:
+  - none
+
+Evidence:
+- Updated remediation plans; independent task-size Reviewer status `APPROVED` after splitting runtime and migration test paths.
+
 ## 2026-07-08: Return unmet merge gates to workers immediately
 
 - tags: orchestration, merge-gate, ci, review

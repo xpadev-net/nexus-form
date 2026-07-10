@@ -1,5 +1,6 @@
 import type { AppType } from "@nexus-form/api";
 import { hc } from "hono/client";
+import { parseApiErrorResponse } from "./api-error";
 import { throwFetchFailure } from "./fetch-json";
 import { getRuntimeConfigValue } from "./runtime-config";
 
@@ -128,17 +129,20 @@ type SuccessOf<T> = Exclude<T, { error: unknown }>;
 
 export class RpcError extends Error {
   readonly status: number;
+  readonly code: string | null;
   readonly details: Record<string, unknown> | null;
 
   constructor(
     message: string,
     status: number,
     details: Record<string, unknown> | null = null,
+    code: string | null = null,
   ) {
     super(message);
     this.name = "RpcError";
     this.status = status;
     this.details = details;
+    this.code = code;
   }
 }
 
@@ -148,19 +152,13 @@ export async function rpc<T extends Response>(
   const response = await responseFn;
   if (!response.ok) {
     const json: unknown = await response.json().catch(() => null);
-    const errorJson = json as
-      | { error?: string; message?: string }
-      | null
-      | undefined;
-    const details =
-      json !== null && typeof json === "object" && !Array.isArray(json)
-        ? (json as Record<string, unknown>)
-        : null;
+    const parsedError = parseApiErrorResponse(json, response.status);
     throw new RpcError(
-      errorJson?.error ?? errorJson?.message ?? `HTTP ${response.status}`,
+      parsedError.message,
       response.status,
-      details,
+      parsedError.details,
+      parsedError.code,
     );
   }
-  return response.json() as Promise<SuccessOf<JsonOf<T>>>;
+  return response.json();
 }
