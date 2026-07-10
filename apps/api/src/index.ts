@@ -22,8 +22,8 @@ import { ZodError } from "zod";
 import { auth } from "./lib/auth";
 import { closeRedisClient, getRedisClient } from "./lib/cache/redis-client";
 import {
+  assertProductionCorsOriginsConfigured,
   getCorsOrigins,
-  warnIfProductionCorsOriginsEmpty,
 } from "./lib/cors-origins";
 import { assertGoogleOAuthEncryptionKeyConfigured } from "./lib/crypto/field-encryption";
 import { createCsrfOriginGuard } from "./lib/csrf-origin-guard";
@@ -82,7 +82,6 @@ const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
 );
 
 const corsOrigins = getCorsOrigins();
-warnIfProductionCorsOriginsEmpty(corsOrigins);
 
 const app = new Hono()
   .use("*", logger())
@@ -184,6 +183,7 @@ export default app;
 export type AppType = typeof app;
 
 async function startServer() {
+  assertProductionCorsOriginsConfigured();
   console.log(`[api] Commit: ${process.env.GIT_HASH || "unknown"}`);
   assertGoogleOAuthEncryptionKeyConfigured();
   await assertRequiredSecurityMigrationsApplied();

@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  assertProductionCorsOriginsConfigured,
   getCorsOrigins,
-  warnIfProductionCorsOriginsEmpty,
 } from "../cors-origins";
 
 const originalNodeEnv = process.env.NODE_ENV;
+const originalTrustedOrigins = process.env.TRUSTED_ORIGINS;
 
 afterEach(() => {
   process.env.NODE_ENV = originalNodeEnv;
-  delete process.env.TRUSTED_ORIGINS;
+  if (originalTrustedOrigins === undefined) {
+    delete process.env.TRUSTED_ORIGINS;
+  } else {
+    process.env.TRUSTED_ORIGINS = originalTrustedOrigins;
+  }
   vi.restoreAllMocks();
 });
 
@@ -27,6 +32,14 @@ describe("getCorsOrigins", () => {
     }
   });
 
+  it("normalizes valid HTTP(S) origins", () => {
+    process.env.NODE_ENV = "production";
+    process.env.TRUSTED_ORIGINS =
+      " HTTPS://APP.EXAMPLE.COM:443/,https://app.example.com ";
+
+    expect(getCorsOrigins()).toEqual(["https://app.example.com"]);
+  });
+
   it("does not include localhost in production", () => {
     process.env.NODE_ENV = "production";
     process.env.TRUSTED_ORIGINS = "https://app.example.com";
@@ -40,35 +53,59 @@ describe("getCorsOrigins", () => {
 
     expect(getCorsOrigins()).toEqual(["https://staging.example.com"]);
   });
+
+  it.each([
+    "development",
+    "test",
+  ] as const)("keeps localhost as the default in %s", (env) => {
+    process.env.NODE_ENV = env;
+    delete process.env.TRUSTED_ORIGINS;
+
+    expect(getCorsOrigins()).toEqual(["http://localhost:3000"]);
+  });
 });
 
-describe("warnIfProductionCorsOriginsEmpty", () => {
-  it("warns when production has no allowed CORS origins", () => {
+describe("assertProductionCorsOriginsConfigured", () => {
+  it.each([
+    [undefined, "missing"],
+    ["", "empty"],
+    [" , ", "empty entries"],
+    ["not-a-url", "malformed URL"],
+    ["ftp://example.com", "non-HTTP(S) URL"],
+    ["https://example.com/path", "path-bearing URL"],
+  ])("rejects production TRUSTED_ORIGINS with %s", (trustedOrigins, _description) => {
     process.env.NODE_ENV = "production";
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    if (trustedOrigins === undefined) {
+      delete process.env.TRUSTED_ORIGINS;
+    } else {
+      process.env.TRUSTED_ORIGINS = trustedOrigins;
+    }
 
-    warnIfProductionCorsOriginsEmpty([]);
-
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("TRUSTED_ORIGINS"),
+    expect(() => assertProductionCorsOriginsConfigured()).toThrow(
+      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
     );
   });
 
-  it("does not warn outside production", () => {
-    process.env.NODE_ENV = "test";
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  it("accepts a non-empty set of normalized production origins", () => {
+    process.env.NODE_ENV = "production";
+    process.env.TRUSTED_ORIGINS = "https://app.example.com/";
 
-    warnIfProductionCorsOriginsEmpty([]);
-
-    expect(warnSpy).not.toHaveBeenCalled();
+    expect(() => assertProductionCorsOriginsConfigured()).not.toThrow();
   });
 
-  it("does not warn when production has allowed CORS origins", () => {
+  it("rejects production when valid and invalid origins are mixed", () => {
     process.env.NODE_ENV = "production";
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.TRUSTED_ORIGINS = "https://app.example.com,not-an-origin";
 
-    warnIfProductionCorsOriginsEmpty(["https://app.example.com"]);
+    expect(() => assertProductionCorsOriginsConfigured()).toThrow(
+      "TRUSTED_ORIGINS must contain one or more valid HTTP(S) origins in production",
+    );
+  });
 
-    expect(warnSpy).not.toHaveBeenCalled();
+  it("does not enforce production configuration outside production", () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.TRUSTED_ORIGINS;
+
+    expect(() => assertProductionCorsOriginsConfigured()).not.toThrow();
   });
 });
