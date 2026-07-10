@@ -1122,7 +1122,7 @@
 - head_sha: `c0b7f342abd13b9763da8d54aa76d5728749917b`
 - merge_commit: `c6350f4fef4fad354052c68a84ce902626409cb4`
 - hook_state: Worker and orchestrator `gh-review-hook 639` exited 0.
-- archived: attempted; Codex archive API did not return, so the thread must not be reused.
+- archived: true
 - owns:
   - `packages/database/src/migrate.ts`
   - `packages/database/drizzle/meta/**`
@@ -1256,15 +1256,15 @@
     detail: Verify workflow syntax, selected test inventory, and bounded CI execution.
 
 ### Task_6: Add durable submit side-effect recovery and avoid rejected-submit sessions
-- status: blocked
+- status: in progress
 - type: impl
 - branch: `codex/reviewfix-submit-outbox`
-- worker_thread: pending
+- pending_worktree: `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a`
+- worker_thread: pending resolution
 - complexity: high
 - model: `gpt-5.6-sol`
 - reasoning_effort: `medium`
 - model_rationale: DB migration/data integrity, multi-replica recovery, queue idempotency, and rolling-deploy compatibility.
-- blocker: Two explicit `create_thread` attempts with `gpt-5.6-sol` / `medium` did not return and produced no Codex worktree or worker thread. Retry only after the Codex thread API responds; do not create a duplicate while state is ambiguous.
 - owns:
   - `packages/database/src/schema.ts`
   - `packages/database/drizzle/**`
@@ -1306,6 +1306,7 @@
 - 2026-07-10: Task_3 requested a semantics decision before editing. Orchestrator rejected loss-biased claimed-before-POST delivery, stopped Task_3 with no code/PR, and moved coherent end-to-end notification semantics into Task_6. Task_6 now waits only for Task_2.
 - 2026-07-10: Task_2 PR #639 passed worker and parent merge gates and was squash-merged as `c6350f4fef4fad354052c68a84ce902626409cb4`. Task_6 is now unblocked.
 - 2026-07-10: Task_6 launch failed twice because the Codex `create_thread` API did not return; worktree inspection confirms no `codex/reviewfix-submit-outbox` worktree was created. Task_6 is blocked on thread-service recovery.
+- 2026-07-10: Codex thread service recovered. Task_2 worker archival completed, Wave 1 workers resumed their base-sync validation, and Task_6 was launched as pending worktree `client-new-thread:d8590c4e-cb08-49bc-a820-d255105a475a` with the recorded HIGH routing (`gpt-5.6-sol`, medium).
 
 ## Decision Log
 
