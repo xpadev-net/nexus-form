@@ -24,6 +24,7 @@ const CREDENTIAL_ROUTE_SEGMENTS = new Set([
   "shared",
   "shared-link",
   "shared-links",
+  "reset-password",
 ]);
 
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i;

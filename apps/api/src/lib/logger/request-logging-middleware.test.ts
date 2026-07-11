@@ -19,6 +19,38 @@ describe("requestLogger", () => {
     );
   });
 
+  it("redacts password reset tokens in request-start and completion logs", async () => {
+    const logs: string[] = [];
+    const app = new Hono();
+    app.use(
+      "*",
+      requestLogger((message) => logs.push(message)),
+    );
+    app.get("/api/auth/reset-password/:token", (c) => c.text("ok"));
+
+    const response = await app.request(
+      "/api/auth/reset-password/reset-token-secret?redirect=secret",
+    );
+
+    expect(response.status).toBe(200);
+    expect(logs[0]).toBe("<-- GET /api/auth/reset-password/[REDACTED]");
+    expect(logs[1]).toMatch(
+      /^--> GET \/api\/auth\/reset-password\/\[REDACTED\] 200 \d+(ms|s)$/,
+    );
+    expect(logs.join("\n")).not.toContain("reset-token-secret");
+    expect(logs.join("\n")).not.toContain("redirect=secret");
+  });
+
+  it("redacts password reset tokens in error-log targets", () => {
+    const errorTarget = getRequestErrorTarget(
+      "/api/auth/reset-password/reset-token-secret?redirect=secret",
+      "/api/auth/reset-password/:token",
+    );
+
+    expect(errorTarget).toBe("/api/auth/reset-password/[REDACTED]");
+    expect(errorTarget).not.toContain("reset-token-secret");
+  });
+
   it("sanitizes request-start and response-completion targets", async () => {
     const logs: string[] = [];
     const app = new Hono();
