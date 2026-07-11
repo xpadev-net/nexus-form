@@ -215,6 +215,7 @@ describe("validation outbox sweeper", () => {
       scanned: 1,
       enqueued: 1,
       failed: 0,
+      retryScheduled: 0,
     });
     expect(mocks.sequence).toEqual(["db:update", "queue:add", "db:update"]);
     expect(mocks.updateSets[0]).toMatchObject({
@@ -298,7 +299,12 @@ describe("validation outbox sweeper", () => {
     );
     const result = await sweepValidationOutbox({ staleMs: 0, batchSize: 10 });
 
-    expect(result).toEqual({ scanned: 0, enqueued: 0, failed: 0 });
+    expect(result).toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
     expect(mocks.addValidationJob).not.toHaveBeenCalled();
     expect(mocks.db.update).not.toHaveBeenCalled();
   });
@@ -326,6 +332,7 @@ describe("validation outbox sweeper", () => {
       scanned: 1,
       enqueued: 0,
       failed: 0,
+      retryScheduled: 1,
     });
     expect(mocks.updateSets[1]).toMatchObject({
       errorCode: "ENQUEUE_FAILED",
@@ -379,7 +386,12 @@ describe("validation outbox sweeper", () => {
       random: () => 0.5,
     });
 
-    expect(result).toEqual({ scanned: 2, enqueued: 0, failed: 0 });
+    expect(result).toEqual({
+      scanned: 2,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 2,
+    });
     expect(mocks.updateSets[1]).toMatchObject({
       enqueueAttemptCount: 2,
       nextEligibleAt: new Date("2026-07-11T00:01:15.000Z"),
@@ -407,7 +419,12 @@ describe("validation outbox sweeper", () => {
       random: () => 0,
     });
 
-    expect(result).toEqual({ scanned: 1, enqueued: 0, failed: 1 });
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 1,
+      retryScheduled: 0,
+    });
     expect(mocks.updateSets[1]).toMatchObject({
       status: "FAILED",
       errorCode: "ENQUEUE_RETRY_EXHAUSTED",
@@ -436,7 +453,12 @@ describe("validation outbox sweeper", () => {
     await vi.waitFor(() => expect(mocks.addValidationJob).toHaveBeenCalled());
     const second = await sweepValidationOutbox({ staleMs: 0, batchSize: 10 });
 
-    expect(second).toEqual({ scanned: 0, enqueued: 0, failed: 0 });
+    expect(second).toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
     expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
 
     queueAdded.resolve({ id: "validation-outbox-validation-result-1" });
@@ -444,6 +466,7 @@ describe("validation outbox sweeper", () => {
       scanned: 1,
       enqueued: 1,
       failed: 0,
+      retryScheduled: 0,
     });
   });
 
@@ -474,6 +497,7 @@ describe("validation outbox sweeper", () => {
       scanned: 1,
       enqueued: 1,
       failed: 0,
+      retryScheduled: 0,
     });
     expect(mocks.sequence).toEqual(["db:update", "queue:add", "db:update"]);
     expect(mocks.updateSets).toHaveLength(2);
@@ -515,8 +539,18 @@ describe("validation outbox sweeper", () => {
       leaseMs: 1_000,
     });
 
-    expect(first).toEqual({ scanned: 1, enqueued: 1, failed: 0 });
-    expect(second).toEqual({ scanned: 1, enqueued: 1, failed: 0 });
+    expect(first).toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(second).toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
     expect(mocks.addValidationJob).toHaveBeenCalledTimes(2);
     expect(mocks.addValidationJob.mock.calls[0]?.[2]).toEqual({
       jobId: "validation-outbox-validation-result-1",
@@ -556,6 +590,7 @@ describe("validation outbox sweeper", () => {
       scanned: 1,
       enqueued: 0,
       failed: 1,
+      retryScheduled: 0,
     });
     expect(mocks.addValidationJob).not.toHaveBeenCalled();
     expect(mocks.updateSets[1]).toMatchObject({
@@ -585,6 +620,7 @@ describe("validation outbox sweeper", () => {
       scanned: 0,
       enqueued: 0,
       failed: 0,
+      retryScheduled: 0,
     });
   });
 
@@ -611,6 +647,7 @@ describe("validation outbox sweeper", () => {
       scanned: 0,
       enqueued: 0,
       failed: 0,
+      retryScheduled: 0,
     });
     expect(stopped).toBe(true);
   });

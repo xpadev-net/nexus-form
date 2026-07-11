@@ -59,6 +59,8 @@ export type ValidationOutboxSweepResult = {
   enqueued: number;
   /** Number of rows moved to FAILED because they could not be recovered. */
   failed: number;
+  /** Number of transient enqueue failures scheduled for a later sweep. */
+  retryScheduled: number;
 };
 
 /**
@@ -539,6 +541,7 @@ export async function sweepValidationOutbox(
     scanned: rows.length,
     enqueued: 0,
     failed: 0,
+    retryScheduled: 0,
   };
 
   for (const row of rows) {
@@ -549,6 +552,7 @@ export async function sweepValidationOutbox(
     );
     if (outcome === "enqueued") result.enqueued += 1;
     if (outcome === "failed") result.failed += 1;
+    if (outcome === "retrying") result.retryScheduled += 1;
   }
 
   return result;
