@@ -43,6 +43,16 @@ function normalizeGitHubUsername(username: string): string {
   return normalized;
 }
 
+function isGitHubCancellationError(
+  error: unknown,
+  signal: AbortSignal,
+): boolean {
+  return (
+    error === signal.reason ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
+}
+
 function resolveGitHubClient(
   signal?: AbortSignal,
 ): ReturnType<typeof getGitHubClient> {
@@ -164,7 +174,12 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
-      if (context?.signal.aborted) throw error;
+      if (
+        context?.signal.aborted &&
+        isGitHubCancellationError(error, context.signal)
+      ) {
+        throw context.signal.reason ?? error;
+      }
       if (isGitHubProviderError(error)) {
         const retryAfterMs =
           error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT

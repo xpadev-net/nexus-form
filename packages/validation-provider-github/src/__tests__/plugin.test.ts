@@ -1,11 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createGitHubTimeoutFetch } from "../client";
+import { createGitHubTimeoutFetch, GitHubApiClient } from "../client";
 import { GitHubErrorCode } from "../error-codes";
 import { githubProvider } from "../plugin";
 import { GitHubProviderError } from "../utils";
 
-const { getUserByUsernameMock } = vi.hoisted(() => ({
+const { getByUsernameMock, getUserByUsernameMock } = vi.hoisted(() => ({
+  getByUsernameMock: vi.fn(),
   getUserByUsernameMock: vi.fn(),
+}));
+
+vi.mock("@octokit/rest", () => ({
+  Octokit: class {
+    users = { getByUsername: getByUsernameMock };
+  },
 }));
 
 vi.mock("../client", async (importOriginal) => {
@@ -19,6 +26,7 @@ vi.mock("../client", async (importOriginal) => {
 });
 
 beforeEach(() => {
+  getByUsernameMock.mockReset();
   getUserByUsernameMock.mockReset();
 });
 
@@ -44,7 +52,84 @@ describe("GitHub request cancellation", () => {
     controller.abort();
     expect(receivedSignal?.aborted).toBe(true);
   });
+
+  it("passes the execution signal to endpoint requests", async () => {
+    const controller = new AbortController();
+    getByUsernameMock.mockResolvedValueOnce({ data: validGitHubApiUserData });
+    const client = new GitHubApiClient(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      2_500,
+      controller.signal,
+    );
+
+    await client.getUserByUsername("octocat", controller.signal);
+
+    expect(getByUsernameMock).toHaveBeenCalledWith({
+      username: "octocat",
+      request: { signal: controller.signal },
+    });
+  });
+
+  it("rethrows the canonical abort reason from a canceled client request", async () => {
+    const controller = new AbortController();
+    const transportError = new DOMException("Transport aborted", "AbortError");
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    getByUsernameMock.mockRejectedValueOnce(transportError);
+    controller.abort(abortReason);
+    const client = new GitHubApiClient(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      2_500,
+      controller.signal,
+    );
+
+    await expect(
+      client.getUserByUsername("octocat", controller.signal),
+    ).rejects.toBe(abortReason);
+    expect(abortReason).not.toBe(transportError);
+  });
+
+  it("keeps non-cancellation client errors in the normal mapping path", async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    const transportError = new Error("Unexpected transport failure");
+    getByUsernameMock.mockRejectedValueOnce(transportError);
+    controller.abort(abortReason);
+    const client = new GitHubApiClient(
+      undefined,
+      undefined,
+      undefined,
+      false,
+      2_500,
+      controller.signal,
+    );
+
+    await expect(
+      client.getUserByUsername("octocat", controller.signal),
+    ).rejects.toMatchObject({
+      code: GitHubErrorCode.GITHUB_API_ERROR,
+    });
+  });
 });
+
+const validGitHubApiUserData = {
+  login: "octocat",
+  id: 1,
+  name: "Octocat",
+  avatar_url: "https://avatars.githubusercontent.com/u/1?v=4",
+  html_url: "https://github.com/octocat",
+  bio: "A cat",
+  public_repos: 8,
+  followers: 5000,
+  following: 9,
+  created_at: "2011-01-25T18:44:36Z",
+  updated_at: "2023-01-01T00:00:00Z",
+};
 
 const validUserData = {
   username: "octocat",
@@ -135,9 +220,10 @@ describe("githubProvider.rules.user_exists.validate", () => {
 
   it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
     const controller = new AbortController();
-    const abortError = new DOMException("Aborted", "AbortError");
-    getUserByUsernameMock.mockRejectedValueOnce(abortError);
-    controller.abort();
+    const transportError = new DOMException("Transport aborted", "AbortError");
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    getUserByUsernameMock.mockRejectedValueOnce(transportError);
+    controller.abort(abortReason);
 
     await expect(
       githubProvider.rules.user_exists?.validate(
@@ -148,7 +234,34 @@ describe("githubProvider.rules.user_exists.validate", () => {
           deadlineAt: Date.now() + 5_000,
         },
       ),
-    ).rejects.toBe(abortError);
+    ).rejects.toBe(abortReason);
+    expect(abortReason).not.toBe(transportError);
+  });
+
+  it("keeps non-cancellation errors in the normal validation mapping path", async () => {
+    const controller = new AbortController();
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    const validationError = new GitHubProviderError(
+      "Temporary network failure",
+      GitHubErrorCode.NETWORK_ERROR,
+    );
+    getUserByUsernameMock.mockRejectedValueOnce(validationError);
+    controller.abort(abortReason);
+
+    const result = await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+      {
+        signal: controller.signal,
+        deadlineAt: Date.now() + 5_000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: GitHubErrorCode.NETWORK_ERROR,
+      retryable: true,
+    });
   });
 
   it("validates an existing GitHub user and returns metadata from fixtures", async () => {

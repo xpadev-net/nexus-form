@@ -48,6 +48,16 @@ function getRequestSignal(init?: RequestInit): AbortSignal | null {
   return init?.signal instanceof AbortSignal ? init.signal : null;
 }
 
+function isGitHubCancellationError(
+  error: unknown,
+  signal: AbortSignal,
+): boolean {
+  return (
+    error === signal.reason ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
+}
+
 export function createGitHubTimeoutFetch(
   apiTimeoutMs: number,
   fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args),
@@ -140,7 +150,9 @@ export class GitHubApiClient {
         updatedAt: parsed.data.updated_at,
       };
     } catch (error) {
-      if (signal?.aborted) throw error;
+      if (signal?.aborted && isGitHubCancellationError(error, signal)) {
+        throw signal.reason ?? error;
+      }
       if (isGitHubUserNotFoundError(error)) return null;
       if (error instanceof GitHubProviderError) throw error;
 
