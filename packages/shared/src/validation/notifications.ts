@@ -282,7 +282,7 @@ const storedPasswordProtectionSchema = z
 const passwordProtectionInputSchema = z
   .object({
     ...passwordProtectionShape,
-    password: z.string().min(1).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(),
+    password: z.string().min(8).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(),
   })
   .refine(passwordProtectionRequirement, passwordProtectionRefinement);
 
