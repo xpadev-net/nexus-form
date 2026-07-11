@@ -596,6 +596,23 @@ export const formsStructureRouter = createHonoApp()
 
       const result = await withFormStructureMutationLock(formId, async () => {
         let structure = payload.structure;
+        const accessControl = structure.access_control;
+        const passwordProtection = accessControl?.password_protection;
+        const plaintextPassword = passwordProtection?.password;
+        if (accessControl && passwordProtection && plaintextPassword) {
+          const hashedPassword = await hashPassword(plaintextPassword);
+          structure = {
+            ...structure,
+            access_control: {
+              ...accessControl,
+              password_protection: {
+                ...passwordProtection,
+                password: hashedPassword,
+                has_password: undefined,
+              },
+            },
+          };
+        }
         const needsCurrentStructure =
           !!structure.access_control?.password_protection?.has_password ||
           hasMaskedNotificationSecretFlags(structure.notifications);

@@ -330,6 +330,7 @@ describe("forms structure password protection response", () => {
       changeLog: null,
       parentVersion: null,
     };
+    mocks.hashPassword.mockResolvedValue("stored-password-hash");
     mocks.saveFormStructure.mockResolvedValue(savedVersion);
 
     const response = await formsStructureRouter.request("/form-1/structure", {
@@ -348,7 +349,12 @@ describe("forms structure password protection response", () => {
     });
 
     expect(response.status).toBe(200);
+    expect(mocks.hashPassword).toHaveBeenCalledWith(password);
     expect(mocks.saveFormStructure).toHaveBeenCalled();
+    const savedStructure = mocks.saveFormStructure.mock.calls[0]?.[1];
+    expect(savedStructure.access_control.password_protection.password).toBe(
+      "stored-password-hash",
+    );
   });
 
   it("rejects an over-limit password through the full structure contract", async () => {
