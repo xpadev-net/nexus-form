@@ -11,6 +11,8 @@
     "type-check": "turbo type-check && pnpm type-check:e2e",
     "type-check:e2e": "tsc --noEmit -p tsconfig.e2e.json",
     "test": "node scripts/check-env.test.mjs && node scripts/run-turbo-test.mjs",
+    "test:k8s-runtime-wiring": "node scripts/check-k8s-runtime-wiring.test.mjs",
+    "k8s:check-runtime-wiring": "node scripts/check-k8s-runtime-wiring.mjs",
     "test:e2e": "node scripts/run-playwright.mjs",
     "test:e2e:ci": "node scripts/run-playwright.mjs --ci",
     "test:e2e:headed": "node scripts/run-playwright.mjs --headed",
