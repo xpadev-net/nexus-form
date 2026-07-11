@@ -1,6 +1,6 @@
 # Plan: External Validation Plugin Timeout
 
-- status: draft
+- status: complete
 - generated: 2026-07-11
 - last_updated: 2026-07-11
 - work_type: code
@@ -182,6 +182,7 @@
 
 ## Progress Log
 - 2026-07-11: Draft created.
+- 2026-07-11: Tasks 1-8 landed through PRs #650, #652, #657, #658, #659, #660, and #662. Task 9 final workspace validation and independent lifecycle/external-contract reviews completed APPROVED.
 
 ## Decision Log
 - 2026-07-11: Host deadline plus optional signal chosen because signal-only contracts cannot contain non-cooperative plugins.

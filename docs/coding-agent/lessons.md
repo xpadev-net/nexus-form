@@ -310,3 +310,11 @@ Evidence:
 - root cause: The review analyzed the provider catch path in isolation and treated all deadline expiry as terminal cancellation without reading the host-owned retry contract and lifecycle tests.
 - fix: Preserve the canonical timeout reason for host classification, document the contract in the review thread, and request a fresh automated review after the dependent host implementation and tests were visible on the PR base.
 - prevention: Before applying an automated cross-layer lifecycle finding, trace the value into its authoritative consumer and compare against focused contract tests; if the finding conflicts, resolve it with evidence and rerun the review rather than changing one layer in isolation.
+
+## 2026-07-11: Trace cancellation identity through dependency error wrappers
+
+- tags: plugins, cancellation, octokit, error-cause
+- symptom: Direct abort-reason and `AbortError` tests passed, but Octokit wrapped a custom host timeout/shutdown reason in `RequestError` and stored the canonical reason in `cause`.
+- root cause: Cancellation classification modeled browser fetch rejection but not the dependency's non-`AbortError` wrapping behavior.
+- fix: While the execution signal is aborted, recognize a wrapper whose `cause` is the exact `signal.reason`, then rethrow the canonical reason; add separate wrapper/reason identity tests at client and plugin boundaries.
+- prevention: For external HTTP libraries, inspect the locked dependency's rejection/wrapping path and test canonical cancellation identity through `cause` without treating unrelated causes as cancellation.

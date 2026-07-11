@@ -26,8 +26,8 @@
 | PLUGIN-6 | Twitter provider cancellation propagation | complete | `codex/twitter-plugin-cancellation` | `019f4faa-b5a9-7900-be5c-7573b10d30f2` | [#660](https://github.com/xpadev-net/nexus-form/pull/660) | Merged as `4098ae8b17add07d42b5449e9bbce34e15b8cdae`; archive worker |
 | WEBERR-3 | Discord auth unit and component coverage | complete | `codex/weberr-3-auth-tests` | `019f4fba-cab5-75f1-bd68-ebc03abc8257` | [#661](https://github.com/xpadev-net/nexus-form/pull/661) | Merged as `a7c1724730e29a0771692816fce6f4e3bdf09f01`; archive worker |
 | WEBERR-4 | Discord auth browser acceptance validation | complete | — | `019f5008-a337-7e12-a787-f220c7b12733` | — | APPROVED; archive reviewer |
-| PLUGIN-5B | Preserve GitHub cancellation reason identity | in progress | — | `019f501e-8ab9-78e2-b737-853c2b66aa45` | — | Worker investigation and implementation |
-| PLUGIN-9 | Plugin timeout final integration review | blocked | — | parent orchestrator | — | Await PLUGIN-5B fix, then rerun full validation and independent reviews |
+| PLUGIN-5B | Preserve GitHub cancellation reason identity | complete | `codex/plugin-5b-github-cancellation-reason` | `019f501e-8ab9-78e2-b737-853c2b66aa45` | [#662](https://github.com/xpadev-net/nexus-form/pull/662) | Merged as `e9e05cda7ab0857c4852766f9ba73b1bd0374dd8`; archive worker |
+| PLUGIN-9 | Plugin timeout final integration review | complete | — | parent orchestrator | — | APPROVED; plan complete |
 
 ## Queued Plans
 
@@ -89,3 +89,5 @@
 - 2026-07-11: Started PLUGIN-5B in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Ownership is limited to the GitHub provider client, plugin, and focused test file.
 - 2026-07-11: PLUGIN-5B startup stability check passed; the worker created its goal and continued through skill loading and bounded investigation, and the queued client ID was replaced with the durable thread ID.
 - 2026-07-11: WEBERR-4 browser acceptance review completed APPROVED. Desktop 1440x900 and mobile 390x844 mocked flows covered pending, provider error, network rejection, retry, success handoff, duplicate-submit suppression, alert/focus behavior, and clean page-error/unhandled-rejection collection; focused Web auth tests passed 10 tests. Residual risk: live Discord OAuth was intentionally not used and the equivalent build ran on port 3310 because port 3000 was occupied by another application.
+- 2026-07-11: PLUGIN-5B merged via PR #662 (`e9e05cda7ab0857c4852766f9ba73b1bd0374dd8`). Parent review required recognition of Octokit's `RequestError.cause` wrapper around non-`AbortError` custom reasons; worker and orchestrator hooks exited 0; CI passed; parent focused GitHub provider tests passed 60 tests and package type-check passed; two Task_9 independent re-reviews approved the final contract.
+- 2026-07-11: PLUGIN-9 final integration review completed APPROVED after PLUGIN-5B. Final orchestrator `pnpm lint:fix`, `pnpm type-check`, and `pnpm test --silent` passed; independent lifecycle and external-contract reviews found no remaining actionable issues across optional context compatibility, host deadlines/shutdown, late settlement, retry/final persistence, and all three built-in providers.
