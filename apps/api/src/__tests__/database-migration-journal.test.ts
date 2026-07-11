@@ -53,6 +53,16 @@ function readJournal(): Journal {
   return JSON.parse(readFileSync(journalPath, "utf8")) as Journal;
 }
 
+function readMigration(tag: string): string {
+  return readFileSync(
+    resolve(
+      findRepoRoot(process.cwd()),
+      `packages/database/drizzle/${tag}.sql`,
+    ),
+    "utf8",
+  );
+}
+
 function createFakeMigrationPool(options: {
   hasDrizzleMigrationsTable: boolean;
   createdAts: number[];
@@ -94,6 +104,48 @@ describe("database migration journal", () => {
         `${entry.tag} must be newer than ${previous.tag}`,
       ).toBeGreaterThan(previous.when);
     }
+  });
+
+  it("keeps validation outbox retry metadata additive and default-safe", () => {
+    const journal = readJournal();
+    const outboxEntries = journal.entries.filter((entry) =>
+      entry.tag.startsWith("0016_"),
+    );
+    expect(outboxEntries).toHaveLength(1);
+
+    const outboxEntry = outboxEntries[0];
+    if (!outboxEntry) {
+      throw new Error("Validation outbox retry migration must exist");
+    }
+
+    const previousEntry = findJournalEntryOrThrow(
+      journal,
+      "0015_amusing_ghost_rider",
+    );
+    expect(outboxEntry.when).toBeGreaterThan(previousEntry.when);
+
+    const sql = readMigration(outboxEntry.tag);
+    expect(sql).toContain(
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128);",
+    );
+    expect(sql).toContain(
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp;",
+    );
+    expect(sql).toContain(
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL;",
+    );
+    expect(sql).toContain(
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp;",
+    );
+    expect(sql).toContain(
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum('LEGACY','STABLE') DEFAULT 'LEGACY' NOT NULL;",
+    );
+    expect(sql).toContain(
+      "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`);",
+    );
+    expect(sql).not.toContain("MODIFY");
+    expect(sql).not.toContain("DROP");
+    expect(sql).not.toMatch(/`attemptCount`|`nextRetryAt`/);
   });
 
   it("keeps the configJson column migration after snapshot structure backfill", () => {
