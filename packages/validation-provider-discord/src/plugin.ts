@@ -1,5 +1,6 @@
 import type {
   ValidationProvider,
+  ValidationProviderExecutionContext,
   ValidationProviderResult,
   ValidationProviderRule,
 } from "@nexus-form/integrations";
@@ -10,6 +11,7 @@ import {
   ZDiscordPermissionString,
 } from "./permissions";
 import {
+  type DiscordRequestOptions,
   discordApiFetch,
   getGuildRoles as fetchGuildRoles,
   findGuildMemberByUsername,
@@ -257,6 +259,7 @@ async function fetchUserGuilds(accessToken: string) {
 
 async function getConfiguredGuildRoles(
   guildId: string,
+  options?: DiscordRequestOptions,
 ): Promise<Array<{ id: string; name: string; color: number }>> {
   const rawToken = process.env.DISCORD_BOT_TOKEN;
   if (!rawToken) {
@@ -265,7 +268,7 @@ async function getConfiguredGuildRoles(
 
   const token = ZDiscordToken.parse(rawToken);
   const parsedGuildId = ZDiscordGuildId.parse(guildId);
-  const guildRoles = await fetchGuildRoles(token, parsedGuildId);
+  const guildRoles = await fetchGuildRoles(token, parsedGuildId, options);
 
   return guildRoles
     .map((role) => ({
@@ -367,7 +370,11 @@ const guildMemberRule: ValidationProviderRule = {
   configSchema: DiscordConfigSchema,
   metadataSchema: DiscordMetadataSchema,
 
-  async validate(input, config): Promise<ValidationProviderResult> {
+  async validate(
+    input,
+    config,
+    context?: ValidationProviderExecutionContext,
+  ): Promise<ValidationProviderResult> {
     const rawToken = process.env.DISCORD_BOT_TOKEN;
     if (!rawToken) {
       return {
@@ -399,12 +406,16 @@ const guildMemberRule: ValidationProviderRule = {
       const token = ZDiscordToken.parse(rawToken);
       const parsedGuildId = ZDiscordGuildId.parse(guildId);
 
-      const guild = await getGuild(token, parsedGuildId);
+      const requestOptions = { signal: context?.signal };
+      const guild = await getGuild(token, parsedGuildId, requestOptions);
       const member = await findGuildMemberByUsername(
         token,
         parsedGuildId,
         username,
-        { allowListFallback: usernameLookupMode === "legacy_scan" },
+        {
+          allowListFallback: usernameLookupMode === "legacy_scan",
+          ...requestOptions,
+        },
       );
 
       if (!member) {
@@ -415,7 +426,11 @@ const guildMemberRule: ValidationProviderRule = {
         };
       }
 
-      const guildRoles = await fetchGuildRoles(token, parsedGuildId);
+      const guildRoles = await fetchGuildRoles(
+        token,
+        parsedGuildId,
+        requestOptions,
+      );
       const roleCheckResult = evaluateRoleConditions(
         guildRoles,
         member,

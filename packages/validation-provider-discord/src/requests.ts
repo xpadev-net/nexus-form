@@ -24,6 +24,10 @@ import { DiscordHttpError } from "./utils";
 
 const limit = pLimit(1);
 
+export interface DiscordRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
 function getRateLimitRetryAfterSeconds(
   responseBody: unknown,
 ): number | undefined {
@@ -87,9 +91,11 @@ const discordFetchWithRateLimitHandling = async (
 const discordRequest = async (
   url: string,
   token: DiscordToken,
+  options?: DiscordRequestOptions,
 ): Promise<Response> => {
   return discordFetchWithRateLimitHandling(url, {
     headers: { Authorization: `Bot ${token}` },
+    signal: options?.signal,
   });
 };
 
@@ -98,6 +104,7 @@ const discordRequestWithMethod = async (
   token: DiscordToken,
   method: string,
   body?: unknown,
+  options?: DiscordRequestOptions,
 ): Promise<Response> => {
   const headers: Record<string, string> = {
     Authorization: `Bot ${token}`,
@@ -105,7 +112,7 @@ const discordRequestWithMethod = async (
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
-  const init: RequestInit = { method, headers };
+  const init: RequestInit = { method, headers, signal: options?.signal };
   if (body !== undefined) {
     init.body = JSON.stringify(body);
   }
@@ -115,10 +122,12 @@ const discordRequestWithMethod = async (
 export async function getGuild(
   token: DiscordToken,
   guildId: DiscordGuildId,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordGuild> {
   const response = await discordRequest(
     `https://discord.com/api/v10/guilds/${guildId}?with_counts=true`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -164,6 +173,7 @@ export async function searchGuildMembers(
   guildId: DiscordGuildId,
   query: string,
   searchLimit = 25,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordGuildMember[]> {
   const validLimit = Math.max(1, Math.min(1000, searchLimit));
   const params = new URLSearchParams({
@@ -173,6 +183,7 @@ export async function searchGuildMembers(
   const response = await discordRequest(
     `https://discord.com/api/v10/guilds/${guildId}/members/search?${params.toString()}`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -199,13 +210,14 @@ export async function findGuildMemberByUsername(
   token: DiscordToken,
   guildId: DiscordGuildId,
   username: string,
-  options: { allowListFallback?: boolean } = {},
+  options: { allowListFallback?: boolean; signal?: AbortSignal } = {},
 ): Promise<DiscordGuildMember | undefined> {
   const searchResults = await searchGuildMembers(
     token,
     guildId,
     username,
     DISCORD_GUILD_MEMBER_PAGE_SIZE,
+    options,
   );
   const searchMatch = searchResults.find(
     (member) => member.user.username === username,
@@ -225,6 +237,7 @@ export async function findGuildMemberByUsername(
     const members = await listGuildMembers(token, guildId, {
       limit: DISCORD_GUILD_MEMBER_PAGE_SIZE,
       after,
+      signal: options.signal,
     });
     const listMatch = members.find(
       (member) => member.user.username === username,
@@ -251,10 +264,12 @@ export async function getGuildMember(
   token: DiscordToken,
   guildId: DiscordGuildId,
   userId: DiscordUserId,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordGuildMember> {
   const response = await discordRequest(
     `https://discord.com/api/v10/guilds/${guildId}/members/${userId}`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -272,10 +287,12 @@ export async function getGuildMember(
 export async function getGuildRoles(
   token: DiscordToken,
   guildId: DiscordGuildId,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordGuildRole[]> {
   const response = await discordRequest(
     `https://discord.com/api/v10/guilds/${guildId}/roles`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -293,10 +310,12 @@ export async function getGuildRoles(
 export async function getUser(
   token: DiscordToken,
   userId: DiscordUserId,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordUser> {
   const response = await discordRequest(
     `https://discord.com/api/v10/users/${userId}`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -314,7 +333,7 @@ export async function getUser(
 export async function listGuildMembers(
   token: DiscordToken,
   guildId: DiscordGuildId,
-  options?: { limit?: number; after?: DiscordUserId },
+  options?: { limit?: number; after?: DiscordUserId; signal?: AbortSignal },
 ): Promise<DiscordGuildMember[]> {
   const memberLimit = Math.max(1, Math.min(1000, options?.limit ?? 1000));
   const params = new URLSearchParams({ limit: String(memberLimit) });
@@ -324,6 +343,7 @@ export async function listGuildMembers(
   const response = await discordRequest(
     `https://discord.com/api/v10/guilds/${guildId}/members?${params.toString()}`,
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -343,11 +363,14 @@ export async function addGuildMemberRole(
   guildId: DiscordGuildId,
   userId: DiscordUserId,
   roleId: DiscordGuildRoleId,
+  options?: DiscordRequestOptions,
 ): Promise<void> {
   const response = await discordRequestWithMethod(
     `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${roleId}`,
     token,
     "PUT",
+    undefined,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -362,11 +385,14 @@ export async function deleteGuildMemberRole(
   guildId: DiscordGuildId,
   userId: DiscordUserId,
   roleId: DiscordGuildRoleId,
+  options?: DiscordRequestOptions,
 ): Promise<void> {
   const response = await discordRequestWithMethod(
     `https://discord.com/api/v10/guilds/${guildId}/members/${userId}/roles/${roleId}`,
     token,
     "DELETE",
+    undefined,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -378,10 +404,12 @@ export async function deleteGuildMemberRole(
 
 export async function getBelongGuilds(
   token: DiscordToken,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordGuild[]> {
   const response = await discordRequest(
     "https://discord.com/api/v10/users/@me/guilds",
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
@@ -398,10 +426,12 @@ export async function getBelongGuilds(
 
 export async function getSelfApplication(
   token: DiscordToken,
+  options?: DiscordRequestOptions,
 ): Promise<DiscordApplication> {
   const response = await discordRequest(
     "https://discord.com/api/v10/applications/@me",
     token,
+    options,
   );
   if (!response.ok) {
     throw new DiscordHttpError(
