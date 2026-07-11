@@ -1,10 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TwitterApiClient } from "../client";
 import { TwitterErrorCode } from "../error-codes";
 import { twitterProvider } from "../plugin";
 import { parseTwitterError } from "../utils";
 
-const { getUserByUsernameMock } = vi.hoisted(() => ({
+const { axiosRequestMock, getUserByUsernameMock } = vi.hoisted(() => ({
+  axiosRequestMock: vi.fn(),
   getUserByUsernameMock: vi.fn(),
+}));
+
+vi.mock("axios", () => ({
+  default: {
+    create: vi.fn(() => ({
+      request: axiosRequestMock,
+    })),
+    isCancel: vi.fn(() => false),
+  },
 }));
 
 vi.mock("../client", async (importActual) => {
@@ -18,6 +29,7 @@ vi.mock("../client", async (importActual) => {
 });
 
 beforeEach(() => {
+  axiosRequestMock.mockReset();
   getUserByUsernameMock.mockReset();
   vi.unstubAllGlobals();
 });
@@ -36,6 +48,83 @@ const validTwitterUser = {
   },
   created_at: "2024-01-01T00:00:00.000Z",
 };
+
+describe("Twitter request cancellation", () => {
+  it("passes the execution signal to the username lookup Axios request", async () => {
+    const controller = new AbortController();
+    axiosRequestMock.mockResolvedValueOnce({ data: { data: null } });
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await client.getUserByUsername("username", controller.signal);
+
+    expect(axiosRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("passes the execution signal to the user ID lookup Axios request", async () => {
+    const controller = new AbortController();
+    axiosRequestMock.mockResolvedValueOnce({ data: { data: null } });
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await client.getUserById("123", controller.signal);
+
+    expect(axiosRequestMock).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it("aborts an in-flight Axios request with the execution signal reason", async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException("Validation cancelled", "AbortError");
+    axiosRequestMock.mockImplementationOnce(
+      (config: { signal?: AbortSignal }) =>
+        new Promise<never>((_, reject) => {
+          const signal = config.signal;
+          if (!signal) {
+            reject(new Error("missing request signal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    );
+    const client = new TwitterApiClient({ bearerToken: "token" });
+    const request = client.getUserByUsername("username", controller.signal);
+
+    controller.abort(abortError);
+
+    await expect(request).rejects.toBe(abortError);
+  });
+
+  it("keeps an invalid user ID error when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await expect(
+      client.getUserById("not-a-user-id", controller.signal),
+    ).rejects.toThrow("Invalid Twitter user ID format: not-a-user-id");
+  });
+
+  it("keeps a missing-user response when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+    axiosRequestMock.mockRejectedValueOnce({
+      response: { status: 404, data: { title: "Not Found" } },
+    });
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await expect(
+      client.getUserByUsername("missing-user", controller.signal),
+    ).resolves.toBeNull();
+  });
+});
 
 describe("twitterProvider.rules.user_exists.inputSchema", () => {
   it("documents bearer token and API permission requirements through provider metadata", () => {
@@ -101,6 +190,64 @@ describe("twitterProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("twitterProvider.rules.user_exists.validate", () => {
+  it("passes the optional execution signal to the Twitter client", async () => {
+    const controller = new AbortController();
+    getUserByUsernameMock.mockResolvedValueOnce(validTwitterUser);
+
+    await twitterProvider.rules.user_exists?.validate(
+      "TwitterDev",
+      {},
+      {
+        signal: controller.signal,
+        deadlineAt: Date.now() + 5_000,
+      },
+    );
+
+    expect(getUserByUsernameMock).toHaveBeenCalledWith(
+      "TwitterDev",
+      controller.signal,
+    );
+  });
+
+  it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException("Axios cancelled", "AbortError");
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    getUserByUsernameMock.mockRejectedValueOnce(abortError);
+    controller.abort(abortReason);
+
+    await expect(
+      twitterProvider.rules.user_exists?.validate(
+        "TwitterDev",
+        {},
+        {
+          signal: controller.signal,
+          deadlineAt: Date.now() + 5_000,
+        },
+      ),
+    ).rejects.toBe(abortReason);
+  });
+
+  it("keeps invalid input mapping when the execution signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "user/name",
+      {},
+      {
+        signal: controller.signal,
+        deadlineAt: Date.now() + 5_000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.INVALID_INPUT,
+      retryable: false,
+    });
+  });
+
   it("returns safe metadata for an existing Twitter user", async () => {
     getUserByUsernameMock.mockResolvedValueOnce(validTwitterUser);
 
@@ -144,6 +291,7 @@ describe("twitterProvider.rules.user_exists.validate", () => {
         { key: "verified", label: "Verified", value: true },
       ],
     });
+    expect(getUserByUsernameMock).toHaveBeenCalledWith("TwitterDev");
   });
 
   it("returns a non-retryable failure when the Twitter user is missing", async () => {

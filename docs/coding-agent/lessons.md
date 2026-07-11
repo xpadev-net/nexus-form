@@ -286,3 +286,11 @@ Evidence:
 - root cause: Signal plumbing and provider error classification were reviewed separately, so the catch layers did not treat an already-aborted execution context as a control-flow boundary.
 - fix: Pass the execution signal through client-scoped authentication fetches and endpoint requests, then rethrow abort rejections before 404, rate-limit, and generic provider mappings at both client and plugin layers.
 - prevention: Cancellation regressions for external providers must verify both request-level signal propagation and that every subsequent catch layer preserves cancellation instead of translating it into domain failure.
+
+## 2026-07-11: Assert the canonical abort reason separately from transport errors
+
+- tags: plugins, cancellation, identity, testing
+- symptom: A plugin correctly recognized an aborted request but rethrew the transport's `AbortError` instead of the execution signal's custom reason.
+- root cause: The regression used the same conceptual cancellation for both the request rejection and controller state, so it did not test which object crossed the provider boundary.
+- fix: Normalize recognized cancellation to `signal.reason ?? error` at each plugin/client boundary and test with distinct transport-error and custom-reason objects.
+- prevention: Cancellation identity tests must deliberately make the caught transport error differ from `AbortSignal.reason` and assert that the canonical signal reason is returned by reference.
