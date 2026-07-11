@@ -436,6 +436,12 @@ export const handleGenericValidation = async (
             },
           );
         } catch (error) {
+          if (executionContext.signal.aborted) {
+            throw (
+              executionContext.signal.reason ??
+              new DOMException("Validation execution aborted", "AbortError")
+            );
+          }
           if (isShutdownAbortError(error)) {
             throw error;
           }

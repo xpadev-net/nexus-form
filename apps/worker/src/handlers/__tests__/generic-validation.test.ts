@@ -154,6 +154,7 @@ vi.mock("../../lib/redis-lock", () => {
     ttlMs?: number;
     waitTimeoutMs?: number;
     retryDelayMs?: number;
+    signal?: AbortSignal;
   }
 
   class RedisLockAcquireTimeoutError extends Error {
@@ -1278,6 +1279,46 @@ describe("handleGenericValidation", () => {
       code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
     });
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("Discord lock wait abort preserves the host plugin timeout cause", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+    mockWithRedisLock.mockImplementationOnce(
+      (_key, _fn, options) =>
+        new Promise<unknown>((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Lock aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const rule = makeRule();
+    const provider = makeProvider(rule);
+    mockProviderRegistryGet.mockReturnValue({ ...provider, name: "discord" });
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      snapshotProviderName: "discord",
+      attemptsMade: 2,
+    });
+
+    const handlerPromise = handleGenericValidation(job);
+    const resultAssertion = expect(handlerPromise).resolves.toEqual({
+      ok: false,
+      error: "Retryable validation error exhausted",
+    });
+    await flushMicrotasks();
+    await vi.runOnlyPendingTimersAsync();
+
+    await resultAssertion;
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "VALIDATION_PLUGIN_TIMEOUT",
+      }),
+    );
   });
 
   it("Discord validation の Redis lock 待機中 shutdown AbortError は最終試行前に再スローする", async () => {
