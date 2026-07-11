@@ -26,6 +26,8 @@
 | PLUGIN-6 | Twitter provider cancellation propagation | complete | `codex/twitter-plugin-cancellation` | `019f4faa-b5a9-7900-be5c-7573b10d30f2` | [#660](https://github.com/xpadev-net/nexus-form/pull/660) | Merged as `4098ae8b17add07d42b5449e9bbce34e15b8cdae`; archive worker |
 | WEBERR-3 | Discord auth unit and component coverage | complete | `codex/weberr-3-auth-tests` | `019f4fba-cab5-75f1-bd68-ebc03abc8257` | [#661](https://github.com/xpadev-net/nexus-form/pull/661) | Merged as `a7c1724730e29a0771692816fce6f4e3bdf09f01`; archive worker |
 | WEBERR-4 | Discord auth browser acceptance validation | in progress | — | `019f5008-a337-7e12-a787-f220c7b12733` | — | Browser reviewer execution |
+| PLUGIN-5B | Preserve GitHub cancellation reason identity | starting | — | `client-new-thread:3973d5cb-71cb-481d-bc92-ae8fec42a129` | — | Resolve durable worker ID and perform startup stability check |
+| PLUGIN-9 | Plugin timeout final integration review | blocked | — | parent orchestrator | — | Await PLUGIN-5B fix, then rerun full validation and independent reviews |
 
 ## Queued Plans
 
@@ -83,3 +85,5 @@
 - 2026-07-11: Started dependency-ready WEBERR-4 browser acceptance validation in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. It owns no product files and is limited to mocked browser evidence for the merged Discord sign-in flows.
 - 2026-07-11: WEBERR-4 startup stability check passed; the reviewer continued through skill and evidence-spec loading, and its queued client ID was replaced with the durable thread ID.
 - 2026-07-11: PLUGIN-4 merged via PR #659 (`a525210406b28ff6738fb0cfb9fa9a03c83c2a21`). Parent review required preservation of the PLUGIN-3 host-owned retry/final-attempt timeout contract; after a stale Greptile interpretation was explicitly re-reviewed, worker and orchestrator hooks exited 0; CI passed; parent focused Discord provider tests passed 44 tests and package type-check passed; two independent parent reviews found no actionable issues. Residual scope: Discord API handlers and health checks do not receive plugin execution context and remain unchanged.
+- 2026-07-11: PLUGIN-9 full repository validation passed, but both independent integration reviews found that GitHub client/plugin catch layers preserve the transport abort error rather than canonical `signal.reason`, risking Worker shutdown misclassification. Split the bounded three-file correction into PLUGIN-5B and held final plan approval until it lands.
+- 2026-07-11: Started PLUGIN-5B in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Ownership is limited to the GitHub provider client, plugin, and focused test file.
