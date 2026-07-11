@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAuth } from "@/hooks/auth/use-auth";
+import { DISCORD_SIGN_IN_ERROR, useAuth } from "@/hooks/auth/use-auth";
 import { authClient } from "@/lib/auth-client";
 
 const { FRONTEND_BASE_URL_FOR_TEST } = vi.hoisted(() => ({
@@ -47,5 +47,36 @@ describe("useAuth", () => {
       provider: "discord",
       callbackURL: `${FRONTEND_BASE_URL_FOR_TEST}/`,
     });
+  });
+
+  it("normalizes a rejected Discord sign-in promise", async () => {
+    signInSocialMock.mockRejectedValueOnce(new Error("network unavailable"));
+
+    const { signInWithDiscord } = useAuth();
+
+    await expect(signInWithDiscord()).rejects.toThrow(DISCORD_SIGN_IN_ERROR);
+  });
+
+  it("normalizes an error returned in a resolved Discord sign-in result", async () => {
+    signInSocialMock.mockResolvedValueOnce({
+      error: { message: "Discord provider unavailable" },
+    });
+
+    const { signInWithDiscord } = useAuth();
+
+    await expect(signInWithDiscord()).rejects.toThrow(DISCORD_SIGN_IN_ERROR);
+  });
+
+  it("reports when Discord hands the browser off to its redirect URL", async () => {
+    signInSocialMock.mockResolvedValueOnce({
+      data: {
+        redirect: true,
+        url: "https://discord.com/oauth2/authorize?client_id=test",
+      },
+    });
+
+    const { signInWithDiscord } = useAuth();
+
+    await expect(signInWithDiscord("/forms/form-1/edit")).resolves.toBe(true);
   });
 });
