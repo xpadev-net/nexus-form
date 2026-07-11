@@ -112,23 +112,35 @@ export class TwitterApiClient {
     });
   }
 
-  private async request(config: AxiosRequestConfig): Promise<unknown> {
-    const response = await this.axiosInstance.request<unknown>(config);
+  private async request(
+    config: AxiosRequestConfig,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const response = await this.axiosInstance.request<unknown>({
+      ...config,
+      ...(signal ? { signal } : {}),
+    });
     return response.data;
   }
 
-  async getUserByUsername(username: string): Promise<TwitterUserInfo | null> {
+  async getUserByUsername(
+    username: string,
+    signal?: AbortSignal,
+  ): Promise<TwitterUserInfo | null> {
     try {
       const normalizedUsername = normalizeTwitterUsername(username);
       const response = parseTwitterApiResponse(
-        await this.request({
-          method: "GET",
-          url: `/users/by/username/${normalizedUsername}`,
-          params: {
-            "user.fields":
-              "description,profile_image_url,verified,public_metrics,created_at",
+        await this.request(
+          {
+            method: "GET",
+            url: `/users/by/username/${normalizedUsername}`,
+            params: {
+              "user.fields":
+                "description,profile_image_url,verified,public_metrics,created_at",
+            },
           },
-        }),
+          signal,
+        ),
         TwitterUserInfoSchema,
       );
       if (response.errors && response.errors.length > 0) {
@@ -140,6 +152,7 @@ export class TwitterApiClient {
       }
       return response.data ?? null;
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       const validationError = parseTwitterError(error);
       if (validationError.code === TwitterErrorCode.TWITTER_USER_NOT_FOUND)
         return null;
@@ -147,20 +160,26 @@ export class TwitterApiClient {
     }
   }
 
-  async getUserById(userId: string): Promise<TwitterUserInfo | null> {
+  async getUserById(
+    userId: string,
+    signal?: AbortSignal,
+  ): Promise<TwitterUserInfo | null> {
     try {
       if (!/^\d+$/.test(userId)) {
         throw new Error(`Invalid Twitter user ID format: ${userId}`);
       }
       const response = parseTwitterApiResponse(
-        await this.request({
-          method: "GET",
-          url: `/users/${userId}`,
-          params: {
-            "user.fields":
-              "description,profile_image_url,verified,public_metrics,created_at",
+        await this.request(
+          {
+            method: "GET",
+            url: `/users/${userId}`,
+            params: {
+              "user.fields":
+                "description,profile_image_url,verified,public_metrics,created_at",
+            },
           },
-        }),
+          signal,
+        ),
         TwitterUserInfoSchema,
       );
       if (response.errors && response.errors.length > 0) {
@@ -172,6 +191,7 @@ export class TwitterApiClient {
       }
       return response.data ?? null;
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       const validationError = parseTwitterError(error);
       if (validationError.code === TwitterErrorCode.TWITTER_USER_NOT_FOUND)
         return null;

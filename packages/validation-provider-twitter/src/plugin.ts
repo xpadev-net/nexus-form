@@ -1,5 +1,6 @@
 import type {
   ValidationProvider,
+  ValidationProviderExecutionContext,
   ValidationProviderResult,
   ValidationProviderRule,
 } from "@nexus-form/integrations";
@@ -68,11 +69,17 @@ const userExistsRule: ValidationProviderRule = {
   configSchema: TwitterConfigSchema,
   metadataSchema: TwitterMetadataSchema,
 
-  async validate(input, _config): Promise<ValidationProviderResult> {
+  async validate(
+    input,
+    _config,
+    context?: ValidationProviderExecutionContext,
+  ): Promise<ValidationProviderResult> {
     try {
       const username = TwitterInputSchema.parse(input);
       const client = getTwitterClient();
-      const userInfo = await client.getUserByUsername(username);
+      const userInfo = context
+        ? await client.getUserByUsername(username, context.signal)
+        : await client.getUserByUsername(username);
 
       if (!userInfo) {
         return {
@@ -140,6 +147,7 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
+      if (context?.signal.aborted) throw error;
       const parsed = parseTwitterError(error);
 
       if (parsed.code === TwitterErrorCode.TWITTER_API_RATE_LIMIT) {
