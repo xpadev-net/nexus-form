@@ -101,27 +101,37 @@ async function markValidationOutboxFailed(
   row: ClaimedValidationOutboxRow,
   errorCode: string,
   errorMessage: string,
-): Promise<void> {
-  await db
-    .update(externalServiceValidationResult)
-    .set({
-      status: "FAILED",
-      errorCode,
-      errorMessage,
-      enqueueAttemptCount: row.enqueueAttemptCount + 1,
-      nextEligibleAt: null,
-      claimToken: null,
-      claimExpiresAt: null,
-    })
-    .where(
-      and(
-        eq(externalServiceValidationResult.id, row.id),
-        eq(externalServiceValidationResult.status, "PENDING"),
-        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
-        isNull(externalServiceValidationResult.jobId),
-        eq(externalServiceValidationResult.claimToken, row.claimToken),
-      ),
-    );
+): Promise<boolean> {
+  try {
+    const [result] = await db
+      .update(externalServiceValidationResult)
+      .set({
+        status: "FAILED",
+        errorCode,
+        errorMessage,
+        enqueueAttemptCount: row.enqueueAttemptCount + 1,
+        nextEligibleAt: null,
+        claimToken: null,
+        claimExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(externalServiceValidationResult.id, row.id),
+          eq(externalServiceValidationResult.status, "PENDING"),
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          isNull(externalServiceValidationResult.jobId),
+          eq(externalServiceValidationResult.claimToken, row.claimToken),
+        ),
+      );
+    return result.affectedRows > 0;
+  } catch (error) {
+    logError("Failed to mark validation outbox row as failed", "api", {
+      error,
+      resultId: row.id,
+    });
+    captureError(error);
+    return false;
+  }
 }
 
 async function persistValidationOutboxJobId(
@@ -182,12 +192,12 @@ async function releaseValidationOutboxClaim(
   now: Date,
   random: () => number,
   error: unknown,
-): Promise<"retrying" | "failed"> {
+): Promise<"retrying" | "failed" | "unresolved"> {
   const enqueueAttemptCount = row.enqueueAttemptCount + 1;
   const terminal = enqueueAttemptCount >= MAX_ENQUEUE_ATTEMPTS;
   const errorMessage = error instanceof Error ? error.message : String(error);
 
-  await db
+  const [result] = await db
     .update(externalServiceValidationResult)
     .set(
       terminal
@@ -221,6 +231,7 @@ async function releaseValidationOutboxClaim(
       ),
     );
 
+  if (result.affectedRows === 0) return "unresolved";
   return terminal ? "failed" : "retrying";
 }
 
@@ -362,26 +373,26 @@ async function enqueuePendingValidationOutboxRow(
     { ruleType: string; configJson: Record<string, unknown> }
   >,
   options: { now: Date; random: () => number },
-): Promise<"enqueued" | "failed" | "retrying"> {
+): Promise<"enqueued" | "failed" | "retrying" | "unresolved"> {
   if (!row.service || !isValidServiceName(row.service)) {
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "INVALID_SERVICE_NAME",
       `Invalid service name: ${row.service ?? ""}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const snapshotEntry = snapshotRules.get(
     snapshotRuleMapKey(row.formId, row.snapshotVersion, row.ruleId),
   );
   if (row.snapshotVersion !== null && !snapshotEntry) {
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "RULE_CONFIG_NOT_FOUND",
       "Validation rule configuration was not found in response snapshot",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const ruleType = snapshotEntry?.ruleType ?? row.liveRuleType ?? null;
@@ -391,30 +402,30 @@ async function enqueuePendingValidationOutboxRow(
     null;
 
   if (!ruleType || !configJson) {
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "RULE_CONFIG_NOT_FOUND",
       "Validation rule configuration was not found for pending outbox row",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const provider = providerRegistry.get(row.service);
   if (!provider) {
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "PROVIDER_NOT_REGISTERED",
       `Validation provider not registered: ${row.service}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
   if (!provider.rules[ruleType]) {
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "UNKNOWN_RULE_TYPE",
       `Provider ${row.service} does not expose rule: ${ruleType}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   let jobData: z.infer<typeof genericValidationJobDataSchema>;
@@ -437,12 +448,12 @@ async function enqueuePendingValidationOutboxRow(
       service: row.service,
       formId: row.formId,
     });
-    await markValidationOutboxFailed(
+    const marked = await markValidationOutboxFailed(
       row,
       "ENQUEUE_FAILED",
       "Failed to prepare validation job",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const jobId = buildValidationOutboxJobId(row.id);
@@ -461,7 +472,7 @@ async function enqueuePendingValidationOutboxRow(
       jobId,
     });
     captureError(error);
-    let recovery: "retrying" | "failed" = "retrying";
+    let recovery: "retrying" | "failed" | "unresolved" = "unresolved";
     try {
       recovery = await releaseValidationOutboxClaim(
         row,

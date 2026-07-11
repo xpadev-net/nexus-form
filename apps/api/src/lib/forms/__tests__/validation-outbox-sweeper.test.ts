@@ -198,7 +198,7 @@ describe("validation outbox sweeper", () => {
 
   it("enqueues with a stable jobId before persisting job ownership", async () => {
     usePendingRows([pendingRow({ snapshotVersion: null })]);
-    useUpdateResults([{ affectedRows: 1 }]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
 
     const { sweepValidationOutbox } = await import(
       "../validation-outbox-sweeper"
@@ -249,7 +249,7 @@ describe("validation outbox sweeper", () => {
         liveConfigJson: { guildId: "changed-live-guild" },
       }),
     ]);
-    useUpdateResults([{ affectedRows: 1 }]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
     mocks.getSnapshotByVersion.mockResolvedValue({
       validationRulesJson: JSON.stringify([
         {
@@ -311,7 +311,7 @@ describe("validation outbox sweeper", () => {
 
   it("schedules a retry when enqueue fails", async () => {
     usePendingRows([pendingRow({ snapshotVersion: null })]);
-    useUpdateResults([{ affectedRows: 1 }]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
     mocks.addValidationJob.mockImplementation(async () => {
       mocks.sequence.push("queue:add");
       throw new Error("redis down");
@@ -352,6 +352,65 @@ describe("validation outbox sweeper", () => {
         ]),
       }),
     );
+  });
+
+  it("does not count a retry when the claim CAS no longer matches", async () => {
+    usePendingRows([pendingRow({ snapshotVersion: null })]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 0 }]);
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: new Date("2026-07-11T00:00:00.000Z"),
+      random: () => 0.5,
+    });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+  });
+
+  it("does not count a retry when scheduling persistence fails", async () => {
+    usePendingRows([pendingRow({ snapshotVersion: null })]);
+    let updateCount = 0;
+    mocks.db.update.mockImplementation(() => ({
+      set: vi.fn((values: unknown) => {
+        mocks.updateSets.push(values);
+        return {
+          where: vi.fn(async (where: unknown) => {
+            mocks.updateWheres.push(where);
+            updateCount += 1;
+            if (updateCount === 2) throw new Error("db down");
+            return [{ affectedRows: 1 }];
+          }),
+        };
+      }),
+    }));
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: new Date("2026-07-11T00:00:00.000Z"),
+      random: () => 0.5,
+    });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
   });
 
   it("doubles backoff and caps it at fifteen minutes", async () => {
@@ -406,7 +465,7 @@ describe("validation outbox sweeper", () => {
     usePendingRows([
       pendingRow({ snapshotVersion: null, enqueueAttemptCount: 7 }),
     ]);
-    useUpdateResults([{ affectedRows: 1 }]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
     mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
 
     const { sweepValidationOutbox } = await import(
@@ -432,6 +491,31 @@ describe("validation outbox sweeper", () => {
       nextEligibleAt: null,
       claimToken: null,
       claimExpiresAt: null,
+    });
+  });
+
+  it("does not count terminal failure when the claim CAS no longer matches", async () => {
+    usePendingRows([
+      pendingRow({ snapshotVersion: null, enqueueAttemptCount: 7 }),
+    ]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 0 }]);
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: new Date("2026-07-11T00:00:00.000Z"),
+      random: () => 0,
+    });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
     });
   });
 
@@ -572,7 +656,7 @@ describe("validation outbox sweeper", () => {
         liveConfigJson: { guildId: "changed-live-guild" },
       }),
     ]);
-    useUpdateResults([{ affectedRows: 1 }]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
     mocks.getSnapshotByVersion.mockResolvedValue({
       validationRulesJson: "[]",
       structureJson: JSON.stringify({
