@@ -166,7 +166,7 @@ describe("DiscordSignInButton", () => {
     expect(queryByRole(container, "alert")).toBeNull();
   });
 
-  it("keeps the control pending while waiting for a redirect handoff", () => {
+  it("keeps the control pending after a redirect handoff starts", async () => {
     const attempt = deferred<boolean>();
     mocks.signInWithDiscord.mockReturnValueOnce(attempt.promise);
     const { container } = renderButton();
@@ -177,12 +177,21 @@ describe("DiscordSignInButton", () => {
       );
     });
 
-    expect(
-      getButton(
-        getByRole(container, "button", {
-          name: "Signing in...",
-        }),
-      ).disabled,
-    ).toBe(true);
+    await act(async () => {
+      attempt.resolve(true);
+      await attempt.promise;
+    });
+
+    const pendingButton = getByRole(container, "button", {
+      name: "Signing in...",
+    });
+    expect(getButton(pendingButton).disabled).toBe(true);
+    expect(pendingButton.getAttribute("aria-busy")).toBe("true");
+
+    act(() => {
+      fireEvent.click(pendingButton);
+    });
+
+    expect(mocks.signInWithDiscord).toHaveBeenCalledTimes(1);
   });
 });
