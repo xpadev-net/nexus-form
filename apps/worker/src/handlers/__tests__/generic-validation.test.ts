@@ -272,6 +272,8 @@ const baseContext = {
 
 const originalValidationPluginTimeoutMs =
   process.env.VALIDATION_PLUGIN_TIMEOUT_MS;
+const VALIDATION_TIMEOUT_START_MS = 1_750_000_000_000;
+const VALIDATION_TIMEOUT_MS = 1_000;
 
 async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
@@ -571,7 +573,8 @@ describe("handleGenericValidation", () => {
 
   it("signalを無視して未解決のpluginはhost deadlineでretryable errorになる", async () => {
     vi.useFakeTimers();
-    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+    vi.setSystemTime(VALIDATION_TIMEOUT_START_MS);
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = String(VALIDATION_TIMEOUT_MS);
 
     let executionContext: ValidationProviderExecutionContext | undefined;
     const validate = vi.fn(
@@ -602,13 +605,18 @@ describe("handleGenericValidation", () => {
 
     await timeoutAssertion;
     expect(executionContext?.signal.aborted).toBe(true);
-    expect(executionContext?.deadlineAt).toEqual(expect.any(Number));
+    const deadlineAt = executionContext?.deadlineAt ?? Number.NaN;
+    expect(Number.isFinite(deadlineAt)).toBe(true);
+    expect(deadlineAt).toBe(
+      VALIDATION_TIMEOUT_START_MS + VALIDATION_TIMEOUT_MS,
+    );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
   it("cooperative plugin receives signal/deadlineAt and observes host timeout abort", async () => {
     vi.useFakeTimers();
-    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+    vi.setSystemTime(VALIDATION_TIMEOUT_START_MS);
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = String(VALIDATION_TIMEOUT_MS);
 
     let executionContext: ValidationProviderExecutionContext | undefined;
     const validate = vi.fn(
@@ -646,7 +654,11 @@ describe("handleGenericValidation", () => {
     await timeoutAssertion;
     expect(executionContext?.signal).toBeInstanceOf(AbortSignal);
     expect(executionContext?.signal.aborted).toBe(true);
-    expect(executionContext?.deadlineAt).toEqual(expect.any(Number));
+    const deadlineAt = executionContext?.deadlineAt ?? Number.NaN;
+    expect(Number.isFinite(deadlineAt)).toBe(true);
+    expect(deadlineAt).toBe(
+      VALIDATION_TIMEOUT_START_MS + VALIDATION_TIMEOUT_MS,
+    );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
