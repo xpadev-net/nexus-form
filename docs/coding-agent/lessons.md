@@ -278,3 +278,11 @@ Evidence:
 - root cause: Treated the role-specific reviewer failure as a hard blocker instead of retrying with a default subagent explicitly pinned to GPT-5.5.
 - fix: Retry independent PR review with a default subagent using model `gpt-5.5` and a narrow review-only prompt.
 - prevention: Before reporting an independent-review gate blocked by model routing or usage limits, attempt a default GPT-5.5 reviewer subagent and record the result.
+
+## 2026-07-11: Preserve cancellation across every provider error-mapping layer
+
+- tags: plugins, cancellation, external-integrations, error-mapping
+- symptom: A provider propagated `AbortSignal` to its HTTP client but then converted the resulting abort rejection into its ordinary retryable validation error.
+- root cause: Signal plumbing and provider error classification were reviewed separately, so the catch layers did not treat an already-aborted execution context as a control-flow boundary.
+- fix: Pass the execution signal through client-scoped authentication fetches and endpoint requests, then rethrow abort rejections before 404, rate-limit, and generic provider mappings at both client and plugin layers.
+- prevention: Cancellation regressions for external providers must verify both request-level signal propagation and that every subsequent catch layer preserves cancellation instead of translating it into domain failure.
