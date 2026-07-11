@@ -31,7 +31,7 @@
 | PWB-1 | Public password request bounds and regressions | in progress | — | `019f505b-789d-70b0-8bc5-be97be3eb830` | — | Worker implementation |
 | PWR-1 | Password verification revocation contract design | complete | — | `019f505b-789d-70b0-8bc5-be759634f790` | — | APPROVED; archive reviewer |
 | OUTBOX-1 | Validation outbox retry state-machine design | complete | — | `019f505b-789d-70b0-8bc5-be550a01796d` | — | APPROVED; archive reviewer |
-| OUTBOX-2 | Validation outbox retry metadata migration | starting | — | `client-new-thread:2dc7cded-3f31-44ca-bed0-c496cb39679f` | — | Resolve durable worker ID and perform startup stability check |
+| OUTBOX-2 | Validation outbox retry metadata migration | in progress | — | `019f5071-d9c9-7521-9bc3-6a00538aff87` | — | Worker schema and migration implementation |
 
 ## Queued Plans
 
@@ -100,3 +100,4 @@
 - 2026-07-11: PWR-1 security design completed APPROVED with a versioned opaque revision-bound grant contract, protected-only legacy fail-closed behavior, and non-resurrection across password replacement or disable/re-enable. Product implementation remains serialized behind PWB-1 because both touch `forms-public.ts`.
 - 2026-07-11: OUTBOX-1 reliability design completed APPROVED. Existing timestamps are insufficient; the plan now requires additive claim/lease/attempt/eligibility/mode metadata before producer and sweeper retry logic.
 - 2026-07-11: Started dependency-ready OUTBOX-2 additive schema/migration work in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Its database ownership does not overlap active PWB-1 API-route work.
+- 2026-07-11: OUTBOX-2 startup stability check passed; the worker created its goal, selected L2 migration/data-integrity validation, and continued into schema/migration investigation. Replaced the queued client ID with the durable thread ID.
