@@ -30,6 +30,14 @@ describe("sanitizeRequestTarget", () => {
       "/api/auth/callback/discord?code=code-secret&state=state-secret",
       "/api/auth/callback/discord",
     ],
+    [
+      "/api/auth/reset-password/reset-token-secret?redirect=secret",
+      "/api/auth/reset-password/[REDACTED]",
+    ],
+    [
+      "/api/auth/reset%2Dpassword/reset-token-secret",
+      "/api/auth/reset%2Dpassword/[REDACTED]",
+    ],
     ["/api/forms/123?shareToken=share-secret", "/api/forms/123"],
     [
       "/api/auth/code/code-secret/state/state-secret",
