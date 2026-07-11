@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Keep each dynamic message on one live-region path
+
+- tags: accessibility, react, authentication, review
+- symptom: A sign-in error used `role="alert"` inside a parent `aria-live="polite"`, allowing assistive technology to announce the same message twice or with conflicting priorities.
+- root cause: Pending-state and error-state announcements were reviewed individually without tracing the final nested accessibility tree.
+- fix: Remove the parent live region and keep the error's `role="alert"` as the single notification source.
+- prevention: For dynamic UI messages, inspect ancestor and descendant live regions together and require exactly one intended announcement path per state transition.
+
 ## 2026-07-11: Document both configuration precedence and runtime reload behavior
 
 - tags: kubernetes, configuration, rollout, documentation
