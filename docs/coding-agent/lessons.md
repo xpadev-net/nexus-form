@@ -318,3 +318,11 @@ Evidence:
 - root cause: Cancellation classification modeled browser fetch rejection but not the dependency's non-`AbortError` wrapping behavior.
 - fix: While the execution signal is aborted, recognize a wrapper whose `cause` is the exact `signal.reason`, then rethrow the canonical reason; add separate wrapper/reason identity tests at client and plugin boundaries.
 - prevention: For external HTTP libraries, inspect the locked dependency's rejection/wrapping path and test canonical cancellation identity through `cause` without treating unrelated causes as cancellation.
+
+## 2026-07-11: Make additive MySQL migrations resumable after partial DDL
+
+- tags: database, migration, mysql, rolling-deploy
+- symptom: An additive migration was safe on a clean database but could fail on retry if MySQL had committed only some earlier `ALTER TABLE` statements.
+- root cause: DDL auto-commit was treated like an atomic transaction, so partial application was not part of the migration contract.
+- fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
+- prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.
