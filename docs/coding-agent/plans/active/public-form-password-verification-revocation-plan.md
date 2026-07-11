@@ -43,6 +43,7 @@
     required: true
     owner: reviewer
     detail: "Security review of claim contents, derivation, and rolling-deploy behavior."
+- status: complete
 
 ### Task_2: Enforce credential revision on public access
 - type: impl
@@ -65,7 +66,7 @@
 - type: test
 - owns:
   - apps/api/src/__tests__/forms-structure-password-protection.test.ts
-  - apps/api/src/__tests__/forms-public-validation-outbox.test.ts
+  - apps/api/src/__tests__/authz-regression.test.ts
   - apps/api/src/lib/sessions/__tests__/**
 - depends_on: [Task_2]
 - acceptance:
@@ -106,7 +107,8 @@
 
 ## Progress Log
 - 2026-07-11: Draft created.
+- 2026-07-11: Task_1 security design approved. Use V2 `verifiedFormGrants[{formId,revision}]`, keep legacy claims parseable but invalid for protected forms, and derive a form-scoped opaque HMAC revision from the effective published credential generation without exposing raw or hashed passwords.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
-
+- 2026-07-11: Protected legacy grants fail closed; unprotected access remains compatible. Revision derivation binds form identity, effective published snapshot/generation, and password hash so password replacement and disable/re-enable cannot resurrect an old grant.
