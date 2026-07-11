@@ -1,6 +1,6 @@
 # Plan: Public Password Request Bounds
 
-- status: draft
+- status: complete
 - generated: 2026-07-11
 - last_updated: 2026-07-11
 - work_type: code
@@ -79,6 +79,7 @@
 
 ## Progress Log
 - 2026-07-11: Draft created.
+- 2026-07-11: Tasks 1-2 merged through PR #663 with shared plaintext bounds, early declared/streamed body cancellation, stored-structure compatibility, and 23 focused parent tests. Task 3 repository/CI validation and independent resource/API reviews completed APPROVED.
 
 ## Decision Log
 - 2026-07-11: Isolated as a small boundary-hardening plan with no UI or authentication-state dependency.
