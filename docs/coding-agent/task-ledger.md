@@ -24,7 +24,7 @@
 | PLUGIN-4 | Discord provider cancellation propagation | in progress | `codex/discord-plugin-cancellation` | `019f4f92-337e-78a3-a362-4899e6b6273d` | — | Worker implementation |
 | PLUGIN-5 | GitHub provider cancellation propagation | complete | `codex/github-plugin-cancellation` | `019f4f92-337d-71c2-b9f1-294ec47ca19c` | [#658](https://github.com/xpadev-net/nexus-form/pull/658) | Merged as `24e248bd6ed4cc799beea53932296ed95acf2bd4`; archive worker |
 | PLUGIN-6 | Twitter provider cancellation propagation | in progress | `codex/twitter-plugin-cancellation` | `019f4faa-b5a9-7900-be5c-7573b10d30f2` | — | Worker implementation |
-| WEBERR-3 | Discord auth unit and component coverage | starting | — | `client-new-thread:91e126e0-5516-45ac-8c01-6c81b6ba4ffe` | — | Resolve durable worker ID and perform startup stability check |
+| WEBERR-3 | Discord auth unit and component coverage | in progress | `codex/weberr-3-auth-tests` | `019f4fba-cab5-75f1-bd68-ebc03abc8257` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -76,3 +76,4 @@
 - 2026-07-11: Startup stability check passed for PLUGIN-6; replaced its queued client ID with the durable thread ID.
 - 2026-07-11: PLUGIN-5 merged via PR #658 (`24e248bd6ed4cc799beea53932296ed95acf2bd4`). Worker review found and fixed abort-error remapping so execution cancellation now propagates through GitHub App installation-token fetches and endpoint requests without becoming a validation failure; worker and orchestrator hooks exited 0; CI passed; parent focused GitHub provider tests passed 56 tests and package type-check passed; two independent parent reviews found no actionable issues. Residual risk: the real `createAppAuth` token exchange and abort-reason identity are covered through the shared fetch wrapper contract rather than a dedicated end-to-end regression.
 - 2026-07-11: Started dependency-ready WEBERR-3 in an isolated worktree with `gpt-5.6-luna` at `high` reasoning after PLUGIN-5 completion freed a worker slot. Ownership is limited to three Web auth test files and does not overlap active Discord/Twitter provider implementation.
+- 2026-07-11: WEBERR-3 startup stability check passed; the worker created its explicit goal and dedicated branch, continued beyond setup into baseline investigation, and the queued client ID was replaced with its durable thread ID.
