@@ -156,6 +156,12 @@ async function runValidationWithDeadline(
       abortPromise,
     ]);
     if (outcome.kind === "rejected") throw outcome.error;
+    if (workerShutdownSignal.aborted) {
+      throw (
+        workerShutdownSignal.reason ??
+        new DOMException("Worker shutting down", "AbortError")
+      );
+    }
     return outcome.value;
   } finally {
     if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);

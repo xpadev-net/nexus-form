@@ -702,6 +702,49 @@ describe("handleGenericValidation", () => {
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
+  it("worker shutdown rejects a cooperative fallback result without writing it", async () => {
+    vi.useFakeTimers();
+
+    let executionContext: ValidationProviderExecutionContext | undefined;
+    const fallbackResult: ValidationProviderResult = { isValid: true };
+    const validate = vi.fn(
+      (
+        _input: string,
+        _config: Record<string, unknown>,
+        context: ValidationProviderExecutionContext,
+      ) => {
+        executionContext = context;
+        return new Promise<ValidationProviderResult>((resolve) => {
+          context.signal.addEventListener(
+            "abort",
+            () => resolve(fallbackResult),
+            { once: true },
+          );
+        });
+      },
+    );
+    const rule = makeRule({ validate });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+    const shutdownReason = new DOMException("Worker shutdown", "AbortError");
+
+    const handlerPromise = handleGenericValidation(job);
+    await flushMicrotasks();
+    expect(executionContext).toBeDefined();
+
+    shutdownSignalMock.abort(shutdownReason);
+    await flushMicrotasks();
+
+    await expect(handlerPromise).rejects.toBe(shutdownReason);
+    expect(executionContext?.signal.reason).toBe(shutdownReason);
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
   it("timeout後のlate rejectionを消費し、terminal resultを上書きしない", async () => {
     vi.useFakeTimers();
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
