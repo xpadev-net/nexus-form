@@ -67,6 +67,11 @@ export const validationStatusEnum = mysqlEnum(
   VALIDATION_STATUS_VALUES,
 );
 
+export const validationEnqueueModeEnum = mysqlEnum("validation_enqueue_mode", [
+  "LEGACY",
+  "STABLE",
+]);
+
 export const formScheduleActionEnum = mysqlEnum("form_schedule_action", [
   "PUBLISH",
   "UNPUBLISH",
@@ -746,6 +751,11 @@ export const externalServiceValidationResult = mysqlTable(
     attemptCount: int("attemptCount").default(0).notNull(),
     lastAttemptAt: timestamp("lastAttemptAt"),
     nextRetryAt: timestamp("nextRetryAt"),
+    claimToken: varchar("claimToken", { length: 128 }),
+    claimExpiresAt: timestamp("claimExpiresAt"),
+    enqueueAttemptCount: int("enqueueAttemptCount").default(0).notNull(),
+    nextEligibleAt: timestamp("nextEligibleAt"),
+    enqueueMode: validationEnqueueModeEnum.default("LEGACY").notNull(),
     metadata: json("metadata"),
     errorCode: varchar("errorCode", { length: 255 }),
     errorMessage: text("errorMessage"),
@@ -761,6 +771,12 @@ export const externalServiceValidationResult = mysqlTable(
     index("ESVR_ruleId_idx").on(table.ruleId),
     index("ESVR_status_idx").on(table.status),
     index("ESVR_nextRetryAt_idx").on(table.nextRetryAt),
+    index("ESVR_enqueue_eligibility_lease_idx").on(
+      table.status,
+      table.nextEligibleAt,
+      table.claimExpiresAt,
+      table.createdAt,
+    ),
     uniqueIndex("ESVR_responseId_ruleId_referencedBlockId_unique").on(
       table.responseId,
       table.ruleId,

@@ -326,3 +326,11 @@ Evidence:
 - root cause: The initial review covered size rejection and schema enforcement independently, but did not trace connection cleanup or the configuration-to-publish-to-verify contract end to end.
 - fix: Add safe early-stream cancellation with a regression callback assertion, and move the password maximum to a shared definition used by structure configuration and public verification.
 - prevention: Before reporting merge-ready for request-boundary hardening, verify cleanup on every early return and audit every producer/consumer path for shared limit parity, including a valid max and max+1 publish/verify contract test.
+
+## 2026-07-11: Make additive MySQL migrations resumable after partial DDL
+
+- tags: database, migration, mysql, rolling-deploy
+- symptom: An additive migration was safe on a clean database but could fail on retry if MySQL had committed only some earlier `ALTER TABLE` statements.
+- root cause: DDL auto-commit was treated like an atomic transaction, so partial application was not part of the migration contract.
+- fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
+- prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.

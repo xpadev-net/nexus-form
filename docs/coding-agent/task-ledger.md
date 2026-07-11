@@ -31,7 +31,8 @@
 | PWB-1 | Public password request bounds and regressions | in progress | — | `019f505b-789d-70b0-8bc5-be97be3eb830` | — | Worker implementation |
 | PWR-1 | Password verification revocation contract design | complete | — | `019f505b-789d-70b0-8bc5-be759634f790` | — | APPROVED; archive reviewer |
 | OUTBOX-1 | Validation outbox retry state-machine design | complete | — | `019f505b-789d-70b0-8bc5-be550a01796d` | — | APPROVED; archive reviewer |
-| OUTBOX-2 | Validation outbox retry metadata migration | in progress | — | `019f5071-d9c9-7521-9bc3-6a00538aff87` | — | Worker schema and migration implementation |
+| OUTBOX-2 | Validation outbox retry metadata migration | complete | `codex/validation-outbox-task-2` | `019f5071-d9c9-7521-9bc3-6a00538aff87` | [#664](https://github.com/xpadev-net/nexus-form/pull/664) | Merged as `7941ffc20b54269b6e628ed72897d88e17af759b`; archive worker |
+| OUTBOX-3 | Validation outbox sweeper retry and backoff | starting | — | `client-new-thread:c75b4927-50a1-4ff5-8745-2a2bda45804d` | — | Resolve durable worker ID and perform startup stability check |
 
 ## Queued Plans
 
@@ -101,3 +102,5 @@
 - 2026-07-11: OUTBOX-1 reliability design completed APPROVED. Existing timestamps are insufficient; the plan now requires additive claim/lease/attempt/eligibility/mode metadata before producer and sweeper retry logic.
 - 2026-07-11: Started dependency-ready OUTBOX-2 additive schema/migration work in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Its database ownership does not overlap active PWB-1 API-route work.
 - 2026-07-11: OUTBOX-2 startup stability check passed; the worker created its goal, selected L2 migration/data-integrity validation, and continued into schema/migration investigation. Replaced the queued client ID with the durable thread ID.
+- 2026-07-11: OUTBOX-2 merged via PR #664 (`7941ffc20b54269b6e628ed72897d88e17af759b`). Worker and orchestrator hooks exited 0; CI passed; parent migration/snapshot compatibility tests passed 13 tests and database type-check passed; independent migration/rolling-deploy review approved additive defaults, resumable DDL, journal/snapshot consistency, and old-reader compatibility. Residual risk: live MySQL apply/rollback rehearsal and Task_3 CAS/EXPLAIN remain pending.
+- 2026-07-11: Started dependency-ready OUTBOX-3 sweeper retry/backoff work in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Ownership is limited to the sweeper and its focused test file, avoiding active PWB-1 `forms-public.ts` ownership.

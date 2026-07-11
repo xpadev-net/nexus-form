@@ -18,6 +18,26 @@ type StructureFixture = {
   structureJson: string;
 };
 
+type MigrationJournal = {
+  entries: Array<{ tag: string }>;
+};
+
+type SnapshotColumn = {
+  name: string;
+  type: string;
+  notNull: boolean;
+  default?: string | number | boolean;
+};
+
+type SnapshotTable = {
+  columns: Record<string, SnapshotColumn>;
+  indexes: Record<string, { columns: string[] }>;
+};
+
+type DrizzleSnapshot = {
+  tables: Record<string, SnapshotTable>;
+};
+
 function findRepoRoot(startDir: string): string {
   let currentDir = startDir;
   while (true) {
@@ -41,6 +61,29 @@ function readCompatibilityMigration(): string {
     ),
     "utf8",
   );
+}
+
+function readRetryMetadataSnapshot(): DrizzleSnapshot {
+  const repoRoot = findRepoRoot(process.cwd());
+  const journal = JSON.parse(
+    readFileSync(
+      resolve(repoRoot, "packages/database/drizzle/meta/_journal.json"),
+      "utf8",
+    ),
+  ) as MigrationJournal;
+  const outboxEntry = journal.entries.find((entry) =>
+    entry.tag.startsWith("0016_"),
+  );
+  if (!outboxEntry) {
+    throw new Error("Validation outbox retry migration must exist");
+  }
+
+  return JSON.parse(
+    readFileSync(
+      resolve(repoRoot, "packages/database/drizzle/meta/0016_snapshot.json"),
+      "utf8",
+    ),
+  ) as DrizzleSnapshot;
 }
 
 function compareStructuresByLiveOrder(
@@ -123,6 +166,49 @@ const liveSecurityStructure = JSON.stringify({
 });
 
 describe("active snapshot structure security compatibility migration", () => {
+  it("records additive validation outbox retry metadata in the generated snapshot", () => {
+    const table =
+      readRetryMetadataSnapshot().tables.ExternalServiceValidationResult;
+    expect(table).toBeDefined();
+
+    const columns = table?.columns;
+    expect(columns?.claimToken).toMatchObject({
+      name: "claimToken",
+      type: "varchar(128)",
+      notNull: false,
+    });
+    expect(columns?.claimExpiresAt).toMatchObject({
+      name: "claimExpiresAt",
+      type: "timestamp",
+      notNull: false,
+    });
+    expect(columns?.enqueueAttemptCount).toMatchObject({
+      name: "enqueueAttemptCount",
+      type: "int",
+      notNull: true,
+      default: 0,
+    });
+    expect(columns?.nextEligibleAt).toMatchObject({
+      name: "nextEligibleAt",
+      type: "timestamp",
+      notNull: false,
+    });
+    expect(columns?.validation_enqueue_mode).toMatchObject({
+      name: "validation_enqueue_mode",
+      type: "enum('LEGACY','STABLE')",
+      notNull: true,
+      default: "'LEGACY'",
+    });
+    expect(table?.indexes.ESVR_enqueue_eligibility_lease_idx).toMatchObject({
+      columns: [
+        "validation_status",
+        "nextEligibleAt",
+        "claimExpiresAt",
+        "createdAt",
+      ],
+    });
+  });
+
   it("updates active snapshots to the latest active live security structure", () => {
     const snapshots: SnapshotFixture[] = [
       {
