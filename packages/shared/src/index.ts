@@ -279,6 +279,7 @@ export {
   EmailNotificationChannelSchema,
   FORM_SUBMIT_NOTIFICATION_JOB_PREFIX,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
+  FormAccessControlInputSchema,
   FormAccessControlSchema,
   FormConfirmationSchema,
   FormNotificationsSchema,

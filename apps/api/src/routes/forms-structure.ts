@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import {
+  FormAccessControlInputSchema,
   type PasswordProtectionPublicationSnapshot,
   PasswordProtectionPublicationSnapshotSchema,
   type PasswordProtectionPublicationState,
@@ -48,6 +49,7 @@ import {
 import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
 const FormStructureTransport = FormStructure.extend({
+  access_control: FormAccessControlInputSchema.optional(),
   notifications: FormNotificationsTransportSchema.optional(),
 });
 type FormStructureTransportType = z.infer<typeof FormStructureTransport>;
