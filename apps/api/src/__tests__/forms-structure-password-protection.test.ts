@@ -315,4 +315,65 @@ describe("forms structure password protection response", () => {
     expect(mocks.hashPassword).not.toHaveBeenCalled();
     expect(mocks.saveFormStructure).not.toHaveBeenCalled();
   });
+
+  it("accepts the shared maximum through the full structure contract", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH);
+    const savedVersion = {
+      id: "version-1",
+      formId: "form-1",
+      version: 1,
+      createdAt: new Date(),
+      changeLog: null,
+      parentVersion: null,
+    };
+    mocks.saveFormStructure.mockResolvedValue(savedVersion);
+
+    const response = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: {},
+          access_control: {
+            require_authentication: false,
+            password_protection: { enabled: true, password },
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.saveFormStructure).toHaveBeenCalled();
+  });
+
+  it("rejects an over-limit password through the full structure contract", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH + 1);
+
+    const response = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: {},
+          access_control: {
+            require_authentication: false,
+            password_protection: { enabled: true, password },
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
+  });
 });
