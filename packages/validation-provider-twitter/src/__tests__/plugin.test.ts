@@ -211,9 +211,10 @@ describe("twitterProvider.rules.user_exists.validate", () => {
 
   it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
     const controller = new AbortController();
-    const abortError = new DOMException("Aborted", "AbortError");
+    const abortError = new DOMException("Axios cancelled", "AbortError");
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
     getUserByUsernameMock.mockRejectedValueOnce(abortError);
-    controller.abort();
+    controller.abort(abortReason);
 
     await expect(
       twitterProvider.rules.user_exists?.validate(
@@ -224,7 +225,7 @@ describe("twitterProvider.rules.user_exists.validate", () => {
           deadlineAt: Date.now() + 5_000,
         },
       ),
-    ).rejects.toBe(abortError);
+    ).rejects.toBe(abortReason);
   });
 
   it("keeps invalid input mapping when the execution signal is already aborted", async () => {

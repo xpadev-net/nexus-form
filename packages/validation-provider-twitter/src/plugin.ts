@@ -163,7 +163,7 @@ const userExistsRule: ValidationProviderRule = {
         context?.signal.aborted &&
         isTwitterCancellationError(error, context.signal)
       ) {
-        throw error;
+        throw context.signal.reason ?? error;
       }
       const parsed = parseTwitterError(error);
 
