@@ -23,7 +23,7 @@
 | PLUGIN-3 | Host-enforced plugin deadline wrapper | complete | `codex/plugin-host-deadline` | `019f4ee4-740a-7a60-ae1a-e1d39b3d4129` | [#657](https://github.com/xpadev-net/nexus-form/pull/657) | Merged as `451e062e6619575f5eecaa87b44f3b7065d4ea33`; archive worker |
 | PLUGIN-4 | Discord provider cancellation propagation | in progress | `codex/discord-plugin-cancellation` | `019f4f92-337e-78a3-a362-4899e6b6273d` | — | Worker implementation |
 | PLUGIN-5 | GitHub provider cancellation propagation | in progress | `codex/github-plugin-cancellation` | `019f4f92-337d-71c2-b9f1-294ec47ca19c` | — | Worker implementation |
-| PLUGIN-6 | Twitter provider cancellation propagation | in progress | `codex/twitter-plugin-cancellation` | `client-new-thread:012b9175-1d4f-412e-8b90-5b7e6070d3d0` | — | Worker implementation |
+| PLUGIN-6 | Twitter provider cancellation propagation | in progress | `codex/twitter-plugin-cancellation` | `019f4faa-b5a9-7900-be5c-7573b10d30f2` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -72,3 +72,4 @@
 - 2026-07-11: Startup stability check passed for PLUGIN-4 and PLUGIN-5; replaced queued client IDs with durable thread IDs.
 - 2026-07-11: LOG-2 merged via PR #653 (`c9b6a0134061e2fa9ac8185369074a5609defcb8`). Parent review found and worker fixed Better Auth reset-password path-token leakage across request start, completion, and error-target logs; worker and orchestrator hooks exited 0; CI passed; parent focused sanitizer/middleware tests passed 37 tests and API type-check passed; final independent parent security review found no actionable issues. Residual risk: credential-bearing route segments are an explicit set and must track future dependency route additions.
 - 2026-07-11: Started dependency-ready PLUGIN-6 in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Twitter provider ownership is disjoint from active Discord and GitHub propagation workers.
+- 2026-07-11: Startup stability check passed for PLUGIN-6; replaced its queued client ID with the durable thread ID.
