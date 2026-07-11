@@ -18,7 +18,7 @@
 | LOG-2 | Sanitizer-aware request logger middleware | in progress | `codex/request-log-middleware` | `019f4e46-6692-7841-a62a-16799ecfd26a` | — | Worker implementation |
 | PLUGIN-2 | Bounded Worker plugin timeout configuration | complete | `codex/plugin-timeout-env` | `019f4e46-668d-71f3-807a-4c772ba1e7b9` | [#652](https://github.com/xpadev-net/nexus-form/pull/652) | Merged as `4efefec59924bf308f4fcbb7026ea72c9d279ba6`; archive worker |
 | WEBERR-2 | Discord sign-in pending and error state | complete | `codex/discord-signin-state` | `019f4e46-6688-7d92-8e32-4fe6ed7acda5` | [#654](https://github.com/xpadev-net/nexus-form/pull/654) | Merged as `e4ee10ffe037e2728d5c8c300d369d93f600b35e`; archive worker |
-| AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | in progress | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | — | Worker implementation |
+| AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | complete | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | [#655](https://github.com/xpadev-net/nexus-form/pull/655) | Merged as `f05b18dbaf32429c80474002a34e0306ece59bb3`; archive worker |
 
 ## Queued Plans
 
@@ -37,7 +37,7 @@
 
 | ID | Finding | Status | Dependency / next action |
 |---|---|---|---|
-| AUTH-ORIGIN-1 | Better Auth `trustedOrigins` can retain localhost fallback while shared production origin enforcement fails closed | in progress | Worker started after K8S-1; owns `apps/api/src/lib/auth.ts`, CSRF/auth-route boundaries, and focused auth-origin tests |
+| AUTH-ORIGIN-1 | Better Auth `trustedOrigins` can retain localhost fallback while shared production origin enforcement fails closed | complete | Resolved in PR #655 with shared normalization, production fail-closed construction, and an auth-boundary guard |
 
 ## Lifecycle Log
 
@@ -57,3 +57,4 @@
 - 2026-07-11: K8S-2 merged via PR #651 (`c92bd424237d97b3a1fc599f4288f7b967ad3f23`). Parent review found and worker fixed production-overlay edit ambiguity and missing ConfigMap-to-Pod rollout/revert instructions; worker and orchestrator hooks exited 0; CI passed; parent base/production renders and 26 focused API tests passed; final independent parent review found no actionable issues. Residual risk: live-cluster apply and rollout remain unverified.
 - 2026-07-11: WEBERR-2 merged via PR #654 (`e4ee10ffe037e2728d5c8c300d369d93f600b35e`). Parent review found and worker fixed nested live-region duplication; worker and orchestrator hooks exited 0; CI passed; parent focused Web tests passed 8 tests and Web type-check passed; final independent parent review found no actionable issues. Residual risk: component-level pending/error/retry/a11y regression tests remain reserved for WEBERR-3.
 - 2026-07-11: PLUGIN-2 merged via PR #652 (`4efefec59924bf308f4fcbb7026ea72c9d279ba6`). Task_2 remained a bounded environment-parsing slice, with Task_3 host execution wiring explicitly deferred per the active plan; worker and orchestrator hooks exited 0; CI passed; parent focused Worker env tests passed 11 tests and Worker type-check passed; final independent parent review found no actionable issues. Residual risk: runtime enforcement remains intentionally pending in Task_3.
+- 2026-07-11: AUTH-ORIGIN-1 merged via PR #655 (`f05b18dbaf32429c80474002a34e0306ece59bb3`). Parent review required and worker added the trusted normalized Origin allow-path regression after independent security review found no remaining boundary bypass; worker and orchestrator hooks exited 0; CI passed; parent focused auth/origin/CSRF tests passed 38 tests and API type-check passed; final independent parent security review found no actionable issues. Residual risk: a future OAuth provider using `response_mode=form_post` with `SameSite=None` requires a dedicated callback design review.

@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Test both rejection and normalized allow paths at security boundaries
+
+- tags: security, csrf, authentication, testing
+- symptom: Auth-origin tests covered missing, malformed, and untrusted requests but could still pass if every Cookie-bearing Origin request was rejected.
+- root cause: The regression matrix emphasized fail-closed behavior without proving that a valid, non-canonical trusted Origin remained usable after normalization.
+- fix: Add an integration case with a non-empty Cookie and uppercase/default-port/trailing-slash trusted Origin, asserting the state-changing request succeeds.
+- prevention: Every allowlist boundary must pair rejection cases with at least one normalized positive-path assertion through the real handler.
+
 ## 2026-07-11: Explain dependency boundaries when a configuration lands before its consumer
 
 - tags: planning, pull-request, configuration, review
