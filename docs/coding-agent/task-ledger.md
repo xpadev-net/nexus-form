@@ -19,8 +19,8 @@
 | PLUGIN-2 | Bounded Worker plugin timeout configuration | complete | `codex/plugin-timeout-env` | `019f4e46-668d-71f3-807a-4c772ba1e7b9` | [#652](https://github.com/xpadev-net/nexus-form/pull/652) | Merged as `4efefec59924bf308f4fcbb7026ea72c9d279ba6`; archive worker |
 | WEBERR-2 | Discord sign-in pending and error state | complete | `codex/discord-signin-state` | `019f4e46-6688-7d92-8e32-4fe6ed7acda5` | [#654](https://github.com/xpadev-net/nexus-form/pull/654) | Merged as `e4ee10ffe037e2728d5c8c300d369d93f600b35e`; archive worker |
 | AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | complete | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | [#655](https://github.com/xpadev-net/nexus-form/pull/655) | Merged as `f05b18dbaf32429c80474002a34e0306ece59bb3`; archive worker |
-| K8S-4 | Deployment wiring regression coverage | in progress | `codex/k8s-runtime-wiring-check` | `client-new-thread:b038c559-fc3f-4e1f-a2c1-5111ec52e4c4` | — | Worker implementation |
-| PLUGIN-3 | Host-enforced plugin deadline wrapper | in progress | `codex/plugin-host-deadline` | `client-new-thread:05b32b9e-8039-4b99-b6a8-6e0e40fc5d89` | — | Worker implementation |
+| K8S-4 | Deployment wiring regression coverage | in progress | `codex/k8s-runtime-wiring-check` | `019f4ee4-740a-7a60-ae1a-e1fae23c8fc0` | — | Worker implementation |
+| PLUGIN-3 | Host-enforced plugin deadline wrapper | in progress | `codex/plugin-host-deadline` | `019f4ee4-740a-7a60-ae1a-e1d39b3d4129` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -61,3 +61,4 @@
 - 2026-07-11: PLUGIN-2 merged via PR #652 (`4efefec59924bf308f4fcbb7026ea72c9d279ba6`). Task_2 remained a bounded environment-parsing slice, with Task_3 host execution wiring explicitly deferred per the active plan; worker and orchestrator hooks exited 0; CI passed; parent focused Worker env tests passed 11 tests and Worker type-check passed; final independent parent review found no actionable issues. Residual risk: runtime enforcement remains intentionally pending in Task_3.
 - 2026-07-11: AUTH-ORIGIN-1 merged via PR #655 (`f05b18dbaf32429c80474002a34e0306ece59bb3`). Parent review required and worker added the trusted normalized Origin allow-path regression after independent security review found no remaining boundary bypass; worker and orchestrator hooks exited 0; CI passed; parent focused auth/origin/CSRF tests passed 38 tests and API type-check passed; final independent parent security review found no actionable issues. Residual risk: a future OAuth provider using `response_mode=form_post` with `SameSite=None` requires a dedicated callback design review.
 - 2026-07-11: Started dependency-ready K8S-4 and PLUGIN-3 workers in isolated worktrees with `gpt-5.6-luna` at `high` reasoning. Ownership is disjoint across root manifest-check scripts/package metadata and Worker host deadline lifecycle code; LOG-2 remains active separately.
+- 2026-07-11: Startup stability check passed for K8S-4 and PLUGIN-3; replaced queued client IDs with durable thread IDs.
