@@ -25,6 +25,7 @@
 | PLUGIN-5 | GitHub provider cancellation propagation | complete | `codex/github-plugin-cancellation` | `019f4f92-337d-71c2-b9f1-294ec47ca19c` | [#658](https://github.com/xpadev-net/nexus-form/pull/658) | Merged as `24e248bd6ed4cc799beea53932296ed95acf2bd4`; archive worker |
 | PLUGIN-6 | Twitter provider cancellation propagation | complete | `codex/twitter-plugin-cancellation` | `019f4faa-b5a9-7900-be5c-7573b10d30f2` | [#660](https://github.com/xpadev-net/nexus-form/pull/660) | Merged as `4098ae8b17add07d42b5449e9bbce34e15b8cdae`; archive worker |
 | WEBERR-3 | Discord auth unit and component coverage | complete | `codex/weberr-3-auth-tests` | `019f4fba-cab5-75f1-bd68-ebc03abc8257` | [#661](https://github.com/xpadev-net/nexus-form/pull/661) | Merged as `a7c1724730e29a0771692816fce6f4e3bdf09f01`; archive worker |
+| WEBERR-4 | Discord auth browser acceptance validation | starting | — | `client-new-thread:9f26ab77-7957-4130-9333-33ec6eba2411` | — | Resolve durable reviewer ID and perform startup stability check |
 
 ## Queued Plans
 
@@ -79,3 +80,4 @@
 - 2026-07-11: WEBERR-3 startup stability check passed; the worker created its explicit goal and dedicated branch, continued beyond setup into baseline investigation, and the queued client ID was replaced with its durable thread ID.
 - 2026-07-11: PLUGIN-6 merged via PR #660 (`4098ae8b17add07d42b5449e9bbce34e15b8cdae`). Parent review found and worker fixed cancellation reason identity loss between the Axios rejection and execution signal; worker and orchestrator hooks exited 0; CI passed; parent focused Twitter provider tests passed 53 tests and package type-check passed; two independent parent re-reviews found no actionable issues. Residual risk: Axios cancellation behavior is exercised through controlled mocks rather than a live Twitter endpoint.
 - 2026-07-11: WEBERR-3 merged via PR #661 (`a7c1724730e29a0771692816fce6f4e3bdf09f01`). Parent reviews found and worker fixed a false-positive success-handoff test that only observed an unresolved promise instead of the post-resolution pending contract; worker and orchestrator hooks exited 0; CI passed; parent focused Web auth tests passed 10 tests and Web type-check passed; two independent parent re-reviews found no actionable issues. Browser acceptance remains a separate reviewer-owned task.
+- 2026-07-11: Started dependency-ready WEBERR-4 browser acceptance validation in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. It owns no product files and is limited to mocked browser evidence for the merged Discord sign-in flows.
