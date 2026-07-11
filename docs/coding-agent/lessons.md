@@ -294,3 +294,11 @@ Evidence:
 - root cause: The regression used the same conceptual cancellation for both the request rejection and controller state, so it did not test which object crossed the provider boundary.
 - fix: Normalize recognized cancellation to `signal.reason ?? error` at each plugin/client boundary and test with distinct transport-error and custom-reason objects.
 - prevention: Cancellation identity tests must deliberately make the caught transport error differ from `AbortSignal.reason` and assert that the canonical signal reason is returned by reference.
+
+## 2026-07-11: Resolve async handoffs before asserting their terminal UI state
+
+- tags: frontend, testing, async, state-machine
+- symptom: A test named for successful redirect handoff asserted pending state while the mocked sign-in promise was still unresolved.
+- root cause: In-flight loading and post-success handoff were treated as the same observable state, so the test could not detect a regression that cleared pending in `finally` after success.
+- fix: Resolve the deferred operation with the successful handoff value inside `act`, await completion, then assert pending accessibility state and duplicate-submit suppression.
+- prevention: Async state-machine tests must advance through the transition they name before asserting the resulting state; unresolved promises only prove the in-flight state.
