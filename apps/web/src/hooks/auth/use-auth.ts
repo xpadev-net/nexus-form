@@ -26,6 +26,16 @@ const FRONTEND_BASE_URL = (() => {
   }
 })();
 
+export const DISCORD_SIGN_IN_ERROR =
+  "Discordへのサインインに失敗しました。もう一度お試しください。";
+
+class DiscordSignInNetworkError extends TypeError {
+  constructor(cause: unknown) {
+    super(DISCORD_SIGN_IN_ERROR, { cause });
+    this.name = "DiscordSignInNetworkError";
+  }
+}
+
 function buildCallbackURL(callbackURL?: string): string {
   const path = sanitizeAuthRedirect(callbackURL) ?? DEFAULT_AUTH_REDIRECT;
   const normalizedBase = FRONTEND_BASE_URL.replace(/\/+$/, "");
@@ -37,11 +47,29 @@ export const useAuth = () => {
 
   const signInWithDiscord = async (
     callbackURL: string = DEFAULT_AUTH_REDIRECT,
-  ) => {
-    await authClient.signIn.social({
-      provider: "discord",
-      callbackURL: buildCallbackURL(callbackURL),
-    });
+  ): Promise<boolean> => {
+    try {
+      const result = await authClient.signIn.social({
+        provider: "discord",
+        callbackURL: buildCallbackURL(callbackURL),
+      });
+
+      if (result?.error) {
+        throw new Error(DISCORD_SIGN_IN_ERROR, { cause: result.error });
+      }
+
+      return Boolean(result?.data?.redirect && result.data.url);
+    } catch (error) {
+      if (error instanceof TypeError) {
+        throw new DiscordSignInNetworkError(error);
+      }
+
+      if (error instanceof Error && error.message === DISCORD_SIGN_IN_ERROR) {
+        throw error;
+      }
+
+      throw new Error(DISCORD_SIGN_IN_ERROR, { cause: error });
+    }
   };
 
   const signOut = async () => {
