@@ -486,10 +486,9 @@ const guildMemberRule: ValidationProviderRule = {
       };
     } catch (error) {
       if (context?.signal.aborted) {
-        // Preserve host cancellation reasons, including the established
-        // VALIDATION_PLUGIN_TIMEOUT retry policy, instead of remapping them as
-        // Discord provider failures.
-        throw context.signal.reason ?? error;
+        // Preserve host cancellation and deadline semantics instead of
+        // remapping the abort as a Discord provider failure.
+        throw error;
       }
       if (error instanceof DiscordHttpError) {
         if (error.status === 429) {
