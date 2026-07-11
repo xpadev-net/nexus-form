@@ -55,6 +55,26 @@ test("fails when TRUSTED_ORIGINS disappears from a rendered manifest", () => {
   );
 });
 
+for (const quote of ['"', "'"]) {
+  test(`fails when TRUSTED_ORIGINS is an empty ${quote}-quoted scalar`, () => {
+    const manifest = renderKustomization(rootDir, "k8s/overlays/production");
+    const withQuotedEmptyOrigins = manifest.replace(
+      /^ {2}TRUSTED_ORIGINS:.*$/m,
+      `  TRUSTED_ORIGINS: ${quote}${quote}`,
+    );
+
+    assert.notEqual(withQuotedEmptyOrigins, manifest);
+    assert.throws(
+      () =>
+        checkRenderedManifest(withQuotedEmptyOrigins, {
+          label: `production ${quote}-quoted-empty fixture`,
+          requiredQueueNames: getFirstPartyQueueNames(rootDir),
+        }),
+      /TRUSTED_ORIGINS is missing or empty/,
+    );
+  });
+}
+
 test("fails when a first-party queue has no Kubernetes consumer", () => {
   const manifest = renderKustomization(rootDir, "k8s/base");
   const withoutSheetsConsumer = manifest.replace(

@@ -25,6 +25,19 @@ function extractRequiredString(source, pattern, description) {
   return match[1];
 }
 
+function decodeYamlScalar(value) {
+  const trimmed = value.trim();
+  const quote = trimmed[0];
+  const lastIndex = trimmed.length - 1;
+
+  if ((quote === '"' || quote === "'") && trimmed[lastIndex] === quote) {
+    const innerValue = trimmed.slice(1, lastIndex);
+    return quote === "'" ? innerValue.replaceAll("''", "'") : innerValue;
+  }
+
+  return trimmed;
+}
+
 export function extractFixedApiQueueNames(apiQueues) {
   const fixedApiQueues = [
     ...apiQueues.matchAll(/new Queue\("([^"$]+)"\s*,/g),
@@ -102,7 +115,7 @@ function parseConfigMapData(manifest, resourceName) {
   return new Map(
     [
       ...dataSection.matchAll(/^ {2}([A-Za-z_][A-Za-z0-9_]*):(?:\s*(.*))?$/gm),
-    ].map((match) => [match[1], match[2] ?? ""]),
+    ].map((match) => [match[1], decodeYamlScalar(match[2] ?? "")]),
   );
 }
 
