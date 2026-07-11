@@ -1,8 +1,10 @@
 import type {
   ValidationProvider,
+  ValidationProviderExecutionContext,
   ValidationProviderResult,
   ValidationProviderRule,
 } from "@nexus-form/integrations";
+import axios from "axios";
 import { z } from "zod";
 import { getTwitterClient, TwitterUserInfoSchema } from "./client";
 import { assertTwitterEnvironmentConfig } from "./config";
@@ -44,6 +46,17 @@ function normalizeTwitterUsername(username: string): string {
   return normalized;
 }
 
+function isTwitterCancellationError(
+  error: unknown,
+  signal: AbortSignal,
+): boolean {
+  return (
+    error === signal.reason ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    axios.isCancel(error)
+  );
+}
+
 const userExistsRule: ValidationProviderRule = {
   name: "user_exists",
   label: "ユーザー存在検証",
@@ -68,11 +81,17 @@ const userExistsRule: ValidationProviderRule = {
   configSchema: TwitterConfigSchema,
   metadataSchema: TwitterMetadataSchema,
 
-  async validate(input, _config): Promise<ValidationProviderResult> {
+  async validate(
+    input,
+    _config,
+    context?: ValidationProviderExecutionContext,
+  ): Promise<ValidationProviderResult> {
     try {
       const username = TwitterInputSchema.parse(input);
       const client = getTwitterClient();
-      const userInfo = await client.getUserByUsername(username);
+      const userInfo = context
+        ? await client.getUserByUsername(username, context.signal)
+        : await client.getUserByUsername(username);
 
       if (!userInfo) {
         return {
@@ -140,6 +159,12 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
+      if (
+        context?.signal.aborted &&
+        isTwitterCancellationError(error, context.signal)
+      ) {
+        throw context.signal.reason ?? error;
+      }
       const parsed = parseTwitterError(error);
 
       if (parsed.code === TwitterErrorCode.TWITTER_API_RATE_LIMIT) {
