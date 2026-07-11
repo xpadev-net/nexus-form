@@ -17,6 +17,7 @@ import {
   assertProductionCorsOriginsConfigured,
   getCorsOrigins,
 } from "./cors-origins";
+import { normalizeHttpOrigin } from "./csrf-origin-guard";
 import { logError, logInfo, logWarn } from "./logger";
 
 export const INVITATION_AUTHORIZATION_COOKIE_NAME = "invitation-token";
@@ -158,18 +159,6 @@ const authTrustedOrigins = getCorsOrigins();
 assertProductionCorsOriginsConfigured();
 const authTrustedOriginSet = new Set(authTrustedOrigins);
 
-function normalizeAuthOrigin(value: string | null): string | null {
-  if (!value) return null;
-
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
 function hasTrustedAuthOrigin(request: Request | undefined): boolean {
   if (
     !request ||
@@ -181,7 +170,7 @@ function hasTrustedAuthOrigin(request: Request | undefined): boolean {
 
   const originHeader = request.headers.get("origin");
   const candidate = originHeader ?? request.headers.get("referer");
-  const origin = normalizeAuthOrigin(candidate);
+  const origin = normalizeHttpOrigin(candidate);
   return origin !== null && authTrustedOriginSet.has(origin);
 }
 
