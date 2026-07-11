@@ -79,6 +79,23 @@ export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
   };
 }
 
+/**
+ * Return a safe error-log target, preserving a concrete route pattern when the
+ * request target cannot be sanitized. Generic catch-all routes are replaced by
+ * the invalid-target marker so malformed input is never logged as raw context.
+ */
+export function getRequestErrorTarget(
+  requestTarget: string,
+  routePath?: string,
+): string {
+  const sanitizedRequestTarget = sanitizeRequestTarget(requestTarget);
+  if (sanitizedRequestTarget !== INVALID_REQUEST_TARGET) {
+    return sanitizedRequestTarget;
+  }
+
+  return routePath && routePath !== "*" ? routePath : INVALID_REQUEST_TARGET;
+}
+
 function containsInvalidRequestTargetCharacters(
   requestTarget: string,
 ): boolean {

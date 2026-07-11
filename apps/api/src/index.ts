@@ -39,11 +39,7 @@ import { logError } from "./lib/logger";
 import { closeQueues } from "./lib/queues";
 import { authRouteRateLimiter } from "./lib/rate-limit";
 import { closePublisher } from "./lib/redis-publisher";
-import {
-  INVALID_REQUEST_TARGET,
-  requestLogger,
-  sanitizeRequestTarget,
-} from "./lib/request-logging";
+import { getRequestErrorTarget, requestLogger } from "./lib/request-logging";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
 import { serviceMonitor } from "./lib/services/monitoring";
 import { authRouter } from "./routes/auth";
@@ -173,7 +169,6 @@ const app = new Hono()
       return err.getResponse();
     }
     const isZodError = err instanceof ZodError;
-    const sanitizedRequestTarget = sanitizeRequestTarget(c.req.url);
     logError(
       isZodError
         ? "Response schema validation failed"
@@ -181,10 +176,7 @@ const app = new Hono()
       "api",
       {
         error: err,
-        path:
-          sanitizedRequestTarget === INVALID_REQUEST_TARGET
-            ? c.req.routePath
-            : sanitizedRequestTarget,
+        path: getRequestErrorTarget(c.req.url, c.req.routePath),
       },
     );
     captureError(err);
