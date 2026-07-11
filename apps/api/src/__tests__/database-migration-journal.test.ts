@@ -126,23 +126,25 @@ describe("database migration journal", () => {
 
     const sql = readMigration(outboxEntry.tag);
     expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128);",
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128)",
     );
     expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp;",
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp",
     );
     expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL;",
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL",
     );
     expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp;",
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp",
     );
     expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum('LEGACY','STABLE') DEFAULT 'LEGACY' NOT NULL;",
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum(''LEGACY'',''STABLE'') DEFAULT ''LEGACY'' NOT NULL",
     );
     expect(sql).toContain(
-      "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`);",
+      "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`)",
     );
+    expect(sql).toContain("INFORMATION_SCHEMA");
+    expect(sql).toContain("PREPARE");
     expect(sql).not.toContain("MODIFY");
     expect(sql).not.toContain("DROP");
     expect(sql).not.toMatch(/`attemptCount`|`nextRetryAt`/);
