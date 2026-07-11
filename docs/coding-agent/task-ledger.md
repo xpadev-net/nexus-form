@@ -30,6 +30,7 @@
 | PLUGIN-9 | Plugin timeout final integration review | complete | — | parent orchestrator | — | APPROVED; plan complete |
 | PWB-1 | Public password request bounds and regressions | complete | `codex/pwb-1-public-password-request-bounds` | `019f505b-789d-70b0-8bc5-be97be3eb830` | [#663](https://github.com/xpadev-net/nexus-form/pull/663) | Merged as `ec006314cdd1a6df29a4e4514fddbc2c14cca408`; archive worker |
 | PWR-1 | Password verification revocation contract design | complete | — | `019f505b-789d-70b0-8bc5-be759634f790` | — | APPROVED; archive reviewer |
+| PWR-2 | Password verification revision enforcement and regressions | in progress | — | `019f5143-c48e-79b0-a6a5-2879033f552d` | — | Worker security implementation |
 | OUTBOX-1 | Validation outbox retry state-machine design | complete | — | `019f505b-789d-70b0-8bc5-be550a01796d` | — | APPROVED; archive reviewer |
 | OUTBOX-2 | Validation outbox retry metadata migration | complete | `codex/validation-outbox-task-2` | `019f5071-d9c9-7521-9bc3-6a00538aff87` | [#664](https://github.com/xpadev-net/nexus-form/pull/664) | Merged as `7941ffc20b54269b6e628ed72897d88e17af759b`; archive worker |
 | OUTBOX-3 | Validation outbox sweeper retry and backoff | in progress | — | `019f5142-4ba4-78a0-b444-5809736b17e4` | — | Worker implementation |
@@ -107,3 +108,5 @@
 - 2026-07-11: PWB-1 merged via PR #663 (`ec006314cdd1a6df29a4e4514fddbc2c14cca408`). Parent reviews required early body-stream cancellation, shared plaintext configuration/verification bounds, full PUT parity, and separation from historical stored-hash parsing; worker and orchestrator hooks exited 0; CI passed; parent focused API tests passed 23 tests and API type-check passed; two independent re-reviews approved the final resource and API contracts.
 - 2026-07-11: The first OUTBOX-3 queued client never created a worktree while the Codex thread backend was unavailable. After confirming no duplicate worker existed, replaced it with a new `gpt-5.6-luna`/`high` queued client; the original client ID is abandoned.
 - 2026-07-11: OUTBOX-3 replacement startup stability check passed; the worker continued through harness and two-file ownership setup into baseline investigation. Replaced the queued client ID with the durable thread ID.
+- 2026-07-11: Started dependency-ready PWR-2 revision-bound verification implementation and regressions in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Its JWT/public-route ownership does not overlap OUTBOX-3 sweeper ownership.
+- 2026-07-11: PWR-2 startup stability check passed; the worker continued through atomic security scope and harness setup into contract investigation. Replaced the queued client ID with the durable thread ID.
