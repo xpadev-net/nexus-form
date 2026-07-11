@@ -75,8 +75,10 @@ describe("GitHub request cancellation", () => {
 
   it("rethrows the canonical abort reason from a canceled client request", async () => {
     const controller = new AbortController();
-    const transportError = new DOMException("Transport aborted", "AbortError");
-    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    const abortReason = new Error("ValidationPluginTimeoutError");
+    const transportError = new Error("Octokit request wrapper", {
+      cause: abortReason,
+    });
     getByUsernameMock.mockRejectedValueOnce(transportError);
     controller.abort(abortReason);
     const client = new GitHubApiClient(
@@ -220,8 +222,10 @@ describe("githubProvider.rules.user_exists.validate", () => {
 
   it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
     const controller = new AbortController();
-    const transportError = new DOMException("Transport aborted", "AbortError");
-    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    const abortReason = new Error("ValidationPluginTimeoutError");
+    const transportError = new Error("Octokit request wrapper", {
+      cause: abortReason,
+    });
     getUserByUsernameMock.mockRejectedValueOnce(transportError);
     controller.abort(abortReason);
 

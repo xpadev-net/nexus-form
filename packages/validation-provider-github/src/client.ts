@@ -54,7 +54,8 @@ function isGitHubCancellationError(
 ): boolean {
   return (
     error === signal.reason ||
-    (error instanceof DOMException && error.name === "AbortError")
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.cause === signal.reason)
   );
 }
 
