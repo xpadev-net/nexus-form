@@ -275,13 +275,16 @@ const originalValidationPluginTimeoutMs =
 const VALIDATION_TIMEOUT_START_MS = 1_750_000_000_000;
 const VALIDATION_TIMEOUT_MS = 1_000;
 
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+function createDeferredSignal(): {
+  promise: Promise<void>;
+  resolve: () => void;
+} {
+  let resolve!: () => void;
+  const promise = new Promise<void>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+
+  return { promise, resolve };
 }
 
 afterEach(() => {
@@ -576,6 +579,7 @@ describe("handleGenericValidation", () => {
     vi.setSystemTime(VALIDATION_TIMEOUT_START_MS);
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = String(VALIDATION_TIMEOUT_MS);
 
+    const validateStarted = createDeferredSignal();
     let executionContext: ValidationProviderExecutionContext | undefined;
     const validate = vi.fn(
       (
@@ -584,6 +588,7 @@ describe("handleGenericValidation", () => {
         context: ValidationProviderExecutionContext,
       ) => {
         executionContext = context;
+        validateStarted.resolve();
         return new Promise<ValidationProviderResult>(() => undefined);
       },
     );
@@ -600,7 +605,7 @@ describe("handleGenericValidation", () => {
     const timeoutAssertion = expect(handlerPromise).rejects.toMatchObject({
       code: "VALIDATION_PLUGIN_TIMEOUT",
     });
-    await flushMicrotasks();
+    await validateStarted.promise;
     await vi.runOnlyPendingTimersAsync();
 
     await timeoutAssertion;
@@ -618,6 +623,7 @@ describe("handleGenericValidation", () => {
     vi.setSystemTime(VALIDATION_TIMEOUT_START_MS);
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = String(VALIDATION_TIMEOUT_MS);
 
+    const validateStarted = createDeferredSignal();
     let executionContext: ValidationProviderExecutionContext | undefined;
     const validate = vi.fn(
       (
@@ -626,6 +632,7 @@ describe("handleGenericValidation", () => {
         context: ValidationProviderExecutionContext,
       ) => {
         executionContext = context;
+        validateStarted.resolve();
         return new Promise<ValidationProviderResult>((_, reject) => {
           context.signal.addEventListener(
             "abort",
@@ -648,7 +655,7 @@ describe("handleGenericValidation", () => {
     const timeoutAssertion = expect(handlerPromise).rejects.toMatchObject({
       code: "VALIDATION_PLUGIN_TIMEOUT",
     });
-    await flushMicrotasks();
+    await validateStarted.promise;
     await vi.runOnlyPendingTimersAsync();
 
     await timeoutAssertion;
@@ -666,6 +673,7 @@ describe("handleGenericValidation", () => {
     vi.useFakeTimers();
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
 
+    const validateStarted = createDeferredSignal();
     let executionContext: ValidationProviderExecutionContext | undefined;
     const validate = vi.fn(
       (
@@ -674,6 +682,7 @@ describe("handleGenericValidation", () => {
         context: ValidationProviderExecutionContext,
       ) => {
         executionContext = context;
+        validateStarted.resolve();
         return new Promise<ValidationProviderResult>(() => undefined);
       },
     );
@@ -690,7 +699,7 @@ describe("handleGenericValidation", () => {
     const handlerPromise = handleGenericValidation(job);
     const shutdownAssertion =
       expect(handlerPromise).rejects.toBe(shutdownReason);
-    await flushMicrotasks();
+    await validateStarted.promise;
     expect(executionContext).toBeDefined();
 
     shutdownSignalMock.abort(shutdownReason);
@@ -705,6 +714,7 @@ describe("handleGenericValidation", () => {
   it("worker shutdown rejects a cooperative fallback result without writing it", async () => {
     vi.useFakeTimers();
 
+    const validateStarted = createDeferredSignal();
     let executionContext: ValidationProviderExecutionContext | undefined;
     const fallbackResult: ValidationProviderResult = { isValid: true };
     const validate = vi.fn(
@@ -714,6 +724,7 @@ describe("handleGenericValidation", () => {
         context: ValidationProviderExecutionContext,
       ) => {
         executionContext = context;
+        validateStarted.resolve();
         return new Promise<ValidationProviderResult>((resolve) => {
           context.signal.addEventListener(
             "abort",
@@ -734,11 +745,10 @@ describe("handleGenericValidation", () => {
     const shutdownReason = new DOMException("Worker shutdown", "AbortError");
 
     const handlerPromise = handleGenericValidation(job);
-    await flushMicrotasks();
+    await validateStarted.promise;
     expect(executionContext).toBeDefined();
 
     shutdownSignalMock.abort(shutdownReason);
-    await flushMicrotasks();
 
     await expect(handlerPromise).rejects.toBe(shutdownReason);
     expect(executionContext?.signal.reason).toBe(shutdownReason);
@@ -749,6 +759,7 @@ describe("handleGenericValidation", () => {
     vi.useFakeTimers();
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
 
+    const validateStarted = createDeferredSignal();
     let rejectLate: ((reason?: unknown) => void) | undefined;
     const validate = vi.fn(
       (
@@ -758,6 +769,7 @@ describe("handleGenericValidation", () => {
       ) =>
         new Promise<ValidationProviderResult>((_resolve, reject) => {
           rejectLate = reject;
+          validateStarted.resolve();
         }),
     );
     const rule = makeRule({ validate });
@@ -770,7 +782,7 @@ describe("handleGenericValidation", () => {
     });
 
     const handlerPromise = handleGenericValidation(job);
-    await flushMicrotasks();
+    await validateStarted.promise;
     await vi.runOnlyPendingTimersAsync();
 
     await expect(handlerPromise).resolves.toEqual({
@@ -785,8 +797,11 @@ describe("handleGenericValidation", () => {
     );
     expect(mockWriteValidationResult).toHaveBeenCalledTimes(1);
 
-    rejectLate?.(new Error("late plugin failure"));
-    await flushMicrotasks();
+    expect(rejectLate).toBeDefined();
+    if (rejectLate === undefined) {
+      throw new Error("late rejection callback was not initialized");
+    }
+    rejectLate(new Error("late plugin failure"));
     expect(mockWriteValidationResult).toHaveBeenCalledTimes(1);
   });
 
@@ -1339,9 +1354,11 @@ describe("handleGenericValidation", () => {
   it("Discord lock wait abort preserves the host plugin timeout cause", async () => {
     vi.useFakeTimers();
     process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+    const lockStarted = createDeferredSignal();
     mockWithRedisLock.mockImplementationOnce(
       (_key, _fn, options) =>
         new Promise<unknown>((_resolve, reject) => {
+          lockStarted.resolve();
           options?.signal?.addEventListener(
             "abort",
             () => reject(new DOMException("Lock aborted", "AbortError")),
@@ -1365,7 +1382,7 @@ describe("handleGenericValidation", () => {
       ok: false,
       error: "Retryable validation error exhausted",
     });
-    await flushMicrotasks();
+    await lockStarted.promise;
     await vi.runOnlyPendingTimersAsync();
 
     await resultAssertion;
