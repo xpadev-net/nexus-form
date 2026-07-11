@@ -1,5 +1,21 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Synchronize async tests on observable lifecycle events
+
+- tags: testing, concurrency, cancellation, vitest
+- symptom: Fixed-count microtask flushing made deadline and late-rejection tests depend on the implementation's internal `await` depth and allowed callbacks to remain silently uninitialized.
+- root cause: Tests advanced timers or invoked optional callbacks after guessing that execution had started instead of observing the provider or lock boundary directly.
+- fix: Use deferred signals resolved when validation or lock acquisition begins, assert callback initialization, and then advance fake timers or trigger late settlement.
+- prevention: Concurrency tests should synchronize on an explicit observable event, never on a fixed number of microtask turns.
+
+## 2026-07-11: Re-check cancellation after a cooperative operation fulfills
+
+- tags: worker, shutdown, cancellation, state-integrity
+- symptom: A plugin could resolve a fallback result from its abort handler before a delayed host shutdown rejection, allowing normal result persistence after shutdown.
+- root cause: The wrapper preserved provider rejection causes but treated every fulfilled race outcome as valid without re-reading the authoritative shutdown signal.
+- fix: Prefer rejected provider outcomes, then reject fulfilled outcomes when shutdown is already active so existing retry/final-shutdown handling remains authoritative.
+- prevention: After racing work against cancellation, validate cancellation state again before accepting any fulfilled result that can cause durable side effects.
+
 ## 2026-07-11: Decode rendered scalar values before checking emptiness
 
 - tags: kubernetes, yaml, validation, fail-closed
