@@ -1,7 +1,12 @@
+import type { MiddlewareHandler } from "hono";
+import { HTTPException } from "hono/http-exception";
+
 const REQUEST_TARGET_BASE_URL = "http://request-target.invalid";
 
 export const INVALID_REQUEST_TARGET = "[INVALID_REQUEST_TARGET]";
 const REDACTED_REQUEST_TARGET_SEGMENT = "[REDACTED]";
+
+type PrintFunc = (message: string, ...rest: string[]) => void;
 
 const CREDENTIAL_ROUTE_SEGMENTS = new Set([
   "code",
@@ -19,10 +24,78 @@ const CREDENTIAL_ROUTE_SEGMENTS = new Set([
   "shared",
   "shared-link",
   "shared-links",
+  "reset-password",
 ]);
 
 const ABSOLUTE_HTTP_URL = /^https?:\/\//i;
 const MALFORMED_PERCENT_ENCODING = /%(?![0-9a-f]{2})/i;
+
+function formatElapsedTime(start: number): string {
+  const elapsed = Date.now() - start;
+  return elapsed < 1_000 ? `${elapsed}ms` : `${Math.round(elapsed / 1_000)}s`;
+}
+
+function logRequest(
+  fn: PrintFunc,
+  prefix: "<--" | "-->",
+  method: string,
+  requestTarget: string,
+  status?: number,
+  elapsed?: string,
+): void {
+  const message =
+    prefix === "<--"
+      ? `${prefix} ${method} ${requestTarget}`
+      : `${prefix} ${method} ${requestTarget} ${status} ${elapsed}`;
+  fn(message);
+}
+
+/**
+ * Log request start and completion without exposing the raw request target.
+ * The target is sanitized once so both entries describe the same request.
+ */
+export function requestLogger(fn: PrintFunc = console.log): MiddlewareHandler {
+  return async (c, next) => {
+    const { method, url } = c.req;
+    const requestTarget = sanitizeRequestTarget(url);
+
+    logRequest(fn, "<--", method, requestTarget);
+    const start = Date.now();
+    let failureStatus: number | undefined;
+    try {
+      await next();
+    } catch (error) {
+      failureStatus = error instanceof HTTPException ? error.status : 500;
+      throw error;
+    } finally {
+      logRequest(
+        fn,
+        "-->",
+        method,
+        requestTarget,
+        failureStatus ?? c.res.status,
+        formatElapsedTime(start),
+      );
+    }
+  };
+}
+
+/**
+ * Return a safe error-log target, preserving a concrete route pattern when the
+ * request target cannot be sanitized. Generic catch-all routes are replaced by
+ * the invalid-target marker so malformed input is never logged as raw context.
+ */
+export function getRequestErrorTarget(
+  requestTarget: string,
+  routePath?: string,
+): string {
+  const sanitizedRequestTarget = sanitizeRequestTarget(requestTarget);
+  if (sanitizedRequestTarget !== INVALID_REQUEST_TARGET) {
+    return sanitizedRequestTarget;
+  }
+
+  return routePath && routePath !== "*" ? routePath : INVALID_REQUEST_TARGET;
+}
 
 function containsInvalidRequestTargetCharacters(
   requestTarget: string,
