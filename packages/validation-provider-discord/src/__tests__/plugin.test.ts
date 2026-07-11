@@ -433,7 +433,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("returns a non-retryable result when the host deadline aborts validation", async () => {
+  it("preserves the host deadline reason when it aborts validation", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     const controller = new AbortController();
     const timeoutError = Object.assign(
@@ -461,11 +461,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     await Promise.resolve();
     controller.abort(timeoutError);
 
-    await expect(validation).resolves.toMatchObject({
-      isValid: false,
-      errorCode: "VALIDATION_PLUGIN_TIMEOUT",
-      retryable: false,
-    });
+    await expect(validation).rejects.toBe(timeoutError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

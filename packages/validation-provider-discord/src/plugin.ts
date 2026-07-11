@@ -486,23 +486,7 @@ const guildMemberRule: ValidationProviderRule = {
       };
     } catch (error) {
       if (context?.signal.aborted) {
-        if (
-          getStringProperty(context.signal.reason, "code") ===
-          "VALIDATION_PLUGIN_TIMEOUT"
-        ) {
-          return {
-            isValid: false,
-            errorCode: "VALIDATION_PLUGIN_TIMEOUT",
-            errorMessage:
-              context.signal.reason instanceof Error
-                ? context.signal.reason.message
-                : "Discord validation exceeded the host deadline",
-            retryable: false,
-          };
-        }
-        // Preserve manual caller cancellation instead of remapping the abort
-        // as a Discord provider failure.
-        throw error;
+        throw context.signal.reason ?? error;
       }
       if (error instanceof DiscordHttpError) {
         if (error.status === 429) {
