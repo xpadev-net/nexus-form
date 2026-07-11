@@ -302,3 +302,11 @@ Evidence:
 - root cause: In-flight loading and post-success handoff were treated as the same observable state, so the test could not detect a regression that cleared pending in `finally` after success.
 - fix: Resolve the deferred operation with the successful handoff value inside `act`, await completion, then assert pending accessibility state and duplicate-submit suppression.
 - prevention: Async state-machine tests must advance through the transition they name before asserting the resulting state; unresolved promises only prove the in-flight state.
+
+## 2026-07-11: Reconcile automated findings with the established cross-layer contract
+
+- tags: review-gate, ai-review, contracts, retries
+- symptom: An automated reviewer repeatedly requested that a provider convert host deadline cancellation into a non-retryable result, contradicting the merged host retry/final-attempt policy.
+- root cause: The review analyzed the provider catch path in isolation and treated all deadline expiry as terminal cancellation without reading the host-owned retry contract and lifecycle tests.
+- fix: Preserve the canonical timeout reason for host classification, document the contract in the review thread, and request a fresh automated review after the dependent host implementation and tests were visible on the PR base.
+- prevention: Before applying an automated cross-layer lifecycle finding, trace the value into its authoritative consumer and compare against focused contract tests; if the finding conflicts, resolve it with evidence and rerun the review rather than changing one layer in isolation.
