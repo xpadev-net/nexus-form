@@ -17,7 +17,7 @@
 | K8S-2 | Trusted origins in Kubernetes templates | complete | `codex/k8s-trusted-origins-config` | `019f4e46-668a-7041-9e8e-b2660a938e75` | [#651](https://github.com/xpadev-net/nexus-form/pull/651) | Merged as `c92bd424237d97b3a1fc599f4288f7b967ad3f23`; archive worker |
 | LOG-2 | Sanitizer-aware request logger middleware | in progress | `codex/request-log-middleware` | `019f4e46-6692-7841-a62a-16799ecfd26a` | — | Worker implementation |
 | PLUGIN-2 | Bounded Worker plugin timeout configuration | in progress | `codex/plugin-timeout-env` | `019f4e46-668d-71f3-807a-4c772ba1e7b9` | — | Worker implementation |
-| WEBERR-2 | Discord sign-in pending and error state | in progress | `codex/discord-signin-state` | `019f4e46-6688-7d92-8e32-4fe6ed7acda5` | — | Worker implementation |
+| WEBERR-2 | Discord sign-in pending and error state | complete | `codex/discord-signin-state` | `019f4e46-6688-7d92-8e32-4fe6ed7acda5` | [#654](https://github.com/xpadev-net/nexus-form/pull/654) | Merged as `e4ee10ffe037e2728d5c8c300d369d93f600b35e`; archive worker |
 | AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | in progress | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | — | Worker implementation |
 
 ## Queued Plans
@@ -55,3 +55,4 @@
 - 2026-07-11: Started second-wave workers for K8S-2, LOG-2, PLUGIN-2, WEBERR-2, and AUTH-ORIGIN-1 in isolated worktrees with `gpt-5.6-luna` at `high` reasoning. Ownership is non-overlapping across Kubernetes, API logger wiring, Worker env, Web auth UX, and API auth-origin boundaries.
 - 2026-07-11: Second-wave startup stability check passed for all five workers; replaced queued client IDs with durable thread IDs.
 - 2026-07-11: K8S-2 merged via PR #651 (`c92bd424237d97b3a1fc599f4288f7b967ad3f23`). Parent review found and worker fixed production-overlay edit ambiguity and missing ConfigMap-to-Pod rollout/revert instructions; worker and orchestrator hooks exited 0; CI passed; parent base/production renders and 26 focused API tests passed; final independent parent review found no actionable issues. Residual risk: live-cluster apply and rollout remain unverified.
+- 2026-07-11: WEBERR-2 merged via PR #654 (`e4ee10ffe037e2728d5c8c300d369d93f600b35e`). Parent review found and worker fixed nested live-region duplication; worker and orchestrator hooks exited 0; CI passed; parent focused Web tests passed 8 tests and Web type-check passed; final independent parent review found no actionable issues. Residual risk: component-level pending/error/retry/a11y regression tests remain reserved for WEBERR-3.
