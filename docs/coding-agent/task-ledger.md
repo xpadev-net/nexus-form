@@ -28,9 +28,9 @@
 | WEBERR-4 | Discord auth browser acceptance validation | complete | — | `019f5008-a337-7e12-a787-f220c7b12733` | — | APPROVED; archive reviewer |
 | PLUGIN-5B | Preserve GitHub cancellation reason identity | complete | `codex/plugin-5b-github-cancellation-reason` | `019f501e-8ab9-78e2-b737-853c2b66aa45` | [#662](https://github.com/xpadev-net/nexus-form/pull/662) | Merged as `e9e05cda7ab0857c4852766f9ba73b1bd0374dd8`; archive worker |
 | PLUGIN-9 | Plugin timeout final integration review | complete | — | parent orchestrator | — | APPROVED; plan complete |
-| PWB-1 | Public password request bounds and regressions | starting | — | `client-new-thread:485b656a-7340-4580-905e-d7e4b84e48d7` | — | Resolve durable worker ID and perform startup stability check |
-| PWR-1 | Password verification revocation contract design | starting | — | `client-new-thread:3e0d5404-56d7-4241-81db-ac749cd142b8` | — | Resolve durable reviewer ID and perform startup stability check |
-| OUTBOX-1 | Validation outbox retry state-machine design | starting | — | `client-new-thread:78d695b5-975c-44e7-8ee3-0dfc30865f22` | — | Resolve durable reviewer ID and perform startup stability check |
+| PWB-1 | Public password request bounds and regressions | in progress | — | `019f505b-789d-70b0-8bc5-be97be3eb830` | — | Worker implementation |
+| PWR-1 | Password verification revocation contract design | in progress | — | `019f505b-789d-70b0-8bc5-be759634f790` | — | Security design review |
+| OUTBOX-1 | Validation outbox retry state-machine design | in progress | — | `019f505b-789d-70b0-8bc5-be550a01796d` | — | Reliability design review |
 
 ## Queued Plans
 
@@ -95,3 +95,4 @@
 - 2026-07-11: PLUGIN-5B merged via PR #662 (`e9e05cda7ab0857c4852766f9ba73b1bd0374dd8`). Parent review required recognition of Octokit's `RequestError.cause` wrapper around non-`AbortError` custom reasons; worker and orchestrator hooks exited 0; CI passed; parent focused GitHub provider tests passed 60 tests and package type-check passed; two Task_9 independent re-reviews approved the final contract.
 - 2026-07-11: PLUGIN-9 final integration review completed APPROVED after PLUGIN-5B. Final orchestrator `pnpm lint:fix`, `pnpm type-check`, and `pnpm test --silent` passed; independent lifecycle and external-contract reviews found no remaining actionable issues across optional context compatibility, host deadlines/shutdown, late settlement, retry/final persistence, and all three built-in providers.
 - 2026-07-11: Started the next non-overlapping wave with PWB-1 implementation plus atomic boundary regressions, PWR-1 security contract research, and OUTBOX-1 retry state-machine research, all in isolated worktrees with `gpt-5.6-luna` at `high` reasoning. Only PWB-1 may edit product code; the two design reviewers are read-only.
+- 2026-07-11: Startup stability checks passed for PWB-1, PWR-1, and OUTBOX-1; all continued through harness/goal setup into investigation, and queued client IDs were replaced with durable thread IDs.
