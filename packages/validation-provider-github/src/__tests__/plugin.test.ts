@@ -133,6 +133,24 @@ describe("githubProvider.rules.user_exists.validate", () => {
     );
   });
 
+  it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException("Aborted", "AbortError");
+    getUserByUsernameMock.mockRejectedValueOnce(abortError);
+    controller.abort();
+
+    await expect(
+      githubProvider.rules.user_exists?.validate(
+        "octocat",
+        {},
+        {
+          signal: controller.signal,
+          deadlineAt: Date.now() + 5_000,
+        },
+      ),
+    ).rejects.toBe(abortError);
+  });
+
   it("validates an existing GitHub user and returns metadata from fixtures", async () => {
     getUserByUsernameMock.mockResolvedValueOnce(validUserData);
 

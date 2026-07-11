@@ -164,6 +164,7 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
+      if (context?.signal.aborted) throw error;
       if (isGitHubProviderError(error)) {
         const retryAfterMs =
           error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT

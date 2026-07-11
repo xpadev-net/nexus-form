@@ -140,6 +140,7 @@ export class GitHubApiClient {
         updatedAt: parsed.data.updated_at,
       };
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (isGitHubUserNotFoundError(error)) return null;
       if (error instanceof GitHubProviderError) throw error;
 
