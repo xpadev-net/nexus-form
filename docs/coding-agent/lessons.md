@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Decode rendered scalar values before checking emptiness
+
+- tags: kubernetes, yaml, validation, fail-closed
+- symptom: A manifest parity check treated `TRUSTED_ORIGINS: ""` and `TRUSTED_ORIGINS: ''` as non-empty because it tested the raw quoted text.
+- root cause: The checker parsed a narrow YAML shape but applied string truthiness before decoding the scalar representation used by Kubernetes.
+- fix: Remove matching scalar quote wrappers before trimming and add mutation regressions for missing, double-quoted empty, and single-quoted empty values.
+- prevention: Boundary checks over serialized configuration must validate decoded values, and their negative matrix must include both missing keys and explicitly encoded empty values.
+
 ## 2026-07-11: Test both rejection and normalized allow paths at security boundaries
 
 - tags: security, csrf, authentication, testing
