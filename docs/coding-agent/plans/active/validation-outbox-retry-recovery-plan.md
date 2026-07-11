@@ -34,6 +34,7 @@
     required: true
     owner: reviewer
     detail: "Review state machine, migration compatibility, and retry-storm controls."
+- status: complete
 
 ### Task_2: Add retry metadata and migration
 - type: impl
@@ -45,7 +46,9 @@
 - description: Add only the retry-attempt/eligibility metadata selected by Task_1 using expand-contract migration ordering.
 - acceptance:
   - Existing rows receive safe defaults and remain readable by old code during rollout.
-  - New fields support atomic attempt accounting and next-attempt eligibility.
+  - Additive fields support a claim token/lease expiry, enqueue attempt count, next-attempt eligibility, and a durable legacy/stable enqueue-mode marker.
+  - Existing timestamp, Worker-attempt, and manual-retry meanings remain unchanged.
+  - The eligibility/lease index supports bounded concurrent sweeper claims.
   - Migration journal and snapshot metadata remain consistent.
 - validation:
   - kind: command
@@ -64,6 +67,8 @@
   - Redis recovery causes the same row to enqueue automatically.
   - Concurrent sweepers cannot create duplicate effective jobs.
   - Exhaustion, if configured, produces a stable terminal error code.
+  - Claims use compare-and-set ownership for queue acknowledgement and release.
+  - Backoff is bounded exponential with jitter; transient enqueue/ack uncertainty remains recoverable.
 - validation:
   - kind: command
     required: true
@@ -146,6 +151,9 @@
 
 ## Progress Log
 - 2026-07-11: Draft created.
+- 2026-07-11: Task_1 design approved. Existing timestamps cannot safely represent producer retry eligibility and leases; an additive expand-contract migration is required before producer/sweeper changes.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.
+- 2026-07-11: Use stable per-row BullMQ IDs for the new durable mode, atomic claims with expiring leases, CAS acknowledgement, at most eight enqueue attempts, and bounded exponential backoff (30 seconds base, 15 minutes cap, jitter). Persist a row-level legacy/stable marker so rolling deployments never reinterpret legacy random-ID rows.
+- 2026-07-11: Redis/network/timeouts and queue-success/DB-ack uncertainty are transient; missing providers/rules and deterministic payload/schema failures are terminal. Stale `PROCESSING` reconciliation remains a separate Worker-owned follow-up.
