@@ -76,10 +76,16 @@ function parseConfigMapData(manifest, resourceName) {
     return null;
   }
 
-  const dataSection = document.match(/^data:\n([\s\S]*?)(?=^kind:)/m)?.[1];
-  if (!dataSection) {
+  const dataStart = document.indexOf("data:\n");
+  if (dataStart === -1) {
     return new Map();
   }
+  const dataContentStart = dataStart + "data:\n".length;
+  const dataEnd = document.indexOf("\nkind:", dataContentStart);
+  const dataSection = document.slice(
+    dataContentStart,
+    dataEnd === -1 ? document.length : dataEnd,
+  );
 
   return new Map(
     [
@@ -92,7 +98,7 @@ function extractWorkerQueues(manifest) {
   return new Set(
     [
       ...manifest.matchAll(
-        /^[ \t]*- name: WORKER_QUEUES\r?\n[ \t]*value:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/gm,
+        /^[ \t]*- name: WORKER_QUEUES\r?\n(?:[ \t]*#.*\r?\n|[ \t]*\r?\n)*[ \t]*value:\s*(?:"([^"]*)"|'([^']*)'|([^\s#]+))/gm,
       ),
     ]
       .flatMap((match) => (match[1] ?? match[2] ?? match[3]).split(","))

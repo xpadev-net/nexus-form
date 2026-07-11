@@ -64,3 +64,19 @@ test("fails when a first-party queue has no Kubernetes consumer", () => {
     /google-sheets-sync/,
   );
 });
+
+test("accepts comments between WORKER_QUEUES and its literal value", () => {
+  const manifest = renderKustomization(rootDir, "k8s/base");
+  const withComment = manifest.replace(
+    /(^[ \t]*- name: WORKER_QUEUES\r?\n)([ \t]*value: google-sheets-sync\r?\n)/m,
+    "$1        # queue selection remains explicit\n$2",
+  );
+
+  assert.notEqual(withComment, manifest);
+  assert.doesNotThrow(() =>
+    checkRenderedManifest(withComment, {
+      label: "base fixture",
+      requiredQueueNames: getFirstPartyQueueNames(rootDir),
+    }),
+  );
+});
