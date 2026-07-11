@@ -51,15 +51,19 @@ function getRequestSignal(init?: RequestInit): AbortSignal | null {
 export function createGitHubTimeoutFetch(
   apiTimeoutMs: number,
   fetchImpl: typeof fetch = (...args) => globalThis.fetch(...args),
+  defaultSignal?: AbortSignal,
 ): typeof fetch {
   return async (input, init) => {
     const timeoutSignal = AbortSignal.timeout(apiTimeoutMs);
-    const requestSignal =
+    const callerSignal =
       getRequestSignal(init) ??
       (input instanceof Request ? input.signal : null);
-    const signal = requestSignal
-      ? AbortSignal.any([requestSignal, timeoutSignal])
-      : timeoutSignal;
+    const signals = [callerSignal, defaultSignal].filter(
+      (signal, index, allSignals): signal is AbortSignal =>
+        signal != null && allSignals.indexOf(signal) === index,
+    );
+    signals.push(timeoutSignal);
+    const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals);
 
     return fetchImpl(input, {
       ...init,
@@ -78,12 +82,13 @@ export class GitHubApiClient {
     installationId?: string,
     debug = false,
     apiTimeoutMs = getGitHubApiTimeoutMs(),
+    signal?: AbortSignal,
   ) {
     this.debug = debug;
 
     const normalizedKey = privateKey?.replace(/\\n/g, "\n");
     const request = {
-      fetch: createGitHubTimeoutFetch(apiTimeoutMs),
+      fetch: createGitHubTimeoutFetch(apiTimeoutMs, undefined, signal),
     };
 
     if (appId && normalizedKey && installationId) {
@@ -101,9 +106,15 @@ export class GitHubApiClient {
     }
   }
 
-  async getUserByUsername(username: string): Promise<GitHubUserInfo | null> {
+  async getUserByUsername(
+    username: string,
+    signal?: AbortSignal,
+  ): Promise<GitHubUserInfo | null> {
     try {
-      const { data } = await this.octokit.users.getByUsername({ username });
+      const { data } = await this.octokit.users.getByUsername({
+        username,
+        ...(signal ? { request: { signal } } : {}),
+      });
 
       const parsed = GitHubApiUserSchema.safeParse(data);
       if (!parsed.success) {
@@ -167,6 +178,7 @@ export function getGitHubClient(
   privateKey?: string,
   installationId?: string,
   apiTimeoutMs?: number,
+  signal?: AbortSignal,
 ): GitHubApiClient {
   return new GitHubApiClient(
     appId,
@@ -174,5 +186,6 @@ export function getGitHubClient(
     installationId,
     false,
     apiTimeoutMs,
+    signal,
   );
 }
