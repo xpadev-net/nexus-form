@@ -485,6 +485,9 @@ const guildMemberRule: ValidationProviderRule = {
         }),
       };
     } catch (error) {
+      if (context?.signal.aborted) {
+        throw context.signal.reason ?? error;
+      }
       if (error instanceof DiscordHttpError) {
         if (error.status === 429) {
           return {

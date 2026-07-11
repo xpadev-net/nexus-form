@@ -400,6 +400,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
   it("stops Discord validation requests when the execution signal aborts", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     const controller = new AbortController();
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
     const fetchMock = vi.fn().mockImplementation(
       (_url: string, init?: RequestInit) =>
         new Promise<never>((_, reject) => {
@@ -426,13 +427,9 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     );
 
     await Promise.resolve();
-    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+    controller.abort(abortReason);
 
-    await expect(validation).resolves.toMatchObject({
-      isValid: false,
-      errorCode: DiscordErrorCode.DISCORD_API_ERROR,
-      retryable: true,
-    });
+    await expect(validation).rejects.toBe(abortReason);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
