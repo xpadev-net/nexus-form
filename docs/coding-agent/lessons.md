@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Inventory dependency-owned credential routes before wiring access logs
+
+- tags: logging, security, authentication, dependencies
+- symptom: Sanitized request middleware still exposed Better Auth password-reset bearer tokens embedded in `/reset-password/:token` paths.
+- root cause: The credential-segment inventory covered application routes and OAuth callbacks but did not inspect all path-token endpoints contributed by the mounted authentication dependency.
+- fix: Add the dependency's reset-password predecessor to the central redaction set and test request-start, completion, encoded path, and error-target paths.
+- prevention: Before enabling centralized request logging, enumerate credential-bearing routes from both first-party handlers and mounted dependency route tables, then pin each path-token shape with a regression test.
+
 ## 2026-07-11: Synchronize async tests on observable lifecycle events
 
 - tags: testing, concurrency, cancellation, vitest
