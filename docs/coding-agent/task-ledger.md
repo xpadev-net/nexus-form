@@ -21,8 +21,8 @@
 | AUTH-ORIGIN-1 | Better Auth trusted-origin boundary | complete | `codex/better-auth-origin-boundary` | `019f4e46-668a-7041-9e8e-b285de656272` | [#655](https://github.com/xpadev-net/nexus-form/pull/655) | Merged as `f05b18dbaf32429c80474002a34e0306ece59bb3`; archive worker |
 | K8S-4 | Deployment wiring regression coverage | complete | `codex/k8s-runtime-wiring-check` | `019f4ee4-740a-7a60-ae1a-e1fae23c8fc0` | [#656](https://github.com/xpadev-net/nexus-form/pull/656) | Merged as `2a319d056b1c274d023ea58313b12d89a95dd850`; archive worker |
 | PLUGIN-3 | Host-enforced plugin deadline wrapper | complete | `codex/plugin-host-deadline` | `019f4ee4-740a-7a60-ae1a-e1d39b3d4129` | [#657](https://github.com/xpadev-net/nexus-form/pull/657) | Merged as `451e062e6619575f5eecaa87b44f3b7065d4ea33`; archive worker |
-| PLUGIN-4 | Discord provider cancellation propagation | in progress | `codex/discord-plugin-cancellation` | `client-new-thread:53b5d619-a70e-4c7c-bd94-98e8d10e1910` | — | Worker implementation |
-| PLUGIN-5 | GitHub provider cancellation propagation | in progress | `codex/github-plugin-cancellation` | `client-new-thread:0264574d-d5aa-4244-8e69-d925de90cf88` | — | Worker implementation |
+| PLUGIN-4 | Discord provider cancellation propagation | in progress | `codex/discord-plugin-cancellation` | `019f4f92-337e-78a3-a362-4899e6b6273d` | — | Worker implementation |
+| PLUGIN-5 | GitHub provider cancellation propagation | in progress | `codex/github-plugin-cancellation` | `019f4f92-337d-71c2-b9f1-294ec47ca19c` | — | Worker implementation |
 
 ## Queued Plans
 
@@ -68,3 +68,4 @@
 - 2026-07-11: K8S-4 merged via PR #656 (`2a319d056b1c274d023ea58313b12d89a95dd850`). Parent review found and worker fixed a quoted-empty YAML scalar fail-open in `TRUSTED_ORIGINS` validation; worker and orchestrator hooks exited 0; CI passed; parent focused parity tests passed 7 tests, the CLI check and base/production renders passed; final independent parent parser review found no actionable issues. Residual risk: producer and rendered-manifest discovery remain deliberately regex-based and may require updates if source or Kustomize output shapes change.
 - 2026-07-11: PLUGIN-3 merged via PR #657 (`451e062e6619575f5eecaa87b44f3b7065d4ea33`). Parent reviews required worker fixes for Discord lock timeout cause preservation, absolute epoch deadline assertions, and shutdown-time cooperative fulfillment; worker and orchestrator hooks exited 0; CI passed; parent focused Worker lifecycle tests passed 99 tests, Worker type-check and build passed; final independent parent resource-lifecycle review found no actionable issues. Residual risk: a signal-ignoring plugin's own side effects may continue after host release, though late settlements are observed and cannot overwrite terminal state.
 - 2026-07-11: Started dependency-ready PLUGIN-4 and PLUGIN-5 workers in isolated worktrees with `gpt-5.6-luna` at `high` reasoning. Discord and GitHub provider ownership is disjoint; Twitter propagation remains queued until a worker slot is available.
+- 2026-07-11: Startup stability check passed for PLUGIN-4 and PLUGIN-5; replaced queued client IDs with durable thread IDs.
