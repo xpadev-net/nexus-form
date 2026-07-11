@@ -46,6 +46,17 @@ const TwitterApiResponseBaseSchema = z.object({
   meta: z.record(z.string(), z.unknown()).optional(),
 });
 
+function isTwitterCancellationError(
+  error: unknown,
+  signal: AbortSignal,
+): boolean {
+  return (
+    error === signal.reason ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    axios.isCancel(error)
+  );
+}
+
 function parseTwitterApiResponse<T>(
   raw: unknown,
   dataSchema: z.ZodSchema<T>,
@@ -152,7 +163,9 @@ export class TwitterApiClient {
       }
       return response.data ?? null;
     } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
+      if (signal?.aborted && isTwitterCancellationError(error, signal)) {
+        throw signal.reason ?? error;
+      }
       const validationError = parseTwitterError(error);
       if (validationError.code === TwitterErrorCode.TWITTER_USER_NOT_FOUND)
         return null;
@@ -191,7 +204,9 @@ export class TwitterApiClient {
       }
       return response.data ?? null;
     } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
+      if (signal?.aborted && isTwitterCancellationError(error, signal)) {
+        throw signal.reason ?? error;
+      }
       const validationError = parseTwitterError(error);
       if (validationError.code === TwitterErrorCode.TWITTER_USER_NOT_FOUND)
         return null;

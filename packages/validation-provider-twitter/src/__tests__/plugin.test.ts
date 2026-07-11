@@ -14,6 +14,7 @@ vi.mock("axios", () => ({
     create: vi.fn(() => ({
       request: axiosRequestMock,
     })),
+    isCancel: vi.fn(() => false),
   },
 }));
 
@@ -99,6 +100,29 @@ describe("Twitter request cancellation", () => {
     controller.abort(abortError);
 
     await expect(request).rejects.toBe(abortError);
+  });
+
+  it("keeps an invalid user ID error when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await expect(
+      client.getUserById("not-a-user-id", controller.signal),
+    ).rejects.toThrow("Invalid Twitter user ID format: not-a-user-id");
+  });
+
+  it("keeps a missing-user response when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+    axiosRequestMock.mockRejectedValueOnce({
+      response: { status: 404, data: { title: "Not Found" } },
+    });
+    const client = new TwitterApiClient({ bearerToken: "token" });
+
+    await expect(
+      client.getUserByUsername("missing-user", controller.signal),
+    ).resolves.toBeNull();
   });
 });
 
@@ -201,6 +225,26 @@ describe("twitterProvider.rules.user_exists.validate", () => {
         },
       ),
     ).rejects.toBe(abortError);
+  });
+
+  it("keeps invalid input mapping when the execution signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("Validation cancelled", "AbortError"));
+
+    const result = await twitterProvider.rules.user_exists?.validate(
+      "user/name",
+      {},
+      {
+        signal: controller.signal,
+        deadlineAt: Date.now() + 5_000,
+      },
+    );
+
+    expect(result).toMatchObject({
+      isValid: false,
+      errorCode: TwitterErrorCode.INVALID_INPUT,
+      retryable: false,
+    });
   });
 
   it("returns safe metadata for an existing Twitter user", async () => {

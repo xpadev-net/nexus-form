@@ -4,6 +4,7 @@ import type {
   ValidationProviderResult,
   ValidationProviderRule,
 } from "@nexus-form/integrations";
+import axios from "axios";
 import { z } from "zod";
 import { getTwitterClient, TwitterUserInfoSchema } from "./client";
 import { assertTwitterEnvironmentConfig } from "./config";
@@ -43,6 +44,17 @@ function normalizeTwitterUsername(username: string): string {
     normalized = normalized.slice(1);
   }
   return normalized;
+}
+
+function isTwitterCancellationError(
+  error: unknown,
+  signal: AbortSignal,
+): boolean {
+  return (
+    error === signal.reason ||
+    (error instanceof DOMException && error.name === "AbortError") ||
+    axios.isCancel(error)
+  );
 }
 
 const userExistsRule: ValidationProviderRule = {
@@ -147,7 +159,12 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
-      if (context?.signal.aborted) throw error;
+      if (
+        context?.signal.aborted &&
+        isTwitterCancellationError(error, context.signal)
+      ) {
+        throw error;
+      }
       const parsed = parseTwitterError(error);
 
       if (parsed.code === TwitterErrorCode.TWITTER_API_RATE_LIMIT) {
