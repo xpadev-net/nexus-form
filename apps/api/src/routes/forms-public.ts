@@ -86,10 +86,15 @@ import {
 
 const MAX_FINGERPRINTS = 200;
 const MAX_FINGERPRINT_VALUE_LENGTH = 255;
+export const MAX_PUBLIC_PASSWORD_LENGTH = 1_024;
+export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
 const responseBodySizeLimit = createRequestBodySizeLimit({
   maxBytes: MAX_RESPONSE_BODY_BYTES,
+});
+const publicPasswordRequestBodySizeLimit = createRequestBodySizeLimit({
+  maxBytes: MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES,
 });
 
 let publicMigrationGate: Promise<void> | null = null;
@@ -199,7 +204,7 @@ const publicSubmitSchema = z.object({
 });
 
 const verifyPasswordSchema = z.object({
-  password: z.string().min(1),
+  password: z.string().min(1).max(MAX_PUBLIC_PASSWORD_LENGTH),
 });
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -962,6 +967,7 @@ export const formsPublicRouter = createHonoApp()
   .post(
     "/public/:publicId/verify-password",
     createRateLimit({ windowMs: 15 * 60 * 1000, maxRequests: 10 }),
+    publicPasswordRequestBodySizeLimit,
     zValidator("json", verifyPasswordSchema),
     async (c) => {
       const publicId = c.req.param("publicId");
