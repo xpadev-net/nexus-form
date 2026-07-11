@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createGitHubTimeoutFetch } from "../client";
 import { GitHubErrorCode } from "../error-codes";
 import { githubProvider } from "../plugin";
 import { GitHubProviderError } from "../utils";
@@ -19,6 +20,30 @@ vi.mock("../client", async (importOriginal) => {
 
 beforeEach(() => {
   getUserByUsernameMock.mockReset();
+});
+
+describe("GitHub request cancellation", () => {
+  it("keeps the execution signal on requests without endpoint signal options", async () => {
+    const controller = new AbortController();
+    let receivedSignal: AbortSignal | undefined;
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      receivedSignal = init?.signal ?? undefined;
+      return new Response("{}");
+    };
+    const timeoutFetch = createGitHubTimeoutFetch(
+      2_500,
+      fetchImpl,
+      controller.signal,
+    );
+
+    await timeoutFetch(
+      "https://api.github.com/app/installations/1/access_tokens",
+    );
+
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    controller.abort();
+    expect(receivedSignal?.aborted).toBe(true);
+  });
 });
 
 const validUserData = {
@@ -89,6 +114,43 @@ describe("githubProvider.rules.user_exists.inputSchema", () => {
 });
 
 describe("githubProvider.rules.user_exists.validate", () => {
+  it("passes the optional execution signal to the GitHub client", async () => {
+    const controller = new AbortController();
+    getUserByUsernameMock.mockResolvedValueOnce(validUserData);
+
+    await githubProvider.rules.user_exists?.validate(
+      "octocat",
+      {},
+      {
+        signal: controller.signal,
+        deadlineAt: Date.now() + 5_000,
+      },
+    );
+
+    expect(getUserByUsernameMock).toHaveBeenCalledWith(
+      "octocat",
+      controller.signal,
+    );
+  });
+
+  it("preserves cancellation instead of mapping an aborted request to validation failure", async () => {
+    const controller = new AbortController();
+    const abortError = new DOMException("Aborted", "AbortError");
+    getUserByUsernameMock.mockRejectedValueOnce(abortError);
+    controller.abort();
+
+    await expect(
+      githubProvider.rules.user_exists?.validate(
+        "octocat",
+        {},
+        {
+          signal: controller.signal,
+          deadlineAt: Date.now() + 5_000,
+        },
+      ),
+    ).rejects.toBe(abortError);
+  });
+
   it("validates an existing GitHub user and returns metadata from fixtures", async () => {
     getUserByUsernameMock.mockResolvedValueOnce(validUserData);
 

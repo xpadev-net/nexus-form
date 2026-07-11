@@ -1,5 +1,6 @@
 import type {
   ValidationProvider,
+  ValidationProviderExecutionContext,
   ValidationProviderResult,
   ValidationProviderRule,
 } from "@nexus-form/integrations";
@@ -42,7 +43,9 @@ function normalizeGitHubUsername(username: string): string {
   return normalized;
 }
 
-function resolveGitHubClient(): ReturnType<typeof getGitHubClient> {
+function resolveGitHubClient(
+  signal?: AbortSignal,
+): ReturnType<typeof getGitHubClient> {
   try {
     const cfg = getGitHubConfig();
     return getGitHubClient(
@@ -50,9 +53,12 @@ function resolveGitHubClient(): ReturnType<typeof getGitHubClient> {
       cfg.privateKey,
       cfg.installationId,
       cfg.apiTimeoutMs,
+      signal,
     );
   } catch {
-    return getGitHubClient();
+    return signal
+      ? getGitHubClient(undefined, undefined, undefined, undefined, signal)
+      : getGitHubClient();
   }
 }
 
@@ -106,11 +112,17 @@ const userExistsRule: ValidationProviderRule = {
   configSchema: GitHubConfigSchema,
   metadataSchema: GitHubMetadataSchema,
 
-  async validate(input, _config): Promise<ValidationProviderResult> {
-    const client = resolveGitHubClient();
+  async validate(
+    input,
+    _config,
+    context?: ValidationProviderExecutionContext,
+  ): Promise<ValidationProviderResult> {
+    const client = resolveGitHubClient(context?.signal);
 
     try {
-      const userData = await client.getUserByUsername(input);
+      const userData = context
+        ? await client.getUserByUsername(input, context.signal)
+        : await client.getUserByUsername(input);
 
       if (userData === null) {
         return {
@@ -152,6 +164,7 @@ const userExistsRule: ValidationProviderRule = {
         ],
       };
     } catch (error) {
+      if (context?.signal.aborted) throw error;
       if (isGitHubProviderError(error)) {
         const retryAfterMs =
           error.code === GitHubErrorCode.GITHUB_API_RATE_LIMIT
