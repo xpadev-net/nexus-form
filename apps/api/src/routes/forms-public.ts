@@ -67,6 +67,7 @@ import { verifyPassword } from "../lib/security/password";
 import { captureError } from "../lib/sentry";
 import {
   extractJwtFromRequest,
+  type PasswordGrantContext,
   resolveSessionIdOrCreate,
   signSessionJwt,
   verifySessionJwt,
@@ -318,10 +319,12 @@ function getEnabledSubmitNotificationChannels(
     : null;
 }
 
-function isPasswordVerified(c: Context, formId: string): boolean {
+function isPasswordVerified(
+  c: Context,
+  passwordGrant: PasswordGrantContext,
+): boolean {
   const jwtToken = extractJwtFromRequest(c);
-  const decoded = jwtToken ? verifySessionJwt(jwtToken) : null;
-  return decoded?.verifiedForms?.includes(formId) ?? false;
+  return jwtToken ? verifySessionJwt(jwtToken, passwordGrant) !== null : false;
 }
 
 function setSessionCookie(
@@ -505,7 +508,7 @@ export const formsPublicRouter = createHonoApp()
         operation: "GET /public/:publicId",
       },
     );
-    if (!parsedStructure) {
+    if (!parsedStructure || !activeSnapshot) {
       return c.json(errorResponse("Form configuration is invalid"), 500);
     }
 
@@ -525,7 +528,13 @@ export const formsPublicRouter = createHonoApp()
         );
       }
 
-      if (!isPasswordVerified(c, target.id)) {
+      if (
+        !isPasswordVerified(c, {
+          formId: target.id,
+          publishedVersion: activeSnapshot.version,
+          passwordHash: pwProtection.password,
+        })
+      ) {
         const response = PublicFormResponseSchema.parse({
           form: {
             id: target.id,
@@ -614,7 +623,7 @@ export const formsPublicRouter = createHonoApp()
           operation: "POST /public/:publicId/submit",
         },
       );
-      if (!parsedStructure) {
+      if (!parsedStructure || !activeSnapshot) {
         return c.json(errorResponse("Form configuration is invalid"), 500);
       }
 
@@ -635,7 +644,13 @@ export const formsPublicRouter = createHonoApp()
           );
         }
 
-        if (!isPasswordVerified(c, target.id)) {
+        if (
+          !isPasswordVerified(c, {
+            formId: target.id,
+            publishedVersion: activeSnapshot.version,
+            passwordHash: pwProtection.password,
+          })
+        ) {
           return c.json(
             PasswordRequiredErrorResponseSchema.parse({
               error: "Password verification required",
@@ -992,7 +1007,7 @@ export const formsPublicRouter = createHonoApp()
         publicId,
         operation: "POST /public/:publicId/verify-password",
       });
-      if (!parsed) {
+      if (!parsed || !activeSnapshot) {
         return c.json(errorResponse("Form configuration is invalid"), 500);
       }
 
@@ -1023,11 +1038,10 @@ export const formsPublicRouter = createHonoApp()
         return c.json(VerifyPasswordResponseSchema.parse({ valid: false }));
       }
 
-      // Issue JWT with verifiedForms
+      // Issue a publication-bound V2 grant. Legacy verifiedForms claims are
+      // intentionally not copied into newly issued tokens.
       const existingJwt = extractJwtFromRequest(c);
       const existing = existingJwt ? verifySessionJwt(existingJwt) : null;
-      const verifiedForms = new Set(existing?.verifiedForms ?? []);
-      verifiedForms.add(target.id);
 
       const { ip } = extractClientIP(c.req.raw, { strategy: "general" });
       const userAgent = c.req.header("user-agent") ?? undefined;
@@ -1037,7 +1051,12 @@ export const formsPublicRouter = createHonoApp()
       });
 
       const newJwt = signSessionJwt(sessionId, {
-        verifiedForms: [...verifiedForms],
+        verifiedFormGrants: existing?.verifiedFormGrants ?? [],
+        passwordGrant: {
+          formId: target.id,
+          publishedVersion: activeSnapshot.version,
+          passwordHash: pwProtection.password,
+        },
       });
       setSessionCookie(c, newJwt);
 

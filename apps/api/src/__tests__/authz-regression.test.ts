@@ -1829,7 +1829,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
     vi.mocked(extractJwtFromRequest).mockReturnValueOnce("verified-jwt");
     vi.mocked(verifySessionJwt).mockReturnValueOnce({
       sessionId: "session-id",
-      verifiedForms: [FORM_ID],
+      verifiedFormGrants: [{ formId: FORM_ID, revision: "opaque-revision" }],
     });
     vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
       makeSnapshot({
@@ -1969,7 +1969,12 @@ describe("R4-H1: password protected public GET gates form body", () => {
       "hashed-password",
     );
     expect(signSessionJwt).toHaveBeenCalledWith("s1", {
-      verifiedForms: [FORM_ID],
+      verifiedFormGrants: [],
+      passwordGrant: {
+        formId: FORM_ID,
+        publishedVersion: 1,
+        passwordHash: "hashed-password",
+      },
     });
     expect(res.headers.get("Set-Cookie")).toContain("cf_session=tok");
   });

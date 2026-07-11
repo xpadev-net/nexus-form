@@ -1,46 +1,116 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { formSession } from "@nexus-form/database/schema";
 import { eq } from "drizzle-orm";
 import type { Context } from "hono";
 import jwt from "jsonwebtoken";
+import { z } from "zod";
 import type { TransactionClient } from "../forms/types";
+
+const PASSWORD_GRANT_HMAC_DOMAIN = "nexus-form:public-form-password-grant:v2\0";
+
+export const VerifiedFormGrantSchema = z.object({
+  formId: z.string().min(1).max(255),
+  revision: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+});
+
+export const SessionJwtPayloadSchema = z.object({
+  sessionId: z.string().min(1),
+  // Read-only compatibility for tokens issued before V2. Protected forms
+  // never authorize from this claim; unprotected forms do not inspect it.
+  verifiedForms: z.array(z.string().min(1).max(255)).max(1000).optional(),
+  verifiedFormGrants: z.array(VerifiedFormGrantSchema).max(1000).optional(),
+});
+
+export type VerifiedFormGrant = z.infer<typeof VerifiedFormGrantSchema>;
 
 export type SessionJwtPayload = {
   sessionId: string;
   verifiedForms?: string[];
+  verifiedFormGrants?: VerifiedFormGrant[];
 };
+
+export type PasswordGrantContext = {
+  formId: string;
+  publishedVersion: number;
+  passwordHash: string;
+};
+
+function getAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) throw new Error("AUTH_SECRET environment variable is required");
+  return secret;
+}
+
+/**
+ * Derives an opaque, publication-bound revision for a protected form.
+ * AUTH_SECRET is deliberately part of the HMAC key: rotating it invalidates
+ * all session JWTs and makes every password grant revision unusable as well.
+ */
+export function getPasswordGrantRevision(grant: PasswordGrantContext): string {
+  return createHmac("sha256", getAuthSecret())
+    .update(PASSWORD_GRANT_HMAC_DOMAIN)
+    .update(
+      JSON.stringify([
+        grant.formId,
+        grant.publishedVersion,
+        grant.passwordHash,
+      ]),
+    )
+    .digest("base64url");
+}
 
 export function signSessionJwt(
   sessionId: string,
-  additionalData?: { verifiedForms?: string[] },
+  additionalData?: {
+    verifiedFormGrants?: VerifiedFormGrant[];
+    passwordGrant?: PasswordGrantContext;
+  },
 ): string {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error("AUTH_SECRET environment variable is required");
+  const secret = getAuthSecret();
 
   const payload: SessionJwtPayload = { sessionId };
-  if (additionalData?.verifiedForms) {
-    payload.verifiedForms = additionalData.verifiedForms;
+  if (additionalData?.passwordGrant) {
+    const { passwordGrant } = additionalData;
+    const existingGrants = additionalData.verifiedFormGrants ?? [];
+    payload.verifiedFormGrants = [
+      ...existingGrants.filter(
+        (grant) => grant.formId !== passwordGrant.formId,
+      ),
+      {
+        formId: passwordGrant.formId,
+        revision: getPasswordGrantRevision(passwordGrant),
+      },
+    ];
+  } else if (additionalData?.verifiedFormGrants) {
+    payload.verifiedFormGrants = additionalData.verifiedFormGrants;
   }
 
   return jwt.sign(payload, secret, { algorithm: "HS256", expiresIn: "14d" });
 }
 
-export function verifySessionJwt(token: string): SessionJwtPayload | null {
+export function verifySessionJwt(
+  token: string,
+  expectedPasswordGrant?: PasswordGrantContext,
+): SessionJwtPayload | null {
   try {
-    const secret = process.env.AUTH_SECRET;
-    if (!secret)
-      throw new Error("AUTH_SECRET environment variable is required");
-    const decoded = jwt.verify(token, secret, { algorithms: ["HS256"] });
-    if (
-      typeof decoded === "object" &&
-      decoded !== null &&
-      "sessionId" in decoded &&
-      typeof decoded.sessionId === "string"
-    ) {
-      return decoded as SessionJwtPayload;
+    const decoded = jwt.verify(token, getAuthSecret(), {
+      algorithms: ["HS256"],
+    });
+    const parsed = SessionJwtPayloadSchema.safeParse(decoded);
+    if (!parsed.success) return null;
+
+    if (expectedPasswordGrant) {
+      const expectedRevision = getPasswordGrantRevision(expectedPasswordGrant);
+      const hasExpectedGrant = parsed.data.verifiedFormGrants?.some(
+        (grant) =>
+          grant.formId === expectedPasswordGrant.formId &&
+          grant.revision === expectedRevision,
+      );
+      if (!hasExpectedGrant) return null;
     }
-    return null;
+
+    return parsed.data;
   } catch {
     return null;
   }
