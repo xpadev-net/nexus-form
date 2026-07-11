@@ -1,10 +1,12 @@
 import {
   providerRegistry,
   type ValidationProvider,
+  type ValidationProviderExecutionContext,
+  type ValidationProviderResult,
   type ValidationProviderRule,
 } from "@nexus-form/integrations";
 import { DelayedError, type Job } from "bullmq";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { handleGenericValidation } from "../generic-validation";
 
@@ -267,6 +269,28 @@ const baseContext = {
   referencedValue: "test-input",
 } as unknown as Awaited<ReturnType<typeof getValidationContext>>;
 
+const originalValidationPluginTimeoutMs =
+  process.env.VALIDATION_PLUGIN_TIMEOUT_MS;
+
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+afterEach(() => {
+  if (originalValidationPluginTimeoutMs === undefined) {
+    delete process.env.VALIDATION_PLUGIN_TIMEOUT_MS;
+  } else {
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS =
+      originalValidationPluginTimeoutMs;
+  }
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
   shutdownSignalMock.reset();
   vi.clearAllMocks();
@@ -482,7 +506,14 @@ describe("handleGenericValidation", () => {
       name: "AbortError",
     });
     expect(mockMarkValidationProcessing).toHaveBeenCalled();
-    expect(rule.validate).toHaveBeenCalledWith("test-input", {});
+    expect(rule.validate).toHaveBeenCalledWith(
+      "test-input",
+      {},
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        deadlineAt: expect.any(Number),
+      }),
+    );
     expect(mockWriteValidationResult).not.toHaveBeenCalled();
   });
 
@@ -535,6 +566,172 @@ describe("handleGenericValidation", () => {
         errorMessage: "Worker shutdown",
       }),
     );
+  });
+
+  it("signalを無視して未解決のpluginはhost deadlineでretryable errorになる", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+
+    let executionContext: ValidationProviderExecutionContext | undefined;
+    const validate = vi.fn(
+      (
+        _input: string,
+        _config: Record<string, unknown>,
+        context: ValidationProviderExecutionContext,
+      ) => {
+        executionContext = context;
+        return new Promise<ValidationProviderResult>(() => undefined);
+      },
+    );
+    const rule = makeRule({ validate });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const handlerPromise = handleGenericValidation(job);
+    const timeoutAssertion = expect(handlerPromise).rejects.toMatchObject({
+      code: "VALIDATION_PLUGIN_TIMEOUT",
+    });
+    await flushMicrotasks();
+    await vi.runOnlyPendingTimersAsync();
+
+    await timeoutAssertion;
+    expect(executionContext?.signal.aborted).toBe(true);
+    expect(executionContext?.deadlineAt).toEqual(expect.any(Number));
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("cooperative plugin receives signal/deadlineAt and observes host timeout abort", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+
+    let executionContext: ValidationProviderExecutionContext | undefined;
+    const validate = vi.fn(
+      (
+        _input: string,
+        _config: Record<string, unknown>,
+        context: ValidationProviderExecutionContext,
+      ) => {
+        executionContext = context;
+        return new Promise<ValidationProviderResult>((_, reject) => {
+          context.signal.addEventListener(
+            "abort",
+            () => reject(context.signal.reason),
+            { once: true },
+          );
+        });
+      },
+    );
+    const rule = makeRule({ validate });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+
+    const handlerPromise = handleGenericValidation(job);
+    const timeoutAssertion = expect(handlerPromise).rejects.toMatchObject({
+      code: "VALIDATION_PLUGIN_TIMEOUT",
+    });
+    await flushMicrotasks();
+    await vi.runOnlyPendingTimersAsync();
+
+    await timeoutAssertion;
+    expect(executionContext?.signal).toBeInstanceOf(AbortSignal);
+    expect(executionContext?.signal.aborted).toBe(true);
+    expect(executionContext?.deadlineAt).toEqual(expect.any(Number));
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("worker shutdown aborts the plugin execution context and requeues non-final jobs", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+
+    let executionContext: ValidationProviderExecutionContext | undefined;
+    const validate = vi.fn(
+      (
+        _input: string,
+        _config: Record<string, unknown>,
+        context: ValidationProviderExecutionContext,
+      ) => {
+        executionContext = context;
+        return new Promise<ValidationProviderResult>(() => undefined);
+      },
+    );
+    const rule = makeRule({ validate });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 1,
+    });
+    const shutdownReason = new DOMException("Worker shutdown", "AbortError");
+
+    const handlerPromise = handleGenericValidation(job);
+    const shutdownAssertion =
+      expect(handlerPromise).rejects.toBe(shutdownReason);
+    await flushMicrotasks();
+    expect(executionContext).toBeDefined();
+
+    shutdownSignalMock.abort(shutdownReason);
+    await vi.runOnlyPendingTimersAsync();
+
+    await shutdownAssertion;
+    expect(executionContext?.signal.aborted).toBe(true);
+    expect(executionContext?.signal.reason).toBe(shutdownReason);
+    expect(mockWriteValidationResult).not.toHaveBeenCalled();
+  });
+
+  it("timeout後のlate rejectionを消費し、terminal resultを上書きしない", async () => {
+    vi.useFakeTimers();
+    process.env.VALIDATION_PLUGIN_TIMEOUT_MS = "1000";
+
+    let rejectLate: ((reason?: unknown) => void) | undefined;
+    const validate = vi.fn(
+      (
+        _input: string,
+        _config: Record<string, unknown>,
+        _context: ValidationProviderExecutionContext,
+      ) =>
+        new Promise<ValidationProviderResult>((_resolve, reject) => {
+          rejectLate = reject;
+        }),
+    );
+    const rule = makeRule({ validate });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+      attemptsMade: 2,
+    });
+
+    const handlerPromise = handleGenericValidation(job);
+    await flushMicrotasks();
+    await vi.runOnlyPendingTimersAsync();
+
+    await expect(handlerPromise).resolves.toEqual({
+      ok: false,
+      error: "Retryable validation error exhausted",
+    });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: false,
+        errorCode: "VALIDATION_PLUGIN_TIMEOUT",
+      }),
+    );
+    expect(mockWriteValidationResult).toHaveBeenCalledTimes(1);
+
+    rejectLate?.(new Error("late plugin failure"));
+    await flushMicrotasks();
+    expect(mockWriteValidationResult).toHaveBeenCalledTimes(1);
   });
 
   it("markValidationProcessingがConcurrentDeleteError以外をスローした場合は再スローする", async () => {
@@ -752,7 +949,14 @@ describe("handleGenericValidation", () => {
 
     expect(successResult).toEqual({ ok: true, provider: "mock_external" });
     expect(mockProviderRegistryGet).toHaveBeenCalledWith("mock_external");
-    expect(validateFn).toHaveBeenLastCalledWith("test-input", validationConfig);
+    expect(validateFn).toHaveBeenLastCalledWith(
+      "test-input",
+      validationConfig,
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        deadlineAt: expect.any(Number),
+      }),
+    );
     expect(mockMarkValidationProcessing).toHaveBeenCalledWith(
       expect.objectContaining({
         service: "mock_external",
@@ -1043,7 +1247,14 @@ describe("handleGenericValidation", () => {
         waitTimeoutMs: 125_000,
       }),
     );
-    expect(validateFn).toHaveBeenCalledWith("test-input", {});
+    expect(validateFn).toHaveBeenCalledWith(
+      "test-input",
+      {},
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        deadlineAt: expect.any(Number),
+      }),
+    );
   });
 
   it("Discord validation の Redis lock 取得タイムアウトはリトライ可能エラーとして再スローする", async () => {
@@ -1915,6 +2126,10 @@ describe("handleGenericValidation", () => {
     expect(validateFn).toHaveBeenCalledWith(
       "normalized-input",
       expect.anything(),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+        deadlineAt: expect.any(Number),
+      }),
     );
   });
 
