@@ -433,6 +433,42 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("returns a non-retryable result when the host deadline aborts validation", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const controller = new AbortController();
+    const timeoutError = Object.assign(
+      new Error("Validation plugin exceeded host deadline"),
+      { code: "VALIDATION_PLUGIN_TIMEOUT" },
+    );
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const validation = discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      { guildId: "123456789012345678" },
+      { signal: controller.signal, deadlineAt: Date.now() + 30_000 },
+    );
+
+    await Promise.resolve();
+    controller.abort(timeoutError);
+
+    await expect(validation).resolves.toMatchObject({
+      isValid: false,
+      errorCode: "VALIDATION_PLUGIN_TIMEOUT",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
     const fetchMock = vi.fn().mockResolvedValueOnce({
