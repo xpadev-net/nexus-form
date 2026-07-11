@@ -13,6 +13,11 @@ import { APIError, createAuthMiddleware } from "better-auth/api";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { brandConfig } from "./brand-config";
+import {
+  assertProductionCorsOriginsConfigured,
+  getCorsOrigins,
+} from "./cors-origins";
+import { normalizeHttpOrigin } from "./csrf-origin-guard";
 import { logError, logInfo, logWarn } from "./logger";
 
 export const INVITATION_AUTHORIZATION_COOKIE_NAME = "invitation-token";
@@ -21,6 +26,7 @@ export const INVITATION_AUTHORIZATION_TTL_SECONDS = 5 * 60;
 const INVITATION_AUTHORIZATION_IDENTIFIER_PREFIX = "signup-invitation";
 const INVITATION_AUTHORIZATION_VALUE = "authorized";
 const invitationAuthorizationTokenSchema = z.string().regex(/^[a-f0-9]{64}$/);
+const AUTH_STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const discordSocialSignInSchema = z
   .object({ provider: z.literal("discord") })
   .passthrough();
@@ -149,11 +155,28 @@ function getAuthSecret(): string {
   return secret;
 }
 
+const authTrustedOrigins = getCorsOrigins();
+assertProductionCorsOriginsConfigured();
+const authTrustedOriginSet = new Set(authTrustedOrigins);
+
+function hasTrustedAuthOrigin(request: Request | undefined): boolean {
+  if (
+    !request ||
+    !AUTH_STATE_CHANGING_METHODS.has(request.method) ||
+    !request.headers.get("cookie")?.trim()
+  ) {
+    return true;
+  }
+
+  const originHeader = request.headers.get("origin");
+  const candidate = originHeader ?? request.headers.get("referer");
+  const origin = normalizeHttpOrigin(candidate);
+  return origin !== null && authTrustedOriginSet.has(origin);
+}
+
 export const auth = betterAuth({
   basePath: "/api/auth",
-  trustedOrigins: process.env.TRUSTED_ORIGINS
-    ? process.env.TRUSTED_ORIGINS.split(",")
-    : ["http://localhost:3000"],
+  trustedOrigins: authTrustedOrigins,
   database: drizzleAdapter(db, {
     provider: "mysql",
     schema: {
@@ -200,6 +223,10 @@ export const auth = betterAuth({
   secret: getAuthSecret(),
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
+      if (!hasTrustedAuthOrigin(ctx.request)) {
+        throw new APIError("FORBIDDEN", { message: "Invalid origin" });
+      }
+
       const invitationToken = ctx.getCookie(
         INVITATION_AUTHORIZATION_COOKIE_NAME,
       );

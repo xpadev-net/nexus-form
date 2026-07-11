@@ -3,7 +3,9 @@ import type { Env } from "./hono";
 
 const STATE_CHANGING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
-function normalizeHttpOrigin(value: string | undefined): string | null {
+export function normalizeHttpOrigin(
+  value: string | null | undefined,
+): string | null {
   if (!value) return null;
   try {
     const url = new URL(value);
@@ -12,10 +14,6 @@ function normalizeHttpOrigin(value: string | undefined): string | null {
   } catch {
     return null;
   }
-}
-
-function getRefererOrigin(value: string | undefined): string | null {
-  return normalizeHttpOrigin(value);
 }
 
 function hasCookieHeader(cookieHeader: string | undefined): boolean {
@@ -60,7 +58,7 @@ export function createCsrfOriginGuard(
       return c.json({ error: "Forbidden" }, 403);
     }
 
-    const refererOrigin = getRefererOrigin(c.req.header("referer"));
+    const refererOrigin = normalizeHttpOrigin(c.req.header("referer"));
     if (refererOrigin && trustedOrigins.has(refererOrigin)) {
       await next();
       return;
