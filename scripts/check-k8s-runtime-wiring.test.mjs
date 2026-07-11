@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   checkK8sRuntimeWiring,
   checkRenderedManifest,
+  extractFixedApiQueueNames,
   getFirstPartyQueueNames,
   renderKustomization,
   rootDir,
@@ -27,6 +28,13 @@ test("base and production rendered manifests cover runtime wiring", () => {
       );
     }
   }
+});
+
+test("fails closed when fixed API queue extraction finds no constructors", () => {
+  assert.throws(
+    () => extractFixedApiQueueNames("new Queue(FIXED_QUEUE, { connection })"),
+    /Could not find fixed API queue constructors/,
+  );
 });
 
 test("fails when TRUSTED_ORIGINS disappears from a rendered manifest", () => {

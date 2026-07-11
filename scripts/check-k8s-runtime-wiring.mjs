@@ -25,6 +25,20 @@ function extractRequiredString(source, pattern, description) {
   return match[1];
 }
 
+export function extractFixedApiQueueNames(apiQueues) {
+  const fixedApiQueues = [
+    ...apiQueues.matchAll(/new Queue\("([^"$]+)"\s*,/g),
+  ].map((match) => match[1]);
+
+  if (fixedApiQueues.length === 0) {
+    throw new Error(
+      "Could not find fixed API queue constructors in apps/api/src/lib/queues.ts",
+    );
+  }
+
+  return fixedApiQueues;
+}
+
 export function getFirstPartyQueueNames(repositoryRoot = rootDir) {
   const pluginBootstrap = readRepositoryFile(
     repositoryRoot,
@@ -44,9 +58,7 @@ export function getFirstPartyQueueNames(repositoryRoot = rootDir) {
     repositoryRoot,
     "apps/api/src/lib/queues.ts",
   );
-  const fixedApiQueues = [
-    ...apiQueues.matchAll(/new Queue\("([^"$]+)"\s*,/g),
-  ].map((match) => match[1]);
+  const fixedApiQueues = extractFixedApiQueueNames(apiQueues);
 
   const sharedNotifications = readRepositoryFile(
     repositoryRoot,
