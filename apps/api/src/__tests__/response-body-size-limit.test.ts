@@ -78,6 +78,31 @@ describe("response payload limits", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("keeps the 413 response when declared-body cancellation rejects", async () => {
+    const app = new Hono<Env>().post(
+      "/submit",
+      createRequestBodySizeLimit({ maxBytes: 32 }),
+      () => new Response("unexpected"),
+    );
+    const body = new ReadableStream<Uint8Array>({
+      cancel() {
+        throw new Error("cancel failed");
+      },
+    });
+    const requestInit: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: { "content-length": "33" },
+      body,
+      duplex: "half",
+    };
+
+    const response = await app.fetch(
+      new Request("http://localhost/submit", requestInit),
+    );
+
+    expect(response.status).toBe(413);
+  });
+
   it("returns 400 for invalid JSON under the byte limit", async () => {
     const handler = vi.fn((c: Context<Env>) => c.json({ ok: true }));
     const app = new Hono<Env>().post(

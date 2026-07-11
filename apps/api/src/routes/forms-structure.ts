@@ -19,6 +19,7 @@ import {
   saveFormStructure,
 } from "../lib/forms/form-structure-service";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
+import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { getValidationOutputExportSettings } from "../lib/forms/validation-output-export-settings";
@@ -71,7 +72,7 @@ const restoreSchema = z.object({
 const accessControlUpdateSchema = z.object({
   password_protection: z.object({
     enabled: z.boolean(),
-    password: z.string().min(8).optional(),
+    password: z.string().min(8).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(),
     password_hint: z.string().max(200).optional(),
   }),
 });

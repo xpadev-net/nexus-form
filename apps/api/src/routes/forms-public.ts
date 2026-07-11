@@ -31,6 +31,7 @@ import { and, count, eq, isNull, lte } from "drizzle-orm";
 import type { Context } from "hono";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
+import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
 import { validateShareLink } from "../lib/forms/permission-service";
 import {
   buildQuestionsFromPlateContentStrict,
@@ -82,11 +83,12 @@ import {
   VerifyPasswordResponseSchema,
 } from "../types/domain/public-form";
 
+export { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
+
 // ── Schemas ──────────────────────────────────────────────────────────
 
 const MAX_FINGERPRINTS = 200;
 const MAX_FINGERPRINT_VALUE_LENGTH = 255;
-export const MAX_PUBLIC_PASSWORD_LENGTH = 1_024;
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;

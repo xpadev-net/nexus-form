@@ -190,23 +190,40 @@ describe("public password request limits", () => {
   it("rejects an oversized declared Content-Length before JSON validation or hashing", async () => {
     const { formsPublicRouter, MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES } =
       await import("../routes/forms-public");
-    const body = JSON.stringify({ password: "valid-password" });
-    const response = await formsPublicRouter.request(
-      "/public/public-id/verify-password",
-      {
-        method: "POST",
-        headers: {
-          "content-length": String(MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES + 1),
-          "content-type": "application/json",
-        },
-        body,
+    let cancelCalled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            JSON.stringify({ password: "valid-password" }),
+          ),
+        );
       },
+      cancel() {
+        cancelCalled = true;
+      },
+    });
+    const requestInit: RequestInit & { duplex: "half" } = {
+      method: "POST",
+      headers: {
+        "content-length": String(MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES + 1),
+        "content-type": "application/json",
+      },
+      body,
+      duplex: "half",
+    };
+    const response = await formsPublicRouter.fetch(
+      new Request(
+        "http://localhost/public/public-id/verify-password",
+        requestInit,
+      ),
     );
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
       error: "Request body too large",
     });
+    expect(cancelCalled).toBe(true);
     expect(mocks.db.select).not.toHaveBeenCalled();
     expect(mocks.verifyPassword).not.toHaveBeenCalled();
   });
