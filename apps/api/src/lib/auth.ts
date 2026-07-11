@@ -174,7 +174,7 @@ function hasTrustedAuthOrigin(request: Request | undefined): boolean {
   if (
     !request ||
     !AUTH_STATE_CHANGING_METHODS.has(request.method) ||
-    !request.headers.has("cookie")
+    !request.headers.get("cookie")?.trim()
   ) {
     return true;
   }

@@ -356,6 +356,12 @@ describe("Better Auth invitation admission handler", () => {
       message: "Invalid origin",
     });
 
+    const emptyCookieResponse = await request({ Cookie: "" });
+    expect(emptyCookieResponse.status).not.toBe(403);
+
+    const whitespaceCookieResponse = await request({ Cookie: "   " });
+    expect(whitespaceCookieResponse.status).not.toBe(403);
+
     const malformedOriginResponse = await request({
       Cookie: "test.session_token=value",
       Origin: "not-an-origin",
