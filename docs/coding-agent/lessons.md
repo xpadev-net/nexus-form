@@ -1,5 +1,13 @@
 # Coding Agent Lessons
 
+## 2026-07-11: Explain dependency boundaries when a configuration lands before its consumer
+
+- tags: planning, pull-request, configuration, review
+- symptom: Automated review treated a bounded environment-parsing task as incomplete because its dependent execution wiring was intentionally absent.
+- root cause: The PR initially described the new configuration without making the active plan's Task_2/Task_3 ownership and dependency boundary explicit enough for standalone review.
+- fix: Document the current task's acceptance criteria, owned files, dependent task, and why activating the setting in the same PR would cross scope.
+- prevention: When landing a producer contract before its consumer, put the dependency boundary and non-activation rationale in the PR description before requesting review.
+
 ## 2026-07-11: Keep each dynamic message on one live-region path
 
 - tags: accessibility, react, authentication, review
