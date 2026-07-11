@@ -1,5 +1,6 @@
 import { zValidator } from "@hono/zod-validator";
 import {
+  FormAccessControlInputSchema,
   type PasswordProtectionPublicationSnapshot,
   PasswordProtectionPublicationSnapshotSchema,
   type PasswordProtectionPublicationState,
@@ -19,6 +20,7 @@ import {
   saveFormStructure,
 } from "../lib/forms/form-structure-service";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
+import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
 import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
 import { withFormStructureMutationLock } from "../lib/forms/structure-mutation-lock";
 import { getValidationOutputExportSettings } from "../lib/forms/validation-output-export-settings";
@@ -47,6 +49,7 @@ import {
 import { formVersionDiffQuerySchema } from "./form-route-schemas";
 
 const FormStructureTransport = FormStructure.extend({
+  access_control: FormAccessControlInputSchema.optional(),
   notifications: FormNotificationsTransportSchema.optional(),
 });
 type FormStructureTransportType = z.infer<typeof FormStructureTransport>;
@@ -71,7 +74,7 @@ const restoreSchema = z.object({
 const accessControlUpdateSchema = z.object({
   password_protection: z.object({
     enabled: z.boolean(),
-    password: z.string().min(8).optional(),
+    password: z.string().min(8).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(),
     password_hint: z.string().max(200).optional(),
   }),
 });
@@ -593,6 +596,23 @@ export const formsStructureRouter = createHonoApp()
 
       const result = await withFormStructureMutationLock(formId, async () => {
         let structure = payload.structure;
+        const accessControl = structure.access_control;
+        const passwordProtection = accessControl?.password_protection;
+        const plaintextPassword = passwordProtection?.password;
+        if (accessControl && passwordProtection && plaintextPassword) {
+          const hashedPassword = await hashPassword(plaintextPassword);
+          structure = {
+            ...structure,
+            access_control: {
+              ...accessControl,
+              password_protection: {
+                ...passwordProtection,
+                password: hashedPassword,
+                has_password: undefined,
+              },
+            },
+          };
+        }
         const needsCurrentStructure =
           !!structure.access_control?.password_protection?.has_password ||
           hasMaskedNotificationSecretFlags(structure.notifications);

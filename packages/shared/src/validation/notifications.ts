@@ -253,32 +253,55 @@ export const FormSubmitNotificationJobDataSchema = z.object({
 
 // --- Form Access Control ---
 
-export const FormAccessControlSchema = z.object({
+/** Maximum length accepted for user-entered public form passwords. */
+export const MAX_PUBLIC_PASSWORD_LENGTH = 1_024;
+
+const passwordProtectionRequirement = (data: {
+  enabled: boolean;
+  password?: string;
+  has_password?: boolean;
+}) => !!data.password || !!data.has_password || !data.enabled;
+
+const passwordProtectionRefinement = {
+  message: "パスワード保護が有効な場合、パスワードは必須です",
+};
+
+const passwordProtectionShape = {
+  enabled: z.boolean().default(false),
+  has_password: z.boolean().optional(), // クライアント向けレスポンス用フラグ
+  password_hint: z.string().max(200).optional(),
+};
+
+const storedPasswordProtectionSchema = z
+  .object({
+    ...passwordProtectionShape,
+    password: z.string().min(1).optional(), // 既存保存値の読み取り互換性を維持する
+  })
+  .refine(passwordProtectionRequirement, passwordProtectionRefinement);
+
+const passwordProtectionInputSchema = z
+  .object({
+    ...passwordProtectionShape,
+    password: z.string().min(8).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(),
+  })
+  .refine(passwordProtectionRequirement, passwordProtectionRefinement);
+
+const formAccessControlShape = {
   require_authentication: z.boolean().default(false),
   allowed_roles: z.array(z.string()).max(20).optional(),
   allowed_domains: z.array(z.string()).max(20).optional(),
-  password_protection: z
-    .object({
-      enabled: z.boolean().default(false),
-      password: z.string().min(1).optional(), // ハッシュ化されたパスワード（サーバー内部のみ）
-      has_password: z.boolean().optional(), // クライアント向けレスポンス用フラグ
-      password_hint: z.string().max(200).optional(),
-    })
-    .refine(
-      (data) => {
-        // パスワード保護が有効な場合、パスワードハッシュまたは has_password フラグが必須
-        // has_password はクライアント向けレスポンス用フラグで、ハッシュがマスクされた
-        // 構造を PUT で再送信する際に有効なケースとして認める
-        if (data.enabled && !data.password && !data.has_password) {
-          return false;
-        }
-        return true;
-      },
-      {
-        message: "パスワード保護が有効な場合、パスワードは必須です",
-      },
-    )
-    .optional(),
+};
+
+/** Persisted structures remain readable even if a legacy password value is longer. */
+export const FormAccessControlSchema = z.object({
+  ...formAccessControlShape,
+  password_protection: storedPasswordProtectionSchema.optional(),
+});
+
+/** Input contract for full structure mutations with a bounded plaintext password. */
+export const FormAccessControlInputSchema = z.object({
+  ...formAccessControlShape,
+  password_protection: passwordProtectionInputSchema.optional(),
 });
 
 // --- Form Confirmation ---

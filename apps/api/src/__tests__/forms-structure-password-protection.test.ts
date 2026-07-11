@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getFormStructure: vi.fn(),
   getLatestSnapshot: vi.fn(),
+  hashPassword: vi.fn(),
+  saveFormStructure: vi.fn(),
 }));
 
 vi.mock("../load-env", () => ({}));
@@ -10,7 +12,14 @@ vi.mock("../load-env", () => ({}));
 vi.mock("../lib/dual-auth", () => ({
   withDualFormAuth:
     () =>
-    async (_c: unknown, next: () => Promise<void>): Promise<void> => {
+    async (
+      c: { set: (key: string, value: unknown) => void },
+      next: () => Promise<void>,
+    ): Promise<void> => {
+      c.set("dualAuthContext", {
+        auth_type: "session",
+        user_id: "user-1",
+      });
       await next();
     },
 }));
@@ -20,7 +29,7 @@ vi.mock("../lib/forms/form-structure-service", () => ({
   getFormStructureDiff: vi.fn(),
   getFormStructureHistory: vi.fn(),
   restoreFormStructure: vi.fn(),
-  saveFormStructure: vi.fn(),
+  saveFormStructure: mocks.saveFormStructure,
 }));
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
@@ -28,7 +37,7 @@ vi.mock("../lib/forms/snapshot-repository", () => ({
 }));
 
 vi.mock("../lib/security/password", () => ({
-  hashPassword: vi.fn(),
+  hashPassword: mocks.hashPassword,
 }));
 
 vi.mock("ioredis", () => {
@@ -47,6 +56,8 @@ describe("forms structure password protection response", () => {
     vi.resetModules();
     mocks.getFormStructure.mockReset();
     mocks.getLatestSnapshot.mockReset();
+    mocks.hashPassword.mockReset();
+    mocks.saveFormStructure.mockReset();
   });
 
   it("masks the stored password hash and exposes only has_password to clients", async () => {
@@ -244,5 +255,131 @@ describe("forms structure password protection response", () => {
       password_hint: "pet name",
     });
     expect(JSON.stringify(body)).not.toContain("$2b$10$stored-password-hash");
+  });
+
+  it("accepts the shared maximum when configuring password protection", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH);
+    mocks.getFormStructure.mockResolvedValue({
+      version: 1,
+      settings: {},
+      access_control: { require_authentication: false },
+    });
+    mocks.hashPassword.mockResolvedValue("stored-password-hash");
+    mocks.saveFormStructure.mockResolvedValue(undefined);
+
+    const response = await formsStructureRouter.request(
+      "/form-1/structure/access-control",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          password_protection: {
+            enabled: true,
+            password,
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    expect(mocks.hashPassword).toHaveBeenCalledWith(password);
+    expect(mocks.saveFormStructure).toHaveBeenCalled();
+  });
+
+  it("rejects a password over the shared maximum before hashing", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH + 1);
+
+    const response = await formsStructureRouter.request(
+      "/form-1/structure/access-control",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          password_protection: {
+            enabled: true,
+            password,
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(mocks.hashPassword).not.toHaveBeenCalled();
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
+  });
+
+  it("accepts the shared maximum through the full structure contract", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH);
+    const savedVersion = {
+      id: "version-1",
+      formId: "form-1",
+      version: 1,
+      createdAt: new Date(),
+      changeLog: null,
+      parentVersion: null,
+    };
+    mocks.hashPassword.mockResolvedValue("stored-password-hash");
+    mocks.saveFormStructure.mockResolvedValue(savedVersion);
+
+    const response = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: {},
+          access_control: {
+            require_authentication: false,
+            password_protection: { enabled: true, password },
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mocks.hashPassword).toHaveBeenCalledWith(password);
+    expect(mocks.saveFormStructure).toHaveBeenCalled();
+    const savedStructure = mocks.saveFormStructure.mock.calls[0]?.[1];
+    expect(savedStructure.access_control.password_protection.password).toBe(
+      "stored-password-hash",
+    );
+  });
+
+  it("rejects an over-limit password through the full structure contract", async () => {
+    const { MAX_PUBLIC_PASSWORD_LENGTH } = await import(
+      "../lib/forms/password-protection"
+    );
+    const { formsStructureRouter } = await import("../routes/forms-structure");
+    const password = "x".repeat(MAX_PUBLIC_PASSWORD_LENGTH + 1);
+
+    const response = await formsStructureRouter.request("/form-1/structure", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        structure: {
+          version: 1,
+          settings: {},
+          access_control: {
+            require_authentication: false,
+            password_protection: { enabled: true, password },
+          },
+        },
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(mocks.saveFormStructure).not.toHaveBeenCalled();
   });
 });

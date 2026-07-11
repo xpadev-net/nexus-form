@@ -15,6 +15,18 @@ function toBlobPart(chunk: Uint8Array): BlobPart {
   return chunk.slice();
 }
 
+async function cancelRequestBody(request: Request): Promise<void> {
+  const body = request.body;
+  if (!body || request.bodyUsed || body.locked) return;
+
+  try {
+    await body.cancel();
+  } catch {
+    // The request is rejected regardless; cancellation is best effort because
+    // a disturbed stream or an upstream reader may already own the body.
+  }
+}
+
 /**
  * Creates middleware that rejects request bodies larger than maxBytes.
  *
@@ -32,6 +44,7 @@ export function createRequestBodySizeLimit({
         Number.isFinite(parsedContentLength) &&
         parsedContentLength > maxBytes
       ) {
+        await cancelRequestBody(c.req.raw);
         return c.json(errorResponse("Request body too large"), 413);
       }
     }

@@ -319,6 +319,14 @@ Evidence:
 - fix: While the execution signal is aborted, recognize a wrapper whose `cause` is the exact `signal.reason`, then rethrow the canonical reason; add separate wrapper/reason identity tests at client and plugin boundaries.
 - prevention: For external HTTP libraries, inspect the locked dependency's rejection/wrapping path and test canonical cancellation identity through `cause` without treating unrelated causes as cancellation.
 
+## 2026-07-11: Review stream cleanup and cross-layer limit parity before handoff
+
+- tags: review-gate, security, request-limits, cross-layer-contract
+- symptom: Parent deep-review found that an early Content-Length rejection did not cancel the request body, and that verify-only password limits could make valid configured passwords unverifiable.
+- root cause: The initial review covered size rejection and schema enforcement independently, but did not trace connection cleanup or the configuration-to-publish-to-verify contract end to end.
+- fix: Add safe early-stream cancellation with a regression callback assertion, and move the password maximum to a shared definition used by structure configuration and public verification.
+- prevention: Before reporting merge-ready for request-boundary hardening, verify cleanup on every early return and audit every producer/consumer path for shared limit parity, including a valid max and max+1 publish/verify contract test.
+
 ## 2026-07-11: Make additive MySQL migrations resumable after partial DDL
 
 - tags: database, migration, mysql, rolling-deploy
