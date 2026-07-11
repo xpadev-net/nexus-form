@@ -1,6 +1,6 @@
 # Plan: Web API Error and Discord Auth UX
 
-- status: draft
+- status: complete
 - generated: 2026-07-11
 - last_updated: 2026-07-11
 - work_type: code
@@ -121,7 +121,7 @@
 
 ## Progress Log
 - 2026-07-11: Draft created.
+- 2026-07-11: Tasks 1-3 merged through PRs #647, #654, and #661. Task 4 browser acceptance completed APPROVED on desktop and mobile with mocked OAuth initiation; repository validation and CI passed.
 
 ## Decision Log
 - 2026-07-11: Grouped both findings because RPC normalization is the shared error boundary used by the login UX.
-
