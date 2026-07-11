@@ -7,6 +7,7 @@
 
 import {
   providerRegistry,
+  type ValidationProviderExecutionContext,
   validationProviderResultSchema,
 } from "@nexus-form/integrations";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@nexus-form/shared";
 import { DelayedError, type Job } from "bullmq";
 import { ZodError, z } from "zod";
+import { getValidationPluginTimeoutMs } from "../lib/env";
 import { RedisLockAcquireTimeoutError, withRedisLock } from "../lib/redis-lock";
 import { workerShutdownSignal } from "../lib/shutdown-signal";
 import {
@@ -58,7 +60,117 @@ const RETRYABLE_CODES = new Set([
   "TIMEOUT",
   "GITHUB_API_RATE_LIMIT",
   "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
+  // Host deadline failures are retryable; a final attempt records this code.
+  "VALIDATION_PLUGIN_TIMEOUT",
 ]);
+
+const VALIDATION_PLUGIN_TIMEOUT_ERROR_CODE = "VALIDATION_PLUGIN_TIMEOUT";
+
+class ValidationPluginTimeoutError extends Error {
+  readonly code = VALIDATION_PLUGIN_TIMEOUT_ERROR_CODE;
+
+  constructor(deadlineAt: number) {
+    super(`Validation plugin exceeded host deadline at ${deadlineAt}`);
+    this.name = "ValidationPluginTimeoutError";
+  }
+}
+
+type ValidationExecution = (
+  context: ValidationProviderExecutionContext,
+) => Promise<unknown>;
+
+type ValidationExecutionOutcome =
+  | { kind: "fulfilled"; value: unknown }
+  | { kind: "rejected"; error: unknown };
+
+async function runValidationWithDeadline(
+  execute: ValidationExecution,
+): Promise<unknown> {
+  const timeoutMs = getValidationPluginTimeoutMs();
+  const deadlineAt = Date.now() + timeoutMs;
+  const controller = new AbortController();
+  const timeoutError = new ValidationPluginTimeoutError(deadlineAt);
+
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  let shutdownReleaseTimer: ReturnType<typeof setTimeout> | undefined;
+  let rejectAbort: ((reason: unknown) => void) | undefined;
+
+  const abortPromise = new Promise<never>((_, reject) => {
+    rejectAbort = reject;
+  });
+
+  const scheduleShutdownRelease = (reason: unknown): void => {
+    if (shutdownReleaseTimer !== undefined) return;
+    shutdownReleaseTimer = setTimeout(() => {
+      rejectAbort?.(reason);
+    }, 0);
+  };
+
+  const abortFromShutdown = (): void => {
+    const reason =
+      workerShutdownSignal.reason ??
+      new DOMException("Worker shutting down", "AbortError");
+    if (!controller.signal.aborted) {
+      controller.abort(reason);
+    }
+    // Let a provider rejection that is already in flight win over the host's
+    // shutdown cancellation, while still releasing a signal-ignoring plugin.
+    scheduleShutdownRelease(reason);
+  };
+
+  if (workerShutdownSignal.aborted) {
+    abortFromShutdown();
+  } else {
+    workerShutdownSignal.addEventListener("abort", abortFromShutdown, {
+      once: true,
+    });
+  }
+
+  timeoutTimer = setTimeout(() => {
+    if (controller.signal.aborted) return;
+    controller.abort(timeoutError);
+    // A host deadline is terminal even if the plugin resolves from its abort
+    // handler. The late promise remains observed below.
+    rejectAbort?.(timeoutError);
+  }, timeoutMs);
+
+  const validationPromise = controller.signal.aborted
+    ? Promise.resolve().then(() => {
+        throw (
+          controller.signal.reason ??
+          new DOMException("Worker shutting down", "AbortError")
+        );
+      })
+    : Promise.resolve().then(() =>
+        execute({ signal: controller.signal, deadlineAt }),
+      );
+  const observedValidationPromise: Promise<ValidationExecutionOutcome> =
+    validationPromise.then(
+      (value) => ({ kind: "fulfilled", value }),
+      (error) => ({ kind: "rejected", error }),
+    );
+
+  try {
+    const outcome = await Promise.race([
+      observedValidationPromise,
+      abortPromise,
+    ]);
+    if (outcome.kind === "rejected") throw outcome.error;
+    if (workerShutdownSignal.aborted) {
+      throw (
+        workerShutdownSignal.reason ??
+        new DOMException("Worker shutting down", "AbortError")
+      );
+    }
+    return outcome.value;
+  } finally {
+    if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
+    if (shutdownReleaseTimer !== undefined) {
+      clearTimeout(shutdownReleaseTimer);
+    }
+    workerShutdownSignal.removeEventListener("abort", abortFromShutdown);
+  }
+}
 
 function throwIfShuttingDown(): void {
   if (workerShutdownSignal.aborted) {
@@ -309,42 +421,49 @@ export const handleGenericValidation = async (
   try {
     throwIfShuttingDown();
 
-    const runValidation = (): ReturnType<typeof providerRule.validate> =>
-      providerRule.validate(validatedInput, providerConfig);
-    if (serviceType === DISCORD_PROVIDER_NAME) {
-      try {
-        rawResult = await withRedisLock(
-          DISCORD_VALIDATION_LOCK_KEY,
-          runValidation,
-          {
-            ttlMs: readPositiveIntegerEnv(
-              "DISCORD_VALIDATION_LOCK_TTL_MS",
-              DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS,
-            ),
-            waitTimeoutMs: readPositiveIntegerEnv(
-              "DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS",
-              DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS,
-            ),
-            signal: workerShutdownSignal,
-          },
-        );
-      } catch (error) {
-        if (isShutdownAbortError(error)) {
-          throw error;
-        }
-        if (isRedisLockAcquireTimeout(error)) {
-          throw Object.assign(
-            error instanceof Error ? error : new Error(String(error)),
+    rawResult = await runValidationWithDeadline(async (executionContext) => {
+      const runValidation = (): ReturnType<typeof providerRule.validate> =>
+        providerRule.validate(validatedInput, providerConfig, executionContext);
+      if (serviceType === DISCORD_PROVIDER_NAME) {
+        try {
+          return await withRedisLock(
+            DISCORD_VALIDATION_LOCK_KEY,
+            runValidation,
             {
-              code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
+              ttlMs: readPositiveIntegerEnv(
+                "DISCORD_VALIDATION_LOCK_TTL_MS",
+                DEFAULT_DISCORD_VALIDATION_LOCK_TTL_MS,
+              ),
+              waitTimeoutMs: readPositiveIntegerEnv(
+                "DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS",
+                DEFAULT_DISCORD_VALIDATION_LOCK_WAIT_TIMEOUT_MS,
+              ),
+              signal: executionContext.signal,
             },
           );
+        } catch (error) {
+          if (executionContext.signal.aborted) {
+            throw (
+              executionContext.signal.reason ??
+              new DOMException("Validation execution aborted", "AbortError")
+            );
+          }
+          if (isShutdownAbortError(error)) {
+            throw error;
+          }
+          if (isRedisLockAcquireTimeout(error)) {
+            throw Object.assign(
+              error instanceof Error ? error : new Error(String(error)),
+              {
+                code: "DISCORD_DISTRIBUTED_LOCK_TIMEOUT",
+              },
+            );
+          }
+          throw error;
         }
-        throw error;
       }
-    } else {
-      rawResult = await runValidation();
-    }
+      return runValidation();
+    });
   } catch (error) {
     if (isShutdownAbortError(error) && !isFinalBullMqAttempt(job)) {
       // Retry re-enters markValidationProcessing against the same PROCESSING
