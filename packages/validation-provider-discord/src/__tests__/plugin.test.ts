@@ -140,6 +140,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
 
   it("calls list members for saturated username searches when legacy scan is enabled", async () => {
     process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const controller = new AbortController();
     const targetId = "999999999999999999";
     const saturatedSearch = Array.from({ length: 1000 }, (_, index) => ({
       user: {
@@ -148,51 +149,53 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
       },
       roles: [],
     }));
-    const fetchMock = vi.fn().mockImplementation((url: string) => {
-      if (url.includes("/guilds/123456789012345678?with_counts=true")) {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation((url: string, _init?: RequestInit) => {
+        if (url.includes("/guilds/123456789012345678?with_counts=true")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue({
+              id: "123456789012345678",
+              name: "Test Guild",
+              icon: null,
+            }),
+          });
+        }
+        if (url.includes("/members/search")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue(saturatedSearch),
+          });
+        }
+        if (url.includes("/members?")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue([
+              {
+                user: { id: targetId, username: "targetuser" },
+                roles: [],
+              },
+            ]),
+          });
+        }
+        if (url.includes("/roles")) {
+          return Promise.resolve({
+            ok: true,
+            status: 200,
+            json: vi.fn().mockResolvedValue([]),
+          });
+        }
         return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: vi.fn().mockResolvedValue({
-            id: "123456789012345678",
-            name: "Test Guild",
-            icon: null,
-          }),
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          json: vi.fn().mockResolvedValue({ message: "not found" }),
         });
-      }
-      if (url.includes("/members/search")) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: vi.fn().mockResolvedValue(saturatedSearch),
-        });
-      }
-      if (url.includes("/members?")) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: vi.fn().mockResolvedValue([
-            {
-              user: { id: targetId, username: "targetuser" },
-              roles: [],
-            },
-          ]),
-        });
-      }
-      if (url.includes("/roles")) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: vi.fn().mockResolvedValue([]),
-        });
-      }
-      return Promise.resolve({
-        ok: false,
-        status: 404,
-        statusText: "Not Found",
-        json: vi.fn().mockResolvedValue({ message: "not found" }),
       });
-    });
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await discordProvider.rules.guild_member?.validate(
@@ -201,6 +204,7 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
         guildId: "123456789012345678",
         usernameLookupMode: "legacy_scan",
       },
+      { signal: controller.signal, deadlineAt: Date.now() + 30_000 },
     );
 
     expect(result).toMatchObject({
@@ -215,6 +219,17 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
         String(calledUrl).includes("/members?"),
       ),
     ).toHaveLength(1);
+    const requestSignals = fetchMock.mock.calls.map(
+      ([, init]) => (init as RequestInit).signal,
+    );
+    expect(requestSignals).toHaveLength(4);
+    expect(
+      requestSignals.every((signal) => signal instanceof AbortSignal),
+    ).toBe(true);
+
+    controller.abort();
+
+    expect(requestSignals.every((signal) => signal?.aborted)).toBe(true);
   });
 
   it("validates a guild member and returns role metadata from Discord fixtures", async () => {
@@ -320,6 +335,134 @@ describe("discordProvider.rules.guild_member.configSchema", () => {
         String(calledUrl).includes("/members?"),
       ),
     ).toHaveLength(0);
+  });
+
+  it("propagates the validation signal to every Discord request", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const controller = new AbortController();
+    const guildId = "123456789012345678";
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes(`/guilds/${guildId}?with_counts=true`)) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue({
+            id: guildId,
+            name: "Fixture Guild",
+            icon: null,
+          }),
+        });
+      }
+      if (url.includes("/members/search")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: vi.fn().mockResolvedValue([
+            {
+              user: {
+                id: "999999999999999999",
+                username: "targetuser",
+              },
+              roles: [],
+            },
+          ]),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue([]),
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      { guildId },
+      { signal: controller.signal, deadlineAt: Date.now() + 30_000 },
+    );
+
+    expect(result).toMatchObject({ isValid: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const requestSignals = fetchMock.mock.calls.map(
+      ([, init]) => (init as RequestInit).signal,
+    );
+    expect(requestSignals).toHaveLength(3);
+    expect(
+      requestSignals.every((signal) => signal instanceof AbortSignal),
+    ).toBe(true);
+
+    controller.abort();
+
+    expect(requestSignals.every((signal) => signal?.aborted)).toBe(true);
+  });
+
+  it("stops Discord validation requests when the execution signal aborts", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const controller = new AbortController();
+    const abortReason = new DOMException("Validation cancelled", "AbortError");
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<never>((_, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            reject(new Error("missing request signal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(signal.reason);
+            return;
+          }
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const validation = discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      { guildId: "123456789012345678" },
+      { signal: controller.signal, deadlineAt: Date.now() + 30_000 },
+    );
+
+    await Promise.resolve();
+    controller.abort(abortReason);
+
+    await expect(validation).rejects.toBe(abortReason);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the host deadline reason when it aborts validation", async () => {
+    process.env.DISCORD_BOT_TOKEN = "bot-token";
+    const controller = new AbortController();
+    const timeoutError = Object.assign(
+      new Error("Validation plugin exceeded host deadline"),
+      { code: "VALIDATION_PLUGIN_TIMEOUT" },
+    );
+    const fetchMock = vi.fn().mockImplementation(
+      (_url: string, init?: RequestInit) =>
+        new Promise<never>((_, reject) => {
+          init?.signal?.addEventListener(
+            "abort",
+            () => reject(init.signal?.reason),
+            { once: true },
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const validation = discordProvider.rules.guild_member?.validate(
+      "targetuser",
+      { guildId: "123456789012345678" },
+      { signal: controller.signal, deadlineAt: Date.now() + 30_000 },
+    );
+
+    await Promise.resolve();
+    controller.abort(timeoutError);
+
+    await expect(validation).rejects.toBe(timeoutError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("falls back to thirty seconds when Discord reports zero retry_after", async () => {
