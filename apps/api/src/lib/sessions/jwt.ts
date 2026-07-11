@@ -9,11 +9,13 @@ import type { TransactionClient } from "../forms/types";
 
 const PASSWORD_GRANT_HMAC_DOMAIN = "nexus-form:public-form-password-grant:v2\0";
 
+/** Runtime schema for one opaque, publication-bound V2 public-form grant. */
 export const VerifiedFormGrantSchema = z.object({
   formId: z.string().min(1).max(255),
   revision: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
 });
 
+/** Runtime schema for session JWT claims, including read-only legacy claims. */
 export const SessionJwtPayloadSchema = z.object({
   sessionId: z.string().min(1),
   // Read-only compatibility for tokens issued before V2. Protected forms
@@ -60,6 +62,11 @@ export function getPasswordGrantRevision(grant: PasswordGrantContext): string {
     .digest("base64url");
 }
 
+/**
+ * Signs a 14-day session JWT with optional V2 grants. When passwordGrant is
+ * supplied, its opaque revision replaces any grant for the same form while
+ * preserving grants for other forms; the raw password hash is never emitted.
+ */
 export function signSessionJwt(
   sessionId: string,
   additionalData?: {
@@ -89,6 +96,12 @@ export function signSessionJwt(
   return jwt.sign(payload, secret, { algorithm: "HS256", expiresIn: "14d" });
 }
 
+/**
+ * Verifies a session JWT and runtime-validates its claims. Without
+ * expectedPasswordGrant it returns the parsed session payload; when one is
+ * supplied, it additionally requires the matching V2 grant and returns null
+ * on a missing, stale, malformed, or legacy-only protected grant.
+ */
 export function verifySessionJwt(
   token: string,
   expectedPasswordGrant?: PasswordGrantContext,
