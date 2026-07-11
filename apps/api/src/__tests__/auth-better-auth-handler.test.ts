@@ -295,6 +295,26 @@ describe("Better Auth invitation admission handler", () => {
     ]);
   });
 
+  it("allows normalized trusted origins for cookie-bearing POST requests", async () => {
+    vi.stubEnv(
+      "TRUSTED_ORIGINS",
+      " HTTPS://APP.EXAMPLE.COM:443/,https://app.example.com ",
+    );
+
+    const { auth } = await import("../lib/auth");
+    const response = await auth.handler(
+      new Request("http://localhost:3001/api/auth/sign-out", {
+        method: "POST",
+        headers: {
+          Cookie: "test.session_token=value",
+          Origin: "HTTPS://APP.EXAMPLE.COM:443/",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+  });
+
   it("keeps localhost as the test default", async () => {
     vi.stubEnv("NODE_ENV", "test");
     delete process.env.TRUSTED_ORIGINS;
