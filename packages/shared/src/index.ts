@@ -285,6 +285,7 @@ export {
   FormNotificationsTransportSchema,
   FormSubmitNotificationJobDataSchema,
   isSafeConfirmationUrl,
+  MAX_PUBLIC_PASSWORD_LENGTH,
   SafeConfirmationUrlSchema,
   SecureWebhookUrlSchema,
   WebhookNotificationChannelSchema,

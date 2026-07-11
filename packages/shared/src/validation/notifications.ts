@@ -253,6 +253,9 @@ export const FormSubmitNotificationJobDataSchema = z.object({
 
 // --- Form Access Control ---
 
+/** Maximum length accepted for user-entered public form passwords and hashes. */
+export const MAX_PUBLIC_PASSWORD_LENGTH = 1_024;
+
 export const FormAccessControlSchema = z.object({
   require_authentication: z.boolean().default(false),
   allowed_roles: z.array(z.string()).max(20).optional(),
@@ -260,7 +263,7 @@ export const FormAccessControlSchema = z.object({
   password_protection: z
     .object({
       enabled: z.boolean().default(false),
-      password: z.string().min(1).optional(), // ハッシュ化されたパスワード（サーバー内部のみ）
+      password: z.string().min(1).max(MAX_PUBLIC_PASSWORD_LENGTH).optional(), // ハッシュ化されたパスワード（サーバー内部のみ）
       has_password: z.boolean().optional(), // クライアント向けレスポンス用フラグ
       password_hint: z.string().max(200).optional(),
     })
