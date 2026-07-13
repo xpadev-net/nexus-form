@@ -77,7 +77,7 @@
     required: true
     owner: worker
     detail: "Run validation-outbox-sweeper focused tests."
-- status: in_progress
+- status: complete
 
 ### Task_4: Align the initial submission enqueue path
 - type: impl
@@ -94,6 +94,7 @@
     required: true
     owner: worker
     detail: "pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-public-validation-outbox.test.ts"
+- status: in_progress
 
 ### Task_5: Add runtime failure-injection tests
 - type: test
@@ -189,6 +190,8 @@
 - 2026-07-11: Task_1 design approved. Existing timestamps cannot safely represent producer retry eligibility and leases; an additive expand-contract migration is required before producer/sweeper changes.
 - 2026-07-13: Task_3 formal review reproduced a late-delivery replay after lease renewal, reclaim, completion, and finite BullMQ job eviction. Split Task_8 as a prerequisite Worker admission fence; PR #666 remains stopped at exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf` until Task_8 merges.
 - 2026-07-14: Task_8 merged via PR #670 as `bf334a6aec15d2eef633da671bb7eb2641bd744b` after exact-head formal approval and parent merge gates. Task_3 resumes in the existing PR #666 Worker with its original two-file ownership, using the shared builder plus MySQL server-time lease fencing before fresh formal review.
+- 2026-07-14: Task_3 merged via PR #666 as `ddceb0e647d88a1b4e5ce6ff43ffa59b6b90ccc5`. Formal review independently verified server-time eligibility/lease SQL, stable job-ID parity, CAS and counter semantics, bounded jitter, acknowledgement uncertainty, LEGACY exclusion, and Worker late-delivery fencing; parent deep-review, hook, lint, type-check, full tests, focused sweeper/shared/Worker suites, CI, and AI review gates passed.
+- 2026-07-14: Started Task_4 Worker `client-new-thread:f55475ea-374a-456d-91bd-79c65ff7bd66` on `codex/outbox-4-submission-enqueue-retry` from current origin/master. It owns only `apps/api/src/routes/forms-public.ts`; Task_5 retains failure-injection test ownership, and the Worker must stop at REVIEW_READY for parent formal review.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.
