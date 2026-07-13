@@ -408,3 +408,37 @@ Prevention:
 
 Evidence:
 - User correction on 2026-07-13 and follow-up instructions sent to PWR-2G1, PWR-2D, and OUTBOX-3 implementation threads.
+
+## 2026-07-13 — Fence Late Queue Delivery at the Durable Consumer Admission Boundary  [tags: outbox, bullmq, concurrency, idempotency, review-gate]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/validation-outbox-retry-recovery-plan.md`
+- Task/Wave: OUTBOX-3 Task_3 formal review and split
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- A claimant could renew its database lease successfully, stall in `queue.add`, and enqueue after another claimant reclaimed the row, completed provider execution, and BullMQ evicted the completed job. The late add could recreate the stable job ID and run the provider again.
+
+Root cause:
+- Review treated producer-side lease renewal and stable queue IDs as an end-to-end idempotency fence without tracing delayed command execution through finite queue retention and the Worker's durable row-state transition.
+
+Fix applied:
+- Split a prerequisite shared job-ID and Worker admission slice that rejects terminal, missing, mismatched, and LEGACY outbox jobs before provider execution. Keep producer lease comparisons on database server time, but do not treat connection or promise timeouts as cancellation of a Redis command that may execute later.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - For outbox or queue idempotency, trace the full adversarial sequence: producer lease success, command delay beyond expiry, reclaim, consumer completion, queue-record eviction, and late delivery. Approval requires a durable consumer admission or equivalent persistent fence after every replay window.
+- Reviewer guardrail:
+  - Distinguish observation timeouts from cancellation/fencing. A client timeout cannot prove a command did not execute unless the external system provides a verified cancellation or fencing primitive.
+- Residual risk / waiver:
+  - Strict queue-level exactly-once admission is not claimed; the database-backed Worker transition fences effective provider execution.
+
+Evidence:
+- Formal Reviewer reproduction on PR #666 exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf`; cross-layer follow-up identified shared job-ID and `markValidationProcessing` as the minimal durable boundary.
+
+## 2026-07-13 — Bind the Recovery Locator Chain as Well as the Artifact Owner  [tags: security, shell, symlink, durable-recovery, review-gate]
+
+- symptom: A cleanup ledger correctly bound the protected artifact by canonical path and filesystem identity, but its `$HOME/.local/state/...` locator parent could be a retargetable symlink. After SIGKILL and retarget, recovery searched the new parent and a fresh probe started while the original ledger and secret-bearing residue remained.
+- root cause: Review hardened the deletion target but treated the path used to discover its recovery ledger as trusted configuration. `pwd -P` canonicalized the current target without proving that every locator component was stable and non-symlink across process lifetimes.
+- fix: Require setup and recovery to validate one absolute physical, current-user-owned, non-symlink locator chain before creating secrets, and fail closed when HOME or any intermediate state-directory component is a symlink or its identity changes.
+- prevention: Secret-artifact recovery tests must include process death followed by locator-parent symlink retarget, HOME and intermediate-component symlinks, and a retry attempt. Passing requires either safe recovery of the original residue or rejection of every new probe while the old locator remains unresolved.
