@@ -26,80 +26,198 @@ type FakeMigrationPool = {
   query<T>(sql: string, values?: unknown[]): Promise<[T, unknown]>;
 };
 
-type ConditionalDdlChoice = {
-  variable: string;
+type MigrationOperationContract = {
+  existenceVariable: string;
+  informationSchemaTable: "COLUMNS" | "STATISTICS";
+  tableName: string;
+  discriminator: "COLUMN_NAME" | "INDEX_NAME";
+  discriminatorValue: string;
+  choiceVariable: string;
   condition: string;
   existingChoice: string;
   ddlChoice: string;
+  preparedStatement: string;
+  prepareSource: string;
+  executedStatement: string;
+  deallocatedStatement: string;
 };
 
 const RETRY_METADATA_MIGRATION_TAG = "0016_zippy_alex_wilder";
 
-const EXPECTED_RETRY_METADATA_DDL_CHOICES: ConditionalDdlChoice[] = [
+const EXPECTED_RETRY_METADATA_OPERATIONS: MigrationOperationContract[] = [
   {
-    variable: "nf_add_claim_token",
+    existenceVariable: "nf_claim_token_exists",
+    informationSchemaTable: "COLUMNS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "COLUMN_NAME",
+    discriminatorValue: "claimToken",
+    choiceVariable: "nf_add_claim_token",
     condition: "@nf_claim_token_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128)",
+    preparedStatement: "nf_add_claim_token_stmt",
+    prepareSource: "nf_add_claim_token",
+    executedStatement: "nf_add_claim_token_stmt",
+    deallocatedStatement: "nf_add_claim_token_stmt",
   },
   {
-    variable: "nf_add_claim_expires_at",
+    existenceVariable: "nf_claim_expires_at_exists",
+    informationSchemaTable: "COLUMNS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "COLUMN_NAME",
+    discriminatorValue: "claimExpiresAt",
+    choiceVariable: "nf_add_claim_expires_at",
     condition: "@nf_claim_expires_at_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp",
+    preparedStatement: "nf_add_claim_expires_at_stmt",
+    prepareSource: "nf_add_claim_expires_at",
+    executedStatement: "nf_add_claim_expires_at_stmt",
+    deallocatedStatement: "nf_add_claim_expires_at_stmt",
   },
   {
-    variable: "nf_add_enqueue_attempt_count",
+    existenceVariable: "nf_enqueue_attempt_count_exists",
+    informationSchemaTable: "COLUMNS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "COLUMN_NAME",
+    discriminatorValue: "enqueueAttemptCount",
+    choiceVariable: "nf_add_enqueue_attempt_count",
     condition: "@nf_enqueue_attempt_count_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL",
+    preparedStatement: "nf_add_enqueue_attempt_count_stmt",
+    prepareSource: "nf_add_enqueue_attempt_count",
+    executedStatement: "nf_add_enqueue_attempt_count_stmt",
+    deallocatedStatement: "nf_add_enqueue_attempt_count_stmt",
   },
   {
-    variable: "nf_add_next_eligible_at",
+    existenceVariable: "nf_next_eligible_at_exists",
+    informationSchemaTable: "COLUMNS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "COLUMN_NAME",
+    discriminatorValue: "nextEligibleAt",
+    choiceVariable: "nf_add_next_eligible_at",
     condition: "@nf_next_eligible_at_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp",
+    preparedStatement: "nf_add_next_eligible_at_stmt",
+    prepareSource: "nf_add_next_eligible_at",
+    executedStatement: "nf_add_next_eligible_at_stmt",
+    deallocatedStatement: "nf_add_next_eligible_at_stmt",
   },
   {
-    variable: "nf_add_enqueue_mode",
+    existenceVariable: "nf_enqueue_mode_exists",
+    informationSchemaTable: "COLUMNS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "COLUMN_NAME",
+    discriminatorValue: "validation_enqueue_mode",
+    choiceVariable: "nf_add_enqueue_mode",
     condition: "@nf_enqueue_mode_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum(''LEGACY'',''STABLE'') DEFAULT ''LEGACY'' NOT NULL",
+    preparedStatement: "nf_add_enqueue_mode_stmt",
+    prepareSource: "nf_add_enqueue_mode",
+    executedStatement: "nf_add_enqueue_mode_stmt",
+    deallocatedStatement: "nf_add_enqueue_mode_stmt",
   },
   {
-    variable: "nf_create_enqueue_eligibility_lease_idx",
+    existenceVariable: "nf_enqueue_eligibility_lease_idx_exists",
+    informationSchemaTable: "STATISTICS",
+    tableName: "ExternalServiceValidationResult",
+    discriminator: "INDEX_NAME",
+    discriminatorValue: "ESVR_enqueue_eligibility_lease_idx",
+    choiceVariable: "nf_create_enqueue_eligibility_lease_idx",
     condition: "@nf_enqueue_eligibility_lease_idx_exists > 0",
     existingChoice: "SELECT 1",
     ddlChoice:
       "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`)",
+    preparedStatement: "nf_create_enqueue_eligibility_lease_idx_stmt",
+    prepareSource: "nf_create_enqueue_eligibility_lease_idx",
+    executedStatement: "nf_create_enqueue_eligibility_lease_idx_stmt",
+    deallocatedStatement: "nf_create_enqueue_eligibility_lease_idx_stmt",
   },
 ];
 
-function extractConditionalDdlChoices(sql: string): ConditionalDdlChoice[] {
-  const choicePattern =
-    /SET @(?<variable>[a-z0-9_]+) = IF\(\n {2}(?<condition>@[a-z0-9_]+ > 0),\n {2}'(?<existingChoice>[^']+)',\n {2}'(?<ddlChoice>(?:''|[^'])+)'\n\);/g;
+function extractMigrationOperations(sql: string): MigrationOperationContract[] {
+  const operationPattern =
+    /SET @(?<existenceVariable>[a-z0-9_]+) = \(\n {2}SELECT COUNT\(\*\)\n {2}FROM `INFORMATION_SCHEMA`\.`(?<informationSchemaTable>COLUMNS|STATISTICS)`\n {2}WHERE `TABLE_SCHEMA` = DATABASE\(\)\n {4}AND `TABLE_NAME` = '(?<tableName>[^']+)'\n {4}AND `(?<discriminator>COLUMN_NAME|INDEX_NAME)` = '(?<discriminatorValue>[^']+)'\n\);--> statement-breakpoint\nSET @(?<choiceVariable>[a-z0-9_]+) = IF\(\n {2}(?<condition>@[a-z0-9_]+ > 0),\n {2}'(?<existingChoice>[^']+)',\n {2}'(?<ddlChoice>(?:''|[^'])+)'\n\);--> statement-breakpoint\nPREPARE (?<preparedStatement>[a-z0-9_]+) FROM @(?<prepareSource>[a-z0-9_]+);--> statement-breakpoint\nEXECUTE (?<executedStatement>[a-z0-9_]+);--> statement-breakpoint\nDEALLOCATE PREPARE (?<deallocatedStatement>[a-z0-9_]+);/g;
 
-  return Array.from(sql.matchAll(choicePattern), (match) => {
-    const { variable, condition, existingChoice, ddlChoice } =
-      match.groups ?? {};
-    if (!variable || !condition || !existingChoice || !ddlChoice) {
-      throw new Error("Malformed conditional DDL choice");
+  return Array.from(sql.matchAll(operationPattern), (match) => {
+    const {
+      existenceVariable,
+      informationSchemaTable,
+      tableName,
+      discriminator,
+      discriminatorValue,
+      choiceVariable,
+      condition,
+      existingChoice,
+      ddlChoice,
+      preparedStatement,
+      prepareSource,
+      executedStatement,
+      deallocatedStatement,
+    } = match.groups ?? {};
+    if (
+      !existenceVariable ||
+      (informationSchemaTable !== "COLUMNS" &&
+        informationSchemaTable !== "STATISTICS") ||
+      !tableName ||
+      (discriminator !== "COLUMN_NAME" && discriminator !== "INDEX_NAME") ||
+      !discriminatorValue ||
+      !choiceVariable ||
+      !condition ||
+      !existingChoice ||
+      !ddlChoice ||
+      !preparedStatement ||
+      !prepareSource ||
+      !executedStatement ||
+      !deallocatedStatement
+    ) {
+      throw new Error("Malformed migration operation");
     }
-    return { variable, condition, existingChoice, ddlChoice };
+    return {
+      existenceVariable,
+      informationSchemaTable,
+      tableName,
+      discriminator,
+      discriminatorValue,
+      choiceVariable,
+      condition,
+      existingChoice,
+      ddlChoice,
+      preparedStatement,
+      prepareSource,
+      executedStatement,
+      deallocatedStatement,
+    };
   });
 }
 
 function assertRetryMetadataMigrationContract(sql: string): void {
-  expect(sql.match(/SET\s+@[a-z0-9_]+\s*=\s*IF\s*\(/gi) ?? []).toHaveLength(
-    EXPECTED_RETRY_METADATA_DDL_CHOICES.length,
+  const expectedOperationCount = EXPECTED_RETRY_METADATA_OPERATIONS.length;
+  expect(sql.match(/SET\s+@[a-z0-9_]+_exists\s*=\s*\(/gi) ?? []).toHaveLength(
+    expectedOperationCount,
   );
-  expect(extractConditionalDdlChoices(sql)).toEqual(
-    EXPECTED_RETRY_METADATA_DDL_CHOICES,
+  expect(sql.match(/SET\s+@[a-z0-9_]+\s*=\s*IF\s*\(/gi) ?? []).toHaveLength(
+    expectedOperationCount,
+  );
+  expect(
+    sql.match(/^PREPARE\s+[a-z0-9_]+\s+FROM\s+@[a-z0-9_]+;/gim) ?? [],
+  ).toHaveLength(expectedOperationCount);
+  expect(sql.match(/^EXECUTE\s+[a-z0-9_]+;/gim) ?? []).toHaveLength(
+    expectedOperationCount,
+  );
+  expect(sql.match(/^DEALLOCATE PREPARE\s+[a-z0-9_]+;/gim) ?? []).toHaveLength(
+    expectedOperationCount,
+  );
+  expect(extractMigrationOperations(sql)).toEqual(
+    EXPECTED_RETRY_METADATA_OPERATIONS,
   );
   expect(sql).not.toMatch(/\bUPDATE\s+`ExternalServiceValidationResult`/i);
   expect(sql).not.toContain("DEFAULT ''STABLE''");
@@ -244,7 +362,7 @@ describe("database migration journal", () => {
 
   it("rejects unsafe validation outbox migration mutations", () => {
     const sql = readMigration(RETRY_METADATA_MIGRATION_TAG);
-    const claimTokenChoice = EXPECTED_RETRY_METADATA_DDL_CHOICES[0]?.ddlChoice;
+    const claimTokenChoice = EXPECTED_RETRY_METADATA_OPERATIONS[0]?.ddlChoice;
     if (!claimTokenChoice) {
       throw new Error("Claim token DDL choice must exist");
     }
@@ -270,6 +388,76 @@ describe("database migration journal", () => {
     const lowercaseDestructiveMutation = `${sql}\ndrop index \`ESVR_enqueue_eligibility_lease_idx\` ON \`ExternalServiceValidationResult\`;`;
     expect(() =>
       assertRetryMetadataMigrationContract(lowercaseDestructiveMutation),
+    ).toThrow();
+
+    const wrongTableMutation = sql.replace(
+      "AND `TABLE_NAME` = 'ExternalServiceValidationResult'",
+      "AND `TABLE_NAME` = 'WrongTable'",
+    );
+    expect(wrongTableMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(wrongTableMutation),
+    ).toThrow();
+
+    const wrongGuardVariableMutation = sql.replace(
+      "@nf_claim_token_exists > 0",
+      "@nf_claim_expires_at_exists > 0",
+    );
+    expect(wrongGuardVariableMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(wrongGuardVariableMutation),
+    ).toThrow();
+
+    const missingExecuteMutation = sql.replace(
+      "EXECUTE nf_add_claim_token_stmt;--> statement-breakpoint\n",
+      "",
+    );
+    expect(missingExecuteMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(missingExecuteMutation),
+    ).toThrow();
+
+    const wrongPrepareSourceMutation = sql.replace(
+      "PREPARE nf_add_claim_token_stmt FROM @nf_add_claim_token;",
+      "PREPARE nf_add_claim_token_stmt FROM @nf_add_claim_expires_at;",
+    );
+    expect(wrongPrepareSourceMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(wrongPrepareSourceMutation),
+    ).toThrow();
+
+    const missingDeallocateMutation = sql.replace(
+      "DEALLOCATE PREPARE nf_add_claim_token_stmt;--> statement-breakpoint\n",
+      "",
+    );
+    expect(missingDeallocateMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(missingDeallocateMutation),
+    ).toThrow();
+
+    const secondOperationOffset = sql.indexOf(
+      "SET @nf_claim_expires_at_exists",
+    );
+    const thirdOperationOffset = sql.indexOf(
+      "SET @nf_enqueue_attempt_count_exists",
+    );
+    if (secondOperationOffset < 0 || thirdOperationOffset < 0) {
+      throw new Error("Retry metadata operation boundaries must exist");
+    }
+    const firstOperation = sql.slice(0, secondOperationOffset);
+    const secondOperation = sql.slice(
+      secondOperationOffset,
+      thirdOperationOffset,
+    );
+
+    const duplicateOperationMutation = `${firstOperation}${sql}`;
+    expect(() =>
+      assertRetryMetadataMigrationContract(duplicateOperationMutation),
+    ).toThrow();
+
+    const reorderedOperationMutation = `${secondOperation}${firstOperation}${sql.slice(thirdOperationOffset)}`;
+    expect(() =>
+      assertRetryMetadataMigrationContract(reorderedOperationMutation),
     ).toThrow();
   });
 
