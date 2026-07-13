@@ -9,7 +9,7 @@ k8s/
 ├── base/                    # 基本マニフェスト
 │   ├── kustomization.yaml
 │   ├── configmap.yaml       # 環境変数（非機密）
-│   ├── secret.yaml          # 機密情報
+│   ├── secret.yaml          # 外部Secret管理用のキー契約テンプレート（apply対象外）
 │   ├── api-deployment.yaml
 │   ├── api-service.yaml
 │   ├── bullmq-validation-deployment.yaml
@@ -26,6 +26,7 @@ k8s/
 2. `kubectl`と`kustomize`がインストールされていること
 3. Dockerイメージがビルドされ、レジストリにプッシュされていること
 4. データベース（MySQL）とRedisが利用可能であること
+5. 外部Secret管理経路がruntimeの`nexus-form-secrets`を作成・更新できること
 
 ## セットアップ手順
 
@@ -139,16 +140,18 @@ kubectl -n production rollout restart deployment/api
 kubectl -n production rollout status deployment/api
 ```
 
-#### Secretの編集
+#### Secret契約と外部管理
 
-`k8s/base/secret.yaml`はキー名と無効なプレースホルダーだけを示すテンプレートです。実値で置換したファイル、render済みSecret、復号可能なSecretをGitへコミットしないでください。本番値はExternal Secrets Operator、Sealed Secretsなどの管理されたSecret経路から供給します。
+`k8s/base/secret.yaml`はキー名と無効なプレースホルダーだけを示す契約テンプレートです。`k8s/base/kustomization.yaml`のresourceには含まれず、base/productionのrenderやapplyでruntime Secretを作成・更新しません。実値で置換したファイル、render済みSecret、復号可能なSecretをGitへコミットしないでください。
+
+runtimeの`nexus-form-secrets`を書き込むauthoritative writerは、External Secrets Operator、Sealed Secretsなど、クラスターごとに選定した**単一の外部Secret管理経路だけ**です。migration Job、API、Workerは名前でこのSecretを参照するため、Kustomizeをapplyする前に同じnamespaceへ作成してください。過去にArgo CDがchecked-in Secretを管理していた環境では、外部Secret管理へ所有権を移し、旧resourceをorphan/prune対象外にしてからこの変更をsyncします。先にresourceを削除するpruneを実行すると、参照先が消えてJob/Podが起動できません。
 
 ```bash
 # AUTH_SECRETを生成
 openssl rand -base64 32
 ```
 
-生成結果はSecret managerへ直接登録し、shell履歴、ログ、PR、issueへ貼り付けないでください。`nexus-form.xpadev.net/auth-secret-revision` annotationは秘密値ではないローテーション識別子です。Secret metadataと`api-deployment.yaml`のPod templateで同じ識別子（例: change ticket番号やSecret manager version）を設定すると、`envFrom`を使うAPI Podが再作成され、どのSecret revisionを採用する想定かを値を開示せず確認できます。annotationには`AUTH_SECRET`本体、そのhash、Secret managerのアクセストークンを入れないでください。
+生成結果はSecret managerへ直接登録し、shell履歴、ログ、PR、issueへ貼り付けないでください。`nexus-form.xpadev.net/auth-secret-revision` annotationは秘密値ではないローテーション識別子です。外部管理されるSecret metadataと`api-deployment.yaml`のPod templateで同じ識別子（例: change ticket番号やSecret manager version）を設定すると、`envFrom`を使うAPI Podが再作成され、どのSecret revisionを採用する想定かを値を開示せず確認できます。checked-in `secret.yaml`のannotationは外部管理resourceへ設定するキーの例であり、そのファイル自体はapplyしません。annotationには`AUTH_SECRET`本体、そのhash、Secret managerのアクセストークンを入れないでください。
 
 **機密情報として管理すべき項目**:
 - データベース: `DATABASE_URL` - MySQL接続文字列（パスワードを含む）
@@ -174,8 +177,8 @@ openssl rand -base64 32
 
 **重要**: 
 - リポジトリ内の`secret.yaml`はプレースホルダーのまま保ち、実値を含む派生ファイルはGitにコミットしないでください
-- 実際の運用では、Sealed SecretsやExternal Secrets Operatorなどのツールを使用することを推奨します
-- ConfigMapとSecretは`envFrom`で自動的に環境変数として読み込まれます
+- base/productionのKustomize出力にSecretを追加しないでください。runtime Secretのwriterを複数にしないことが安全要件です
+- API、migration Job、Workerは外部管理された`nexus-form-secrets`を`envFrom.secretRef`で読み込みます
 
 ### 公開フォームパスワード認可のrollout cutoff
 
@@ -210,6 +213,8 @@ Argo CDの通常Syncはmigration Jobに続いてAPI Deploymentも更新します
 2. API Deploymentのrollout完了を待ちます。base manifestは`maxUnavailable: 0`と`maxSurge: 1`を明示しているため、新Podがreadyになるまで旧Podを残します。
 3. Pod一覧の`imageID`を記録し、実行中・Terminatingを含むAPI Podがすべてbridge digestであることを確認します。
 4. ReplicaSet一覧を確認し、すべてのpre-fix ReplicaSetが`DESIRED=0`、`CURRENT=0`、`READY=0`であることを確認します。1件でも旧Podまたは不明なdigestがあれば停止し、`AUTH_SECRET`をローテーションしません。
+5. rollout専用の公開済み保護フォーム（必須の短文質問1件、fingerprint必須設定なし、十分な回答上限）でパスワードを検証し、rotation前cookieを権限`0700`の一時ディレクトリへ保存します。通常利用のフォームや利用者cookieは使いません。
+6. そのcookieでGETが`200`かつ`structure != null`になることをassertし、同じフォーム用のGET URLとsubmit request templateを保存します。submit templateには実passwordやsecurity tokenを保存せず、phase 2で新鮮なhCaptcha/telemetry tokenを注入します。
 
 ```bash
 kubectl -n production rollout status deployment/api
@@ -219,12 +224,68 @@ kubectl -n production get replicasets -l app=nexus-form,component=api \
   -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas
 ```
 
+次のprobeは`curl`と`jq`を必要とします。`API_BASE_URL`は末尾slashなし、`PUBLIC_ID`は専用フォームのpublic IDへ置換します。`RESPONSES_FILE`は専用フォームの質問ID・型・タイトル・回答を含むJSON array（公開Webの正常なrequestから`responses`だけを取り出したもの）です。passwordやtokenをリポジトリ配下へ保存しないでください。
+
+```bash
+set -euo pipefail
+export API_BASE_URL="https://api.example.invalid"
+export PUBLIC_ID="CHANGE_ME_WITH_ROLLOUT_FORM_PUBLIC_ID"
+export RESPONSES_FILE="/secure/operator-input/rollout-responses.json"
+export ROLLOUT_EVIDENCE_DIR="$(mktemp -d)"
+chmod 700 "$ROLLOUT_EVIDENCE_DIR"
+umask 077
+
+export PUBLIC_FORM_URL="$API_BASE_URL/api/forms/public/$PUBLIC_ID"
+printf '%s\n' "$PUBLIC_FORM_URL" > "$ROLLOUT_EVIDENCE_DIR/get-url.txt"
+printf '%s\n' "$PUBLIC_FORM_URL/submit" > "$ROLLOUT_EVIDENCE_DIR/submit-url.txt"
+jq -e 'type == "array" and length > 0' "$RESPONSES_FILE" >/dev/null
+jq -n --slurpfile responses "$RESPONSES_FILE" '{
+  responses: $responses[0],
+  captchaToken: "__FRESH_HCAPTCHA_TOKEN__",
+  telemetry: {v4Token: "__FRESH_TELEMETRY_TOKEN__"},
+  fingerprints: []
+}' > "$ROLLOUT_EVIDENCE_DIR/submit-template.json"
+
+printf '%s' 'Protected form password: ' >&2
+read -r -s FORM_PASSWORD
+printf '\n'
+printf '%s' "$FORM_PASSWORD" > "$ROLLOUT_EVIDENCE_DIR/password-value"
+unset FORM_PASSWORD
+test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
+jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
+  '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/password-value"
+VERIFY_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/verify-old.json" \
+  --write-out '%{http_code}' \
+  --cookie-jar "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
+  --header 'Content-Type: application/json' \
+  --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
+  "$PUBLIC_FORM_URL/verify-password")"
+rm "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+test "$VERIFY_STATUS" = 200
+jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-old.json" >/dev/null
+test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
+  "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar")" = 1
+
+GET_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" \
+  --write-out '%{http_code}' \
+  --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
+  "$PUBLIC_FORM_URL")"
+test "$GET_STATUS" = 200
+jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure != null and .plateContent != null' \
+  "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
+```
+
+`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持します。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。cookie jarとresponse bodyは認証情報・フォーム内容を含み得るためchange ticketへ添付せず、最後に削除します。
+
 **Phase 1の残存リスク**: 同じ`AUTH_SECRET`をpre-fix Podも知っているため、この時点はsecurity cutoffではありません。旧Podが残っていればlegacy tokenを受理でき、pre-fixへrollbackすればlegacy grantを再発行できます。緊急時にphase 2前のpre-fixへ戻すことは技術的には可能ですが、セキュリティ要件未達へ戻る操作であり、phase 2の開始条件にはできません。
 
 #### Phase 2: AUTH_SECRET rotationとrollback floor確定
 
 1. zero-old-podの証跡を確認してから、Secret managerで新しいランダムな`AUTH_SECRET`を作成します。旧値を再利用せず、base manifestやGit管理overlayへ実値を書きません。
-2. Secretの実値更新と同じ変更で、Secret metadataとAPI Pod templateの`nexus-form.xpadev.net/auth-secret-revision`を同じ新しい非機密識別子へ更新します。annotation変更が新しいReplicaSetを作り、`envFrom`の値を全Podへ反映します。
+2. 外部Secret管理resourceの実値更新と同じ変更で、runtime Secret metadataとAPI Pod templateの`nexus-form.xpadev.net/auth-secret-revision`を同じ新しい非機密識別子へ更新します。Pod templateのannotation変更が新しいReplicaSetを作り、`envFrom`の値を全Podへ反映します。checked-in `secret.yaml`はapplyしません。
 3. rollout完了後、全API Podがbridge以上の許可digest、ready、同一の新revision markerであり、pre-fix ReplicaSet/Podが0件であることを再確認します。
 4. phase 1で取得したローテーション前のsession cookieを、同じ保護フォームのGETとsubmitへ再送します。どちらも再パスワード検証を要求してfail-closedになることを確認します。その後にパスワードを再検証して新しいcookieを取得し、同じGETとsubmitが成功することを確認します。
 5. bridge digest、finalとして許可するdigest、新revision marker、zero-old-pod確認時刻、旧cookie拒否と新cookie成功の結果をchange ticketへ記録します。この記録をもってcutoff成立とし、その後にだけfinal consumer contractを有効化します。
@@ -237,6 +298,117 @@ kubectl -n production get pods -l app=nexus-form,component=api \
   -o 'custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,IMAGE_ID:.status.containerStatuses[0].imageID,AUTH_SECRET_REVISION:.metadata.annotations.nexus-form\.xpadev\.net/auth-secret-revision'
 kubectl -n production get replicasets -l app=nexus-form,component=api \
   -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas
+```
+
+Kubernetes側の確認後、phase 1と同じshellで次を実行します。失効cookieのGETはHTTP errorではなく、`200`かつ`structure:null`/`plateContent:null`が現在のlocked contractです。submitはhCaptcha検証がpassword grant判定より先なので、旧cookie用と新cookie用にそれぞれ別の新鮮なhCaptcha/telemetry tokenを、承認済みの通常Web security flowから取得してください。tokenは再利用せず、入力後すぐにprobeを実行します。
+
+```bash
+GET_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" \
+  --write-out '%{http_code}' \
+  --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
+  "$PUBLIC_FORM_URL")"
+test "$GET_STATUS" = 200
+jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure == null and .plateContent == null' \
+  "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" >/dev/null
+
+printf '%s' 'Fresh hCaptcha token for old-cookie submit: ' >&2
+read -r -s HCAPTCHA_TOKEN
+printf '\n'
+printf '%s' 'Fresh telemetry v4 token for old-cookie submit: ' >&2
+read -r -s TELEMETRY_V4_TOKEN
+printf '\n'
+printf '%s' "$HCAPTCHA_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+printf '%s' "$TELEMETRY_V4_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+unset HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
+test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
+  --rawfile telemetry "$ROLLOUT_EVIDENCE_DIR/telemetry-token" \
+  '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
+  "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
+  > "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+OLD_SUBMIT_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" \
+  --write-out '%{http_code}' \
+  --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
+  --header 'Content-Type: application/json' \
+  --data-binary @"$ROLLOUT_EVIDENCE_DIR/old-submit-request.json" \
+  "$PUBLIC_FORM_URL/submit")"
+rm "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
+test "$OLD_SUBMIT_STATUS" = 403
+jq -e '.passwordRequired == true and .error == "Password verification required"' \
+  "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" >/dev/null
+
+printf '%s' 'Protected form password: ' >&2
+read -r -s FORM_PASSWORD
+printf '\n'
+printf '%s' "$FORM_PASSWORD" > "$ROLLOUT_EVIDENCE_DIR/password-value"
+unset FORM_PASSWORD
+test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
+jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
+  '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/password-value"
+VERIFY_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/verify-new.json" \
+  --write-out '%{http_code}' \
+  --cookie-jar "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
+  --header 'Content-Type: application/json' \
+  --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
+  "$PUBLIC_FORM_URL/verify-password")"
+rm "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+test "$VERIFY_STATUS" = 200
+jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-new.json" >/dev/null
+test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
+  "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar")" = 1
+
+GET_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" \
+  --write-out '%{http_code}' \
+  --cookie "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
+  "$PUBLIC_FORM_URL")"
+test "$GET_STATUS" = 200
+jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure != null and .plateContent != null' \
+  "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" >/dev/null
+
+printf '%s' 'Fresh hCaptcha token for new-cookie submit: ' >&2
+read -r -s HCAPTCHA_TOKEN
+printf '\n'
+printf '%s' 'Fresh telemetry v4 token for new-cookie submit: ' >&2
+read -r -s TELEMETRY_V4_TOKEN
+printf '\n'
+printf '%s' "$HCAPTCHA_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+printf '%s' "$TELEMETRY_V4_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+unset HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
+test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
+  --rawfile telemetry "$ROLLOUT_EVIDENCE_DIR/telemetry-token" \
+  '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
+  "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
+  > "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+NEW_SUBMIT_STATUS="$(curl --silent --show-error \
+  --output "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" \
+  --write-out '%{http_code}' \
+  --cookie "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
+  --header 'Content-Type: application/json' \
+  --data-binary @"$ROLLOUT_EVIDENCE_DIR/new-submit-request.json" \
+  "$PUBLIC_FORM_URL/submit")"
+rm "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
+test "$NEW_SUBMIT_STATUS" = 201
+jq -e '(.responseId | type) == "string" and (.responseId | length) > 0' \
+  "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" >/dev/null
+
+printf '%s\n' \
+  'old GET: 200 locked structure=null' \
+  'old submit: 403 passwordRequired=true' \
+  'new GET: 200 unlocked structure!=null' \
+  'new submit: 201 responseId present' \
+  | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt"
+rm -rf "$ROLLOUT_EVIDENCE_DIR"
+unset ROLLOUT_EVIDENCE_DIR PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
 ```
 
 base manifestの`revisionHistoryLimit: 1`により、phase 2のbridge再ロールアウトが完了すると、通常のDeployment履歴には直前のbridge ReplicaSetだけが残り、pre-fix ReplicaSetはrollback候補から外れます。ただし、これは古いdigestを明示的に再指定する操作や古いGit revisionの再同期を防ぐadmission policyではありません。cutoff記録後はデプロイ承認側でも許可digestをbridge/finalに限定し、無確認の`kubectl rollout undo`を使わないでください。admission policyによる強制が必要な環境では、別タスクでGitOps/cluster policyを所有させます。
@@ -325,7 +497,7 @@ images:
 kubectl apply -k k8s/base
 ```
 
-このコマンドはマニフェストのレンダリング確認や簡易適用には使えますが、Argo CD hook の wave 順序や Job 完了待ちは `kubectl apply` では保証されません。API 起動前 migration の順序保証が必要な環境では Argo CD で同期してください。`kubectl` で運用する場合は ConfigMap/Secret を適用後、API Deployment を更新する前に同じ immutable tag または digest の `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了を確認してから Deployment を適用します。`api-migration` Job を含む overlay を直接再適用する場合は、Job の `spec.template` が immutable なため、イメージタグ変更前に `kubectl delete job api-migration --ignore-not-found` で完了済み Job を削除してください。
+このコマンドは`nexus-form-secrets`を作成・更新しません。外部Secret管理経路でruntime Secretと必要なキーを先に用意してください。このコマンドはマニフェストのレンダリング確認や簡易適用には使えますが、Argo CD hook の wave 順序や Job 完了待ちは `kubectl apply` では保証されません。API 起動前 migration の順序保証が必要な環境では Argo CD で同期してください。`kubectl` で運用する場合は外部管理SecretとConfigMapを用意した後、API Deploymentを更新する前に同じ immutable tag または digest の `nexus-form` イメージで `/nodejs/bin/node /migration/run-migrations.mjs` を実行し、完了を確認してから Deployment を適用します。`api-migration` Job を含む overlay を直接再適用する場合は、Job の`spec.template`が immutable なため、イメージタグ変更前に`kubectl delete job api-migration --ignore-not-found`で完了済みJobを削除してください。
 
 #### 本番環境へのデプロイ
 
@@ -333,13 +505,20 @@ kubectl apply -k k8s/base
 kubectl apply -k k8s/overlays/production
 ```
 
+production overlayもSecretをrenderしません。external writerが`production` namespaceの`nexus-form-secrets`を作成済みであることを、値を表示しないmetadata確認で確かめてからapplyします。
+
+```bash
+kubectl -n production get secret nexus-form-secrets \
+  -o 'custom-columns=NAME:.metadata.name,REVISION:.metadata.annotations.nexus-form\.xpadev\.net/auth-secret-revision'
+```
+
 ### データベースマイグレーション
 
 Argo CD でデプロイする場合、`api-migration` Job が `Sync` hook として実行されます。API コンテナの起動処理ではマイグレーションを実行せず、同じ `nexus-form` イメージに同梱された `/migration/run-migrations.mjs` を hook Job から実行します。
 
-ConfigMap と Secret は sync wave `-2`、migration Job は sync wave `-1`、API Deployment は通常 wave `0` で同期されます。これにより、更新後の環境変数を先に反映し、マイグレーション完了後に新しい API Pod を起動できます。
+ConfigMapはsync wave`-2`、migration Jobはsync wave`-1`、API Deploymentは通常wave`0`で同期されます。runtime SecretはこのKustomize applicationの同期対象ではなく、外部Secret管理経路が先に作成・更新します。これにより、外部管理Secretと更新後のConfigMapを先に用意し、マイグレーション完了後に新しいAPI Podを起動できます。
 
-`PreSync` は ConfigMap/Secret などの通常リソースより前に実行されるため、初回デプロイや環境変数変更を含む同期で参照先が存在しない、または古い値で migration される可能性があります。`PostSync` では新しい API Pod が先に起動するため、新しいコードが未適用のスキーマへアクセスする時間が発生します。そのため、このマニフェストでは `Sync` hook と sync wave を組み合わせます。
+`PreSync`はConfigMapなどの通常resourceや外部Secret準備より前に実行される可能性があるため、初回デプロイや環境変数変更を含む同期で参照先が存在しない、または古い値でmigrationされるおそれがあります。`PostSync`では新しいAPI Podが先に起動するため、新しいコードが未適用のスキーマへアクセスする時間が発生します。そのため、このmanifestでは`Sync` hookとsync waveを組み合わせ、外部Secretを同期開始前の前提条件にします。
 
 `Sync` hook も同期対象の desired manifest から作成されますが、`latest` のような mutable tag ではレジストリの更新タイミングに依存します。マイグレーションと API を同じビルドに固定するため、production overlay の `nexus-form` は immutable tag に更新してから同期してください。
 
