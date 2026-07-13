@@ -1,6 +1,8 @@
 import { db } from "@nexus-form/database";
 import {
   buildValidationOutboxJobId,
+  buildValidationRetryJobId,
+  buildValidationRevalidationJobId,
   getValidationResultId,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
@@ -568,6 +570,11 @@ describe("markValidationProcessing", () => {
   };
   const validationResultId = getValidationResultId(validationParams);
   const stableOutboxJobId = buildValidationOutboxJobId(validationResultId);
+  const retryJobId = buildValidationRetryJobId(validationResultId, "job-a");
+  const revalidationJobId = buildValidationRevalidationJobId(
+    validationResultId,
+    "job-a",
+  );
 
   function makeValidationRow(
     overrides: Partial<MockValidationResultRow> = {},
@@ -632,35 +639,111 @@ describe("markValidationProcessing", () => {
     );
   });
 
-  it("requires retry jobs to match the persisted job id before PROCESSING", async () => {
-    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1-job-a`;
-    mockValidationRow(
-      makeValidationRow({
-        enqueueMode: "LEGACY",
-        jobId: retryJobId,
-      }),
-    );
+  it.each([
+    ["STABLE", "PENDING", "retry", retryJobId],
+    ["STABLE", "PENDING", "revalidation", revalidationJobId],
+    ["STABLE", "PROCESSING", "retry", retryJobId],
+    ["STABLE", "PROCESSING", "revalidation", revalidationJobId],
+    ["LEGACY", "PENDING", "retry", retryJobId],
+    ["LEGACY", "PENDING", "revalidation", revalidationJobId],
+    ["LEGACY", "PROCESSING", "retry", retryJobId],
+    ["LEGACY", "PROCESSING", "revalidation", revalidationJobId],
+  ] as const)("admits a %s %s row owned by the same strict %s job", async (enqueueMode, status, _jobType, jobId) => {
+    mockValidationRow(makeValidationRow({ enqueueMode, jobId, status }));
 
     await markValidationProcessing({
       ...validationParams,
-      jobId: retryJobId,
+      jobId,
     });
 
     const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
     expect(updateCondition).toEqual(
-      expect.arrayContaining([
-        "enqueueMode",
-        " = ",
-        "LEGACY",
-        "jobId",
-        " = ",
-        retryJobId,
-      ]),
+      expect.arrayContaining(["jobId", " = ", jobId]),
     );
+    expect(updateCondition).not.toContain("enqueueMode");
     expect(selectForUpdate).not.toHaveBeenCalled();
     expect(publishValidationEvent).toHaveBeenCalledWith(
       expect.objectContaining({ status: "PROCESSING" }),
     );
+  });
+
+  it.each([
+    ["STABLE", "retry", retryJobId, null],
+    ["STABLE", "retry", retryJobId, "different-job"],
+    ["STABLE", "revalidation", revalidationJobId, null],
+    ["STABLE", "revalidation", revalidationJobId, "different-job"],
+    ["LEGACY", "retry", retryJobId, null],
+    ["LEGACY", "retry", retryJobId, "different-job"],
+    ["LEGACY", "revalidation", revalidationJobId, null],
+    ["LEGACY", "revalidation", revalidationJobId, "different-job"],
+  ] as const)("rejects a %s row not owned by the strict %s job", async (enqueueMode, _jobType, jobId, persistedJobId) => {
+    mockValidationRow(
+      makeValidationRow({ enqueueMode, jobId: persistedJobId }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: jobId,
+      actualJobId: persistedJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["STABLE", "COMPLETED", "retry", retryJobId, null],
+    ["STABLE", "FAILED", "retry", retryJobId, "VALIDATION_ERROR"],
+    ["STABLE", "COMPLETED", "revalidation", revalidationJobId, null],
+    ["STABLE", "FAILED", "revalidation", revalidationJobId, "VALIDATION_ERROR"],
+    ["LEGACY", "COMPLETED", "retry", retryJobId, null],
+    ["LEGACY", "FAILED", "retry", retryJobId, "VALIDATION_ERROR"],
+    ["LEGACY", "COMPLETED", "revalidation", revalidationJobId, null],
+    ["LEGACY", "FAILED", "revalidation", revalidationJobId, "VALIDATION_ERROR"],
+  ] as const)("preserves %s %s behavior for a row owned by a strict %s job", async (enqueueMode, status, _jobType, jobId, errorCode) => {
+    mockValidationRow(
+      makeValidationRow({ enqueueMode, status, errorCode, jobId }),
+    );
+
+    await markValidationProcessing({
+      ...validationParams,
+      jobId,
+    });
+
+    expect(selectForUpdate).not.toHaveBeenCalled();
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
+    );
+  });
+
+  it.each([
+    ["STABLE", "retry", retryJobId, retryJobId],
+    ["STABLE", "retry", retryJobId, "different-job"],
+    ["STABLE", "revalidation", revalidationJobId, revalidationJobId],
+    ["STABLE", "revalidation", revalidationJobId, null],
+    ["LEGACY", "retry", retryJobId, retryJobId],
+    ["LEGACY", "retry", retryJobId, "different-job"],
+    ["LEGACY", "revalidation", revalidationJobId, revalidationJobId],
+    ["LEGACY", "revalidation", revalidationJobId, null],
+  ] as const)("preserves cancellation on a %s row before strict %s ownership diagnosis", async (enqueueMode, _jobType, jobId, persistedJobId) => {
+    mockValidationRow(
+      makeValidationRow({
+        status: "FAILED",
+        errorCode: "CANCELLED_BY_USER",
+        enqueueMode,
+        jobId: persistedJobId,
+      }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId,
+      }),
+    ).rejects.toBeInstanceOf(ValidationCancelledError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 
   it.each([

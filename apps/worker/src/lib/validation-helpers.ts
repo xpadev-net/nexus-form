@@ -321,6 +321,11 @@ export async function markValidationProcessing(params: {
             isNull(externalServiceValidationResult.jobId),
             eq(externalServiceValidationResult.jobId, params.jobId),
           );
+  const notCancelledCondition = or(
+    ne(externalServiceValidationResult.status, "FAILED"),
+    isNull(externalServiceValidationResult.errorCode),
+    ne(externalServiceValidationResult.errorCode, "CANCELLED_BY_USER"),
+  );
   const admissionCondition = isExpectedStableOutboxJob
     ? and(
         eq(externalServiceValidationResult.enqueueMode, "STABLE"),
@@ -344,15 +349,13 @@ export async function markValidationProcessing(params: {
           ),
         ),
       )
-    : and(
-        eq(externalServiceValidationResult.enqueueMode, "LEGACY"),
-        ownershipCondition,
-        or(
-          ne(externalServiceValidationResult.status, "FAILED"),
-          isNull(externalServiceValidationResult.errorCode),
-          ne(externalServiceValidationResult.errorCode, "CANCELLED_BY_USER"),
-        ),
-      );
+    : usesStrictJobOwnership
+      ? and(ownershipCondition, notCancelledCondition)
+      : and(
+          eq(externalServiceValidationResult.enqueueMode, "LEGACY"),
+          ownershipCondition,
+          notCancelledCondition,
+        );
 
   const processingResult = await db.transaction(async (tx) => {
     const updateResult = await tx
@@ -394,17 +397,30 @@ export async function markValidationProcessing(params: {
       )
       .for("update");
 
-    if (isExpectedStableOutboxJob || existing?.enqueueMode === "STABLE") {
+    if (isExpectedStableOutboxJob) {
       return { actualJobId: existing?.jobId ?? null, type: "stale" as const };
+    }
+    if (usesStrictJobOwnership) {
+      if (
+        existing?.status === "FAILED" &&
+        existing.errorCode === "CANCELLED_BY_USER"
+      ) {
+        return { type: "cancelled" as const };
+      }
+      if (existing?.jobId !== params.jobId) {
+        return {
+          actualJobId: existing?.jobId ?? null,
+          type: "stale" as const,
+        };
+      }
+    } else if (existing?.enqueueMode === "STABLE") {
+      return { actualJobId: existing.jobId ?? null, type: "stale" as const };
     }
     if (
       existing?.status === "FAILED" &&
       existing.errorCode === "CANCELLED_BY_USER"
     ) {
       return { type: "cancelled" as const };
-    }
-    if (usesStrictJobOwnership && existing?.jobId !== params.jobId) {
-      return { actualJobId: existing?.jobId ?? null, type: "stale" as const };
     }
     if (
       existing?.jobId !== null &&
