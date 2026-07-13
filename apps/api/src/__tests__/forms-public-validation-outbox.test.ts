@@ -1,10 +1,14 @@
+import { buildValidationOutboxJobId } from "@nexus-form/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const schema = {
     externalServiceValidationResult: {
+      claimToken: "externalServiceValidationResult.claimToken",
+      enqueueMode: "externalServiceValidationResult.enqueueMode",
       id: "externalServiceValidationResult.id",
       jobId: "externalServiceValidationResult.jobId",
+      status: "externalServiceValidationResult.status",
     },
     fingerprintDetail: { table: "fingerprintDetail" },
     form: {
@@ -539,6 +543,22 @@ function useTransactionWithInsertCapture() {
   };
 }
 
+function getSingleValidationResultId(rows: unknown): string {
+  if (!Array.isArray(rows) || rows.length !== 1) {
+    throw new Error("Expected exactly one inserted validation result");
+  }
+  const [row] = rows;
+  if (
+    typeof row !== "object" ||
+    row === null ||
+    !("id" in row) ||
+    typeof row.id !== "string"
+  ) {
+    throw new Error("Expected inserted validation result to have a string id");
+  }
+  return row.id;
+}
+
 type PublicSubmitResponseItem = {
   question_id: string;
   question_type: string;
@@ -691,6 +711,20 @@ function resetPublicSubmitMocks(
   });
 }
 
+function useValidationUpdateResult(result: () => Promise<unknown>): void {
+  mocks.db.update.mockReturnValue({
+    set: vi.fn((values: unknown) => {
+      mocks.updateSetValues.push(values);
+      return {
+        where: vi.fn((where: unknown) => {
+          mocks.updateWhereValues.push(where);
+          return result();
+        }),
+      };
+    }),
+  });
+}
+
 describe("R11-C2-a public validation outbox", () => {
   beforeEach(() => {
     resetPublicSubmitMocks({
@@ -720,6 +754,7 @@ describe("R11-C2-a public validation outbox", () => {
     );
     expect(getInsertedValidationRows()).toEqual([
       expect.objectContaining({
+        enqueueMode: "STABLE",
         ruleId: "rule-1",
         referencedBlockId: "block-1",
         snapshotVersion: 7,
@@ -745,6 +780,11 @@ describe("R11-C2-a public validation outbox", () => {
         snapshotRuleType: "guild_member",
         snapshotVersion: 7,
       }),
+      {
+        jobId: buildValidationOutboxJobId(
+          getSingleValidationResultId(getInsertedValidationRows()),
+        ),
+      },
     );
   });
 
@@ -806,17 +846,23 @@ describe("R11-C2-a public validation outbox", () => {
       expect.objectContaining({
         ruleId: "rule-valid",
       }),
+      expect.objectContaining({
+        jobId: expect.stringMatching(/^validation-outbox-/),
+      }),
     );
     expect(mocks.addValidationJob).toHaveBeenCalledWith(
       "validate-discord",
       expect.objectContaining({
         ruleId: "rule-deleted",
       }),
+      expect.objectContaining({
+        jobId: expect.stringMatching(/^validation-outbox-/),
+      }),
     );
     expect(mocks.addValidationJob).toHaveBeenCalledTimes(2);
   });
 
-  it("persists the enqueue jobId only while the validation row has no jobId", async () => {
+  it("persists the shared stable jobId only while the STABLE row remains unclaimed", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot, {
       finalResponseRows: [
@@ -833,14 +879,17 @@ describe("R11-C2-a public validation outbox", () => {
         },
       ],
     });
-    useTransactionWithInsertCapture();
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
 
     const response = await submitPublicForm();
+    const expectedJobId = buildValidationOutboxJobId(
+      getSingleValidationResultId(getInsertedValidationRows()),
+    );
 
     expect(response.status).toBe(201);
     await vi.waitFor(() => {
       expect(mocks.updateSetValues).toContainEqual({
-        jobId: "validation-job-1",
+        jobId: expectedJobId,
       });
     });
     expect(mocks.updateWhereValues).toContainEqual(
@@ -856,8 +905,86 @@ describe("R11-C2-a public validation outbox", () => {
             type: "isNull",
             value: mocks.schema.externalServiceValidationResult.jobId,
           }),
+          expect.objectContaining({
+            type: "eq",
+            left: mocks.schema.externalServiceValidationResult.status,
+            right: "PENDING",
+          }),
+          expect.objectContaining({
+            type: "eq",
+            left: mocks.schema.externalServiceValidationResult.enqueueMode,
+            right: "STABLE",
+          }),
+          expect.objectContaining({
+            type: "isNull",
+            value: mocks.schema.externalServiceValidationResult.claimToken,
+          }),
         ]),
       }),
+    );
+  });
+
+  it("keeps queue success recoverable when the jobId acknowledgement throws", async () => {
+    const snapshot = activeSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+    useValidationUpdateResult(() =>
+      Promise.reject(new Error("database unavailable")),
+    );
+
+    const response = await submitPublicForm();
+    const expectedJobId = buildValidationOutboxJobId(
+      getSingleValidationResultId(getInsertedValidationRows()),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({ ruleId: "rule-1" }),
+      { jobId: expectedJobId },
+    );
+    await vi.waitFor(() => {
+      expect(mocks.logError).toHaveBeenCalledWith(
+        "Failed to persist jobId for validation result",
+        "api",
+        expect.objectContaining({
+          error: expect.objectContaining({ message: "database unavailable" }),
+          jobId: expectedJobId,
+        }),
+      );
+    });
+    expect(mocks.updateSetValues).toEqual([{ jobId: expectedJobId }]);
+    expect(mocks.updateSetValues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: expect.any(String) }),
+      ]),
+    );
+  });
+
+  it("keeps queue success recoverable when the jobId acknowledgement CAS matches no row", async () => {
+    const snapshot = activeSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+    useValidationUpdateResult(() => Promise.resolve([{ affectedRows: 0 }]));
+
+    const response = await submitPublicForm();
+    const expectedJobId = buildValidationOutboxJobId(
+      getSingleValidationResultId(getInsertedValidationRows()),
+    );
+
+    expect(response.status).toBe(201);
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({ ruleId: "rule-1" }),
+      { jobId: expectedJobId },
+    );
+    await vi.waitFor(() => {
+      expect(mocks.updateSetValues).toEqual([{ jobId: expectedJobId }]);
+    });
+    expect(mocks.updateSetValues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: expect.any(String) }),
+      ]),
     );
   });
 
@@ -1248,7 +1375,7 @@ describe("R11-C2-a public validation outbox", () => {
     });
   });
 
-  it("keeps enqueue failures as FAILED ENQUEUE_FAILED after the tx-created PENDING row", async () => {
+  it("keeps transient enqueue failures as recoverable STABLE PENDING rows", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
@@ -1261,16 +1388,43 @@ describe("R11-C2-a public validation outbox", () => {
 
     expect(response.status).toBe(201);
     expect(getInsertedValidationRows()).toEqual([
-      expect.objectContaining({ status: "PENDING" }),
+      expect.objectContaining({ enqueueMode: "STABLE", status: "PENDING" }),
     ]);
     await vi.waitFor(() => {
-      expect(mocks.updateSetValues).toContainEqual(
+      expect(mocks.logError).toHaveBeenCalledWith(
+        "Failed to enqueue external validation job",
+        "api",
         expect.objectContaining({
-          status: "FAILED",
-          errorCode: "ENQUEUE_FAILED",
-          errorMessage: "Failed to enqueue validation job",
+          error: expect.objectContaining({ message: "Redis unavailable" }),
+          jobId: expect.stringMatching(/^validation-outbox-/),
         }),
       );
+    });
+    expect(mocks.updateSetValues).toEqual([]);
+  });
+
+  it("marks deterministic validation job preparation failures terminal", async () => {
+    const snapshot = { ...activeSnapshot(), version: 0 };
+    useSuccessfulSubmitSelects(snapshot);
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(getInsertedValidationRows()).toEqual([
+      expect.objectContaining({
+        enqueueMode: "STABLE",
+        snapshotVersion: 0,
+        status: "PENDING",
+      }),
+    ]);
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(mocks.updateSetValues).toContainEqual({
+        status: "FAILED",
+        errorCode: "ENQUEUE_FAILED",
+        errorMessage: "Failed to prepare validation job",
+      });
     });
   });
 
@@ -1322,20 +1476,24 @@ describe("R11-C2-a public validation outbox", () => {
     expect(getInsertedValidationRows()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          enqueueMode: "STABLE",
           ruleId: "rule-valid",
           status: "PENDING",
         }),
         expect.objectContaining({
+          enqueueMode: "STABLE",
           ruleId: "rule-missing-block",
           status: "MISSING",
           errorCode: "REFERENCED_BLOCK_MISSING",
         }),
         expect.objectContaining({
+          enqueueMode: "STABLE",
           ruleId: "rule-unregistered-provider",
           status: "FAILED",
           errorCode: "PROVIDER_NOT_REGISTERED",
         }),
         expect.objectContaining({
+          enqueueMode: "STABLE",
           ruleId: "rule-unknown-type",
           status: "FAILED",
           errorCode: "UNKNOWN_RULE_TYPE",
@@ -1346,6 +1504,9 @@ describe("R11-C2-a public validation outbox", () => {
     expect(mocks.addValidationJob).toHaveBeenCalledWith(
       "validate-discord",
       expect.objectContaining({ ruleId: "rule-valid" }),
+      expect.objectContaining({
+        jobId: expect.stringMatching(/^validation-outbox-/),
+      }),
     );
   });
 

@@ -16,6 +16,7 @@ import { providerRegistry } from "@nexus-form/integrations";
 import {
   buildAutoSheetsSyncJobId,
   buildFormSubmitNotificationJobId,
+  buildValidationOutboxJobId,
   extractQuestionsFromPlateContent,
   FormConfirmationSchema,
   type FormNotifications,
@@ -1326,6 +1327,7 @@ async function buildExternalValidationOutbox(
       referencedBlockId: pair.referencedBlockId,
       snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
+      enqueueMode: "STABLE",
       status: "MISSING",
       errorCode: "REFERENCED_BLOCK_MISSING",
       errorMessage: `Referenced block not found in form: ${pair.referencedBlockId}`,
@@ -1339,6 +1341,7 @@ async function buildExternalValidationOutbox(
       referencedBlockId: pair.referencedBlockId,
       snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
+      enqueueMode: "STABLE",
       status: "FAILED",
       errorCode: "INVALID_SERVICE_NAME",
       errorMessage: `Invalid service name: ${pair.providerName}`,
@@ -1352,6 +1355,7 @@ async function buildExternalValidationOutbox(
       referencedBlockId: pair.referencedBlockId,
       snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
+      enqueueMode: "STABLE",
       status: "FAILED",
       errorCode: "PROVIDER_NOT_REGISTERED",
       errorMessage: `Validation provider not registered: ${pair.providerName}`,
@@ -1365,6 +1369,7 @@ async function buildExternalValidationOutbox(
       referencedBlockId: pair.referencedBlockId,
       snapshotVersion: activeSnapshot.version,
       service: pair.providerName,
+      enqueueMode: "STABLE",
       status: "FAILED",
       errorCode: "UNKNOWN_RULE_TYPE",
       errorMessage: `Provider ${pair.providerName} does not expose rule: ${pair.ruleType}`,
@@ -1378,6 +1383,7 @@ async function buildExternalValidationOutbox(
     referencedBlockId: pair.referencedBlockId,
     snapshotVersion: activeSnapshot.version,
     service: pair.providerName,
+    enqueueMode: "STABLE" as const,
     status: "PENDING" as const,
   }));
   inserts.push(...pendingRows);
@@ -1404,15 +1410,11 @@ async function enqueueExternalValidationJobs(
   responseId: string,
   outbox: ValidationOutbox,
 ): Promise<void> {
-  // リトライ経路 (forms-responses.ts) と同様に per-row で enqueue し、
-  // 失敗した行のみ FAILED (ENQUEUE_FAILED) に更新してジョブ無しの
-  // PENDING 行が残留しないようにする。
   await Promise.all(
     outbox.pendingJobs.map(async ({ pair, resultId }) => {
+      let jobData: z.infer<typeof genericValidationJobDataSchema>;
       try {
-        // getValidationQueue は内部で Redis 接続を確立しうるため try 内で呼ぶ。
-        const queue = getValidationQueue(pair.providerName);
-        const jobData = genericValidationJobDataSchema.parse({
+        jobData = genericValidationJobDataSchema.parse({
           responseId,
           ruleId: pair.ruleId,
           referencedBlockId: pair.referencedBlockId,
@@ -1421,32 +1423,13 @@ async function enqueueExternalValidationJobs(
           snapshotConfigJson: pair.configJson,
           snapshotVersion: outbox.snapshotVersion,
         });
-        const job = await queue.add(`validate-${pair.providerName}`, jobData);
-        // リトライ経路と同様、enqueue 済みジョブの jobId を記録して
-        // トラッキング/キャンセルを可能にする。失敗しても Worker 側が
-        // 処理時に jobId を設定するため致命的ではない。
-        try {
-          await db
-            .update(externalServiceValidationResult)
-            .set({ jobId: job.id ?? null })
-            .where(
-              and(
-                eq(externalServiceValidationResult.id, resultId),
-                isNull(externalServiceValidationResult.jobId),
-              ),
-            );
-        } catch (updateError) {
-          logError("Failed to persist jobId for validation result", "api", {
-            error: updateError,
-            resultId,
-          });
-          captureError(updateError);
-        }
       } catch (error) {
-        logError("Failed to enqueue external validation job", "api", {
+        logError("Failed to prepare validation outbox job", "api", {
           error,
+          resultId,
           responseId,
           ruleId: pair.ruleId,
+          service: pair.providerName,
         });
         captureError(error);
         try {
@@ -1455,17 +1438,71 @@ async function enqueueExternalValidationJobs(
             .set({
               status: "FAILED",
               errorCode: "ENQUEUE_FAILED",
-              errorMessage: "Failed to enqueue validation job",
+              errorMessage: "Failed to prepare validation job",
             })
-            .where(eq(externalServiceValidationResult.id, resultId));
+            .where(
+              and(
+                eq(externalServiceValidationResult.id, resultId),
+                eq(externalServiceValidationResult.status, "PENDING"),
+                eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+                isNull(externalServiceValidationResult.jobId),
+                isNull(externalServiceValidationResult.claimToken),
+              ),
+            );
         } catch (updateError) {
           logError(
-            "Failed to mark validation result as FAILED after enqueue error",
+            "Failed to mark validation result as FAILED after preparation error",
             "api",
             { error: updateError, resultId },
           );
           captureError(updateError);
         }
+        return;
+      }
+
+      const jobId = buildValidationOutboxJobId(resultId);
+      try {
+        // Redis/network failures are transient. The committed STABLE PENDING
+        // row remains untouched so the validation outbox sweeper can retry it.
+        const queue = getValidationQueue(pair.providerName);
+        await queue.add(`validate-${pair.providerName}`, jobData, { jobId });
+      } catch (error) {
+        logError("Failed to enqueue external validation job", "api", {
+          error,
+          resultId,
+          responseId,
+          ruleId: pair.ruleId,
+          service: pair.providerName,
+          jobId,
+        });
+        captureError(error);
+        return;
+      }
+
+      try {
+        // A zero-row CAS or acknowledgement exception stays recoverable: the
+        // stable queue ID lets the Worker admit the job durably, and a still-
+        // PENDING row remains eligible for the sweeper. Never overwrite a row
+        // already owned by a sweeper claim.
+        await db
+          .update(externalServiceValidationResult)
+          .set({ jobId })
+          .where(
+            and(
+              eq(externalServiceValidationResult.id, resultId),
+              eq(externalServiceValidationResult.status, "PENDING"),
+              eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+              isNull(externalServiceValidationResult.jobId),
+              isNull(externalServiceValidationResult.claimToken),
+            ),
+          );
+      } catch (updateError) {
+        logError("Failed to persist jobId for validation result", "api", {
+          error: updateError,
+          resultId,
+          jobId,
+        });
+        captureError(updateError);
       }
     }),
   );
