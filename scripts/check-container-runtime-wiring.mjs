@@ -49,9 +49,14 @@ export function checkContainerRuntimeWiringSources({
   requirePattern(
     errors,
     migrationScript,
-    /from\s+["']@nexus-form\/database["']/,
-    "the migration runner must use the @nexus-form/database public bare import",
+    /from\s+["']@nexus-form\/database\/migrate["']/,
+    "the migration runner must use the dedicated @nexus-form/database/migrate entrypoint",
   );
+  if (/from\s+["']@nexus-form\/database["']/.test(migrationScript)) {
+    errors.push(
+      "the migration runner must not import the side-effectful @nexus-form/database package root",
+    );
+  }
 
   if (
     /runStartupMigrations|DRIZZLE_MIGRATIONS_DIR|\/migration\/run-migrations\.mjs/.test(
