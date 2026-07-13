@@ -10,13 +10,13 @@ import {
 } from "@nexus-form/database";
 import type { ValidationSSEEvent } from "@nexus-form/shared";
 import {
+  buildValidationOutboxJobId,
   extractQuestionsFromPlateContent,
   getValidationResultId,
-  VALIDATION_OUTBOX_JOB_PREFIX,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
 
@@ -307,10 +307,8 @@ export async function markValidationProcessing(params: {
     processingUpdate.jobId = params.jobId;
   }
 
-  const stableOutboxJobId =
-    params.jobId?.startsWith(VALIDATION_OUTBOX_JOB_PREFIX) === true
-      ? params.jobId
-      : null;
+  const expectedStableOutboxJobId = buildValidationOutboxJobId(resultId);
+  const isExpectedStableOutboxJob = params.jobId === expectedStableOutboxJobId;
   const usesStrictJobOwnership =
     params.jobId?.startsWith(VALIDATION_RETRY_JOB_PREFIX) === true ||
     params.jobId?.startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) === true;
@@ -323,28 +321,38 @@ export async function markValidationProcessing(params: {
             isNull(externalServiceValidationResult.jobId),
             eq(externalServiceValidationResult.jobId, params.jobId),
           );
-  const admissionCondition =
-    stableOutboxJobId !== null
-      ? and(
-          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
-          or(
-            and(
-              eq(externalServiceValidationResult.status, "PENDING"),
-              or(
-                isNull(externalServiceValidationResult.jobId),
-                eq(externalServiceValidationResult.jobId, stableOutboxJobId),
+  const admissionCondition = isExpectedStableOutboxJob
+    ? and(
+        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+        or(
+          and(
+            eq(externalServiceValidationResult.status, "PENDING"),
+            or(
+              isNull(externalServiceValidationResult.jobId),
+              eq(
+                externalServiceValidationResult.jobId,
+                expectedStableOutboxJobId,
               ),
             ),
-            and(
-              eq(externalServiceValidationResult.status, "PROCESSING"),
-              eq(externalServiceValidationResult.jobId, stableOutboxJobId),
+          ),
+          and(
+            eq(externalServiceValidationResult.status, "PROCESSING"),
+            eq(
+              externalServiceValidationResult.jobId,
+              expectedStableOutboxJobId,
             ),
           ),
-        )
-      : and(
-          ownershipCondition,
-          sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
-        );
+        ),
+      )
+    : and(
+        eq(externalServiceValidationResult.enqueueMode, "LEGACY"),
+        ownershipCondition,
+        or(
+          ne(externalServiceValidationResult.status, "FAILED"),
+          isNull(externalServiceValidationResult.errorCode),
+          ne(externalServiceValidationResult.errorCode, "CANCELLED_BY_USER"),
+        ),
+      );
 
   const processingResult = await db.transaction(async (tx) => {
     const updateResult = await tx
@@ -370,6 +378,7 @@ export async function markValidationProcessing(params: {
       .select({
         status: externalServiceValidationResult.status,
         errorCode: externalServiceValidationResult.errorCode,
+        enqueueMode: externalServiceValidationResult.enqueueMode,
         jobId: externalServiceValidationResult.jobId,
       })
       .from(externalServiceValidationResult)
@@ -385,7 +394,7 @@ export async function markValidationProcessing(params: {
       )
       .for("update");
 
-    if (stableOutboxJobId !== null) {
+    if (isExpectedStableOutboxJob || existing?.enqueueMode === "STABLE") {
       return { actualJobId: existing?.jobId ?? null, type: "stale" as const };
     }
     if (
