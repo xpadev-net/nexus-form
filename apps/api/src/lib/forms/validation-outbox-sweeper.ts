@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import {
   externalServiceValidationResult,
@@ -5,8 +6,11 @@ import {
   formValidationRule,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
-import { genericValidationJobDataSchema } from "@nexus-form/shared";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import {
+  buildValidationOutboxJobId,
+  genericValidationJobDataSchema,
+} from "@nexus-form/shared";
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { logError } from "../logger";
 import { getValidationQueue, isValidServiceName } from "../queues";
@@ -21,6 +25,11 @@ const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 500;
 const DEFAULT_STALE_MS = 30_000;
 const DEFAULT_INTERVAL_MS = 60_000;
+const DEFAULT_CLAIM_LEASE_MS = 60_000;
+const INITIAL_BACKOFF_MS = 30_000;
+const MAX_BACKOFF_MS = 15 * 60_000;
+const MAX_ENQUEUE_ATTEMPTS = 8;
+const SERVER_CURRENT_TIMESTAMP = sql`CURRENT_TIMESTAMP`;
 
 type SweeperTimer = ReturnType<typeof setInterval> & {
   unref?: () => void;
@@ -36,18 +45,26 @@ type PendingValidationOutboxRow = {
   snapshotVersion: number | null;
   liveRuleType: string | null;
   liveConfigJson: unknown;
+  enqueueAttemptCount: number;
+  enqueueMode: "LEGACY" | "STABLE";
+};
+
+type ClaimedValidationOutboxRow = PendingValidationOutboxRow & {
+  claimToken: string;
 };
 
 /**
  * Counts produced by a single validation outbox sweep.
  */
 export type ValidationOutboxSweepResult = {
-  /** Number of stale PENDING rows loaded from the database. */
+  /** Number of eligible STABLE PENDING rows claimed from the database. */
   scanned: number;
   /** Number of rows whose validation jobs were enqueued or already represented by the same stable job ID. */
   enqueued: number;
   /** Number of rows moved to FAILED because they could not be recovered. */
   failed: number;
+  /** Number of transient enqueue failures scheduled for a later sweep. */
+  retryScheduled: number;
 };
 
 /**
@@ -85,84 +102,261 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function markValidationOutboxFailed(
-  resultId: string,
+  row: ClaimedValidationOutboxRow,
   errorCode: string,
   errorMessage: string,
-  jobId?: string,
-): Promise<void> {
-  const conditions = [
-    eq(externalServiceValidationResult.id, resultId),
-    eq(externalServiceValidationResult.status, "PENDING"),
-  ];
-  if (jobId) {
-    conditions.push(eq(externalServiceValidationResult.jobId, jobId));
-  } else {
-    conditions.push(isNull(externalServiceValidationResult.jobId));
+): Promise<boolean> {
+  try {
+    const [result] = await db
+      .update(externalServiceValidationResult)
+      .set({
+        status: "FAILED",
+        errorCode,
+        errorMessage,
+        enqueueAttemptCount: row.enqueueAttemptCount + 1,
+        nextEligibleAt: null,
+        claimToken: null,
+        claimExpiresAt: null,
+      })
+      .where(
+        and(
+          eq(externalServiceValidationResult.id, row.id),
+          eq(externalServiceValidationResult.status, "PENDING"),
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          isNull(externalServiceValidationResult.jobId),
+          eq(externalServiceValidationResult.claimToken, row.claimToken),
+        ),
+      );
+    return result.affectedRows > 0;
+  } catch (error) {
+    logError("Failed to mark validation outbox row as failed", "api", {
+      error,
+      resultId: row.id,
+    });
+    captureError(error);
+    return false;
   }
-
-  await db
-    .update(externalServiceValidationResult)
-    .set({
-      status: "FAILED",
-      errorCode,
-      errorMessage,
-    })
-    .where(and(...conditions));
 }
 
 async function persistValidationOutboxJobId(
-  resultId: string,
+  row: ClaimedValidationOutboxRow,
   jobId: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const [result] = await db
     .update(externalServiceValidationResult)
     .set({
       jobId,
       errorCode: null,
       errorMessage: null,
+      enqueueAttemptCount: row.enqueueAttemptCount + 1,
+      nextEligibleAt: null,
+      claimToken: null,
+      claimExpiresAt: null,
     })
     .where(
       and(
-        eq(externalServiceValidationResult.id, resultId),
+        eq(externalServiceValidationResult.id, row.id),
         eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
         isNull(externalServiceValidationResult.jobId),
+        eq(externalServiceValidationResult.claimToken, row.claimToken),
       ),
     );
+  return result.affectedRows > 0;
+}
+
+async function renewValidationOutboxClaim(
+  row: ClaimedValidationOutboxRow,
+  leaseSeconds: number,
+): Promise<boolean> {
+  const [result] = await db
+    .update(externalServiceValidationResult)
+    .set({
+      claimExpiresAt: sql`TIMESTAMPADD(SECOND, ${leaseSeconds}, CURRENT_TIMESTAMP)`,
+    })
+    .where(
+      and(
+        eq(externalServiceValidationResult.id, row.id),
+        eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+        isNull(externalServiceValidationResult.jobId),
+        eq(externalServiceValidationResult.claimToken, row.claimToken),
+        gt(
+          externalServiceValidationResult.claimExpiresAt,
+          SERVER_CURRENT_TIMESTAMP,
+        ),
+      ),
+    );
+  return result.affectedRows > 0;
+}
+
+function retryDelayMs(attempt: number, random: () => number): number {
+  const baseDelay = Math.min(
+    INITIAL_BACKOFF_MS * 2 ** Math.max(0, attempt - 1),
+    MAX_BACKOFF_MS,
+  );
+  const jitterFloor =
+    baseDelay === MAX_BACKOFF_MS
+      ? MAX_BACKOFF_MS - INITIAL_BACKOFF_MS
+      : baseDelay;
+  const jitter = Math.floor(
+    Math.min(1, Math.max(0, random())) * INITIAL_BACKOFF_MS,
+  );
+  return Math.min(MAX_BACKOFF_MS, jitterFloor + jitter);
+}
+
+function validationOutboxEligibilityCondition(staleSeconds: number) {
+  return and(
+    or(
+      lte(
+        externalServiceValidationResult.nextEligibleAt,
+        SERVER_CURRENT_TIMESTAMP,
+      ),
+      and(
+        isNull(externalServiceValidationResult.nextEligibleAt),
+        lte(
+          externalServiceValidationResult.createdAt,
+          sql`TIMESTAMPADD(SECOND, ${-staleSeconds}, CURRENT_TIMESTAMP)`,
+        ),
+      ),
+    ),
+    or(
+      isNull(externalServiceValidationResult.claimToken),
+      lte(
+        externalServiceValidationResult.claimExpiresAt,
+        SERVER_CURRENT_TIMESTAMP,
+      ),
+    ),
+  );
+}
+
+async function releaseValidationOutboxClaim(
+  row: ClaimedValidationOutboxRow,
+  random: () => number,
+  error: unknown,
+): Promise<"retrying" | "failed" | "unresolved"> {
+  const enqueueAttemptCount = row.enqueueAttemptCount + 1;
+  const terminal = enqueueAttemptCount >= MAX_ENQUEUE_ATTEMPTS;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const retryDelaySeconds = Math.ceil(
+    retryDelayMs(enqueueAttemptCount, random) / 1_000,
+  );
+
+  const [result] = await db
+    .update(externalServiceValidationResult)
+    .set(
+      terminal
+        ? {
+            status: "FAILED",
+            errorCode: "ENQUEUE_RETRY_EXHAUSTED",
+            errorMessage: "Validation job enqueue retry limit exceeded",
+            enqueueAttemptCount,
+            nextEligibleAt: null,
+            claimToken: null,
+            claimExpiresAt: null,
+          }
+        : {
+            errorCode: "ENQUEUE_FAILED",
+            errorMessage,
+            enqueueAttemptCount,
+            nextEligibleAt: sql`TIMESTAMPADD(SECOND, ${retryDelaySeconds}, CURRENT_TIMESTAMP)`,
+            claimToken: null,
+            claimExpiresAt: null,
+          },
+    )
+    .where(
+      and(
+        eq(externalServiceValidationResult.id, row.id),
+        eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+        isNull(externalServiceValidationResult.jobId),
+        eq(externalServiceValidationResult.claimToken, row.claimToken),
+      ),
+    );
+
+  if (result.affectedRows === 0) return "unresolved";
+  return terminal ? "failed" : "retrying";
+}
+
+async function claimPendingValidationOutboxRows(options: {
+  staleSeconds: number;
+  batchSize: number;
+  leaseSeconds: number;
+}): Promise<ClaimedValidationOutboxRow[]> {
+  const claimToken = randomUUID();
+
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: externalServiceValidationResult.id,
+        responseId: externalServiceValidationResult.responseId,
+        ruleId: externalServiceValidationResult.ruleId,
+        referencedBlockId: externalServiceValidationResult.referencedBlockId,
+        service: externalServiceValidationResult.service,
+        formId: formResponse.formId,
+        snapshotVersion: externalServiceValidationResult.snapshotVersion,
+        liveRuleType: formValidationRule.ruleType,
+        liveConfigJson: formValidationRule.configJson,
+        enqueueAttemptCount:
+          externalServiceValidationResult.enqueueAttemptCount,
+        enqueueMode: externalServiceValidationResult.enqueueMode,
+      })
+      .from(externalServiceValidationResult)
+      .innerJoin(
+        formResponse,
+        eq(formResponse.id, externalServiceValidationResult.responseId),
+      )
+      .leftJoin(
+        formValidationRule,
+        eq(formValidationRule.id, externalServiceValidationResult.ruleId),
+      )
+      .where(
+        and(
+          eq(externalServiceValidationResult.status, "PENDING"),
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          isNull(externalServiceValidationResult.jobId),
+          validationOutboxEligibilityCondition(options.staleSeconds),
+        ),
+      )
+      .orderBy(asc(externalServiceValidationResult.createdAt))
+      .limit(options.batchSize)
+      .for("update", { skipLocked: true });
+
+    if (rows.length === 0) return [];
+
+    await tx
+      .update(externalServiceValidationResult)
+      .set({
+        claimToken,
+        claimExpiresAt: sql`TIMESTAMPADD(SECOND, ${options.leaseSeconds}, CURRENT_TIMESTAMP)`,
+      })
+      .where(
+        and(
+          inArray(
+            externalServiceValidationResult.id,
+            rows.map((row) => row.id),
+          ),
+          eq(externalServiceValidationResult.status, "PENDING"),
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          isNull(externalServiceValidationResult.jobId),
+          validationOutboxEligibilityCondition(options.staleSeconds),
+        ),
+      );
+
+    return rows.map((row) => ({ ...row, claimToken }));
+  });
 }
 
 async function findPendingValidationOutboxRows(
-  cutoff: Date,
+  staleSeconds: number,
   batchSize: number,
-): Promise<PendingValidationOutboxRow[]> {
-  return db
-    .select({
-      id: externalServiceValidationResult.id,
-      responseId: externalServiceValidationResult.responseId,
-      ruleId: externalServiceValidationResult.ruleId,
-      referencedBlockId: externalServiceValidationResult.referencedBlockId,
-      service: externalServiceValidationResult.service,
-      formId: formResponse.formId,
-      snapshotVersion: externalServiceValidationResult.snapshotVersion,
-      liveRuleType: formValidationRule.ruleType,
-      liveConfigJson: formValidationRule.configJson,
-    })
-    .from(externalServiceValidationResult)
-    .innerJoin(
-      formResponse,
-      eq(formResponse.id, externalServiceValidationResult.responseId),
-    )
-    .leftJoin(
-      formValidationRule,
-      eq(formValidationRule.id, externalServiceValidationResult.ruleId),
-    )
-    .where(
-      and(
-        eq(externalServiceValidationResult.status, "PENDING"),
-        isNull(externalServiceValidationResult.jobId),
-        lte(externalServiceValidationResult.createdAt, cutoff),
-      ),
-    )
-    .limit(batchSize);
+  leaseSeconds: number,
+): Promise<ClaimedValidationOutboxRow[]> {
+  return claimPendingValidationOutboxRows({
+    staleSeconds,
+    batchSize,
+    leaseSeconds,
+  });
 }
 
 async function buildSnapshotRuleMap(
@@ -215,31 +409,35 @@ async function buildSnapshotRuleMap(
 }
 
 async function enqueuePendingValidationOutboxRow(
-  row: PendingValidationOutboxRow,
+  row: ClaimedValidationOutboxRow,
   snapshotRules: Map<
     string,
     { ruleType: string; configJson: Record<string, unknown> }
   >,
-): Promise<"enqueued" | "failed"> {
+  options: {
+    leaseSeconds: number;
+    random: () => number;
+  },
+): Promise<"enqueued" | "failed" | "retrying" | "unresolved"> {
   if (!row.service || !isValidServiceName(row.service)) {
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "INVALID_SERVICE_NAME",
       `Invalid service name: ${row.service ?? ""}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const snapshotEntry = snapshotRules.get(
     snapshotRuleMapKey(row.formId, row.snapshotVersion, row.ruleId),
   );
   if (row.snapshotVersion !== null && !snapshotEntry) {
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "RULE_CONFIG_NOT_FOUND",
       "Validation rule configuration was not found in response snapshot",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const ruleType = snapshotEntry?.ruleType ?? row.liveRuleType ?? null;
@@ -249,30 +447,30 @@ async function enqueuePendingValidationOutboxRow(
     null;
 
   if (!ruleType || !configJson) {
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "RULE_CONFIG_NOT_FOUND",
       "Validation rule configuration was not found for pending outbox row",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const provider = providerRegistry.get(row.service);
   if (!provider) {
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "PROVIDER_NOT_REGISTERED",
       `Validation provider not registered: ${row.service}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
   if (!provider.rules[ruleType]) {
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "UNKNOWN_RULE_TYPE",
       `Provider ${row.service} does not expose rule: ${ruleType}`,
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   let jobData: z.infer<typeof genericValidationJobDataSchema>;
@@ -295,18 +493,34 @@ async function enqueuePendingValidationOutboxRow(
       service: row.service,
       formId: row.formId,
     });
-    await markValidationOutboxFailed(
-      row.id,
+    const marked = await markValidationOutboxFailed(
+      row,
       "ENQUEUE_FAILED",
       "Failed to prepare validation job",
     );
-    return "failed";
+    return marked ? "failed" : "unresolved";
   }
 
   const jobId = buildValidationOutboxJobId(row.id);
 
-  const queue = getValidationQueue(row.service);
   try {
+    let claimRenewed = false;
+    try {
+      claimRenewed = await renewValidationOutboxClaim(
+        row,
+        options.leaseSeconds,
+      );
+    } catch (error) {
+      logError("Failed to renew validation outbox claim", "api", {
+        error,
+        resultId: row.id,
+        jobId,
+      });
+      captureError(error);
+    }
+    if (!claimRenewed) return "unresolved";
+
+    const queue = getValidationQueue(row.service);
     await queue.add(`validate-${row.service}`, jobData, { jobId });
   } catch (error) {
     logError("Failed to enqueue validation outbox job", "api", {
@@ -319,25 +533,23 @@ async function enqueuePendingValidationOutboxRow(
       jobId,
     });
     captureError(error);
+    let recovery: "retrying" | "failed" | "unresolved" = "unresolved";
     try {
-      await markValidationOutboxFailed(
-        row.id,
-        "ENQUEUE_FAILED",
-        "Failed to enqueue validation job",
-      );
+      recovery = await releaseValidationOutboxClaim(row, options.random, error);
     } catch (updateError) {
       logError(
-        "Failed to mark validation outbox row as FAILED after enqueue error",
+        "Failed to release validation outbox claim after enqueue error",
         "api",
         { error: updateError, resultId: row.id, jobId },
       );
       captureError(updateError);
     }
-    return "failed";
+    return recovery;
   }
 
   try {
-    await persistValidationOutboxJobId(row.id, jobId);
+    const persisted = await persistValidationOutboxJobId(row, jobId);
+    if (!persisted) return "unresolved";
   } catch (error) {
     logError("Failed to persist validation outbox jobId", "api", {
       error,
@@ -349,18 +561,16 @@ async function enqueuePendingValidationOutboxRow(
       jobId,
     });
     captureError(error);
+    return "unresolved";
   }
   return "enqueued";
 }
 
-function buildValidationOutboxJobId(resultId: string): string {
-  return `validation-outbox-${resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-}
-
 /**
- * Recovers stale validation outbox rows by loading up to `batchSize` rows older
- * than `staleMs`, resolving their response snapshot rule config, and enqueueing
- * validation jobs for recoverable rows.
+ * Recovers eligible STABLE validation outbox rows by claiming up to
+ * `batchSize` rows, resolving their response snapshot rule config, and
+ * enqueueing validation jobs for recoverable rows. Initial rows must be older
+ * than `staleMs`; rows with a retry eligibility timestamp use that timestamp.
  *
  * `batchSize` defaults to `DEFAULT_BATCH_SIZE` and is capped at
  * `MAX_BATCH_SIZE`; `staleMs` defaults to `DEFAULT_STALE_MS`. The returned
@@ -368,25 +578,46 @@ function buildValidationOutboxJobId(resultId: string): string {
  * failed because they cannot be recovered.
  */
 export async function sweepValidationOutbox(
-  options: { batchSize?: number; staleMs?: number } = {},
+  options: {
+    batchSize?: number;
+    staleMs?: number;
+    leaseMs?: number;
+    now?: Date;
+    clock?: () => Date;
+    random?: () => number;
+  } = {},
 ): Promise<ValidationOutboxSweepResult> {
   const batchSize = Math.min(
     Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE),
     MAX_BATCH_SIZE,
   );
   const staleMs = Math.max(0, options.staleMs ?? DEFAULT_STALE_MS);
-  const cutoff = new Date(Date.now() - staleMs);
-  const rows = await findPendingValidationOutboxRows(cutoff, batchSize);
+  const leaseMs = Math.max(1, options.leaseMs ?? DEFAULT_CLAIM_LEASE_MS);
+  const leaseSeconds = Math.max(1, Math.ceil(leaseMs / 1_000));
+  const staleSeconds = Math.ceil(staleMs / 1_000);
+  const random = options.random ?? Math.random;
+  const rows = await findPendingValidationOutboxRows(
+    staleSeconds,
+    batchSize,
+    leaseSeconds,
+  );
   const snapshotRules = await buildSnapshotRuleMap(rows);
   const result: ValidationOutboxSweepResult = {
     scanned: rows.length,
     enqueued: 0,
     failed: 0,
+    retryScheduled: 0,
   };
 
   for (const row of rows) {
-    const outcome = await enqueuePendingValidationOutboxRow(row, snapshotRules);
-    result[outcome]++;
+    const outcome = await enqueuePendingValidationOutboxRow(
+      row,
+      snapshotRules,
+      { leaseSeconds, random },
+    );
+    if (outcome === "enqueued") result.enqueued += 1;
+    if (outcome === "failed") result.failed += 1;
+    if (outcome === "retrying") result.retryScheduled += 1;
   }
 
   return result;
@@ -411,6 +642,10 @@ export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
     process.env.VALIDATION_OUTBOX_SWEEP_STALE_MS,
     DEFAULT_STALE_MS,
   );
+  const leaseMs = readPositiveInt(
+    process.env.VALIDATION_OUTBOX_SWEEP_CLAIM_LEASE_MS,
+    DEFAULT_CLAIM_LEASE_MS,
+  );
   const intervalMs = readPositiveInt(
     process.env.VALIDATION_OUTBOX_SWEEP_INTERVAL_MS,
     DEFAULT_INTERVAL_MS,
@@ -421,9 +656,11 @@ export function createValidationOutboxSweeper(): ValidationOutboxSweeper {
 
   const runOnce = (): Promise<ValidationOutboxSweepResult> => {
     if (running) return running;
-    running = sweepValidationOutbox({ batchSize, staleMs }).finally(() => {
-      running = null;
-    });
+    running = sweepValidationOutbox({ batchSize, staleMs, leaseMs }).finally(
+      () => {
+        running = null;
+      },
+    );
     return running;
   };
 
