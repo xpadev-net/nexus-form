@@ -334,3 +334,43 @@ Evidence:
 - root cause: DDL auto-commit was treated like an atomic transaction, so partial application was not part of the migration contract.
 - fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
 - prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.
+
+## 2026-07-13: Expand completion gates when diagnosis becomes delivery
+
+- tags: workflow, scope, planning, review-gate
+- symptom: A diagnosis-only request was expanded in-turn to require implementation, branching, iterative subagent review, PR review-hook iteration, and merge.
+- root cause: The initial scope intentionally stopped at root-cause reporting, so delivery and merge gates were not yet represented in the active work contract.
+- fix: Create an approved execution plan that makes implementation, independent review, hook exit status, GitHub review decision, and merge explicit blocking gates.
+- prevention: When a user expands a live task from diagnosis to delivery, update the active plan and definition of done before editing implementation files or declaring any intermediate state complete.
+
+## 2026-07-13: Prefix commands nested inside shell substitutions with RTK
+
+- tags: tooling, rtk, shell, command-discipline
+- symptom: A GitHub inspection command was prefixed with `rtk`, but its `$(git rev-parse ...)` substitution invoked raw `git`.
+- root cause: RTK compliance was checked only at the outer command boundary and not for nested shell commands.
+- fix: Avoid shell substitution when possible; obtain values in separate `rtk`-prefixed commands, or prefix every nested command explicitly.
+- prevention: Before executing a compound shell command, inspect every pipeline segment, chain segment, and command substitution for its own `rtk` prefix.
+
+## 2026-07-13: Preserve validation evidence when pnpm exec aborts before tool launch
+
+- tags: troubleshooting, pnpm, non-tty, validation
+- symptom: A scoped `pnpm exec biome check` attempted to rebuild production dependencies and aborted with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` before Biome launched.
+- root cause: The workspace dependency-state guard, rather than the requested formatter, required a destructive `node_modules` replacement that pnpm refuses without a TTY.
+- fix: Preserve the exact wrapper failure, then invoke the already-installed project Biome binary for the same supported paths and record that Dockerfile is not handled by Biome.
+- prevention: When a package-manager wrapper fails before the target validation binary starts, distinguish wrapper failure from validation failure and use the existing local binary only as an explicit, evidence-backed fallback; never silently claim the original command passed.
+
+## 2026-07-13: Separate native fallback OOM from Dockerfile correctness
+
+- tags: troubleshooting, docker, arm64, native-modules, validation
+- symptom: A local arm64 production image build downloaded dependencies successfully, but `msgpackr-extract` rejected its optional native path, fell back to compilation, and the build was killed with exit 137.
+- root cause: The host platform's optional-native installation path introduced a resource-heavy fallback before the Dockerfile reached the changed runtime-copy steps.
+- fix: Preserve the failed arm64 evidence, verify the official Buildx binary by checksum, and retry `linux/amd64`; when the 2 GiB VM also exhausted memory during dependency installation, use a production-order deploy/import probe and record a time-bounded image-build waiver.
+- prevention: For container validation failures before changed stages, identify the failing stage, platform, and VM resource ceiling; exhaust a release-platform retry, then document an evidence-backed waiver instead of treating OOM as product-code failure or implying PR CI runs a workflow whose trigger is default-branch-only.
+
+## 2026-07-13: Reproduce workspace deploys with the production build order
+
+- tags: validation, pnpm-deploy, workspace, build-order
+- symptom: A local migration import probe found `@nexus-form/shared/dist/index.js` missing after building only database, suggesting the initial Dockerfile fix was incomplete.
+- root cause: The probe did not reproduce the Docker builder invariant that shared and every runtime workspace package are built before `pnpm deploy`, so its deploy closure contained source-only shared files.
+- fix: Re-run deploy and import probes from a clean workspace using the exact Docker builder order; this proved the production closure includes shared dist and API workspace imports remain valid.
+- prevention: Runtime-layout probes for workspace deploy artifacts must reproduce the production build order before interpreting a missing built artifact as a Dockerfile or dependency-closure defect.
