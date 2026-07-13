@@ -358,11 +358,11 @@ rollout_prepare_ledger_parent() {
     "$home/.local/state/nexus-form"; do
     [ ! -L "$component" ] || return 1
     if [ ! -e "$component" ]; then
-      mkdir -- "$component" || return 1
+      mkdir -- "$component" 2>/dev/null || return 1
     fi
     rollout_locator_component_is_safe "$component" || return 1
   done
-  chmod 700 "$home/.local/state/nexus-form" || return 1
+  chmod 700 "$home/.local/state/nexus-form" 2>/dev/null || return 1
   [ "$(rollout_file_mode "$home/.local/state/nexus-form")" = 700 ]
 }
 rollout_parent_is_canonical() {
@@ -417,13 +417,15 @@ rollout_ledger_matches_owner() {
     [ ! -L "$ROLLOUT_CLEANUP_LEDGER" ] && \
     [ -O "$ROLLOUT_CLEANUP_LEDGER" ] || return 1
   [ "$(rollout_file_mode "$ROLLOUT_CLEANUP_LEDGER")" = 600 ] || return 1
-  [ "$(awk 'END { print NR }' "$ROLLOUT_CLEANUP_LEDGER")" = 4 ] || return 1
-  {
+  [ "$(awk 'END { print NR }' "$ROLLOUT_CLEANUP_LEDGER" 2>/dev/null)" = 4 ] || return 1
+  if ! {
     IFS= read -r ledger_parent
     IFS= read -r ledger_parent_identity
     IFS= read -r ledger_owner
     IFS= read -r ledger_owner_identity
-  } < "$ROLLOUT_CLEANUP_LEDGER"
+  } 2>/dev/null < "$ROLLOUT_CLEANUP_LEDGER"; then
+    return 1
+  fi
   [ "$ledger_parent" = "$ROLLOUT_CLEANUP_PARENT" ] && \
     [ "$ledger_parent_identity" = "$ROLLOUT_CLEANUP_PARENT_IDENTITY" ] && \
     [ "$ledger_owner" = "$ROLLOUT_CLEANUP_OWNER_DIR" ] && \
@@ -434,7 +436,7 @@ cleanup_rollout_probe() {
   set +x
   local cleanup_status=0
 
-  trap - EXIT HUP INT TERM
+  trap - EXIT HUP INT TERM ERR
   unset FORM_PASSWORD HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
   unset ROLLOUT_EVIDENCE_DIR
 
@@ -468,6 +470,15 @@ cleanup_rollout_probe() {
     return "$original_status"
   fi
   return "$cleanup_status"
+}
+rollout_probe_command_failed() {
+  local original_status=$?
+  set +x
+
+  trap - ERR
+  printf '%s\n' \
+    'rollout probe command failed; protected artifacts were cleaned or retained for documented recovery' >&2
+  return "$original_status"
 }
 
 trap '' HUP INT TERM
@@ -504,12 +515,11 @@ if [ -e "$ROLLOUT_CLEANUP_LEDGER" ] || [ -L "$ROLLOUT_CLEANUP_LEDGER" ]; then
   printf '%s\n' 'rollout probe cleanup ledger already exists; recover it before retrying' >&2
   exit 64
 fi
-if ! ROLLOUT_CLEANUP_OWNER_DIR="$(mktemp -d "${ROLLOUT_CLEANUP_PREFIX}XXXXXX")"; then
+if ! ROLLOUT_CLEANUP_OWNER_DIR="$(mktemp -d "${ROLLOUT_CLEANUP_PREFIX}XXXXXX" 2>/dev/null)"; then
   printf '%s\n' 'rollout probe setup could not allocate protected temporary storage' >&2
   exit 70
 fi
 readonly ROLLOUT_CLEANUP_OWNER_DIR
-chmod 700 "$ROLLOUT_CLEANUP_OWNER_DIR"
 readonly ROLLOUT_CLEANUP_OWNER_IDENTITY="$(
   rollout_file_identity "$ROLLOUT_CLEANUP_OWNER_DIR"
 )"
@@ -532,46 +542,42 @@ if ! (
     "$ROLLOUT_CLEANUP_PARENT" "$ROLLOUT_CLEANUP_PARENT_IDENTITY" \
     "$ROLLOUT_CLEANUP_OWNER_DIR" "$ROLLOUT_CLEANUP_OWNER_IDENTITY" \
     > "$ROLLOUT_CLEANUP_LEDGER"
-); then
+) 2>/dev/null; then
   rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
   printf '%s\n' 'rollout probe setup could not create the cleanup ledger' >&2
-  exit 70
-fi
-chmod 600 "$ROLLOUT_CLEANUP_LEDGER"
-if ! rollout_ledger_matches_owner; then
-  rm -f -- "$ROLLOUT_CLEANUP_LEDGER" 2>/dev/null
-  rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
-  printf '%s\n' 'rollout probe setup could not verify the cleanup ledger' >&2
   exit 70
 fi
 trap cleanup_rollout_probe EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+if ! rollout_ledger_matches_owner; then
+  exit 70
+fi
+trap rollout_probe_command_failed ERR
 export ROLLOUT_EVIDENCE_DIR="$ROLLOUT_CLEANUP_OWNER_DIR"
-chmod 700 "$ROLLOUT_EVIDENCE_DIR"
 umask 077
 
 export PUBLIC_FORM_URL="$API_BASE_URL/api/forms/public/$PUBLIC_ID"
-printf '%s\n' "$PUBLIC_FORM_URL" > "$ROLLOUT_EVIDENCE_DIR/get-url.txt"
-printf '%s\n' "$PUBLIC_FORM_URL/submit" > "$ROLLOUT_EVIDENCE_DIR/submit-url.txt"
-jq -e 'type == "array" and length > 0' "$RESPONSES_FILE" >/dev/null
+printf '%s\n' "$PUBLIC_FORM_URL" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/get-url.txt"
+printf '%s\n' "$PUBLIC_FORM_URL/submit" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/submit-url.txt"
+jq -e 'type == "array" and length > 0' "$RESPONSES_FILE" >/dev/null 2>&1
 jq -n --slurpfile responses "$RESPONSES_FILE" '{
   responses: $responses[0],
   captchaToken: "__FRESH_HCAPTCHA_TOKEN__",
   telemetry: {v4Token: "__FRESH_TELEMETRY_TOKEN__"},
   fingerprints: []
-}' > "$ROLLOUT_EVIDENCE_DIR/submit-template.json"
+}' 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/submit-template.json"
 
 set +x
 printf '%s' 'Protected form password: ' >&2
 read -r -s FORM_PASSWORD
 printf '\n'
-printf '%s' "$FORM_PASSWORD" > "$ROLLOUT_EVIDENCE_DIR/password-value"
+printf '%s' "$FORM_PASSWORD" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/password-value"
 unset FORM_PASSWORD
-test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
+test -s "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
-  '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+  '{password: $password}' 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
 rm "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 VERIFY_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/verify-old.json" \
@@ -579,21 +585,21 @@ VERIFY_STATUS="$(curl --silent --show-error \
   --cookie-jar "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
-  "$PUBLIC_FORM_URL/verify-password")"
+  "$PUBLIC_FORM_URL/verify-password" 2>/dev/null)"
 rm "$ROLLOUT_EVIDENCE_DIR/password-request.json" 2>/dev/null
 test "$VERIFY_STATUS" = 200
-jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-old.json" >/dev/null
+jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-old.json" >/dev/null 2>&1
 test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
-  "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar")" = 1
+  "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" 2>/dev/null)" = 1
 
 GET_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" \
   --write-out '%{http_code}' \
   --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
-  "$PUBLIC_FORM_URL")"
+  "$PUBLIC_FORM_URL" 2>/dev/null)"
 test "$GET_STATUS" = 200
 jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure != null and .plateContent != null' \
-  "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
+  "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null 2>&1
 ```
 
 このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。secret artifact用のcleanup ownerは任意の`TMPDIR`を使用せず、検証済みmode `0700`のledger parent配下へ作成してreadonlyに固定します。そのため、`TMPDIR`がnon-sticky mode `0777`、symlink、または別UIDが置換可能でも、password/cookie/request/responseの保存先にはなりません。mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。各fenceは先頭でxtraceを無効化し、password/hCaptcha/telemetry入力前にも再度無効化します。operatorはprobe中に`set -x`を再有効化しないでください。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
@@ -602,7 +608,7 @@ cleanup ownerとcanonical parent、および両directoryのdevice/inode identity
 
 **cleanup locatorのtrust boundary / accepted residual**: このportable runbookは、probeを実行するsame UIDをtrusted boundaryとします。別UIDからのcomponent入替えはownershipとgroup/world-write検査で拒否し、symlink retargetも拒否します。一方、SIGKILL後にsame UIDが最終locator directoryを別名へrenameする、ledgerを削除・改変する、または同pathへ新しいmode `0700`の実directoryを作る操作は、終了したprocessのdevice/inode identityを新processへ信頼可能に渡す外部authorityがないため完全には検出できません。この場合は旧ledgerとsecret artifactを残したまま新probeが開始できるため、ledger admissionやrecoveryをsame-UID hostile processに対するsecurity gateとは扱いません。専用operator UIDではuntrusted codeを実行せず、abnormal exit後は同UIDの別processを起動する前にlocatorとledgerを変更せずrecoveryを実行します。same-UID replacementにも技術的なfail-closed保証が必要な環境では、probe UIDがrename/deleteできないplatform-owned parentとprivileged ledger writer/recovery serviceを別のhost/platform運用タスクで用意してください。このrunbookとTask_7のKubernetes manifestはそのauthorityを提供しません。
 
-cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にxtraceを無効化してpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。authority pathを引数に取る削除commandのraw stderrは抑止し、固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticだけを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
+cleanupはentryでEXIT/HUP/INT/TERM/ERR trapを解除して再入を防ぎ、削除より先にxtraceを無効化してpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。authority/artifact pathを引数またはredirectionに持つ`mkdir`/`chmod`/`mktemp`/`awk`/`jq`/`curl`/`rm`/`tee`とshell redirectionのraw stderrは抑止します。setup failureは固定setup diagnosticへ、trap確立後のprobe command failureは固定command diagnosticへ正規化します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe cleanup diagnosticだけを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。ledgerは最初のsecret artifact作成より前に作成し、検証前にcleanup/signal trapを確立するため、ledger検証失敗ではownerとledgerを保持してcleanup diagnosticを1回だけ出します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
 cleanup failure後は同じuserで次を実行します。このcommandはsetupと同じ`/`から`HOME`までのancestor authorityとlocator chainをcomponentごとに再検証してから、ledger自身と記録されたcanonical parent/ownerをuntrusted inputとして検証し、absolute physical parent、ledger parentとの一致、固定basename、実行user ownership、mode、non-symlinkをすべて満たすresidueだけを削除します。locator chainのsymlink/retargetや、検証可能なledger format/path/identity mismatch、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。same UIDによるledger改変は上記accepted residualの範囲であり、このrecoveryだけで敵対的な改変を完全検出するものではありません。
 
@@ -749,13 +755,15 @@ readonly RECOVERY_LEDGER="$RECOVERY_LEDGER_PARENT/rollout-cleanup.ledger"
   [ ! -L "$RECOVERY_LEDGER" ] && \
   [ -O "$RECOVERY_LEDGER" ] && \
   [ "$(recovery_file_mode "$RECOVERY_LEDGER")" = 600 ] || recovery_fail
-[ "$(awk 'END { print NR }' "$RECOVERY_LEDGER")" = 4 ] || recovery_fail
-{
+[ "$(awk 'END { print NR }' "$RECOVERY_LEDGER" 2>/dev/null)" = 4 ] || recovery_fail
+if ! {
   IFS= read -r RECOVERY_PARENT
   IFS= read -r RECOVERY_PARENT_IDENTITY
   IFS= read -r RECOVERY_OWNER
   IFS= read -r RECOVERY_OWNER_IDENTITY
-} < "$RECOVERY_LEDGER"
+} 2>/dev/null < "$RECOVERY_LEDGER"; then
+  recovery_fail
+fi
 [[ "$RECOVERY_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
 [[ "$RECOVERY_OWNER_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
 [ "$RECOVERY_PARENT" = "$RECOVERY_LEDGER_PARENT" ] || recovery_fail
@@ -828,10 +836,10 @@ GET_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" \
   --write-out '%{http_code}' \
   --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
-  "$PUBLIC_FORM_URL")"
+  "$PUBLIC_FORM_URL" 2>/dev/null)"
 test "$GET_STATUS" = 200
 jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure == null and .plateContent == null' \
-  "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" >/dev/null
+  "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" >/dev/null 2>&1
 
 set +x
 printf '%s' 'Fresh hCaptcha token for old-cookie submit: ' >&2
@@ -840,16 +848,16 @@ printf '\n'
 printf '%s' 'Fresh telemetry v4 token for old-cookie submit: ' >&2
 read -r -s TELEMETRY_V4_TOKEN
 printf '\n'
-printf '%s' "$HCAPTCHA_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
-printf '%s' "$TELEMETRY_V4_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+printf '%s' "$HCAPTCHA_TOKEN" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+printf '%s' "$TELEMETRY_V4_TOKEN" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
 unset HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
-test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
-test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" 2>/dev/null
+test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
   --rawfile telemetry "$ROLLOUT_EVIDENCE_DIR/telemetry-token" \
   '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
   "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
-  > "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
+  2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
 rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 OLD_SUBMIT_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" \
@@ -857,21 +865,21 @@ OLD_SUBMIT_STATUS="$(curl --silent --show-error \
   --cookie "$ROLLOUT_EVIDENCE_DIR/old-cookie.jar" \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/old-submit-request.json" \
-  "$PUBLIC_FORM_URL/submit")"
+  "$PUBLIC_FORM_URL/submit" 2>/dev/null)"
 rm "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json" 2>/dev/null
 test "$OLD_SUBMIT_STATUS" = 403
 jq -e '.passwordRequired == true and .error == "Password verification required"' \
-  "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" >/dev/null
+  "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" >/dev/null 2>&1
 
 set +x
 printf '%s' 'Protected form password: ' >&2
 read -r -s FORM_PASSWORD
 printf '\n'
-printf '%s' "$FORM_PASSWORD" > "$ROLLOUT_EVIDENCE_DIR/password-value"
+printf '%s' "$FORM_PASSWORD" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/password-value"
 unset FORM_PASSWORD
-test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
+test -s "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
-  '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+  '{password: $password}' 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
 rm "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 VERIFY_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/verify-new.json" \
@@ -879,21 +887,21 @@ VERIFY_STATUS="$(curl --silent --show-error \
   --cookie-jar "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
-  "$PUBLIC_FORM_URL/verify-password")"
+  "$PUBLIC_FORM_URL/verify-password" 2>/dev/null)"
 rm "$ROLLOUT_EVIDENCE_DIR/password-request.json" 2>/dev/null
 test "$VERIFY_STATUS" = 200
-jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-new.json" >/dev/null
+jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-new.json" >/dev/null 2>&1
 test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
-  "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar")" = 1
+  "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" 2>/dev/null)" = 1
 
 GET_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" \
   --write-out '%{http_code}' \
   --cookie "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
-  "$PUBLIC_FORM_URL")"
+  "$PUBLIC_FORM_URL" 2>/dev/null)"
 test "$GET_STATUS" = 200
 jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure != null and .plateContent != null' \
-  "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" >/dev/null
+  "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" >/dev/null 2>&1
 
 set +x
 printf '%s' 'Fresh hCaptcha token for new-cookie submit: ' >&2
@@ -902,16 +910,16 @@ printf '\n'
 printf '%s' 'Fresh telemetry v4 token for new-cookie submit: ' >&2
 read -r -s TELEMETRY_V4_TOKEN
 printf '\n'
-printf '%s' "$HCAPTCHA_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
-printf '%s' "$TELEMETRY_V4_TOKEN" > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+printf '%s' "$HCAPTCHA_TOKEN" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
+printf '%s' "$TELEMETRY_V4_TOKEN" 2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
 unset HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
-test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token"
-test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+test -s "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" 2>/dev/null
+test -s "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
   --rawfile telemetry "$ROLLOUT_EVIDENCE_DIR/telemetry-token" \
   '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
   "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
-  > "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
+  2>/dev/null > "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
 rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 NEW_SUBMIT_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" \
@@ -919,18 +927,18 @@ NEW_SUBMIT_STATUS="$(curl --silent --show-error \
   --cookie "$ROLLOUT_EVIDENCE_DIR/new-cookie.jar" \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/new-submit-request.json" \
-  "$PUBLIC_FORM_URL/submit")"
+  "$PUBLIC_FORM_URL/submit" 2>/dev/null)"
 rm "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json" 2>/dev/null
 test "$NEW_SUBMIT_STATUS" = 201
 jq -e '(.responseId | type) == "string" and (.responseId | length) > 0' \
-  "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" >/dev/null
+  "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" >/dev/null 2>&1
 
 printf '%s\n' \
   'old GET: 200 locked structure=null' \
   'old submit: 403 passwordRequired=true' \
   'new GET: 200 unlocked structure!=null' \
   'new submit: 201 responseId present' \
-  | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt"
+  | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt" 2>/dev/null
 cleanup_rollout_probe
 unset PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
 ```
