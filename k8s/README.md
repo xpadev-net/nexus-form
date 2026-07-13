@@ -228,6 +228,7 @@ kubectl -n production get replicasets -l app=nexus-form,component=api \
 
 ```bash
 set -euo pipefail
+set +x
 export API_BASE_URL="https://api.example.invalid"
 export PUBLIC_ID="CHANGE_ME_WITH_ROLLOUT_FORM_PUBLIC_ID"
 export RESPONSES_FILE="/secure/operator-input/rollout-responses.json"
@@ -430,6 +431,7 @@ rollout_ledger_matches_owner() {
 }
 cleanup_rollout_probe() {
   local original_status=$?
+  set +x
   local cleanup_status=0
 
   trap - EXIT HUP INT TERM
@@ -443,7 +445,7 @@ cleanup_rollout_probe() {
       "$ROLLOUT_CLEANUP_PARENT" "$ROLLOUT_CLEANUP_PARENT_IDENTITY" \
       "$ROLLOUT_CLEANUP_OWNER_DIR" "$ROLLOUT_CLEANUP_OWNER_IDENTITY"; then
       cleanup_status=70
-    elif ! rm -rf -- "$ROLLOUT_CLEANUP_OWNER_DIR"; then
+    elif ! rm -rf -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null; then
       cleanup_status=70
     elif [ -e "$ROLLOUT_CLEANUP_OWNER_DIR" ] || [ -L "$ROLLOUT_CLEANUP_OWNER_DIR" ]; then
       cleanup_status=70
@@ -451,7 +453,7 @@ cleanup_rollout_probe() {
   fi
 
   if [ "$cleanup_status" -eq 0 ]; then
-    if ! rm -f -- "$ROLLOUT_CLEANUP_LEDGER"; then
+    if ! rm -f -- "$ROLLOUT_CLEANUP_LEDGER" 2>/dev/null; then
       cleanup_status=70
     elif [ -e "$ROLLOUT_CLEANUP_LEDGER" ] || [ -L "$ROLLOUT_CLEANUP_LEDGER" ]; then
       cleanup_status=70
@@ -537,7 +539,7 @@ if ! (
 fi
 chmod 600 "$ROLLOUT_CLEANUP_LEDGER"
 if ! rollout_ledger_matches_owner; then
-  rm -f -- "$ROLLOUT_CLEANUP_LEDGER"
+  rm -f -- "$ROLLOUT_CLEANUP_LEDGER" 2>/dev/null
   rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
   printf '%s\n' 'rollout probe setup could not verify the cleanup ledger' >&2
   exit 70
@@ -561,6 +563,7 @@ jq -n --slurpfile responses "$RESPONSES_FILE" '{
   fingerprints: []
 }' > "$ROLLOUT_EVIDENCE_DIR/submit-template.json"
 
+set +x
 printf '%s' 'Protected form password: ' >&2
 read -r -s FORM_PASSWORD
 printf '\n'
@@ -569,7 +572,7 @@ unset FORM_PASSWORD
 test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
 jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
   '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
-rm "$ROLLOUT_EVIDENCE_DIR/password-value"
+rm "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 VERIFY_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/verify-old.json" \
   --write-out '%{http_code}' \
@@ -577,7 +580,7 @@ VERIFY_STATUS="$(curl --silent --show-error \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
   "$PUBLIC_FORM_URL/verify-password")"
-rm "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/password-request.json" 2>/dev/null
 test "$VERIFY_STATUS" = 200
 jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-old.json" >/dev/null
 test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
@@ -593,19 +596,21 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
   "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
 ```
 
-このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。secret artifact用のcleanup ownerは任意の`TMPDIR`を使用せず、検証済みmode `0700`のledger parent配下へ作成してreadonlyに固定します。そのため、`TMPDIR`がnon-sticky mode `0777`、symlink、または別UIDが置換可能でも、password/cookie/request/responseの保存先にはなりません。mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
+このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。secret artifact用のcleanup ownerは任意の`TMPDIR`を使用せず、検証済みmode `0700`のledger parent配下へ作成してreadonlyに固定します。そのため、`TMPDIR`がnon-sticky mode `0777`、symlink、または別UIDが置換可能でも、password/cookie/request/responseの保存先にはなりません。mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。各fenceは先頭でxtraceを無効化し、password/hCaptcha/telemetry入力前にも再度無効化します。operatorはprobe中に`set -x`を再有効化しないでください。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
 
 cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`/`から`HOME`までの既存lexical ancestor chainはcomponentごとにabsolute physical pathと一致し、symlinkではなくgroup/world write bitを持たない場合だけprobeを開始します。`/`はUID `0`所有、以降のancestorはUID `0`またはprobe実行UID所有だけを許可します。portableに別UIDのrename権限を除外するため、sticky bitの有無にかかわらずshared-writable ancestorは拒否します。これはPOSIX owner/mode semanticsをauthorityとする契約です。ACL、mount option、またはplatform固有機構が別UIDへwrite/rename権限を追加する環境ではprobeを実行せず、platform ownerが同等の非共有authorityを用意してください。`HOME`、`.local`、`state`、`nexus-form`はさらに実行user所有であることを要求します。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含むchain、別UID所有のchain、またはshared-writable chainは自動修復せずfail closedにします。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、現在のlocatorに既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
 
 **cleanup locatorのtrust boundary / accepted residual**: このportable runbookは、probeを実行するsame UIDをtrusted boundaryとします。別UIDからのcomponent入替えはownershipとgroup/world-write検査で拒否し、symlink retargetも拒否します。一方、SIGKILL後にsame UIDが最終locator directoryを別名へrenameする、ledgerを削除・改変する、または同pathへ新しいmode `0700`の実directoryを作る操作は、終了したprocessのdevice/inode identityを新processへ信頼可能に渡す外部authorityがないため完全には検出できません。この場合は旧ledgerとsecret artifactを残したまま新probeが開始できるため、ledger admissionやrecoveryをsame-UID hostile processに対するsecurity gateとは扱いません。専用operator UIDではuntrusted codeを実行せず、abnormal exit後は同UIDの別processを起動する前にlocatorとledgerを変更せずrecoveryを実行します。same-UID replacementにも技術的なfail-closed保証が必要な環境では、probe UIDがrename/deleteできないplatform-owned parentとprivileged ledger writer/recovery serviceを別のhost/platform運用タスクで用意してください。このrunbookとTask_7のKubernetes manifestはそのauthorityを提供しません。
 
-cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
+cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にxtraceを無効化してpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。authority pathを引数に取る削除commandのraw stderrは抑止し、固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticだけを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
 cleanup failure後は同じuserで次を実行します。このcommandはsetupと同じ`/`から`HOME`までのancestor authorityとlocator chainをcomponentごとに再検証してから、ledger自身と記録されたcanonical parent/ownerをuntrusted inputとして検証し、absolute physical parent、ledger parentとの一致、固定basename、実行user ownership、mode、non-symlinkをすべて満たすresidueだけを削除します。locator chainのsymlink/retargetや、検証可能なledger format/path/identity mismatch、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。same UIDによるledger改変は上記accepted residualの範囲であり、このrecoveryだけで敵対的な改変を完全検出するものではありません。
 
 ```bash
 set -euo pipefail
+set +x
 recovery_fail() {
+  set +x
   unset RECOVERY_LOCATOR_COMPONENT
   unset RECOVERY_PARENT RECOVERY_PARENT_IDENTITY
   unset RECOVERY_OWNER RECOVERY_OWNER_IDENTITY
@@ -781,12 +786,12 @@ if [ -e "$RECOVERY_OWNER" ] || [ -L "$RECOVERY_OWNER" ]; then
     "$RECOVERY_OWNER_IDENTITY" ] || recovery_fail
   [ "$(CDPATH= cd -- "$RECOVERY_OWNER" 2>/dev/null && pwd -P)" = \
     "$RECOVERY_OWNER" ] || recovery_fail
-  if ! rm -rf -- "$RECOVERY_OWNER"; then
+  if ! rm -rf -- "$RECOVERY_OWNER" 2>/dev/null; then
     recovery_fail
   fi
 fi
 [ ! -e "$RECOVERY_OWNER" ] && [ ! -L "$RECOVERY_OWNER" ] || recovery_fail
-if ! rm -f -- "$RECOVERY_LEDGER"; then
+if ! rm -f -- "$RECOVERY_LEDGER" 2>/dev/null; then
   recovery_fail
 fi
 [ ! -e "$RECOVERY_LEDGER" ] && [ ! -L "$RECOVERY_LEDGER" ] || recovery_fail
@@ -818,6 +823,7 @@ kubectl -n production get replicasets -l app=nexus-form,component=api \
 Kubernetes側の確認後、phase 1と同じshellで次を実行します。失効cookieのGETはHTTP errorではなく、`200`かつ`structure:null`/`plateContent:null`が現在のlocked contractです。submitはhCaptcha検証がpassword grant判定より先なので、旧cookie用と新cookie用にそれぞれ別の新鮮なhCaptcha/telemetry tokenを、承認済みの通常Web security flowから取得してください。tokenは再利用せず、入力後すぐにprobeを実行します。
 
 ```bash
+set +x
 GET_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" \
   --write-out '%{http_code}' \
@@ -827,6 +833,7 @@ test "$GET_STATUS" = 200
 jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure == null and .plateContent == null' \
   "$ROLLOUT_EVIDENCE_DIR/get-with-old-cookie.json" >/dev/null
 
+set +x
 printf '%s' 'Fresh hCaptcha token for old-cookie submit: ' >&2
 read -r -s HCAPTCHA_TOKEN
 printf '\n'
@@ -843,7 +850,7 @@ jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
   '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
   "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
   > "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
-rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 OLD_SUBMIT_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" \
   --write-out '%{http_code}' \
@@ -851,11 +858,12 @@ OLD_SUBMIT_STATUS="$(curl --silent --show-error \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/old-submit-request.json" \
   "$PUBLIC_FORM_URL/submit")"
-rm "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/old-submit-request.json" 2>/dev/null
 test "$OLD_SUBMIT_STATUS" = 403
 jq -e '.passwordRequired == true and .error == "Password verification required"' \
   "$ROLLOUT_EVIDENCE_DIR/old-submit-response.json" >/dev/null
 
+set +x
 printf '%s' 'Protected form password: ' >&2
 read -r -s FORM_PASSWORD
 printf '\n'
@@ -864,7 +872,7 @@ unset FORM_PASSWORD
 test -s "$ROLLOUT_EVIDENCE_DIR/password-value"
 jq -n --rawfile password "$ROLLOUT_EVIDENCE_DIR/password-value" \
   '{password: $password}' > "$ROLLOUT_EVIDENCE_DIR/password-request.json"
-rm "$ROLLOUT_EVIDENCE_DIR/password-value"
+rm "$ROLLOUT_EVIDENCE_DIR/password-value" 2>/dev/null
 VERIFY_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/verify-new.json" \
   --write-out '%{http_code}' \
@@ -872,7 +880,7 @@ VERIFY_STATUS="$(curl --silent --show-error \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/password-request.json" \
   "$PUBLIC_FORM_URL/verify-password")"
-rm "$ROLLOUT_EVIDENCE_DIR/password-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/password-request.json" 2>/dev/null
 test "$VERIFY_STATUS" = 200
 jq -e '.valid == true' "$ROLLOUT_EVIDENCE_DIR/verify-new.json" >/dev/null
 test "$(awk '$6 == "cf_session" { count++ } END { print count + 0 }' \
@@ -887,6 +895,7 @@ test "$GET_STATUS" = 200
 jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and .structure != null and .plateContent != null' \
   "$ROLLOUT_EVIDENCE_DIR/get-with-new-cookie.json" >/dev/null
 
+set +x
 printf '%s' 'Fresh hCaptcha token for new-cookie submit: ' >&2
 read -r -s HCAPTCHA_TOKEN
 printf '\n'
@@ -903,7 +912,7 @@ jq --rawfile captcha "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" \
   '.captchaToken = $captcha | .telemetry = {v4Token: $telemetry}' \
   "$ROLLOUT_EVIDENCE_DIR/submit-template.json" \
   > "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
-rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token"
+rm "$ROLLOUT_EVIDENCE_DIR/hcaptcha-token" "$ROLLOUT_EVIDENCE_DIR/telemetry-token" 2>/dev/null
 NEW_SUBMIT_STATUS="$(curl --silent --show-error \
   --output "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" \
   --write-out '%{http_code}' \
@@ -911,7 +920,7 @@ NEW_SUBMIT_STATUS="$(curl --silent --show-error \
   --header 'Content-Type: application/json' \
   --data-binary @"$ROLLOUT_EVIDENCE_DIR/new-submit-request.json" \
   "$PUBLIC_FORM_URL/submit")"
-rm "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json"
+rm "$ROLLOUT_EVIDENCE_DIR/new-submit-request.json" 2>/dev/null
 test "$NEW_SUBMIT_STATUS" = 201
 jq -e '(.responseId | type) == "string" and (.responseId | length) > 0' \
   "$ROLLOUT_EVIDENCE_DIR/new-submit-response.json" >/dev/null
