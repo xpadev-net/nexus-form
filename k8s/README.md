@@ -232,6 +232,18 @@ export API_BASE_URL="https://api.example.invalid"
 export PUBLIC_ID="CHANGE_ME_WITH_ROLLOUT_FORM_PUBLIC_ID"
 export RESPONSES_FILE="/secure/operator-input/rollout-responses.json"
 export ROLLOUT_EVIDENCE_DIR="$(mktemp -d)"
+cleanup_rollout_probe() {
+  local evidence_dir="${ROLLOUT_EVIDENCE_DIR:-}"
+  if [ -n "$evidence_dir" ]; then
+    rm -rf -- "$evidence_dir"
+  fi
+  unset FORM_PASSWORD HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
+  unset ROLLOUT_EVIDENCE_DIR
+}
+trap cleanup_rollout_probe EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 chmod 700 "$ROLLOUT_EVIDENCE_DIR"
 umask 077
 
@@ -278,7 +290,7 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
   "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
 ```
 
-`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持します。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。cookie jarとresponse bodyは認証情報・フォーム内容を含み得るためchange ticketへ添付せず、最後に削除します。
+`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持します。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。登録済みの`EXIT` trapは正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じidempotent cleanupを実行します。cookie jar、password/token入りrequest、response bodyは認証情報・フォーム内容を含み得るためchange ticketへ添付しません。
 
 **Phase 1の残存リスク**: 同じ`AUTH_SECRET`をpre-fix Podも知っているため、この時点はsecurity cutoffではありません。旧Podが残っていればlegacy tokenを受理でき、pre-fixへrollbackすればlegacy grantを再発行できます。緊急時にphase 2前のpre-fixへ戻すことは技術的には可能ですが、セキュリティ要件未達へ戻る操作であり、phase 2の開始条件にはできません。
 
@@ -407,8 +419,9 @@ printf '%s\n' \
   'new GET: 200 unlocked structure!=null' \
   'new submit: 201 responseId present' \
   | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt"
-rm -rf "$ROLLOUT_EVIDENCE_DIR"
-unset ROLLOUT_EVIDENCE_DIR PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
+cleanup_rollout_probe
+trap - EXIT HUP INT TERM
+unset PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
 ```
 
 base manifestの`revisionHistoryLimit: 1`により、phase 2のbridge再ロールアウトが完了すると、通常のDeployment履歴には直前のbridge ReplicaSetだけが残り、pre-fix ReplicaSetはrollback候補から外れます。ただし、これは古いdigestを明示的に再指定する操作や古いGit revisionの再同期を防ぐadmission policyではありません。cutoff記録後はデプロイ承認側でも許可digestをbridge/finalに限定し、無確認の`kubectl rollout undo`を使わないでください。admission policyによる強制が必要な環境では、別タスクでGitOps/cluster policyを所有させます。
