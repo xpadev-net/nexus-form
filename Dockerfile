@@ -92,7 +92,7 @@ COPY --from=builder /app/packages/validation-provider-github/dist ./packages/val
 COPY --from=builder /app/packages/validation-provider-twitter/dist ./packages/validation-provider-twitter/dist
 
 # Copy Drizzle migration script and dependencies to /migration/
-COPY --from=builder /tmp/db-deploy/node_modules /migration/node_modules
+COPY --from=builder /tmp/db-deploy /migration/node_modules/@nexus-form/database
 COPY --from=builder /app/packages/database/drizzle /migration/drizzle
 COPY ./scripts/run-migrations.mjs /migration/run-migrations.mjs
 COPY --from=builder --chown=65532:65532 /app/plugins/validation /app/plugins/validation
