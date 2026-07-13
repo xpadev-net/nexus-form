@@ -1406,6 +1406,34 @@ async function insertExternalValidationOutbox(
   await tx.insert(externalServiceValidationResult).values(outbox.inserts);
 }
 
+async function reserveInitialValidationEnqueueAttempt(
+  resultId: string,
+): Promise<boolean> {
+  try {
+    const [result] = await db
+      .update(externalServiceValidationResult)
+      .set({ enqueueAttemptCount: 1 })
+      .where(
+        and(
+          eq(externalServiceValidationResult.id, resultId),
+          eq(externalServiceValidationResult.status, "PENDING"),
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          eq(externalServiceValidationResult.enqueueAttemptCount, 0),
+          isNull(externalServiceValidationResult.jobId),
+          isNull(externalServiceValidationResult.claimToken),
+        ),
+      );
+    return result.affectedRows > 0;
+  } catch (error) {
+    logError("Failed to reserve initial validation enqueue attempt", "api", {
+      error,
+      resultId,
+    });
+    captureError(error);
+    return false;
+  }
+}
+
 async function enqueueExternalValidationJobs(
   responseId: string,
   outbox: ValidationOutbox,
@@ -1459,6 +1487,10 @@ async function enqueueExternalValidationJobs(
         }
         return;
       }
+
+      const attemptReserved =
+        await reserveInitialValidationEnqueueAttempt(resultId);
+      if (!attemptReserved) return;
 
       const jobId = buildValidationOutboxJobId(resultId);
       try {

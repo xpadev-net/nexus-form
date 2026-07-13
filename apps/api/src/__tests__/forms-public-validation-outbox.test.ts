@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => {
   const schema = {
     externalServiceValidationResult: {
       claimToken: "externalServiceValidationResult.claimToken",
+      enqueueAttemptCount:
+        "externalServiceValidationResult.enqueueAttemptCount",
       enqueueMode: "externalServiceValidationResult.enqueueMode",
       id: "externalServiceValidationResult.id",
       jobId: "externalServiceValidationResult.jobId",
@@ -704,20 +706,28 @@ function resetPublicSubmitMocks(
       return {
         where: vi.fn((where: unknown) => {
           mocks.updateWhereValues.push(where);
-          return Promise.resolve(undefined);
+          return Promise.resolve([{ affectedRows: 1 }]);
         }),
       };
     }),
   });
 }
 
-function useValidationUpdateResult(result: () => Promise<unknown>): void {
+function useValidationUpdateResults(
+  results: Array<() => Promise<unknown>>,
+): void {
+  let resultIndex = 0;
   mocks.db.update.mockReturnValue({
     set: vi.fn((values: unknown) => {
       mocks.updateSetValues.push(values);
       return {
         where: vi.fn((where: unknown) => {
           mocks.updateWhereValues.push(where);
+          const result = results[resultIndex];
+          resultIndex += 1;
+          if (!result) {
+            throw new Error("Missing validation update result");
+          }
           return result();
         }),
       };
@@ -889,6 +899,9 @@ describe("R11-C2-a public validation outbox", () => {
     expect(response.status).toBe(201);
     await vi.waitFor(() => {
       expect(mocks.updateSetValues).toContainEqual({
+        enqueueAttemptCount: 1,
+      });
+      expect(mocks.updateSetValues).toContainEqual({
         jobId: expectedJobId,
       });
     });
@@ -922,15 +935,29 @@ describe("R11-C2-a public validation outbox", () => {
         ]),
       }),
     );
+    expect(mocks.updateWhereValues).toContainEqual(
+      expect.objectContaining({
+        type: "and",
+        args: expect.arrayContaining([
+          expect.objectContaining({
+            type: "eq",
+            left: mocks.schema.externalServiceValidationResult
+              .enqueueAttemptCount,
+            right: 0,
+          }),
+        ]),
+      }),
+    );
   });
 
   it("keeps queue success recoverable when the jobId acknowledgement throws", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
-    useValidationUpdateResult(() =>
-      Promise.reject(new Error("database unavailable")),
-    );
+    useValidationUpdateResults([
+      () => Promise.resolve([{ affectedRows: 1 }]),
+      () => Promise.reject(new Error("database unavailable")),
+    ]);
 
     const response = await submitPublicForm();
     const expectedJobId = buildValidationOutboxJobId(
@@ -953,7 +980,10 @@ describe("R11-C2-a public validation outbox", () => {
         }),
       );
     });
-    expect(mocks.updateSetValues).toEqual([{ jobId: expectedJobId }]);
+    expect(mocks.updateSetValues).toEqual([
+      { enqueueAttemptCount: 1 },
+      { jobId: expectedJobId },
+    ]);
     expect(mocks.updateSetValues).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ status: expect.any(String) }),
@@ -965,7 +995,10 @@ describe("R11-C2-a public validation outbox", () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
     const { getInsertedValidationRows } = useTransactionWithInsertCapture();
-    useValidationUpdateResult(() => Promise.resolve([{ affectedRows: 0 }]));
+    useValidationUpdateResults([
+      () => Promise.resolve([{ affectedRows: 1 }]),
+      () => Promise.resolve([{ affectedRows: 0 }]),
+    ]);
 
     const response = await submitPublicForm();
     const expectedJobId = buildValidationOutboxJobId(
@@ -979,8 +1012,60 @@ describe("R11-C2-a public validation outbox", () => {
       { jobId: expectedJobId },
     );
     await vi.waitFor(() => {
-      expect(mocks.updateSetValues).toEqual([{ jobId: expectedJobId }]);
+      expect(mocks.updateSetValues).toEqual([
+        { enqueueAttemptCount: 1 },
+        { jobId: expectedJobId },
+      ]);
     });
+    expect(mocks.updateSetValues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: expect.any(String) }),
+      ]),
+    );
+  });
+
+  it("keeps initial attempt reservation exceptions recoverable without queueing", async () => {
+    const snapshot = activeSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    useValidationUpdateResults([
+      () => Promise.reject(new Error("database unavailable")),
+    ]);
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(mocks.logError).toHaveBeenCalledWith(
+        "Failed to reserve initial validation enqueue attempt",
+        "api",
+        expect.objectContaining({
+          error: expect.objectContaining({ message: "database unavailable" }),
+        }),
+      );
+    });
+    expect(mocks.updateSetValues).toEqual([{ enqueueAttemptCount: 1 }]);
+    expect(mocks.updateSetValues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: expect.any(String) }),
+      ]),
+    );
+  });
+
+  it("keeps initial attempt reservation CAS0 recoverable without queueing", async () => {
+    const snapshot = activeSnapshot();
+    useSuccessfulSubmitSelects(snapshot);
+    useTransactionWithInsertCapture();
+    useValidationUpdateResults([() => Promise.resolve([{ affectedRows: 0 }])]);
+
+    const response = await submitPublicForm();
+
+    expect(response.status).toBe(201);
+    await vi.waitFor(() => {
+      expect(mocks.updateSetValues).toEqual([{ enqueueAttemptCount: 1 }]);
+    });
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
     expect(mocks.updateSetValues).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ status: expect.any(String) }),
@@ -1400,7 +1485,7 @@ describe("R11-C2-a public validation outbox", () => {
         }),
       );
     });
-    expect(mocks.updateSetValues).toEqual([]);
+    expect(mocks.updateSetValues).toEqual([{ enqueueAttemptCount: 1 }]);
   });
 
   it("marks deterministic validation job preparation failures terminal", async () => {
