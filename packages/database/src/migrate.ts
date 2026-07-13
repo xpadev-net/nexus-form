@@ -11,15 +11,25 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const DRIZZLE_MIGRATIONS_TABLE = "__drizzle_migrations";
+const PREFLIGHT_MAX_ATTEMPTS = 3;
+const PREFLIGHT_RETRY_BASE_DELAY_MS = 250;
+const PREFLIGHT_RETRY_MAX_DELAY_MS = 1_000;
+const TRANSIENT_PREFLIGHT_ERROR_CODES = new Set([
+  "PROTOCOL_CONNECTION_LOST",
+  "ECONNRESET",
+  "ETIMEDOUT",
+]);
 export const REQUIRED_SECURITY_MIGRATION_TAGS = [
   "0012_config_json_column_type",
   "0013_active_snapshot_structure_live_security_compat",
   "0014_certain_speed_demon",
+  "0017_public_grant_generation",
 ] as const;
 export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
 export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
 export const ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP = 1780203531326;
 export const FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP = 1781598249176;
+export const PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP = 1783946776757;
 // Drizzle's MySQL journal stores the canonical `when` value as `created_at`;
 // migration tags are not persisted and cannot be used for runtime checks.
 const REQUIRED_SECURITY_MIGRATIONS = [
@@ -35,10 +45,19 @@ const REQUIRED_SECURITY_MIGRATIONS = [
     tag: "0014_certain_speed_demon",
     createdAt: FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
   },
+  {
+    tag: "0017_public_grant_generation",
+    createdAt: PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
+  },
 ] as const;
 
 type RunMigrationsOptions = {
   migrationsFolder?: string;
+};
+
+type PreflightReadyMigrationClient = {
+  migrationClient: Pool;
+  compatibilityState: ConfigJsonMigrationCompatibilityState;
 };
 
 type CountRow = RowDataPacket & {
@@ -90,11 +109,17 @@ export async function runMigrations(
     );
   }
 
-  const migrationClient = mysql.createPool(connectionString);
+  let migrationClient: Pool | undefined;
   try {
+    const preflight =
+      await createPreflightReadyMigrationClient(connectionString);
+    migrationClient = preflight.migrationClient;
+    await normalizeConfigJsonMigrationTimestamp(
+      migrationClient,
+      preflight.compatibilityState,
+    );
     const db = drizzle(migrationClient);
     console.log("Running database migrations...");
-    await normalizeConfigJsonMigrationTimestamp(migrationClient);
     const migrationsFolder = resolveMigrationsFolder(options.migrationsFolder);
     await migrate(db, { migrationsFolder });
     await assertRequiredSecurityMigrationsAppliedWithPool(migrationClient);
@@ -103,8 +128,74 @@ export async function runMigrations(
     console.error("Database migration failed:", error);
     throw error;
   } finally {
-    await migrationClient.end();
+    await migrationClient?.end();
   }
+}
+
+async function createPreflightReadyMigrationClient(
+  connectionString: string,
+): Promise<PreflightReadyMigrationClient> {
+  for (let attempt = 1; attempt <= PREFLIGHT_MAX_ATTEMPTS; attempt += 1) {
+    const migrationClient = mysql.createPool(connectionString);
+
+    try {
+      const compatibilityState =
+        await readConfigJsonMigrationCompatibilityState(migrationClient);
+      return { migrationClient, compatibilityState };
+    } catch (error) {
+      await closeFailedPreflightMigrationClient(migrationClient, error);
+
+      if (
+        !isTransientPreflightConnectionError(error) ||
+        attempt === PREFLIGHT_MAX_ATTEMPTS
+      ) {
+        throw error;
+      }
+
+      const delayMs = Math.min(
+        PREFLIGHT_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1),
+        PREFLIGHT_RETRY_MAX_DELAY_MS,
+      );
+      console.warn(
+        `Migration compatibility preflight connection failed; retrying with a fresh client (${attempt + 1}/${PREFLIGHT_MAX_ATTEMPTS})`,
+      );
+      await wait(delayMs);
+    }
+  }
+
+  throw new Error("Migration compatibility preflight exhausted unexpectedly");
+}
+
+async function closeFailedPreflightMigrationClient(
+  migrationClient: Pool,
+  preflightError: unknown,
+): Promise<void> {
+  try {
+    await migrationClient.end();
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [preflightError, cleanupError],
+      "Migration compatibility preflight and client cleanup both failed",
+      { cause: preflightError },
+    );
+  }
+}
+
+function isTransientPreflightConnectionError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return false;
+  }
+
+  return (
+    typeof error.code === "string" &&
+    TRANSIENT_PREFLIGHT_ERROR_CODES.has(error.code)
+  );
+}
+
+async function wait(delayMs: number): Promise<void> {
+  await new Promise<void>((resolveDelay) => {
+    setTimeout(resolveDelay, delayMs);
+  });
 }
 
 export async function assertRequiredSecurityMigrationsApplied(): Promise<void> {
@@ -123,12 +214,11 @@ export async function assertRequiredSecurityMigrationsApplied(): Promise<void> {
 
 async function normalizeConfigJsonMigrationTimestamp(
   migrationClient: Pool,
+  state: ConfigJsonMigrationCompatibilityState,
 ): Promise<void> {
   // 0012 was briefly published with an older timestamp than 0011. Databases
   // that already applied it need the journal row moved forward before Drizzle
   // decides which migrations are still pending.
-  const state =
-    await readConfigJsonMigrationCompatibilityState(migrationClient);
   if (!shouldNormalizeConfigJsonMigrationTimestamp(state)) {
     return;
   }
