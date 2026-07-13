@@ -26,6 +26,87 @@ type FakeMigrationPool = {
   query<T>(sql: string, values?: unknown[]): Promise<[T, unknown]>;
 };
 
+type ConditionalDdlChoice = {
+  variable: string;
+  condition: string;
+  existingChoice: string;
+  ddlChoice: string;
+};
+
+const RETRY_METADATA_MIGRATION_TAG = "0016_zippy_alex_wilder";
+
+const EXPECTED_RETRY_METADATA_DDL_CHOICES: ConditionalDdlChoice[] = [
+  {
+    variable: "nf_add_claim_token",
+    condition: "@nf_claim_token_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128)",
+  },
+  {
+    variable: "nf_add_claim_expires_at",
+    condition: "@nf_claim_expires_at_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp",
+  },
+  {
+    variable: "nf_add_enqueue_attempt_count",
+    condition: "@nf_enqueue_attempt_count_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL",
+  },
+  {
+    variable: "nf_add_next_eligible_at",
+    condition: "@nf_next_eligible_at_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp",
+  },
+  {
+    variable: "nf_add_enqueue_mode",
+    condition: "@nf_enqueue_mode_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum(''LEGACY'',''STABLE'') DEFAULT ''LEGACY'' NOT NULL",
+  },
+  {
+    variable: "nf_create_enqueue_eligibility_lease_idx",
+    condition: "@nf_enqueue_eligibility_lease_idx_exists > 0",
+    existingChoice: "SELECT 1",
+    ddlChoice:
+      "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`)",
+  },
+];
+
+function extractConditionalDdlChoices(sql: string): ConditionalDdlChoice[] {
+  const choicePattern =
+    /SET @(?<variable>[a-z0-9_]+) = IF\(\n {2}(?<condition>@[a-z0-9_]+ > 0),\n {2}'(?<existingChoice>[^']+)',\n {2}'(?<ddlChoice>(?:''|[^'])+)'\n\);/g;
+
+  return Array.from(sql.matchAll(choicePattern), (match) => {
+    const { variable, condition, existingChoice, ddlChoice } =
+      match.groups ?? {};
+    if (!variable || !condition || !existingChoice || !ddlChoice) {
+      throw new Error("Malformed conditional DDL choice");
+    }
+    return { variable, condition, existingChoice, ddlChoice };
+  });
+}
+
+function assertRetryMetadataMigrationContract(sql: string): void {
+  expect(sql.match(/SET\s+@[a-z0-9_]+\s*=\s*IF\s*\(/gi) ?? []).toHaveLength(
+    EXPECTED_RETRY_METADATA_DDL_CHOICES.length,
+  );
+  expect(extractConditionalDdlChoices(sql)).toEqual(
+    EXPECTED_RETRY_METADATA_DDL_CHOICES,
+  );
+  expect(sql).not.toMatch(/\bUPDATE\s+`ExternalServiceValidationResult`/i);
+  expect(sql).not.toContain("DEFAULT ''STABLE''");
+  expect(sql).not.toMatch(/\b(?:DROP|MODIFY|RENAME)\b/i);
+  expect(sql).not.toMatch(/`attemptCount`|`nextRetryAt`/);
+}
+
 function findJournalEntryOrThrow(journal: Journal, tag: string) {
   const entry = journal.entries.find((candidate) => candidate.tag === tag);
   if (!entry) {
@@ -134,7 +215,7 @@ describe("database migration journal", () => {
     expect(outboxEntry).toMatchObject({
       idx: 16,
       version: "5",
-      tag: "0016_zippy_alex_wilder",
+      tag: RETRY_METADATA_MIGRATION_TAG,
       breakpoints: true,
     });
     expect(journal.entries[outboxEntry.idx]).toEqual(outboxEntry);
@@ -144,24 +225,7 @@ describe("database migration journal", () => {
     expect(followingEntry.when).toBeGreaterThan(outboxEntry.when);
 
     const sql = readMigration(outboxEntry.tag);
-    expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimToken` varchar(128)",
-    );
-    expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `claimExpiresAt` timestamp",
-    );
-    expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `enqueueAttemptCount` int DEFAULT 0 NOT NULL",
-    );
-    expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `nextEligibleAt` timestamp",
-    );
-    expect(sql).toContain(
-      "ALTER TABLE `ExternalServiceValidationResult` ADD `validation_enqueue_mode` enum(''LEGACY'',''STABLE'') DEFAULT ''LEGACY'' NOT NULL",
-    );
-    expect(sql).toContain(
-      "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`)",
-    );
+    assertRetryMetadataMigrationContract(sql);
     for (const columnName of [
       "claimToken",
       "claimExpiresAt",
@@ -176,12 +240,37 @@ describe("database migration journal", () => {
     );
     expect(sql).toContain("INFORMATION_SCHEMA");
     expect(sql).toContain("PREPARE");
-    expect(sql).not.toMatch(/\bUPDATE\s+`ExternalServiceValidationResult`/i);
-    expect(sql).not.toContain("DEFAULT ''STABLE''");
-    expect(sql).not.toContain("MODIFY");
-    expect(sql).not.toContain("RENAME");
-    expect(sql).not.toContain("DROP");
-    expect(sql).not.toMatch(/`attemptCount`|`nextRetryAt`/);
+  });
+
+  it("rejects unsafe validation outbox migration mutations", () => {
+    const sql = readMigration(RETRY_METADATA_MIGRATION_TAG);
+    const claimTokenChoice = EXPECTED_RETRY_METADATA_DDL_CHOICES[0]?.ddlChoice;
+    if (!claimTokenChoice) {
+      throw new Error("Claim token DDL choice must exist");
+    }
+
+    const defaultMutation = sql.replace(
+      claimTokenChoice,
+      `${claimTokenChoice} DEFAULT ''claimed''`,
+    );
+    expect(defaultMutation).not.toBe(sql);
+    expect(() =>
+      assertRetryMetadataMigrationContract(defaultMutation),
+    ).toThrow();
+
+    const extraChoiceMutation = `${sql}\nSET @nf_extra_retry_column = IF(
+  @nf_extra_retry_column_exists > 0,
+  'SELECT 1',
+  'ALTER TABLE \`ExternalServiceValidationResult\` ADD \`extraRetryColumn\` int'
+);`;
+    expect(() =>
+      assertRetryMetadataMigrationContract(extraChoiceMutation),
+    ).toThrow();
+
+    const lowercaseDestructiveMutation = `${sql}\ndrop index \`ESVR_enqueue_eligibility_lease_idx\` ON \`ExternalServiceValidationResult\`;`;
+    expect(() =>
+      assertRetryMetadataMigrationContract(lowercaseDestructiveMutation),
+    ).toThrow();
   });
 
   it("keeps the configJson column migration after snapshot structure backfill", () => {

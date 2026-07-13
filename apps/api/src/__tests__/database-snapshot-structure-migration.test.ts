@@ -25,13 +25,21 @@ type MigrationJournal = {
 type SnapshotColumn = {
   name: string;
   type: string;
+  primaryKey: boolean;
   notNull: boolean;
+  autoincrement: boolean;
   default?: string | number | boolean;
+};
+
+type SnapshotIndex = {
+  name: string;
+  columns: string[];
+  isUnique: boolean;
 };
 
 type SnapshotTable = {
   columns: Record<string, SnapshotColumn>;
-  indexes: Record<string, { columns: string[] }>;
+  indexes: Record<string, SnapshotIndex>;
 };
 
 type DrizzleSnapshot = {
@@ -41,6 +49,74 @@ type DrizzleSnapshot = {
 };
 
 const RETRY_METADATA_MIGRATION_TAG = "0016_zippy_alex_wilder";
+
+const EXPECTED_RETRY_METADATA_COLUMNS = {
+  claimToken: {
+    name: "claimToken",
+    type: "varchar(128)",
+    primaryKey: false,
+    notNull: false,
+    autoincrement: false,
+  },
+  claimExpiresAt: {
+    name: "claimExpiresAt",
+    type: "timestamp",
+    primaryKey: false,
+    notNull: false,
+    autoincrement: false,
+  },
+  enqueueAttemptCount: {
+    name: "enqueueAttemptCount",
+    type: "int",
+    primaryKey: false,
+    notNull: true,
+    autoincrement: false,
+    default: 0,
+  },
+  nextEligibleAt: {
+    name: "nextEligibleAt",
+    type: "timestamp",
+    primaryKey: false,
+    notNull: false,
+    autoincrement: false,
+  },
+  validation_enqueue_mode: {
+    name: "validation_enqueue_mode",
+    type: "enum('LEGACY','STABLE')",
+    primaryKey: false,
+    notNull: true,
+    autoincrement: false,
+    default: "'LEGACY'",
+  },
+} satisfies Record<string, SnapshotColumn>;
+
+const EXPECTED_RETRY_METADATA_INDEX = {
+  name: "ESVR_enqueue_eligibility_lease_idx",
+  columns: [
+    "validation_status",
+    "nextEligibleAt",
+    "claimExpiresAt",
+    "createdAt",
+  ],
+  isUnique: false,
+} satisfies SnapshotIndex;
+
+function assertRetryMetadataSnapshotShape(table: SnapshotTable): void {
+  const columns = Object.fromEntries(
+    Object.keys(EXPECTED_RETRY_METADATA_COLUMNS).map((columnName) => [
+      columnName,
+      table.columns[columnName],
+    ]),
+  );
+
+  expect({
+    columns,
+    index: table.indexes.ESVR_enqueue_eligibility_lease_idx,
+  }).toEqual({
+    columns: EXPECTED_RETRY_METADATA_COLUMNS,
+    index: EXPECTED_RETRY_METADATA_INDEX,
+  });
+}
 
 function findRepoRoot(startDir: string): string {
   let currentDir = startDir;
@@ -208,44 +284,44 @@ describe("active snapshot structure security compatibility migration", () => {
   it("records additive validation outbox retry metadata in the generated snapshot", () => {
     const table =
       readRetryMetadataSnapshot().tables.ExternalServiceValidationResult;
-    expect(table).toBeDefined();
+    if (!table) {
+      throw new Error("Validation outbox table must exist");
+    }
 
-    const columns = table?.columns;
-    expect(columns?.claimToken).toMatchObject({
-      name: "claimToken",
-      type: "varchar(128)",
-      notNull: false,
-    });
-    expect(columns?.claimExpiresAt).toMatchObject({
-      name: "claimExpiresAt",
-      type: "timestamp",
-      notNull: false,
-    });
-    expect(columns?.enqueueAttemptCount).toMatchObject({
-      name: "enqueueAttemptCount",
-      type: "int",
-      notNull: true,
-      default: 0,
-    });
-    expect(columns?.nextEligibleAt).toMatchObject({
-      name: "nextEligibleAt",
-      type: "timestamp",
-      notNull: false,
-    });
-    expect(columns?.validation_enqueue_mode).toMatchObject({
-      name: "validation_enqueue_mode",
-      type: "enum('LEGACY','STABLE')",
-      notNull: true,
-      default: "'LEGACY'",
-    });
-    expect(table?.indexes.ESVR_enqueue_eligibility_lease_idx).toMatchObject({
-      columns: [
-        "validation_status",
-        "nextEligibleAt",
-        "claimExpiresAt",
-        "createdAt",
-      ],
-    });
+    assertRetryMetadataSnapshotShape(table);
+  });
+
+  it("rejects unsafe validation outbox snapshot mutations", () => {
+    const table =
+      readRetryMetadataSnapshot().tables.ExternalServiceValidationResult;
+    const claimToken = table?.columns.claimToken;
+    const eligibilityIndex = table?.indexes.ESVR_enqueue_eligibility_lease_idx;
+    if (!table || !claimToken || !eligibilityIndex) {
+      throw new Error("Validation outbox retry metadata must exist");
+    }
+
+    const defaultMutation: SnapshotTable = {
+      ...table,
+      columns: {
+        ...table.columns,
+        claimToken: { ...claimToken, default: "'claimed'" },
+      },
+    };
+    expect(() => assertRetryMetadataSnapshotShape(defaultMutation)).toThrow();
+
+    const uniqueIndexMutation: SnapshotTable = {
+      ...table,
+      indexes: {
+        ...table.indexes,
+        ESVR_enqueue_eligibility_lease_idx: {
+          ...eligibilityIndex,
+          isUnique: true,
+        },
+      },
+    };
+    expect(() =>
+      assertRetryMetadataSnapshotShape(uniqueIndexMutation),
+    ).toThrow();
   });
 
   it("preserves the pre-migration schema read by rollback readers", () => {
