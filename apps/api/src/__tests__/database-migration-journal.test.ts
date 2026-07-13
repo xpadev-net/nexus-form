@@ -14,8 +14,11 @@ import { describe, expect, it } from "vitest";
 
 type Journal = {
   entries: Array<{
+    idx: number;
+    version: string;
     tag: string;
     when: number;
+    breakpoints: boolean;
   }>;
 };
 
@@ -123,7 +126,22 @@ describe("database migration journal", () => {
       journal,
       "0015_amusing_ghost_rider",
     );
+    const followingEntry = findJournalEntryOrThrow(
+      journal,
+      "0017_public_grant_generation",
+    );
+
+    expect(outboxEntry).toMatchObject({
+      idx: 16,
+      version: "5",
+      tag: "0016_zippy_alex_wilder",
+      breakpoints: true,
+    });
+    expect(journal.entries[outboxEntry.idx]).toEqual(outboxEntry);
+    expect(journal.entries[outboxEntry.idx - 1]?.tag).toBe(previousEntry.tag);
+    expect(journal.entries[outboxEntry.idx + 1]?.tag).toBe(followingEntry.tag);
     expect(outboxEntry.when).toBeGreaterThan(previousEntry.when);
+    expect(followingEntry.when).toBeGreaterThan(outboxEntry.when);
 
     const sql = readMigration(outboxEntry.tag);
     expect(sql).toContain(
@@ -144,9 +162,24 @@ describe("database migration journal", () => {
     expect(sql).toContain(
       "CREATE INDEX `ESVR_enqueue_eligibility_lease_idx` ON `ExternalServiceValidationResult` (`validation_status`,`nextEligibleAt`,`claimExpiresAt`,`createdAt`)",
     );
+    for (const columnName of [
+      "claimToken",
+      "claimExpiresAt",
+      "enqueueAttemptCount",
+      "nextEligibleAt",
+      "validation_enqueue_mode",
+    ]) {
+      expect(sql).toContain(`AND \`COLUMN_NAME\` = '${columnName}'`);
+    }
+    expect(sql).toContain(
+      "AND `INDEX_NAME` = 'ESVR_enqueue_eligibility_lease_idx'",
+    );
     expect(sql).toContain("INFORMATION_SCHEMA");
     expect(sql).toContain("PREPARE");
+    expect(sql).not.toMatch(/\bUPDATE\s+`ExternalServiceValidationResult`/i);
+    expect(sql).not.toContain("DEFAULT ''STABLE''");
     expect(sql).not.toContain("MODIFY");
+    expect(sql).not.toContain("RENAME");
     expect(sql).not.toContain("DROP");
     expect(sql).not.toMatch(/`attemptCount`|`nextRetryAt`/);
   });

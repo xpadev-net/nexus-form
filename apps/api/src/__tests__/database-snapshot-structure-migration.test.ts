@@ -35,8 +35,12 @@ type SnapshotTable = {
 };
 
 type DrizzleSnapshot = {
+  id: string;
+  prevId: string;
   tables: Record<string, SnapshotTable>;
 };
+
+const RETRY_METADATA_MIGRATION_TAG = "0016_zippy_alex_wilder";
 
 function findRepoRoot(startDir: string): string {
   let currentDir = startDir;
@@ -63,27 +67,42 @@ function readCompatibilityMigration(): string {
   );
 }
 
-function readRetryMetadataSnapshot(): DrizzleSnapshot {
+function readMigrationJournal(): MigrationJournal {
   const repoRoot = findRepoRoot(process.cwd());
-  const journal = JSON.parse(
+  return JSON.parse(
     readFileSync(
       resolve(repoRoot, "packages/database/drizzle/meta/_journal.json"),
       "utf8",
     ),
   ) as MigrationJournal;
-  const outboxEntry = journal.entries.find((entry) =>
-    entry.tag.startsWith("0016_"),
+}
+
+function readSnapshotForMigrationTag(tag: string): DrizzleSnapshot {
+  const migrationPrefix = tag.split("_").at(0);
+  if (!migrationPrefix) {
+    throw new Error(`Invalid migration tag: ${tag}`);
+  }
+
+  return JSON.parse(
+    readFileSync(
+      resolve(
+        findRepoRoot(process.cwd()),
+        `packages/database/drizzle/meta/${migrationPrefix}_snapshot.json`,
+      ),
+      "utf8",
+    ),
+  ) as DrizzleSnapshot;
+}
+
+function readRetryMetadataSnapshot(): DrizzleSnapshot {
+  const outboxEntry = readMigrationJournal().entries.find(
+    (entry) => entry.tag === RETRY_METADATA_MIGRATION_TAG,
   );
   if (!outboxEntry) {
     throw new Error("Validation outbox retry migration must exist");
   }
 
-  return JSON.parse(
-    readFileSync(
-      resolve(repoRoot, "packages/database/drizzle/meta/0016_snapshot.json"),
-      "utf8",
-    ),
-  ) as DrizzleSnapshot;
+  return readSnapshotForMigrationTag(outboxEntry.tag);
 }
 
 function compareStructuresByLiveOrder(
@@ -166,6 +185,26 @@ const liveSecurityStructure = JSON.stringify({
 });
 
 describe("active snapshot structure security compatibility migration", () => {
+  it("links the validation outbox retry snapshot in generated journal order", () => {
+    const journal = readMigrationJournal();
+    const retryIndex = journal.entries.findIndex(
+      (entry) => entry.tag === RETRY_METADATA_MIGRATION_TAG,
+    );
+    const previousEntry = journal.entries[retryIndex - 1];
+    const retryEntry = journal.entries[retryIndex];
+    const followingEntry = journal.entries[retryIndex + 1];
+    if (!previousEntry || !retryEntry || !followingEntry) {
+      throw new Error("Validation outbox retry snapshot must have neighbors");
+    }
+
+    const previousSnapshot = readSnapshotForMigrationTag(previousEntry.tag);
+    const retrySnapshot = readSnapshotForMigrationTag(retryEntry.tag);
+    const followingSnapshot = readSnapshotForMigrationTag(followingEntry.tag);
+
+    expect(retrySnapshot.prevId).toBe(previousSnapshot.id);
+    expect(followingSnapshot.prevId).toBe(retrySnapshot.id);
+  });
+
   it("records additive validation outbox retry metadata in the generated snapshot", () => {
     const table =
       readRetryMetadataSnapshot().tables.ExternalServiceValidationResult;
@@ -207,6 +246,76 @@ describe("active snapshot structure security compatibility migration", () => {
         "createdAt",
       ],
     });
+  });
+
+  it("preserves the pre-migration schema read by rollback readers", () => {
+    const previousSnapshot = readSnapshotForMigrationTag(
+      "0015_amusing_ghost_rider",
+    );
+    const retrySnapshot = readRetryMetadataSnapshot();
+    const previousTable =
+      previousSnapshot.tables.ExternalServiceValidationResult;
+    const retryTable = retrySnapshot.tables.ExternalServiceValidationResult;
+    if (!previousTable || !retryTable) {
+      throw new Error("Validation outbox table must exist in both snapshots");
+    }
+
+    expect(Object.keys(retrySnapshot.tables)).toEqual(
+      Object.keys(previousSnapshot.tables),
+    );
+    for (const [tableName, previousTableShape] of Object.entries(
+      previousSnapshot.tables,
+    )) {
+      if (tableName === "ExternalServiceValidationResult") continue;
+      expect(
+        retrySnapshot.tables[tableName],
+        `${tableName} must be unchanged`,
+      ).toEqual(previousTableShape);
+    }
+
+    const {
+      columns: previousColumns,
+      indexes: previousIndexes,
+      ...previousTableMetadata
+    } = previousTable;
+    const {
+      columns: retryColumns,
+      indexes: retryIndexes,
+      ...retryTableMetadata
+    } = retryTable;
+
+    expect(retryTableMetadata).toEqual(previousTableMetadata);
+    for (const [columnName, previousColumn] of Object.entries(
+      previousColumns,
+    )) {
+      expect(
+        retryColumns[columnName],
+        `${columnName} must remain readable by the previous schema`,
+      ).toEqual(previousColumn);
+    }
+    for (const [indexName, previousIndex] of Object.entries(previousIndexes)) {
+      expect(
+        retryIndexes[indexName],
+        `${indexName} must remain compatible with the previous schema`,
+      ).toEqual(previousIndex);
+    }
+
+    expect(
+      Object.keys(retryColumns).filter(
+        (columnName) => !(columnName in previousColumns),
+      ),
+    ).toEqual([
+      "claimToken",
+      "claimExpiresAt",
+      "enqueueAttemptCount",
+      "nextEligibleAt",
+      "validation_enqueue_mode",
+    ]);
+    expect(
+      Object.keys(retryIndexes).filter(
+        (indexName) => !(indexName in previousIndexes),
+      ),
+    ).toEqual(["ESVR_enqueue_eligibility_lease_idx"]);
   });
 
   it("updates active snapshots to the latest active live security structure", () => {
