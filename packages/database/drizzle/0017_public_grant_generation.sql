@@ -1,12 +1,11 @@
-SET @nf_public_password_grant_generation_exists = (
-  SELECT COUNT(*)
-  FROM `INFORMATION_SCHEMA`.`COLUMNS`
-  WHERE `TABLE_SCHEMA` = DATABASE()
-    AND `TABLE_NAME` = 'Form'
-    AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'
-);--> statement-breakpoint
 SET @nf_add_public_password_grant_generation = IF(
-  @nf_public_password_grant_generation_exists > 0,
+  (
+    SELECT COUNT(*)
+    FROM `INFORMATION_SCHEMA`.`COLUMNS`
+    WHERE `TABLE_SCHEMA` = DATABASE()
+      AND `TABLE_NAME` = 'Form'
+      AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'
+  ) > 0,
   'SELECT 1',
   'ALTER TABLE `Form` ADD `publicPasswordGrantGeneration` bigint unsigned DEFAULT 1 NOT NULL'
 );--> statement-breakpoint

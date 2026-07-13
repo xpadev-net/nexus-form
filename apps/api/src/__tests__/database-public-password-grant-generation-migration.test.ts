@@ -96,7 +96,10 @@ describe("public password grant generation migration", () => {
       "AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'",
     );
     expect(sql).toContain(
-      "@nf_public_password_grant_generation_exists > 0,\n  'SELECT 1'",
+      "AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'\n  ) > 0,\n  'SELECT 1'",
+    );
+    expect(sql).not.toContain(
+      "SET @nf_public_password_grant_generation_exists",
     );
     expect(sql).toContain(
       "PREPARE nf_add_public_password_grant_generation_stmt",
