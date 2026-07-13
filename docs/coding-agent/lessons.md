@@ -506,3 +506,10 @@ Evidence:
 - root cause: The Orchestrator treated dependency bootstrap as an implicit hook responsibility. In an empty worktree, multiple hook arms can observe the same missing installation and race in the shared target before any validation begins.
 - fix: Preserve the committed ledger change, run one explicit frozen dependency installation to completion in the worktree, then rerun the normal push with all hooks enabled. Do not bypass the failed hook.
 - prevention: Before the first commit or push from a newly created validation/ledger worktree, verify dependency readiness and perform a single serialized `pnpm install --frozen-lockfile` when dependencies are absent. Treat concurrent bootstrap errors as tooling/environment failures, capture cleanliness and the exact error, stabilize the workspace, and rerun the original gate unchanged.
+
+## 2026-07-14 — Prove Migration Safety with Exact Artifact Shapes  [tags: migration, tests, metadata, rollback, review-gate]
+
+- symptom: Migration compatibility tests passed while subset and substring assertions would also accept a non-null `claimToken` default, a unique retry index, extra conditional DDL clauses, or lowercase destructive SQL. Those drifts can exclude rows from `isNull(claimToken)` recovery while the suite remains green.
+- root cause: Review treated presence of expected fields and SQL fragments as equivalent to the complete safe migration contract. `toMatchObject`, `toContain`, and case-sensitive negative checks did not constrain omitted defaults, index flags, statement suffixes/counts, or casing variants.
+- fix: Compare added migration columns and indexes as complete objects, assert nullable default absence and index uniqueness explicitly, verify the complete allowed conditional DDL statement set/count, and reject destructive operations with case-insensitive checks.
+- prevention: Security- or recovery-critical migration tests must include mutation-style negatives for unsafe defaults, uniqueness drift, extra DDL clauses, and case variants. Approval requires proof that each mutation fails the test, not only that the current generated artifact passes.
