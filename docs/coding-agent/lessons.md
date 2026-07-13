@@ -334,3 +334,33 @@ Evidence:
 - root cause: DDL auto-commit was treated like an atomic transaction, so partial application was not part of the migration contract.
 - fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
 - prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.
+
+## 2026-07-13 — Bind Revocation Grants to Non-Reusable Lifecycle Identity  [tags: security, jwt, publication-lifecycle, rolling-deploy, rollback]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/public-form-password-verification-revocation-plan.md`
+- Task/Wave: PWR-2 Task_2/3 review and split
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- A grant derived from reusable snapshot version and password hash revived when the same historical snapshot was activated again.
+- Rejecting legacy claims only in the new verifier left old pods and same-secret rollback able to accept or reissue legacy grants.
+
+Root cause:
+- Revocation identity was derived from reusable business state instead of a persistent non-reusable lifecycle generation.
+- Review did not trace direct and scheduled historical transitions through every authoritative writer or evaluate the full old/new token and binary compatibility matrix.
+
+Fix applied:
+- Split implementation around a persistent monotonic generation, every publication lifecycle writer, generation-bound consumers, and a bridge/drain/secret-rotation/rollback-floor deployment sequence.
+
+Prevention:
+- Repo rule candidate:
+  - audience: reviewer
+  - proposed rule: "Security grant review must verify historical rollback/reactivation, disable/re-enable, old-token/new-binary, new-token/old-binary, same-secret rollback, and the authoritative non-reusable writer before approval."
+- Dispatch/plan guardrail:
+  - Security revocation plans must name the authoritative monotonic writer and include direct/scheduled lifecycle and rollout/rollback matrix tests as required evidence.
+- Residual risk / waiver:
+  - Phase 1 retains old-pod legacy acceptance until every pre-fix pod is drained; Task_7 must make that risk and the phase-2 cutoff explicit before Task_8 can merge.
+
+Evidence:
+- PWR-2R worker reproduction on PR #665: v3/password-A grant matched again after v8 and historical v3 reactivation; compatibility matrix showed pre-fix same-secret rollback remains fail-open.

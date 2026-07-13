@@ -1,6 +1,6 @@
 # Codebase Review Remediation Task Ledger
 
-- updated: 2026-07-11
+- updated: 2026-07-13
 - source: `docs/coding-agent/plans/active/codebase-review-remediation-roadmap-plan.md`
 - orchestrator: parent Codex task
 - worker runtime: `gpt-5.6-luna` / `high`
@@ -30,7 +30,11 @@
 | PLUGIN-9 | Plugin timeout final integration review | complete | — | parent orchestrator | — | APPROVED; plan complete |
 | PWB-1 | Public password request bounds and regressions | complete | `codex/pwb-1-public-password-request-bounds` | `019f505b-789d-70b0-8bc5-be97be3eb830` | [#663](https://github.com/xpadev-net/nexus-form/pull/663) | Merged as `ec006314cdd1a6df29a4e4514fddbc2c14cca408`; archive worker |
 | PWR-1 | Password verification revocation contract design | complete | — | `019f505b-789d-70b0-8bc5-be759634f790` | — | APPROVED; archive reviewer |
-| PWR-2 | Password verification revision enforcement and regressions | in progress | `codex/pwr-2-public-form-password-revocation` | `019f5b73-1c3e-7d42-a13d-1dbf344eed44` | [#665](https://github.com/xpadev-net/nexus-form/pull/665) | Replacement worker security revision; prior worker `019f5143-c48e-79b0-a6a5-2879033f552d` is unresumable |
+| PWR-2 | Password verification revision enforcement and regressions | split in progress | `codex/pwr-2-public-form-password-revocation` | `019f5b73-1c3e-7d42-a13d-1dbf344eed44` (stopped/archived) | [#665](https://github.com/xpadev-net/nexus-form/pull/665) | Split into PWR-2G1, PWR-2G2, PWR-2D, and PWR-2R2; preserve existing consumer commits |
+| PWR-2G1 | Persistent public grant generation schema and migration | queued | `codex/pwr-2g-generation-schema` | — | — | Start Task_5 worker |
+| PWR-2G2 | Authoritative publication lifecycle generation writers | queued | `codex/pwr-2g-lifecycle-writers` | — | — | Depends on PWR-2G1 merge |
+| PWR-2D | Public grant rollout cutoff and rollback floor | queued | `codex/pwr-2d-rollout-cutoff` | — | — | Start Task_7 worker in parallel with PWR-2G1 |
+| PWR-2R2 | Generation-bound JWT, routes, and real lifecycle regressions | queued | `codex/pwr-2-public-form-password-revocation` | — | [#665](https://github.com/xpadev-net/nexus-form/pull/665) | Depends on PWR-2G2 and PWR-2D merge; resume from preserved PR branch |
 | OUTBOX-1 | Validation outbox retry state-machine design | complete | — | `019f505b-789d-70b0-8bc5-be550a01796d` | — | APPROVED; archive reviewer |
 | OUTBOX-2 | Validation outbox retry metadata migration | complete | `codex/validation-outbox-task-2` | `019f5071-d9c9-7521-9bc3-6a00538aff87` | [#664](https://github.com/xpadev-net/nexus-form/pull/664) | Merged as `7941ffc20b54269b6e628ed72897d88e17af759b`; archive worker |
 | OUTBOX-3 | Validation outbox sweeper retry and backoff | in progress | `codex/outbox-3-validation-outbox-retry` | `019f5142-4ba4-78a0-b444-5809736b17e4` | [#666](https://github.com/xpadev-net/nexus-form/pull/666) | Worker implementation |
@@ -111,3 +115,5 @@
 - 2026-07-11: Started dependency-ready PWR-2 revision-bound verification implementation and regressions in an isolated worktree with `gpt-5.6-luna` at `high` reasoning. Its JWT/public-route ownership does not overlap OUTBOX-3 sweeper ownership.
 - 2026-07-11: PWR-2 startup stability check passed; the worker continued through atomic security scope and harness setup into contract investigation. Replaced the queued client ID with the durable thread ID.
 - 2026-07-13: PWR-2 PR #665 was returned for security lifecycle revisions after orchestrator review. The archived original worker could not be resumed because its rollout session was unavailable, so replacement worker `019f5b73-1c3e-7d42-a13d-1dbf344eed44` was started from the existing PR branch in an isolated worktree; startup stability check passed and implementation investigation is active.
+- 2026-07-13: PWR-2 replacement worker reproduced historical snapshot grant revival and proved same-secret rollback to pre-fix code remains fail-open. The worker made no new edits and requested decomposition before crossing ownership. The Orchestrator retained PR #665 for downstream consumer work and split PWR-2 into PWR-2G1 schema/migration, PWR-2G2 lifecycle writers, PWR-2D rollout/cutoff, and PWR-2R2 consumer/JWT slices.
+- 2026-07-13: Stopped and archived PWR-2 replacement worker `019f5b73-1c3e-7d42-a13d-1dbf344eed44` after final clean handoff at `36e79ce59d4a06820e7d4f50e0c8c81f648d92ae`; local, upstream, and PR heads matched, no replacement edits were made, and PR #665 remains open for dependent Task_8.
