@@ -6,8 +6,11 @@ import {
   formValidationRule,
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
-import { genericValidationJobDataSchema } from "@nexus-form/shared";
-import { and, asc, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
+import {
+  buildValidationOutboxJobId,
+  genericValidationJobDataSchema,
+} from "@nexus-form/shared";
+import { and, asc, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { logError } from "../logger";
 import { getValidationQueue, isValidServiceName } from "../queues";
@@ -26,6 +29,7 @@ const DEFAULT_CLAIM_LEASE_MS = 60_000;
 const INITIAL_BACKOFF_MS = 30_000;
 const MAX_BACKOFF_MS = 15 * 60_000;
 const MAX_ENQUEUE_ATTEMPTS = 8;
+const SERVER_CURRENT_TIMESTAMP = sql`CURRENT_TIMESTAMP`;
 
 type SweeperTimer = ReturnType<typeof setInterval> & {
   unref?: () => void;
@@ -163,13 +167,13 @@ async function persistValidationOutboxJobId(
 
 async function renewValidationOutboxClaim(
   row: ClaimedValidationOutboxRow,
-  now: Date,
-  leaseMs: number,
+  leaseSeconds: number,
 ): Promise<boolean> {
-  const claimExpiresAt = new Date(now.getTime() + leaseMs);
   const [result] = await db
     .update(externalServiceValidationResult)
-    .set({ claimExpiresAt })
+    .set({
+      claimExpiresAt: sql`TIMESTAMPADD(SECOND, ${leaseSeconds}, CURRENT_TIMESTAMP)`,
+    })
     .where(
       and(
         eq(externalServiceValidationResult.id, row.id),
@@ -177,7 +181,10 @@ async function renewValidationOutboxClaim(
         eq(externalServiceValidationResult.enqueueMode, "STABLE"),
         isNull(externalServiceValidationResult.jobId),
         eq(externalServiceValidationResult.claimToken, row.claimToken),
-        gt(externalServiceValidationResult.claimExpiresAt, now),
+        gt(
+          externalServiceValidationResult.claimExpiresAt,
+          SERVER_CURRENT_TIMESTAMP,
+        ),
       ),
     );
   return result.affectedRows > 0;
@@ -198,10 +205,13 @@ function retryDelayMs(attempt: number, random: () => number): number {
   return Math.min(MAX_BACKOFF_MS, jitterFloor + jitter);
 }
 
-function validationOutboxEligibilityCondition(now: Date, cutoff: Date) {
+function validationOutboxEligibilityCondition(cutoff: Date) {
   return and(
     or(
-      lte(externalServiceValidationResult.nextEligibleAt, now),
+      lte(
+        externalServiceValidationResult.nextEligibleAt,
+        SERVER_CURRENT_TIMESTAMP,
+      ),
       and(
         isNull(externalServiceValidationResult.nextEligibleAt),
         lte(externalServiceValidationResult.createdAt, cutoff),
@@ -209,7 +219,10 @@ function validationOutboxEligibilityCondition(now: Date, cutoff: Date) {
     ),
     or(
       isNull(externalServiceValidationResult.claimToken),
-      lte(externalServiceValidationResult.claimExpiresAt, now),
+      lte(
+        externalServiceValidationResult.claimExpiresAt,
+        SERVER_CURRENT_TIMESTAMP,
+      ),
     ),
   );
 }
@@ -265,11 +278,9 @@ async function releaseValidationOutboxClaim(
 async function claimPendingValidationOutboxRows(options: {
   cutoff: Date;
   batchSize: number;
-  leaseMs: number;
-  now: Date;
+  leaseSeconds: number;
 }): Promise<ClaimedValidationOutboxRow[]> {
   const claimToken = randomUUID();
-  const claimExpiresAt = new Date(options.now.getTime() + options.leaseMs);
 
   return db.transaction(async (tx) => {
     const rows = await tx
@@ -301,7 +312,7 @@ async function claimPendingValidationOutboxRows(options: {
           eq(externalServiceValidationResult.status, "PENDING"),
           eq(externalServiceValidationResult.enqueueMode, "STABLE"),
           isNull(externalServiceValidationResult.jobId),
-          validationOutboxEligibilityCondition(options.now, options.cutoff),
+          validationOutboxEligibilityCondition(options.cutoff),
         ),
       )
       .orderBy(asc(externalServiceValidationResult.createdAt))
@@ -312,7 +323,10 @@ async function claimPendingValidationOutboxRows(options: {
 
     await tx
       .update(externalServiceValidationResult)
-      .set({ claimToken, claimExpiresAt })
+      .set({
+        claimToken,
+        claimExpiresAt: sql`TIMESTAMPADD(SECOND, ${options.leaseSeconds}, CURRENT_TIMESTAMP)`,
+      })
       .where(
         and(
           inArray(
@@ -322,7 +336,7 @@ async function claimPendingValidationOutboxRows(options: {
           eq(externalServiceValidationResult.status, "PENDING"),
           eq(externalServiceValidationResult.enqueueMode, "STABLE"),
           isNull(externalServiceValidationResult.jobId),
-          validationOutboxEligibilityCondition(options.now, options.cutoff),
+          validationOutboxEligibilityCondition(options.cutoff),
         ),
       );
 
@@ -333,14 +347,12 @@ async function claimPendingValidationOutboxRows(options: {
 async function findPendingValidationOutboxRows(
   cutoff: Date,
   batchSize: number,
-  now: Date,
-  leaseMs: number,
+  leaseSeconds: number,
 ): Promise<ClaimedValidationOutboxRow[]> {
   return claimPendingValidationOutboxRows({
     cutoff,
     batchSize,
-    now,
-    leaseMs,
+    leaseSeconds,
   });
 }
 
@@ -401,7 +413,7 @@ async function enqueuePendingValidationOutboxRow(
   >,
   options: {
     clock: () => Date;
-    leaseMs: number;
+    leaseSeconds: number;
     random: () => number;
   },
 ): Promise<"enqueued" | "failed" | "retrying" | "unresolved"> {
@@ -494,8 +506,7 @@ async function enqueuePendingValidationOutboxRow(
     try {
       claimRenewed = await renewValidationOutboxClaim(
         row,
-        options.clock(),
-        options.leaseMs,
+        options.leaseSeconds,
       );
     } catch (error) {
       logError("Failed to renew validation outbox claim", "api", {
@@ -558,10 +569,6 @@ async function enqueuePendingValidationOutboxRow(
   return "enqueued";
 }
 
-function buildValidationOutboxJobId(resultId: string): string {
-  return `validation-outbox-${resultId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-}
-
 /**
  * Recovers eligible STABLE validation outbox rows by claiming up to
  * `batchSize` rows, resolving their response snapshot rule config, and
@@ -589,6 +596,7 @@ export async function sweepValidationOutbox(
   );
   const staleMs = Math.max(0, options.staleMs ?? DEFAULT_STALE_MS);
   const leaseMs = Math.max(1, options.leaseMs ?? DEFAULT_CLAIM_LEASE_MS);
+  const leaseSeconds = Math.max(1, Math.ceil(leaseMs / 1_000));
   const fixedNow = options.now;
   const clock = options.clock ?? (() => fixedNow ?? new Date());
   const now = fixedNow ?? clock();
@@ -597,8 +605,7 @@ export async function sweepValidationOutbox(
   const rows = await findPendingValidationOutboxRows(
     cutoff,
     batchSize,
-    now,
-    leaseMs,
+    leaseSeconds,
   );
   const snapshotRules = await buildSnapshotRuleMap(rows);
   const result: ValidationOutboxSweepResult = {
@@ -612,7 +619,7 @@ export async function sweepValidationOutbox(
     const outcome = await enqueuePendingValidationOutboxRow(
       row,
       snapshotRules,
-      { clock, leaseMs, random },
+      { clock, leaseSeconds, random },
     );
     if (outcome === "enqueued") result.enqueued += 1;
     if (outcome === "failed") result.failed += 1;

@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => {
     providerRegistryGet: vi.fn(),
     schema,
     sequence: [] as string[],
+    selectWheres: [] as unknown[],
     updateSets: [] as unknown[],
     updateWheres: [] as unknown[],
   };
@@ -95,6 +96,11 @@ vi.mock("drizzle-orm", () => ({
   isNull: vi.fn((value: unknown) => ({ type: "isNull", value })),
   lte: vi.fn((left: unknown, right: unknown) => ({ type: "lte", left, right })),
   or: vi.fn((...args: unknown[]) => ({ type: "or", args })),
+  sql: vi.fn((strings: TemplateStringsArray, ...params: unknown[]) => ({
+    type: "sql",
+    strings: Array.from(strings),
+    params,
+  })),
 }));
 
 type PendingRow = {
@@ -138,7 +144,10 @@ function usePendingRowsResult(rows: Promise<PendingRow[]>) {
   );
   const limit = vi.fn(() => ({ for: forUpdate }));
   const orderBy = vi.fn(() => ({ limit }));
-  const where = vi.fn(() => ({ orderBy }));
+  const where = vi.fn((condition: unknown) => {
+    mocks.selectWheres.push(condition);
+    return { orderBy };
+  });
   const leftJoin = vi.fn(() => ({ where }));
   const innerJoin = vi.fn(() => ({ leftJoin }));
   const from = vi.fn(() => ({ innerJoin }));
@@ -157,7 +166,10 @@ function useClaimRowsSequence(rowsByClaim: PendingRow[][]) {
       const forUpdate = vi.fn(async () => rows);
       const limit = vi.fn(() => ({ for: forUpdate }));
       const orderBy = vi.fn(() => ({ limit }));
-      const where = vi.fn(() => ({ orderBy }));
+      const where = vi.fn((condition: unknown) => {
+        mocks.selectWheres.push(condition);
+        return { orderBy };
+      });
       const leftJoin = vi.fn(() => ({ where }));
       const innerJoin = vi.fn(() => ({ leftJoin }));
       const from = vi.fn(() => ({ innerJoin }));
@@ -175,6 +187,43 @@ function createDeferred<T>() {
     reject = promiseReject;
   });
   return { promise, resolve, reject };
+}
+
+type MockSqlExpression = {
+  type: "sql";
+  strings: string[];
+  params: unknown[];
+};
+
+function isMockSqlExpression(value: unknown): value is MockSqlExpression {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.type === "sql" &&
+    Array.isArray(record.strings) &&
+    record.strings.every((part) => typeof part === "string") &&
+    Array.isArray(record.params)
+  );
+}
+
+function findSqlExpressions(value: unknown): MockSqlExpression[] {
+  if (isMockSqlExpression(value)) return [value];
+  if (Array.isArray(value)) return value.flatMap(findSqlExpressions);
+  if (typeof value !== "object" || value === null) return [];
+  return Object.values(value).flatMap(findSqlExpressions);
+}
+
+function hasSqlExpression(
+  value: unknown,
+  expectedText: string,
+  expectedParams?: unknown[],
+): boolean {
+  return findSqlExpressions(value).some(
+    (expression) =>
+      expression.strings.join("?") === expectedText &&
+      (expectedParams === undefined ||
+        JSON.stringify(expression.params) === JSON.stringify(expectedParams)),
+  );
 }
 
 function useUpdateResults(results: Array<{ affectedRows: number }>) {
@@ -197,6 +246,7 @@ describe("validation outbox sweeper", () => {
     vi.resetModules();
     vi.clearAllMocks();
     mocks.sequence.length = 0;
+    mocks.selectWheres.length = 0;
     mocks.updateSets.length = 0;
     mocks.updateWheres.length = 0;
     mocks.providerRegistryGet.mockReturnValue({
@@ -226,6 +276,7 @@ describe("validation outbox sweeper", () => {
     const result = await sweepValidationOutbox({
       staleMs: 0,
       batchSize: 10,
+      leaseMs: 1_501,
       now,
       random: () => 0.5,
     });
@@ -244,8 +295,28 @@ describe("validation outbox sweeper", () => {
     ]);
     expect(mocks.updateSets[0]).toMatchObject({
       claimToken: expect.any(String),
-      claimExpiresAt: expect.any(Date),
+      claimExpiresAt: expect.objectContaining({
+        type: "sql",
+        strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+        params: [2],
+      }),
     });
+    expect(mocks.updateSets[1]).toMatchObject({
+      claimExpiresAt: expect.objectContaining({
+        type: "sql",
+        strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+        params: [2],
+      }),
+    });
+    expect(hasSqlExpression(mocks.selectWheres[0], "CURRENT_TIMESTAMP")).toBe(
+      true,
+    );
+    expect(hasSqlExpression(mocks.updateWheres[0], "CURRENT_TIMESTAMP")).toBe(
+      true,
+    );
+    expect(hasSqlExpression(mocks.updateWheres[1], "CURRENT_TIMESTAMP")).toBe(
+      true,
+    );
     expect(mocks.updateSets[2]).toMatchObject({
       jobId: "validation-outbox-validation-result-1",
       errorCode: null,
@@ -264,6 +335,10 @@ describe("validation outbox sweeper", () => {
       },
       { jobId: "validation-outbox-validation-result-1" },
     );
+    const { buildValidationOutboxJobId } = await import("@nexus-form/shared");
+    expect(mocks.addValidationJob.mock.calls[0]?.[2]).toEqual({
+      jobId: buildValidationOutboxJobId("validation-result-1"),
+    });
   });
 
   it("prefers the response snapshot over changed live validation rule config", async () => {
@@ -728,6 +803,123 @@ describe("validation outbox sweeper", () => {
     });
     expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
     expect(mocks.updateSets[0]).not.toEqual(mocks.updateSets[1]);
+  });
+
+  it("keeps a late reclaimed job harmless through the durable Worker fence", async () => {
+    const row = pendingRow({ snapshotVersion: null });
+    useClaimRowsSequence([[row], [row]]);
+
+    let updateCount = 0;
+    mocks.db.update.mockImplementation(() => ({
+      set: vi.fn((values: unknown) => {
+        mocks.updateSets.push(values);
+        return {
+          where: vi.fn(async (where: unknown) => {
+            mocks.updateWheres.push(where);
+            updateCount += 1;
+            return [{ affectedRows: updateCount <= 4 ? 1 : 0 }];
+          }),
+        };
+      }),
+    }));
+
+    const stableJobId = "validation-outbox-validation-result-1";
+    const workerRow = {
+      enqueueMode: "STABLE" as const,
+      status: "PENDING" as "PENDING" | "PROCESSING" | "COMPLETED",
+      jobId: null as string | null,
+    };
+    const queuedJobIds = new Set<string>();
+    const firstQueueAdd = createDeferred<void>();
+    let queueAddCount = 0;
+    let providerRuns = 0;
+    let lateAdmissionRejected = false;
+
+    const admitStableJob = (jobId: string) => {
+      if (workerRow.enqueueMode !== "STABLE") return false;
+      if (
+        workerRow.status !== "PENDING" &&
+        !(workerRow.status === "PROCESSING" && workerRow.jobId === jobId)
+      ) {
+        return false;
+      }
+      if (workerRow.jobId !== null && workerRow.jobId !== jobId) return false;
+
+      workerRow.status = "PROCESSING";
+      workerRow.jobId = jobId;
+      providerRuns += 1;
+      workerRow.status = "COMPLETED";
+      return true;
+    };
+
+    mocks.addValidationJob.mockImplementation(
+      async (_name: string, _data: unknown, options: { jobId?: string }) => {
+        const jobId = options.jobId ?? "";
+        queueAddCount += 1;
+        queuedJobIds.add(jobId);
+
+        if (queueAddCount === 1) {
+          await firstQueueAdd.promise;
+          lateAdmissionRejected = !admitStableJob(jobId);
+        } else {
+          expect(admitStableJob(jobId)).toBe(true);
+        }
+
+        queuedJobIds.delete(jobId);
+        return { id: stableJobId };
+      },
+    );
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    let currentNow = new Date("2026-07-11T00:00:00.000Z");
+    const clock = () => currentNow;
+    const first = sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 1,
+      leaseMs: 1_000,
+      clock,
+    });
+    await vi.waitFor(() =>
+      expect(mocks.addValidationJob).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.updateSets).toHaveLength(2);
+
+    currentNow = new Date("2026-07-11T00:00:02.000Z");
+    await expect(
+      sweepValidationOutbox({
+        staleMs: 0,
+        batchSize: 1,
+        leaseMs: 1_000,
+        clock,
+      }),
+    ).resolves.toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(mocks.selectWheres).toHaveLength(2);
+    expect(
+      mocks.selectWheres.every((where) =>
+        hasSqlExpression(where, "CURRENT_TIMESTAMP"),
+      ),
+    ).toBe(true);
+
+    firstQueueAdd.resolve();
+    await expect(first).resolves.toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    expect(queueAddCount).toBe(2);
+    expect(providerRuns).toBe(1);
+    expect(lateAdmissionRejected).toBe(true);
+    expect(workerRow.status).toBe("COMPLETED");
+    expect(queuedJobIds).toEqual(new Set());
   });
 
   it("does not duplicate a row while another transaction holds its claim", async () => {
