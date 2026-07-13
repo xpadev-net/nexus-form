@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
+  buildValidationOutboxJobId,
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
@@ -10,9 +11,26 @@ import {
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
   sheetsSyncModeSchema,
+  VALIDATION_OUTBOX_JOB_PREFIX,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "../worker-jobs";
+
+describe("validation outbox job ids", () => {
+  it("builds deterministic colon-free stable job ids", () => {
+    expect(VALIDATION_OUTBOX_JOB_PREFIX).toBe("validation-outbox-");
+    expect(VALIDATION_OUTBOX_JOB_PREFIX).not.toContain(":");
+
+    const resultId = "validation-result:d7210b09421b8eb30c7a872f2e5b666a";
+    const jobId = buildValidationOutboxJobId(resultId);
+
+    expect(jobId).toBe(
+      "validation-outbox-validation-result-d7210b09421b8eb30c7a872f2e5b666a",
+    );
+    expect(jobId).not.toContain(":");
+    expect(buildValidationOutboxJobId(resultId)).toBe(jobId);
+  });
+});
 
 describe("validation retry job ids", () => {
   it("uses a colon-free prefix and sanitizes result ids", () => {

@@ -353,6 +353,7 @@ export type {
 export {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
+  buildValidationOutboxJobId,
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
@@ -361,6 +362,7 @@ export {
   sanitizeValidationResultIdForRetryJob,
   sheetsSyncJobDataSchema,
   sheetsSyncModeSchema,
+  VALIDATION_OUTBOX_JOB_PREFIX,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "./worker-jobs";

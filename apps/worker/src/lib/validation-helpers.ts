@@ -12,6 +12,7 @@ import type { ValidationSSEEvent } from "@nexus-form/shared";
 import {
   extractQuestionsFromPlateContent,
   getValidationResultId,
+  VALIDATION_OUTBOX_JOB_PREFIX,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
 } from "@nexus-form/shared";
@@ -306,6 +307,10 @@ export async function markValidationProcessing(params: {
     processingUpdate.jobId = params.jobId;
   }
 
+  const stableOutboxJobId =
+    params.jobId?.startsWith(VALIDATION_OUTBOX_JOB_PREFIX) === true
+      ? params.jobId
+      : null;
   const usesStrictJobOwnership =
     params.jobId?.startsWith(VALIDATION_RETRY_JOB_PREFIX) === true ||
     params.jobId?.startsWith(VALIDATION_REVALIDATION_JOB_PREFIX) === true;
@@ -318,6 +323,28 @@ export async function markValidationProcessing(params: {
             isNull(externalServiceValidationResult.jobId),
             eq(externalServiceValidationResult.jobId, params.jobId),
           );
+  const admissionCondition =
+    stableOutboxJobId !== null
+      ? and(
+          eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+          or(
+            and(
+              eq(externalServiceValidationResult.status, "PENDING"),
+              or(
+                isNull(externalServiceValidationResult.jobId),
+                eq(externalServiceValidationResult.jobId, stableOutboxJobId),
+              ),
+            ),
+            and(
+              eq(externalServiceValidationResult.status, "PROCESSING"),
+              eq(externalServiceValidationResult.jobId, stableOutboxJobId),
+            ),
+          ),
+        )
+      : and(
+          ownershipCondition,
+          sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
+        );
 
   const processingResult = await db.transaction(async (tx) => {
     const updateResult = await tx
@@ -331,8 +358,7 @@ export async function markValidationProcessing(params: {
             externalServiceValidationResult.referencedBlockId,
             params.referencedBlockId,
           ),
-          ownershipCondition,
-          sql`(${externalServiceValidationResult.status} <> ${"FAILED"} OR ${externalServiceValidationResult.errorCode} IS NULL OR ${externalServiceValidationResult.errorCode} <> ${"CANCELLED_BY_USER"})`,
+          admissionCondition,
         ),
       );
 
@@ -359,6 +385,9 @@ export async function markValidationProcessing(params: {
       )
       .for("update");
 
+    if (stableOutboxJobId !== null) {
+      return { actualJobId: existing?.jobId ?? null, type: "stale" as const };
+    }
     if (
       existing?.status === "FAILED" &&
       existing.errorCode === "CANCELLED_BY_USER"

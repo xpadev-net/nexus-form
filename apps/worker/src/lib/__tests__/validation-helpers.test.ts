@@ -1,5 +1,6 @@
 import { db } from "@nexus-form/database";
 import {
+  buildValidationOutboxJobId,
   getValidationResultId,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
@@ -85,6 +86,7 @@ vi.mock("@nexus-form/database", () => ({
     ),
   },
   externalServiceValidationResult: {
+    enqueueMode: "enqueueMode",
     id: "id",
     responseId: "responseId",
     ruleId: "ruleId",
@@ -460,6 +462,10 @@ describe("writeValidationResult", () => {
 });
 
 describe("markValidationProcessing", () => {
+  const stableOutboxJobId = buildValidationOutboxJobId(
+    "validation-result:stable-1",
+  );
+
   it("rewrites existing rows to the deterministic result id before publishing PROCESSING", async () => {
     const params = {
       responseId: "response-1",
@@ -513,6 +519,142 @@ describe("markValidationProcessing", () => {
     expect(publishValidationEvent).toHaveBeenCalledWith(
       expect.objectContaining({ status: "PROCESSING" }),
     );
+  });
+
+  it.each([
+    ["PENDING with a null job id", "PENDING", null],
+    ["PENDING with the same job id", "PENDING", stableOutboxJobId],
+    ["PROCESSING with the same job id", "PROCESSING", stableOutboxJobId],
+  ])("admits a STABLE outbox row from %s", async (_case, status, jobId) => {
+    await markValidationProcessing({
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      jobId: stableOutboxJobId,
+    });
+
+    const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
+    expect(updateCondition).toEqual(
+      expect.arrayContaining([
+        "enqueueMode",
+        "STABLE",
+        "PENDING",
+        "PROCESSING",
+        stableOutboxJobId,
+      ]),
+    );
+    if (status === "PENDING" && jobId === null) {
+      expect(updateCondition).toContain(" is null");
+    }
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
+    );
+  });
+
+  it.each([
+    "COMPLETED",
+    "FAILED",
+  ])("rejects a STABLE outbox row in terminal state %s", async (status) => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([
+      {
+        status,
+        errorCode: status === "FAILED" ? "VALIDATION_ERROR" : null,
+        enqueueMode: "STABLE",
+        jobId: stableOutboxJobId,
+      },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: stableOutboxJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing STABLE outbox row", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: null,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a STABLE outbox row owned by a different job", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([
+      {
+        status: "PENDING",
+        errorCode: null,
+        enqueueMode: "STABLE",
+        jobId: "validation-outbox-newer-job",
+      },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: "validation-outbox-newer-job",
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a LEGACY row even when its job id matches a stable outbox job", async () => {
+    updateWhere.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    selectForUpdate.mockResolvedValueOnce([
+      {
+        status: "PENDING",
+        errorCode: null,
+        enqueueMode: "LEGACY",
+        jobId: stableOutboxJobId,
+      },
+    ]);
+
+    await expect(
+      markValidationProcessing({
+        responseId: "response-1",
+        formId: "form-1",
+        ruleId: "rule-1",
+        referencedBlockId: "question-1",
+        service: "discord",
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: stableOutboxJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 
   it("throws ConcurrentDeleteError when the processing row disappears before update", async () => {
