@@ -126,7 +126,7 @@ function useSelectRows(params: {
   let selectCall = 0;
   mocks.tx.select.mockImplementation(() => {
     selectCall += 1;
-    if (selectCall === 1) {
+    if (selectCall !== 2) {
       return {
         from: vi.fn(() => ({
           where: vi.fn(() => ({
@@ -367,6 +367,77 @@ describe("processFormSchedule", () => {
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
     expect(mocks.activateSnapshotInTransaction).toHaveBeenCalledWith(
       mocks.tx,
+      "form-1",
+      2,
+    );
+    expect(mocks.dbTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it("locks Form before the schedule CAS and activation in the SWITCH transaction", async () => {
+    const now = new Date("2026-06-01T12:00:00.000Z");
+    useSelectRows({
+      formStatus: "PUBLISHED",
+      schedules: [
+        scheduleRow({
+          id: "schedule-switch",
+          action: "SWITCH_SNAPSHOT",
+          snapshotVersion: 2,
+        }),
+      ],
+    });
+
+    const events: string[] = [];
+    const switchFormLimit = vi.fn(async () => {
+      events.push("form-lock");
+      return [{ id: "form-1" }];
+    });
+    const switchTx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            for: vi.fn((mode: string) => {
+              expect(mode).toBe("update");
+              return { limit: switchFormLimit };
+            }),
+          })),
+        })),
+      })),
+      update: vi.fn((table: unknown) => {
+        expect(table).toBe(mocks.schema.formSchedule);
+        return {
+          set: vi.fn((values: unknown) => {
+            expect(values).toEqual({ processedAt: now });
+            return {
+              where: vi.fn(async () => {
+                events.push("schedule-cas");
+                return [{ affectedRows: 1 }];
+              }),
+            };
+          }),
+        };
+      }),
+    };
+    let transactionCall = 0;
+    mocks.dbTransaction.mockImplementation(
+      async (callback: (tx: unknown) => Promise<unknown>) => {
+        transactionCall += 1;
+        return callback(transactionCall === 1 ? mocks.tx : switchTx);
+      },
+    );
+    mocks.activateSnapshotInTransaction.mockImplementationOnce(async (tx) => {
+      expect(tx).toBe(switchTx);
+      events.push("activation");
+    });
+
+    await expect(processFormSchedule("form-1", now)).resolves.toMatchObject({
+      processed: true,
+      message: "Snapshot switched to version 2 based on schedule",
+    });
+
+    expect(switchTx.select).toHaveBeenCalledWith({ id: mocks.schema.form.id });
+    expect(events).toEqual(["form-lock", "schedule-cas", "activation"]);
+    expect(mocks.activateSnapshotInTransaction).toHaveBeenCalledWith(
+      switchTx,
       "form-1",
       2,
     );

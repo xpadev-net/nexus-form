@@ -181,6 +181,17 @@ export async function processFormSchedule(
       let activated: boolean;
       try {
         activated = await db.transaction(async (tx) => {
+          // Keep the same lock order as the due-schedule transaction above:
+          // Form -> FormSchedule. Reversing this order lets concurrent workers
+          // deadlock while one owns each row and waits for the other.
+          const [lockedForm] = await tx
+            .select({ id: form.id })
+            .from(form)
+            .where(eq(form.id, formId))
+            .for("update")
+            .limit(1);
+          if (!lockedForm) throw new Error("Form not found");
+
           const processedResult = await tx
             .update(formSchedule)
             .set({ processedAt: currentTime })

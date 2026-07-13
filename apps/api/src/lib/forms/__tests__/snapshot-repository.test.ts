@@ -21,6 +21,8 @@ vi.mock("../validation-rule-repository", () => ({
 }));
 
 import { db } from "@nexus-form/database";
+import { form } from "@nexus-form/database/schema";
+import { sql } from "drizzle-orm";
 import { FormValidationError } from "../../errors/form-errors";
 import {
   activateSnapshot,
@@ -152,6 +154,12 @@ function makeSelectBuilder<T>(result: T): SelectBuilder {
   return builder;
 }
 
+function makeLockingSelectBuilder<T>(result: T): SelectBuilder {
+  const builder = makeSelectBuilder(result);
+  builder.for.mockReturnValue(builder);
+  return builder;
+}
+
 function makeMutationBuilder(): {
   values: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
@@ -168,7 +176,26 @@ function makeMutationBuilder(): {
   return builder;
 }
 
-function makeSnapshotPublishTransaction(plateContent: string): {
+function applyGenerationUpdate(
+  state: { value: bigint },
+  values: Record<string, unknown>,
+): void {
+  if (!("publicPasswordGrantGeneration" in values)) return;
+  expect(values.publicPasswordGrantGeneration).toEqual(
+    sql`${form.publicPasswordGrantGeneration} + 1`,
+  );
+  state.value += 1n;
+}
+
+function makeSnapshotPublishTransaction(
+  plateContent: string,
+  options: {
+    existingSnapshots?: Array<ReturnType<typeof makeSnapshot>>;
+    baseSnapshotVersion?: number | null;
+    createdSnapshot?: ReturnType<typeof makeSnapshot>;
+  } = {},
+): {
+  insertBuilder: ReturnType<typeof makeMutationBuilder>;
   updateBuilder: ReturnType<typeof makeMutationBuilder>;
 } {
   const insertBuilder = makeMutationBuilder();
@@ -177,7 +204,7 @@ function makeSnapshotPublishTransaction(plateContent: string): {
     select: vi
       .fn()
       .mockReturnValueOnce(makeSelectBuilder([{ id: "form-1" }]))
-      .mockReturnValueOnce(makeSelectBuilder([]))
+      .mockReturnValueOnce(makeSelectBuilder(options.existingSnapshots ?? []))
       .mockReturnValueOnce(
         makeSelectBuilder([{ structureJson: DEFAULT_STRUCTURE_JSON }]),
       ),
@@ -187,10 +214,14 @@ function makeSnapshotPublishTransaction(plateContent: string): {
           title: "Test Form",
           description: null,
           plateContent,
-          baseSnapshotVersion: null,
+          baseSnapshotVersion: options.baseSnapshotVersion ?? null,
         }),
       },
-      formSnapshot: { findFirst: vi.fn().mockResolvedValue(makeSnapshot()) },
+      formSnapshot: {
+        findFirst: vi
+          .fn()
+          .mockResolvedValue(options.createdSnapshot ?? makeSnapshot()),
+      },
     },
     insert: vi.fn().mockReturnValue(insertBuilder),
     update: vi.fn().mockReturnValue(updateBuilder),
@@ -202,7 +233,40 @@ function makeSnapshotPublishTransaction(plateContent: string): {
         tx as unknown as Parameters<Parameters<typeof db.transaction>[0]>[0],
       ),
   );
-  return { updateBuilder };
+  return { insertBuilder, updateBuilder };
+}
+
+function queueSnapshotActivationTransaction(
+  targetSnapshot: ReturnType<typeof makeSnapshot>,
+  latestVersion: number,
+): {
+  tx: {
+    select: ReturnType<typeof vi.fn>;
+    update: ReturnType<typeof vi.fn>;
+    insert: ReturnType<typeof vi.fn>;
+  };
+  updates: ReturnType<typeof makeMutationBuilder>[];
+} {
+  const updates: ReturnType<typeof makeMutationBuilder>[] = [];
+  const tx = {
+    select: vi
+      .fn()
+      .mockReturnValueOnce(
+        makeLockingSelectBuilder([{ id: targetSnapshot.formId }]),
+      )
+      .mockReturnValueOnce(makeLockingSelectBuilder([targetSnapshot]))
+      .mockReturnValueOnce(makeSelectBuilder([{ version: latestVersion }])),
+    update: vi.fn(() => {
+      const builder = makeMutationBuilder();
+      updates.push(builder);
+      return builder;
+    }),
+    insert: vi.fn(() => ({
+      values: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+  mockTransaction.mockImplementationOnce(async (fn) => fn(tx as never));
+  return { tx, updates };
 }
 
 function mockCurrentStructureJson(structureJson: string): void {
@@ -258,11 +322,57 @@ describe("publishSnapshot", () => {
     expect(updateBuilder.set).toHaveBeenCalledWith(
       expect.objectContaining({
         baseSnapshotVersion: 1,
-        publicPasswordGrantGeneration: expect.anything(),
+        publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
       }),
     );
     const update = updateBuilder.set.mock.calls[0]?.[0];
-    expect(typeof update.publicPasswordGrantGeneration).not.toBe("number");
+    expect(update.publicPasswordGrantGeneration).toEqual(
+      sql`${form.publicPasswordGrantGeneration} + 1`,
+    );
+  });
+
+  it("advances the first active snapshot by exactly one and a later inactive save by zero", async () => {
+    const initialGeneration = 9_007_199_254_740_993n;
+    const generation = { value: initialGeneration };
+    const first = makeSnapshotPublishTransaction(
+      JSON.stringify([questionNode("question-1", "First")]),
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 1,
+      publishedAt: new Date("2025-01-01"),
+    });
+    const firstValues = first.updateBuilder.set.mock.calls[0]?.[0];
+    applyGenerationUpdate(generation, firstValues);
+    expect(generation.value).toBe(initialGeneration + 1n);
+    expect(first.insertBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: true, version: 1 }),
+    );
+
+    const existingActive = makeSnapshot({
+      version: 1,
+      plateContent: JSON.stringify([questionNode("question-1", "First")]),
+    });
+    const second = makeSnapshotPublishTransaction(
+      JSON.stringify([questionNode("question-1", "Second")]),
+      {
+        existingSnapshots: [existingActive],
+        baseSnapshotVersion: 1,
+        createdSnapshot: makeSnapshot({ version: 2, isActive: false }),
+      },
+    );
+
+    await expect(publishSnapshot("form-1", "user-1")).resolves.toEqual({
+      version: 2,
+      publishedAt: new Date("2025-01-01"),
+    });
+    const secondValues = second.updateBuilder.set.mock.calls[0]?.[0];
+    applyGenerationUpdate(generation, secondValues);
+    expect(generation.value).toBe(initialGeneration + 1n);
+    expect(secondValues).not.toHaveProperty("publicPasswordGrantGeneration");
+    expect(second.insertBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({ isActive: false, version: 2 }),
+    );
   });
 
   it("質問タイトルが空の質問を含む場合はスナップショット保存を拒否する", async () => {
@@ -393,6 +503,23 @@ describe("getActivePublication", () => {
     expect(mockDbSelect).toHaveBeenCalledTimes(1);
     expect(innerJoin).toHaveBeenCalledTimes(1);
   });
+
+  it("returns null when the authoritative joined read has no active row", async () => {
+    const limit = vi.fn().mockResolvedValue([]);
+    const orderBy = vi.fn().mockReturnValue({ limit });
+    const where = vi.fn().mockReturnValue({ orderBy });
+    const innerJoin = vi.fn().mockReturnValue({ where });
+    const from = vi.fn().mockReturnValue({ innerJoin });
+    mockDbSelect.mockReturnValue({ from } as unknown as ReturnType<
+      typeof db.select
+    >);
+
+    await expect(
+      getActivePublication("form-without-active"),
+    ).resolves.toBeNull();
+    expect(mockDbSelect).toHaveBeenCalledTimes(1);
+    expect(innerJoin).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("transitionPublicationStatusInTransaction", () => {
@@ -426,14 +553,14 @@ describe("transitionPublicationStatusInTransaction", () => {
       expect.objectContaining({
         status: "UNPUBLISHED",
         unpublishedAt,
-        publicPasswordGrantGeneration: expect.anything(),
+        publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
       }),
     );
     expect(publish.updateBuilder.set).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "PUBLISHED",
         publishedAt,
-        publicPasswordGrantGeneration: expect.anything(),
+        publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
       }),
     );
     for (const updateBuilder of [
@@ -441,7 +568,9 @@ describe("transitionPublicationStatusInTransaction", () => {
       publish.updateBuilder,
     ]) {
       const values = updateBuilder.set.mock.calls[0]?.[0];
-      expect(typeof values.publicPasswordGrantGeneration).not.toBe("number");
+      expect(values.publicPasswordGrantGeneration).toEqual(
+        sql`${form.publicPasswordGrantGeneration} + 1`,
+      );
     }
   });
 
@@ -480,7 +609,7 @@ describe("transitionPublicationStatusInTransaction", () => {
     expect(transition.updateBuilder.set).toHaveBeenCalledWith(
       expect.objectContaining({
         status: "UNPUBLISHED",
-        publicPasswordGrantGeneration: expect.anything(),
+        publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
       }),
     );
   });
@@ -757,6 +886,41 @@ describe("calculateFormDiff", () => {
 });
 
 describe("activateSnapshot", () => {
+  it("advances exactly once for each real v3 to v8 to v3 transition", async () => {
+    const initialGeneration = 9_007_199_254_740_993n;
+    const generation = { value: initialGeneration };
+    const toV8 = queueSnapshotActivationTransaction(
+      makeSnapshot({ id: "snapshot-v8", version: 8, isActive: false }),
+      8,
+    );
+
+    await expect(activateSnapshot("form-1", 8)).resolves.toMatchObject({
+      id: "snapshot-v8",
+      version: 8,
+      isActive: true,
+    });
+    const toV8Values = toV8.updates
+      .flatMap((builder) => builder.set.mock.calls.map((call) => call[0]))
+      .find((values) => values.baseSnapshotVersion === 8);
+    applyGenerationUpdate(generation, toV8Values);
+    expect(generation.value).toBe(initialGeneration + 1n);
+
+    const backToV3 = queueSnapshotActivationTransaction(
+      makeSnapshot({ id: "snapshot-v3", version: 3, isActive: false }),
+      9,
+    );
+    await expect(activateSnapshot("form-1", 3)).resolves.toMatchObject({
+      id: "snapshot-v3",
+      version: 3,
+      isActive: true,
+    });
+    const backToV3Values = backToV3.updates
+      .flatMap((builder) => builder.set.mock.calls.map((call) => call[0]))
+      .find((values) => values.baseSnapshotVersion === 3);
+    applyGenerationUpdate(generation, backToV3Values);
+    expect(generation.value).toBe(initialGeneration + 2n);
+  });
+
   it("古い snapshot を activate すると snapshot の structureJson を active formStructure として復元する", async () => {
     const snapshotStructureJson = JSON.stringify({
       version: 3,
@@ -842,10 +1006,12 @@ describe("activateSnapshot", () => {
     expect(formUpdate).toEqual(
       expect.objectContaining({
         baseSnapshotVersion: 3,
-        publicPasswordGrantGeneration: expect.anything(),
+        publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
       }),
     );
-    expect(typeof formUpdate.publicPasswordGrantGeneration).not.toBe("number");
+    expect(formUpdate.publicPasswordGrantGeneration).toEqual(
+      sql`${form.publicPasswordGrantGeneration} + 1`,
+    );
   });
 
   it("treats retrying the already-active snapshot as a locked no-op", async () => {
