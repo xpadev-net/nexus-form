@@ -1,8 +1,8 @@
 # Plan: Migration Runtime Package Resolution
 
-- status: in_progress
+- status: done
 - generated: 2026-07-13
-- last_updated: 2026-07-13
+- last_updated: 2026-07-14
 - work_type: code
 
 ## Goal
@@ -127,6 +127,7 @@
 - 2026-07-13: Orchestrator deploy-layout probe found a false transitive-package failure because it built database without first building shared. A clean Researcher reproduction using the Docker builder order proved migration and API workspace imports succeed after all workspace builds, and recommended replacing the fragmented database COPY with one complete deploy-closure COPY. Task_1 returned for revision.
 - 2026-07-13: Wave 1 / Task_1 revision completed and integrated. The Worker replaced fragmented copies with one complete deploy-closure COPY, added closure-absence and fragmented-layout regression cases, and passed all 9 targeted tests plus Biome/source-wiring/diff checks. All changes remained inside `owns`.
 - 2026-07-14: Wave 2 / Task_2 completed. Repository lint passed 9/9 package tasks; type-check passed 16/16 tasks plus E2E TypeScript; tests passed 15/15 Turbo tasks plus root environment/container checks; K8s wiring passed 7/7. A production-order deploy closure resolved `@nexus-form/database` to `dist/index.js` and exposed `runMigrations`. Independent Reviewer status: `APPROVED`, no actionable findings.
+- 2026-07-14: Wave 3 / Task_3 completed. PR #669 was repeatedly updated from `master` without rebasing, all CI checks including the production image build passed, `gh-review-hook` exited 0 on head `639ab7ae`, GitHub reported `APPROVED` and `CLEAN`, and merge commit `e5a4f3a3` landed on `master`.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 - 2026-07-13: User expanded the request from diagnosis to full fix, independent review iteration, PR review-hook iteration, and merge. User approval: yes.
@@ -135,6 +136,7 @@
 - 2026-07-13: The amd64 retry could not proceed because the local Docker installation lacks buildx and its legacy multi-stage builder rejected the requested platform. Use the production-order deploy/import probe as runtime-resolution evidence and require remote CI/release image build before merge.
 - 2026-07-13: Replace the three fragmented migration COPY instructions with a single `/tmp/db-deploy` closure copy under the database package path. This preserves package self-containment, avoids pnpm store-path hardcoding, and was verified with root and `/schema` ESM imports.
 - 2026-07-14: Required-check waiver — local production image build. Both native arm64 and official Buildx amd64 attempts exhausted the 2 GiB Colima VM during dependency installation before any changed Dockerfile stage. Mitigation evidence: production-order `pnpm deploy` closure import probe, source-wiring regression suite in the root test command, full repository checks, and independent Reviewer approval. Residual risk: a full image build will first run in the existing post-merge `master` Docker workflow; owner: Orchestrator; expiry: successful post-merge Docker Build and Push workflow.
+- 2026-07-14: The local image-build waiver expired before merge when PR CI `Build (production)` completed successfully on the final reviewed head.
 
 ## Notes
 - Risks: runtime image layout and deployment sequencing are release-critical; no schema contents change.
