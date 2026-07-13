@@ -57,16 +57,29 @@ test("fails when fragmented copies replace the database deploy closure", () => {
   );
 });
 
-test("fails when the migration runner bypasses the database package public import", () => {
+test("fails when the migration runner imports the side-effectful database package root", () => {
   const sources = loadSources();
   sources.migrationScript = sources.migrationScript.replace(
+    'from "@nexus-form/database/migrate"',
     'from "@nexus-form/database"',
-    'from "../packages/database/dist/index.js"',
   );
 
   assert.throws(
     () => checkContainerRuntimeWiringSources(sources),
-    /must use the @nexus-form\/database public bare import/,
+    /must not import the side-effectful @nexus-form\/database package root/,
+  );
+});
+
+test("fails when the migration runner bypasses the dedicated migrate entrypoint", () => {
+  const sources = loadSources();
+  sources.migrationScript = sources.migrationScript.replace(
+    'from "@nexus-form/database/migrate"',
+    'from "../packages/database/dist/migrate.js"',
+  );
+
+  assert.throws(
+    () => checkContainerRuntimeWiringSources(sources),
+    /must use the dedicated @nexus-form\/database\/migrate entrypoint/,
   );
 });
 
