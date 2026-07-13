@@ -499,3 +499,10 @@ Evidence:
 - root cause: The plan separated all test-file ownership by wave without distinguishing existing assertions that define the production contract from later, broader failure-injection coverage.
 - fix: Expand Task_4 by the single direct contract-test file for old-expectation updates and route-specific producer/ack regressions; keep concurrent sweeper, repeated backoff, end-to-end recovery, and migration evidence in Task_5/6.
 - prevention: Before dispatching a contract-changing implementation Task, map existing tests that directly encode that contract. Co-own the narrow direct test when unchanged assertions would make required repository or pre-push gates impossible; reserve only independently additive coverage for later test waves.
+
+## 2026-07-14 — Bootstrap Fresh Worktree Dependencies Before Parallel Push Hooks  [tags: git, pre-push, pnpm, worktree, tooling]
+
+- symptom: A ledger-only push from a fresh temporary worktree failed even though the commit was valid. Parallel pre-push arms independently started dependency installation and collided while renaming the same pnpm package directory, producing `ERR_PNPM_ENOTEMPTY`.
+- root cause: The Orchestrator treated dependency bootstrap as an implicit hook responsibility. In an empty worktree, multiple hook arms can observe the same missing installation and race in the shared target before any validation begins.
+- fix: Preserve the committed ledger change, run one explicit frozen dependency installation to completion in the worktree, then rerun the normal push with all hooks enabled. Do not bypass the failed hook.
+- prevention: Before the first commit or push from a newly created validation/ledger worktree, verify dependency readiness and perform a single serialized `pnpm install --frozen-lockfile` when dependencies are absent. Treat concurrent bootstrap errors as tooling/environment failures, capture cleanliness and the exact error, stabilize the workspace, and rerun the original gate unchanged.
