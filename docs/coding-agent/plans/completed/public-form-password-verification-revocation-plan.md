@@ -1,8 +1,8 @@
 # Plan: Public Form Password Verification Revocation
 
-- status: in_progress
+- status: complete
 - generated: 2026-07-11
-- last_updated: 2026-07-13
+- last_updated: 2026-07-14
 - work_type: mixed
 
 ## Goal
@@ -202,7 +202,7 @@
     required: true
     owner: reviewer
     detail: "Independent auth-state, historical reactivation, rollout matrix, secret disclosure, and compatibility review."
-- status: in progress
+- status: complete
 
 ### Task_4: Final validation and review
 - type: review
@@ -220,6 +220,7 @@
     required: true
     owner: reviewer
     detail: "Independent auth-state and compatibility review."
+- status: complete
 
 ## Task Waves
 - Wave 1: [Task_1]
@@ -244,6 +245,7 @@
 - 2026-07-14: Task_7 merged through PR #673 as `9894f818e7747cee7690d472f74aa21ef7e925c9`. Formal review verified Bash 3.2/5.3 cleanup, failure diagnostics, confidentiality, durable recovery, Kustomize Secret authority, rollout cutoff, compatibility matrix, and rollback floor; parent deep-review, hook, lint, type-check, full tests, focused 54 tests, Bash fence syntax, Kustomize renders, CI, and AI review gates passed.
 - 2026-07-14: Started Task_8 Worker `019f5c96-4dc7-7143-a881-906bdc22dd52` from the preserved PR #665 branch in a new isolated worktree. The Worker owns only JWT/public-route consumers and focused lifecycle regressions and must stop at REVIEW_READY for parent-dispatched formal review.
 - 2026-07-14: Expanded Task_8 ownership by one test-only file, `apps/api/src/__tests__/forms-public-password-request-limit.test.ts`, after its existing snapshot-repository mock lacked the authoritative `getActivePublication` export and caused three unrelated 500 responses in the required full suite. The same Task_8 Worker may update only that mock to return the snapshot plus bigint generation; no product scope was added.
+- 2026-07-14: Task_8 merged through PR #665 as `cfb6161d89d99b83524527836730bf674597d3db`. Formal review approved the exact five product blobs and independently verified bigint-safe persistent-generation binding, opaque payload secrecy, authoritative protected GET/submit/verify-password parity, legacy rejection, and password/lifecycle invalidation. Parent deep-review found no issues; hook exit 0, lint, API/workspace type-check, full tests, focused 108 tests, CI, and AI review gates passed. Task_4 is complete and this plan is archived.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
