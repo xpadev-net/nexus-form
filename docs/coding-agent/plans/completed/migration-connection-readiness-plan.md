@@ -1,6 +1,6 @@
 # Plan: Migration Connection Readiness
 
-- status: in_progress
+- status: completed
 - generated: 2026-07-14
 - last_updated: 2026-07-14
 - work_type: code
@@ -142,6 +142,7 @@
 - 2026-07-14: Review fixes completed. Only compatibility-state reads retry; the timestamp mutation runs at most once outside the loop. Query-plus-cleanup failures retain both errors in an `AggregateError` and fail closed without retry. Focused migration tests passed 22/22.
 - 2026-07-14: Wave 2 / Task_2 completed. Independent Reviewer returned `APPROVED` with no actionable findings. Repository lint, type-check, production build, full tests (15/15 Turbo tasks), container wiring (10/10), and `git diff --check` all passed after the review fixes.
 - 2026-07-14: The first `gh-review-hook` run exited 2 with three findings plus a stale-base gate. Merged `origin/master` without rebasing, fixed MD022 spacing, documented the exact three retryable codes, and extracted failed-client cleanup into a dedicated helper. Independent Reviewer returned `APPROVED` again; focused tests passed 22/22, container wiring passed 10/10, and all repository-required checks passed after the fixes.
+- 2026-07-14: Wave 3 / Task_3 completed. The second `gh-review-hook` run exited 0 on remote head `f3ad40c1`; GitHub reported `APPROVED`, `CLEAN`, `MERGEABLE`, all review threads resolved, and all checks successful. PR #672 merged as `9ceeebf7`.
 
 ## Decision Log (append-only; re-plans and major discoveries)
 
