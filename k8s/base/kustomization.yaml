@@ -9,7 +9,8 @@ commonLabels:
 
 resources:
   - configmap.yaml
-  - secret.yaml
+  # nexus-form-secrets is written only by the external Secret manager.
+  # secret.yaml is a contract template and must never be rendered or applied.
   - api-migration-job.yaml
   - api-deployment.yaml
   - api-service.yaml

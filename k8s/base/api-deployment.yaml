@@ -7,13 +7,24 @@ metadata:
     component: api
 spec:
   replicas: 1
-  revisionHistoryLimit: 3
+  # Phase 2 creates a second bridge ReplicaSet with the rotated AUTH_SECRET.
+  # Keep only that previous fixed ReplicaSet as the native rollback target.
+  revisionHistoryLimit: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app: nexus-form
       component: api
   template:
     metadata:
+      annotations:
+        # Non-secret rollout marker. Change this together with AUTH_SECRET so
+        # envFrom consumers are recreated; never put secret material here.
+        nexus-form.xpadev.net/auth-secret-revision: "CHANGE_ME_WITH_AUTH_SECRET_REVISION"
       labels:
         app: nexus-form
         component: api
@@ -54,4 +65,3 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 3
-
