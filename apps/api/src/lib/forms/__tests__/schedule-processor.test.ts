@@ -20,15 +20,21 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
-    activateSnapshot: vi.fn(),
+    activateSnapshotInTransaction: vi.fn(),
     and: vi.fn((...conditions: unknown[]) => ({ type: "and", conditions })),
     asc: vi.fn((column: unknown) => ({ type: "asc", column })),
     dbTransaction: vi.fn(),
-    dbUpdate: vi.fn(),
     eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
     formLimit: vi.fn(),
     isNull: vi.fn((column: unknown) => ({ type: "isNull", column })),
     lockModes: [] as string[],
+    lifecycleCalls: [] as Array<{
+      tx: unknown;
+      formId: string;
+      currentStatus: FormStatusValue;
+      nextStatus: "PUBLISHED" | "UNPUBLISHED";
+      effectiveAt: Date;
+    }>,
     logError: vi.fn(),
     lte: vi.fn((left: unknown, right: unknown) => ({
       type: "lte",
@@ -48,13 +54,13 @@ const mocks = vi.hoisted(() => {
       condition: unknown;
     }>,
     updateResults: [] as Array<{ affectedRows: number }>,
+    transitionPublicationStatusInTransaction: vi.fn(),
   };
 });
 
 vi.mock("@nexus-form/database", () => ({
   db: {
     transaction: mocks.dbTransaction,
-    update: mocks.dbUpdate,
   },
 }));
 
@@ -69,7 +75,9 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../snapshot-repository", () => ({
-  activateSnapshot: mocks.activateSnapshot,
+  activateSnapshotInTransaction: mocks.activateSnapshotInTransaction,
+  transitionPublicationStatusInTransaction:
+    mocks.transitionPublicationStatusInTransaction,
 }));
 
 vi.mock("../../logger", () => ({
@@ -166,19 +174,30 @@ describe("processFormSchedule", () => {
     vi.clearAllMocks();
     mocks.lockModes.length = 0;
     mocks.orderByArgs.length = 0;
+    mocks.lifecycleCalls.length = 0;
     mocks.updateCalls.length = 0;
     mocks.updateResults.length = 0;
     mocks.dbTransaction.mockImplementation(
       async (callback: (tx: unknown) => Promise<unknown>) => callback(mocks.tx),
     );
-    mocks.dbUpdate.mockImplementation((table: unknown) => ({
-      set: vi.fn((values: unknown) => ({
-        where: vi.fn(async (condition: unknown) => {
-          mocks.updateCalls.push({ table, values, condition });
-          return [mocks.updateResults.shift() ?? { affectedRows: 1 }];
-        }),
-      })),
-    }));
+    mocks.transitionPublicationStatusInTransaction.mockImplementation(
+      async (
+        tx: unknown,
+        formId: string,
+        currentStatus: FormStatusValue,
+        nextStatus: "PUBLISHED" | "UNPUBLISHED",
+        effectiveAt: Date,
+      ) => {
+        mocks.lifecycleCalls.push({
+          tx,
+          formId,
+          currentStatus,
+          nextStatus,
+          effectiveAt,
+        });
+        return true;
+      },
+    );
   });
 
   it("catches up UNPUBLISH then PUBLISH using the in-transaction current status", async () => {
@@ -200,12 +219,7 @@ describe("processFormSchedule", () => {
         }),
       ],
     });
-    useUpdateResults([
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-    ]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
 
     const result = await processFormSchedule("form-1", now);
 
@@ -221,13 +235,21 @@ describe("processFormSchedule", () => {
       { type: "asc", column: "formSchedule.createdAt" },
       { type: "asc", column: "formSchedule.id" },
     ]);
-    expect(
-      mocks.updateCalls
-        .filter((call) => call.table === mocks.schema.form)
-        .map((call) => call.values),
-    ).toEqual([
-      { status: "UNPUBLISHED", unpublishedAt: unpublishAt },
-      { status: "PUBLISHED", publishedAt: publishAt },
+    expect(mocks.lifecycleCalls).toEqual([
+      {
+        tx: mocks.tx,
+        formId: "form-1",
+        currentStatus: "PUBLISHED",
+        nextStatus: "UNPUBLISHED",
+        effectiveAt: unpublishAt,
+      },
+      {
+        tx: mocks.tx,
+        formId: "form-1",
+        currentStatus: "UNPUBLISHED",
+        nextStatus: "PUBLISHED",
+        effectiveAt: publishAt,
+      },
     ]);
     expect(
       mocks.updateCalls
@@ -255,12 +277,7 @@ describe("processFormSchedule", () => {
         }),
       ],
     });
-    useUpdateResults([
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-    ]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
 
     const result = await processFormSchedule("form-1", now);
 
@@ -270,13 +287,21 @@ describe("processFormSchedule", () => {
       newStatus: "UNPUBLISHED",
       message: "Form automatically unpublished based on schedule",
     });
-    expect(
-      mocks.updateCalls
-        .filter((call) => call.table === mocks.schema.form)
-        .map((call) => call.values),
-    ).toEqual([
-      { status: "PUBLISHED", publishedAt: publishAt },
-      { status: "UNPUBLISHED", unpublishedAt: unpublishAt },
+    expect(mocks.lifecycleCalls).toEqual([
+      {
+        tx: mocks.tx,
+        formId: "form-1",
+        currentStatus: "DRAFT",
+        nextStatus: "PUBLISHED",
+        effectiveAt: publishAt,
+      },
+      {
+        tx: mocks.tx,
+        formId: "form-1",
+        currentStatus: "PUBLISHED",
+        nextStatus: "UNPUBLISHED",
+        effectiveAt: unpublishAt,
+      },
     ]);
   });
 
@@ -319,7 +344,7 @@ describe("processFormSchedule", () => {
       ],
     });
     useUpdateResults([{ affectedRows: 1 }]);
-    mocks.activateSnapshot.mockImplementation(async () => {
+    mocks.activateSnapshotInTransaction.mockImplementation(async () => {
       mocks.updateCalls.push({
         table: "snapshot-activation",
         values: { snapshotVersion: 2 },
@@ -340,6 +365,12 @@ describe("processFormSchedule", () => {
       "snapshot-activation",
     ]);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
+    expect(mocks.activateSnapshotInTransaction).toHaveBeenCalledWith(
+      mocks.tx,
+      "form-1",
+      2,
+    );
+    expect(mocks.dbTransaction).toHaveBeenCalledTimes(2);
   });
 
   it("skips SWITCH_SNAPSHOT activation when the processedAt CAS loses", async () => {
@@ -364,7 +395,7 @@ describe("processFormSchedule", () => {
       newStatus: "PUBLISHED",
       message: "Schedule was already processed by another worker; skipped",
     });
-    expect(mocks.activateSnapshot).not.toHaveBeenCalled();
+    expect(mocks.activateSnapshotInTransaction).not.toHaveBeenCalled();
     expect(mocks.updateCalls).toHaveLength(1);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
   });
@@ -387,11 +418,7 @@ describe("processFormSchedule", () => {
         }),
       ],
     });
-    useUpdateResults([
-      { affectedRows: 1 },
-      { affectedRows: 1 },
-      { affectedRows: 0 },
-    ]);
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 0 }]);
 
     const result = await processFormSchedule("form-1", now);
 
@@ -401,7 +428,7 @@ describe("processFormSchedule", () => {
       newStatus: "PUBLISHED",
       message: "Form automatically published based on schedule",
     });
-    expect(mocks.activateSnapshot).not.toHaveBeenCalled();
+    expect(mocks.activateSnapshotInTransaction).not.toHaveBeenCalled();
   });
 
   it("marks a SWITCH_SNAPSHOT schedule with no snapshotVersion as processed", async () => {
@@ -426,13 +453,13 @@ describe("processFormSchedule", () => {
       newStatus: "PUBLISHED",
       message: "SWITCH_SNAPSHOT schedule missing snapshotVersion; skipped",
     });
-    expect(mocks.activateSnapshot).not.toHaveBeenCalled();
+    expect(mocks.activateSnapshotInTransaction).not.toHaveBeenCalled();
     expect(mocks.updateCalls).toHaveLength(1);
     expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
   });
 
-  it("releases only its SWITCH_SNAPSHOT claim when activation fails", async () => {
+  it("rolls back the SWITCH_SNAPSHOT claim with activation in one transaction", async () => {
     const now = new Date("2026-06-01T12:00:00.000Z");
     useSelectRows({
       formStatus: "PUBLISHED",
@@ -444,28 +471,27 @@ describe("processFormSchedule", () => {
         }),
       ],
     });
-    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
-    mocks.activateSnapshot.mockRejectedValueOnce(new Error("activate failed"));
+    useUpdateResults([{ affectedRows: 1 }]);
+    mocks.activateSnapshotInTransaction.mockRejectedValueOnce(
+      new Error("activate failed"),
+    );
 
     await expect(processFormSchedule("form-1", now)).rejects.toThrow(
       "activate failed",
     );
 
-    expect(mocks.updateCalls).toHaveLength(2);
+    expect(mocks.updateCalls).toHaveLength(1);
     expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
-    expect(mocks.updateCalls[1]?.table).toBe(mocks.schema.formSchedule);
-    expect(mocks.updateCalls[1]?.values).toEqual({ processedAt: null });
-    expect(mocks.updateCalls[1]?.condition).toEqual({
-      type: "and",
-      conditions: [
-        { type: "eq", left: "formSchedule.id", right: "schedule-switch" },
-        { type: "eq", left: "formSchedule.formId", right: "form-1" },
-      ],
-    });
+    expect(mocks.activateSnapshotInTransaction).toHaveBeenCalledWith(
+      mocks.tx,
+      "form-1",
+      2,
+    );
+    expect(mocks.dbTransaction).toHaveBeenCalledTimes(2);
   });
 
-  it("releases the SWITCH_SNAPSHOT claim when the target snapshot disappears", async () => {
+  it("rolls back the claim when the target snapshot disappears", async () => {
     const now = new Date("2026-06-01T12:00:00.000Z");
     useSelectRows({
       formStatus: "PUBLISHED",
@@ -477,8 +503,8 @@ describe("processFormSchedule", () => {
         }),
       ],
     });
-    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
-    mocks.activateSnapshot.mockRejectedValueOnce(
+    useUpdateResults([{ affectedRows: 1 }]);
+    mocks.activateSnapshotInTransaction.mockRejectedValueOnce(
       new SnapshotNotFoundError("form-1", 2),
     );
 
@@ -486,18 +512,10 @@ describe("processFormSchedule", () => {
       "Snapshot not found for form form-1 version 2",
     );
 
-    expect(mocks.updateCalls).toHaveLength(2);
+    expect(mocks.updateCalls).toHaveLength(1);
     expect(mocks.updateCalls[0]?.table).toBe(mocks.schema.formSchedule);
     expect(mocks.updateCalls[0]?.values).toEqual({ processedAt: now });
-    expect(mocks.updateCalls[1]?.table).toBe(mocks.schema.formSchedule);
-    expect(mocks.updateCalls[1]?.values).toEqual({ processedAt: null });
-    expect(mocks.updateCalls[1]?.condition).toEqual({
-      type: "and",
-      conditions: [
-        { type: "eq", left: "formSchedule.id", right: "schedule-switch" },
-        { type: "eq", left: "formSchedule.formId", right: "form-1" },
-      ],
-    });
+    expect(mocks.dbTransaction).toHaveBeenCalledTimes(2);
     expect(mocks.logError).toHaveBeenCalledWith(
       "SWITCH_SNAPSHOT skipped: snapshot not found",
       "api",

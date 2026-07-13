@@ -3,6 +3,7 @@ import { form, formSnapshot, formStructure } from "@nexus-form/database/schema";
 import {
   extractQuestionsFromPlateContent,
   extractTitleFromChildren,
+  type FormStatusValue,
   fromPlateQuestionType,
   isPlateQuestionType,
 } from "@nexus-form/shared";
@@ -86,7 +87,24 @@ function assertSnapshotQuestionTitles(plateContent: string): void {
 
 // ── Private snapshot row → FormSnapshot ──────────────────────────────
 
-function rowToSnapshot(row: typeof formSnapshot.$inferSelect): FormSnapshot {
+type SnapshotRow = Pick<
+  typeof formSnapshot.$inferSelect,
+  | "id"
+  | "formId"
+  | "version"
+  | "plateContent"
+  | "validationRulesJson"
+  | "structureJson"
+  | "isActive"
+  | "publishedBy"
+  | "publishedAt"
+  | "changeLog"
+  | "title"
+  | "description"
+  | "parentVersion"
+>;
+
+function rowToSnapshot(row: SnapshotRow): FormSnapshot {
   return {
     id: row.id,
     formId: row.formId,
@@ -171,6 +189,51 @@ export async function getLatestSnapshot(
     orderBy: [desc(formSnapshot.version)],
   });
   return row ? rowToSnapshot(row) : null;
+}
+
+export interface ActivePublication {
+  snapshot: FormSnapshot;
+  publicPasswordGrantGeneration: bigint;
+}
+
+/**
+ * Returns the active snapshot and its form-scoped grant generation from one
+ * authoritative database read. Consumers must keep the bigint value intact.
+ */
+export async function getActivePublication(
+  formId: string,
+): Promise<ActivePublication | null> {
+  const [row] = await db
+    .select({
+      id: formSnapshot.id,
+      formId: formSnapshot.formId,
+      version: formSnapshot.version,
+      plateContent: formSnapshot.plateContent,
+      validationRulesJson: formSnapshot.validationRulesJson,
+      structureJson: formSnapshot.structureJson,
+      isActive: formSnapshot.isActive,
+      publishedBy: formSnapshot.publishedBy,
+      publishedAt: formSnapshot.publishedAt,
+      changeLog: formSnapshot.changeLog,
+      title: formSnapshot.title,
+      description: formSnapshot.description,
+      parentVersion: formSnapshot.parentVersion,
+      publicPasswordGrantGeneration: form.publicPasswordGrantGeneration,
+    })
+    .from(form)
+    .innerJoin(
+      formSnapshot,
+      and(eq(formSnapshot.formId, form.id), eq(formSnapshot.isActive, true)),
+    )
+    .where(eq(form.id, formId))
+    .orderBy(desc(formSnapshot.version))
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    snapshot: rowToSnapshot(row),
+    publicPasswordGrantGeneration: row.publicPasswordGrantGeneration,
+  };
 }
 
 export async function getLatestSnapshotByVersion(
@@ -397,7 +460,14 @@ export async function publishSnapshot(
     // Track the new snapshot as the base for the next save.
     await tx
       .update(form)
-      .set({ baseSnapshotVersion: nextVersion })
+      .set({
+        baseSnapshotVersion: nextVersion,
+        ...(!existingActive
+          ? {
+              publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
+            }
+          : {}),
+      })
       .where(eq(form.id, formId));
 
     const created = await tx.query.formSnapshot.findFirst({
@@ -410,6 +480,36 @@ export async function publishSnapshot(
   });
 
   return result;
+}
+
+export type PublicationStatus = "PUBLISHED" | "UNPUBLISHED";
+
+/**
+ * Applies one effective publication status transition inside the caller's
+ * transaction. The caller must have locked the form row before passing the
+ * current status so concurrent/retried operations share one idempotency
+ * boundary.
+ */
+export async function transitionPublicationStatusInTransaction(
+  tx: TransactionClient,
+  formId: string,
+  currentStatus: FormStatusValue,
+  nextStatus: PublicationStatus,
+  effectiveAt: Date,
+): Promise<boolean> {
+  if (currentStatus === nextStatus) return false;
+
+  await tx
+    .update(form)
+    .set({
+      status: nextStatus,
+      ...(nextStatus === "PUBLISHED"
+        ? { publishedAt: effectiveAt }
+        : { unpublishedAt: effectiveAt }),
+      publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
+    })
+    .where(eq(form.id, formId));
+  return true;
 }
 
 export async function restoreFromSnapshot(
@@ -652,50 +752,73 @@ export async function activateSnapshot(
   formId: string,
   version: number,
 ): Promise<FormSnapshot> {
-  const target = await getSnapshotByVersion(formId, version);
+  return db.transaction((tx) =>
+    activateSnapshotInTransaction(tx, formId, version),
+  );
+}
+
+/**
+ * Activates a snapshot and advances the grant generation in the same
+ * transaction. The form row is the serialization/idempotency boundary; an
+ * already-active target is a true no-op.
+ */
+export async function activateSnapshotInTransaction(
+  tx: TransactionClient,
+  formId: string,
+  version: number,
+): Promise<FormSnapshot> {
+  const [lockedForm] = await tx
+    .select({ id: form.id })
+    .from(form)
+    .where(eq(form.id, formId))
+    .for("update")
+    .limit(1);
+  if (!lockedForm) throw new Error("Form not found");
+
+  const [target] = await tx
+    .select()
+    .from(formSnapshot)
+    .where(
+      and(eq(formSnapshot.formId, formId), eq(formSnapshot.version, version)),
+    )
+    .for("update")
+    .limit(1);
   if (!target) throw new SnapshotNotFoundError(formId, version);
+  if (target.isActive) return rowToSnapshot(target);
 
-  await db.transaction(async (tx) => {
-    await tx
-      .select({ id: form.id })
-      .from(form)
-      .where(eq(form.id, formId))
-      .for("update");
-    await tx
-      .update(formSnapshot)
-      .set({ isActive: false })
-      .where(
-        and(eq(formSnapshot.formId, formId), eq(formSnapshot.isActive, true)),
-      );
-    await tx
-      .update(formSnapshot)
-      .set({ isActive: true })
-      .where(eq(formSnapshot.id, target.id));
-    await tx
-      .update(form)
-      .set({
-        plateContent: target.plateContent,
-        plateContentVersion: sql`${form.plateContentVersion} + 1`,
-        baseSnapshotVersion: version,
-      })
-      .where(eq(form.id, formId));
-    await restoreStructureFromSnapshot(
-      tx,
-      formId,
-      target.structureJson,
-      `Activate snapshot v${target.version}`,
+  await tx
+    .update(formSnapshot)
+    .set({ isActive: false })
+    .where(
+      and(eq(formSnapshot.formId, formId), eq(formSnapshot.isActive, true)),
     );
+  await tx
+    .update(formSnapshot)
+    .set({ isActive: true })
+    .where(eq(formSnapshot.id, target.id));
+  await tx
+    .update(form)
+    .set({
+      plateContent: target.plateContent,
+      plateContentVersion: sql`${form.plateContentVersion} + 1`,
+      baseSnapshotVersion: version,
+      publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
+    })
+    .where(eq(form.id, formId));
+  await restoreStructureFromSnapshot(
+    tx,
+    formId,
+    target.structureJson,
+    `Activate snapshot v${target.version}`,
+  );
 
-    await replaceValidationRulesFromSnapshot({
-      formId,
-      rules: parseValidationRuleSnapshot(target.validationRulesJson),
-      tx,
-    });
+  await replaceValidationRulesFromSnapshot({
+    formId,
+    rules: parseValidationRuleSnapshot(target.validationRulesJson),
+    tx,
   });
 
-  const updated = await getSnapshotByVersion(formId, version);
-  if (!updated) throw new SnapshotNotFoundError(formId, version);
-  return updated;
+  return rowToSnapshot({ ...target, isActive: true });
 }
 
 export async function deleteSnapshot(

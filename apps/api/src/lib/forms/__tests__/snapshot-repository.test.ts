@@ -26,7 +26,9 @@ import {
   activateSnapshot,
   calculateFormDiff,
   checkUnpublishedChanges,
+  getActivePublication,
   publishSnapshot,
+  transitionPublicationStatusInTransaction,
 } from "../snapshot-repository";
 import {
   replaceValidationRulesFromSnapshot,
@@ -166,7 +168,9 @@ function makeMutationBuilder(): {
   return builder;
 }
 
-function makeSnapshotPublishTransaction(plateContent: string): void {
+function makeSnapshotPublishTransaction(plateContent: string): {
+  updateBuilder: ReturnType<typeof makeMutationBuilder>;
+} {
   const insertBuilder = makeMutationBuilder();
   const updateBuilder = makeMutationBuilder();
   const tx = {
@@ -198,6 +202,7 @@ function makeSnapshotPublishTransaction(plateContent: string): void {
         tx as unknown as Parameters<Parameters<typeof db.transaction>[0]>[0],
       ),
   );
+  return { updateBuilder };
 }
 
 function mockCurrentStructureJson(structureJson: string): void {
@@ -212,6 +217,19 @@ function mockCurrentStructureJson(structureJson: string): void {
   } as unknown as ReturnType<typeof db.select>);
 }
 
+function makeStatusTransitionClient(): {
+  tx: {
+    update: ReturnType<typeof vi.fn>;
+  };
+  updateBuilder: ReturnType<typeof makeMutationBuilder>;
+} {
+  const updateBuilder = makeMutationBuilder();
+  const tx = {
+    update: vi.fn(() => updateBuilder),
+  };
+  return { tx, updateBuilder };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockSerializeRules.mockResolvedValue("[]");
@@ -222,7 +240,7 @@ beforeEach(() => {
 
 describe("publishSnapshot", () => {
   it("質問タイトルが p ノードの非空テキストでもスナップショット保存できる", async () => {
-    makeSnapshotPublishTransaction(
+    const { updateBuilder } = makeSnapshotPublishTransaction(
       JSON.stringify([
         {
           type: "form_short_text",
@@ -237,6 +255,14 @@ describe("publishSnapshot", () => {
       publishedAt: new Date("2025-01-01"),
     });
     expect(mockSerializeRules).toHaveBeenCalledWith("form-1");
+    expect(updateBuilder.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseSnapshotVersion: 1,
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    const update = updateBuilder.set.mock.calls[0]?.[0];
+    expect(typeof update.publicPasswordGrantGeneration).not.toBe("number");
   });
 
   it("質問タイトルが空の質問を含む場合はスナップショット保存を拒否する", async () => {
@@ -333,6 +359,130 @@ describe("publishSnapshot", () => {
     ];
 
     expect(validatePlateContent(content)).toBe(true);
+  });
+});
+
+describe("getActivePublication", () => {
+  it("returns the active snapshot and bigint generation from one joined read", async () => {
+    const generation = 9_007_199_254_740_993n;
+    const row = {
+      ...makeSnapshot({ id: "snapshot-active", version: 8 }),
+      publicPasswordGrantGeneration: generation,
+    };
+    const limit = vi.fn().mockResolvedValue([row]);
+    const orderBy = vi.fn().mockReturnValue({ limit });
+    const where = vi.fn().mockReturnValue({ orderBy });
+    const innerJoin = vi.fn().mockReturnValue({ where });
+    const from = vi.fn().mockReturnValue({ innerJoin });
+    mockDbSelect.mockReturnValue({ from } as unknown as ReturnType<
+      typeof db.select
+    >);
+
+    const result = await getActivePublication("form-1");
+
+    expect(result).toMatchObject({
+      snapshot: {
+        id: "snapshot-active",
+        formId: "form-1",
+        version: 8,
+        isActive: true,
+      },
+      publicPasswordGrantGeneration: generation,
+    });
+    expect(typeof result?.publicPasswordGrantGeneration).toBe("bigint");
+    expect(mockDbSelect).toHaveBeenCalledTimes(1);
+    expect(innerJoin).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("transitionPublicationStatusInTransaction", () => {
+  it("advances generation for scheduled disable then same-credential re-enable", async () => {
+    const unpublishedAt = new Date("2026-06-01T10:00:00.000Z");
+    const unpublish = makeStatusTransitionClient();
+
+    await expect(
+      transitionPublicationStatusInTransaction(
+        unpublish.tx as never,
+        "form-1",
+        "PUBLISHED",
+        "UNPUBLISHED",
+        unpublishedAt,
+      ),
+    ).resolves.toBe(true);
+
+    const publishedAt = new Date("2026-06-01T11:00:00.000Z");
+    const publish = makeStatusTransitionClient();
+    await expect(
+      transitionPublicationStatusInTransaction(
+        publish.tx as never,
+        "form-1",
+        "UNPUBLISHED",
+        "PUBLISHED",
+        publishedAt,
+      ),
+    ).resolves.toBe(true);
+
+    expect(unpublish.updateBuilder.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "UNPUBLISHED",
+        unpublishedAt,
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    expect(publish.updateBuilder.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "PUBLISHED",
+        publishedAt,
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    for (const updateBuilder of [
+      unpublish.updateBuilder,
+      publish.updateBuilder,
+    ]) {
+      const values = updateBuilder.set.mock.calls[0]?.[0];
+      expect(typeof values.publicPasswordGrantGeneration).not.toBe("number");
+    }
+  });
+
+  it("keeps a repeated scheduled lifecycle request as a true no-op", async () => {
+    const transition = makeStatusTransitionClient();
+
+    await expect(
+      transitionPublicationStatusInTransaction(
+        transition.tx as never,
+        "form-1",
+        "PUBLISHED",
+        "PUBLISHED",
+        new Date(),
+      ),
+    ).resolves.toBe(false);
+
+    expect(transition.tx.update).not.toHaveBeenCalled();
+  });
+
+  it("keeps generation and status in the same failing transaction", async () => {
+    const transition = makeStatusTransitionClient();
+    transition.updateBuilder.where.mockRejectedValueOnce(
+      new Error("write failed"),
+    );
+
+    await expect(
+      transitionPublicationStatusInTransaction(
+        transition.tx as never,
+        "form-1",
+        "PUBLISHED",
+        "UNPUBLISHED",
+        new Date(),
+      ),
+    ).rejects.toThrow("write failed");
+
+    expect(transition.updateBuilder.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "UNPUBLISHED",
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
   });
 });
 
@@ -615,31 +765,49 @@ describe("activateSnapshot", () => {
         require_fingerprint: true,
       },
     });
-    const snapshot = makeSnapshot({
+    const targetSnapshot = makeSnapshot({
       id: "snapshot-old",
       version: 3,
+      isActive: false,
       structureJson: snapshotStructureJson,
     });
-    mockSnapshotFind
-      .mockResolvedValueOnce(snap(snapshot))
-      .mockResolvedValueOnce(snap(snapshot));
+    const updates: ReturnType<typeof makeMutationBuilder>[] = [];
 
     const tx = {
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({
-          where: vi.fn(() => ({
-            for: vi.fn().mockResolvedValue([{ id: "form-1" }]),
-            orderBy: vi.fn(() => ({
-              limit: vi.fn().mockResolvedValue([{ version: 8 }]),
+      select: vi
+        .fn()
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([{ id: "form-1" }]),
+              })),
             })),
           })),
-        })),
-      })),
-      update: vi.fn(() => ({
-        set: vi.fn(() => ({
-          where: vi.fn().mockResolvedValue(undefined),
-        })),
-      })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([targetSnapshot]),
+              })),
+            })),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              orderBy: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([{ version: 8 }]),
+              })),
+            })),
+          })),
+        }),
+      update: vi.fn(() => {
+        const builder = makeMutationBuilder();
+        updates.push(builder);
+        return builder;
+      }),
       insert: vi.fn(() => ({
         values: vi.fn().mockResolvedValue(undefined),
       })),
@@ -649,6 +817,7 @@ describe("activateSnapshot", () => {
     const updated = await activateSnapshot("form-1", 3);
 
     expect(updated.version).toBe(3);
+    expect(updated.isActive).toBe(true);
     expect(tx.insert).toHaveBeenCalled();
     const insertCall = tx.insert.mock.results[0]?.value as {
       values: ReturnType<typeof vi.fn>;
@@ -667,5 +836,53 @@ describe("activateSnapshot", () => {
       rules: [],
       tx,
     });
+    const formUpdate = updates
+      .flatMap((builder) => builder.set.mock.calls.map((call) => call[0]))
+      .find((values) => values.baseSnapshotVersion === 3);
+    expect(formUpdate).toEqual(
+      expect.objectContaining({
+        baseSnapshotVersion: 3,
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    expect(typeof formUpdate.publicPasswordGrantGeneration).not.toBe("number");
+  });
+
+  it("treats retrying the already-active snapshot as a locked no-op", async () => {
+    const snapshot = makeSnapshot({ id: "snapshot-active", version: 3 });
+    const tx = {
+      select: vi
+        .fn()
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([{ id: "form-1" }]),
+              })),
+            })),
+          })),
+        })
+        .mockReturnValueOnce({
+          from: vi.fn(() => ({
+            where: vi.fn(() => ({
+              for: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([snapshot]),
+              })),
+            })),
+          })),
+        }),
+      update: vi.fn(),
+      insert: vi.fn(),
+    };
+    mockTransaction.mockImplementationOnce(async (fn) => fn(tx as never));
+
+    await expect(activateSnapshot("form-1", 3)).resolves.toMatchObject({
+      id: "snapshot-active",
+      version: 3,
+      isActive: true,
+    });
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
+    expect(mockReplaceRules).not.toHaveBeenCalled();
   });
 });

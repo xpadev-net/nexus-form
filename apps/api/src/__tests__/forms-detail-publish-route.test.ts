@@ -16,6 +16,7 @@ vi.mock("@nexus-form/database", () => ({
   },
   form: {
     id: "form.id",
+    publicPasswordGrantGeneration: "form.publicPasswordGrantGeneration",
     status: "form.status",
     publishedAt: "form.publishedAt",
   },
@@ -181,9 +182,47 @@ describe("POST /:id/publish", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
-    expect(mocks.updateSet).toHaveBeenCalledWith({
-      status: "PUBLISHED",
-      publishedAt: expect.any(Date),
+    expect(mocks.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "PUBLISHED",
+        publishedAt: expect.any(Date),
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    const values = mocks.updateSet.mock.calls[0]?.[0];
+    expect(typeof values.publicPasswordGrantGeneration).not.toBe("number");
+    expect(mocks.updateWhere).toHaveBeenCalledWith({
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        expect.anything(),
+      ],
+    });
+  });
+
+  it("unpublishes through the authoritative lifecycle transaction", async () => {
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const response = await formsDetailRouter.request("/form-1/unpublish", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    expect(mocks.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "UNPUBLISHED",
+        publicPasswordGrantGeneration: expect.anything(),
+      }),
+    );
+    const values = mocks.updateSet.mock.calls[0]?.[0];
+    expect(typeof values.publicPasswordGrantGeneration).not.toBe("number");
+    expect(mocks.updateWhere).toHaveBeenCalledWith({
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        expect.anything(),
+      ],
     });
   });
 });
