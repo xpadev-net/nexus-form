@@ -2,8 +2,9 @@ import {
   FORM_STATUS_VALUES,
   VALIDATION_STATUS_VALUES,
 } from "@nexus-form/shared";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   float,
   index,
@@ -133,6 +134,12 @@ export const form = mysqlTable(
     status: formStatusEnum.default("DRAFT").notNull(),
     publishedAt: timestamp("publishedAt"),
     unpublishedAt: timestamp("unpublishedAt"),
+    publicPasswordGrantGeneration: bigint("publicPasswordGrantGeneration", {
+      mode: "bigint",
+      unsigned: true,
+    })
+      .default(sql`1`)
+      .notNull(),
     allowEditResponses: boolean("allowEditResponses").default(false).notNull(),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
     updatedAt: timestamp("updatedAt")

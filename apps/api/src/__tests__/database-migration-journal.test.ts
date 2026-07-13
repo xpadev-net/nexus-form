@@ -6,6 +6,7 @@ import {
   CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
   FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
   LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP,
+  PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
   REQUIRED_SECURITY_MIGRATION_TAGS,
   shouldNormalizeConfigJsonMigrationTimestamp,
 } from "@nexus-form/database/migrate";
@@ -232,6 +233,14 @@ describe("database migration journal", () => {
     expect(formStructureUniqueConstraints.when).toBe(
       FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
     );
+
+    const publicPasswordGrantGeneration = findJournalEntryOrThrow(
+      journal,
+      "0017_public_grant_generation",
+    );
+    expect(publicPasswordGrantGeneration.when).toBe(
+      PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
+    );
   });
 
   it("normalizes the legacy 0012 timestamp only after the configJson rename already ran", () => {
@@ -297,6 +306,7 @@ describe("database migration journal", () => {
           createdAts: [
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+            PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
@@ -311,6 +321,7 @@ describe("database migration journal", () => {
           createdAts: [
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
             FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+            PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
@@ -325,11 +336,27 @@ describe("database migration journal", () => {
           createdAts: [
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+            PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
     ).rejects.toThrow(
       "Required security migrations were not applied: 0014_certain_speed_demon",
+    );
+
+    await expect(
+      assertRequiredSecurityMigrationsAppliedWithPool(
+        createFakeMigrationPool({
+          hasDrizzleMigrationsTable: true,
+          createdAts: [
+            CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
+            ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
+            FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+          ],
+        }),
+      ),
+    ).rejects.toThrow(
+      "Required security migrations were not applied: 0017_public_grant_generation",
     );
   });
 
@@ -343,6 +370,7 @@ describe("database migration journal", () => {
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
             FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+            PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
           ],
         }),
       ),
@@ -360,6 +388,7 @@ describe("database migration journal", () => {
             CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP,
             ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP,
             FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+            PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
           ],
         }),
       ),

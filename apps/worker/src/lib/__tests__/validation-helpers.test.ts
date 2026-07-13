@@ -1,5 +1,8 @@
 import { db } from "@nexus-form/database";
 import {
+  buildValidationOutboxJobId,
+  buildValidationRetryJobId,
+  buildValidationRevalidationJobId,
   getValidationResultId,
   VALIDATION_RETRY_JOB_PREFIX,
   VALIDATION_REVALIDATION_JOB_PREFIX,
@@ -33,6 +36,101 @@ function flattenSqlChunks(value: unknown): unknown[] {
   return [value];
 }
 
+type MockValidationResultRow = {
+  responseId: string;
+  ruleId: string;
+  referencedBlockId: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED";
+  errorCode: string | null;
+  enqueueMode: "LEGACY" | "STABLE";
+  jobId: string | null;
+};
+
+function resolveSqlOperand(
+  token: unknown,
+  row: MockValidationResultRow,
+): unknown {
+  switch (token) {
+    case "responseId":
+      return row.responseId;
+    case "ruleId":
+      return row.ruleId;
+    case "referencedBlockId":
+      return row.referencedBlockId;
+    case "status":
+      return row.status;
+    case "errorCode":
+      return row.errorCode;
+    case "enqueueMode":
+      return row.enqueueMode;
+    case "jobId":
+      return row.jobId;
+    default:
+      return token;
+  }
+}
+
+function evaluateSqlCondition(
+  condition: unknown,
+  row: MockValidationResultRow,
+): boolean {
+  const tokens = flattenSqlChunks(condition).filter((token) => token !== "");
+  let index = 0;
+
+  const parsePrimary = (): boolean => {
+    if (tokens[index] === "(") {
+      index++;
+      const result = parseOr();
+      if (tokens[index] !== ")") {
+        throw new Error("Expected closing parenthesis in SQL condition");
+      }
+      index++;
+      return result;
+    }
+
+    const left = resolveSqlOperand(tokens[index++], row);
+    const operator = tokens[index++];
+    if (operator === " is null") {
+      return left === null;
+    }
+
+    const right = resolveSqlOperand(tokens[index++], row);
+    if (operator === " = ") {
+      return left === right;
+    }
+    if (operator === " <> ") {
+      return left !== right;
+    }
+    throw new Error(`Unsupported SQL operator: ${String(operator)}`);
+  };
+
+  const parseAnd = (): boolean => {
+    let result = parsePrimary();
+    while (tokens[index] === " and ") {
+      index++;
+      const right = parsePrimary();
+      result = result && right;
+    }
+    return result;
+  };
+
+  const parseOr = (): boolean => {
+    let result = parseAnd();
+    while (tokens[index] === " or ") {
+      index++;
+      const right = parseAnd();
+      result = result || right;
+    }
+    return result;
+  };
+
+  const result = parseOr();
+  if (index !== tokens.length) {
+    throw new Error("Unexpected trailing SQL condition tokens");
+  }
+  return result;
+}
+
 const {
   insertValues,
   onDuplicateKeyUpdate,
@@ -43,6 +141,7 @@ const {
   selectLimit,
   selectOrderBy,
   selectWhere,
+  transactionSelect,
   updateSet,
   updateWhere,
 } = vi.hoisted(() => ({
@@ -55,6 +154,7 @@ const {
   selectLimit: vi.fn(),
   selectOrderBy: vi.fn(),
   selectWhere: vi.fn(),
+  transactionSelect: vi.fn(),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
 }));
@@ -75,9 +175,7 @@ vi.mock("@nexus-form/database", () => ({
         insert: vi.fn(() => ({
           values: insertValues,
         })),
-        select: vi.fn(() => ({
-          from: selectFrom,
-        })),
+        select: transactionSelect,
         update: vi.fn(() => ({
           set: updateSet,
         })),
@@ -85,6 +183,7 @@ vi.mock("@nexus-form/database", () => ({
     ),
   },
   externalServiceValidationResult: {
+    enqueueMode: "enqueueMode",
     id: "id",
     responseId: "responseId",
     ruleId: "ruleId",
@@ -124,6 +223,7 @@ beforeEach(() => {
   selectOrderBy.mockReturnValue({ limit: selectLimit });
   selectLimit.mockResolvedValue([]);
   selectForUpdate.mockResolvedValue([]);
+  transactionSelect.mockReturnValue({ from: selectFrom });
   updateSet.mockReturnValue({ where: updateWhere });
   updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
   publishValidationEvent.mockResolvedValue(undefined);
@@ -139,6 +239,7 @@ beforeEach(() => {
   selectWhere.mockClear();
   selectOrderBy.mockClear();
   selectLimit.mockClear();
+  transactionSelect.mockClear();
   updateSet.mockClear();
   updateWhere.mockClear();
   publishValidationEvent.mockClear();
@@ -460,6 +561,51 @@ describe("writeValidationResult", () => {
 });
 
 describe("markValidationProcessing", () => {
+  const validationParams = {
+    responseId: "response-1",
+    formId: "form-1",
+    ruleId: "rule-1",
+    referencedBlockId: "question-1",
+    service: "discord",
+  };
+  const validationResultId = getValidationResultId(validationParams);
+  const stableOutboxJobId = buildValidationOutboxJobId(validationResultId);
+  const retryJobId = buildValidationRetryJobId(validationResultId, "job-a");
+  const revalidationJobId = buildValidationRevalidationJobId(
+    validationResultId,
+    "job-a",
+  );
+
+  function makeValidationRow(
+    overrides: Partial<MockValidationResultRow> = {},
+  ): MockValidationResultRow {
+    return {
+      responseId: validationParams.responseId,
+      ruleId: validationParams.ruleId,
+      referencedBlockId: validationParams.referencedBlockId,
+      status: "PENDING",
+      errorCode: null,
+      enqueueMode: "STABLE",
+      jobId: null,
+      ...overrides,
+    };
+  }
+
+  function mockValidationRow(row: MockValidationResultRow | null): void {
+    updateWhere.mockImplementationOnce(async (condition: unknown) => {
+      if (row === null) {
+        selectForUpdate.mockResolvedValueOnce([]);
+        return [{ affectedRows: 0 }];
+      }
+
+      const matched = evaluateSqlCondition(condition, row);
+      if (!matched) {
+        selectForUpdate.mockResolvedValueOnce([row]);
+      }
+      return [{ affectedRows: matched ? 1 : 0 }];
+    });
+  }
+
   it("rewrites existing rows to the deterministic result id before publishing PROCESSING", async () => {
     const params = {
       responseId: "response-1",
@@ -493,26 +639,252 @@ describe("markValidationProcessing", () => {
     );
   });
 
-  it("requires retry jobs to match the persisted job id before PROCESSING", async () => {
-    const retryJobId = `${VALIDATION_RETRY_JOB_PREFIX}result-1-job-a`;
+  it.each([
+    ["STABLE", "PENDING", "retry", retryJobId],
+    ["STABLE", "PENDING", "revalidation", revalidationJobId],
+    ["STABLE", "PROCESSING", "retry", retryJobId],
+    ["STABLE", "PROCESSING", "revalidation", revalidationJobId],
+    ["LEGACY", "PENDING", "retry", retryJobId],
+    ["LEGACY", "PENDING", "revalidation", revalidationJobId],
+    ["LEGACY", "PROCESSING", "retry", retryJobId],
+    ["LEGACY", "PROCESSING", "revalidation", revalidationJobId],
+  ] as const)("admits a %s %s row owned by the same strict %s job", async (enqueueMode, status, _jobType, jobId) => {
+    mockValidationRow(makeValidationRow({ enqueueMode, jobId, status }));
 
     await markValidationProcessing({
-      responseId: "response-1",
-      formId: "form-1",
-      ruleId: "rule-1",
-      referencedBlockId: "question-1",
-      service: "discord",
-      jobId: retryJobId,
+      ...validationParams,
+      jobId,
     });
 
     const updateCondition = flattenSqlChunks(updateWhere.mock.calls[0]?.[0]);
     expect(updateCondition).toEqual(
-      expect.arrayContaining(["jobId", " = ", retryJobId]),
+      expect.arrayContaining(["jobId", " = ", jobId]),
     );
-    expect(updateCondition).not.toContain(" is null");
+    expect(updateCondition).not.toContain("enqueueMode");
+    expect(selectForUpdate).not.toHaveBeenCalled();
     expect(publishValidationEvent).toHaveBeenCalledWith(
       expect.objectContaining({ status: "PROCESSING" }),
     );
+  });
+
+  it.each([
+    ["STABLE", "retry", retryJobId, null],
+    ["STABLE", "retry", retryJobId, "different-job"],
+    ["STABLE", "revalidation", revalidationJobId, null],
+    ["STABLE", "revalidation", revalidationJobId, "different-job"],
+    ["LEGACY", "retry", retryJobId, null],
+    ["LEGACY", "retry", retryJobId, "different-job"],
+    ["LEGACY", "revalidation", revalidationJobId, null],
+    ["LEGACY", "revalidation", revalidationJobId, "different-job"],
+  ] as const)("rejects a %s row not owned by the strict %s job", async (enqueueMode, _jobType, jobId, persistedJobId) => {
+    mockValidationRow(
+      makeValidationRow({ enqueueMode, jobId: persistedJobId }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: jobId,
+      actualJobId: persistedJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["STABLE", "COMPLETED", "retry", retryJobId, null],
+    ["STABLE", "FAILED", "retry", retryJobId, "VALIDATION_ERROR"],
+    ["STABLE", "COMPLETED", "revalidation", revalidationJobId, null],
+    ["STABLE", "FAILED", "revalidation", revalidationJobId, "VALIDATION_ERROR"],
+    ["LEGACY", "COMPLETED", "retry", retryJobId, null],
+    ["LEGACY", "FAILED", "retry", retryJobId, "VALIDATION_ERROR"],
+    ["LEGACY", "COMPLETED", "revalidation", revalidationJobId, null],
+    ["LEGACY", "FAILED", "revalidation", revalidationJobId, "VALIDATION_ERROR"],
+  ] as const)("preserves %s %s behavior for a row owned by a strict %s job", async (enqueueMode, status, _jobType, jobId, errorCode) => {
+    mockValidationRow(
+      makeValidationRow({ enqueueMode, status, errorCode, jobId }),
+    );
+
+    await markValidationProcessing({
+      ...validationParams,
+      jobId,
+    });
+
+    expect(selectForUpdate).not.toHaveBeenCalled();
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
+    );
+  });
+
+  it.each([
+    ["STABLE", "retry", retryJobId, retryJobId],
+    ["STABLE", "retry", retryJobId, "different-job"],
+    ["STABLE", "revalidation", revalidationJobId, revalidationJobId],
+    ["STABLE", "revalidation", revalidationJobId, null],
+    ["LEGACY", "retry", retryJobId, retryJobId],
+    ["LEGACY", "retry", retryJobId, "different-job"],
+    ["LEGACY", "revalidation", revalidationJobId, revalidationJobId],
+    ["LEGACY", "revalidation", revalidationJobId, null],
+  ] as const)("preserves cancellation on a %s row before strict %s ownership diagnosis", async (enqueueMode, _jobType, jobId, persistedJobId) => {
+    mockValidationRow(
+      makeValidationRow({
+        status: "FAILED",
+        errorCode: "CANCELLED_BY_USER",
+        enqueueMode,
+        jobId: persistedJobId,
+      }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId,
+      }),
+    ).rejects.toBeInstanceOf(ValidationCancelledError);
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["PENDING with a null job id", "PENDING", null],
+    ["PENDING with the same job id", "PENDING", stableOutboxJobId],
+    ["PROCESSING with the same job id", "PROCESSING", stableOutboxJobId],
+  ])("admits a STABLE outbox row from %s", async (_case, status, jobId) => {
+    mockValidationRow(
+      makeValidationRow({
+        status: status === "PROCESSING" ? "PROCESSING" : "PENDING",
+        jobId,
+      }),
+    );
+
+    await markValidationProcessing({
+      ...validationParams,
+      jobId: stableOutboxJobId,
+    });
+
+    expect(selectForUpdate).not.toHaveBeenCalled();
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "PROCESSING" }),
+    );
+  });
+
+  it.each([
+    "COMPLETED",
+    "FAILED",
+  ] as const)("rejects a STABLE outbox row in terminal state %s", async (status) => {
+    mockValidationRow(
+      makeValidationRow({
+        status,
+        errorCode: status === "FAILED" ? "VALIDATION_ERROR" : null,
+        jobId: stableOutboxJobId,
+      }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: stableOutboxJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing STABLE outbox row", async () => {
+    mockValidationRow(null);
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: null,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "PENDING",
+    "PROCESSING",
+  ] as const)("rejects a STABLE %s row owned by a different job", async (status) => {
+    mockValidationRow(
+      makeValidationRow({
+        status,
+        jobId: "validation-outbox-newer-job",
+      }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: "validation-outbox-newer-job",
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a STABLE PROCESSING row with a null job id", async () => {
+    mockValidationRow(makeValidationRow({ status: "PROCESSING" }));
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: null,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it("rejects a LEGACY row even when its job id matches a stable outbox job", async () => {
+    mockValidationRow(
+      makeValidationRow({
+        enqueueMode: "LEGACY",
+        jobId: stableOutboxJobId,
+      }),
+    );
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId: stableOutboxJobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: stableOutboxJobId,
+      actualJobId: stableOutboxJobId,
+    });
+    expect(publishValidationEvent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["a forged outbox-prefix job id", "validation-outbox-forged"],
+    ["an ordinary job id", "ordinary-job"],
+  ])("rejects %s against a STABLE PENDING row with null job id", async (_case, jobId) => {
+    mockValidationRow(makeValidationRow());
+
+    await expect(
+      markValidationProcessing({
+        ...validationParams,
+        jobId,
+      }),
+    ).rejects.toMatchObject({
+      expectedJobId: jobId,
+      actualJobId: null,
+    });
+    expect(transactionSelect).toHaveBeenCalledWith(
+      expect.objectContaining({ enqueueMode: expect.anything() }),
+    );
+    expect(publishValidationEvent).not.toHaveBeenCalled();
   });
 
   it("throws ConcurrentDeleteError when the processing row disappears before update", async () => {

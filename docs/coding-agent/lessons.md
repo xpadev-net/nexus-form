@@ -335,6 +335,46 @@ Evidence:
 - fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
 - prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.
 
+## 2026-07-13: Expand completion gates when diagnosis becomes delivery
+
+- tags: workflow, scope, planning, review-gate
+- symptom: A diagnosis-only request was expanded in-turn to require implementation, branching, iterative subagent review, PR review-hook iteration, and merge.
+- root cause: The initial scope intentionally stopped at root-cause reporting, so delivery and merge gates were not yet represented in the active work contract.
+- fix: Create an approved execution plan that makes implementation, independent review, hook exit status, GitHub review decision, and merge explicit blocking gates.
+- prevention: When a user expands a live task from diagnosis to delivery, update the active plan and definition of done before editing implementation files or declaring any intermediate state complete.
+
+## 2026-07-13: Prefix commands nested inside shell substitutions with RTK
+
+- tags: tooling, rtk, shell, command-discipline
+- symptom: A GitHub inspection command was prefixed with `rtk`, but its `$(git rev-parse ...)` substitution invoked raw `git`.
+- root cause: RTK compliance was checked only at the outer command boundary and not for nested shell commands.
+- fix: Avoid shell substitution when possible; obtain values in separate `rtk`-prefixed commands, or prefix every nested command explicitly.
+- prevention: Before executing a compound shell command, inspect every pipeline segment, chain segment, and command substitution for its own `rtk` prefix.
+
+## 2026-07-13: Preserve validation evidence when pnpm exec aborts before tool launch
+
+- tags: troubleshooting, pnpm, non-tty, validation
+- symptom: A scoped `pnpm exec biome check` attempted to rebuild production dependencies and aborted with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` before Biome launched.
+- root cause: The workspace dependency-state guard, rather than the requested formatter, required a destructive `node_modules` replacement that pnpm refuses without a TTY.
+- fix: Preserve the exact wrapper failure, then invoke the already-installed project Biome binary for the same supported paths and record that Dockerfile is not handled by Biome.
+- prevention: When a package-manager wrapper fails before the target validation binary starts, distinguish wrapper failure from validation failure and use the existing local binary only as an explicit, evidence-backed fallback; never silently claim the original command passed.
+
+## 2026-07-13: Separate native fallback OOM from Dockerfile correctness
+
+- tags: troubleshooting, docker, arm64, native-modules, validation
+- symptom: A local arm64 production image build downloaded dependencies successfully, but `msgpackr-extract` rejected its optional native path, fell back to compilation, and the build was killed with exit 137.
+- root cause: The host platform's optional-native installation path introduced a resource-heavy fallback before the Dockerfile reached the changed runtime-copy steps.
+- fix: Preserve the failed arm64 evidence, verify the official Buildx binary by checksum, and retry `linux/amd64`; when the 2 GiB VM also exhausted memory during dependency installation, use a production-order deploy/import probe and record a time-bounded image-build waiver.
+- prevention: For container validation failures before changed stages, identify the failing stage, platform, and VM resource ceiling; exhaust a release-platform retry, then document an evidence-backed waiver instead of treating OOM as product-code failure or implying PR CI runs a workflow whose trigger is default-branch-only.
+
+## 2026-07-13: Reproduce workspace deploys with the production build order
+
+- tags: validation, pnpm-deploy, workspace, build-order
+- symptom: A local migration import probe found `@nexus-form/shared/dist/index.js` missing after building only database, suggesting the initial Dockerfile fix was incomplete.
+- root cause: The probe did not reproduce the Docker builder invariant that shared and every runtime workspace package are built before `pnpm deploy`, so its deploy closure contained source-only shared files.
+- fix: Re-run deploy and import probes from a clean workspace using the exact Docker builder order; this proved the production closure includes shared dist and API workspace imports remain valid.
+- prevention: Runtime-layout probes for workspace deploy artifacts must reproduce the production build order before interpreting a missing built artifact as a Dockerfile or dependency-closure defect.
+
 ## 2026-07-13: Validate Secret authority in rendered manifests and executable cutover probes
 
 - tags: kubernetes, secret-authority, kustomize, rollout-validation, review-gate
@@ -408,3 +448,39 @@ Prevention:
 
 Evidence:
 - User correction on 2026-07-13 and follow-up instructions sent to PWR-2G1, PWR-2D, and OUTBOX-3 implementation threads.
+
+## 2026-07-13 — Fence Late Queue Delivery at the Durable Consumer Admission Boundary  [tags: outbox, bullmq, concurrency, idempotency, review-gate]
+
+Context:
+- Plan: `docs/coding-agent/plans/active/validation-outbox-retry-recovery-plan.md`
+- Task/Wave: OUTBOX-3 Task_3 formal review and split
+- Roles involved: Worker, Reviewer, Orchestrator
+
+Symptom:
+- A claimant could renew its database lease successfully, stall in `queue.add`, and enqueue after another claimant reclaimed the row, completed provider execution, and BullMQ evicted the completed job. The late add could recreate the stable job ID and run the provider again.
+
+Root cause:
+- Review treated producer-side lease renewal and stable queue IDs as an end-to-end idempotency fence without tracing delayed command execution through finite queue retention and the Worker's durable row-state transition.
+
+Fix applied:
+- Split a prerequisite shared job-ID and Worker admission slice that rejects terminal, missing, mismatched, and LEGACY outbox jobs before provider execution. Keep producer lease comparisons on database server time, but do not treat connection or promise timeouts as cancellation of a Redis command that may execute later.
+
+Prevention:
+- Dispatch/plan guardrail:
+  - For outbox or queue idempotency, trace the full adversarial sequence: producer lease success, command delay beyond expiry, reclaim, consumer completion, queue-record eviction, and late delivery. Approval requires a durable consumer admission or equivalent persistent fence after every replay window.
+- Reviewer guardrail:
+  - Distinguish observation timeouts from cancellation/fencing. A client timeout cannot prove a command did not execute unless the external system provides a verified cancellation or fencing primitive.
+  - Bind durable consumer admission to the exact row-derived deterministic job ID and the persisted enqueue mode. Prefix recognition alone and a fallback that does not require the legacy mode are caller-controlled bypasses, not fences.
+  - Model admission precedence across every valid job class before adding a row-mode fallback: exact stable outbox jobs, strict retry/revalidation jobs, then ordinary legacy jobs. A mode restriction for the fallback must not disable strict retry/revalidation of rows created by the stable producer.
+- Residual risk / waiver:
+  - Strict queue-level exactly-once admission is not claimed; the database-backed Worker transition fences effective provider execution.
+
+Evidence:
+- Formal Reviewer reproduction on PR #666 exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf`; cross-layer follow-up identified shared job-ID and `markValidationProcessing` as the minimal durable boundary.
+
+## 2026-07-13 — Bind the Recovery Locator Chain as Well as the Artifact Owner  [tags: security, shell, symlink, durable-recovery, review-gate]
+
+- symptom: A cleanup ledger correctly bound the protected artifact by canonical path and filesystem identity, but its `$HOME/.local/state/...` locator could be retargeted by a symlink or replaced by a new real directory at the same path. After SIGKILL, recovery searched the replacement and a fresh probe started while the original ledger and secret-bearing residue remained.
+- root cause: Review hardened the deletion target but treated the path used to discover its recovery ledger as a persistent identity. `pwd -P`, non-symlink checks, and current ownership validate only the object visible now; they do not preserve identity across process lifetimes, and writable ancestor directories permit rename/replacement.
+- fix: Require setup and recovery to validate an absolute physical, current-user-owned, non-symlink locator chain with non-writable ancestors before creating secrets. Validate the chain above the configured HOME as well as descendants, and create secret artifacts under the validated mode-0700 ledger authority instead of an arbitrary TMPDIR. If same-UID replacement must be fail-closed, place the durable locator under a parent the probe UID cannot rename; otherwise state the same-UID trust boundary and weaken the immutability/retry guarantee explicitly.
+- prevention: Secret-artifact recovery tests must include process death followed by locator-parent symlink retarget, same-path real-directory replacement, HOME and intermediate-component symlinks, non-sticky shared-writable parents above HOME and TMPDIR, and a retry attempt. Passing requires either safe recovery of the original residue or rejection of every new probe while the old locator remains unresolved; accepted same-UID risk must be named rather than hidden behind path-canonicalization claims.

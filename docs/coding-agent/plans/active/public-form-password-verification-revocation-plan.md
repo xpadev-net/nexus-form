@@ -111,6 +111,7 @@
     required: true
     owner: reviewer
     detail: "Independent additive-migration, partial-DDL restart, and rolling-reader compatibility review."
+- status: complete
 
 ### Task_6: Advance generation at every authoritative publication lifecycle boundary
 - type: impl
@@ -142,6 +143,7 @@
     required: true
     owner: reviewer
     detail: "Independent transaction, monotonicity, direct/scheduled parity, and retry review."
+- status: complete
 
 ### Task_7: Define and enforce the rollout cutoff and rollback floor
 - type: docs
@@ -234,6 +236,8 @@
 - 2026-07-13: Task_2/3 implementation was stopped after independent review reproduced grant revival through historical snapshot reactivation and proved that same-secret rollback to pre-fix code remains fail-open. No additional replacement-worker edits were made; existing PR #665 is retained for downstream Task_8.
 - 2026-07-13: Split execution into additive generation schema/migration (Task_5), authoritative lifecycle writers (Task_6), rollout cutoff/rollback floor (Task_7), and downstream JWT/routes/tests (Task_8).
 - 2026-07-13: Task_7 Reviewer found that the production overlay still rendered and applied the placeholder Secret despite the external-secret runbook. Expanded Task_7 ownership narrowly to `k8s/base/kustomization.yaml`; the implementation must remove the placeholder Secret from base/production apply output and add executable old-cookie/new-cookie GET and submit smoke evidence before re-review.
+- 2026-07-14: Task_5 merged through PR #668 as `4ac39633fd366a70829633ad1de38ab49a8a9ccc`. Formal Reviewer approved the exact eight product blobs after independently passing static 16 tests and MySQL 8.4/Drizzle 20 tests. Parent deep-review found no issues; parent hook exited 0; lint, type-check, full tests, focused migration tests, schema staged check, CI, and AI review gates passed. Task_6 is now dependency-ready.
+- 2026-07-14: Task_6 merged through PR #671 as `b68c08afe8573588670ee2df084646097700fc43`. Formal review verified consistent schedule lock order, atomic CAS/activation/generation rollback, idempotent lifecycle transitions, and bigint-safe authoritative reads; parent focused 46 tests, API/workspace type-check, lint, full tests, hook, CI, and AI review gates passed. Task_8 now waits only for Task_7.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
