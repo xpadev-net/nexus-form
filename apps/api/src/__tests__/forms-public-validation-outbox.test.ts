@@ -493,7 +493,9 @@ function useSuccessfulSubmitSelects(
   mocks.getLatestSnapshot.mockResolvedValue(snapshot);
 }
 
-function useTransactionWithInsertCapture() {
+function useTransactionWithInsertCapture(options?: {
+  onValidationRows?: (rows: unknown) => void;
+}) {
   let insertedResponseRow: unknown;
   let insertedValidationRows: unknown;
   const txInsert = vi.fn((table: unknown) => ({
@@ -505,6 +507,7 @@ function useTransactionWithInsertCapture() {
       if (table === mocks.schema.externalServiceValidationResult) {
         mocks.sequence.push("tx:validation");
         insertedValidationRows = values;
+        options?.onValidationRows?.(values);
       }
       return values;
     }),
@@ -735,6 +738,125 @@ function useValidationUpdateResults(
   });
 }
 
+type RuntimeValidationOutboxRow = {
+  id: string | null;
+  status: "PENDING" | "FAILED";
+  enqueueMode: "LEGACY" | "STABLE";
+  enqueueAttemptCount: number;
+  jobId: string | null;
+  claimToken: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readValidationOutboxOperand(
+  row: RuntimeValidationOutboxRow,
+  operand: unknown,
+): unknown {
+  switch (operand) {
+    case mocks.schema.externalServiceValidationResult.id:
+      return row.id;
+    case mocks.schema.externalServiceValidationResult.status:
+      return row.status;
+    case mocks.schema.externalServiceValidationResult.enqueueMode:
+      return row.enqueueMode;
+    case mocks.schema.externalServiceValidationResult.enqueueAttemptCount:
+      return row.enqueueAttemptCount;
+    case mocks.schema.externalServiceValidationResult.jobId:
+      return row.jobId;
+    case mocks.schema.externalServiceValidationResult.claimToken:
+      return row.claimToken;
+    default:
+      return operand;
+  }
+}
+
+function matchesValidationOutboxPredicate(
+  row: RuntimeValidationOutboxRow,
+  predicate: unknown,
+): boolean {
+  if (!isRecord(predicate) || typeof predicate.type !== "string") {
+    return false;
+  }
+
+  if (predicate.type === "and") {
+    return (
+      Array.isArray(predicate.args) &&
+      predicate.args.every((entry) =>
+        matchesValidationOutboxPredicate(row, entry),
+      )
+    );
+  }
+  if (predicate.type === "eq") {
+    return (
+      readValidationOutboxOperand(row, predicate.left) ===
+      readValidationOutboxOperand(row, predicate.right)
+    );
+  }
+  if (predicate.type === "isNull") {
+    return readValidationOutboxOperand(row, predicate.value) === null;
+  }
+  return false;
+}
+
+function applyValidationOutboxSet(
+  row: RuntimeValidationOutboxRow,
+  values: unknown,
+): void {
+  if (!isRecord(values)) return;
+
+  if (typeof values.enqueueAttemptCount === "number") {
+    row.enqueueAttemptCount = values.enqueueAttemptCount;
+  }
+  if (typeof values.jobId === "string") row.jobId = values.jobId;
+  if (values.claimToken === null) row.claimToken = null;
+  if (values.status === "PENDING" || values.status === "FAILED") {
+    row.status = values.status;
+  }
+  if (typeof values.errorCode === "string" || values.errorCode === null) {
+    row.errorCode = values.errorCode;
+  }
+  if (typeof values.errorMessage === "string" || values.errorMessage === null) {
+    row.errorMessage = values.errorMessage;
+  }
+}
+
+function useStatefulValidationOutboxUpdates(
+  row: RuntimeValidationOutboxRow,
+  options: { failJobIdAcknowledgementOnce?: boolean } = {},
+): void {
+  let failJobIdAcknowledgement = options.failJobIdAcknowledgementOnce === true;
+
+  mocks.db.update.mockImplementation(() => ({
+    set: vi.fn((values: unknown) => {
+      mocks.updateSetValues.push(values);
+      return {
+        where: vi.fn(async (where: unknown) => {
+          mocks.updateWhereValues.push(where);
+          if (!matchesValidationOutboxPredicate(row, where)) {
+            return [{ affectedRows: 0 }];
+          }
+          if (
+            failJobIdAcknowledgement &&
+            isRecord(values) &&
+            typeof values.jobId === "string"
+          ) {
+            failJobIdAcknowledgement = false;
+            throw new Error("database unavailable");
+          }
+
+          applyValidationOutboxSet(row, values);
+          return [{ affectedRows: 1 }];
+        }),
+      };
+    }),
+  }));
+}
+
 describe("R11-C2-a public validation outbox", () => {
   beforeEach(() => {
     resetPublicSubmitMocks({
@@ -953,11 +1075,24 @@ describe("R11-C2-a public validation outbox", () => {
   it("keeps queue success recoverable when the jobId acknowledgement throws", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
-    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
-    useValidationUpdateResults([
-      () => Promise.resolve([{ affectedRows: 1 }]),
-      () => Promise.reject(new Error("database unavailable")),
-    ]);
+    const runtimeRow: RuntimeValidationOutboxRow = {
+      id: null,
+      status: "PENDING",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 0,
+      jobId: null,
+      claimToken: null,
+      errorCode: null,
+      errorMessage: null,
+    };
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture({
+      onValidationRows: (rows) => {
+        runtimeRow.id = getSingleValidationResultId(rows);
+      },
+    });
+    useStatefulValidationOutboxUpdates(runtimeRow, {
+      failJobIdAcknowledgementOnce: true,
+    });
 
     const response = await submitPublicForm();
     const expectedJobId = buildValidationOutboxJobId(
@@ -984,6 +1119,14 @@ describe("R11-C2-a public validation outbox", () => {
       { enqueueAttemptCount: 1 },
       { jobId: expectedJobId },
     ]);
+    expect(runtimeRow).toMatchObject({
+      id: getSingleValidationResultId(getInsertedValidationRows()),
+      status: "PENDING",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 1,
+      jobId: null,
+      claimToken: null,
+    });
     expect(mocks.updateSetValues).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ status: expect.any(String) }),
@@ -1463,7 +1606,22 @@ describe("R11-C2-a public validation outbox", () => {
   it("keeps transient enqueue failures as recoverable STABLE PENDING rows", async () => {
     const snapshot = activeSnapshot();
     useSuccessfulSubmitSelects(snapshot);
-    const { getInsertedValidationRows } = useTransactionWithInsertCapture();
+    const runtimeRow: RuntimeValidationOutboxRow = {
+      id: null,
+      status: "PENDING",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 0,
+      jobId: null,
+      claimToken: null,
+      errorCode: null,
+      errorMessage: null,
+    };
+    const { getInsertedValidationRows } = useTransactionWithInsertCapture({
+      onValidationRows: (rows) => {
+        runtimeRow.id = getSingleValidationResultId(rows);
+      },
+    });
+    useStatefulValidationOutboxUpdates(runtimeRow);
     mocks.addValidationJob.mockImplementationOnce(async () => {
       mocks.sequence.push("queue:add");
       throw new Error("Redis unavailable");
@@ -1486,6 +1644,25 @@ describe("R11-C2-a public validation outbox", () => {
       );
     });
     expect(mocks.updateSetValues).toEqual([{ enqueueAttemptCount: 1 }]);
+    expect(runtimeRow).toEqual({
+      id: getSingleValidationResultId(getInsertedValidationRows()),
+      status: "PENDING",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 1,
+      jobId: null,
+      claimToken: null,
+      errorCode: null,
+      errorMessage: null,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({ ruleId: "rule-1" }),
+      {
+        jobId: buildValidationOutboxJobId(
+          getSingleValidationResultId(getInsertedValidationRows()),
+        ),
+      },
+    );
   });
 
   it("marks deterministic validation job preparation failures terminal", async () => {

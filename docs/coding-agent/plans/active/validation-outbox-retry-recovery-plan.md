@@ -111,7 +111,7 @@
     required: true
     owner: worker
     detail: "pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-public-validation-outbox.test.ts src/lib/forms/__tests__/validation-outbox-sweeper.test.ts"
-- status: in_progress
+- status: complete
 
 ### Task_6: Add migration compatibility coverage
 - type: test
@@ -198,6 +198,7 @@
 - 2026-07-14: Expanded Task_4 ownership by `apps/api/src/__tests__/forms-public-validation-outbox.test.ts` because five existing assertions encoded the old random-ID and terminal transient-enqueue contract, causing the focused/full/pre-push gates to fail after the correct route change. Task_4 may update those assertions and add direct producer/ack regressions only; Task_5 retains broader failure-injection and sweeper-recovery coverage.
 - 2026-07-14: Task_4 merged via PR #674 as `14455b34c70c5186c04fd4d73cba61cde90bc613`. The direct producer now reserves the first shared enqueue attempt with a full STABLE/PENDING ownership CAS, uses the shared deterministic job ID, leaves transient queue and acknowledgement uncertainty recoverable, and keeps deterministic preparation failures terminal before attempt consumption. Formal Reviewer and parent gates passed, including producer 41, PWR/auth/JWT 63, sweeper 24, full repository validation, hook exit 0, CI, and AI review. Task_5 and Task_6 are dependency-ready.
 - 2026-07-14: Started Task_5 Worker `019f5d77-371a-72e3-8f3c-3e6e2d52ea76` for the two runtime failure-injection test files and Task_6 Worker `019f5d77-6c9a-7e43-8501-6274e71bebbe` for the two migration compatibility test files. Ownership is disjoint, both start from current origin/master, and each stops at REVIEW_READY before parent formal review.
+- 2026-07-14: Task_5 merged via PR #675 as `df99507d3619ac8ea415c8ed99115b39ee66787b`. The behavioral harness now applies production-generated predicates to persistent row state across direct enqueue, periodic sweeps, shared maximum-eight attempts, concurrent claims, bounded backoff, and acknowledgement uncertainty. Formal Reviewer and parent merge gates passed; live MySQL/Redis/BullMQ/provider integration remains the explicit non-blocking residual for final Task_7 review.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.

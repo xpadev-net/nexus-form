@@ -1,3 +1,4 @@
+import { buildValidationOutboxJobId } from "@nexus-form/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -241,6 +242,279 @@ function useUpdateResults(results: Array<{ affectedRows: number }>) {
   }));
 }
 
+type RuntimeValidationOutboxRow = PendingRow & {
+  status: "PENDING" | "FAILED";
+  jobId: string | null;
+  createdAt: Date;
+  claimToken: string | null;
+  claimExpiresAt: Date | null;
+  nextEligibleAt: Date | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+function runtimeValidationOutboxRow(
+  overrides: Partial<RuntimeValidationOutboxRow> = {},
+): RuntimeValidationOutboxRow {
+  return {
+    ...pendingRow({ snapshotVersion: null, enqueueAttemptCount: 1 }),
+    status: "PENDING",
+    jobId: null,
+    createdAt: new Date("2026-07-10T23:59:00.000Z"),
+    claimToken: null,
+    claimExpiresAt: null,
+    nextEligibleAt: null,
+    errorCode: null,
+    errorMessage: null,
+    ...overrides,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function evaluateSqlExpression(value: unknown, now: Date): unknown {
+  if (!isMockSqlExpression(value)) return value;
+  const sqlText = value.strings.join("?");
+  if (sqlText === "CURRENT_TIMESTAMP") return now;
+  if (sqlText === "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)") {
+    const [seconds] = value.params;
+    if (typeof seconds === "number") {
+      return new Date(now.getTime() + seconds * 1_000);
+    }
+  }
+  return value;
+}
+
+function readRuntimeOperand(
+  row: RuntimeValidationOutboxRow,
+  operand: unknown,
+  now: Date,
+): unknown {
+  switch (operand) {
+    case mocks.schema.externalServiceValidationResult.id:
+      return row.id;
+    case mocks.schema.externalServiceValidationResult.status:
+      return row.status;
+    case mocks.schema.externalServiceValidationResult.enqueueMode:
+      return row.enqueueMode;
+    case mocks.schema.externalServiceValidationResult.jobId:
+      return row.jobId;
+    case mocks.schema.externalServiceValidationResult.createdAt:
+      return row.createdAt;
+    case mocks.schema.externalServiceValidationResult.claimToken:
+      return row.claimToken;
+    case mocks.schema.externalServiceValidationResult.claimExpiresAt:
+      return row.claimExpiresAt;
+    case mocks.schema.externalServiceValidationResult.enqueueAttemptCount:
+      return row.enqueueAttemptCount;
+    case mocks.schema.externalServiceValidationResult.nextEligibleAt:
+      return row.nextEligibleAt;
+    default:
+      return evaluateSqlExpression(operand, now);
+  }
+}
+
+function compareRuntimeValues(
+  left: unknown,
+  right: unknown,
+  compare: (leftValue: number, rightValue: number) => boolean,
+): boolean {
+  const leftValue = left instanceof Date ? left.getTime() : left;
+  const rightValue = right instanceof Date ? right.getTime() : right;
+  return (
+    typeof leftValue === "number" &&
+    typeof rightValue === "number" &&
+    compare(leftValue, rightValue)
+  );
+}
+
+function matchesRuntimePredicate(
+  row: RuntimeValidationOutboxRow,
+  predicate: unknown,
+  now: Date,
+): boolean {
+  if (!isRecord(predicate) || typeof predicate.type !== "string") {
+    return false;
+  }
+  if (predicate.type === "and") {
+    return (
+      Array.isArray(predicate.args) &&
+      predicate.args.every((entry) => matchesRuntimePredicate(row, entry, now))
+    );
+  }
+  if (predicate.type === "or") {
+    return (
+      Array.isArray(predicate.args) &&
+      predicate.args.some((entry) => matchesRuntimePredicate(row, entry, now))
+    );
+  }
+  if (predicate.type === "eq") {
+    return (
+      readRuntimeOperand(row, predicate.left, now) ===
+      readRuntimeOperand(row, predicate.right, now)
+    );
+  }
+  if (predicate.type === "isNull") {
+    return readRuntimeOperand(row, predicate.value, now) === null;
+  }
+  if (predicate.type === "inArray") {
+    const left = readRuntimeOperand(row, predicate.left, now);
+    return Array.isArray(predicate.right) && predicate.right.includes(left);
+  }
+  if (predicate.type === "lte") {
+    return compareRuntimeValues(
+      readRuntimeOperand(row, predicate.left, now),
+      readRuntimeOperand(row, predicate.right, now),
+      (left, right) => left <= right,
+    );
+  }
+  if (predicate.type === "gt") {
+    return compareRuntimeValues(
+      readRuntimeOperand(row, predicate.left, now),
+      readRuntimeOperand(row, predicate.right, now),
+      (left, right) => left > right,
+    );
+  }
+  return false;
+}
+
+function applyRuntimeSet(
+  row: RuntimeValidationOutboxRow,
+  values: unknown,
+  now: Date,
+): void {
+  if (!isRecord(values)) return;
+
+  if (values.status === "PENDING" || values.status === "FAILED") {
+    row.status = values.status;
+  }
+  if (typeof values.jobId === "string" || values.jobId === null) {
+    row.jobId = values.jobId;
+  }
+  if (typeof values.enqueueAttemptCount === "number") {
+    row.enqueueAttemptCount = values.enqueueAttemptCount;
+  }
+  if (typeof values.claimToken === "string" || values.claimToken === null) {
+    row.claimToken = values.claimToken;
+  }
+  if (values.claimExpiresAt === null) {
+    row.claimExpiresAt = null;
+  } else if (values.claimExpiresAt !== undefined) {
+    const claimExpiresAt = evaluateSqlExpression(values.claimExpiresAt, now);
+    if (claimExpiresAt instanceof Date) row.claimExpiresAt = claimExpiresAt;
+  }
+  if (values.nextEligibleAt === null) {
+    row.nextEligibleAt = null;
+  } else if (values.nextEligibleAt !== undefined) {
+    const nextEligibleAt = evaluateSqlExpression(values.nextEligibleAt, now);
+    if (nextEligibleAt instanceof Date) row.nextEligibleAt = nextEligibleAt;
+  }
+  if (typeof values.errorCode === "string" || values.errorCode === null) {
+    row.errorCode = values.errorCode;
+  }
+  if (typeof values.errorMessage === "string" || values.errorMessage === null) {
+    row.errorMessage = values.errorMessage;
+  }
+}
+
+function toPendingRow(row: RuntimeValidationOutboxRow): PendingRow {
+  return {
+    id: row.id,
+    responseId: row.responseId,
+    ruleId: row.ruleId,
+    referencedBlockId: row.referencedBlockId,
+    service: row.service,
+    formId: row.formId,
+    snapshotVersion: row.snapshotVersion,
+    liveRuleType: row.liveRuleType,
+    liveConfigJson: row.liveConfigJson,
+    enqueueAttemptCount: row.enqueueAttemptCount,
+    enqueueMode: row.enqueueMode,
+  };
+}
+
+function useStatefulValidationOutbox(
+  row: RuntimeValidationOutboxRow,
+  options: {
+    getDatabaseNow: () => Date;
+    failJobIdAcknowledgementOnce?: boolean;
+  },
+): void {
+  let failJobIdAcknowledgement = options.failJobIdAcknowledgementOnce === true;
+
+  const update = vi.fn(() => ({
+    set: vi.fn((values: unknown) => {
+      mocks.updateSets.push(values);
+      return {
+        where: vi.fn(async (where: unknown) => {
+          mocks.updateWheres.push(where);
+          mocks.sequence.push("db:update");
+          const databaseNow = options.getDatabaseNow();
+          if (!matchesRuntimePredicate(row, where, databaseNow)) {
+            return [{ affectedRows: 0 }];
+          }
+          if (
+            failJobIdAcknowledgement &&
+            isRecord(values) &&
+            typeof values.jobId === "string"
+          ) {
+            failJobIdAcknowledgement = false;
+            throw new Error("ack lost");
+          }
+
+          applyRuntimeSet(row, values, databaseNow);
+          return [{ affectedRows: 1 }];
+        }),
+      };
+    }),
+  }));
+  mocks.db.update.mockImplementation(update);
+
+  const select = vi.fn(() => ({
+    from: vi.fn(() => ({
+      innerJoin: vi.fn(() => ({
+        leftJoin: vi.fn(() => ({
+          where: vi.fn((where: unknown) => {
+            mocks.selectWheres.push(where);
+            return {
+              orderBy: vi.fn(() => ({
+                limit: vi.fn((limit: number) => ({
+                  for: vi.fn(async () => {
+                    const databaseNow = options.getDatabaseNow();
+                    return matchesRuntimePredicate(row, where, databaseNow) &&
+                      limit > 0
+                      ? [toPendingRow(row)]
+                      : [];
+                  }),
+                })),
+              })),
+            };
+          }),
+        })),
+      })),
+    })),
+  }));
+  mocks.db.select.mockImplementation(select);
+
+  const transactionClient = {
+    select: mocks.db.select,
+    update: mocks.db.update,
+  };
+  let transactionTail = Promise.resolve();
+  mocks.db.transaction.mockImplementation(
+    (callback: (tx: unknown) => unknown) => {
+      const run = transactionTail.then(() => callback(transactionClient));
+      transactionTail = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+  );
+}
+
 describe("validation outbox sweeper", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -451,6 +725,229 @@ describe("validation outbox sweeper", () => {
         params.every((param) => !(param instanceof Date)),
       ),
     ).toBe(true);
+  });
+
+  it("recovers the fail-once direct enqueue through the periodic sweeper with the shared attempt count", async () => {
+    let databaseNow = new Date("2026-07-11T00:00:00.000Z");
+    const row = runtimeValidationOutboxRow({ enqueueAttemptCount: 1 });
+    useStatefulValidationOutbox(row, {
+      getDatabaseNow: () => databaseNow,
+    });
+
+    const { createValidationOutboxSweeper } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const sweeper = createValidationOutboxSweeper();
+
+    await expect(sweeper.runOnce()).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    const expectedJobId = buildValidationOutboxJobId(row.id);
+    expect(row).toMatchObject({
+      status: "PENDING",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 2,
+      jobId: expectedJobId,
+      claimToken: null,
+      claimExpiresAt: null,
+      nextEligibleAt: null,
+      errorCode: null,
+      errorMessage: null,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledWith(
+      "validate-discord",
+      expect.objectContaining({ responseId: "response-1", ruleId: "rule-1" }),
+      { jobId: expectedJobId },
+    );
+
+    databaseNow = new Date("2026-07-11T00:10:00.000Z");
+    await expect(sweeper.runOnce()).resolves.toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies backoff through attempts two to seven and fails on the shared eighth attempt", async () => {
+    let databaseNow = new Date("2026-07-11T00:00:00.000Z");
+    const row = runtimeValidationOutboxRow({ enqueueAttemptCount: 1 });
+    useStatefulValidationOutbox(row, {
+      getDatabaseNow: () => databaseNow,
+    });
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const scheduledDelays: number[] = [];
+
+    for (let expectedAttempt = 2; expectedAttempt <= 8; expectedAttempt += 1) {
+      const attemptStartedAt = databaseNow;
+      const result = await sweepValidationOutbox({
+        staleMs: 0,
+        batchSize: 1,
+        random: () => 0,
+      });
+
+      expect(row.enqueueAttemptCount).toBe(expectedAttempt);
+      if (expectedAttempt < 8) {
+        expect(result).toEqual({
+          scanned: 1,
+          enqueued: 0,
+          failed: 0,
+          retryScheduled: 1,
+        });
+        const nextEligibleAt = row.nextEligibleAt;
+        if (!(nextEligibleAt instanceof Date)) {
+          throw new Error("Retry did not persist nextEligibleAt");
+        }
+        scheduledDelays.push(
+          (nextEligibleAt.getTime() - attemptStartedAt.getTime()) / 1_000,
+        );
+        databaseNow = nextEligibleAt;
+      } else {
+        expect(result).toEqual({
+          scanned: 1,
+          enqueued: 0,
+          failed: 1,
+          retryScheduled: 0,
+        });
+      }
+    }
+
+    expect(scheduledDelays).toEqual([60, 120, 240, 480, 870, 870]);
+    expect(row).toMatchObject({
+      status: "FAILED",
+      enqueueMode: "STABLE",
+      enqueueAttemptCount: 8,
+      jobId: null,
+      claimToken: null,
+      claimExpiresAt: null,
+      nextEligibleAt: null,
+      errorCode: "ENQUEUE_RETRY_EXHAUSTED",
+      errorMessage: "Validation job enqueue retry limit exceeded",
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(7);
+  });
+
+  it("lets concurrent sweepers create only one effective stable job", async () => {
+    const databaseNow = new Date("2026-07-11T00:00:00.000Z");
+    const row = runtimeValidationOutboxRow({ enqueueAttemptCount: 1 });
+    useStatefulValidationOutbox(row, {
+      getDatabaseNow: () => databaseNow,
+    });
+    const queueAdd = createDeferred<{ id: string }>();
+    mocks.addValidationJob.mockReturnValue(queueAdd.promise);
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const first = sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 1,
+      leaseMs: 60_000,
+    });
+    await vi.waitFor(() => expect(mocks.addValidationJob).toHaveBeenCalled());
+
+    await expect(
+      sweepValidationOutbox({
+        staleMs: 0,
+        batchSize: 1,
+        leaseMs: 60_000,
+      }),
+    ).resolves.toEqual({
+      scanned: 0,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    const expectedJobId = buildValidationOutboxJobId(row.id);
+    queueAdd.resolve({ id: expectedJobId });
+    await expect(first).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
+    expect(mocks.addValidationJob.mock.calls[0]?.[2]).toEqual({
+      jobId: expectedJobId,
+    });
+    expect(row).toMatchObject({
+      enqueueAttemptCount: 2,
+      jobId: expectedJobId,
+      claimToken: null,
+      claimExpiresAt: null,
+    });
+  });
+
+  it("recovers queue-success acknowledgement uncertainty with one effective job and the same Worker fence id", async () => {
+    let databaseNow = new Date("2026-07-11T00:00:00.000Z");
+    const row = runtimeValidationOutboxRow({ enqueueAttemptCount: 1 });
+    useStatefulValidationOutbox(row, {
+      getDatabaseNow: () => databaseNow,
+      failJobIdAcknowledgementOnce: true,
+    });
+    const effectiveJobIds = new Set<string>();
+    mocks.addValidationJob.mockImplementation(
+      async (_name: string, _data: unknown, options: { jobId?: string }) => {
+        const jobId = options.jobId ?? "";
+        effectiveJobIds.add(jobId);
+        return { id: jobId };
+      },
+    );
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    await expect(
+      sweepValidationOutbox({ staleMs: 0, batchSize: 1, leaseMs: 1_000 }),
+    ).resolves.toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    expect(row.jobId).toBeNull();
+    expect(row.enqueueAttemptCount).toBe(1);
+    const firstClaimExpiry = row.claimExpiresAt;
+    if (!(firstClaimExpiry instanceof Date)) {
+      throw new Error("Acknowledgement uncertainty did not retain its lease");
+    }
+    databaseNow = new Date(firstClaimExpiry.getTime() + 1);
+
+    await expect(
+      sweepValidationOutbox({ staleMs: 0, batchSize: 1, leaseMs: 1_000 }),
+    ).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    const expectedJobId = buildValidationOutboxJobId(row.id);
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(2);
+    expect(mocks.addValidationJob.mock.calls.map((call) => call[2])).toEqual([
+      { jobId: expectedJobId },
+      { jobId: expectedJobId },
+    ]);
+    expect(effectiveJobIds).toEqual(new Set([expectedJobId]));
+    expect(row).toMatchObject({
+      status: "PENDING",
+      enqueueAttemptCount: 2,
+      jobId: expectedJobId,
+      claimToken: null,
+      claimExpiresAt: null,
+      nextEligibleAt: null,
+    });
   });
 
   it("schedules a retry when enqueue fails", async () => {
