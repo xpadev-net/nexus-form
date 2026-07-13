@@ -5,7 +5,12 @@ SET @nf_add_public_password_grant_generation = IF(
     WHERE `TABLE_SCHEMA` = DATABASE()
       AND `TABLE_NAME` = 'Form'
       AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'
-  ) > 0,
+      AND `COLUMN_TYPE` = 'bigint unsigned'
+      AND `IS_NULLABLE` = 'NO'
+      AND `COLUMN_DEFAULT` = '1'
+      AND `EXTRA` = ''
+      AND `GENERATION_EXPRESSION` = ''
+  ) = 1,
   'SELECT 1',
   'ALTER TABLE `Form` ADD `publicPasswordGrantGeneration` bigint unsigned DEFAULT 1 NOT NULL'
 );--> statement-breakpoint

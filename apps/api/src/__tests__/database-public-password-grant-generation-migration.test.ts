@@ -89,14 +89,25 @@ describe("public password grant generation migration", () => {
 
   it("is restart-safe after the single auto-committing DDL boundary", () => {
     const sql = readGrantGenerationMigration();
+    const decisionStatement = sql.split("--> statement-breakpoint")[0];
+    if (!decisionStatement) {
+      throw new Error("Migration decision statement must exist");
+    }
 
-    expect(sql).toContain("FROM `INFORMATION_SCHEMA`.`COLUMNS`");
-    expect(sql).toContain("AND `TABLE_NAME` = 'Form'");
-    expect(sql).toContain(
+    expect(decisionStatement).toContain("FROM `INFORMATION_SCHEMA`.`COLUMNS`");
+    expect(decisionStatement).toContain("AND `TABLE_NAME` = 'Form'");
+    expect(decisionStatement).toContain(
       "AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'",
     );
-    expect(sql).toContain(
-      "AND `COLUMN_NAME` = 'publicPasswordGrantGeneration'\n  ) > 0,\n  'SELECT 1'",
+    expect(decisionStatement).toContain(
+      "AND `COLUMN_TYPE` = 'bigint unsigned'",
+    );
+    expect(decisionStatement).toContain("AND `IS_NULLABLE` = 'NO'");
+    expect(decisionStatement).toContain("AND `COLUMN_DEFAULT` = '1'");
+    expect(decisionStatement).toContain("AND `EXTRA` = ''");
+    expect(decisionStatement).toContain("AND `GENERATION_EXPRESSION` = ''");
+    expect(decisionStatement).toContain(
+      ") = 1,\n  'SELECT 1',\n  'ALTER TABLE `Form` ADD",
     );
     expect(sql).not.toContain(
       "SET @nf_public_password_grant_generation_exists",
