@@ -6,6 +6,8 @@
  * R2-H2: Response limit is enforced inside an atomic transaction (TOCTOU prevention)
  * R2-H3: VIEWER cannot list permissions or invitations (EDITOR gate)
  */
+
+import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
@@ -91,6 +93,7 @@ vi.mock("../lib/forms/schedule-processor", () => ({
 }));
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
+  getActivePublication: vi.fn().mockResolvedValue(null),
   getLatestSnapshot: vi.fn().mockResolvedValue(null),
 }));
 
@@ -184,9 +187,59 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function makeProtectedSnapshot(params: {
+  version: number;
+  passwordHash: string;
+  enabled?: boolean;
+}) {
+  return makeSnapshot({
+    id: `snapshot-${params.version}`,
+    version: params.version,
+    plateContent: '[{"type":"p","children":[{"text":"published"}]}]',
+    structureJson: JSON.stringify({
+      version: 1,
+      access_control: {
+        password_protection: {
+          enabled: params.enabled ?? true,
+          password: params.passwordHash,
+          password_hint: "hint",
+        },
+      },
+      settings: { allow_edit_responses: false },
+    }),
+  });
+}
+
+async function installRealSessionJwtFunctions() {
+  const actual = await vi.importActual<typeof import("../lib/sessions/jwt")>(
+    "../lib/sessions/jwt",
+  );
+  const mocked = await import("../lib/sessions/jwt");
+  vi.mocked(mocked.extractJwtFromRequest).mockImplementation(
+    actual.extractJwtFromRequest,
+  );
+  vi.mocked(mocked.signSessionJwt).mockImplementation(actual.signSessionJwt);
+  vi.mocked(mocked.verifySessionJwt).mockImplementation(
+    actual.verifySessionJwt,
+  );
+  return actual;
+}
+
 function publishedPublicFormLookup(overrides: Record<string, unknown> = {}) {
   return {
     id: FORM_ID,
+    status: "PUBLISHED",
+    dueScheduleId: null,
+    ...overrides,
+  };
+}
+
+function publishedPublicFormGetLookup(overrides: Record<string, unknown> = {}) {
+  return {
+    id: FORM_ID,
+    publicId: "test-public-id",
+    title: "Protected form",
+    description: null,
     status: "PUBLISHED",
     dueScheduleId: null,
     ...overrides,
@@ -1823,7 +1876,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
     const { extractJwtFromRequest, verifySessionJwt } = await import(
       "../lib/sessions/jwt"
     );
-    const { getLatestSnapshot } = await import(
+    const { getActivePublication, getLatestSnapshot } = await import(
       "../lib/forms/snapshot-repository"
     );
     vi.mocked(extractJwtFromRequest).mockReturnValueOnce("verified-jwt");
@@ -1831,25 +1884,28 @@ describe("R4-H1: password protected public GET gates form body", () => {
       sessionId: "session-id",
       verifiedFormGrants: [{ formId: FORM_ID, revision: "opaque-revision" }],
     });
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({
-        plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
-        structureJson: JSON.stringify({
-          version: 1,
-          access_control: {
-            password_protection: {
-              enabled: true,
-              password: "hashed-password",
-              password_hint: "hint",
-            },
+    const snapshot = makeSnapshot({
+      plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
+      structureJson: JSON.stringify({
+        version: 1,
+        access_control: {
+          password_protection: {
+            enabled: true,
+            password: "hashed-password",
+            password_hint: "hint",
           },
-          settings: {
-            allow_edit_responses: false,
-            require_fingerprint: true,
-          },
-        }),
+        },
+        settings: {
+          allow_edit_responses: false,
+          require_fingerprint: true,
+        },
       }),
-    );
+    });
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(snapshot);
+    vi.mocked(getActivePublication).mockResolvedValueOnce({
+      snapshot,
+      publicPasswordGrantGeneration: 7n,
+    });
     mockDbSelectChain(db, [
       [
         {
@@ -1882,31 +1938,38 @@ describe("R4-H1: password protected public GET gates form body", () => {
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
     expect(body.structure).not.toHaveProperty("access_control");
+    expect(verifySessionJwt).toHaveBeenCalledWith("verified-jwt", {
+      formId: FORM_ID,
+      publicPasswordGrantGeneration: 7n,
+    });
   });
 
   it("rejects wrong password attempts without issuing a verified session", async () => {
     const { db } = await import("@nexus-form/database");
     const { verifyPassword } = await import("../lib/security/password");
     const { signSessionJwt } = await import("../lib/sessions/jwt");
-    const { getLatestSnapshot } = await import(
+    const { getActivePublication, getLatestSnapshot } = await import(
       "../lib/forms/snapshot-repository"
     );
     vi.mocked(verifyPassword).mockResolvedValueOnce(false);
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({
-        structureJson: JSON.stringify({
-          version: 1,
-          access_control: {
-            password_protection: {
-              enabled: true,
-              password: "hashed-password",
-              password_hint: "hint",
-            },
+    const snapshot = makeSnapshot({
+      structureJson: JSON.stringify({
+        version: 1,
+        access_control: {
+          password_protection: {
+            enabled: true,
+            password: "stale-hashed-password",
+            password_hint: "hint",
           },
-          settings: { allow_edit_responses: false },
-        }),
+        },
+        settings: { allow_edit_responses: false },
       }),
-    );
+    });
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(snapshot);
+    vi.mocked(getActivePublication).mockResolvedValueOnce({
+      snapshot,
+      publicPasswordGrantGeneration: 8n,
+    });
     mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
@@ -1930,25 +1993,43 @@ describe("R4-H1: password protected public GET gates form body", () => {
     const { db } = await import("@nexus-form/database");
     const { verifyPassword } = await import("../lib/security/password");
     const { signSessionJwt } = await import("../lib/sessions/jwt");
-    const { getLatestSnapshot } = await import(
+    const { getActivePublication, getLatestSnapshot } = await import(
       "../lib/forms/snapshot-repository"
     );
     vi.mocked(verifyPassword).mockResolvedValueOnce(true);
-    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-      makeSnapshot({
-        structureJson: JSON.stringify({
-          version: 1,
-          access_control: {
-            password_protection: {
-              enabled: true,
-              password: "hashed-password",
-              password_hint: "hint",
-            },
+    const candidateSnapshot = makeSnapshot({
+      structureJson: JSON.stringify({
+        version: 1,
+        access_control: {
+          password_protection: {
+            enabled: true,
+            password: "stale-hashed-password",
+            password_hint: "hint",
           },
-          settings: { allow_edit_responses: false },
-        }),
+        },
+        settings: { allow_edit_responses: false },
       }),
-    );
+    });
+    const authoritativeSnapshot = makeSnapshot({
+      id: "snapshot-2",
+      version: 2,
+      structureJson: JSON.stringify({
+        version: 1,
+        access_control: {
+          password_protection: {
+            enabled: true,
+            password: "hashed-password",
+            password_hint: "hint",
+          },
+        },
+        settings: { allow_edit_responses: false },
+      }),
+    });
+    vi.mocked(getLatestSnapshot).mockResolvedValueOnce(candidateSnapshot);
+    vi.mocked(getActivePublication).mockResolvedValueOnce({
+      snapshot: authoritativeSnapshot,
+      publicPasswordGrantGeneration: 9_007_199_254_740_993n,
+    });
     mockDbSelectChain(db, [[publishedPublicFormLookup()]]);
 
     const { formsPublicRouter } = await import("../routes/forms-public");
@@ -1972,8 +2053,7 @@ describe("R4-H1: password protected public GET gates form body", () => {
       verifiedFormGrants: [],
       passwordGrant: {
         formId: FORM_ID,
-        publishedVersion: 1,
-        passwordHash: "hashed-password",
+        publicPasswordGrantGeneration: 9_007_199_254_740_993n,
       },
     });
     expect(res.headers.get("Set-Cookie")).toContain("cf_session=tok");
@@ -2028,6 +2108,262 @@ describe("R4-H1: password protected public GET gates form body", () => {
     });
     expect(body.structure).not.toHaveProperty("access_control");
     expect(JSON.stringify(body)).not.toContain("hashed-password");
+  });
+});
+
+describe("PWR-2R2: persistent public password grant generations", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    vi.stubEnv("AUTH_SECRET", "pwr-2-route-secret");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects a legacy grant on real protected GET and submit paths after cutoff", async () => {
+    await installRealSessionJwtFunctions();
+    const { db } = await import("@nexus-form/database");
+    const { getActivePublication, getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const snapshot = makeProtectedSnapshot({
+      version: 3,
+      passwordHash: "password-a-hash",
+    });
+    vi.mocked(getLatestSnapshot).mockResolvedValue(snapshot);
+    vi.mocked(getActivePublication).mockResolvedValue({
+      snapshot,
+      publicPasswordGrantGeneration: 30n,
+    });
+    mockDbSelectChain(db, [
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormLookup()],
+    ]);
+    const legacyToken = jwt.sign(
+      { sessionId: "legacy-session", verifiedForms: [FORM_ID] },
+      "pwr-2-route-secret",
+      { algorithm: "HS256" },
+    );
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const getResponse = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${legacyToken}` } },
+    );
+    expect(getResponse.status).toBe(200);
+    await expect(getResponse.json()).resolves.toMatchObject({
+      form: { isPasswordProtected: true },
+      structure: null,
+      plateContent: null,
+    });
+
+    const submitResponse = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `cf_session=${legacyToken}`,
+        },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+    expect(submitResponse.status).toBe(403);
+    await expect(submitResponse.json()).resolves.toEqual({
+      error: "Password verification required",
+      passwordRequired: true,
+      passwordHint: "hint",
+    });
+  });
+
+  it("does not revive a grant after password replacement or disable and same-password re-enable", async () => {
+    const actualJwt = await installRealSessionJwtFunctions();
+    const { db } = await import("@nexus-form/database");
+    const { getActivePublication, getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const passwordB = makeProtectedSnapshot({
+      version: 4,
+      passwordHash: "password-b-hash",
+    });
+    const disabledA = makeProtectedSnapshot({
+      version: 5,
+      passwordHash: "password-a-hash",
+      enabled: false,
+    });
+    const reenabledA = makeProtectedSnapshot({
+      version: 6,
+      passwordHash: "password-a-hash",
+    });
+    vi.mocked(getLatestSnapshot)
+      .mockResolvedValueOnce(passwordB)
+      .mockResolvedValueOnce(disabledA)
+      .mockResolvedValueOnce(reenabledA);
+    vi.mocked(getActivePublication)
+      .mockResolvedValueOnce({
+        snapshot: passwordB,
+        publicPasswordGrantGeneration: 41n,
+      })
+      .mockResolvedValueOnce({
+        snapshot: reenabledA,
+        publicPasswordGrantGeneration: 43n,
+      });
+    mockDbSelectChain(db, [
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormGetLookup()],
+    ]);
+    const originalToken = actualJwt.signSessionJwt("session-1", {
+      passwordGrant: {
+        formId: FORM_ID,
+        publicPasswordGrantGeneration: 40n,
+      },
+    });
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const afterPasswordB = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    await expect(afterPasswordB.json()).resolves.toMatchObject({
+      structure: null,
+      plateContent: null,
+    });
+
+    const whileDisabled = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    await expect(whileDisabled.json()).resolves.toMatchObject({
+      form: { isPasswordProtected: false },
+    });
+
+    const afterSamePasswordReenabled = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    await expect(afterSamePasswordReenabled.json()).resolves.toMatchObject({
+      structure: null,
+      plateContent: null,
+    });
+  });
+
+  it("rejects the original grant after direct v3-v8-v3 and scheduled historical activation", async () => {
+    const actualJwt = await installRealSessionJwtFunctions();
+    const { db } = await import("@nexus-form/database");
+    const { processFormSchedule } = await import(
+      "../lib/forms/schedule-processor"
+    );
+    const { getActivePublication, getLatestSnapshot } = await import(
+      "../lib/forms/snapshot-repository"
+    );
+    const snapshotV3 = makeProtectedSnapshot({
+      version: 3,
+      passwordHash: "password-a-hash",
+    });
+    const snapshotV8 = makeProtectedSnapshot({
+      version: 8,
+      passwordHash: "password-b-hash",
+    });
+    vi.mocked(getLatestSnapshot)
+      .mockResolvedValueOnce(snapshotV3)
+      .mockResolvedValueOnce(snapshotV8)
+      .mockResolvedValueOnce(snapshotV3)
+      .mockResolvedValueOnce(snapshotV3);
+    vi.mocked(getActivePublication)
+      .mockResolvedValueOnce({
+        snapshot: snapshotV3,
+        publicPasswordGrantGeneration: 50n,
+      })
+      .mockResolvedValueOnce({
+        snapshot: snapshotV8,
+        publicPasswordGrantGeneration: 51n,
+      })
+      .mockResolvedValueOnce({
+        snapshot: snapshotV3,
+        publicPasswordGrantGeneration: 52n,
+      })
+      .mockResolvedValueOnce({
+        snapshot: snapshotV3,
+        publicPasswordGrantGeneration: 53n,
+      });
+    vi.mocked(processFormSchedule).mockResolvedValueOnce({
+      processed: true,
+      statusChanged: false,
+      newStatus: "PUBLISHED",
+      message: "Historical snapshot activated",
+    });
+    mockDbSelectChain(db, [
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormGetLookup()],
+      [publishedPublicFormLookup({ dueScheduleId: "schedule-1" })],
+    ]);
+    const originalToken = actualJwt.signSessionJwt("session-1", {
+      passwordGrant: {
+        formId: FORM_ID,
+        publicPasswordGrantGeneration: 50n,
+      },
+    });
+    const { formsPublicRouter } = await import("../routes/forms-public");
+
+    const beforeActivation = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    expect(beforeActivation.status).toBe(200);
+    await expect(beforeActivation.json()).resolves.toMatchObject({
+      form: { isPasswordProtected: true },
+      structure: expect.any(Object),
+      plateContent: snapshotV3.plateContent,
+    });
+
+    const afterDirectV8 = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    expect(afterDirectV8.status).toBe(200);
+    await expect(afterDirectV8.json()).resolves.toMatchObject({
+      structure: null,
+      plateContent: null,
+    });
+
+    const afterDirectHistoricalV3 = await formsPublicRouter.request(
+      "/public/test-public-id",
+      { headers: { cookie: `cf_session=${originalToken}` } },
+    );
+    expect(afterDirectHistoricalV3.status).toBe(200);
+    await expect(afterDirectHistoricalV3.json()).resolves.toMatchObject({
+      structure: null,
+      plateContent: null,
+    });
+
+    const scheduledSubmit = await formsPublicRouter.request(
+      "/public/test-public-id/submit",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `cf_session=${originalToken}`,
+        },
+        body: JSON.stringify({
+          responses: [],
+          captchaToken: "test-captcha-token",
+          telemetry: { v4Token: "tok-v4" },
+          fingerprints: [],
+        }),
+      },
+    );
+    expect(scheduledSubmit.status).toBe(403);
+    expect(processFormSchedule).toHaveBeenCalledOnce();
+    expect(getActivePublication).toHaveBeenCalledTimes(4);
   });
 });
 

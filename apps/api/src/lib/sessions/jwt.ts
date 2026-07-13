@@ -7,7 +7,8 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import type { TransactionClient } from "../forms/types";
 
-const PASSWORD_GRANT_HMAC_DOMAIN = "nexus-form:public-form-password-grant:v2\0";
+const PASSWORD_GRANT_HMAC_DOMAIN = "nexus-form:public-form-password-grant:v3\0";
+const MYSQL_UNSIGNED_BIGINT_MAX = 18_446_744_073_709_551_615n;
 
 /** Runtime schema for one opaque, publication-bound V2 public-form grant. */
 export const VerifiedFormGrantSchema = z.object({
@@ -26,17 +27,17 @@ export const SessionJwtPayloadSchema = z.object({
 
 export type VerifiedFormGrant = z.infer<typeof VerifiedFormGrantSchema>;
 
-export type SessionJwtPayload = {
-  sessionId: string;
-  verifiedForms?: string[];
-  verifiedFormGrants?: VerifiedFormGrant[];
-};
+export type SessionJwtPayload = z.infer<typeof SessionJwtPayloadSchema>;
 
-export type PasswordGrantContext = {
-  formId: string;
-  publishedVersion: number;
-  passwordHash: string;
-};
+export const PasswordGrantContextSchema = z.object({
+  formId: z.string().min(1).max(255),
+  publicPasswordGrantGeneration: z
+    .bigint()
+    .nonnegative()
+    .max(MYSQL_UNSIGNED_BIGINT_MAX),
+});
+
+export type PasswordGrantContext = z.infer<typeof PasswordGrantContextSchema>;
 
 function getAuthSecret(): string {
   const secret = process.env.AUTH_SECRET;
@@ -45,18 +46,18 @@ function getAuthSecret(): string {
 }
 
 /**
- * Derives an opaque, publication-bound revision for a protected form.
+ * Derives an opaque, generation-bound revision for a protected form.
  * AUTH_SECRET is deliberately part of the HMAC key: rotating it invalidates
  * all session JWTs and makes every password grant revision unusable as well.
  */
 export function getPasswordGrantRevision(grant: PasswordGrantContext): string {
+  const parsedGrant = PasswordGrantContextSchema.parse(grant);
   return createHmac("sha256", getAuthSecret())
     .update(PASSWORD_GRANT_HMAC_DOMAIN)
     .update(
       JSON.stringify([
-        grant.formId,
-        grant.publishedVersion,
-        grant.passwordHash,
+        parsedGrant.formId,
+        parsedGrant.publicPasswordGrantGeneration.toString(10),
       ]),
     )
     .digest("base64url");
@@ -65,7 +66,7 @@ export function getPasswordGrantRevision(grant: PasswordGrantContext): string {
 /**
  * Signs a 14-day session JWT with optional V2 grants. When passwordGrant is
  * supplied, its opaque revision replaces any grant for the same form while
- * preserving grants for other forms; the raw password hash is never emitted.
+ * preserving grants for other forms; password material is never emitted.
  */
 export function signSessionJwt(
   sessionId: string,

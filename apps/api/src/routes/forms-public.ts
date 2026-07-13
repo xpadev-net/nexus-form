@@ -28,7 +28,6 @@ import {
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
 import { and, count, eq, isNull, lte } from "drizzle-orm";
-import type { Context } from "hono";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
@@ -46,7 +45,10 @@ import {
 } from "../lib/forms/response-validator";
 import { logFormScheduleError } from "../lib/forms/schedule-error-logging";
 import { processFormSchedule } from "../lib/forms/schedule-processor";
-import { getLatestSnapshot } from "../lib/forms/snapshot-repository";
+import {
+  getActivePublication,
+  getLatestSnapshot,
+} from "../lib/forms/snapshot-repository";
 import {
   insertSubmitOutboxRows,
   recoverSubmitOutboxForResponse,
@@ -320,11 +322,37 @@ function getEnabledSubmitNotificationChannels(
 }
 
 function isPasswordVerified(
-  c: Context,
+  jwtToken: string,
   passwordGrant: PasswordGrantContext,
 ): boolean {
-  const jwtToken = extractJwtFromRequest(c);
-  return jwtToken ? verifySessionJwt(jwtToken, passwordGrant) !== null : false;
+  return verifySessionJwt(jwtToken, passwordGrant) !== null;
+}
+
+async function getAuthoritativeProtectedPublication(params: {
+  formId: string;
+  publicId: string;
+  operation: string;
+}): Promise<{
+  activeSnapshot: FormSnapshot;
+  parsedStructure: ParsedStructure;
+  publicPasswordGrantGeneration: bigint;
+} | null> {
+  const publication = await getActivePublication(params.formId);
+  const parsedStructure = parsePublishedStructure(
+    publication?.snapshot.structureJson,
+    {
+      formId: params.formId,
+      publicId: params.publicId,
+      operation: params.operation,
+    },
+  );
+  if (!publication || !parsedStructure) return null;
+
+  return {
+    activeSnapshot: publication.snapshot,
+    parsedStructure,
+    publicPasswordGrantGeneration: publication.publicPasswordGrantGeneration,
+  };
 }
 
 function setSessionCookie(
@@ -498,7 +526,7 @@ export const formsPublicRouter = createHonoApp()
     }
     const { target, currentStatus } = resolved;
 
-    const activeSnapshot = await getLatestSnapshot(target.id);
+    let activeSnapshot = await getLatestSnapshot(target.id);
 
     const parsedStructure = parsePublishedStructure(
       activeSnapshot?.structureJson,
@@ -512,8 +540,9 @@ export const formsPublicRouter = createHonoApp()
       return c.json(errorResponse("Form configuration is invalid"), 500);
     }
 
-    const pwProtection = getPasswordProtection(parsedStructure);
-    const isProtected = pwProtection?.enabled ?? false;
+    let effectiveStructure = parsedStructure;
+    let pwProtection = getPasswordProtection(effectiveStructure);
+    let isProtected = pwProtection?.enabled ?? false;
 
     if (isProtected) {
       if (!pwProtection?.password) {
@@ -528,11 +557,55 @@ export const formsPublicRouter = createHonoApp()
         );
       }
 
+      const jwtToken = extractJwtFromRequest(c);
+      if (!jwtToken) {
+        const response = PublicFormResponseSchema.parse({
+          form: {
+            id: target.id,
+            publicId: target.publicId,
+            title: target.title,
+            description: target.description,
+            status: currentStatus,
+            isPasswordProtected: true,
+            passwordHint: pwProtection.password_hint,
+          },
+          structure: null,
+          plateContent: null,
+        });
+        return c.json(response);
+      }
+
+      const publication = await getAuthoritativeProtectedPublication({
+        formId: target.id,
+        publicId,
+        operation: "GET /public/:publicId",
+      });
+      if (!publication) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
+      activeSnapshot = publication.activeSnapshot;
+      effectiveStructure = publication.parsedStructure;
+      pwProtection = getPasswordProtection(effectiveStructure);
+      isProtected = pwProtection?.enabled ?? false;
+
+      if (isProtected && !pwProtection?.password) {
+        logError(
+          "Password protection is enabled without a password hash",
+          "forms-public",
+          { formId: target.id, publicId },
+        );
+        return c.json(
+          errorResponse("Form password protection is misconfigured"),
+          500,
+        );
+      }
+
       if (
-        !isPasswordVerified(c, {
+        isProtected &&
+        !isPasswordVerified(jwtToken, {
           formId: target.id,
-          publishedVersion: activeSnapshot.version,
-          passwordHash: pwProtection.password,
+          publicPasswordGrantGeneration:
+            publication.publicPasswordGrantGeneration,
         })
       ) {
         const response = PublicFormResponseSchema.parse({
@@ -543,7 +616,7 @@ export const formsPublicRouter = createHonoApp()
             description: target.description,
             status: currentStatus,
             isPasswordProtected: true,
-            passwordHint: pwProtection.password_hint,
+            passwordHint: pwProtection?.password_hint,
           },
           structure: null,
           plateContent: null,
@@ -572,7 +645,7 @@ export const formsPublicRouter = createHonoApp()
         isPasswordProtected: isProtected,
         passwordHint: pwProtection?.password_hint,
       },
-      structure: buildPublicFormStructure(parsedStructure),
+      structure: buildPublicFormStructure(effectiveStructure),
       plateContent: publishedContent,
     });
     return c.json(response);
@@ -613,9 +686,9 @@ export const formsPublicRouter = createHonoApp()
       }
       const { target } = resolved;
 
-      const activeSnapshot = await getLatestSnapshot(target.id);
+      let activeSnapshot = await getLatestSnapshot(target.id);
 
-      const parsedStructure = parsePublishedStructure(
+      let parsedStructure = parsePublishedStructure(
         activeSnapshot?.structureJson,
         {
           formId: target.id,
@@ -629,7 +702,7 @@ export const formsPublicRouter = createHonoApp()
 
       // 3. Password protection check. Keep this before question validation and
       // telemetry so locked forms do not leak structure-derived failures.
-      const pwProtection = getPasswordProtection(parsedStructure);
+      let pwProtection = getPasswordProtection(parsedStructure);
 
       if (pwProtection?.enabled) {
         if (!pwProtection.password) {
@@ -644,18 +717,55 @@ export const formsPublicRouter = createHonoApp()
           );
         }
 
+        const jwtToken = extractJwtFromRequest(c);
+        if (!jwtToken) {
+          return c.json(
+            PasswordRequiredErrorResponseSchema.parse({
+              error: "Password verification required",
+              passwordRequired: true,
+              passwordHint: pwProtection.password_hint,
+            }),
+            403,
+          );
+        }
+
+        const publication = await getAuthoritativeProtectedPublication({
+          formId: target.id,
+          publicId,
+          operation: "POST /public/:publicId/submit",
+        });
+        if (!publication) {
+          return c.json(errorResponse("Form configuration is invalid"), 500);
+        }
+        activeSnapshot = publication.activeSnapshot;
+        parsedStructure = publication.parsedStructure;
+        pwProtection = getPasswordProtection(parsedStructure);
+
+        if (pwProtection?.enabled && !pwProtection.password) {
+          logError(
+            "Password protection is enabled without a password hash",
+            "forms-public",
+            { formId: target.id, publicId },
+          );
+          return c.json(
+            errorResponse("Form password protection is misconfigured"),
+            500,
+          );
+        }
+
         if (
-          !isPasswordVerified(c, {
+          pwProtection?.enabled &&
+          !isPasswordVerified(jwtToken, {
             formId: target.id,
-            publishedVersion: activeSnapshot.version,
-            passwordHash: pwProtection.password,
+            publicPasswordGrantGeneration:
+              publication.publicPasswordGrantGeneration,
           })
         ) {
           return c.json(
             PasswordRequiredErrorResponseSchema.parse({
               error: "Password verification required",
               passwordRequired: true,
-              passwordHint: pwProtection.password_hint,
+              passwordHint: pwProtection?.password_hint,
             }),
             403,
           );
@@ -1001,8 +1111,8 @@ export const formsPublicRouter = createHonoApp()
       }
       const { target } = resolved;
 
-      const activeSnapshot = await getLatestSnapshot(target.id);
-      const parsed = parsePublishedStructure(activeSnapshot?.structureJson, {
+      let activeSnapshot = await getLatestSnapshot(target.id);
+      let parsed = parsePublishedStructure(activeSnapshot?.structureJson, {
         formId: target.id,
         publicId,
         operation: "POST /public/:publicId/verify-password",
@@ -1011,7 +1121,35 @@ export const formsPublicRouter = createHonoApp()
         return c.json(errorResponse("Form configuration is invalid"), 500);
       }
 
-      const pwProtection = getPasswordProtection(parsed);
+      let pwProtection = getPasswordProtection(parsed);
+
+      if (!pwProtection?.enabled) {
+        return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
+      }
+
+      if (!pwProtection.password) {
+        logError(
+          "Password protection is enabled without a password hash",
+          "forms-public",
+          { formId: target.id, publicId },
+        );
+        return c.json(
+          errorResponse("Form password protection is misconfigured"),
+          500,
+        );
+      }
+
+      const publication = await getAuthoritativeProtectedPublication({
+        formId: target.id,
+        publicId,
+        operation: "POST /public/:publicId/verify-password",
+      });
+      if (!publication) {
+        return c.json(errorResponse("Form configuration is invalid"), 500);
+      }
+      activeSnapshot = publication.activeSnapshot;
+      parsed = publication.parsedStructure;
+      pwProtection = getPasswordProtection(parsed);
 
       if (!pwProtection?.enabled) {
         return c.json(VerifyPasswordResponseSchema.parse({ valid: true }));
@@ -1054,8 +1192,8 @@ export const formsPublicRouter = createHonoApp()
         verifiedFormGrants: existing?.verifiedFormGrants ?? [],
         passwordGrant: {
           formId: target.id,
-          publishedVersion: activeSnapshot.version,
-          passwordHash: pwProtection.password,
+          publicPasswordGrantGeneration:
+            publication.publicPasswordGrantGeneration,
         },
       });
       setSessionCookie(c, newJwt);

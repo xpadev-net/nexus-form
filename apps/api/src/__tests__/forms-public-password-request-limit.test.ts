@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   db: {
     select: vi.fn(),
   },
+  getActivePublication: vi.fn(),
   getLatestSnapshot: vi.fn(),
   verifyPassword: vi.fn(),
   extractJwtFromRequest: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock("../lib/forms/schedule-processor", () => ({
 }));
 
 vi.mock("../lib/forms/snapshot-repository", () => ({
+  getActivePublication: mocks.getActivePublication,
   getLatestSnapshot: mocks.getLatestSnapshot,
 }));
 
@@ -167,7 +169,7 @@ function setPublishedForm(): void {
 }
 
 function setPasswordSnapshot(): void {
-  mocks.getLatestSnapshot.mockResolvedValue({
+  const snapshot = {
     structureJson: JSON.stringify({
       access_control: {
         password_protection: {
@@ -176,6 +178,11 @@ function setPasswordSnapshot(): void {
         },
       },
     }),
+  };
+  mocks.getLatestSnapshot.mockResolvedValue(snapshot);
+  mocks.getActivePublication.mockResolvedValue({
+    snapshot,
+    publicPasswordGrantGeneration: 1n,
   });
 }
 

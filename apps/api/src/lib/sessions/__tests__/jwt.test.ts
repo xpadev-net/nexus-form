@@ -11,13 +11,12 @@ vi.mock("@nexus-form/database/schema", () => ({
 
 const FORM_A = "form-a";
 const FORM_B = "form-b";
-const PASSWORD_HASH_A = "$2b$10$stored-password-hash-a";
-const PASSWORD_HASH_B = "$2b$10$stored-password-hash-b";
+const GENERATION_A = 9_007_199_254_740_992n;
+const GENERATION_B = 9_007_199_254_740_993n;
 
 const passwordGrantA = {
   formId: FORM_A,
-  publishedVersion: 7,
-  passwordHash: PASSWORD_HASH_A,
+  publicPasswordGrantGeneration: GENERATION_A,
 };
 
 afterEach(() => {
@@ -26,7 +25,7 @@ afterEach(() => {
 });
 
 describe("session JWT password grants", () => {
-  it("binds an opaque V2 grant to the published version and password hash", async () => {
+  it("binds an opaque V2 grant to the bigint generation without Number coercion or password material", async () => {
     vi.stubEnv("AUTH_SECRET", "auth-secret-a");
     const { signSessionJwt, verifySessionJwt } = await import("../jwt");
 
@@ -34,7 +33,20 @@ describe("session JWT password grants", () => {
       passwordGrant: passwordGrantA,
     });
 
-    expect(token).not.toContain(PASSWORD_HASH_A);
+    const decoded = jwt.decode(token);
+    expect(decoded).toMatchObject({
+      sessionId: "session-1",
+      verifiedFormGrants: [
+        {
+          formId: FORM_A,
+          revision: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        },
+      ],
+    });
+    const serializedPayload = JSON.stringify(decoded);
+    expect(serializedPayload.toLowerCase()).not.toContain("password");
+    expect(serializedPayload.toLowerCase()).not.toContain("hash");
+    expect(serializedPayload).not.toContain(GENERATION_A.toString(10));
     expect(verifySessionJwt(token)).toMatchObject({
       sessionId: "session-1",
       verifiedFormGrants: [
@@ -48,15 +60,37 @@ describe("session JWT password grants", () => {
     expect(
       verifySessionJwt(token, {
         ...passwordGrantA,
-        publishedVersion: passwordGrantA.publishedVersion + 1,
+        publicPasswordGrantGeneration: GENERATION_B,
       }),
     ).toBeNull();
-    expect(
-      verifySessionJwt(token, {
-        ...passwordGrantA,
-        passwordHash: PASSWORD_HASH_B,
-      }),
-    ).toBeNull();
+  });
+
+  it("never revives an old grant across password, publication, and historical activation lifecycles", async () => {
+    vi.stubEnv("AUTH_SECRET", "auth-secret-a");
+    const { signSessionJwt, verifySessionJwt } = await import("../jwt");
+    const originalGrant = {
+      formId: FORM_A,
+      publicPasswordGrantGeneration: 40n,
+    };
+    const token = signSessionJwt("session-1", {
+      passwordGrant: originalGrant,
+    });
+
+    const lifecycleGenerations = [
+      41n, // password A -> B
+      42n, // disable -> same-A re-enable
+      43n, // direct v3 -> v8
+      44n, // direct v8 -> historical v3
+      45n, // scheduled historical activation
+    ];
+    for (const publicPasswordGrantGeneration of lifecycleGenerations) {
+      expect(
+        verifySessionJwt(token, {
+          formId: FORM_A,
+          publicPasswordGrantGeneration,
+        }),
+      ).toBeNull();
+    }
   });
 
   it("replaces only the verified form grant while preserving other forms", async () => {
@@ -114,6 +148,24 @@ describe("session JWT password grants", () => {
       verifiedForms: [FORM_A],
     });
     expect(verifySessionJwt(legacyToken, passwordGrantA)).toBeNull();
+  });
+
+  it("rejects invalid persistent generation contexts at runtime", async () => {
+    vi.stubEnv("AUTH_SECRET", "auth-secret-a");
+    const { getPasswordGrantRevision } = await import("../jwt");
+
+    expect(() =>
+      getPasswordGrantRevision({
+        formId: FORM_A,
+        publicPasswordGrantGeneration: -1n,
+      }),
+    ).toThrow();
+    expect(() =>
+      getPasswordGrantRevision({
+        formId: FORM_A,
+        publicPasswordGrantGeneration: 18_446_744_073_709_551_616n,
+      }),
+    ).toThrow();
   });
 
   it("invalidates JWTs and grant revisions when AUTH_SECRET rotates", async () => {
