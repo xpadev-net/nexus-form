@@ -141,15 +141,14 @@ kubectl -n production rollout status deployment/api
 
 #### Secretの編集
 
-`k8s/base/secret.yaml`を編集して、以下の**機密情報**を設定してください：
+`k8s/base/secret.yaml`はキー名と無効なプレースホルダーだけを示すテンプレートです。実値で置換したファイル、render済みSecret、復号可能なSecretをGitへコミットしないでください。本番値はExternal Secrets Operator、Sealed Secretsなどの管理されたSecret経路から供給します。
 
 ```bash
 # AUTH_SECRETを生成
 openssl rand -base64 32
-
-# Secretファイルを編集
-# stringDataセクションに実際の値を設定
 ```
+
+生成結果はSecret managerへ直接登録し、shell履歴、ログ、PR、issueへ貼り付けないでください。`nexus-form.xpadev.net/auth-secret-revision` annotationは秘密値ではないローテーション識別子です。Secret metadataと`api-deployment.yaml`のPod templateで同じ識別子（例: change ticket番号やSecret manager version）を設定すると、`envFrom`を使うAPI Podが再作成され、どのSecret revisionを採用する想定かを値を開示せず確認できます。annotationには`AUTH_SECRET`本体、そのhash、Secret managerのアクセストークンを入れないでください。
 
 **機密情報として管理すべき項目**:
 - データベース: `DATABASE_URL` - MySQL接続文字列（パスワードを含む）
@@ -174,9 +173,86 @@ openssl rand -base64 32
 この値を変更すると、変更前の値で暗号化済みの OAuth token は復号できなくなります。ローテーションする場合は、既存 token の再暗号化または再認可を先に完了し、API と Worker を同じ Secret revision で同時にロールアウトしてください。Kubernetes の環境変数は Secret 更新だけでは既存 Pod に反映されないため、Secret 更新後は API とすべての Worker Deployment を `rollout restart` します。片方だけ先に更新すると暗号化・復号の鍵がずれ、Sheets 同期が失敗します。
 
 **重要**: 
-- `secret.yaml`には機密情報が含まれるため、Gitにコミットしないでください
+- リポジトリ内の`secret.yaml`はプレースホルダーのまま保ち、実値を含む派生ファイルはGitにコミットしないでください
 - 実際の運用では、Sealed SecretsやExternal Secrets Operatorなどのツールを使用することを推奨します
 - ConfigMapとSecretは`envFrom`で自動的に環境変数として読み込まれます
+
+### 公開フォームパスワード認可のrollout cutoff
+
+公開フォームのパスワードgrantをgenerationへ結び付けるリリースでは、通常のrolling updateだけでは旧Podやrollback先がlegacy grantを受理できる時間を閉じられません。次のphase 0〜2を順番どおり完了し、cutoff記録を残してからfinal consumer contractを有効化してください。phaseを飛ばしたり、`AUTH_SECRET`の更新とbridge rolloutを同時に開始したりしないでください。
+
+この手順での用語は次のとおりです。
+
+- **pre-fix binary**: 保護フォームをlegacy `verifiedForms` claimで認可できる、またはlegacy grantを発行できるすべてのbinary。version番号が新しくても、この挙動が残ればpre-fixとして扱います。
+- **bridge release**: additive schemaとrolling deployに互換で、保護フォームではlegacy claimをfail-closedにし、generation-bound grantだけを発行・検証することが確認された最初のimmutable image digest。これがphase 2後の最低rollback floorです。
+- **final release**: bridge contractを維持する同一または後続のimmutable image digest。bridge release自身をfinalとして使う場合も同じgateを適用します。
+- **security cutoff**: pre-fix Podが0件であることを確認した後、`AUTH_SECRET`をローテーションし、bridge以上の全Podが新revisionでreadyになった時点。phase 1はcutoff未達です。
+
+開始前にnamespace、pre-fix/bridge/finalのimage digest、現在と次の非機密Secret revision識別子をchange ticketへ記録します。tagは後から別imageを指せるため、判定にはregistry digestとPodの`imageID`を使ってください。Secretの実値やhashは記録しません。
+
+#### Phase 0: additive migration
+
+1. 既存binaryが読み続けられるadditive migrationだけを、bridgeと同じimmutable API imageから実行します。既存API Deploymentはまだ更新しません。
+2. `api-migration` Jobが成功したことと、既存API Podのreadinessおよび代表的な非保護フォームのGET/submitが維持されていることを確認します。
+3. destructive migration、旧readerが解釈できないdefault、generation consumerの有効化が含まれていた場合は停止します。phase 1へ進めません。
+
+```bash
+kubectl -n production get job api-migration
+kubectl -n production logs job/api-migration
+kubectl -n production get deployment api
+```
+
+Argo CDの通常Syncはmigration Jobに続いてAPI Deploymentも更新します。phase 0を独立gateにする場合は、既存API Deploymentを保持したままmigration Jobだけを実行・完了確認できる運用経路を使い、phase 1のimage変更を同じ未確認操作へ混ぜないでください。
+
+#### Phase 1: bridge rolloutと旧Pod drain
+
+1. `AUTH_SECRET`と両方の`nexus-form.xpadev.net/auth-secret-revision`を変更せず、API imageだけをbridge digestへ更新します。
+2. API Deploymentのrollout完了を待ちます。base manifestは`maxUnavailable: 0`と`maxSurge: 1`を明示しているため、新Podがreadyになるまで旧Podを残します。
+3. Pod一覧の`imageID`を記録し、実行中・Terminatingを含むAPI Podがすべてbridge digestであることを確認します。
+4. ReplicaSet一覧を確認し、すべてのpre-fix ReplicaSetが`DESIRED=0`、`CURRENT=0`、`READY=0`であることを確認します。1件でも旧Podまたは不明なdigestがあれば停止し、`AUTH_SECRET`をローテーションしません。
+
+```bash
+kubectl -n production rollout status deployment/api
+kubectl -n production get pods -l app=nexus-form,component=api \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.deletionTimestamp}{"\t"}{.status.containerStatuses[?(@.name=="api")].ready}{"\t"}{.status.containerStatuses[?(@.name=="api")].imageID}{"\n"}{end}'
+kubectl -n production get replicasets -l app=nexus-form,component=api \
+  -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas
+```
+
+**Phase 1の残存リスク**: 同じ`AUTH_SECRET`をpre-fix Podも知っているため、この時点はsecurity cutoffではありません。旧Podが残っていればlegacy tokenを受理でき、pre-fixへrollbackすればlegacy grantを再発行できます。緊急時にphase 2前のpre-fixへ戻すことは技術的には可能ですが、セキュリティ要件未達へ戻る操作であり、phase 2の開始条件にはできません。
+
+#### Phase 2: AUTH_SECRET rotationとrollback floor確定
+
+1. zero-old-podの証跡を確認してから、Secret managerで新しいランダムな`AUTH_SECRET`を作成します。旧値を再利用せず、base manifestやGit管理overlayへ実値を書きません。
+2. Secretの実値更新と同じ変更で、Secret metadataとAPI Pod templateの`nexus-form.xpadev.net/auth-secret-revision`を同じ新しい非機密識別子へ更新します。annotation変更が新しいReplicaSetを作り、`envFrom`の値を全Podへ反映します。
+3. rollout完了後、全API Podがbridge以上の許可digest、ready、同一の新revision markerであり、pre-fix ReplicaSet/Podが0件であることを再確認します。
+4. phase 1で取得したローテーション前のsession cookieを、同じ保護フォームのGETとsubmitへ再送します。どちらも再パスワード検証を要求してfail-closedになることを確認します。その後にパスワードを再検証して新しいcookieを取得し、同じGETとsubmitが成功することを確認します。
+5. bridge digest、finalとして許可するdigest、新revision marker、zero-old-pod確認時刻、旧cookie拒否と新cookie成功の結果をchange ticketへ記録します。この記録をもってcutoff成立とし、その後にだけfinal consumer contractを有効化します。
+
+```bash
+kubectl -n production rollout status deployment/api
+kubectl -n production get secret nexus-form-secrets \
+  -o 'custom-columns=NAME:.metadata.name,AUTH_SECRET_REVISION:.metadata.annotations.nexus-form\.xpadev\.net/auth-secret-revision'
+kubectl -n production get pods -l app=nexus-form,component=api \
+  -o 'custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[0].ready,IMAGE_ID:.status.containerStatuses[0].imageID,AUTH_SECRET_REVISION:.metadata.annotations.nexus-form\.xpadev\.net/auth-secret-revision'
+kubectl -n production get replicasets -l app=nexus-form,component=api \
+  -o custom-columns=NAME:.metadata.name,DESIRED:.spec.replicas,CURRENT:.status.replicas,READY:.status.readyReplicas
+```
+
+base manifestの`revisionHistoryLimit: 1`により、phase 2のbridge再ロールアウトが完了すると、通常のDeployment履歴には直前のbridge ReplicaSetだけが残り、pre-fix ReplicaSetはrollback候補から外れます。ただし、これは古いdigestを明示的に再指定する操作や古いGit revisionの再同期を防ぐadmission policyではありません。cutoff記録後はデプロイ承認側でも許可digestをbridge/finalに限定し、無確認の`kubectl rollout undo`を使わないでください。admission policyによる強制が必要な環境では、別タスクでGitOps/cluster policyを所有させます。
+
+#### Compatibility / rollback matrix
+
+| Phase / 組み合わせ | 保護フォームでの結果 | 判断 |
+|---|---|---|
+| phase 1: old legacy token → bridge/final binary（旧Secret） | legacy claimを認可に使わず再検証を要求する | この経路単体はfail-closed。ただし旧Podが同じtokenを受理できるためcutoff未達 |
+| phase 1: new generation token → pre-fix binary（同一Secret） | legacy `verifiedForms`を持たないtokenは保護アクセスを通せない | 初回はfail-closedでも、pre-fixで再検証するとlegacy grantを発行できるため安全要件未達 |
+| phase 1: bridge → pre-fixへsame-secret rollback | pre-fixがlegacy tokenを受理・再発行できる | phase 2前に限り緊急rollbackは可能だが、セキュリティ状態は未達へ戻る |
+| phase 2後: rotation前token → bridge/final binary（新Secret） | signature検証に失敗し、再検証を要求する | 期待どおりfail-closed |
+| phase 2後: bridge ↔ final rollback（新Secret） | generation-bound contractを維持する | schema互換性と許可digest確認を条件に可能 |
+| phase 2後: pre-fix binaryへrollback（新Secretを再利用） | 旧tokenは一度失効しても、pre-fixが新Secretでlegacy grantを再発行し、その後のrevocationを保証できない | **禁止**。同じ`AUTH_SECRET`であることは安全性の根拠にならず、bridge releaseが絶対rollback floor |
+
+phase 2後にbridge/finalのどちらも起動できない場合は、pre-fixへ戻さずサービスをfail-closedに保ち、fixed imageの復旧または新しいfixed releaseを行います。pre-fixを起動するにはcutoff契約の破棄と新たなincident判断が必要であり、通常のrollbackとして扱いません。
 
 ### 3. イメージ参照の設定
 
