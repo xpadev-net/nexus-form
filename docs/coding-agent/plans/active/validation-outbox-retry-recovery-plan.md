@@ -2,7 +2,7 @@
 
 - status: in_progress
 - generated: 2026-07-11
-- last_updated: 2026-07-13
+- last_updated: 2026-07-14
 - work_type: code
 
 ## Goal
@@ -77,6 +77,7 @@
     required: true
     owner: worker
     detail: "Run validation-outbox-sweeper focused tests."
+- status: in_progress
 
 ### Task_4: Align the initial submission enqueue path
 - type: impl
@@ -169,6 +170,7 @@
     required: true
     owner: reviewer
     detail: "Independently verify terminal-row replay rejection, retry compatibility, LEGACY exclusion, and producer/consumer job-ID parity."
+- status: complete
 
 ## Task Waves
 - Wave 1: [Task_1]
@@ -186,6 +188,7 @@
 - 2026-07-11: Draft created.
 - 2026-07-11: Task_1 design approved. Existing timestamps cannot safely represent producer retry eligibility and leases; an additive expand-contract migration is required before producer/sweeper changes.
 - 2026-07-13: Task_3 formal review reproduced a late-delivery replay after lease renewal, reclaim, completion, and finite BullMQ job eviction. Split Task_8 as a prerequisite Worker admission fence; PR #666 remains stopped at exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf` until Task_8 merges.
+- 2026-07-14: Task_8 merged via PR #670 as `bf334a6aec15d2eef633da671bb7eb2641bd744b` after exact-head formal approval and parent merge gates. Task_3 resumes in the existing PR #666 Worker with its original two-file ownership, using the shared builder plus MySQL server-time lease fencing before fresh formal review.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.
