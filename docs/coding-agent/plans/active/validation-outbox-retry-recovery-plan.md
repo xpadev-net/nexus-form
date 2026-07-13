@@ -77,12 +77,13 @@
     required: true
     owner: worker
     detail: "Run validation-outbox-sweeper focused tests."
-- status: in_progress
+- status: complete
 
 ### Task_4: Align the initial submission enqueue path
 - type: impl
 - owns:
   - apps/api/src/routes/forms-public.ts
+  - apps/api/src/__tests__/forms-public-validation-outbox.test.ts
 - depends_on: [Task_3]
 - description: Make the immediate post-submit enqueue attempt use the same retriable/terminal state semantics as the sweeper.
 - acceptance:
@@ -94,6 +95,7 @@
     required: true
     owner: worker
     detail: "pnpm --filter @nexus-form/api exec vitest run src/__tests__/forms-public-validation-outbox.test.ts"
+- status: in_progress
 
 ### Task_5: Add runtime failure-injection tests
 - type: test
@@ -189,9 +191,13 @@
 - 2026-07-11: Task_1 design approved. Existing timestamps cannot safely represent producer retry eligibility and leases; an additive expand-contract migration is required before producer/sweeper changes.
 - 2026-07-13: Task_3 formal review reproduced a late-delivery replay after lease renewal, reclaim, completion, and finite BullMQ job eviction. Split Task_8 as a prerequisite Worker admission fence; PR #666 remains stopped at exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf` until Task_8 merges.
 - 2026-07-14: Task_8 merged via PR #670 as `bf334a6aec15d2eef633da671bb7eb2641bd744b` after exact-head formal approval and parent merge gates. Task_3 resumes in the existing PR #666 Worker with its original two-file ownership, using the shared builder plus MySQL server-time lease fencing before fresh formal review.
+- 2026-07-14: Task_3 merged via PR #666 as `ddceb0e647d88a1b4e5ce6ff43ffa59b6b90ccc5`. Formal review independently verified server-time eligibility/lease SQL, stable job-ID parity, CAS and counter semantics, bounded jitter, acknowledgement uncertainty, LEGACY exclusion, and Worker late-delivery fencing; parent deep-review, hook, lint, type-check, full tests, focused sweeper/shared/Worker suites, CI, and AI review gates passed.
+- 2026-07-14: Started Task_4 Worker `019f5d31-c28a-7ac1-ba52-9f4d5bfd53bb` on `codex/outbox-4-submission-enqueue-retry` from current origin/master. Startup stability passed and the Worker proceeded into baseline investigation. It owns only `apps/api/src/routes/forms-public.ts`; Task_5 retains failure-injection test ownership, and the Worker must stop at REVIEW_READY for parent formal review.
+- 2026-07-14: Expanded Task_4 ownership by `apps/api/src/__tests__/forms-public-validation-outbox.test.ts` because five existing assertions encoded the old random-ID and terminal transient-enqueue contract, causing the focused/full/pre-push gates to fail after the correct route change. Task_4 may update those assertions and add direct producer/ack regressions only; Task_5 retains broader failure-injection and sweeper-recovery coverage.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.
 - 2026-07-11: Use stable per-row BullMQ IDs for the new durable mode, atomic claims with expiring leases, CAS acknowledgement, at most eight enqueue attempts, and bounded exponential backoff (30 seconds base, 15 minutes cap, jitter). Persist a row-level legacy/stable marker so rolling deployments never reinterpret legacy random-ID rows.
 - 2026-07-11: Redis/network/timeouts and queue-success/DB-ack uncertainty are transient; missing providers/rules and deterministic payload/schema failures are terminal. Stale `PROCESSING` reconciliation remains a separate Worker-owned follow-up.
 - 2026-07-13: A producer-side renewal CAS and finite BullMQ retention do not fence a `queue.add` command that executes after a second claimant has completed and its job record was evicted. Add Task_8 first so the Worker's durable row transition rejects terminal, missing, mismatched, and LEGACY replays before provider execution. Keep Task_3's API diff narrow: use the shared builder and MySQL `CURRENT_TIMESTAMP`/`TIMESTAMPADD` lease comparisons; no schema migration or Redis command-timeout change is required because client timeouts cannot cancel late server execution.
+- 2026-07-14: A production contract change and its existing direct contract test are one reviewable Task when old assertions otherwise make the repository and pre-push gates impossible to satisfy. Task_4 therefore owns the narrow producer test update, while Task_5 remains responsible for broader cross-component failure injection after Task_4 merges.

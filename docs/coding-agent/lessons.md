@@ -492,3 +492,10 @@ Evidence:
 - root cause: Validation proved package resolution and production image construction but did not exercise the runner's first live database query or model a transient disconnect before Drizzle entered the DDL phase.
 - fix: Use the migration-only package entrypoint and add bounded fresh-client retry around compatibility-state reads only. Keep the timestamp mutation, migrator, and post-DDL verification outside the retry boundary, and fail closed if a failed client cannot be cleaned up without losing either error.
 - prevention: Migration runtime fixes must trace and test the complete entrypoint through its first live query, distinguish safe pre-DDL retries from unsafe whole-migration retries, and include cleanup, exhaustion, non-transient, and post-entry failure cases before merge.
+
+## 2026-07-14 — Keep Existing Contract Tests with the Contract-Changing Task  [tags: orchestration, ownership, validation, tests, outbox]
+
+- symptom: Task_4 correctly changed the initial enqueue contract in `forms-public.ts`, but five assertions in the existing direct route test still required random job IDs and terminal transient failures. The focused/full suite failed and the mandatory pre-push hook could not succeed, while the test file was reserved for a later task.
+- root cause: The plan separated all test-file ownership by wave without distinguishing existing assertions that define the production contract from later, broader failure-injection coverage.
+- fix: Expand Task_4 by the single direct contract-test file for old-expectation updates and route-specific producer/ack regressions; keep concurrent sweeper, repeated backoff, end-to-end recovery, and migration evidence in Task_5/6.
+- prevention: Before dispatching a contract-changing implementation Task, map existing tests that directly encode that contract. Co-own the narrow direct test when unchanged assertions would make required repository or pre-push gates impossible; reserve only independently additive coverage for later test waves.
