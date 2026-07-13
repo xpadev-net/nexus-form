@@ -231,19 +231,53 @@ set -euo pipefail
 export API_BASE_URL="https://api.example.invalid"
 export PUBLIC_ID="CHANGE_ME_WITH_ROLLOUT_FORM_PUBLIC_ID"
 export RESPONSES_FILE="/secure/operator-input/rollout-responses.json"
-export ROLLOUT_EVIDENCE_DIR="$(mktemp -d)"
+if [ "${ROLLOUT_CLEANUP_OWNER_DIR+x}" = x ] || [ "${ROLLOUT_CLEANUP_PREFIX+x}" = x ]; then
+  printf '%s\n' 'rollout probe cleanup owner already exists; start in a fresh shell' >&2
+  exit 64
+fi
 cleanup_rollout_probe() {
-  local evidence_dir="${ROLLOUT_EVIDENCE_DIR:-}"
-  if [ -n "$evidence_dir" ]; then
-    rm -rf -- "$evidence_dir"
-  fi
+  local original_status=$?
+  local cleanup_status=0
+  local cleanup_dir="${ROLLOUT_CLEANUP_OWNER_DIR-}"
+
+  trap - EXIT HUP INT TERM
   unset FORM_PASSWORD HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
   unset ROLLOUT_EVIDENCE_DIR
+
+  case "$cleanup_dir" in
+    "$ROLLOUT_CLEANUP_PREFIX"[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]])
+      if [ -e "$cleanup_dir" ] || [ -L "$cleanup_dir" ]; then
+        if ! rm -rf -- "$cleanup_dir"; then
+          cleanup_status=70
+        elif [ -e "$cleanup_dir" ] || [ -L "$cleanup_dir" ]; then
+          cleanup_status=70
+        fi
+      fi
+      ;;
+    *)
+      cleanup_status=70
+      ;;
+  esac
+
+  if [ "$cleanup_status" -ne 0 ]; then
+    printf '%s\n' \
+      'rollout probe cleanup failed; protected temporary artifacts may remain; stop the rollout and remove the fixed evidence directory manually' >&2
+  fi
+  if [ "$original_status" -ne 0 ]; then
+    return "$original_status"
+  fi
+  return "$cleanup_status"
 }
+
+trap '' HUP INT TERM
+readonly ROLLOUT_CLEANUP_PREFIX="${TMPDIR:-/tmp}/nexus-form-rollout."
+ROLLOUT_CLEANUP_OWNER_DIR="$(mktemp -d "${ROLLOUT_CLEANUP_PREFIX}XXXXXX")"
+readonly ROLLOUT_CLEANUP_OWNER_DIR
 trap cleanup_rollout_probe EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
+export ROLLOUT_EVIDENCE_DIR="$ROLLOUT_CLEANUP_OWNER_DIR"
 chmod 700 "$ROLLOUT_EVIDENCE_DIR"
 umask 077
 
@@ -290,7 +324,9 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
   "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
 ```
 
-`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持します。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。登録済みの`EXIT` trapは正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じidempotent cleanupを実行します。cookie jar、password/token入りrequest、response bodyは認証情報・フォーム内容を含み得るためchange ticketへ添付しません。
+このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。cleanup専用のreadonly ownerは`mktemp`が専用prefixで作成したpathへ固定されるため、運用中にmutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされても削除対象は変わりません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
+
+cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定ownerのpath検証または削除に失敗した場合はsecret値やpathを出力せずfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。どちらの場合もcutoff成立として扱わず、保護された一時artifactを手動削除してからfresh shellで再試行します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
 **Phase 1の残存リスク**: 同じ`AUTH_SECRET`をpre-fix Podも知っているため、この時点はsecurity cutoffではありません。旧Podが残っていればlegacy tokenを受理でき、pre-fixへrollbackすればlegacy grantを再発行できます。緊急時にphase 2前のpre-fixへ戻すことは技術的には可能ですが、セキュリティ要件未達へ戻る操作であり、phase 2の開始条件にはできません。
 
@@ -420,7 +456,6 @@ printf '%s\n' \
   'new submit: 201 responseId present' \
   | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt"
 cleanup_rollout_probe
-trap - EXIT HUP INT TERM
 unset PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
 ```
 
