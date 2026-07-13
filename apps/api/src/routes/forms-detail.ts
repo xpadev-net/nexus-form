@@ -18,6 +18,7 @@ import {
 } from "@nexus-form/database/schema";
 import { extractQuestionsFromPlateContent } from "@nexus-form/shared";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { sql } from "drizzle-orm/sql";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
@@ -393,8 +394,12 @@ export const formsDetailRouter = createHonoApp()
       }
       await db
         .update(form)
-        .set({ status: "PUBLISHED", publishedAt: new Date() })
-        .where(eq(form.id, id));
+        .set({
+          status: "PUBLISHED",
+          publishedAt: new Date(),
+          publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
+        })
+        .where(and(eq(form.id, id), sql`${form.status} <> ${"PUBLISHED"}`));
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
@@ -406,8 +411,11 @@ export const formsDetailRouter = createHonoApp()
       const id = c.req.param("id");
       await db
         .update(form)
-        .set({ status: "UNPUBLISHED" })
-        .where(eq(form.id, id));
+        .set({
+          status: "UNPUBLISHED",
+          publicPasswordGrantGeneration: sql`${form.publicPasswordGrantGeneration} + 1`,
+        })
+        .where(and(eq(form.id, id), sql`${form.status} <> ${"UNPUBLISHED"}`));
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )

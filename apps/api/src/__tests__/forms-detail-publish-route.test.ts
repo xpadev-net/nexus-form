@@ -4,6 +4,16 @@ vi.mock("../load-env", () => ({}));
 
 const mocks = vi.hoisted(() => ({
   getLatestSnapshot: vi.fn(),
+  pendingUpdate: undefined as Record<string, unknown> | undefined,
+  routeState: {
+    generation: 9_007_199_254_740_993n,
+    status: "DRAFT",
+  },
+  sql: vi.fn((strings: TemplateStringsArray, ...params: unknown[]) => ({
+    op: "sql",
+    params,
+    strings: Array.from(strings),
+  })),
   updateSet: vi.fn(),
   updateWhere: vi.fn(),
 }));
@@ -11,11 +21,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@nexus-form/database", () => ({
   db: {
     update: vi.fn(() => ({
-      set: mocks.updateSet.mockReturnValue({ where: mocks.updateWhere }),
+      set: mocks.updateSet,
     })),
   },
   form: {
     id: "form.id",
+    publicPasswordGrantGeneration: "form.publicPasswordGrantGeneration",
     status: "form.status",
     publishedAt: "form.publishedAt",
   },
@@ -92,11 +103,55 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn((left, values) => ({ op: "inArray", left, values })),
 }));
 
+vi.mock("drizzle-orm/sql", () => ({ sql: mocks.sql }));
+
+const INITIAL_GENERATION = 9_007_199_254_740_993n;
+
+function generationIncrementSql() {
+  return {
+    op: "sql",
+    params: ["form.publicPasswordGrantGeneration"],
+    strings: ["", " + 1"],
+  };
+}
+
+function statusNotEqualSql(status: "PUBLISHED" | "UNPUBLISHED") {
+  return {
+    op: "sql",
+    params: ["form.status", status],
+    strings: ["", " <> ", ""],
+  };
+}
+
 describe("POST /:id/publish", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    mocks.updateWhere.mockResolvedValue(undefined);
+    mocks.pendingUpdate = undefined;
+    mocks.routeState.generation = INITIAL_GENERATION;
+    mocks.routeState.status = "DRAFT";
+    mocks.updateSet.mockImplementation((values: Record<string, unknown>) => {
+      mocks.pendingUpdate = values;
+      return { where: mocks.updateWhere };
+    });
+    mocks.updateWhere.mockImplementation(async (condition) => {
+      const statusCondition = condition.conditions[1];
+      const nextStatus = statusCondition.params[1] as
+        | "PUBLISHED"
+        | "UNPUBLISHED";
+      if (mocks.routeState.status === nextStatus) {
+        return [{ affectedRows: 0 }];
+      }
+
+      const update = mocks.pendingUpdate;
+      if (!update) throw new Error("Missing pending form update");
+      expect(update.publicPasswordGrantGeneration).toEqual(
+        generationIncrementSql(),
+      );
+      mocks.routeState.generation += 1n;
+      mocks.routeState.status = nextStatus;
+      return [{ affectedRows: 1 }];
+    });
   });
 
   it("returns 400 without publishing when the active snapshot JSON is malformed", async () => {
@@ -154,6 +209,7 @@ describe("POST /:id/publish", () => {
   });
 
   it("publishes when the active snapshot contains at least one question", async () => {
+    mocks.routeState.status = "UNPUBLISHED";
     mocks.getLatestSnapshot.mockResolvedValue({
       id: "snapshot-1",
       formId: "form-1",
@@ -181,9 +237,90 @@ describe("POST /:id/publish", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ ok: true });
-    expect(mocks.updateSet).toHaveBeenCalledWith({
+    expect(mocks.routeState).toEqual({
+      generation: INITIAL_GENERATION + 1n,
       status: "PUBLISHED",
-      publishedAt: expect.any(Date),
+    });
+
+    const retryResponse = await formsDetailRouter.request("/form-1/publish", {
+      method: "POST",
+    });
+    expect(retryResponse.status).toBe(200);
+    await expect(retryResponse.json()).resolves.toEqual({ ok: true });
+    expect(mocks.routeState).toEqual({
+      generation: INITIAL_GENERATION + 1n,
+      status: "PUBLISHED",
+    });
+    expect(mocks.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "PUBLISHED",
+        publishedAt: expect.any(Date),
+        publicPasswordGrantGeneration: generationIncrementSql(),
+      }),
+    );
+    expect(mocks.updateSet).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere).toHaveBeenNthCalledWith(1, {
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        statusNotEqualSql("PUBLISHED"),
+      ],
+    });
+    expect(mocks.updateWhere).toHaveBeenNthCalledWith(2, {
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        statusNotEqualSql("PUBLISHED"),
+      ],
+    });
+  });
+
+  it("unpublishes through the authoritative lifecycle transaction", async () => {
+    mocks.routeState.status = "PUBLISHED";
+    const { formsDetailRouter } = await import("../routes/forms-detail");
+
+    const response = await formsDetailRouter.request("/form-1/unpublish", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    expect(mocks.routeState).toEqual({
+      generation: INITIAL_GENERATION + 1n,
+      status: "UNPUBLISHED",
+    });
+
+    const retryResponse = await formsDetailRouter.request("/form-1/unpublish", {
+      method: "POST",
+    });
+    expect(retryResponse.status).toBe(200);
+    await expect(retryResponse.json()).resolves.toEqual({ ok: true });
+    expect(mocks.routeState).toEqual({
+      generation: INITIAL_GENERATION + 1n,
+      status: "UNPUBLISHED",
+    });
+    expect(mocks.updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "UNPUBLISHED",
+        publicPasswordGrantGeneration: generationIncrementSql(),
+      }),
+    );
+    expect(mocks.updateSet).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.updateWhere).toHaveBeenNthCalledWith(1, {
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        statusNotEqualSql("UNPUBLISHED"),
+      ],
+    });
+    expect(mocks.updateWhere).toHaveBeenNthCalledWith(2, {
+      op: "and",
+      conditions: [
+        { op: "eq", left: "form.id", right: "form-1" },
+        statusNotEqualSql("UNPUBLISHED"),
+      ],
     });
   });
 });

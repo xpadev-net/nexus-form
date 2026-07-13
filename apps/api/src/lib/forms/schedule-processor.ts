@@ -4,7 +4,10 @@ import type { FormStatusValue } from "@nexus-form/shared";
 import { and, asc, eq, isNull, lte } from "drizzle-orm";
 import { SnapshotNotFoundError } from "../errors/form-errors";
 import { logError } from "../logger";
-import { activateSnapshot } from "./snapshot-repository";
+import {
+  activateSnapshotInTransaction,
+  transitionPublicationStatusInTransaction,
+} from "./snapshot-repository";
 
 const NO_SCHEDULE_CHANGES_MESSAGE = "No schedule changes needed";
 const ALREADY_PROCESSED_MESSAGE =
@@ -26,29 +29,6 @@ function getAffectedRows(updateResult: unknown): number {
   if (typeof header !== "object" || header === null) return 0;
   if (!("affectedRows" in header)) return 0;
   return typeof header.affectedRows === "number" ? header.affectedRows : 0;
-}
-
-async function releaseSnapshotScheduleClaim(
-  formId: string,
-  scheduleId: string,
-): Promise<void> {
-  try {
-    await db
-      .update(formSchedule)
-      .set({ processedAt: null })
-      .where(
-        and(eq(formSchedule.id, scheduleId), eq(formSchedule.formId, formId)),
-      );
-  } catch (rollbackError) {
-    logError("Failed to release SWITCH_SNAPSHOT schedule claim", "api", {
-      error:
-        rollbackError instanceof Error
-          ? rollbackError.message
-          : String(rollbackError),
-      formId,
-      scheduleId,
-    });
-  }
 }
 
 /**
@@ -149,15 +129,20 @@ export async function processFormSchedule(
             ),
           );
         if (getAffectedRows(processedResult) === 0) {
-          message = ALREADY_PROCESSED_MESSAGE;
+          if (message === NO_SCHEDULE_CHANGES_MESSAGE) {
+            message = ALREADY_PROCESSED_MESSAGE;
+          }
           continue;
         }
 
         if (schedule.action === "PUBLISH" && currentStatus !== "PUBLISHED") {
-          await tx
-            .update(form)
-            .set({ status: "PUBLISHED", publishedAt: schedule.triggerAt })
-            .where(eq(form.id, formId));
+          await transitionPublicationStatusInTransaction(
+            tx,
+            formId,
+            currentStatus,
+            "PUBLISHED",
+            schedule.triggerAt,
+          );
           statusChanged = true;
           currentStatus = "PUBLISHED";
           newStatus = "PUBLISHED";
@@ -166,10 +151,13 @@ export async function processFormSchedule(
           schedule.action === "UNPUBLISH" &&
           currentStatus !== "UNPUBLISHED"
         ) {
-          await tx
-            .update(form)
-            .set({ status: "UNPUBLISHED", unpublishedAt: schedule.triggerAt })
-            .where(eq(form.id, formId));
+          await transitionPublicationStatusInTransaction(
+            tx,
+            formId,
+            currentStatus,
+            "UNPUBLISHED",
+            schedule.triggerAt,
+          );
           statusChanged = true;
           currentStatus = "UNPUBLISHED";
           newStatus = "UNPUBLISHED";
@@ -190,47 +178,63 @@ export async function processFormSchedule(
     let finalResult = scheduleResult;
 
     for (const schedule of snapshotSchedules) {
-      const processedResult = await db
-        .update(formSchedule)
-        .set({ processedAt: currentTime })
-        .where(
-          and(
-            eq(formSchedule.id, schedule.id),
-            isNull(formSchedule.processedAt),
-          ),
-        );
-      if (getAffectedRows(processedResult) === 0) {
-        const message =
-          finalResult.message === NO_SCHEDULE_CHANGES_MESSAGE
-            ? ALREADY_PROCESSED_MESSAGE
-            : finalResult.message;
-        finalResult = {
-          ...finalResult,
-          processed: true,
-          message,
-        };
-        continue;
-      }
-
-      let snapshotMessage: string;
+      let activated: boolean;
       try {
-        await activateSnapshot(formId, schedule.snapshotVersion);
-        snapshotMessage = `Snapshot switched to version ${schedule.snapshotVersion} based on schedule`;
-      } catch (err) {
-        await releaseSnapshotScheduleClaim(formId, schedule.id);
-        if (err instanceof SnapshotNotFoundError) {
+        activated = await db.transaction(async (tx) => {
+          // Keep the same lock order as the due-schedule transaction above:
+          // Form -> FormSchedule. Reversing this order lets concurrent workers
+          // deadlock while one owns each row and waits for the other.
+          const [lockedForm] = await tx
+            .select({ id: form.id })
+            .from(form)
+            .where(eq(form.id, formId))
+            .for("update")
+            .limit(1);
+          if (!lockedForm) throw new Error("Form not found");
+
+          const processedResult = await tx
+            .update(formSchedule)
+            .set({ processedAt: currentTime })
+            .where(
+              and(
+                eq(formSchedule.id, schedule.id),
+                isNull(formSchedule.processedAt),
+              ),
+            );
+          if (getAffectedRows(processedResult) === 0) return false;
+
+          await activateSnapshotInTransaction(
+            tx,
+            formId,
+            schedule.snapshotVersion,
+          );
+          return true;
+        });
+      } catch (error) {
+        if (error instanceof SnapshotNotFoundError) {
           logError("SWITCH_SNAPSHOT skipped: snapshot not found", "api", {
             formId,
             targetVersion: schedule.snapshotVersion,
           });
         }
-        throw err;
+        throw error;
+      }
+
+      if (!activated) {
+        if (finalResult.message === NO_SCHEDULE_CHANGES_MESSAGE) {
+          finalResult = {
+            ...finalResult,
+            processed: true,
+            message: ALREADY_PROCESSED_MESSAGE,
+          };
+        }
+        continue;
       }
 
       finalResult = {
         ...finalResult,
         processed: true,
-        message: snapshotMessage,
+        message: `Snapshot switched to version ${schedule.snapshotVersion} based on schedule`,
       };
     }
 
