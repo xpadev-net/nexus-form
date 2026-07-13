@@ -939,7 +939,7 @@ printf '%s\n' \
   'new GET: 200 unlocked structure!=null' \
   'new submit: 201 responseId present' \
   | tee "$ROLLOUT_EVIDENCE_DIR/cutoff-smoke-result.txt" 2>/dev/null
-cleanup_rollout_probe
+cleanup_rollout_probe || exit $?
 unset PUBLIC_FORM_URL PUBLIC_ID API_BASE_URL RESPONSES_FILE
 ```
 
