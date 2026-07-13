@@ -148,6 +148,7 @@
 - owns:
   - k8s/README.md
   - k8s/base/api-deployment.yaml
+  - k8s/base/kustomization.yaml
   - k8s/base/secret.yaml
 - depends_on: [Task_1]
 - description: Document and template the expand/bridge/drain/secret-rotation rollout that prevents pre-fix pods or same-secret rollback from accepting legacy grants after cutoff.
@@ -155,6 +156,7 @@
   - Runbook defines phase 0 additive migration, phase 1 bridge rollout and old-pod drain verification, and phase 2 AUTH_SECRET rotation.
   - Pre-fix rollback after phase 2 is explicitly forbidden; the minimum safe rollback floor is the bridge release.
   - Kubernetes templates express only secret/configuration contracts and never commit a real secret value.
+  - Base and production Kustomize apply paths never include the placeholder Secret; one external secret-management path remains authoritative for `nexus-form-secrets`.
   - The old-token/new-binary, new-token/old-binary, and same-secret rollback matrix is explicit, including the phase-1 residual risk.
   - Operators have concrete zero-old-pod and post-rotation verification steps before enabling the final consumer contract.
 - validation:
@@ -231,6 +233,7 @@
 - 2026-07-11: Task_1 security design approved. Use V2 `verifiedFormGrants[{formId,revision}]`, keep legacy claims parseable but invalid for protected forms, and derive a form-scoped opaque HMAC revision from the effective published credential generation without exposing raw or hashed passwords.
 - 2026-07-13: Task_2/3 implementation was stopped after independent review reproduced grant revival through historical snapshot reactivation and proved that same-secret rollback to pre-fix code remains fail-open. No additional replacement-worker edits were made; existing PR #665 is retained for downstream Task_8.
 - 2026-07-13: Split execution into additive generation schema/migration (Task_5), authoritative lifecycle writers (Task_6), rollout cutoff/rollback floor (Task_7), and downstream JWT/routes/tests (Task_8).
+- 2026-07-13: Task_7 Reviewer found that the production overlay still rendered and applied the placeholder Secret despite the external-secret runbook. Expanded Task_7 ownership narrowly to `k8s/base/kustomization.yaml`; the implementation must remove the placeholder Secret from base/production apply output and add executable old-cookie/new-cookie GET and submit smoke evidence before re-review.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
@@ -238,3 +241,4 @@
 - 2026-07-13: The original deterministic snapshot-version/password-hash revision is insufficient because historical snapshots are reactivatable. Use a persistent non-reusable generation advanced by every authoritative publication lifecycle writer.
 - 2026-07-13: Same-secret rollback to a pre-fix binary cannot be made fail-closed by new-code changes. Adopt bridge rollout, verify old-pod drain, rotate `AUTH_SECRET`, and enforce a bridge-release rollback floor before Task_8 can merge.
 - 2026-07-13: Research dispatch waived because the stopped Worker supplied a clean-worktree reproduction, exact direct/scheduled lifecycle anchors, schema inventory, and the full old/new token/binary compatibility matrix; the Orchestrator split that evidence into bounded tasks.
+- 2026-07-13: The checked-in `secret.yaml` remains a placeholder contract only and must not be a Kustomize resource. External secret management is the sole authoritative writer for the runtime `nexus-form-secrets` object; rendering/applying base or production must not overwrite it.
