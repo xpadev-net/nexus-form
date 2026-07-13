@@ -364,3 +364,31 @@ Prevention:
 
 Evidence:
 - PWR-2R worker reproduction on PR #665: v3/password-A grant matched again after v8 and historical v3 reactivation; compatibility matrix showed pre-fix same-secret rollback remains fail-open.
+
+## 2026-07-13 — Separate Implementation Threads from Review Subagents  [tags: orchestration, delegation, review, role-separation]
+
+Context:
+- Plan: all active orchestrated implementation plans
+- Task/Wave: worker dispatch and review gate
+- Roles involved: Orchestrator, Worker, Reviewer
+
+Symptom:
+- Worker prompts allowed implementation threads to own or arrange independent review, blurring the requested execution and review roles.
+
+Root cause:
+- The generic worker lifecycle was copied without applying the user's runtime-specific requirement that implementation use separate threads while review uses subagents.
+
+Fix applied:
+- Active implementation threads were told to stop at `REVIEW_READY`; the parent Orchestrator now dispatches review-only subagents and returns findings to the original implementation thread.
+
+Prevention:
+- Repo rule candidate:
+  - audience: orchestrator
+  - proposed rule: "Delegate implementation to isolated worktree threads, but dispatch formal independent review only as a review-only subagent from the parent Orchestrator."
+- Dispatch/plan guardrail:
+  - Implementation thread reports and self-checks cannot satisfy Reviewer-owned validation; only the parent-dispatched review subagent can produce the Reviewer verdict.
+- Residual risk / waiver:
+  - none
+
+Evidence:
+- User correction on 2026-07-13 and follow-up instructions sent to PWR-2G1, PWR-2D, and OUTBOX-3 implementation threads.
