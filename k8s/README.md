@@ -248,6 +248,23 @@ rollout_file_mode() {
     return 1
   fi
 }
+rollout_mode_rejects_shared_write() {
+  local mode
+  local group_digit
+  local other_digit
+
+  mode="$(rollout_file_mode "$1")" || return 1
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+  mode="${mode: -3}"
+  group_digit="${mode:1:1}"
+  other_digit="${mode:2:1}"
+  case "$group_digit" in
+    2 | 3 | 6 | 7) return 1 ;;
+  esac
+  case "$other_digit" in
+    2 | 3 | 6 | 7) return 1 ;;
+  esac
+}
 rollout_file_identity() {
   local identity
 
@@ -268,6 +285,7 @@ rollout_locator_component_is_safe() {
     *) return 1 ;;
   esac
   [ -d "$component" ] && [ ! -L "$component" ] && [ -O "$component" ] || return 1
+  rollout_mode_rejects_shared_write "$component" || return 1
   physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
   [ "$physical_component" = "$component" ]
 }
@@ -536,7 +554,9 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
 
 このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。入力された`TMPDIR`はsecret artifactの作成前にabsolute physical directoryへ解決され、cleanup専用のreadonly ownerはそのcanonical parent配下へ固定されます。そのため、運用中にcwdや`TMPDIR`の親symlinkが変化しても削除対象は変わらず、mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
 
-cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`HOME`、`.local`、`state`、`nexus-form`のlocator chainはすべてabsolute physical pathと一致し、symlinkではなく実行user所有でなければprobeを開始しません。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含む既存chainは自動修復せずfail closedにするため、retargetで旧ledgerを見失ったまま新probeを開始できません。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
+cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`HOME`、`.local`、`state`、`nexus-form`のlocator chainはすべてabsolute physical pathと一致し、symlinkではなく実行user所有で、group/world write bitを持たない場合だけprobeを開始します。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含むchainや別UIDが置換可能なshared-writable chainは自動修復せずfail closedにします。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、現在のlocatorに既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
+
+**cleanup locatorのtrust boundary / accepted residual**: このportable runbookは、probeを実行するsame UIDをtrusted boundaryとします。別UIDからのcomponent入替えはownershipとgroup/world-write検査で拒否し、symlink retargetも拒否します。一方、SIGKILL後にsame UIDが最終locator directoryを別名へrenameする、ledgerを削除する、または同pathへ新しいmode `0700`の実directoryを作る操作は、終了したprocessのdevice/inode identityを新processへ信頼可能に渡す外部authorityがないため検出できません。この場合は旧ledgerとsecret artifactを残したまま新probeが開始できるため、ledger admissionをsame-UID hostile processに対するsecurity gateとは扱いません。専用operator UIDではuntrusted codeを実行せず、abnormal exit後は同UIDの別processを起動する前にlocatorを変更せずrecoveryを実行します。same-UID replacementにも技術的なfail-closed保証が必要な環境では、probe UIDがrename/deleteできないplatform-owned parentとprivileged ledger writer/recovery serviceを別のhost/platform運用タスクで用意してください。このrunbookとTask_7のKubernetes manifestはそのauthorityを提供しません。
 
 cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
@@ -563,6 +583,23 @@ recovery_file_mode() {
     return 1
   fi
 }
+recovery_mode_rejects_shared_write() {
+  local mode
+  local group_digit
+  local other_digit
+
+  mode="$(recovery_file_mode "$1")" || return 1
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+  mode="${mode: -3}"
+  group_digit="${mode:1:1}"
+  other_digit="${mode:2:1}"
+  case "$group_digit" in
+    2 | 3 | 6 | 7) return 1 ;;
+  esac
+  case "$other_digit" in
+    2 | 3 | 6 | 7) return 1 ;;
+  esac
+}
 recovery_file_identity() {
   local identity
 
@@ -583,6 +620,7 @@ recovery_locator_component_is_safe() {
     *) return 1 ;;
   esac
   [ -d "$component" ] && [ ! -L "$component" ] && [ -O "$component" ] || return 1
+  recovery_mode_rejects_shared_write "$component" || return 1
   physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
   [ "$physical_component" = "$component" ]
 }
