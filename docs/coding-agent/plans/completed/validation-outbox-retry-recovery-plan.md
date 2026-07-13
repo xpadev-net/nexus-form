@@ -1,6 +1,6 @@
 # Plan: Validation Outbox Retry Recovery
 
-- status: in_progress
+- status: done
 - generated: 2026-07-11
 - last_updated: 2026-07-14
 - work_type: code
@@ -145,6 +145,7 @@
     required: true
     owner: reviewer
     detail: "Independent concurrency, retry, and rolling-deploy review."
+- status: complete
 
 ### Task_8: Add persistent Worker admission for stable outbox jobs
 - type: impl
@@ -200,6 +201,7 @@
 - 2026-07-14: Started Task_5 Worker `019f5d77-371a-72e3-8f3c-3e6e2d52ea76` for the two runtime failure-injection test files and Task_6 Worker `019f5d77-6c9a-7e43-8501-6274e71bebbe` for the two migration compatibility test files. Ownership is disjoint, both start from current origin/master, and each stops at REVIEW_READY before parent formal review.
 - 2026-07-14: Task_5 merged via PR #675 as `df99507d3619ac8ea415c8ed99115b39ee66787b`. The behavioral harness now applies production-generated predicates to persistent row state across direct enqueue, periodic sweeps, shared maximum-eight attempts, concurrent claims, bounded backoff, and acknowledgement uncertainty. Formal Reviewer and parent merge gates passed; live MySQL/Redis/BullMQ/provider integration remains the explicit non-blocking residual for final Task_7 review.
 - 2026-07-14: Task_6 merged via PR #676 as `017cf33ff7017ad258fa63f5245f4e1186a4b8de`. The compatibility tests now pin exact retry-metadata column/index shape, journal and snapshot ordering, rollback-reader compatibility, and the ordered six-operation `INFORMATION_SCHEMA` guard through `DEALLOCATE` wiring with unsafe mutation counterexamples. Formal Reviewer and parent merge gates passed; live MySQL execution remains a non-blocking residual for final Task_7 review.
+- 2026-07-14: Task_7 completed APPROVED on exact master `a2fe6042feb4a228f75bce4baab3fb04d297c161`. The independent Reviewer verified the complete producer → sweeper → Worker → migration contract and passed producer/sweeper 69, shared 9, Worker 155, migration 17, API/Worker/database type-check, workspace build, diff-check, and cleanliness. Parent final lint, workspace type-check, full tests, API focused 86, shared 9, and Worker 155 also passed. Live MySQL/Redis/BullMQ/provider integration remains an explicit non-blocking residual; rolling safety requires the documented additive migration → Worker admission → sweeper → STABLE producer deployment order.
 
 ## Decision Log
 - 2026-07-11: Isolated as a state-machine plan because schema, concurrency, and failure-injection evidence must be reviewed together.

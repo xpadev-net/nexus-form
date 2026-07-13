@@ -42,6 +42,7 @@
 | OUTBOX-4 | Initial submission enqueue retry alignment | complete | `codex/outbox-4-submission-enqueue-retry` | `019f5d31-c28a-7ac1-ba52-9f4d5bfd53bb` | [#674](https://github.com/xpadev-net/nexus-form/pull/674) | Merged as `14455b34c70c5186c04fd4d73cba61cde90bc613`; formal Reviewer APPROVED, parent hook/deep-review/focused/full gates passed; archive worker |
 | OUTBOX-5 | Runtime validation outbox failure-injection coverage | complete | `codex/outbox-5-runtime-failure-injection` | `019f5d77-371a-72e3-8f3c-3e6e2d52ea76` | [#675](https://github.com/xpadev-net/nexus-form/pull/675) | Merged as `df99507d3619ac8ea415c8ed99115b39ee66787b`; formal Reviewer APPROVED, parent hook/deep-review/focused/full gates passed; archive worker |
 | OUTBOX-6 | Validation outbox migration compatibility coverage | complete | `codex/outbox-6-migration-compatibility` | `019f5d77-6c9a-7e43-8501-6274e71bebbe` | [#676](https://github.com/xpadev-net/nexus-form/pull/676) | Merged as `017cf33ff7017ad258fa63f5245f4e1186a4b8de`; formal Reviewer APPROVED, parent hook/deep-review/focused/full gates passed; archive worker |
+| OUTBOX-7 | Validation outbox final integration review | complete | — | `/root/outbox_final_integration_reviewer` | — | APPROVED exact master `a2fe6042feb4a228f75bce4baab3fb04d297c161`; parent lint/type/full and focused gates passed; plan archived |
 
 ## Queued Plans
 
@@ -53,7 +54,6 @@
 | Web API Error and Discord Auth UX | queued | Remaining tasks depend on WEBERR-1 |
 | Public Form Password Verification Revocation | queued | Keep serialized with other `forms-public.ts` work |
 | Public Password Request Bounds | queued | Keep serialized with other `forms-public.ts` work |
-| Validation Outbox Retry Recovery | queued | Design first; serialize submission-route changes |
 | Realtime E2E Auth Fixture | queued | Design first; run after security/reliability slices |
 
 ## Follow-up Findings
@@ -140,3 +140,4 @@
 - 2026-07-14: Started dependency-ready OUTBOX-5 Worker `019f5d77-371a-72e3-8f3c-3e6e2d52ea76` on `codex/outbox-5-runtime-failure-injection` and OUTBOX-6 Worker `019f5d77-6c9a-7e43-8501-6274e71bebbe` on `codex/outbox-6-migration-compatibility` in separate worktrees. Their test-file ownership is non-overlapping; both must stop at REVIEW_READY for parent-dispatched read-only formal review.
 - 2026-07-14: OUTBOX-5 merged via PR #675 as `df99507d3619ac8ea415c8ed99115b39ee66787b`. Formal Reviewer approved the exact two test blobs after independently verifying the stateful production-predicate harness, direct-to-sweeper recovery, shared attempt limit/backoff, concurrent claims, stable-ID acknowledgement replay, and Worker admission parity; parent deep-review, hook exit 0, lint, type-check, full tests, focused API 69/shared 9/Worker 155, CI, and AI review gates passed. Archive the Worker.
 - 2026-07-14: OUTBOX-6 merged via PR #676 as `017cf33ff7017ad258fa63f5245f4e1186a4b8de`. Formal Reviewer approved the exact two test blobs after independently verifying exact retry-metadata column/index shape, the ordered six-operation guard-to-deallocate control-flow wiring, unsafe mutation rejection, generated snapshot chaining, and rollback-reader compatibility; parent deep-review, hook exit 0, lint, database/API/workspace type-check, full tests, focused 17 tests, CI, and AI review gates passed. Archive the Worker; final Task_7 integration validation is dependency-ready.
+- 2026-07-14: OUTBOX-7 final integration review completed APPROVED on exact master `a2fe6042feb4a228f75bce4baab3fb04d297c161`. The read-only Reviewer independently passed producer/sweeper 69, shared 9, Worker 155, migration 17, API/Worker/database type-check, workspace build, diff-check, and cleanliness while verifying rolling LEGACY/STABLE compatibility, shared maximum-eight attempts, MySQL server-time authority, deterministic job-ID/Worker admission fencing, acknowledgement uncertainty, terminal preparation failures, and additive rollback-safe migration wiring. Parent final `pnpm lint:fix`, `pnpm type-check`, `pnpm test --silent`, API focused 86, shared 9, and Worker 155 passed; the validation-outbox retry recovery plan is complete and archived.
