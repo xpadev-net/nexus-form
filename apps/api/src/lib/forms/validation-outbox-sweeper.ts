@@ -7,7 +7,7 @@ import {
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import { genericValidationJobDataSchema } from "@nexus-form/shared";
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, or } from "drizzle-orm";
 import type { z } from "zod";
 import { logError } from "../logger";
 import { getValidationQueue, isValidServiceName } from "../queues";
@@ -137,8 +137,8 @@ async function markValidationOutboxFailed(
 async function persistValidationOutboxJobId(
   row: ClaimedValidationOutboxRow,
   jobId: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const [result] = await db
     .update(externalServiceValidationResult)
     .set({
       jobId,
@@ -158,6 +158,29 @@ async function persistValidationOutboxJobId(
         eq(externalServiceValidationResult.claimToken, row.claimToken),
       ),
     );
+  return result.affectedRows > 0;
+}
+
+async function renewValidationOutboxClaim(
+  row: ClaimedValidationOutboxRow,
+  now: Date,
+  leaseMs: number,
+): Promise<boolean> {
+  const claimExpiresAt = new Date(now.getTime() + leaseMs);
+  const [result] = await db
+    .update(externalServiceValidationResult)
+    .set({ claimExpiresAt })
+    .where(
+      and(
+        eq(externalServiceValidationResult.id, row.id),
+        eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.enqueueMode, "STABLE"),
+        isNull(externalServiceValidationResult.jobId),
+        eq(externalServiceValidationResult.claimToken, row.claimToken),
+        gt(externalServiceValidationResult.claimExpiresAt, now),
+      ),
+    );
+  return result.affectedRows > 0;
 }
 
 function retryDelayMs(attempt: number, random: () => number): number {
@@ -165,10 +188,14 @@ function retryDelayMs(attempt: number, random: () => number): number {
     INITIAL_BACKOFF_MS * 2 ** Math.max(0, attempt - 1),
     MAX_BACKOFF_MS,
   );
+  const jitterFloor =
+    baseDelay === MAX_BACKOFF_MS
+      ? MAX_BACKOFF_MS - INITIAL_BACKOFF_MS
+      : baseDelay;
   const jitter = Math.floor(
     Math.min(1, Math.max(0, random())) * INITIAL_BACKOFF_MS,
   );
-  return Math.min(MAX_BACKOFF_MS, baseDelay + jitter);
+  return Math.min(MAX_BACKOFF_MS, jitterFloor + jitter);
 }
 
 function validationOutboxEligibilityCondition(now: Date, cutoff: Date) {
@@ -372,7 +399,11 @@ async function enqueuePendingValidationOutboxRow(
     string,
     { ruleType: string; configJson: Record<string, unknown> }
   >,
-  options: { now: Date; random: () => number },
+  options: {
+    clock: () => Date;
+    leaseMs: number;
+    random: () => number;
+  },
 ): Promise<"enqueued" | "failed" | "retrying" | "unresolved"> {
   if (!row.service || !isValidServiceName(row.service)) {
     const marked = await markValidationOutboxFailed(
@@ -459,6 +490,23 @@ async function enqueuePendingValidationOutboxRow(
   const jobId = buildValidationOutboxJobId(row.id);
 
   try {
+    let claimRenewed = false;
+    try {
+      claimRenewed = await renewValidationOutboxClaim(
+        row,
+        options.clock(),
+        options.leaseMs,
+      );
+    } catch (error) {
+      logError("Failed to renew validation outbox claim", "api", {
+        error,
+        resultId: row.id,
+        jobId,
+      });
+      captureError(error);
+    }
+    if (!claimRenewed) return "unresolved";
+
     const queue = getValidationQueue(row.service);
     await queue.add(`validate-${row.service}`, jobData, { jobId });
   } catch (error) {
@@ -476,7 +524,7 @@ async function enqueuePendingValidationOutboxRow(
     try {
       recovery = await releaseValidationOutboxClaim(
         row,
-        options.now,
+        options.clock(),
         options.random,
         error,
       );
@@ -492,7 +540,8 @@ async function enqueuePendingValidationOutboxRow(
   }
 
   try {
-    await persistValidationOutboxJobId(row, jobId);
+    const persisted = await persistValidationOutboxJobId(row, jobId);
+    if (!persisted) return "unresolved";
   } catch (error) {
     logError("Failed to persist validation outbox jobId", "api", {
       error,
@@ -504,6 +553,7 @@ async function enqueuePendingValidationOutboxRow(
       jobId,
     });
     captureError(error);
+    return "unresolved";
   }
   return "enqueued";
 }
@@ -529,6 +579,7 @@ export async function sweepValidationOutbox(
     staleMs?: number;
     leaseMs?: number;
     now?: Date;
+    clock?: () => Date;
     random?: () => number;
   } = {},
 ): Promise<ValidationOutboxSweepResult> {
@@ -538,7 +589,9 @@ export async function sweepValidationOutbox(
   );
   const staleMs = Math.max(0, options.staleMs ?? DEFAULT_STALE_MS);
   const leaseMs = Math.max(1, options.leaseMs ?? DEFAULT_CLAIM_LEASE_MS);
-  const now = options.now ?? new Date();
+  const fixedNow = options.now;
+  const clock = options.clock ?? (() => fixedNow ?? new Date());
+  const now = fixedNow ?? clock();
   const random = options.random ?? Math.random;
   const cutoff = new Date(now.getTime() - staleMs);
   const rows = await findPendingValidationOutboxRows(
@@ -559,7 +612,7 @@ export async function sweepValidationOutbox(
     const outcome = await enqueuePendingValidationOutboxRow(
       row,
       snapshotRules,
-      { now, random },
+      { clock, leaseMs, random },
     );
     if (outcome === "enqueued") result.enqueued += 1;
     if (outcome === "failed") result.failed += 1;

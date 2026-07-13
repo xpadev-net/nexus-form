@@ -86,6 +86,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => ({ type: "and", args })),
   asc: vi.fn((value: unknown) => ({ type: "asc", value })),
   eq: vi.fn((left: unknown, right: unknown) => ({ type: "eq", left, right })),
+  gt: vi.fn((left: unknown, right: unknown) => ({ type: "gt", left, right })),
   inArray: vi.fn((left: unknown, right: unknown) => ({
     type: "inArray",
     left,
@@ -148,6 +149,24 @@ function usePendingRowsResult(rows: Promise<PendingRow[]>) {
   );
 }
 
+function useClaimRowsSequence(rowsByClaim: PendingRow[][]) {
+  let claimIndex = 0;
+  mocks.db.transaction.mockImplementation(
+    async (callback: (tx: unknown) => unknown) => {
+      const rows = rowsByClaim[claimIndex++] ?? [];
+      const forUpdate = vi.fn(async () => rows);
+      const limit = vi.fn(() => ({ for: forUpdate }));
+      const orderBy = vi.fn(() => ({ limit }));
+      const where = vi.fn(() => ({ orderBy }));
+      const leftJoin = vi.fn(() => ({ where }));
+      const innerJoin = vi.fn(() => ({ leftJoin }));
+      const from = vi.fn(() => ({ innerJoin }));
+      const select = vi.fn(() => ({ from }));
+      return callback({ select, update: mocks.db.update });
+    },
+  );
+}
+
 function createDeferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (error: unknown) => void;
@@ -166,7 +185,7 @@ function useUpdateResults(results: Array<{ affectedRows: number }>) {
         where: vi.fn(async (where: unknown) => {
           mocks.updateWheres.push(where);
           mocks.sequence.push("db:update");
-          return [results.shift() ?? { affectedRows: 0 }];
+          return [results.shift() ?? { affectedRows: 1 }];
         }),
       };
     }),
@@ -217,12 +236,17 @@ describe("validation outbox sweeper", () => {
       failed: 0,
       retryScheduled: 0,
     });
-    expect(mocks.sequence).toEqual(["db:update", "queue:add", "db:update"]);
+    expect(mocks.sequence).toEqual([
+      "db:update",
+      "db:update",
+      "queue:add",
+      "db:update",
+    ]);
     expect(mocks.updateSets[0]).toMatchObject({
       claimToken: expect.any(String),
       claimExpiresAt: expect.any(Date),
     });
-    expect(mocks.updateSets[1]).toMatchObject({
+    expect(mocks.updateSets[2]).toMatchObject({
       jobId: "validation-outbox-validation-result-1",
       errorCode: null,
       errorMessage: null,
@@ -334,7 +358,7 @@ describe("validation outbox sweeper", () => {
       failed: 0,
       retryScheduled: 1,
     });
-    expect(mocks.updateSets[1]).toMatchObject({
+    expect(mocks.updateSets[2]).toMatchObject({
       errorCode: "ENQUEUE_FAILED",
       errorMessage: "redis down",
       enqueueAttemptCount: 1,
@@ -342,7 +366,7 @@ describe("validation outbox sweeper", () => {
       claimToken: null,
       claimExpiresAt: null,
     });
-    expect(mocks.updateWheres[1]).toEqual(
+    expect(mocks.updateWheres[2]).toEqual(
       expect.objectContaining({
         args: expect.arrayContaining([
           expect.objectContaining({
@@ -352,6 +376,38 @@ describe("validation outbox sweeper", () => {
         ]),
       }),
     );
+  });
+
+  it("schedules retry backoff from the failure time", async () => {
+    usePendingRows([pendingRow({ snapshotVersion: null })]);
+    useUpdateResults([]);
+    const startedAt = new Date("2026-07-11T00:00:00.000Z");
+    let currentNow = startedAt;
+    mocks.addValidationJob.mockImplementation(async () => {
+      currentNow = new Date("2026-07-11T00:00:05.000Z");
+      throw new Error("redis down");
+    });
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: startedAt,
+      clock: () => currentNow,
+      random: () => 0,
+    });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 1,
+    });
+    expect(mocks.updateSets[2]).toMatchObject({
+      nextEligibleAt: new Date("2026-07-11T00:00:35.000Z"),
+    });
   });
 
   it("does not count a retry when the claim CAS no longer matches", async () => {
@@ -387,7 +443,7 @@ describe("validation outbox sweeper", () => {
           where: vi.fn(async (where: unknown) => {
             mocks.updateWheres.push(where);
             updateCount += 1;
-            if (updateCount === 2) throw new Error("db down");
+            if (updateCount === 3) throw new Error("db down");
             return [{ affectedRows: 1 }];
           }),
         };
@@ -451,14 +507,76 @@ describe("validation outbox sweeper", () => {
       failed: 0,
       retryScheduled: 2,
     });
-    expect(mocks.updateSets[1]).toMatchObject({
-      enqueueAttemptCount: 2,
-      nextEligibleAt: new Date("2026-07-11T00:01:15.000Z"),
+    expect(mocks.updateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          enqueueAttemptCount: 2,
+          nextEligibleAt: new Date("2026-07-11T00:01:15.000Z"),
+        }),
+      ]),
+    );
+    expect(mocks.updateSets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          enqueueAttemptCount: 6,
+          nextEligibleAt: new Date("2026-07-11T00:14:45.000Z"),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps jitter when the retry backoff is already capped", async () => {
+    usePendingRows([
+      pendingRow({
+        id: "validation-result-cap-1",
+        snapshotVersion: null,
+        enqueueAttemptCount: 6,
+      }),
+      pendingRow({
+        id: "validation-result-cap-2",
+        snapshotVersion: null,
+        enqueueAttemptCount: 6,
+      }),
+    ]);
+    useUpdateResults([]);
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+    const randomValues = [0, 1];
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const now = new Date("2026-07-11T00:00:00.000Z");
+    const result = await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now,
+      random: () => randomValues.shift() ?? 0,
     });
-    expect(mocks.updateSets[2]).toMatchObject({
-      enqueueAttemptCount: 6,
-      nextEligibleAt: new Date("2026-07-11T00:15:00.000Z"),
+
+    expect(result).toEqual({
+      scanned: 2,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 2,
     });
+    const scheduledTimes = mocks.updateSets.flatMap((value) => {
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("nextEligibleAt" in value) ||
+        !(value.nextEligibleAt instanceof Date)
+      ) {
+        return [];
+      }
+      return [value.nextEligibleAt];
+    });
+    expect(scheduledTimes).toEqual([
+      new Date("2026-07-11T00:14:30.000Z"),
+      new Date("2026-07-11T00:15:00.000Z"),
+    ]);
+    expect(scheduledTimes[1]?.getTime()).toBeGreaterThan(
+      scheduledTimes[0]?.getTime() ?? 0,
+    );
   });
 
   it("moves the row to FAILED on the eighth enqueue failure", async () => {
@@ -484,7 +602,7 @@ describe("validation outbox sweeper", () => {
       failed: 1,
       retryScheduled: 0,
     });
-    expect(mocks.updateSets[1]).toMatchObject({
+    expect(mocks.updateSets[2]).toMatchObject({
       status: "FAILED",
       errorCode: "ENQUEUE_RETRY_EXHAUSTED",
       enqueueAttemptCount: 8,
@@ -517,6 +635,99 @@ describe("validation outbox sweeper", () => {
       failed: 0,
       retryScheduled: 0,
     });
+  });
+
+  it("skips a stale claimant before enqueue after reclaim and job eviction", async () => {
+    const firstSnapshot = createDeferred<{
+      validationRulesJson: string;
+    }>();
+    const snapshot = {
+      validationRulesJson: JSON.stringify([
+        {
+          id: "rule-1",
+          name: "Discord membership",
+          providerName: "discord",
+          ruleType: "guild_member",
+          referencedBlockIds: ["block-1"],
+          configJson: { guildId: "guild-1" },
+          orderIndex: 0,
+        },
+      ]),
+    };
+    useClaimRowsSequence([[pendingRow()], [pendingRow()]]);
+    mocks.getSnapshotByVersion
+      .mockImplementationOnce(() => firstSnapshot.promise)
+      .mockResolvedValueOnce(snapshot);
+
+    let updateCount = 0;
+    mocks.db.update.mockImplementation(() => ({
+      set: vi.fn((values: unknown) => {
+        mocks.updateSets.push(values);
+        return {
+          where: vi.fn(async (where: unknown) => {
+            mocks.updateWheres.push(where);
+            updateCount += 1;
+            return [{ affectedRows: updateCount === 5 ? 0 : 1 }];
+          }),
+        };
+      }),
+    }));
+
+    const activeJobIds = new Set<string>();
+    let providerRuns = 0;
+    mocks.addValidationJob.mockImplementation(
+      async (_name: string, _data: unknown, options: { jobId?: string }) => {
+        const jobId = options.jobId ?? "";
+        providerRuns += 1;
+        activeJobIds.add(jobId);
+        activeJobIds.delete(jobId);
+        return { id: jobId };
+      },
+    );
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    let currentNow = new Date("2026-07-11T00:00:00.000Z");
+    const clock = () => currentNow;
+    const first = sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 1,
+      leaseMs: 1_000,
+      clock,
+    });
+    await vi.waitFor(() =>
+      expect(mocks.getSnapshotByVersion).toHaveBeenCalledTimes(1),
+    );
+
+    currentNow = new Date("2026-07-11T00:00:02.000Z");
+    await expect(
+      sweepValidationOutbox({
+        staleMs: 0,
+        batchSize: 1,
+        leaseMs: 1_000,
+        clock,
+      }),
+    ).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+      retryScheduled: 0,
+    });
+
+    expect(providerRuns).toBe(1);
+    expect(activeJobIds).toEqual(new Set());
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
+
+    firstSnapshot.resolve(snapshot);
+    await expect(first).resolves.toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
+    expect(mocks.updateSets[0]).not.toEqual(mocks.updateSets[1]);
   });
 
   it("does not duplicate a row while another transaction holds its claim", async () => {
@@ -565,7 +776,7 @@ describe("validation outbox sweeper", () => {
             mocks.updateWheres.push(where);
             mocks.sequence.push("db:update");
             updateCount += 1;
-            if (updateCount === 2) throw new Error("db down");
+            if (updateCount === 3) throw new Error("db down");
             return [{ affectedRows: 1 }];
           }),
         };
@@ -579,15 +790,42 @@ describe("validation outbox sweeper", () => {
 
     expect(result).toEqual({
       scanned: 1,
-      enqueued: 1,
+      enqueued: 0,
       failed: 0,
       retryScheduled: 0,
     });
-    expect(mocks.sequence).toEqual(["db:update", "queue:add", "db:update"]);
-    expect(mocks.updateSets).toHaveLength(2);
-    expect(mocks.updateSets[1]).toMatchObject({
+    expect(mocks.sequence).toEqual([
+      "db:update",
+      "db:update",
+      "queue:add",
+      "db:update",
+    ]);
+    expect(mocks.updateSets).toHaveLength(3);
+    expect(mocks.updateSets[2]).toMatchObject({
       jobId: "validation-outbox-validation-result-1",
     });
+  });
+
+  it("does not count enqueue when jobId persistence loses its CAS", async () => {
+    usePendingRows([pendingRow({ snapshotVersion: null })]);
+    useUpdateResults([
+      { affectedRows: 1 },
+      { affectedRows: 1 },
+      { affectedRows: 0 },
+    ]);
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({ staleMs: 0, batchSize: 10 });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 0,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).toHaveBeenCalledTimes(1);
   });
 
   it("recovers an ack uncertainty after lease expiry with the same jobId", async () => {
@@ -600,7 +838,7 @@ describe("validation outbox sweeper", () => {
           where: vi.fn(async (where: unknown) => {
             mocks.updateWheres.push(where);
             updateCount += 1;
-            if (updateCount === 2) throw new Error("ack lost");
+            if (updateCount === 3) throw new Error("ack lost");
             return [{ affectedRows: 1 }];
           }),
         };
@@ -625,7 +863,7 @@ describe("validation outbox sweeper", () => {
 
     expect(first).toEqual({
       scanned: 1,
-      enqueued: 1,
+      enqueued: 0,
       failed: 0,
       retryScheduled: 0,
     });
@@ -642,7 +880,7 @@ describe("validation outbox sweeper", () => {
     expect(mocks.addValidationJob.mock.calls[1]?.[2]).toEqual({
       jobId: "validation-outbox-validation-result-1",
     });
-    expect(mocks.updateSets[3]).toMatchObject({
+    expect(mocks.updateSets[5]).toMatchObject({
       jobId: "validation-outbox-validation-result-1",
       claimToken: null,
       claimExpiresAt: null,
