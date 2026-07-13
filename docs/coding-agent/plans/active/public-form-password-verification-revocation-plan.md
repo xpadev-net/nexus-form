@@ -170,6 +170,7 @@
     required: true
     owner: reviewer
     detail: "Independent secret-handling, rollout sequencing, rollback-floor, and compatibility-matrix review."
+- status: complete
 
 ### Task_8: Bind JWT grants and public routes to persistent generation
 - type: impl
@@ -200,6 +201,7 @@
     required: true
     owner: reviewer
     detail: "Independent auth-state, historical reactivation, rollout matrix, secret disclosure, and compatibility review."
+- status: in progress
 
 ### Task_4: Final validation and review
 - type: review
@@ -238,6 +240,8 @@
 - 2026-07-13: Task_7 Reviewer found that the production overlay still rendered and applied the placeholder Secret despite the external-secret runbook. Expanded Task_7 ownership narrowly to `k8s/base/kustomization.yaml`; the implementation must remove the placeholder Secret from base/production apply output and add executable old-cookie/new-cookie GET and submit smoke evidence before re-review.
 - 2026-07-14: Task_5 merged through PR #668 as `4ac39633fd366a70829633ad1de38ab49a8a9ccc`. Formal Reviewer approved the exact eight product blobs after independently passing static 16 tests and MySQL 8.4/Drizzle 20 tests. Parent deep-review found no issues; parent hook exited 0; lint, type-check, full tests, focused migration tests, schema staged check, CI, and AI review gates passed. Task_6 is now dependency-ready.
 - 2026-07-14: Task_6 merged through PR #671 as `b68c08afe8573588670ee2df084646097700fc43`. Formal review verified consistent schedule lock order, atomic CAS/activation/generation rollback, idempotent lifecycle transitions, and bigint-safe authoritative reads; parent focused 46 tests, API/workspace type-check, lint, full tests, hook, CI, and AI review gates passed. Task_8 now waits only for Task_7.
+- 2026-07-14: Task_7 merged through PR #673 as `9894f818e7747cee7690d472f74aa21ef7e925c9`. Formal review verified Bash 3.2/5.3 cleanup, failure diagnostics, confidentiality, durable recovery, Kustomize Secret authority, rollout cutoff, compatibility matrix, and rollback floor; parent deep-review, hook, lint, type-check, full tests, focused 54 tests, Bash fence syntax, Kustomize renders, CI, and AI review gates passed.
+- 2026-07-14: Started Task_8 Worker `019f5c96-4dc7-7143-a881-906bdc22dd52` from the preserved PR #665 branch in a new isolated worktree. The Worker owns only JWT/public-route consumers and focused lifecycle regressions and must stop at REVIEW_READY for parent-dispatched formal review.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
