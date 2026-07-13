@@ -47,7 +47,9 @@ function readGrantGenerationMigration(): string {
   );
 }
 
-function readGrantGenerationColumn() {
+function readGrantGenerationColumn(): z.infer<
+  typeof grantGenerationColumnSchema
+> {
   const snapshot = drizzleSnapshotSchema.parse(
     JSON.parse(
       readFileSync(
