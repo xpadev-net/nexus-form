@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { access, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import process from "node:process";
 
@@ -9,7 +9,9 @@ const TARGET_DIRS = (process.env.TARGET_DIRS ?? "apps/web/dist")
   .split(" ")
   .map((value) => value.trim())
   .filter(Boolean);
-const EXCLUDE_PATTERNS = (process.env.EXCLUDE_PATTERNS ?? "*/node_modules/* */cache/*")
+const EXCLUDE_PATTERNS = (
+  process.env.EXCLUDE_PATTERNS ?? "*/node_modules/* */cache/*"
+)
   .split(" ")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -54,7 +56,9 @@ const walkFiles = async (directory, files = []) => {
 };
 
 const replacements = Object.entries(process.env)
-  .filter(([name]) => name.startsWith("VITE_") || name.startsWith("NEXT_PUBLIC_"))
+  .filter(
+    ([name]) => name.startsWith("VITE_") || name.startsWith("NEXT_PUBLIC_"),
+  )
   .map(([name, value]) => ({
     token: `_${name}_`,
     value,
@@ -138,34 +142,8 @@ const runNode = (args, env = process.env) => {
   });
 };
 
-const ensureMigrationPath = "/migration/run-migrations.mjs";
-const migrationsDir = process.env.DRIZZLE_MIGRATIONS_DIR || "/migration/drizzle";
-const hasMigrationPath = async () => {
-  try {
-    await access(ensureMigrationPath);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const runStartupMigrations = async () => {
-  if (!(await hasMigrationPath())) {
-    return;
-  }
-
-  const status = await runNode([ensureMigrationPath], {
-    ...process.env,
-    DRIZZLE_MIGRATIONS_DIR: migrationsDir,
-  });
-  if (status !== 0) {
-    throw new Error("Database migration step failed during startup");
-  }
-};
-
 (async () => {
   await replaceEnvironment();
-  await runStartupMigrations();
   const apiStatus = await runNode(["./apps/api/dist/index.mjs"]);
   process.exit(apiStatus);
 })();
