@@ -205,7 +205,7 @@ function retryDelayMs(attempt: number, random: () => number): number {
   return Math.min(MAX_BACKOFF_MS, jitterFloor + jitter);
 }
 
-function validationOutboxEligibilityCondition(cutoff: Date) {
+function validationOutboxEligibilityCondition(staleSeconds: number) {
   return and(
     or(
       lte(
@@ -214,7 +214,10 @@ function validationOutboxEligibilityCondition(cutoff: Date) {
       ),
       and(
         isNull(externalServiceValidationResult.nextEligibleAt),
-        lte(externalServiceValidationResult.createdAt, cutoff),
+        lte(
+          externalServiceValidationResult.createdAt,
+          sql`TIMESTAMPADD(SECOND, ${-staleSeconds}, CURRENT_TIMESTAMP)`,
+        ),
       ),
     ),
     or(
@@ -229,13 +232,15 @@ function validationOutboxEligibilityCondition(cutoff: Date) {
 
 async function releaseValidationOutboxClaim(
   row: ClaimedValidationOutboxRow,
-  now: Date,
   random: () => number,
   error: unknown,
 ): Promise<"retrying" | "failed" | "unresolved"> {
   const enqueueAttemptCount = row.enqueueAttemptCount + 1;
   const terminal = enqueueAttemptCount >= MAX_ENQUEUE_ATTEMPTS;
   const errorMessage = error instanceof Error ? error.message : String(error);
+  const retryDelaySeconds = Math.ceil(
+    retryDelayMs(enqueueAttemptCount, random) / 1_000,
+  );
 
   const [result] = await db
     .update(externalServiceValidationResult)
@@ -254,9 +259,7 @@ async function releaseValidationOutboxClaim(
             errorCode: "ENQUEUE_FAILED",
             errorMessage,
             enqueueAttemptCount,
-            nextEligibleAt: new Date(
-              now.getTime() + retryDelayMs(enqueueAttemptCount, random),
-            ),
+            nextEligibleAt: sql`TIMESTAMPADD(SECOND, ${retryDelaySeconds}, CURRENT_TIMESTAMP)`,
             claimToken: null,
             claimExpiresAt: null,
           },
@@ -276,7 +279,7 @@ async function releaseValidationOutboxClaim(
 }
 
 async function claimPendingValidationOutboxRows(options: {
-  cutoff: Date;
+  staleSeconds: number;
   batchSize: number;
   leaseSeconds: number;
 }): Promise<ClaimedValidationOutboxRow[]> {
@@ -312,7 +315,7 @@ async function claimPendingValidationOutboxRows(options: {
           eq(externalServiceValidationResult.status, "PENDING"),
           eq(externalServiceValidationResult.enqueueMode, "STABLE"),
           isNull(externalServiceValidationResult.jobId),
-          validationOutboxEligibilityCondition(options.cutoff),
+          validationOutboxEligibilityCondition(options.staleSeconds),
         ),
       )
       .orderBy(asc(externalServiceValidationResult.createdAt))
@@ -336,7 +339,7 @@ async function claimPendingValidationOutboxRows(options: {
           eq(externalServiceValidationResult.status, "PENDING"),
           eq(externalServiceValidationResult.enqueueMode, "STABLE"),
           isNull(externalServiceValidationResult.jobId),
-          validationOutboxEligibilityCondition(options.cutoff),
+          validationOutboxEligibilityCondition(options.staleSeconds),
         ),
       );
 
@@ -345,12 +348,12 @@ async function claimPendingValidationOutboxRows(options: {
 }
 
 async function findPendingValidationOutboxRows(
-  cutoff: Date,
+  staleSeconds: number,
   batchSize: number,
   leaseSeconds: number,
 ): Promise<ClaimedValidationOutboxRow[]> {
   return claimPendingValidationOutboxRows({
-    cutoff,
+    staleSeconds,
     batchSize,
     leaseSeconds,
   });
@@ -412,7 +415,6 @@ async function enqueuePendingValidationOutboxRow(
     { ruleType: string; configJson: Record<string, unknown> }
   >,
   options: {
-    clock: () => Date;
     leaseSeconds: number;
     random: () => number;
   },
@@ -533,12 +535,7 @@ async function enqueuePendingValidationOutboxRow(
     captureError(error);
     let recovery: "retrying" | "failed" | "unresolved" = "unresolved";
     try {
-      recovery = await releaseValidationOutboxClaim(
-        row,
-        options.clock(),
-        options.random,
-        error,
-      );
+      recovery = await releaseValidationOutboxClaim(row, options.random, error);
     } catch (updateError) {
       logError(
         "Failed to release validation outbox claim after enqueue error",
@@ -597,13 +594,10 @@ export async function sweepValidationOutbox(
   const staleMs = Math.max(0, options.staleMs ?? DEFAULT_STALE_MS);
   const leaseMs = Math.max(1, options.leaseMs ?? DEFAULT_CLAIM_LEASE_MS);
   const leaseSeconds = Math.max(1, Math.ceil(leaseMs / 1_000));
-  const fixedNow = options.now;
-  const clock = options.clock ?? (() => fixedNow ?? new Date());
-  const now = fixedNow ?? clock();
+  const staleSeconds = Math.ceil(staleMs / 1_000);
   const random = options.random ?? Math.random;
-  const cutoff = new Date(now.getTime() - staleMs);
   const rows = await findPendingValidationOutboxRows(
-    cutoff,
+    staleSeconds,
     batchSize,
     leaseSeconds,
   );
@@ -619,7 +613,7 @@ export async function sweepValidationOutbox(
     const outcome = await enqueuePendingValidationOutboxRow(
       row,
       snapshotRules,
-      { clock, leaseSeconds, random },
+      { leaseSeconds, random },
     );
     if (outcome === "enqueued") result.enqueued += 1;
     if (outcome === "failed") result.failed += 1;

@@ -311,6 +311,13 @@ describe("validation outbox sweeper", () => {
     expect(hasSqlExpression(mocks.selectWheres[0], "CURRENT_TIMESTAMP")).toBe(
       true,
     );
+    expect(
+      hasSqlExpression(
+        mocks.selectWheres[0],
+        "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)",
+        [0],
+      ),
+    ).toBe(true);
     expect(hasSqlExpression(mocks.updateWheres[0], "CURRENT_TIMESTAMP")).toBe(
       true,
     );
@@ -408,6 +415,44 @@ describe("validation outbox sweeper", () => {
     expect(mocks.db.update).not.toHaveBeenCalled();
   });
 
+  it("uses server time for the stale boundary despite API clock skew", async () => {
+    usePendingRows([]);
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+
+    await sweepValidationOutbox({
+      staleMs: 1_501,
+      now: new Date("2026-07-11T00:00:00.000Z"),
+      clock: () => new Date("2026-07-11T00:00:00.000Z"),
+    });
+    await sweepValidationOutbox({
+      staleMs: 0,
+      now: new Date("2026-07-11T00:20:00.000Z"),
+      clock: () => new Date("2026-07-11T00:20:00.000Z"),
+    });
+
+    expect(
+      hasSqlExpression(
+        mocks.selectWheres[0],
+        "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)",
+        [-2],
+      ),
+    ).toBe(true);
+    expect(
+      hasSqlExpression(
+        mocks.selectWheres[1],
+        "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)",
+        [0],
+      ),
+    ).toBe(true);
+    expect(
+      findSqlExpressions(mocks.selectWheres[0]).every(({ params }) =>
+        params.every((param) => !(param instanceof Date)),
+      ),
+    ).toBe(true);
+  });
+
   it("schedules a retry when enqueue fails", async () => {
     usePendingRows([pendingRow({ snapshotVersion: null })]);
     useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
@@ -437,7 +482,11 @@ describe("validation outbox sweeper", () => {
       errorCode: "ENQUEUE_FAILED",
       errorMessage: "redis down",
       enqueueAttemptCount: 1,
-      nextEligibleAt: new Date("2026-07-11T00:00:45.000Z"),
+      nextEligibleAt: expect.objectContaining({
+        type: "sql",
+        strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+        params: [45],
+      }),
       claimToken: null,
       claimExpiresAt: null,
     });
@@ -481,8 +530,68 @@ describe("validation outbox sweeper", () => {
       retryScheduled: 1,
     });
     expect(mocks.updateSets[2]).toMatchObject({
-      nextEligibleAt: new Date("2026-07-11T00:00:35.000Z"),
+      nextEligibleAt: expect.objectContaining({
+        type: "sql",
+        strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+        params: [30],
+      }),
     });
+    expect(
+      hasSqlExpression(
+        mocks.updateSets[2],
+        "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)",
+        [30],
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps retry writes on DB time across fast and slow API clocks", async () => {
+    usePendingRows([pendingRow({ snapshotVersion: null })]);
+    useUpdateResults([]);
+    mocks.addValidationJob.mockRejectedValue(new Error("redis down"));
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const fastApiClock = () => new Date("2026-07-11T00:00:05.000Z");
+    const slowApiClock = () => new Date("2026-07-10T23:55:00.000Z");
+
+    await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: fastApiClock(),
+      clock: fastApiClock,
+      random: () => 0,
+    });
+    await sweepValidationOutbox({
+      staleMs: 0,
+      batchSize: 10,
+      now: slowApiClock(),
+      clock: slowApiClock,
+      random: () => 0,
+    });
+
+    const retryWrites = mocks.updateSets.filter(
+      (value): value is { nextEligibleAt: unknown } =>
+        typeof value === "object" &&
+        value !== null &&
+        "nextEligibleAt" in value,
+    );
+    expect(retryWrites).toHaveLength(2);
+    expect(
+      retryWrites.every(({ nextEligibleAt }) =>
+        hasSqlExpression(
+          nextEligibleAt,
+          "TIMESTAMPADD(SECOND, ?, CURRENT_TIMESTAMP)",
+          [30],
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      retryWrites.every(
+        ({ nextEligibleAt }) => !(nextEligibleAt instanceof Date),
+      ),
+    ).toBe(true);
   });
 
   it("does not count a retry when the claim CAS no longer matches", async () => {
@@ -586,7 +695,11 @@ describe("validation outbox sweeper", () => {
       expect.arrayContaining([
         expect.objectContaining({
           enqueueAttemptCount: 2,
-          nextEligibleAt: new Date("2026-07-11T00:01:15.000Z"),
+          nextEligibleAt: expect.objectContaining({
+            type: "sql",
+            strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+            params: [75],
+          }),
         }),
       ]),
     );
@@ -594,7 +707,11 @@ describe("validation outbox sweeper", () => {
       expect.arrayContaining([
         expect.objectContaining({
           enqueueAttemptCount: 6,
-          nextEligibleAt: new Date("2026-07-11T00:14:45.000Z"),
+          nextEligibleAt: expect.objectContaining({
+            type: "sql",
+            strings: ["TIMESTAMPADD(SECOND, ", ", CURRENT_TIMESTAMP)"],
+            params: [885],
+          }),
         }),
       ]),
     );
@@ -634,24 +751,21 @@ describe("validation outbox sweeper", () => {
       failed: 0,
       retryScheduled: 2,
     });
-    const scheduledTimes = mocks.updateSets.flatMap((value) => {
+    const scheduledDelays = mocks.updateSets.flatMap((value) => {
       if (
         typeof value !== "object" ||
         value === null ||
         !("nextEligibleAt" in value) ||
-        !(value.nextEligibleAt instanceof Date)
+        !isMockSqlExpression(value.nextEligibleAt)
       ) {
         return [];
       }
-      return [value.nextEligibleAt];
+      const [delay] = value.nextEligibleAt.params;
+      return typeof delay === "number" ? [delay] : [];
     });
-    expect(scheduledTimes).toEqual([
-      new Date("2026-07-11T00:14:30.000Z"),
-      new Date("2026-07-11T00:15:00.000Z"),
-    ]);
-    expect(scheduledTimes[1]?.getTime()).toBeGreaterThan(
-      scheduledTimes[0]?.getTime() ?? 0,
-    );
+    expect(scheduledDelays).toEqual([870, 900]);
+    expect(scheduledDelays[1]).toBeGreaterThan(scheduledDelays[0] ?? 0);
+    expect(scheduledDelays.every((delay) => delay <= 900)).toBe(true);
   });
 
   it("moves the row to FAILED on the eighth enqueue failure", async () => {
