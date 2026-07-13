@@ -248,6 +248,17 @@ rollout_file_mode() {
     return 1
   fi
 }
+rollout_file_uid() {
+  local owner_uid
+
+  if owner_uid="$(stat -f '%u' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$owner_uid"
+  elif owner_uid="$(stat -c '%u' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$owner_uid"
+  else
+    return 1
+  fi
+}
 rollout_mode_rejects_shared_write() {
   local mode
   local group_digit
@@ -288,6 +299,52 @@ rollout_locator_component_is_safe() {
   rollout_mode_rejects_shared_write "$component" || return 1
   physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
   [ "$physical_component" = "$component" ]
+}
+rollout_ancestor_chain_is_safe() {
+  local path="${1-}"
+  local remainder
+  local component
+  local current=
+  local current_uid
+  local owner_uid
+  local physical_component
+
+  case "$path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d / ] && [ ! -L / ] || return 1
+  rollout_mode_rejects_shared_write / || return 1
+  current_uid="$(id -u)" || return 1
+  [[ "$current_uid" =~ ^[0-9]+$ ]] || return 1
+  [ "$(rollout_file_uid /)" = 0 ] || return 1
+  remainder="${path#/}"
+  [ -n "$remainder" ] || return 1
+  while [ -n "$remainder" ]; do
+    case "$remainder" in
+      */*)
+        component="${remainder%%/*}"
+        remainder="${remainder#*/}"
+        ;;
+      *)
+        component="$remainder"
+        remainder=
+        ;;
+    esac
+    case "$component" in
+      '' | . | ..) return 1 ;;
+    esac
+    current="$current/$component"
+    [ -d "$current" ] && [ ! -L "$current" ] || return 1
+    rollout_mode_rejects_shared_write "$current" || return 1
+    owner_uid="$(rollout_file_uid "$current")" || return 1
+    case "$owner_uid" in
+      0 | "$current_uid") ;;
+      *) return 1 ;;
+    esac
+    physical_component="$(CDPATH= cd -- "$current" 2>/dev/null && pwd -P)" || return 1
+    [ "$physical_component" = "$current" ] || return 1
+  done
 }
 rollout_prepare_ledger_parent() {
   local home="${1-}"
@@ -412,29 +469,6 @@ cleanup_rollout_probe() {
 }
 
 trap '' HUP INT TERM
-ROLLOUT_CLEANUP_PARENT="$(
-  CDPATH= cd -- "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P
-)" || {
-  printf '%s\n' 'rollout probe setup refused an unusable temporary directory' >&2
-  exit 64
-}
-readonly ROLLOUT_CLEANUP_PARENT
-rollout_parent_is_canonical "$ROLLOUT_CLEANUP_PARENT" || {
-  printf '%s\n' 'rollout probe setup refused an unsafe temporary directory' >&2
-  exit 64
-}
-readonly ROLLOUT_CLEANUP_PARENT_IDENTITY="$(
-  rollout_file_identity "$ROLLOUT_CLEANUP_PARENT"
-)"
-[[ "$ROLLOUT_CLEANUP_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || {
-  printf '%s\n' 'rollout probe setup could not identify the temporary directory' >&2
-  exit 64
-}
-if [ "$ROLLOUT_CLEANUP_PARENT" = / ]; then
-  readonly ROLLOUT_CLEANUP_PREFIX="/nexus-form-rollout."
-else
-  readonly ROLLOUT_CLEANUP_PREFIX="$ROLLOUT_CLEANUP_PARENT/nexus-form-rollout."
-fi
 case "${HOME-}" in
   /*) ;;
   *)
@@ -443,6 +477,10 @@ case "${HOME-}" in
     ;;
 esac
 umask 077
+rollout_ancestor_chain_is_safe "$HOME" || {
+  printf '%s\n' 'rollout probe setup refused an unsafe HOME ancestor chain' >&2
+  exit 64
+}
 rollout_prepare_ledger_parent "$HOME" || {
   printf '%s\n' 'rollout probe setup refused an unsafe cleanup locator chain' >&2
   exit 64
@@ -456,6 +494,9 @@ readonly ROLLOUT_CLEANUP_LEDGER_PARENT_IDENTITY="$(
   printf '%s\n' 'rollout probe setup could not identify the cleanup locator' >&2
   exit 64
 }
+readonly ROLLOUT_CLEANUP_PARENT="$ROLLOUT_CLEANUP_LEDGER_PARENT"
+readonly ROLLOUT_CLEANUP_PARENT_IDENTITY="$ROLLOUT_CLEANUP_LEDGER_PARENT_IDENTITY"
+readonly ROLLOUT_CLEANUP_PREFIX="$ROLLOUT_CLEANUP_PARENT/nexus-form-rollout."
 readonly ROLLOUT_CLEANUP_LEDGER="$ROLLOUT_CLEANUP_LEDGER_PARENT/rollout-cleanup.ledger"
 if [ -e "$ROLLOUT_CLEANUP_LEDGER" ] || [ -L "$ROLLOUT_CLEANUP_LEDGER" ]; then
   printf '%s\n' 'rollout probe cleanup ledger already exists; recover it before retrying' >&2
@@ -552,15 +593,15 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
   "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
 ```
 
-このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。入力された`TMPDIR`はsecret artifactの作成前にabsolute physical directoryへ解決され、cleanup専用のreadonly ownerはそのcanonical parent配下へ固定されます。そのため、運用中にcwdや`TMPDIR`の親symlinkが変化しても削除対象は変わらず、mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
+このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。secret artifact用のcleanup ownerは任意の`TMPDIR`を使用せず、検証済みmode `0700`のledger parent配下へ作成してreadonlyに固定します。そのため、`TMPDIR`がnon-sticky mode `0777`、symlink、または別UIDが置換可能でも、password/cookie/request/responseの保存先にはなりません。mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
 
-cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`HOME`、`.local`、`state`、`nexus-form`のlocator chainはすべてabsolute physical pathと一致し、symlinkではなく実行user所有で、group/world write bitを持たない場合だけprobeを開始します。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含むchainや別UIDが置換可能なshared-writable chainは自動修復せずfail closedにします。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、現在のlocatorに既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
+cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`/`から`HOME`までの既存lexical ancestor chainはcomponentごとにabsolute physical pathと一致し、symlinkではなくgroup/world write bitを持たない場合だけprobeを開始します。`/`はUID `0`所有、以降のancestorはUID `0`またはprobe実行UID所有だけを許可します。portableに別UIDのrename権限を除外するため、sticky bitの有無にかかわらずshared-writable ancestorは拒否します。これはPOSIX owner/mode semanticsをauthorityとする契約です。ACL、mount option、またはplatform固有機構が別UIDへwrite/rename権限を追加する環境ではprobeを実行せず、platform ownerが同等の非共有authorityを用意してください。`HOME`、`.local`、`state`、`nexus-form`はさらに実行user所有であることを要求します。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含むchain、別UID所有のchain、またはshared-writable chainは自動修復せずfail closedにします。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、現在のlocatorに既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
 
-**cleanup locatorのtrust boundary / accepted residual**: このportable runbookは、probeを実行するsame UIDをtrusted boundaryとします。別UIDからのcomponent入替えはownershipとgroup/world-write検査で拒否し、symlink retargetも拒否します。一方、SIGKILL後にsame UIDが最終locator directoryを別名へrenameする、ledgerを削除する、または同pathへ新しいmode `0700`の実directoryを作る操作は、終了したprocessのdevice/inode identityを新processへ信頼可能に渡す外部authorityがないため検出できません。この場合は旧ledgerとsecret artifactを残したまま新probeが開始できるため、ledger admissionをsame-UID hostile processに対するsecurity gateとは扱いません。専用operator UIDではuntrusted codeを実行せず、abnormal exit後は同UIDの別processを起動する前にlocatorを変更せずrecoveryを実行します。same-UID replacementにも技術的なfail-closed保証が必要な環境では、probe UIDがrename/deleteできないplatform-owned parentとprivileged ledger writer/recovery serviceを別のhost/platform運用タスクで用意してください。このrunbookとTask_7のKubernetes manifestはそのauthorityを提供しません。
+**cleanup locatorのtrust boundary / accepted residual**: このportable runbookは、probeを実行するsame UIDをtrusted boundaryとします。別UIDからのcomponent入替えはownershipとgroup/world-write検査で拒否し、symlink retargetも拒否します。一方、SIGKILL後にsame UIDが最終locator directoryを別名へrenameする、ledgerを削除・改変する、または同pathへ新しいmode `0700`の実directoryを作る操作は、終了したprocessのdevice/inode identityを新processへ信頼可能に渡す外部authorityがないため完全には検出できません。この場合は旧ledgerとsecret artifactを残したまま新probeが開始できるため、ledger admissionやrecoveryをsame-UID hostile processに対するsecurity gateとは扱いません。専用operator UIDではuntrusted codeを実行せず、abnormal exit後は同UIDの別processを起動する前にlocatorとledgerを変更せずrecoveryを実行します。same-UID replacementにも技術的なfail-closed保証が必要な環境では、probe UIDがrename/deleteできないplatform-owned parentとprivileged ledger writer/recovery serviceを別のhost/platform運用タスクで用意してください。このrunbookとTask_7のKubernetes manifestはそのauthorityを提供しません。
 
 cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
-cleanup failure後は同じuserで次を実行します。このcommandはsetupと同じHOMEからのlocator chainをcomponentごとに再検証してから、ledger自身と記録されたcanonical parent/ownerをuntrusted inputとして検証し、absolute physical parent、固定basename、実行user ownership、mode、non-symlinkをすべて満たすoriginal residueだけを削除します。locator chainのsymlink/retarget、ledgerの改変、別path、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。
+cleanup failure後は同じuserで次を実行します。このcommandはsetupと同じ`/`から`HOME`までのancestor authorityとlocator chainをcomponentごとに再検証してから、ledger自身と記録されたcanonical parent/ownerをuntrusted inputとして検証し、absolute physical parent、ledger parentとの一致、固定basename、実行user ownership、mode、non-symlinkをすべて満たすresidueだけを削除します。locator chainのsymlink/retargetや、検証可能なledger format/path/identity mismatch、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。same UIDによるledger改変は上記accepted residualの範囲であり、このrecoveryだけで敵対的な改変を完全検出するものではありません。
 
 ```bash
 set -euo pipefail
@@ -579,6 +620,17 @@ recovery_file_mode() {
     printf '%s\n' "$mode"
   elif mode="$(stat -c '%a' "$1" 2>/dev/null)"; then
     printf '%s\n' "$mode"
+  else
+    return 1
+  fi
+}
+recovery_file_uid() {
+  local owner_uid
+
+  if owner_uid="$(stat -f '%u' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$owner_uid"
+  elif owner_uid="$(stat -c '%u' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$owner_uid"
   else
     return 1
   fi
@@ -624,11 +676,58 @@ recovery_locator_component_is_safe() {
   physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
   [ "$physical_component" = "$component" ]
 }
+recovery_ancestor_chain_is_safe() {
+  local path="${1-}"
+  local remainder
+  local component
+  local current=
+  local current_uid
+  local owner_uid
+  local physical_component
+
+  case "$path" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d / ] && [ ! -L / ] || return 1
+  recovery_mode_rejects_shared_write / || return 1
+  current_uid="$(id -u)" || return 1
+  [[ "$current_uid" =~ ^[0-9]+$ ]] || return 1
+  [ "$(recovery_file_uid /)" = 0 ] || return 1
+  remainder="${path#/}"
+  [ -n "$remainder" ] || return 1
+  while [ -n "$remainder" ]; do
+    case "$remainder" in
+      */*)
+        component="${remainder%%/*}"
+        remainder="${remainder#*/}"
+        ;;
+      *)
+        component="$remainder"
+        remainder=
+        ;;
+    esac
+    case "$component" in
+      '' | . | ..) return 1 ;;
+    esac
+    current="$current/$component"
+    [ -d "$current" ] && [ ! -L "$current" ] || return 1
+    recovery_mode_rejects_shared_write "$current" || return 1
+    owner_uid="$(recovery_file_uid "$current")" || return 1
+    case "$owner_uid" in
+      0 | "$current_uid") ;;
+      *) return 1 ;;
+    esac
+    physical_component="$(CDPATH= cd -- "$current" 2>/dev/null && pwd -P)" || return 1
+    [ "$physical_component" = "$current" ] || return 1
+  done
+}
 
 case "${HOME-}" in
   /*) ;;
   *) recovery_fail ;;
 esac
+recovery_ancestor_chain_is_safe "$HOME" || recovery_fail
 for RECOVERY_LOCATOR_COMPONENT in \
   "$HOME" \
   "$HOME/.local" \
@@ -654,6 +753,7 @@ readonly RECOVERY_LEDGER="$RECOVERY_LEDGER_PARENT/rollout-cleanup.ledger"
 } < "$RECOVERY_LEDGER"
 [[ "$RECOVERY_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
 [[ "$RECOVERY_OWNER_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
+[ "$RECOVERY_PARENT" = "$RECOVERY_LEDGER_PARENT" ] || recovery_fail
 case "$RECOVERY_PARENT" in
   /*) ;;
   *) recovery_fail ;;
