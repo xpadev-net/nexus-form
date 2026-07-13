@@ -435,3 +435,10 @@ Prevention:
 
 Evidence:
 - Formal Reviewer reproduction on PR #666 exact head `5cdc70ca58131ceb7fa1c432bb86f22aeda3cecf`; cross-layer follow-up identified shared job-ID and `markValidationProcessing` as the minimal durable boundary.
+
+## 2026-07-13 — Bind the Recovery Locator Chain as Well as the Artifact Owner  [tags: security, shell, symlink, durable-recovery, review-gate]
+
+- symptom: A cleanup ledger correctly bound the protected artifact by canonical path and filesystem identity, but its `$HOME/.local/state/...` locator parent could be a retargetable symlink. After SIGKILL and retarget, recovery searched the new parent and a fresh probe started while the original ledger and secret-bearing residue remained.
+- root cause: Review hardened the deletion target but treated the path used to discover its recovery ledger as trusted configuration. `pwd -P` canonicalized the current target without proving that every locator component was stable and non-symlink across process lifetimes.
+- fix: Require setup and recovery to validate one absolute physical, current-user-owned, non-symlink locator chain before creating secrets, and fail closed when HOME or any intermediate state-directory component is a symlink or its identity changes.
+- prevention: Secret-artifact recovery tests must include process death followed by locator-parent symlink retarget, HOME and intermediate-component symlinks, and a retry attempt. Passing requires either safe recovery of the original residue or rejection of every new probe while the old locator remains unresolved.
