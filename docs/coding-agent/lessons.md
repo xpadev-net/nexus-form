@@ -513,3 +513,10 @@ Evidence:
 - root cause: Review treated expected field/SQL presence and exact IF choices as equivalent to the complete safe migration contract. It did not constrain omitted metadata properties or the ordered guard → choice → prepare → execute → deallocate control-flow wiring.
 - fix: Compare added columns and indexes as complete objects, verify the complete allowed conditional DDL set/count, reject destructive operations case-insensitively, and bind every operation's INFORMATION_SCHEMA guard, existence variable, IF choice, PREPARE source, EXECUTE, and DEALLOCATE as one exact ordered contract.
 - prevention: Security- or recovery-critical migration tests must mutation-test both data shape and control-flow wiring: unsafe defaults, uniqueness drift, extra/case-varied DDL, wrong guard targets/variables, missing execution/deallocation, and wrong preparation sources. Approval requires proof that each mutation fails the same contract helper, not only that the current artifact passes.
+
+## 2026-07-14 — Patch the Intended Lifecycle Scope Explicitly  [tags: orchestration, plan-status, apply-patch, closeout]
+
+- symptom: While recording Task_6 completion, a context-light status patch changed the plan-level status to `complete` before the dependent final Task_7 review had run, while leaving Task_6 itself `in_progress`.
+- root cause: The patch matched the first generic `status` line instead of anchoring the edit to the Task_6 heading and separately preserving the plan lifecycle state.
+- fix: Restore the plan to `in_progress`, mark only Task_6 `complete`, and inspect both the document header and target task block before committing.
+- prevention: Lifecycle patches must include the enclosing plan/task heading in their context and immediately verify the plan header plus every changed task status; never patch a bare repeated status line in a multi-task plan.
