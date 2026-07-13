@@ -180,6 +180,7 @@
   - apps/api/src/lib/sessions/__tests__/jwt.test.ts
   - apps/api/src/__tests__/authz-regression.test.ts
   - apps/api/src/__tests__/forms-structure-password-protection.test.ts
+  - apps/api/src/__tests__/forms-public-password-request-limit.test.ts
 - depends_on: [Task_6, Task_7]
 - description: Update existing PR #665 to issue and verify a runtime-validated generation-bound grant and prove real GET/submit lifecycle behavior.
 - acceptance:
@@ -242,6 +243,7 @@
 - 2026-07-14: Task_6 merged through PR #671 as `b68c08afe8573588670ee2df084646097700fc43`. Formal review verified consistent schedule lock order, atomic CAS/activation/generation rollback, idempotent lifecycle transitions, and bigint-safe authoritative reads; parent focused 46 tests, API/workspace type-check, lint, full tests, hook, CI, and AI review gates passed. Task_8 now waits only for Task_7.
 - 2026-07-14: Task_7 merged through PR #673 as `9894f818e7747cee7690d472f74aa21ef7e925c9`. Formal review verified Bash 3.2/5.3 cleanup, failure diagnostics, confidentiality, durable recovery, Kustomize Secret authority, rollout cutoff, compatibility matrix, and rollback floor; parent deep-review, hook, lint, type-check, full tests, focused 54 tests, Bash fence syntax, Kustomize renders, CI, and AI review gates passed.
 - 2026-07-14: Started Task_8 Worker `019f5c96-4dc7-7143-a881-906bdc22dd52` from the preserved PR #665 branch in a new isolated worktree. The Worker owns only JWT/public-route consumers and focused lifecycle regressions and must stop at REVIEW_READY for parent-dispatched formal review.
+- 2026-07-14: Expanded Task_8 ownership by one test-only file, `apps/api/src/__tests__/forms-public-password-request-limit.test.ts`, after its existing snapshot-repository mock lacked the authoritative `getActivePublication` export and caused three unrelated 500 responses in the required full suite. The same Task_8 Worker may update only that mock to return the snapshot plus bigint generation; no product scope was added.
 
 ## Decision Log
 - 2026-07-11: Isolated from general access-control work because it changes a security credential lifecycle and JWT compatibility contract.
@@ -250,3 +252,4 @@
 - 2026-07-13: Same-secret rollback to a pre-fix binary cannot be made fail-closed by new-code changes. Adopt bridge rollout, verify old-pod drain, rotate `AUTH_SECRET`, and enforce a bridge-release rollback floor before Task_8 can merge.
 - 2026-07-13: Research dispatch waived because the stopped Worker supplied a clean-worktree reproduction, exact direct/scheduled lifecycle anchors, schema inventory, and the full old/new token/binary compatibility matrix; the Orchestrator split that evidence into bounded tasks.
 - 2026-07-13: The checked-in `secret.yaml` remains a placeholder contract only and must not be a Kustomize resource. External secret management is the sole authoritative writer for the runtime `nexus-form-secrets` object; rendering/applying base or production must not overwrite it.
+- 2026-07-14: Keep the request-limit mock repair in Task_8 because it is a direct compatibility update for the same `forms-public` authoritative-read contract and is required for the full-suite gate; a separate PR would create an unnecessary dependency without isolating product behavior.
