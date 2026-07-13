@@ -143,15 +143,7 @@ async function createPreflightReadyMigrationClient(
         await readConfigJsonMigrationCompatibilityState(migrationClient);
       return { migrationClient, compatibilityState };
     } catch (error) {
-      try {
-        await migrationClient.end();
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          "Migration compatibility preflight and client cleanup both failed",
-          { cause: error },
-        );
-      }
+      await closeFailedPreflightMigrationClient(migrationClient, error);
 
       if (
         !isTransientPreflightConnectionError(error) ||
@@ -172,6 +164,21 @@ async function createPreflightReadyMigrationClient(
   }
 
   throw new Error("Migration compatibility preflight exhausted unexpectedly");
+}
+
+async function closeFailedPreflightMigrationClient(
+  migrationClient: Pool,
+  preflightError: unknown,
+): Promise<void> {
+  try {
+    await migrationClient.end();
+  } catch (cleanupError) {
+    throw new AggregateError(
+      [preflightError, cleanupError],
+      "Migration compatibility preflight and client cleanup both failed",
+      { cause: preflightError },
+    );
+  }
 }
 
 function isTransientPreflightConnectionError(error: unknown): boolean {
