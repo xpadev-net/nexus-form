@@ -231,37 +231,128 @@ set -euo pipefail
 export API_BASE_URL="https://api.example.invalid"
 export PUBLIC_ID="CHANGE_ME_WITH_ROLLOUT_FORM_PUBLIC_ID"
 export RESPONSES_FILE="/secure/operator-input/rollout-responses.json"
-if [ "${ROLLOUT_CLEANUP_OWNER_DIR+x}" = x ] || [ "${ROLLOUT_CLEANUP_PREFIX+x}" = x ]; then
+if [ "${ROLLOUT_CLEANUP_OWNER_DIR+x}" = x ] || \
+  [ "${ROLLOUT_CLEANUP_PARENT+x}" = x ] || \
+  [ "${ROLLOUT_CLEANUP_LEDGER+x}" = x ]; then
   printf '%s\n' 'rollout probe cleanup owner already exists; start in a fresh shell' >&2
   exit 64
 fi
+rollout_file_mode() {
+  local mode
+
+  if mode="$(stat -f '%Lp' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+  elif mode="$(stat -c '%a' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+  else
+    return 1
+  fi
+}
+rollout_file_identity() {
+  local identity
+
+  if identity="$(stat -f '%d:%i' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+  elif identity="$(stat -c '%d:%i' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+  else
+    return 1
+  fi
+}
+rollout_parent_is_canonical() {
+  local parent="${1-}"
+  local physical_parent
+
+  case "$parent" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d "$parent" ] && [ ! -L "$parent" ] || return 1
+  physical_parent="$(CDPATH= cd -- "$parent" 2>/dev/null && pwd -P)" || return 1
+  [ "$physical_parent" = "$parent" ]
+}
+rollout_owner_is_safe() {
+  local parent="${1-}"
+  local parent_identity="${2-}"
+  local owner="${3-}"
+  local owner_identity="${4-}"
+  local prefix
+  local physical_owner
+
+  [[ "$parent_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+  [[ "$owner_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
+  rollout_parent_is_canonical "$parent" || return 1
+  [ "$(rollout_file_identity "$parent")" = "$parent_identity" ] || return 1
+  if [ "$parent" = / ]; then
+    prefix="/nexus-form-rollout."
+  else
+    prefix="$parent/nexus-form-rollout."
+  fi
+  case "$owner" in
+    "$prefix"[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]]) ;;
+    *) return 1 ;;
+  esac
+  [ -d "$owner" ] && [ ! -L "$owner" ] && [ -O "$owner" ] || return 1
+  [ "$(rollout_file_mode "$owner")" = 700 ] || return 1
+  [ "$(rollout_file_identity "$owner")" = "$owner_identity" ] || return 1
+  physical_owner="$(CDPATH= cd -- "$owner" 2>/dev/null && pwd -P)" || return 1
+  [ "$physical_owner" = "$owner" ]
+}
+rollout_ledger_matches_owner() {
+  local ledger_parent
+  local ledger_parent_identity
+  local ledger_owner
+  local ledger_owner_identity
+
+  [ -f "$ROLLOUT_CLEANUP_LEDGER" ] && \
+    [ ! -L "$ROLLOUT_CLEANUP_LEDGER" ] && \
+    [ -O "$ROLLOUT_CLEANUP_LEDGER" ] || return 1
+  [ "$(rollout_file_mode "$ROLLOUT_CLEANUP_LEDGER")" = 600 ] || return 1
+  [ "$(awk 'END { print NR }' "$ROLLOUT_CLEANUP_LEDGER")" = 4 ] || return 1
+  {
+    IFS= read -r ledger_parent
+    IFS= read -r ledger_parent_identity
+    IFS= read -r ledger_owner
+    IFS= read -r ledger_owner_identity
+  } < "$ROLLOUT_CLEANUP_LEDGER"
+  [ "$ledger_parent" = "$ROLLOUT_CLEANUP_PARENT" ] && \
+    [ "$ledger_parent_identity" = "$ROLLOUT_CLEANUP_PARENT_IDENTITY" ] && \
+    [ "$ledger_owner" = "$ROLLOUT_CLEANUP_OWNER_DIR" ] && \
+    [ "$ledger_owner_identity" = "$ROLLOUT_CLEANUP_OWNER_IDENTITY" ]
+}
 cleanup_rollout_probe() {
   local original_status=$?
   local cleanup_status=0
-  local cleanup_dir="${ROLLOUT_CLEANUP_OWNER_DIR-}"
 
   trap - EXIT HUP INT TERM
   unset FORM_PASSWORD HCAPTCHA_TOKEN TELEMETRY_V4_TOKEN
   unset ROLLOUT_EVIDENCE_DIR
 
-  case "$cleanup_dir" in
-    "$ROLLOUT_CLEANUP_PREFIX"[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]])
-      if [ -e "$cleanup_dir" ] || [ -L "$cleanup_dir" ]; then
-        if ! rm -rf -- "$cleanup_dir"; then
-          cleanup_status=70
-        elif [ -e "$cleanup_dir" ] || [ -L "$cleanup_dir" ]; then
-          cleanup_status=70
-        fi
-      fi
-      ;;
-    *)
+  if ! rollout_ledger_matches_owner; then
+    cleanup_status=70
+  elif [ -e "$ROLLOUT_CLEANUP_OWNER_DIR" ] || [ -L "$ROLLOUT_CLEANUP_OWNER_DIR" ]; then
+    if ! rollout_owner_is_safe \
+      "$ROLLOUT_CLEANUP_PARENT" "$ROLLOUT_CLEANUP_PARENT_IDENTITY" \
+      "$ROLLOUT_CLEANUP_OWNER_DIR" "$ROLLOUT_CLEANUP_OWNER_IDENTITY"; then
       cleanup_status=70
-      ;;
-  esac
+    elif ! rm -rf -- "$ROLLOUT_CLEANUP_OWNER_DIR"; then
+      cleanup_status=70
+    elif [ -e "$ROLLOUT_CLEANUP_OWNER_DIR" ] || [ -L "$ROLLOUT_CLEANUP_OWNER_DIR" ]; then
+      cleanup_status=70
+    fi
+  fi
+
+  if [ "$cleanup_status" -eq 0 ]; then
+    if ! rm -f -- "$ROLLOUT_CLEANUP_LEDGER"; then
+      cleanup_status=70
+    elif [ -e "$ROLLOUT_CLEANUP_LEDGER" ] || [ -L "$ROLLOUT_CLEANUP_LEDGER" ]; then
+      cleanup_status=70
+    fi
+  fi
 
   if [ "$cleanup_status" -ne 0 ]; then
     printf '%s\n' \
-      'rollout probe cleanup failed; protected temporary artifacts may remain; stop the rollout and remove the fixed evidence directory manually' >&2
+      'rollout probe cleanup failed; protected artifacts may remain; run documented recovery before retrying' >&2
   fi
   if [ "$original_status" -ne 0 ]; then
     return "$original_status"
@@ -270,9 +361,96 @@ cleanup_rollout_probe() {
 }
 
 trap '' HUP INT TERM
-readonly ROLLOUT_CLEANUP_PREFIX="${TMPDIR:-/tmp}/nexus-form-rollout."
-ROLLOUT_CLEANUP_OWNER_DIR="$(mktemp -d "${ROLLOUT_CLEANUP_PREFIX}XXXXXX")"
+ROLLOUT_CLEANUP_PARENT="$(
+  CDPATH= cd -- "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P
+)" || {
+  printf '%s\n' 'rollout probe setup refused an unusable temporary directory' >&2
+  exit 64
+}
+readonly ROLLOUT_CLEANUP_PARENT
+rollout_parent_is_canonical "$ROLLOUT_CLEANUP_PARENT" || {
+  printf '%s\n' 'rollout probe setup refused an unsafe temporary directory' >&2
+  exit 64
+}
+readonly ROLLOUT_CLEANUP_PARENT_IDENTITY="$(
+  rollout_file_identity "$ROLLOUT_CLEANUP_PARENT"
+)"
+[[ "$ROLLOUT_CLEANUP_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || {
+  printf '%s\n' 'rollout probe setup could not identify the temporary directory' >&2
+  exit 64
+}
+if [ "$ROLLOUT_CLEANUP_PARENT" = / ]; then
+  readonly ROLLOUT_CLEANUP_PREFIX="/nexus-form-rollout."
+else
+  readonly ROLLOUT_CLEANUP_PREFIX="$ROLLOUT_CLEANUP_PARENT/nexus-form-rollout."
+fi
+case "${HOME-}" in
+  /*) ;;
+  *)
+    printf '%s\n' 'rollout probe setup requires an absolute HOME' >&2
+    exit 64
+    ;;
+esac
+ROLLOUT_CLEANUP_LEDGER_PARENT="$HOME/.local/state/nexus-form"
+mkdir -p -- "$ROLLOUT_CLEANUP_LEDGER_PARENT"
+chmod 700 "$ROLLOUT_CLEANUP_LEDGER_PARENT"
+ROLLOUT_CLEANUP_LEDGER_PARENT="$(
+  CDPATH= cd -- "$ROLLOUT_CLEANUP_LEDGER_PARENT" 2>/dev/null && pwd -P
+)" || {
+  printf '%s\n' 'rollout probe setup refused an unusable cleanup ledger directory' >&2
+  exit 64
+}
+readonly ROLLOUT_CLEANUP_LEDGER_PARENT
+[ -O "$ROLLOUT_CLEANUP_LEDGER_PARENT" ] && \
+  [ "$(rollout_file_mode "$ROLLOUT_CLEANUP_LEDGER_PARENT")" = 700 ] || {
+  printf '%s\n' 'rollout probe setup refused an unsafe cleanup ledger directory' >&2
+  exit 64
+}
+readonly ROLLOUT_CLEANUP_LEDGER="$ROLLOUT_CLEANUP_LEDGER_PARENT/rollout-cleanup.ledger"
+if [ -e "$ROLLOUT_CLEANUP_LEDGER" ] || [ -L "$ROLLOUT_CLEANUP_LEDGER" ]; then
+  printf '%s\n' 'rollout probe cleanup ledger already exists; recover it before retrying' >&2
+  exit 64
+fi
+if ! ROLLOUT_CLEANUP_OWNER_DIR="$(mktemp -d "${ROLLOUT_CLEANUP_PREFIX}XXXXXX")"; then
+  printf '%s\n' 'rollout probe setup could not allocate protected temporary storage' >&2
+  exit 70
+fi
 readonly ROLLOUT_CLEANUP_OWNER_DIR
+chmod 700 "$ROLLOUT_CLEANUP_OWNER_DIR"
+readonly ROLLOUT_CLEANUP_OWNER_IDENTITY="$(
+  rollout_file_identity "$ROLLOUT_CLEANUP_OWNER_DIR"
+)"
+[[ "$ROLLOUT_CLEANUP_OWNER_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || {
+  rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
+  printf '%s\n' 'rollout probe setup could not identify the evidence directory' >&2
+  exit 70
+}
+if ! rollout_owner_is_safe \
+  "$ROLLOUT_CLEANUP_PARENT" "$ROLLOUT_CLEANUP_PARENT_IDENTITY" \
+  "$ROLLOUT_CLEANUP_OWNER_DIR" "$ROLLOUT_CLEANUP_OWNER_IDENTITY"; then
+  rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
+  printf '%s\n' 'rollout probe setup refused an unsafe evidence directory' >&2
+  exit 70
+fi
+if ! (
+  umask 077
+  set -o noclobber
+  printf '%s\n%s\n%s\n%s\n' \
+    "$ROLLOUT_CLEANUP_PARENT" "$ROLLOUT_CLEANUP_PARENT_IDENTITY" \
+    "$ROLLOUT_CLEANUP_OWNER_DIR" "$ROLLOUT_CLEANUP_OWNER_IDENTITY" \
+    > "$ROLLOUT_CLEANUP_LEDGER"
+); then
+  rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
+  printf '%s\n' 'rollout probe setup could not create the cleanup ledger' >&2
+  exit 70
+fi
+chmod 600 "$ROLLOUT_CLEANUP_LEDGER"
+if ! rollout_ledger_matches_owner; then
+  rm -f -- "$ROLLOUT_CLEANUP_LEDGER"
+  rmdir -- "$ROLLOUT_CLEANUP_OWNER_DIR" 2>/dev/null || true
+  printf '%s\n' 'rollout probe setup could not verify the cleanup ledger' >&2
+  exit 70
+fi
 trap cleanup_rollout_probe EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
@@ -324,9 +502,112 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
   "$ROLLOUT_EVIDENCE_DIR/get-before-rotation.json" >/dev/null
 ```
 
-このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。cleanup専用のreadonly ownerは`mktemp`が専用prefixで作成したpathへ固定されるため、運用中にmutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされても削除対象は変わりません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
+このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。入力された`TMPDIR`はsecret artifactの作成前にabsolute physical directoryへ解決され、cleanup専用のreadonly ownerはそのcanonical parent配下へ固定されます。そのため、運用中にcwdや`TMPDIR`の親symlinkが変化しても削除対象は変わらず、mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
 
-cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定ownerのpath検証または削除に失敗した場合はsecret値やpathを出力せずfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。どちらの場合もcutoff成立として扱わず、保護された一時artifactを手動削除してからfresh shellで再試行します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
+cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。このrepo外のdeterministic ledger directoryはmode `0700`、ledgerはmode `0600`かつ実行user所有でなければprobeを開始しません。同じuserの同時probeは禁止し、既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
+
+cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
+
+cleanup failure後は同じuserで次を実行します。このcommandはledger自身と記録されたcanonical parent/ownerをuntrusted inputとして再検証し、absolute physical parent、固定basename、実行user ownership、mode、non-symlinkをすべて満たすoriginal residueだけを削除します。ledgerの改変、別path、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。
+
+```bash
+set -euo pipefail
+recovery_fail() {
+  unset RECOVERY_PARENT RECOVERY_PARENT_IDENTITY
+  unset RECOVERY_OWNER RECOVERY_OWNER_IDENTITY
+  printf '%s\n' \
+    'rollout cleanup recovery refused; protected artifacts may remain; escalate before retrying' >&2
+  exit 70
+}
+recovery_file_mode() {
+  local mode
+
+  if mode="$(stat -f '%Lp' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+  elif mode="$(stat -c '%a' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+  else
+    return 1
+  fi
+}
+recovery_file_identity() {
+  local identity
+
+  if identity="$(stat -f '%d:%i' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+  elif identity="$(stat -c '%d:%i' "$1" 2>/dev/null)"; then
+    printf '%s\n' "$identity"
+  else
+    return 1
+  fi
+}
+
+case "${HOME-}" in
+  /*) ;;
+  *) recovery_fail ;;
+esac
+RECOVERY_LEDGER_PARENT="$(
+  CDPATH= cd -- "$HOME/.local/state/nexus-form" 2>/dev/null && pwd -P
+)" || recovery_fail
+readonly RECOVERY_LEDGER_PARENT
+[ -d "$RECOVERY_LEDGER_PARENT" ] && \
+  [ ! -L "$RECOVERY_LEDGER_PARENT" ] && \
+  [ -O "$RECOVERY_LEDGER_PARENT" ] && \
+  [ "$(recovery_file_mode "$RECOVERY_LEDGER_PARENT")" = 700 ] || recovery_fail
+readonly RECOVERY_LEDGER="$RECOVERY_LEDGER_PARENT/rollout-cleanup.ledger"
+[ -f "$RECOVERY_LEDGER" ] && \
+  [ ! -L "$RECOVERY_LEDGER" ] && \
+  [ -O "$RECOVERY_LEDGER" ] && \
+  [ "$(recovery_file_mode "$RECOVERY_LEDGER")" = 600 ] || recovery_fail
+[ "$(awk 'END { print NR }' "$RECOVERY_LEDGER")" = 4 ] || recovery_fail
+{
+  IFS= read -r RECOVERY_PARENT
+  IFS= read -r RECOVERY_PARENT_IDENTITY
+  IFS= read -r RECOVERY_OWNER
+  IFS= read -r RECOVERY_OWNER_IDENTITY
+} < "$RECOVERY_LEDGER"
+[[ "$RECOVERY_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
+[[ "$RECOVERY_OWNER_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || recovery_fail
+case "$RECOVERY_PARENT" in
+  /*) ;;
+  *) recovery_fail ;;
+esac
+[ -d "$RECOVERY_PARENT" ] && [ ! -L "$RECOVERY_PARENT" ] || recovery_fail
+[ "$(CDPATH= cd -- "$RECOVERY_PARENT" 2>/dev/null && pwd -P)" = \
+  "$RECOVERY_PARENT" ] || recovery_fail
+[ "$(recovery_file_identity "$RECOVERY_PARENT")" = \
+  "$RECOVERY_PARENT_IDENTITY" ] || recovery_fail
+if [ "$RECOVERY_PARENT" = / ]; then
+  readonly RECOVERY_PREFIX="/nexus-form-rollout."
+else
+  readonly RECOVERY_PREFIX="$RECOVERY_PARENT/nexus-form-rollout."
+fi
+case "$RECOVERY_OWNER" in
+  "$RECOVERY_PREFIX"[[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]]) ;;
+  *) recovery_fail ;;
+esac
+if [ -e "$RECOVERY_OWNER" ] || [ -L "$RECOVERY_OWNER" ]; then
+  [ -d "$RECOVERY_OWNER" ] && \
+    [ ! -L "$RECOVERY_OWNER" ] && \
+    [ -O "$RECOVERY_OWNER" ] && \
+    [ "$(recovery_file_mode "$RECOVERY_OWNER")" = 700 ] || recovery_fail
+  [ "$(recovery_file_identity "$RECOVERY_OWNER")" = \
+    "$RECOVERY_OWNER_IDENTITY" ] || recovery_fail
+  [ "$(CDPATH= cd -- "$RECOVERY_OWNER" 2>/dev/null && pwd -P)" = \
+    "$RECOVERY_OWNER" ] || recovery_fail
+  if ! rm -rf -- "$RECOVERY_OWNER"; then
+    recovery_fail
+  fi
+fi
+[ ! -e "$RECOVERY_OWNER" ] && [ ! -L "$RECOVERY_OWNER" ] || recovery_fail
+if ! rm -f -- "$RECOVERY_LEDGER"; then
+  recovery_fail
+fi
+[ ! -e "$RECOVERY_LEDGER" ] && [ ! -L "$RECOVERY_LEDGER" ] || recovery_fail
+unset RECOVERY_PARENT RECOVERY_PARENT_IDENTITY
+unset RECOVERY_OWNER RECOVERY_OWNER_IDENTITY
+printf '%s\n' 'rollout cleanup recovery completed'
+```
 
 **Phase 1の残存リスク**: 同じ`AUTH_SECRET`をpre-fix Podも知っているため、この時点はsecurity cutoffではありません。旧Podが残っていればlegacy tokenを受理でき、pre-fixへrollbackすればlegacy grantを再発行できます。緊急時にphase 2前のpre-fixへ戻すことは技術的には可能ですが、セキュリティ要件未達へ戻る操作であり、phase 2の開始条件にはできません。
 
