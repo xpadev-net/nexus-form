@@ -15,11 +15,13 @@ export const REQUIRED_SECURITY_MIGRATION_TAGS = [
   "0012_config_json_column_type",
   "0013_active_snapshot_structure_live_security_compat",
   "0014_certain_speed_demon",
+  "0017_public_grant_generation",
 ] as const;
 export const LEGACY_CONFIG_JSON_MIGRATION_TIMESTAMP = 1749061100000;
 export const CURRENT_CONFIG_JSON_MIGRATION_TIMESTAMP = 1779930000000;
 export const ACTIVE_SNAPSHOT_STRUCTURE_SECURITY_MIGRATION_TIMESTAMP = 1780203531326;
 export const FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP = 1781598249176;
+export const PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP = 1783946776757;
 // Drizzle's MySQL journal stores the canonical `when` value as `created_at`;
 // migration tags are not persisted and cannot be used for runtime checks.
 const REQUIRED_SECURITY_MIGRATIONS = [
@@ -34,6 +36,10 @@ const REQUIRED_SECURITY_MIGRATIONS = [
   {
     tag: "0014_certain_speed_demon",
     createdAt: FORM_STRUCTURE_UNIQUE_CONSTRAINTS_MIGRATION_TIMESTAMP,
+  },
+  {
+    tag: "0017_public_grant_generation",
+    createdAt: PUBLIC_PASSWORD_GRANT_GENERATION_MIGRATION_TIMESTAMP,
   },
 ] as const;
 
