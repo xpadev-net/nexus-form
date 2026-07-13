@@ -335,6 +335,14 @@ Evidence:
 - fix: Guard each additive column and index independently through `INFORMATION_SCHEMA`, execute only missing DDL, and add journal/snapshot compatibility assertions.
 - prevention: Multi-statement MySQL migrations must be reviewed and tested for restart after every DDL boundary, not only clean apply and fully applied no-op states.
 
+## 2026-07-13: Validate Secret authority in rendered manifests and executable cutover probes
+
+- tags: kubernetes, secret-authority, kustomize, rollout-validation, review-gate
+- symptom: A checked-in placeholder Secret was safe when inspected as a source file but remained in the rendered production apply set, where it could overwrite an externally managed runtime Secret. The accompanying password-cutover smoke procedure also described expected behavior without executable response-body assertions.
+- root cause: Review stopped at source-value safety and prose-level rollout sequencing instead of verifying final rendered resource ownership and the real API admission order and response shapes for both negative and positive cutover paths.
+- fix: Remove the placeholder Secret from every base and production Kustomize apply path, keep one external writer authoritative while preserving all workload references, and add fail-fast old-cookie/new-cookie GET and submit probes with exact body assertions and fresh one-time tokens.
+- prevention: For checked-in Secret templates, validate the three-part contract together: source values are placeholders only, rendered apply output contains no managed Secret, and every consuming workload still references the externally supplied Secret. For security cutovers, require executable negative and positive probes whose endpoint order, status, and response bodies match the implementation contract.
+
 ## 2026-07-13 — Bind Revocation Grants to Non-Reusable Lifecycle Identity  [tags: security, jwt, publication-lifecycle, rolling-deploy, rollback]
 
 Context:
