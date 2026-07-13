@@ -343,6 +343,14 @@ Evidence:
 - fix: Remove the placeholder Secret from every base and production Kustomize apply path, keep one external writer authoritative while preserving all workload references, and add fail-fast old-cookie/new-cookie GET and submit probes with exact body assertions and fresh one-time tokens.
 - prevention: For checked-in Secret templates, validate the three-part contract together: source values are placeholders only, rendered apply output contains no managed Secret, and every consuming workload still references the externally supplied Secret. For security cutovers, require executable negative and positive probes whose endpoint order, status, and response bodies match the implementation contract.
 
+## 2026-07-13: Exercise secret-bearing temporary artifacts across every exit path
+
+- tags: security, operations-runbook, shell, cleanup, review-gate
+- symptom: A rollout probe removed plaintext passwords, session cookies, one-time tokens, and response bodies only on its success path, so `set -e` failures, connection errors, assertion failures, or operator signals could leave the protected temporary directory behind.
+- root cause: Review verified shell syntax, restrictive permissions, and happy-path cleanup but did not model the temporary artifact lifecycle across early exits and signals. `set -e` was treated only as a fail-fast guard even though it also bypassed trailing cleanup.
+- fix: Make an idempotent directory cleanup function authoritative immediately after `mktemp`, register it with `EXIT`, route HUP/INT/TERM through exit, and use the same function for normal completion before disabling the trap.
+- prevention: Any runbook that creates secret-bearing temporary artifacts must provide Worker evidence for creation-before-trap ordering, safely quoted directory removal, sensitive-variable clearing, and residue-free normal, error, and signal executions using the actual documented shell function.
+
 ## 2026-07-13 — Bind Revocation Grants to Non-Reusable Lifecycle Identity  [tags: security, jwt, publication-lifecycle, rolling-deploy, rollback]
 
 Context:
