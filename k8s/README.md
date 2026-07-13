@@ -259,6 +259,36 @@ rollout_file_identity() {
     return 1
   fi
 }
+rollout_locator_component_is_safe() {
+  local component="${1-}"
+  local physical_component
+
+  case "$component" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d "$component" ] && [ ! -L "$component" ] && [ -O "$component" ] || return 1
+  physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
+  [ "$physical_component" = "$component" ]
+}
+rollout_prepare_ledger_parent() {
+  local home="${1-}"
+  local component
+
+  rollout_locator_component_is_safe "$home" || return 1
+  for component in \
+    "$home/.local" \
+    "$home/.local/state" \
+    "$home/.local/state/nexus-form"; do
+    [ ! -L "$component" ] || return 1
+    if [ ! -e "$component" ]; then
+      mkdir -- "$component" || return 1
+    fi
+    rollout_locator_component_is_safe "$component" || return 1
+  done
+  chmod 700 "$home/.local/state/nexus-form" || return 1
+  [ "$(rollout_file_mode "$home/.local/state/nexus-form")" = 700 ]
+}
 rollout_parent_is_canonical() {
   local parent="${1-}"
   local physical_parent
@@ -304,6 +334,9 @@ rollout_ledger_matches_owner() {
   local ledger_owner
   local ledger_owner_identity
 
+  rollout_locator_component_is_safe "$ROLLOUT_CLEANUP_LEDGER_PARENT" || return 1
+  [ "$(rollout_file_identity "$ROLLOUT_CLEANUP_LEDGER_PARENT")" = \
+    "$ROLLOUT_CLEANUP_LEDGER_PARENT_IDENTITY" ] || return 1
   [ -f "$ROLLOUT_CLEANUP_LEDGER" ] && \
     [ ! -L "$ROLLOUT_CLEANUP_LEDGER" ] && \
     [ -O "$ROLLOUT_CLEANUP_LEDGER" ] || return 1
@@ -391,19 +424,18 @@ case "${HOME-}" in
     exit 64
     ;;
 esac
-ROLLOUT_CLEANUP_LEDGER_PARENT="$HOME/.local/state/nexus-form"
-mkdir -p -- "$ROLLOUT_CLEANUP_LEDGER_PARENT"
-chmod 700 "$ROLLOUT_CLEANUP_LEDGER_PARENT"
-ROLLOUT_CLEANUP_LEDGER_PARENT="$(
-  CDPATH= cd -- "$ROLLOUT_CLEANUP_LEDGER_PARENT" 2>/dev/null && pwd -P
-)" || {
-  printf '%s\n' 'rollout probe setup refused an unusable cleanup ledger directory' >&2
+umask 077
+rollout_prepare_ledger_parent "$HOME" || {
+  printf '%s\n' 'rollout probe setup refused an unsafe cleanup locator chain' >&2
   exit 64
 }
+ROLLOUT_CLEANUP_LEDGER_PARENT="$HOME/.local/state/nexus-form"
 readonly ROLLOUT_CLEANUP_LEDGER_PARENT
-[ -O "$ROLLOUT_CLEANUP_LEDGER_PARENT" ] && \
-  [ "$(rollout_file_mode "$ROLLOUT_CLEANUP_LEDGER_PARENT")" = 700 ] || {
-  printf '%s\n' 'rollout probe setup refused an unsafe cleanup ledger directory' >&2
+readonly ROLLOUT_CLEANUP_LEDGER_PARENT_IDENTITY="$(
+  rollout_file_identity "$ROLLOUT_CLEANUP_LEDGER_PARENT"
+)"
+[[ "$ROLLOUT_CLEANUP_LEDGER_PARENT_IDENTITY" =~ ^[0-9]+:[0-9]+$ ]] || {
+  printf '%s\n' 'rollout probe setup could not identify the cleanup locator' >&2
   exit 64
 }
 readonly ROLLOUT_CLEANUP_LEDGER="$ROLLOUT_CLEANUP_LEDGER_PARENT/rollout-cleanup.ledger"
@@ -504,15 +536,16 @@ jq -e '.form.publicId == env.PUBLIC_ID and .form.isPasswordProtected == true and
 
 このprobeはrolloutごとにfreshな専用shellで開始し、`ROLLOUT_EVIDENCE_DIR`と同じshellをphase 2まで保持して、完了後にshellを終了します。入力された`TMPDIR`はsecret artifactの作成前にabsolute physical directoryへ解決され、cleanup専用のreadonly ownerはそのcanonical parent配下へ固定されます。そのため、運用中にcwdや`TMPDIR`の親symlinkが変化しても削除対象は変わらず、mutableな`ROLLOUT_EVIDENCE_DIR`がunset、空、または上書きされてもcleanupには影響しません。`set -euo pipefail`により、status/body/cookie assertionのどれか1つでも失敗すればprobeはその場で停止し、cutoff成立として扱いません。
 
-cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。このrepo外のdeterministic ledger directoryはmode `0700`、ledgerはmode `0600`かつ実行user所有でなければprobeを開始しません。同じuserの同時probeは禁止し、既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
+cleanup ownerとcanonical parent、および両directoryのdevice/inode identityは、最初のpassword/token/cookie/body作成前に`$HOME/.local/state/nexus-form/rollout-cleanup.ledger`へ記録されます。`HOME`、`.local`、`state`、`nexus-form`のlocator chainはすべてabsolute physical pathと一致し、symlinkではなく実行user所有でなければprobeを開始しません。途中componentがなければmode `077`のumask下で1階層ずつ作成し、最終directoryをmode `0700`に固定します。symlinkを含む既存chainは自動修復せずfail closedにするため、retargetで旧ledgerを見失ったまま新probeを開始できません。ledgerはmode `0600`かつ実行user所有でなければ使用しません。同じuserの同時probeは禁止し、既存ledgerがある場合は新しいprobeを開始せず、下記recoveryを先に実行します。ledgerやartifactのpathはchange ticket、log、diagnosticへ出力しません。
 
 cleanupはentryでEXIT/HUP/INT/TERM trapを解除して再入を防ぎ、削除より先にpassword/token変数をunsetします。正常終了、command/assertion失敗、HUP/INT/TERMのすべてで同じcleanupを1回だけ実行し、signalや既存commandの非0 statusは保持します。固定owner、canonical parent、ledgerのownership/mode/path shapeまたは削除に問題があれば、ledgerを残してsecret値やpathを含まないfail-safe diagnosticを表示します。元statusが0ならcleanup failure statusは`70`、元statusが非0なら元statusを保持します。正常cleanupはartifactの不在を確認してからledgerを削除します。cookie jar、password/token入りrequest、response bodyはchange ticketへ添付しません。
 
-cleanup failure後は同じuserで次を実行します。このcommandはledger自身と記録されたcanonical parent/ownerをuntrusted inputとして再検証し、absolute physical parent、固定basename、実行user ownership、mode、non-symlinkをすべて満たすoriginal residueだけを削除します。ledgerの改変、別path、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。
+cleanup failure後は同じuserで次を実行します。このcommandはsetupと同じHOMEからのlocator chainをcomponentごとに再検証してから、ledger自身と記録されたcanonical parent/ownerをuntrusted inputとして検証し、absolute physical parent、固定basename、実行user ownership、mode、non-symlinkをすべて満たすoriginal residueだけを削除します。locator chainのsymlink/retarget、ledgerの改変、別path、symlink、別ownerを検出した場合はpathを表示せず停止するため、platform ownerへincidentとして引き継いでください。artifactの不在を確認してledgerも削除できた場合だけfresh shellでprobeを再試行します。
 
 ```bash
 set -euo pipefail
 recovery_fail() {
+  unset RECOVERY_LOCATOR_COMPONENT
   unset RECOVERY_PARENT RECOVERY_PARENT_IDENTITY
   unset RECOVERY_OWNER RECOVERY_OWNER_IDENTITY
   printf '%s\n' \
@@ -541,19 +574,34 @@ recovery_file_identity() {
     return 1
   fi
 }
+recovery_locator_component_is_safe() {
+  local component="${1-}"
+  local physical_component
+
+  case "$component" in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  [ -d "$component" ] && [ ! -L "$component" ] && [ -O "$component" ] || return 1
+  physical_component="$(CDPATH= cd -- "$component" 2>/dev/null && pwd -P)" || return 1
+  [ "$physical_component" = "$component" ]
+}
 
 case "${HOME-}" in
   /*) ;;
   *) recovery_fail ;;
 esac
-RECOVERY_LEDGER_PARENT="$(
-  CDPATH= cd -- "$HOME/.local/state/nexus-form" 2>/dev/null && pwd -P
-)" || recovery_fail
+for RECOVERY_LOCATOR_COMPONENT in \
+  "$HOME" \
+  "$HOME/.local" \
+  "$HOME/.local/state" \
+  "$HOME/.local/state/nexus-form"; do
+  recovery_locator_component_is_safe "$RECOVERY_LOCATOR_COMPONENT" || recovery_fail
+done
+unset RECOVERY_LOCATOR_COMPONENT
+RECOVERY_LEDGER_PARENT="$HOME/.local/state/nexus-form"
 readonly RECOVERY_LEDGER_PARENT
-[ -d "$RECOVERY_LEDGER_PARENT" ] && \
-  [ ! -L "$RECOVERY_LEDGER_PARENT" ] && \
-  [ -O "$RECOVERY_LEDGER_PARENT" ] && \
-  [ "$(recovery_file_mode "$RECOVERY_LEDGER_PARENT")" = 700 ] || recovery_fail
+[ "$(recovery_file_mode "$RECOVERY_LEDGER_PARENT")" = 700 ] || recovery_fail
 readonly RECOVERY_LEDGER="$RECOVERY_LEDGER_PARENT/rollout-cleanup.ledger"
 [ -f "$RECOVERY_LEDGER" ] && \
   [ ! -L "$RECOVERY_LEDGER" ] && \
