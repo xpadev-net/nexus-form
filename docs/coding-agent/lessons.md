@@ -343,6 +343,14 @@ Evidence:
 - fix: Remove the placeholder Secret from every base and production Kustomize apply path, keep one external writer authoritative while preserving all workload references, and add fail-fast old-cookie/new-cookie GET and submit probes with exact body assertions and fresh one-time tokens.
 - prevention: For checked-in Secret templates, validate the three-part contract together: source values are placeholders only, rendered apply output contains no managed Secret, and every consuming workload still references the externally supplied Secret. For security cutovers, require executable negative and positive probes whose endpoint order, status, and response bodies match the implementation contract.
 
+## 2026-07-13: Exercise secret-bearing temporary artifacts across every exit path
+
+- tags: security, operations-runbook, shell, cleanup, review-gate
+- symptom: A rollout probe first removed plaintext passwords, session cookies, one-time tokens, and response bodies only on its success path. Its follow-up trap still trusted a mutable path and assumed `rm` success, so early exits could leave artifacts, path reassignment could delete the wrong directory, and cleanup failure could mask signal status, skip variable clearing, and invoke cleanup twice.
+- root cause: Review verified shell syntax, restrictive permissions, happy-path cleanup, and ordinary error/signal exits but did not model immutable artifact ownership, mutable-variable corruption, cleanup-command failure, or trap re-entry. `set -e` was treated only as a fail-fast guard even though it also bypassed trailing cleanup and later cleanup steps.
+- fix: Define cleanup before allocation, bind the successful `mktemp` result to a cleanup-only fixed owner, register traps immediately, disable traps on cleanup entry, preserve the original exit or signal status, clear sensitive variables independently of deletion success, and report deletion failure without exposing secret values.
+- prevention: Any runbook that creates secret-bearing temporary artifacts must exercise the actual documented shell function for creation-to-trap ordering, fixed-path ownership, safely quoted removal, sensitive-variable clearing, and residue behavior across normal, command-error, and signal exits. Failure injection must also cover unset/empty/overwritten operational path variables and a failing removal command, asserting no wrong-path deletion, single cleanup invocation, deterministic status preservation, and an explicit residual-artifact diagnostic.
+
 ## 2026-07-13 — Bind Revocation Grants to Non-Reusable Lifecycle Identity  [tags: security, jwt, publication-lifecycle, rolling-deploy, rollback]
 
 Context:
