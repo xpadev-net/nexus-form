@@ -244,11 +244,12 @@ describe("response export", () => {
 
     expect(csv).toBe(
       [
-        '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
-        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
+        '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
+        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
       ].join("\n"),
     );
     expect(csv).not.toContain("区切り");
+    expect(csv).not.toContain("UA UUID");
   });
 
   it("returns a header row when CSV output has no records", () => {
@@ -264,7 +265,7 @@ describe("response export", () => {
         "choice-block",
       ]),
     ).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","氏名","希望枠"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","氏名","希望枠"',
     );
   });
 
@@ -306,6 +307,9 @@ describe("response export", () => {
         [record],
         new Set(["webgl", "canvas"]),
         blockTitleMap,
+        [],
+        undefined,
+        true,
       ),
     ).toEqual({
       headerIds: [
@@ -350,6 +354,68 @@ describe("response export", () => {
         ],
       ],
     });
+  });
+
+  it("omits fingerprint UUID and UA UUID columns by default in shared export headers", () => {
+    const record: ResponseExportRecord = {
+      metadata: {
+        id: "response-1",
+        form_id: "form-1",
+        respondent_uuid: "respondent-1",
+        submitted_at: "2026-05-17T01:00:00.000Z",
+        country_code: "JP",
+        fingerprint_uuids: {
+          canvas: "canvas-uuid",
+        },
+        ua_uuid: "ua-uuid-value",
+        uniqueness_score: 1,
+      },
+      component_columns: [
+        {
+          block_id: "choice-block",
+          block_type: "radio",
+          question_title: "希望枠",
+          value: "morning",
+          display_value: "午前",
+        },
+      ],
+    };
+
+    const table = buildResponseExportTable(
+      [record],
+      new Set(["canvas"]),
+      new Map([["choice-block", "希望枠"]]),
+    );
+
+    expect(table.headerIds).toEqual([
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "Uniqueness Score",
+      "choice-block",
+    ]);
+    expect(table.headerTitles).toEqual([
+      "回答ID",
+      "回答者UUID",
+      "送信日時",
+      "更新日時",
+      "国コード",
+      "ユニーク度スコア",
+      "希望枠",
+    ]);
+    expect(table.rows[0]).toEqual([
+      "response-1",
+      "respondent-1",
+      "2026-05-17T01:00:00.000Z",
+      "",
+      "JP",
+      "1.0000",
+      "午前",
+    ]);
+    expect(table.headerIds).not.toContain("UA UUID");
+    expect(table.headerIds).not.toContain("canvas UUID");
   });
 
   it("omits section separators from shared empty headers and CSV before, between, and after questions", () => {
@@ -406,7 +472,6 @@ describe("response export", () => {
         "Submitted At",
         "Updated At",
         "Country Code",
-        "UA UUID",
         "Uniqueness Score",
         "first-question",
         "second-question",
@@ -417,7 +482,6 @@ describe("response export", () => {
         "送信日時",
         "更新日時",
         "国コード",
-        "UA UUID",
         "ユニーク度スコア",
         "最初の質問",
         "次の質問",
@@ -427,7 +491,7 @@ describe("response export", () => {
     expect(
       formatRecordsToCsv([], new Set(), sectionedTitleMap, emptyColumns),
     ).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","最初の質問","次の質問"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","最初の質問","次の質問"',
     );
   });
 
@@ -498,6 +562,9 @@ describe("response export", () => {
       [record],
       new Set(["=canvas"]),
       formulaTitleMap,
+      [],
+      undefined,
+      true,
     );
 
     expect(csv.split("\n")[0]).toContain('"\'=Text"');
@@ -598,10 +665,10 @@ describe("response export", () => {
     const csv = formatRecordsToCsv(records, fingerprintComponents, s16TitleMap);
 
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","予約日","予約時刻","満足度","スライダー"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","予約日","予約時刻","満足度","スライダー"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-s16","respondent-s16","2026-05-17T01:00:00.000Z","2026-05-17T02:30:00.000Z","JP","","1.0000","2026-06-16","10:30","4","7"',
+      '"response-s16","respondent-s16","2026-05-17T01:00:00.000Z","2026-05-17T02:30:00.000Z","JP","1.0000","2026-06-16","10:30","4","7"',
     );
   });
 
@@ -720,15 +787,16 @@ describe("response export", () => {
     );
 
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","契約種別","法人名"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","契約種別","法人名"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","","1.0000","個人",""',
+      '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","1.0000","個人",""',
     );
     expect(csv.split("\n")[2]).toBe(
-      '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","","1.0000","法人","Nexus 株式会社"',
+      '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","1.0000","法人","Nexus 株式会社"',
     );
     expect(csv).not.toContain("法人追加情報");
+    expect(csv).not.toContain("UA UUID");
   });
 
   it("omits question-category section separators from non-empty export records and CSV", () => {
@@ -811,10 +879,10 @@ describe("response export", () => {
       sectionedTitleMap,
     );
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","UA UUID","ユニーク度スコア","最初の質問","次の質問"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","最初の質問","次の質問"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-sectioned","respondent-sectioned","2026-05-17T01:00:00.000Z","","JP","","1.0000","回答1","回答2"',
+      '"response-sectioned","respondent-sectioned","2026-05-17T01:00:00.000Z","","JP","1.0000","回答1","回答2"',
     );
     expect(csv).not.toContain("導入");
     expect(csv).not.toContain("中間");
@@ -922,6 +990,8 @@ describe("response export", () => {
       [],
       sheetTitleMap,
       new Set(["=canvas"]),
+      undefined,
+      true,
     );
 
     expect(newLayoutRow.idRow).toContain("'=canvas UUID");
@@ -949,6 +1019,7 @@ describe("response export", () => {
       sheetTitleMap,
       new Set(["=canvas"]),
       newLayoutRow.titleRow,
+      true,
     );
 
     expect(existingLayoutRow.idRow).toEqual(newLayoutRow.idRow);

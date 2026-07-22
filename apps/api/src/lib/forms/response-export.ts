@@ -296,6 +296,7 @@ export function formatRecordsToCsv(
   blockTitleMap: Map<string, string>,
   emptyRecordBlockIds: Array<string | ResponseExportColumn> = [],
   emptyValidationOutputColumns?: ResponseExportValidationOutputColumn[],
+  includeFingerprintColumns = false,
 ): string {
   try {
     const table = buildResponseExportTable(
@@ -304,6 +305,7 @@ export function formatRecordsToCsv(
       blockTitleMap,
       normalizeResponseExportColumns(emptyRecordBlockIds, blockTitleMap),
       emptyValidationOutputColumns,
+      includeFingerprintColumns,
     );
     const csvRows = [table.headerTitles.map(escapeCSV).join(",")];
 

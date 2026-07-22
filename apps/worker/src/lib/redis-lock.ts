@@ -143,6 +143,14 @@ export async function setIdempotencyKey(
 }
 
 /**
+ * 冪等性キーを削除する。完全再同期（full モード）でシートを wipe する際、
+ * 過去に書き込んだ行の "done" キーを事前に消すことで再書き込みを許可する。
+ */
+export async function deleteIdempotencyKey(key: string): Promise<void> {
+  await getLockClient().del(key);
+}
+
+/**
  * `key` のロックを取得してから `fn` を実行し、完了後に解放する。
  *
  * 待機がタイムアウトした場合は例外を投げる（直列化を保証するため

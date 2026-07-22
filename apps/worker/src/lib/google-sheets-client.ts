@@ -315,3 +315,30 @@ export async function updateRange(
     return { ok: false, error: mapApiError(e) };
   }
 }
+
+/**
+ * Google Sheets の values.clear API を呼び出し、指定シートの全データ
+ * （ヘッダー行・データ行を含む）を削除する。完全再同期（full モード）の
+ * 際に、シートをゼロから再構築するためにのみ使用する。
+ */
+export async function clearSheet(
+  token: OAuthToken,
+  params: { spreadsheetId: string; sheetName: string },
+): Promise<Result<{ clearedRange: string }>> {
+  const rangeA1 = `${params.sheetName}!1:1000000`;
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values/${encodeURIComponent(rangeA1)}:clear`;
+  try {
+    const raw = await fetchGoogleSheetsAPI({
+      accessToken: token.accessToken,
+      endpoint,
+      method: "POST",
+    });
+    const clearedRange =
+      raw && typeof raw === "object" && "clearedRange" in raw
+        ? String((raw as { clearedRange: unknown }).clearedRange)
+        : rangeA1;
+    return { ok: true, data: { clearedRange } };
+  } catch (e) {
+    return { ok: false, error: mapApiError(e) };
+  }
+}

@@ -92,6 +92,7 @@ describe("ResponseExport", () => {
 
     expect(mocks.exportGet).toHaveBeenCalledWith({
       param: { id: "form id" },
+      query: { includeFingerprint: "false" },
     });
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
     expect(vi.mocked(URL.createObjectURL).mock.calls[0]?.[0]).toMatchObject({
@@ -200,6 +201,45 @@ describe("ResponseExport", () => {
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).not.toHaveBeenCalled();
 
+    act(() => root.unmount());
+  });
+
+  it("sends includeFingerprint=true when the fingerprint checkbox is checked", async () => {
+    const container = document.createElement("div");
+    const root = renderExport(container, "form id");
+    const checkbox = container.querySelector(
+      'input[type="checkbox"]',
+    ) as HTMLInputElement;
+    const button = container.querySelector("button");
+    const appendedAnchors: HTMLAnchorElement[] = [];
+    const appendChild = vi
+      .spyOn(document.body, "appendChild")
+      .mockImplementation((node) => {
+        if (node instanceof HTMLAnchorElement) {
+          appendedAnchors.push(node);
+        }
+        return node;
+      });
+
+    await act(async () => {
+      checkbox?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(checkbox.checked).toBe(true);
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.exportGet).toHaveBeenCalledWith({
+      param: { id: "form id" },
+      query: { includeFingerprint: "true" },
+    });
+    expect(mocks.toastSuccess).toHaveBeenCalledOnce();
+
+    appendChild.mockRestore();
     act(() => root.unmount());
   });
 });
