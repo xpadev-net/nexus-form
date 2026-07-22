@@ -100,7 +100,6 @@ export const validationProviderResultSchema = z.object({
 export interface ValidationProviderRule<
   TInput = string,
   TConfig = Record<string, unknown>,
-  TOutputValue = unknown,
 > {
   readonly name: string;
   readonly label: string;
@@ -117,7 +116,7 @@ export interface ValidationProviderRule<
     input: TInput,
     config: TConfig,
     context?: ValidationProviderExecutionContext,
-  ): Promise<ValidationProviderResult<TOutputValue>>;
+  ): Promise<ValidationProviderResult>;
 
   sanitizeConfig?(config: Record<string, unknown>): TConfig;
   normalizeInput?(input: TInput): TInput;
@@ -140,10 +139,10 @@ export interface ValidationProvider {
   healthCheck?(): Promise<boolean>;
 }
 
-export interface ValidationProviderResult<TOutputValue = unknown> {
+export interface ValidationProviderResult {
   isValid: boolean;
   metadata?: Record<string, unknown>;
-  outputValues?: readonly ValidationOutputValue<TOutputValue>[];
+  outputValues?: readonly ValidationOutputValue[];
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number;

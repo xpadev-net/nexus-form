@@ -946,9 +946,9 @@ describe("handleGenericValidation", () => {
           fixtureCase: "success",
           validationOutputs: [
             { key: "username", label: "Username", value: "octocat" },
-            { key: "followers", value: 42 },
-            { key: "verified", value: true },
-            { key: "bio", value: null },
+            { key: "followers", value: "42" },
+            { key: "verified", value: "true" },
+            { key: "bio", value: "" },
           ],
         },
       }),
@@ -1012,8 +1012,8 @@ describe("handleGenericValidation", () => {
         success: true,
         metadata: {
           validationOutputs: [
-            { key: "profile", value: { url: "https://example.com" } },
-            { key: "tags", value: ["admin", "user"] },
+            { key: "profile", value: '{"url":"https://example.com"}' },
+            { key: "tags", value: '["admin","user"]' },
           ],
         },
       }),

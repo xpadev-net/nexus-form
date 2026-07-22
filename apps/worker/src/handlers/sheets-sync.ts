@@ -762,7 +762,7 @@ async function getValidationOutputsByResponseId(params: {
             rule_type: column.ruleType,
             output_key: column.outputKey,
             label: column.label,
-            value: value?.value ?? null,
+            value: value?.value ?? "",
           };
         }),
       ];

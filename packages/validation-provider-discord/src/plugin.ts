@@ -166,7 +166,7 @@ function buildDiscordOutputValues(params: {
     {
       key: "guild_member",
       label: "Guild member",
-      value: params.guildMember,
+      value: String(params.guildMember),
     },
     {
       key: "roles",

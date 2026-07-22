@@ -160,7 +160,7 @@ const userExistsRule: ValidationProviderRule = {
           {
             key: "display_name",
             label: "Display name",
-            value: parsedUserData.data.displayName,
+            value: parsedUserData.data.displayName ?? "",
           },
           {
             key: "profile_url",
@@ -170,7 +170,7 @@ const userExistsRule: ValidationProviderRule = {
           {
             key: "followers",
             label: "Followers",
-            value: parsedUserData.data.followers,
+            value: String(parsedUserData.data.followers),
           },
         ],
       };

@@ -328,7 +328,7 @@ describe("response deletion API", () => {
       },
       output_values: [
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
+        { key: "followers", value: "42" },
       ],
       error_code: null,
       error_message: null,
@@ -365,7 +365,7 @@ describe("response deletion API", () => {
     expect(res.status).toBe(200);
     expect(body.externalValidations[0].output_values).toEqual([
       { key: "username", label: "Username", value: "octocat" },
-      { key: "followers", value: 42 },
+      { key: "followers", value: "42" },
     ]);
   });
 });

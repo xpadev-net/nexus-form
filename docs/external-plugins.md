@@ -62,7 +62,7 @@ export interface ValidationProviderExecutionContext {
 export interface ValidationProviderResult {
   isValid: boolean;
   metadata?: Record<string, unknown>;
-  outputValues?: readonly ValidationOutputValue[]; // 成功/失敗に加えて返される任意のキー・値ペア（オブジェクトや配列等を含む）
+  outputValues?: readonly ValidationOutputValue[]; // 成功/失敗に加えて返される任意のキー・値ペア（value は文字列として保存）
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number; // 秒。設定するとジョブが throw されリトライ

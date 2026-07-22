@@ -8,7 +8,7 @@ import {
 } from "../plugin-interface";
 
 describe("validationProviderResultSchema", () => {
-  it("accepts multiple scalar output values", () => {
+  it("normalizes scalar output values to strings", () => {
     expect(
       validationProviderResultSchema.parse({
         isValid: true,
@@ -23,9 +23,9 @@ describe("validationProviderResultSchema", () => {
       isValid: true,
       outputValues: [
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
-        { key: "verified", value: true },
-        { key: "bio", value: null },
+        { key: "followers", value: "42" },
+        { key: "verified", value: "true" },
+        { key: "bio", value: "" },
       ],
     });
   });
@@ -42,7 +42,7 @@ describe("validationProviderResultSchema", () => {
     });
   });
 
-  it("accepts arbitrary object/array output values and rejects duplicate keys", () => {
+  it("stringifies object/array output values and rejects duplicate keys", () => {
     expect(
       validationProviderResultSchema.parse({
         isValid: true,
@@ -52,7 +52,9 @@ describe("validationProviderResultSchema", () => {
       }),
     ).toEqual({
       isValid: true,
-      outputValues: [{ key: "profile", value: { url: "https://example.com" } }],
+      outputValues: [
+        { key: "profile", value: '{"url":"https://example.com"}' },
+      ],
     });
 
     expect(() =>

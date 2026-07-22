@@ -56,7 +56,7 @@ describe("getValidationResultId", () => {
 });
 
 describe("validationOutputValuesSchema", () => {
-  it("accepts arbitrary named output values (scalars, objects, arrays)", () => {
+  it("normalizes arbitrary named output values to strings", () => {
     expect(
       validationOutputValuesSchema.parse([
         { key: "username", label: "Username", value: "octocat" },
@@ -71,14 +71,14 @@ describe("validationOutputValuesSchema", () => {
       ]),
     ).toEqual([
       { key: "username", label: "Username", value: "octocat" },
-      { key: "followers", value: 42 },
-      { key: "verified", value: true },
-      { key: "bio", value: null },
+      { key: "followers", value: "42" },
+      { key: "verified", value: "true" },
+      { key: "bio", value: "" },
       {
         key: "profile",
-        value: { url: "https://example.com", avatar: "octo.png" },
+        value: '{"url":"https://example.com","avatar":"octo.png"}',
       },
-      { key: "roles", value: ["admin", "developer"] },
+      { key: "roles", value: '["admin","developer"]' },
     ]);
   });
 
@@ -104,7 +104,7 @@ describe("validation output metadata helpers", () => {
       { providerField: "kept" },
       [
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
+        { key: "followers", value: "42" },
       ],
     );
 
@@ -112,12 +112,12 @@ describe("validation output metadata helpers", () => {
       providerField: "kept",
       [VALIDATION_OUTPUT_METADATA_KEY]: [
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
+        { key: "followers", value: "42" },
       ],
     });
     expect(parseValidationOutputValuesFromMetadata(metadata)).toEqual([
       { key: "username", label: "Username", value: "octocat" },
-      { key: "followers", value: 42 },
+      { key: "followers", value: "42" },
     ]);
   });
 

@@ -47,7 +47,16 @@ vi.mock("@nexus-form/shared", () => ({
     const outputValues = (
       metadata as { validationOutputs?: Array<Record<string, unknown>> }
     ).validationOutputs;
-    return Array.isArray(outputValues) ? outputValues : [];
+    if (!Array.isArray(outputValues)) return [];
+    return outputValues.map((value) => ({
+      ...value,
+      value:
+        value.value === null || value.value === undefined
+          ? ""
+          : typeof value.value === "object"
+            ? JSON.stringify(value.value)
+            : String(value.value),
+    }));
   }),
 }));
 
@@ -213,7 +222,7 @@ describe("getExternalValidationResults", () => {
         id: "result-1",
         output_values: [
           { key: "username", label: "Username", value: "octocat" },
-          { key: "followers", value: 42 },
+          { key: "followers", value: "42" },
         ],
       }),
     ]);

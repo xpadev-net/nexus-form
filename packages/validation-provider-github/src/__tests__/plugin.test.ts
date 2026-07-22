@@ -287,7 +287,7 @@ describe("githubProvider.rules.user_exists.validate", () => {
           label: "Profile URL",
           value: "https://github.com/octocat",
         },
-        { key: "followers", label: "Followers", value: 5000 },
+        { key: "followers", label: "Followers", value: "5000" },
       ],
     });
   });
