@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
@@ -20,9 +21,11 @@ const pluginManifestSchema = z
   .strict();
 
 /**
- * Runtime identity used by the plugin drift guard. Only the API process and
- * Worker process publish manifests, and each compares itself against the other
- * role.
+ * Runtime identity used by the plugin drift guard. Only the API role and
+ * Worker role publish manifests, and each compares itself against every
+ * currently-live instance of the other role (a role may be backed by
+ * several independently deployed instances, e.g. multiple BullMQ Worker
+ * Deployments).
  */
 export type PluginRuntimeRole = z.infer<typeof pluginRuntimeRoleSchema>;
 
@@ -59,6 +62,14 @@ export interface PluginDriftStore {
    * Deletes a manifest key. The return value is store-specific and ignored.
    */
   del(key: string): Promise<unknown>;
+  /**
+   * Lists all keys matching a glob pattern (Redis `KEYS` semantics, e.g.
+   * `prefix:role:*`). Used to enumerate every currently-live instance of the
+   * peer role, since a role can be backed by several independently deployed
+   * Kubernetes Deployments/pods (e.g. multiple BullMQ Worker Deployments)
+   * that each publish under their own instance key.
+   */
+  keys(pattern: string): Promise<string[]>;
 }
 
 /**
@@ -66,9 +77,18 @@ export interface PluginDriftStore {
  */
 export interface PluginDriftGuardOptions {
   /**
-   * Current runtime role; determines both the current manifest key and peer key.
+   * Current runtime role; determines both the current manifest key and the
+   * peer key pattern used to enumerate peer instances.
    */
   role: PluginRuntimeRole;
+  /**
+   * Identifies this specific instance of `role` so multiple independently
+   * deployed instances (e.g. several BullMQ Worker Deployments, or several
+   * replicas of one Deployment) each publish under their own key instead of
+   * overwriting one another. Defaults to `os.hostname()`, which is the pod
+   * name inside Kubernetes.
+   */
+  instanceId?: string;
   /**
    * Required Redis-like store used for manifest exchange.
    */
@@ -227,8 +247,9 @@ async function publishAndAssertPluginManifest(
   const ttlSeconds = guard.ttlSeconds ?? PLUGIN_DRIFT_TTL_SECONDS;
   const current = buildManifest(guard.role, registry, pluginHashes);
   const peerRole = guard.role === "api" ? "worker" : "api";
-  const currentKey = `${keyPrefix}:${guard.role}`;
-  const peerKey = `${keyPrefix}:${peerRole}`;
+  const instanceId = guard.instanceId ?? hostname();
+  const currentKey = `${keyPrefix}:${guard.role}:${instanceId}`;
+  const peerKeyPattern = `${keyPrefix}:${peerRole}:*`;
 
   try {
     await guard.store.set(
@@ -238,45 +259,75 @@ async function publishAndAssertPluginManifest(
       ttlSeconds,
     );
 
-    const peerRaw = await guard.store.get(peerKey);
-    if (!peerRaw) {
+    const peerKeys = await guard.store.keys(peerKeyPattern);
+    if (peerKeys.length === 0) {
       console.warn(
-        `[${logPrefix}] Plugin drift guard could not find ${peerRole} manifest; comparison will run when both runtimes have started.`,
+        `[${logPrefix}] Plugin drift guard could not find any ${peerRole} manifest; comparison will run when both runtimes have started.`,
       );
       return "pending";
     }
 
-    let peerJson: unknown;
-    try {
-      peerJson = JSON.parse(peerRaw);
-    } catch {
-      const message = `Plugin drift guard found non-JSON ${peerRole} manifest`;
+    // Every currently-live peer instance must agree with the current
+    // manifest. A role can be backed by several independently rolling
+    // Kubernetes Deployments (e.g. discord/github/twitter/sheets/
+    // notifications/vrchat worker Deployments), so a single mismatched
+    // instance must not be masked by other instances that happen to match.
+    const mismatchedInstances: string[] = [];
+    const invalidPeerReasons: string[] = [];
+    let resolvedPeerCount = 0;
+    for (const peerKey of peerKeys) {
+      const peerRaw = await guard.store.get(peerKey);
+      if (!peerRaw) continue; // expired between `keys()` and `get()`
+
+      let peerJson: unknown;
+      try {
+        peerJson = JSON.parse(peerRaw);
+      } catch {
+        invalidPeerReasons.push(`${peerKey}: non-JSON manifest`);
+        continue;
+      }
+
+      const peerParse = pluginManifestSchema.safeParse(peerJson);
+      if (!peerParse.success) {
+        invalidPeerReasons.push(`${peerKey}: invalid manifest`);
+        continue;
+      }
+      if (peerParse.data.role !== peerRole) {
+        invalidPeerReasons.push(
+          `${peerKey}: expected ${peerRole} manifest but found ${peerParse.data.role}`,
+        );
+        continue;
+      }
+
+      resolvedPeerCount += 1;
+      const differences = compareManifests(current, peerParse.data);
+      if (differences.length > 0) {
+        mismatchedInstances.push(`${peerKey} (${differences.join("; ")})`);
+      }
+    }
+
+    if (invalidPeerReasons.length > 0) {
+      const message = `Plugin drift guard found invalid ${peerRole} manifest(s): ${invalidPeerReasons.join(" | ")}`;
       if (guard.failOnMismatch ?? true) throw new Error(message);
       console.warn(`[${logPrefix}] ${message}`);
       return "pending";
     }
 
-    const peerParse = pluginManifestSchema.safeParse(peerJson);
-    if (!peerParse.success) {
-      const message = `Plugin drift guard found invalid ${peerRole} manifest`;
-      if (guard.failOnMismatch ?? true) throw new Error(message);
-      console.warn(`[${logPrefix}] ${message}`);
-      return "pending";
-    }
-    if (peerParse.data.role !== peerRole) {
-      const message = `Plugin drift guard expected ${peerRole} manifest but found ${peerParse.data.role}`;
-      if (guard.failOnMismatch ?? true) throw new Error(message);
-      console.warn(`[${logPrefix}] ${message}`);
+    if (resolvedPeerCount === 0) {
+      console.warn(
+        `[${logPrefix}] Plugin drift guard could not resolve any ${peerRole} manifest from ${peerKeys.length} known key(s); comparison will run once a manifest is available.`,
+      );
       return "pending";
     }
 
-    const differences = compareManifests(current, peerParse.data);
-    if (differences.length === 0) {
-      console.log(`[${logPrefix}] Plugin drift guard matched ${peerRole}`);
+    if (mismatchedInstances.length === 0) {
+      console.log(
+        `[${logPrefix}] Plugin drift guard matched all ${peerKeys.length} ${peerRole} instance(s)`,
+      );
       return "matched";
     }
 
-    const message = `Plugin drift detected between ${guard.role} and ${peerRole}: ${differences.join("; ")}`;
+    const message = `Plugin drift detected between ${guard.role} (${instanceId}) and ${peerRole} instance(s): ${mismatchedInstances.join(" | ")}`;
     if (guard.failOnMismatch ?? true) {
       throw new Error(message);
     }
