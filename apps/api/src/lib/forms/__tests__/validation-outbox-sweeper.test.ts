@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
     schema,
     sequence: [] as string[],
     selectWheres: [] as unknown[],
+    enrichmentWheres: [] as unknown[],
     updateSets: [] as unknown[],
     updateWheres: [] as unknown[],
   };
@@ -139,19 +140,28 @@ function usePendingRows(rows: PendingRow[]) {
   usePendingRowsResult(Promise.resolve(rows));
 }
 
+// The sweeper claims eligible rows in two steps to work around a TiDB
+// planner bug where a locking read (FOR UPDATE SKIP LOCKED) combined with a
+// JOIN can fail to resolve join columns. Step 1 locks rows from the
+// validation result table alone; step 2 reads the JOIN-derived enrichment
+// fields for those already-locked ids. These helpers mock both steps.
 function usePendingRowsResult(rows: Promise<PendingRow[]>) {
   const forUpdate = vi.fn(async () =>
     (await rows).filter((row) => row.enqueueMode === "STABLE"),
   );
   const limit = vi.fn(() => ({ for: forUpdate }));
   const orderBy = vi.fn(() => ({ limit }));
-  const where = vi.fn((condition: unknown) => {
+  const lockWhere = vi.fn((condition: unknown) => {
     mocks.selectWheres.push(condition);
     return { orderBy };
   });
-  const leftJoin = vi.fn(() => ({ where }));
+  const enrichmentWhere = vi.fn(async (condition: unknown) => {
+    mocks.enrichmentWheres.push(condition);
+    return (await rows).filter((row) => row.enqueueMode === "STABLE");
+  });
+  const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
   const innerJoin = vi.fn(() => ({ leftJoin }));
-  const from = vi.fn(() => ({ innerJoin }));
+  const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
   mocks.db.select.mockReturnValue({ from });
   mocks.db.transaction.mockImplementation(
     async (callback: (tx: unknown) => unknown) =>
@@ -167,13 +177,17 @@ function useClaimRowsSequence(rowsByClaim: PendingRow[][]) {
       const forUpdate = vi.fn(async () => rows);
       const limit = vi.fn(() => ({ for: forUpdate }));
       const orderBy = vi.fn(() => ({ limit }));
-      const where = vi.fn((condition: unknown) => {
+      const lockWhere = vi.fn((condition: unknown) => {
         mocks.selectWheres.push(condition);
         return { orderBy };
       });
-      const leftJoin = vi.fn(() => ({ where }));
+      const enrichmentWhere = vi.fn(async (condition: unknown) => {
+        mocks.enrichmentWheres.push(condition);
+        return rows;
+      });
+      const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
       const innerJoin = vi.fn(() => ({ leftJoin }));
-      const from = vi.fn(() => ({ innerJoin }));
+      const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
       const select = vi.fn(() => ({ from }));
       return callback({ select, update: mocks.db.update });
     },
@@ -474,23 +488,27 @@ function useStatefulValidationOutbox(
 
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
+      where: vi.fn((where: unknown) => {
+        mocks.selectWheres.push(where);
+        return {
+          orderBy: vi.fn(() => ({
+            limit: vi.fn((limit: number) => ({
+              for: vi.fn(async () => {
+                const databaseNow = options.getDatabaseNow();
+                return matchesRuntimePredicate(row, where, databaseNow) &&
+                  limit > 0
+                  ? [toPendingRow(row)]
+                  : [];
+              }),
+            })),
+          })),
+        };
+      }),
       innerJoin: vi.fn(() => ({
         leftJoin: vi.fn(() => ({
-          where: vi.fn((where: unknown) => {
-            mocks.selectWheres.push(where);
-            return {
-              orderBy: vi.fn(() => ({
-                limit: vi.fn((limit: number) => ({
-                  for: vi.fn(async () => {
-                    const databaseNow = options.getDatabaseNow();
-                    return matchesRuntimePredicate(row, where, databaseNow) &&
-                      limit > 0
-                      ? [toPendingRow(row)]
-                      : [];
-                  }),
-                })),
-              })),
-            };
+          where: vi.fn(async (where: unknown) => {
+            mocks.enrichmentWheres.push(where);
+            return [toPendingRow(row)];
           }),
         })),
       })),
@@ -521,6 +539,7 @@ describe("validation outbox sweeper", () => {
     vi.clearAllMocks();
     mocks.sequence.length = 0;
     mocks.selectWheres.length = 0;
+    mocks.enrichmentWheres.length = 0;
     mocks.updateSets.length = 0;
     mocks.updateWheres.length = 0;
     mocks.providerRegistryGet.mockReturnValue({
