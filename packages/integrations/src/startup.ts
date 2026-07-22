@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import { basename, dirname, extname, join } from "node:path";
 import { z } from "zod";
 import type { ValidationProvider } from "./plugin-interface";
@@ -5,8 +6,15 @@ import { loadPluginFromFile, PluginLoader } from "./plugin-loader";
 import type { ValidationProviderRegistry } from "./provider-registry";
 
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
-const PLUGIN_DRIFT_TTL_SECONDS = 1800;
+// Kept well above the refresh interval (5x) so a single missed refresh tick
+// can't expire a live instance's key, while still bounding how long a
+// crashed/ungracefully-terminated instance's stale manifest can linger and
+// block a replacement instance's initial (non-grace-period) startup check.
+// Graceful shutdowns delete their own key immediately via stop(), so this
+// TTL is a backstop for abnormal terminations only.
+const PLUGIN_DRIFT_TTL_SECONDS = 300;
 const PLUGIN_DRIFT_REFRESH_INTERVAL_MS = 60_000;
+const PLUGIN_DRIFT_MISMATCH_GRACE_MS = 5 * 60_000;
 
 const pluginRuntimeRoleSchema = z.enum(["api", "worker"]);
 const pluginManifestSchema = z
@@ -19,9 +27,11 @@ const pluginManifestSchema = z
   .strict();
 
 /**
- * Runtime identity used by the plugin drift guard. Only the API process and
- * Worker process publish manifests, and each compares itself against the other
- * role.
+ * Runtime identity used by the plugin drift guard. Only the API role and
+ * Worker role publish manifests, and each compares itself against every
+ * currently-live instance of the other role (a role may be backed by
+ * several independently deployed instances, e.g. multiple BullMQ Worker
+ * Deployments).
  */
 export type PluginRuntimeRole = z.infer<typeof pluginRuntimeRoleSchema>;
 
@@ -58,6 +68,14 @@ export interface PluginDriftStore {
    * Deletes a manifest key. The return value is store-specific and ignored.
    */
   del(key: string): Promise<unknown>;
+  /**
+   * Lists all keys matching a glob pattern (Redis `KEYS` semantics, e.g.
+   * `prefix:role:*`). Used to enumerate every currently-live instance of the
+   * peer role, since a role can be backed by several independently deployed
+   * Kubernetes Deployments/pods (e.g. multiple BullMQ Worker Deployments)
+   * that each publish under their own instance key.
+   */
+  keys(pattern: string): Promise<string[]>;
 }
 
 /**
@@ -65,9 +83,18 @@ export interface PluginDriftStore {
  */
 export interface PluginDriftGuardOptions {
   /**
-   * Current runtime role; determines both the current manifest key and peer key.
+   * Current runtime role; determines both the current manifest key and the
+   * peer key pattern used to enumerate peer instances.
    */
   role: PluginRuntimeRole;
+  /**
+   * Identifies this specific instance of `role` so multiple independently
+   * deployed instances (e.g. several BullMQ Worker Deployments, or several
+   * replicas of one Deployment) each publish under their own key instead of
+   * overwriting one another. Defaults to `os.hostname()`, which is the pod
+   * name inside Kubernetes.
+   */
+  instanceId?: string;
   /**
    * Required Redis-like store used for manifest exchange.
    */
@@ -78,7 +105,10 @@ export interface PluginDriftGuardOptions {
    */
   keyPrefix?: string;
   /**
-   * Optional manifest TTL in seconds. Defaults to 1800 seconds.
+   * Optional manifest TTL in seconds. Defaults to 300 seconds (5x the
+   * default refresh interval). A graceful `stop()` deletes this instance's
+   * key immediately; this TTL only bounds how long an abruptly-terminated
+   * instance's stale manifest can remain visible to peer instances.
    */
   ttlSeconds?: number;
   /**
@@ -92,6 +122,21 @@ export interface PluginDriftGuardOptions {
    * guard logs warnings and lets startup continue.
    */
   failOnMismatch?: boolean;
+  /**
+   * How long a periodic (post-startup) failure may persist before the guard
+   * escalates from a warning-only tolerance to the fatal `failOnMismatch`
+   * behavior. This covers both a genuine provider/hash mismatch and any
+   * store error encountered while publishing or reading a manifest (e.g. a
+   * transient Redis blip) — both are tolerated for the same grace window.
+   * Independent Kubernetes Deployments (e.g. API vs Worker, or several
+   * Worker Deployments) roll out on their own schedules, so a brief manifest
+   * mismatch while one side is mid-rollout is expected, not an incident.
+   * Only applies to the periodic recheck; the initial startup check still
+   * fails fast so a newly-starting pod never claims readiness
+   * while already mismatched. Defaults to 5 minutes. Set to 0 to escalate on
+   * the very first periodic mismatch, matching pre-grace-period behavior.
+   */
+  mismatchGracePeriodMs?: number;
 }
 
 export interface PluginDriftGuardHandle {
@@ -188,19 +233,32 @@ function compareManifests(
   return differences;
 }
 
+/**
+ * Outcome of a single publish-and-compare cycle, used by the periodic
+ * refresh loop to decide whether a mismatch grace period should be reset.
+ * `"matched"` means the peer manifest was actually read and found identical;
+ * `"pending"` covers every other non-throwing outcome (no peer manifest yet,
+ * or a warning-only failure with `failOnMismatch: false`) and must NOT be
+ * treated as a confirmed recovery, since the peer manifest may simply be
+ * absent (e.g. the peer process crashed or its TTL expired) rather than
+ * genuinely back in sync.
+ */
+type ManifestCheckOutcome = "matched" | "pending";
+
 async function publishAndAssertPluginManifest(
   registry: ValidationProviderRegistry,
   pluginHashes: string[],
   guard: PluginDriftGuardOptions,
   logPrefix: string,
   deleteCurrentManifestOnError = true,
-): Promise<void> {
+): Promise<ManifestCheckOutcome> {
   const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
   const ttlSeconds = guard.ttlSeconds ?? PLUGIN_DRIFT_TTL_SECONDS;
   const current = buildManifest(guard.role, registry, pluginHashes);
   const peerRole = guard.role === "api" ? "worker" : "api";
-  const currentKey = `${keyPrefix}:${guard.role}`;
-  const peerKey = `${keyPrefix}:${peerRole}`;
+  const instanceId = guard.instanceId ?? hostname();
+  const currentKey = `${keyPrefix}:${guard.role}:${instanceId}`;
+  const peerKeyPattern = `${keyPrefix}:${peerRole}:*`;
 
   try {
     await guard.store.set(
@@ -210,49 +268,80 @@ async function publishAndAssertPluginManifest(
       ttlSeconds,
     );
 
-    const peerRaw = await guard.store.get(peerKey);
-    if (!peerRaw) {
+    const peerKeys = await guard.store.keys(peerKeyPattern);
+    if (peerKeys.length === 0) {
       console.warn(
-        `[${logPrefix}] Plugin drift guard could not find ${peerRole} manifest; comparison will run when both runtimes have started.`,
+        `[${logPrefix}] Plugin drift guard could not find any ${peerRole} manifest; comparison will run when both runtimes have started.`,
       );
-      return;
+      return "pending";
     }
 
-    let peerJson: unknown;
-    try {
-      peerJson = JSON.parse(peerRaw);
-    } catch {
-      const message = `Plugin drift guard found non-JSON ${peerRole} manifest`;
+    // Every currently-live peer instance must agree with the current
+    // manifest. A role can be backed by several independently rolling
+    // Kubernetes Deployments (e.g. discord/github/twitter/sheets/
+    // notifications/vrchat worker Deployments), so a single mismatched
+    // instance must not be masked by other instances that happen to match.
+    const mismatchedInstances: string[] = [];
+    const invalidPeerReasons: string[] = [];
+    let resolvedPeerCount = 0;
+    for (const peerKey of peerKeys) {
+      const peerRaw = await guard.store.get(peerKey);
+      if (!peerRaw) continue; // expired between `keys()` and `get()`
+
+      let peerJson: unknown;
+      try {
+        peerJson = JSON.parse(peerRaw);
+      } catch {
+        invalidPeerReasons.push(`${peerKey}: non-JSON manifest`);
+        continue;
+      }
+
+      const peerParse = pluginManifestSchema.safeParse(peerJson);
+      if (!peerParse.success) {
+        invalidPeerReasons.push(`${peerKey}: invalid manifest`);
+        continue;
+      }
+      if (peerParse.data.role !== peerRole) {
+        invalidPeerReasons.push(
+          `${peerKey}: expected ${peerRole} manifest but found ${peerParse.data.role}`,
+        );
+        continue;
+      }
+
+      resolvedPeerCount += 1;
+      const differences = compareManifests(current, peerParse.data);
+      if (differences.length > 0) {
+        mismatchedInstances.push(`${peerKey} (${differences.join("; ")})`);
+      }
+    }
+
+    if (invalidPeerReasons.length > 0) {
+      const message = `Plugin drift guard found invalid ${peerRole} manifest(s): ${invalidPeerReasons.join(" | ")}`;
       if (guard.failOnMismatch ?? true) throw new Error(message);
       console.warn(`[${logPrefix}] ${message}`);
-      return;
+      return "pending";
     }
 
-    const peerParse = pluginManifestSchema.safeParse(peerJson);
-    if (!peerParse.success) {
-      const message = `Plugin drift guard found invalid ${peerRole} manifest`;
-      if (guard.failOnMismatch ?? true) throw new Error(message);
-      console.warn(`[${logPrefix}] ${message}`);
-      return;
-    }
-    if (peerParse.data.role !== peerRole) {
-      const message = `Plugin drift guard expected ${peerRole} manifest but found ${peerParse.data.role}`;
-      if (guard.failOnMismatch ?? true) throw new Error(message);
-      console.warn(`[${logPrefix}] ${message}`);
-      return;
+    if (resolvedPeerCount === 0) {
+      console.warn(
+        `[${logPrefix}] Plugin drift guard could not resolve any ${peerRole} manifest from ${peerKeys.length} known key(s); comparison will run once a manifest is available.`,
+      );
+      return "pending";
     }
 
-    const differences = compareManifests(current, peerParse.data);
-    if (differences.length === 0) {
-      console.log(`[${logPrefix}] Plugin drift guard matched ${peerRole}`);
-      return;
+    if (mismatchedInstances.length === 0) {
+      console.log(
+        `[${logPrefix}] Plugin drift guard matched all ${peerKeys.length} ${peerRole} instance(s)`,
+      );
+      return "matched";
     }
 
-    const message = `Plugin drift detected between ${guard.role} and ${peerRole}: ${differences.join("; ")}`;
+    const message = `Plugin drift detected between ${guard.role} (${instanceId}) and ${peerRole} instance(s): ${mismatchedInstances.join(" | ")}`;
     if (guard.failOnMismatch ?? true) {
       throw new Error(message);
     }
     console.warn(`[${logPrefix}] ${message}`);
+    return "pending";
   } catch (error) {
     if (guard.failOnMismatch ?? true) {
       if (deleteCurrentManifestOnError) {
@@ -271,6 +360,7 @@ async function publishAndAssertPluginManifest(
       `[${logPrefix}] Plugin drift guard warning-only check failed:`,
       error,
     );
+    return "pending";
   }
 }
 
@@ -284,9 +374,16 @@ function startPluginDriftGuardRefresh(
     guard.refreshIntervalMs ?? PLUGIN_DRIFT_REFRESH_INTERVAL_MS;
   if (refreshIntervalMs <= 0) return undefined;
 
+  const gracePeriodMs =
+    guard.mismatchGracePeriodMs ?? PLUGIN_DRIFT_MISMATCH_GRACE_MS;
+  const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
+  const instanceId = guard.instanceId ?? hostname();
+  const currentKey = `${keyPrefix}:${guard.role}:${instanceId}`;
+
   let stopped = false;
   let running = false;
   let activeCheck: Promise<void> | null = null;
+  let mismatchSince: number | null = null;
   const timer = setInterval(() => {
     if (running || stopped) return;
     running = true;
@@ -297,6 +394,20 @@ function startPluginDriftGuardRefresh(
       logPrefix,
       false,
     )
+      .then((outcome) => {
+        // Only a confirmed "matched" comparison proves the peer is back in
+        // sync. "pending" (no peer manifest found) must not reset the grace
+        // clock: a peer that vanished (crash, TTL expiry) is not evidence of
+        // recovery, and treating it as such could let a real mismatch flap
+        // between "matched"/"pending" forever without ever escalating.
+        if (outcome !== "matched") return;
+        if (mismatchSince !== null) {
+          console.log(
+            `[${logPrefix}] Plugin drift guard recovered after a transient mismatch`,
+          );
+        }
+        mismatchSince = null;
+      })
       .catch((error: unknown) => {
         if (stopped) {
           console.warn(
@@ -305,22 +416,34 @@ function startPluginDriftGuardRefresh(
           );
           return;
         }
-        if (guard.failOnMismatch ?? true) {
-          stopped = true;
-          clearInterval(timer);
-          console.error(
-            `[${logPrefix}] Plugin drift guard periodic check failed:`,
+        if (!(guard.failOnMismatch ?? true)) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard periodic warning-only check failed:`,
             error,
           );
-          queueMicrotask(() => {
-            throw error;
-          });
           return;
         }
-        console.warn(
-          `[${logPrefix}] Plugin drift guard periodic warning-only check failed:`,
+
+        const now = Date.now();
+        if (mismatchSince === null) mismatchSince = now;
+        const elapsedMs = now - mismatchSince;
+        if (elapsedMs < gracePeriodMs) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard periodic check failed; tolerating during grace period (${Math.round(elapsedMs / 1000)}s/${Math.round(gracePeriodMs / 1000)}s elapsed, likely a rolling deploy in progress):`,
+            error,
+          );
+          return;
+        }
+
+        stopped = true;
+        clearInterval(timer);
+        console.error(
+          `[${logPrefix}] Plugin drift guard periodic check failed past the ${Math.round(gracePeriodMs / 1000)}s grace period:`,
           error,
         );
+        queueMicrotask(() => {
+          throw error;
+        });
       })
       .finally(() => {
         running = false;
@@ -334,6 +457,19 @@ function startPluginDriftGuardRefresh(
       stopped = true;
       clearInterval(timer);
       await activeCheck;
+      // Remove this instance's manifest immediately on graceful shutdown so
+      // a replacement instance's initial (non-grace-period) startup check
+      // never has to wait out the TTL to stop seeing a retired instance as
+      // a live peer. This only covers graceful termination; an abrupt crash
+      // still relies on PLUGIN_DRIFT_TTL_SECONDS to expire the stale key.
+      try {
+        await guard.store.del(currentKey);
+      } catch (error) {
+        console.warn(
+          `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest on shutdown:`,
+          error,
+        );
+      }
     },
   };
 }
