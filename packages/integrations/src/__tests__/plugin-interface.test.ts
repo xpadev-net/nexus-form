@@ -8,15 +8,14 @@ import {
 } from "../plugin-interface";
 
 describe("validationProviderResultSchema", () => {
-  it("normalizes scalar output values to strings", () => {
+  it("accepts string output values", () => {
     expect(
       validationProviderResultSchema.parse({
         isValid: true,
         outputValues: [
           { key: "username", label: "Username", value: "octocat" },
-          { key: "followers", value: 42 },
-          { key: "verified", value: true },
-          { key: "bio", value: null },
+          { key: "followers", value: "42" },
+          { key: "verified", value: "true" },
         ],
       }),
     ).toEqual({
@@ -25,7 +24,6 @@ describe("validationProviderResultSchema", () => {
         { key: "username", label: "Username", value: "octocat" },
         { key: "followers", value: "42" },
         { key: "verified", value: "true" },
-        { key: "bio", value: "" },
       ],
     });
   });
@@ -42,20 +40,22 @@ describe("validationProviderResultSchema", () => {
     });
   });
 
-  it("stringifies object/array output values and rejects duplicate keys", () => {
-    expect(
+  it("rejects non-string output values and duplicate keys", () => {
+    expect(() =>
+      validationProviderResultSchema.parse({
+        isValid: true,
+        outputValues: [{ key: "followers", value: 42 }],
+      }),
+    ).toThrow();
+
+    expect(() =>
       validationProviderResultSchema.parse({
         isValid: true,
         outputValues: [
           { key: "profile", value: { url: "https://example.com" } },
         ],
       }),
-    ).toEqual({
-      isValid: true,
-      outputValues: [
-        { key: "profile", value: '{"url":"https://example.com"}' },
-      ],
-    });
+    ).toThrow();
 
     expect(() =>
       validationProviderResultSchema.parse({

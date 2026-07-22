@@ -923,9 +923,9 @@ describe("handleGenericValidation", () => {
         metadata: { fixtureCase: "success" },
         outputValues: [
           { key: "username", label: "Username", value: "octocat" },
-          { key: "followers", value: 42 },
-          { key: "verified", value: true },
-          { key: "bio", value: null },
+          { key: "followers", value: "42" },
+          { key: "verified", value: "true" },
+          { key: "bio", value: "" },
         ],
       }),
     });
@@ -987,13 +987,13 @@ describe("handleGenericValidation", () => {
     );
   });
 
-  it("provider のオブジェクト・配列を含む任意構造の outputValues を metadata へ保存する", async () => {
+  it("provider の string 形式 outputValues を metadata へ保存する", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
         isValid: true,
         outputValues: [
-          { key: "profile", value: { url: "https://example.com" } },
-          { key: "tags", value: ["admin", "user"] },
+          { key: "profile", value: '{"url":"https://example.com"}' },
+          { key: "tags", value: '["admin","user"]' },
         ],
       }),
     });

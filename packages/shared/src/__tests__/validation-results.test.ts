@@ -56,30 +56,36 @@ describe("getValidationResultId", () => {
 });
 
 describe("validationOutputValuesSchema", () => {
-  it("normalizes arbitrary named output values to strings", () => {
+  it("accepts string output values", () => {
     expect(
       validationOutputValuesSchema.parse([
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
-        { key: "verified", value: true },
-        { key: "bio", value: null },
-        {
-          key: "profile",
-          value: { url: "https://example.com", avatar: "octo.png" },
-        },
-        { key: "roles", value: ["admin", "developer"] },
+        { key: "followers", value: "42" },
+        { key: "verified", value: "true" },
+        { key: "roles", value: '["admin","developer"]' },
       ]),
     ).toEqual([
       { key: "username", label: "Username", value: "octocat" },
       { key: "followers", value: "42" },
       { key: "verified", value: "true" },
-      { key: "bio", value: "" },
-      {
-        key: "profile",
-        value: '{"url":"https://example.com","avatar":"octo.png"}',
-      },
       { key: "roles", value: '["admin","developer"]' },
     ]);
+  });
+
+  it("rejects non-string output values", () => {
+    expect(() =>
+      validationOutputValuesSchema.parse([{ key: "followers", value: 42 }]),
+    ).toThrow();
+
+    expect(() =>
+      validationOutputValuesSchema.parse([{ key: "verified", value: true }]),
+    ).toThrow();
+
+    expect(() =>
+      validationOutputValuesSchema.parse([
+        { key: "profile", value: { url: "https://example.com" } },
+      ]),
+    ).toThrow();
   });
 
   it("rejects duplicate keys and invalid key formats", () => {

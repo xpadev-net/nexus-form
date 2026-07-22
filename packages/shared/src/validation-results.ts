@@ -9,22 +9,7 @@ export const validationOutputKeySchema = z
   .max(64)
   .regex(/^[a-z][a-z0-9_]*$/);
 
-function stringifyValidationOutputScalar(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
-  }
-  return String(value);
-}
-
-export const validationOutputScalarValueSchema = z.preprocess(
-  stringifyValidationOutputScalar,
-  z.string(),
-);
+export const validationOutputScalarValueSchema = z.string();
 
 export const validationOutputValueSchema = z
   .object({

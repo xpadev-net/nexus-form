@@ -126,7 +126,8 @@ export interface ValidationProvider {
   readonly name: string;
   readonly label: string;
   readonly description: string;
-  readonly rules: Readonly<Record<string, ValidationProviderRule>>;
+  // biome-ignore lint/suspicious/noExplicitAny: generic rules permit custom input and config schemas
+  readonly rules: Readonly<Record<string, ValidationProviderRule<any, any>>>;
   readonly apiHandlers?: Readonly<Record<string, ValidationProviderApiHandler>>;
   readonly apiResponseSchemas?: ValidationProviderApiResponseSchemas;
 
