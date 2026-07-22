@@ -1659,6 +1659,114 @@ describe("handleSheetsSync — write path", () => {
     });
   });
 
+  it("keeps earlier rows correctly positioned when a later response introduces a new column", async () => {
+    setupDbSelect(
+      // 1. formIntegration lookup
+      [INTEGRATION],
+      // 2. full-mode target response query; response-2 answers a question
+      // response-1 never saw, growing the header set mid-batch
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+        {
+          ...RESPONSE,
+          id: "response-2",
+          responseDataJson: '{"block-2":"second-field"}',
+        },
+      ],
+      // 3. plate content lookup
+      [],
+      // 4. uniqueness-score cohort query
+      [{ id: "response-1" }, { id: "response-2" }],
+      // 5. fingerprint detail query for the cohort
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
+    mockSafeParseResponseData.mockImplementation((json) => {
+      const parsed: unknown = JSON.parse(String(json));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as never)
+        : null;
+    });
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 2 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "full",
+        responseId: "response-1",
+      }),
+    );
+
+    // The final header row reflects every column discovered across the
+    // whole batch, in discovery order (block-1 from response-1, then
+    // block-2 introduced by response-2).
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rangeA1: "Sheet1!1:2",
+        values: [
+          [
+            "Response ID",
+            "Respondent UUID",
+            "Submitted At",
+            "Updated At",
+            "Country Code",
+            "Uniqueness Score",
+            "block-1",
+            "block-2",
+          ],
+          [
+            "回答ID",
+            "回答者UUID",
+            "送信日時",
+            "更新日時",
+            "国コード",
+            "ユニーク度スコア",
+            "block-1",
+            "block-2",
+          ],
+        ],
+      }),
+    );
+    // response-1's row was built before block-2 existed, so it stays a
+    // shorter (7-column) array rather than being retroactively padded;
+    // Sheets treats the missing trailing cell as blank, which is exactly
+    // correct since response-1 never answered that question. response-2's
+    // row has an explicit blank in the block-1 slot (it didn't answer that
+    // question either) and its own value in the newly-appended block-2 slot.
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [
+          ["response-1", "", "", "", "", "1.0000", "first"],
+          ["response-2", "", "", "", "", "1.0000", "", "second-field"],
+        ],
+      }),
+    );
+    expect(result).toMatchObject({
+      processed: 2,
+      total: 2,
+      skipped: 0,
+    });
+  });
+
   it("full mode uses a non-leading response job only for that response", async () => {
     setupDbSelect(
       // 1. formIntegration lookup
