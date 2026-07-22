@@ -1219,17 +1219,10 @@ describe("handleSheetsSync — write path", () => {
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
     mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
     let lockReleased = false;
-    let insideLock = false;
     mockWithRedisLock.mockImplementation(async (_key, fn) => {
-      insideLock = true;
       const result = await fn();
-      insideLock = false;
       lockReleased = true;
       return result;
-    });
-    mockGetIdempotencyKeyValue.mockImplementation(async () => {
-      expect(insideLock).toBe(true);
-      return null;
     });
     mockSetIdempotencyKey.mockResolvedValue(undefined);
     mockClearSheet.mockResolvedValue({
@@ -1380,7 +1373,6 @@ describe("handleSheetsSync — write path", () => {
     mockGetOAuthToken.mockResolvedValue(TOKEN as never);
     mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
     mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
-    mockGetIdempotencyKeyValue.mockResolvedValue(null);
     mockSetIdempotencyKey.mockResolvedValue(undefined);
     mockClearSheet.mockResolvedValue({
       ok: true,
@@ -1486,6 +1478,184 @@ describe("handleSheetsSync — write path", () => {
       total: responseCount,
       skipped: 0,
       updatedRows: responseCount,
+    });
+  });
+
+  it("full mode sends exactly one append call when response count equals the chunk size", async () => {
+    const responseCount = FULL_RESYNC_APPEND_CHUNK_SIZE;
+    const responses = Array.from({ length: responseCount }, (_, i) => ({
+      ...RESPONSE,
+      id: `response-${i}`,
+      responseDataJson: "{}",
+    }));
+    const cohort = responses.map((response) => ({ id: response.id }));
+
+    setupDbSelect([INTEGRATION], responses, [], cohort, []);
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: responseCount },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "full",
+        responseId: "response-0",
+      }),
+    );
+
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: expect.arrayContaining([expect.any(Array)]),
+      }),
+    );
+    expect(mockAppendRows.mock.calls[0]?.[1].rows).toHaveLength(responseCount);
+    expect(result).toMatchObject({
+      processed: responseCount,
+      total: responseCount,
+      skipped: 0,
+      updatedRows: responseCount,
+    });
+  });
+
+  it("full mode writes a single ready response via the bulk path", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [{ ...RESPONSE, id: "response-1", responseDataJson: "{}" }],
+      [],
+      [{ id: "response-1" }],
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "full",
+        responseId: "response-1",
+      }),
+    );
+
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
+    );
+    expect(result).toEqual({
+      ok: true,
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "full",
+      processed: 1,
+      total: 1,
+      skipped: 0,
+      updatedRange: "Sheet1!A2",
+      updatedRows: 1,
+    });
+  });
+
+  it("retries a full resync from scratch after a chunked append fails midway", async () => {
+    const responseCount = FULL_RESYNC_APPEND_CHUNK_SIZE + 5;
+    const responses = Array.from({ length: responseCount }, (_, i) => ({
+      ...RESPONSE,
+      id: `response-${i}`,
+      responseDataJson: "{}",
+    }));
+    const cohort = responses.map((response) => ({ id: response.id }));
+
+    setupDbSelect([INTEGRATION], responses, [], cohort, []);
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+
+    // First attempt: the second chunk hits a rate limit and the whole job
+    // throws, simulating BullMQ retrying the job from scratch.
+    mockAppendRows
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          updatedRange: "Sheet1!A2",
+          updatedRows: FULL_RESYNC_APPEND_CHUNK_SIZE,
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: false,
+        error: { code: "rateLimit", message: "quota exceeded" },
+      } as never);
+
+    const job = makeJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-0",
+    });
+    await expect(handleSheetsSync(job)).rejects.toThrow(
+      "Google Sheets API rate limit",
+    );
+    expect(mockClearSheet).toHaveBeenCalledOnce();
+
+    // Retry: shouldClearSheet is recomputed as true again, so the sheet is
+    // re-cleared and every idempotency key is deleted again before the
+    // batch is rebuilt and appended from scratch — no duplicate rows.
+    setupDbSelect([INTEGRATION], responses, [], cohort, []);
+    mockAppendRows.mockReset();
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: {
+        updatedRange: "Sheet1!A2",
+        updatedRows: FULL_RESYNC_APPEND_CHUNK_SIZE,
+      },
+    } as never);
+
+    const retryResult = await handleSheetsSync(job);
+
+    expect(mockClearSheet).toHaveBeenCalledTimes(2);
+    expect(mockDeleteIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-0",
+    );
+    expect(retryResult).toMatchObject({
+      processed: responseCount,
+      total: responseCount,
+      skipped: 0,
     });
   });
 

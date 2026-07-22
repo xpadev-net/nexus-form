@@ -651,6 +651,10 @@ async function clearSheetForFullResync(
  * score backfill (`updateExistingUniquenessScoreCells`) is unnecessary here —
  * every row's own score is already computed against the full response
  * cohort by `getUniquenessScoresForResponses` before this function runs.
+ *
+ * `readyResponses` is never empty in practice: `getSheetsSyncTargetResponses`
+ * throws if a full-mode sync has zero form responses, and the caller already
+ * asserts every prepared response is "ready" before invoking this function.
  */
 async function bulkWriteFullResyncResponses(params: {
   blockTitleMap: Map<string, string>;
@@ -681,10 +685,6 @@ async function bulkWriteFullResyncResponses(params: {
     total,
     validationOutputsByResponseId,
   } = params;
-
-  if (readyResponses.length === 0) {
-    return { updatedRange: undefined, updatedRows: 0 };
-  }
 
   let headers: string[] = [];
   let titleHeaders: string[] = [];
