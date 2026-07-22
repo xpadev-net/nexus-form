@@ -90,13 +90,46 @@ jobs:
 
       - name: Set owner and image metadata
         id: meta
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           IMAGE_NAME="${{ env.IMAGE_NAME }}"
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
-          echo "tags=ghcr.io/$OWNER/$IMAGE_NAME:latest,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA" >> $GITHUB_OUTPUT
+
+          sanitize_tag() {
+            local clean
+            clean=$(printf '%s\n' "$1" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            if [ ${#clean} -gt 128 ]; then
+              clean="${clean:0:128}"
+              clean=$(printf '%s\n' "$clean" | sed -E 's/[.-]+$//')
+            fi
+            printf '%s\n' "$clean"
+          }
+
+          if [ "$REF_TYPE" = "tag" ] || [[ "$REF" == refs/tags/* ]]; then
+            RAW_TAG="${REF_NAME#refs/tags/}"
+            CLEAN_TAG=$(sanitize_tag "$RAW_TAG")
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(sanitize_tag "$RAW_SEMVER")
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:$CLEAN_TAG"
+            fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
+          else
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -133,13 +166,46 @@ jobs:
 
       - name: Set owner and image metadata
         id: meta
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           IMAGE_NAME="${{ env.IMAGE_NAME }}"
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
-          echo "tags=ghcr.io/$OWNER/$IMAGE_NAME-web:latest,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA" >> $GITHUB_OUTPUT
+
+          sanitize_tag() {
+            local clean
+            clean=$(printf '%s\n' "$1" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            if [ ${#clean} -gt 128 ]; then
+              clean="${clean:0:128}"
+              clean=$(printf '%s\n' "$clean" | sed -E 's/[.-]+$//')
+            fi
+            printf '%s\n' "$clean"
+          }
+
+          if [ "$REF_TYPE" = "tag" ] || [[ "$REF" == refs/tags/* ]]; then
+            RAW_TAG="${REF_NAME#refs/tags/}"
+            CLEAN_TAG=$(sanitize_tag "$RAW_TAG")
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(sanitize_tag "$RAW_SEMVER")
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:$CLEAN_TAG"
+            fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
+          else
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -183,13 +249,46 @@ jobs:
 
       - name: Set owner and image metadata
         id: meta
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          OWNER=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
           IMAGE_NAME="${{ env.IMAGE_NAME }}"
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
-          echo "tags=ghcr.io/$OWNER/$IMAGE_NAME-worker:latest,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA" >> $GITHUB_OUTPUT
+
+          sanitize_tag() {
+            local clean
+            clean=$(printf '%s\n' "$1" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            if [ ${#clean} -gt 128 ]; then
+              clean="${clean:0:128}"
+              clean=$(printf '%s\n' "$clean" | sed -E 's/[.-]+$//')
+            fi
+            printf '%s\n' "$clean"
+          }
+
+          if [ "$REF_TYPE" = "tag" ] || [[ "$REF" == refs/tags/* ]]; then
+            RAW_TAG="${REF_NAME#refs/tags/}"
+            CLEAN_TAG=$(sanitize_tag "$RAW_TAG")
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(sanitize_tag "$RAW_SEMVER")
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:$CLEAN_TAG"
+            fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
+          else
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
