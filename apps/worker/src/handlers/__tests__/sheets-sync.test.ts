@@ -1120,6 +1120,76 @@ describe("handleSheetsSync — idempotency states", () => {
 });
 
 describe("handleSheetsSync — write path", () => {
+  it("full mode skips clearing the sheet when any prepared response is not ready", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: "invalid-json-content",
+        },
+      ],
+      [],
+      [{ id: "response-1" }],
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => await fn());
+    mockSafeParseResponseData.mockReturnValue(null);
+
+    const job = makeJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-1",
+    });
+
+    const result = await handleSheetsSync(job as never);
+
+    expect(mockClearSheet).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, skipped: 1, processed: 1 });
+  });
+
+  it("full mode propagates Redis idempotency key deletion errors", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [
+        {
+          ...RESPONSE,
+          id: "response-1",
+          responseDataJson: '{"block-1":"first"}',
+        },
+      ],
+      [],
+      [{ id: "response-1" }],
+      [],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => await fn());
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "first" });
+    mockClearSheet.mockResolvedValueOnce({
+      ok: true,
+      data: { clearedRange: "Sheet1!1:1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockImplementationOnce(async () => {
+      throw new Error("Redis connection dropped");
+    });
+
+    const job = makeJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "full",
+      responseId: "response-1",
+    });
+
+    await expect(handleSheetsSync(job as never)).rejects.toThrow(
+      "Redis connection dropped",
+    );
+  });
+
   it("full mode clears the sheet and rewrites all historical responses", async () => {
     setupDbSelect(
       // 1. formIntegration lookup

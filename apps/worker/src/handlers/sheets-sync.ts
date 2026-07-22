@@ -434,7 +434,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   return await withRedisLock(
     lockKey,
     async () => {
-      if (shouldClearSheet) {
+      if (
+        shouldClearSheet &&
+        preparedResponses.every((prepared) => prepared.status === "ready")
+      ) {
         await clearSheetForFullResync(token, {
           spreadsheetId,
           sheetName,
@@ -590,11 +593,7 @@ async function clearSheetForFullResync(
   }
   for (const responseId of params.responseIds) {
     const key = `sheets-written:${params.integrationId}:${responseId}`;
-    await deleteIdempotencyKey(key).catch((error: unknown) => {
-      console.warn(
-        `[sheets-sync] Could not delete idempotency key ${key}: ${error instanceof Error ? error.message : error}`,
-      );
-    });
+    await deleteIdempotencyKey(key);
   }
 }
 
