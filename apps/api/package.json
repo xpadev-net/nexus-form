@@ -14,7 +14,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1061.0",
+    "@aws-sdk/client-s3": "^3.1092.0",
     "@aws-sdk/s3-request-presigner": "^3.1061.0",
     "@hono/node-server": "^2.0.5",
     "@hono/zod-validator": "^0.8.0",
@@ -55,7 +55,7 @@
     "@types/uuid": "^10.0.0",
     "@typescript/native-preview": "7.0.0-dev.20260616.1",
     "glob": "^11.1.0",
-    "mysql2": "^3.22.4",
+    "mysql2": "^3.23.1",
     "rollup": "^4.61.0",
     "tsx": "^4.22.4",
     "typescript": "^5.9.3",
