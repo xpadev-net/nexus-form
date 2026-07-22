@@ -53,6 +53,14 @@ const SHUTDOWN_TIMEOUT_MS =
   Number.isFinite(shutdownTimeoutEnv) && shutdownTimeoutEnv > 0
     ? shutdownTimeoutEnv
     : 30_000;
+// Undefined lets startupPlugins fall back to its own default (5 minutes); 0
+// is a valid override meaning "escalate on the first periodic mismatch".
+const PLUGIN_DRIFT_MISMATCH_GRACE_MS = (() => {
+  const raw = process.env.PLUGIN_DRIFT_MISMATCH_GRACE_MS;
+  if (raw === undefined) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+})();
 const UNCAUGHT_EXCEPTION_SHUTDOWN_TIMEOUT_MS = Math.min(
   SHUTDOWN_TIMEOUT_MS,
   5_000,
@@ -169,6 +177,7 @@ async function main() {
       pluginDriftGuard: {
         role: "worker",
         store: pluginDriftStore,
+        mismatchGracePeriodMs: PLUGIN_DRIFT_MISMATCH_GRACE_MS,
       },
     });
   } catch (error) {

@@ -561,6 +561,66 @@ describe("startupPlugins plugin drift guard", () => {
     );
   });
 
+  it("does not reset the grace period when the peer manifest merely goes missing", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 15,
+      },
+    });
+
+    // Tick 1: peer is present but mismatched. Grace clock starts.
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("tolerating during grace period"),
+      expect.any(Error),
+    );
+
+    // Tick 2: the peer manifest key vanishes (e.g. TTL expiry or a peer
+    // restart mid-rollout). This must NOT be treated as recovery, or the
+    // grace clock would reset and a genuinely stuck mismatch could persist
+    // forever by flapping between "mismatched" and "peer absent".
+    store.values.delete("test:plugins:worker");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("recovered after a transient mismatch"),
+    );
+
+    // Tick 3: the peer reappears, still mismatched. Total elapsed since the
+    // original tick-1 mismatch now exceeds the grace period, so this must
+    // escalate — proving the clock was preserved across the "pending" tick
+    // rather than restarted.
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
   it("passes startup when the peer manifest matches providers and plugin hashes", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});

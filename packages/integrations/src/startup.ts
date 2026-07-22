@@ -94,13 +94,16 @@ export interface PluginDriftGuardOptions {
    */
   failOnMismatch?: boolean;
   /**
-   * How long a periodic (post-startup) mismatch may persist before the guard
+   * How long a periodic (post-startup) failure may persist before the guard
    * escalates from a warning-only tolerance to the fatal `failOnMismatch`
-   * behavior. Independent Kubernetes Deployments (e.g. API vs Worker, or
-   * several Worker Deployments) roll out on their own schedules, so a brief
-   * manifest mismatch while one side is mid-rollout is expected, not an
-   * incident. Only applies to the periodic recheck; the initial startup
-   * check still fails fast so a newly-starting pod never claims readiness
+   * behavior. This covers both a genuine provider/hash mismatch and any
+   * store error encountered while publishing or reading a manifest (e.g. a
+   * transient Redis blip) — both are tolerated for the same grace window.
+   * Independent Kubernetes Deployments (e.g. API vs Worker, or several
+   * Worker Deployments) roll out on their own schedules, so a brief manifest
+   * mismatch while one side is mid-rollout is expected, not an incident.
+   * Only applies to the periodic recheck; the initial startup check still
+   * fails fast so a newly-starting pod never claims readiness
    * while already mismatched. Defaults to 5 minutes. Set to 0 to escalate on
    * the very first periodic mismatch, matching pre-grace-period behavior.
    */
@@ -201,13 +204,25 @@ function compareManifests(
   return differences;
 }
 
+/**
+ * Outcome of a single publish-and-compare cycle, used by the periodic
+ * refresh loop to decide whether a mismatch grace period should be reset.
+ * `"matched"` means the peer manifest was actually read and found identical;
+ * `"pending"` covers every other non-throwing outcome (no peer manifest yet,
+ * or a warning-only failure with `failOnMismatch: false`) and must NOT be
+ * treated as a confirmed recovery, since the peer manifest may simply be
+ * absent (e.g. the peer process crashed or its TTL expired) rather than
+ * genuinely back in sync.
+ */
+type ManifestCheckOutcome = "matched" | "pending";
+
 async function publishAndAssertPluginManifest(
   registry: ValidationProviderRegistry,
   pluginHashes: string[],
   guard: PluginDriftGuardOptions,
   logPrefix: string,
   deleteCurrentManifestOnError = true,
-): Promise<void> {
+): Promise<ManifestCheckOutcome> {
   const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
   const ttlSeconds = guard.ttlSeconds ?? PLUGIN_DRIFT_TTL_SECONDS;
   const current = buildManifest(guard.role, registry, pluginHashes);
@@ -228,7 +243,7 @@ async function publishAndAssertPluginManifest(
       console.warn(
         `[${logPrefix}] Plugin drift guard could not find ${peerRole} manifest; comparison will run when both runtimes have started.`,
       );
-      return;
+      return "pending";
     }
 
     let peerJson: unknown;
@@ -238,7 +253,7 @@ async function publishAndAssertPluginManifest(
       const message = `Plugin drift guard found non-JSON ${peerRole} manifest`;
       if (guard.failOnMismatch ?? true) throw new Error(message);
       console.warn(`[${logPrefix}] ${message}`);
-      return;
+      return "pending";
     }
 
     const peerParse = pluginManifestSchema.safeParse(peerJson);
@@ -246,19 +261,19 @@ async function publishAndAssertPluginManifest(
       const message = `Plugin drift guard found invalid ${peerRole} manifest`;
       if (guard.failOnMismatch ?? true) throw new Error(message);
       console.warn(`[${logPrefix}] ${message}`);
-      return;
+      return "pending";
     }
     if (peerParse.data.role !== peerRole) {
       const message = `Plugin drift guard expected ${peerRole} manifest but found ${peerParse.data.role}`;
       if (guard.failOnMismatch ?? true) throw new Error(message);
       console.warn(`[${logPrefix}] ${message}`);
-      return;
+      return "pending";
     }
 
     const differences = compareManifests(current, peerParse.data);
     if (differences.length === 0) {
       console.log(`[${logPrefix}] Plugin drift guard matched ${peerRole}`);
-      return;
+      return "matched";
     }
 
     const message = `Plugin drift detected between ${guard.role} and ${peerRole}: ${differences.join("; ")}`;
@@ -266,6 +281,7 @@ async function publishAndAssertPluginManifest(
       throw new Error(message);
     }
     console.warn(`[${logPrefix}] ${message}`);
+    return "pending";
   } catch (error) {
     if (guard.failOnMismatch ?? true) {
       if (deleteCurrentManifestOnError) {
@@ -284,6 +300,7 @@ async function publishAndAssertPluginManifest(
       `[${logPrefix}] Plugin drift guard warning-only check failed:`,
       error,
     );
+    return "pending";
   }
 }
 
@@ -314,7 +331,13 @@ function startPluginDriftGuardRefresh(
       logPrefix,
       false,
     )
-      .then(() => {
+      .then((outcome) => {
+        // Only a confirmed "matched" comparison proves the peer is back in
+        // sync. "pending" (no peer manifest found) must not reset the grace
+        // clock: a peer that vanished (crash, TTL expiry) is not evidence of
+        // recovery, and treating it as such could let a real mismatch flap
+        // between "matched"/"pending" forever without ever escalating.
+        if (outcome !== "matched") return;
         if (mismatchSince !== null) {
           console.log(
             `[${logPrefix}] Plugin drift guard recovered after a transient mismatch`,
