@@ -91,6 +91,11 @@ const SHARED_BASE_TITLE_HEADERS = [
 const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = 5000;
 const MAX_FULL_SHEETS_SYNC_RESPONSES = 1000;
+// Maximum rows sent in a single appendRows call during a full resync.
+// MAX_FULL_SHEETS_SYNC_RESPONSES (1000) rows would still fit one request's
+// size limits, but chunking keeps the "redo unit" small if a chunk hits a
+// transient 429/5xx (a retry re-clears and rewrites the whole sheet anyway).
+export const FULL_RESYNC_APPEND_CHUNK_SIZE = 200;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
@@ -448,6 +453,39 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             (prepared) => prepared.response.id,
           ),
         });
+
+        const readyResponses = preparedResponses.filter(
+          (
+            prepared,
+          ): prepared is Extract<
+            PreparedSheetsSyncResponse,
+            { status: "ready" }
+          > => prepared.status === "ready",
+        );
+        const bulkResult = await bulkWriteFullResyncResponses({
+          blockTitleMap,
+          extractedQuestions,
+          integrationId,
+          job,
+          readyResponses,
+          sheetName,
+          spreadsheetId,
+          token,
+          total,
+          validationOutputsByResponseId,
+        });
+
+        return {
+          ok: true,
+          provider: "google-sheets",
+          jobId: job.id,
+          mode,
+          processed: preparedResponses.length,
+          total,
+          skipped: 0,
+          updatedRange: bulkResult.updatedRange,
+          updatedRows: bulkResult.updatedRows,
+        };
       }
       for (const prepared of preparedResponses) {
         const result =
@@ -601,6 +639,139 @@ async function clearSheetForFullResync(
   if (!clearResult.ok) {
     throwSheetsSyncFailure("clear sheet for full resync", clearResult);
   }
+}
+
+/**
+ * Writes every ready response for a full resync in bulk instead of one Sheets
+ * API round trip per response. Safe only because the caller has just cleared
+ * the sheet under the integration lock: the header/row state this function
+ * would otherwise re-read from Sheets on every iteration is always exactly
+ * what this same call already wrote in a prior iteration, so it can be
+ * tracked in memory instead. This also means the per-existing-row uniqueness
+ * score backfill (`updateExistingUniquenessScoreCells`) is unnecessary here —
+ * every row's own score is already computed against the full response
+ * cohort by `getUniquenessScoresForResponses` before this function runs.
+ *
+ * `readyResponses` is never empty in practice: `getSheetsSyncTargetResponses`
+ * throws if a full-mode sync has zero form responses, and the caller already
+ * asserts every prepared response is "ready" before invoking this function.
+ */
+async function bulkWriteFullResyncResponses(params: {
+  blockTitleMap: Map<string, string>;
+  extractedQuestions: ExtractedQuestion[];
+  integrationId: string;
+  job: Job<SheetsSyncJob>;
+  readyResponses: Array<
+    Extract<PreparedSheetsSyncResponse, { status: "ready" }>
+  >;
+  sheetName: string;
+  spreadsheetId: string;
+  token: OAuthToken;
+  total: number;
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >;
+}): Promise<{ updatedRange: string | undefined; updatedRows: number }> {
+  const {
+    blockTitleMap,
+    extractedQuestions,
+    integrationId,
+    job,
+    readyResponses,
+    sheetName,
+    spreadsheetId,
+    token,
+    total,
+    validationOutputsByResponseId,
+  } = params;
+
+  let headers: string[] = [];
+  let titleHeaders: string[] = [];
+  const rows: string[][] = [];
+
+  for (const prepared of readyResponses) {
+    const built = buildRowFromResponse(
+      headers,
+      titleHeaders,
+      "shared",
+      prepared.responseData,
+      extractedQuestions,
+      blockTitleMap,
+      prepared.response,
+      prepared.uniquenessScores.targetScore,
+      prepared.uniquenessScores.fingerprintComponents,
+      prepared.uniquenessScores.targetFingerprintUuids,
+      validationOutputsByResponseId.get(prepared.response.id) ?? [],
+    );
+    headers = built.headers;
+    titleHeaders = built.titleHeaders;
+    rows.push(built.row);
+  }
+
+  await updateSheetsSyncProgress(job, 50, 0, total).catch(() => {
+    // Best-effort progress update; job result is what matters.
+  });
+
+  throwIfShuttingDown();
+  const headerUpdateResult = await updateRange(token, {
+    spreadsheetId,
+    rangeA1: `${sheetName}!1:2`,
+    values: [headers, titleHeaders],
+  });
+  if (!headerUpdateResult.ok) {
+    throwSheetsSyncFailure("update headers", headerUpdateResult);
+  }
+
+  let updatedRange: string | undefined;
+  let updatedRows = 0;
+  for (let i = 0; i < rows.length; i += FULL_RESYNC_APPEND_CHUNK_SIZE) {
+    throwIfShuttingDown();
+    const chunk = rows.slice(i, i + FULL_RESYNC_APPEND_CHUNK_SIZE);
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows: chunk,
+    });
+    if (!appendResult.ok) {
+      throwSheetsSyncFailure("append rows", appendResult);
+    }
+    updatedRange = appendResult.data.updatedRange;
+    updatedRows += appendResult.data.updatedRows;
+    await updateSheetsSyncProgress(
+      job,
+      80,
+      Math.min(i + chunk.length, rows.length),
+      total,
+    ).catch(() => {
+      // Best-effort progress update; job result is what matters.
+    });
+  }
+
+  const doneKeys = readyResponses.map((prepared) =>
+    getSheetsSyncIdempotencyKey(integrationId, prepared.response.id),
+  );
+  for (let i = 0; i < doneKeys.length; i += 500) {
+    throwIfShuttingDown();
+    const chunk = doneKeys.slice(i, i + 500);
+    await Promise.all(
+      chunk.map((key) =>
+        setIdempotencyKey(key, DONE_IDEMPOTENCY_TTL_SECONDS, "done").catch(
+          (e: unknown) => {
+            console.warn(
+              `[sheets-sync] Could not persist idempotency key ${key}: ${e instanceof Error ? e.message : e}`,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  await updateSheetsSyncProgress(job, 100, total, total).catch(() => {
+    // Best-effort progress update; job result is what matters.
+  });
+
+  return { updatedRange, updatedRows };
 }
 
 async function prepareSheetsSyncResponses(
