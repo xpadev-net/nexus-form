@@ -1745,6 +1745,53 @@ describe("validation outbox sweeper", () => {
     });
   });
 
+  it("queries the enrichment join by the exact ids locked in the first step and fails safely when it finds no match", async () => {
+    const row = pendingRow({ snapshotVersion: 7 });
+    const forUpdate = vi.fn(async () => [row]);
+    const limit = vi.fn(() => ({ for: forUpdate }));
+    const orderBy = vi.fn(() => ({ limit }));
+    const lockWhere = vi.fn((condition: unknown) => {
+      mocks.selectWheres.push(condition);
+      return { orderBy };
+    });
+    const enrichmentWhere = vi.fn(async (condition: unknown) => {
+      mocks.enrichmentWheres.push(condition);
+      return [];
+    });
+    const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
+    const innerJoin = vi.fn(() => ({ leftJoin }));
+    const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
+    mocks.db.select.mockReturnValue({ from });
+    mocks.db.transaction.mockImplementation(
+      async (callback: (tx: unknown) => unknown) =>
+        callback({ select: mocks.db.select, update: mocks.db.update }),
+    );
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({ staleMs: 0, batchSize: 10 });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 1,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    expect(mocks.updateSets[1]).toMatchObject({
+      status: "FAILED",
+      errorCode: "RULE_CONFIG_NOT_FOUND",
+    });
+    expect(mocks.enrichmentWheres).toHaveLength(1);
+    expect(mocks.enrichmentWheres[0]).toMatchObject({
+      type: "inArray",
+      left: mocks.schema.externalServiceValidationResult.id,
+      right: [row.id],
+    });
+  });
+
   it("shares the same runOnce promise while a sweep is in flight", async () => {
     const pendingRows = createDeferred<PendingRow[]>();
     usePendingRowsResult(pendingRows.promise);
