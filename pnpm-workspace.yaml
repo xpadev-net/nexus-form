@@ -37,7 +37,16 @@ minimumReleaseAgeExclude:
   - '@better-auth/telemetry@1.6.14'
   - '@tanstack/react-router@1.170.11'
   - '@tanstack/router-core@1.171.9'
-  - axios@1.17.0
+  - axios@1.18.0
   - better-auth@1.6.14
 overrides:
-  js-video-url-parser@<=0.5.2: ^0.5.1
+  undici: ">=7.28.0 <8.0.0"
+  js-yaml: ">=4.3.0"
+  brace-expansion: ">=5.0.7"
+  fast-uri: ">=3.1.4"
+  form-data: ">=4.0.6"
+  hono: ">=4.12.27"
+  "@hono/node-server": ">=2.0.5"
+  body-parser: ">=2.3.0"
+  esbuild: ">=0.28.1"
+

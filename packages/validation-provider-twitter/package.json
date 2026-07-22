@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@nexus-form/integrations": "workspace:*",
-    "axios": "^1.17.0",
+    "axios": "^1.18.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

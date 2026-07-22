@@ -1,4 +1,4 @@
-import sharp from "sharp";
+import sharp, { type Sharp } from "sharp";
 import { IMAGE_PROCESSING_LIMITS } from "../../config/image-processing";
 import type { ImageProcessingConfig, UploadResult } from "../../types/s3";
 import { S3Error } from "../../types/s3";
@@ -22,7 +22,7 @@ export class S3ImageService extends S3BaseService {
     imageData: Uint8Array,
     config: ImageProcessingConfig,
   ): Promise<Uint8Array> {
-    let sharpInstance: sharp.Sharp | null = null;
+    let sharpInstance: Sharp | null = null;
 
     try {
       // ファイルサイズ制限チェック
