@@ -392,7 +392,7 @@ describe("startupPlugins plugin drift guard", () => {
     await handle.stop();
   });
 
-  it("treats periodic drift as fatal by default", async () => {
+  it("treats periodic drift as fatal immediately when the grace period is disabled", async () => {
     vi.useFakeTimers();
     const queueMicrotaskSpy = vi.fn();
     vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
@@ -407,6 +407,7 @@ describe("startupPlugins plugin drift guard", () => {
         store,
         keyPrefix: "test:plugins",
         refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 0,
       },
     });
 
@@ -418,6 +419,100 @@ describe("startupPlugins plugin drift guard", () => {
 
     expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
     expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("tolerates periodic drift during the grace period, then escalates once it elapses", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 10,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+
+    // First mismatch: still within the grace period, so no escalation yet.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("tolerating during grace period"),
+      expect.any(Error),
+    );
+
+    // Mismatch has now persisted past the grace period: escalate and crash.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("resets the grace period once the peer manifest matches again", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 10,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+
+    // The worker catches up (e.g. its own rollout completes) before the
+    // grace period elapses: the mismatch clock must reset, not accumulate.
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["discord"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("recovered after a transient mismatch"),
+    );
+
+    store.values.set(
+      "test:plugins:worker",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+
     expect(handle).toBeDefined();
     if (!handle) throw new Error("plugin drift guard handle missing");
     await handle.stop();

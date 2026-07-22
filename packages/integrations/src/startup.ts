@@ -7,6 +7,7 @@ import type { ValidationProviderRegistry } from "./provider-registry";
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
 const PLUGIN_DRIFT_TTL_SECONDS = 1800;
 const PLUGIN_DRIFT_REFRESH_INTERVAL_MS = 60_000;
+const PLUGIN_DRIFT_MISMATCH_GRACE_MS = 5 * 60_000;
 
 const pluginRuntimeRoleSchema = z.enum(["api", "worker"]);
 const pluginManifestSchema = z
@@ -92,6 +93,18 @@ export interface PluginDriftGuardOptions {
    * guard logs warnings and lets startup continue.
    */
   failOnMismatch?: boolean;
+  /**
+   * How long a periodic (post-startup) mismatch may persist before the guard
+   * escalates from a warning-only tolerance to the fatal `failOnMismatch`
+   * behavior. Independent Kubernetes Deployments (e.g. API vs Worker, or
+   * several Worker Deployments) roll out on their own schedules, so a brief
+   * manifest mismatch while one side is mid-rollout is expected, not an
+   * incident. Only applies to the periodic recheck; the initial startup
+   * check still fails fast so a newly-starting pod never claims readiness
+   * while already mismatched. Defaults to 5 minutes. Set to 0 to escalate on
+   * the very first periodic mismatch, matching pre-grace-period behavior.
+   */
+  mismatchGracePeriodMs?: number;
 }
 
 export interface PluginDriftGuardHandle {
@@ -284,9 +297,13 @@ function startPluginDriftGuardRefresh(
     guard.refreshIntervalMs ?? PLUGIN_DRIFT_REFRESH_INTERVAL_MS;
   if (refreshIntervalMs <= 0) return undefined;
 
+  const gracePeriodMs =
+    guard.mismatchGracePeriodMs ?? PLUGIN_DRIFT_MISMATCH_GRACE_MS;
+
   let stopped = false;
   let running = false;
   let activeCheck: Promise<void> | null = null;
+  let mismatchSince: number | null = null;
   const timer = setInterval(() => {
     if (running || stopped) return;
     running = true;
@@ -297,6 +314,14 @@ function startPluginDriftGuardRefresh(
       logPrefix,
       false,
     )
+      .then(() => {
+        if (mismatchSince !== null) {
+          console.log(
+            `[${logPrefix}] Plugin drift guard recovered after a transient mismatch`,
+          );
+        }
+        mismatchSince = null;
+      })
       .catch((error: unknown) => {
         if (stopped) {
           console.warn(
@@ -305,22 +330,34 @@ function startPluginDriftGuardRefresh(
           );
           return;
         }
-        if (guard.failOnMismatch ?? true) {
-          stopped = true;
-          clearInterval(timer);
-          console.error(
-            `[${logPrefix}] Plugin drift guard periodic check failed:`,
+        if (!(guard.failOnMismatch ?? true)) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard periodic warning-only check failed:`,
             error,
           );
-          queueMicrotask(() => {
-            throw error;
-          });
           return;
         }
-        console.warn(
-          `[${logPrefix}] Plugin drift guard periodic warning-only check failed:`,
+
+        const now = Date.now();
+        if (mismatchSince === null) mismatchSince = now;
+        const elapsedMs = now - mismatchSince;
+        if (elapsedMs < gracePeriodMs) {
+          console.warn(
+            `[${logPrefix}] Plugin drift guard periodic check failed; tolerating during grace period (${Math.round(elapsedMs / 1000)}s/${Math.round(gracePeriodMs / 1000)}s elapsed, likely a rolling deploy in progress):`,
+            error,
+          );
+          return;
+        }
+
+        stopped = true;
+        clearInterval(timer);
+        console.error(
+          `[${logPrefix}] Plugin drift guard periodic check failed past the ${Math.round(gracePeriodMs / 1000)}s grace period:`,
           error,
         );
+        queueMicrotask(() => {
+          throw error;
+        });
       })
       .finally(() => {
         running = false;
