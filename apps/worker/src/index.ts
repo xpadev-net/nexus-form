@@ -56,8 +56,8 @@ const SHUTDOWN_TIMEOUT_MS =
 // Undefined lets startupPlugins fall back to its own default (5 minutes); 0
 // is a valid override meaning "escalate on the first periodic mismatch".
 const PLUGIN_DRIFT_MISMATCH_GRACE_MS = (() => {
-  const raw = process.env.PLUGIN_DRIFT_MISMATCH_GRACE_MS;
-  if (raw === undefined) return undefined;
+  const raw = process.env.PLUGIN_DRIFT_MISMATCH_GRACE_MS?.trim();
+  if (!raw) return undefined;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 })();
