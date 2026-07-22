@@ -97,7 +97,10 @@ export const validationProviderResultSchema = z.object({
   retryable: z.boolean().optional(),
 });
 
-export interface ValidationProviderRule {
+export interface ValidationProviderRule<
+  TInput = string,
+  TConfig = Record<string, unknown>,
+> {
   readonly name: string;
   readonly label: string;
   readonly description: string;
@@ -105,25 +108,26 @@ export interface ValidationProviderRule {
   readonly inputPattern?: string;
   readonly patternTemplate?: ValidationProviderPatternTemplate;
   readonly configFields?: readonly ValidationProviderConfigField[];
-  readonly inputSchema: z.ZodType<string>;
-  readonly configSchema: z.ZodType<Record<string, unknown>>;
+  readonly inputSchema: z.ZodType<TInput>;
+  readonly configSchema: z.ZodType<TConfig>;
   readonly metadataSchema: z.ZodSchema;
 
   validate(
-    input: string,
-    config: Record<string, unknown>,
+    input: TInput,
+    config: TConfig,
     context?: ValidationProviderExecutionContext,
   ): Promise<ValidationProviderResult>;
 
-  sanitizeConfig?(config: Record<string, unknown>): Record<string, unknown>;
-  normalizeInput?(input: string): string;
+  sanitizeConfig?(config: Record<string, unknown>): TConfig;
+  normalizeInput?(input: TInput): TInput;
 }
 
 export interface ValidationProvider {
   readonly name: string;
   readonly label: string;
   readonly description: string;
-  readonly rules: Readonly<Record<string, ValidationProviderRule>>;
+  // biome-ignore lint/suspicious/noExplicitAny: generic rules permit custom input and config schemas
+  readonly rules: Readonly<Record<string, ValidationProviderRule<any, any>>>;
   readonly apiHandlers?: Readonly<Record<string, ValidationProviderApiHandler>>;
   readonly apiResponseSchemas?: ValidationProviderApiResponseSchemas;
 

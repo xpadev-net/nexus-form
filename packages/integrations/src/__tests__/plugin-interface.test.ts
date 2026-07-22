@@ -8,24 +8,22 @@ import {
 } from "../plugin-interface";
 
 describe("validationProviderResultSchema", () => {
-  it("accepts multiple scalar output values", () => {
+  it("accepts string output values", () => {
     expect(
       validationProviderResultSchema.parse({
         isValid: true,
         outputValues: [
           { key: "username", label: "Username", value: "octocat" },
-          { key: "followers", value: 42 },
-          { key: "verified", value: true },
-          { key: "bio", value: null },
+          { key: "followers", value: "42" },
+          { key: "verified", value: "true" },
         ],
       }),
     ).toEqual({
       isValid: true,
       outputValues: [
         { key: "username", label: "Username", value: "octocat" },
-        { key: "followers", value: 42 },
-        { key: "verified", value: true },
-        { key: "bio", value: null },
+        { key: "followers", value: "42" },
+        { key: "verified", value: "true" },
       ],
     });
   });
@@ -42,11 +40,20 @@ describe("validationProviderResultSchema", () => {
     });
   });
 
-  it("rejects malformed output values", () => {
+  it("rejects non-string output values and duplicate keys", () => {
     expect(() =>
       validationProviderResultSchema.parse({
         isValid: true,
-        outputValues: [{ key: "profile", value: { url: "bad" } }],
+        outputValues: [{ key: "followers", value: 42 }],
+      }),
+    ).toThrow();
+
+    expect(() =>
+      validationProviderResultSchema.parse({
+        isValid: true,
+        outputValues: [
+          { key: "profile", value: { url: "https://example.com" } },
+        ],
       }),
     ).toThrow();
 

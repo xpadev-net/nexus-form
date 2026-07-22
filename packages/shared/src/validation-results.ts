@@ -9,12 +9,7 @@ export const validationOutputKeySchema = z
   .max(64)
   .regex(/^[a-z][a-z0-9_]*$/);
 
-export const validationOutputScalarValueSchema = z.union([
-  z.string(),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-]);
+export const validationOutputScalarValueSchema = z.string();
 
 export const validationOutputValueSchema = z
   .object({
@@ -46,7 +41,11 @@ const validationOutputMetadataSchema = z
   })
   .passthrough();
 
-export type ValidationOutputValue = z.infer<typeof validationOutputValueSchema>;
+export type ValidationOutputValue = {
+  key: string;
+  label?: string;
+  value: string;
+};
 
 export const validationOutputExportSettingSchema = z
   .object({

@@ -149,12 +149,12 @@ const userExistsRule: ValidationProviderRule = {
           {
             key: "followers",
             label: "Followers",
-            value: user.public_metrics?.followers_count ?? null,
+            value: String(user.public_metrics?.followers_count ?? ""),
           },
           {
             key: "verified",
             label: "Verified",
-            value: user.verified ?? false,
+            value: String(user.verified ?? false),
           },
         ],
       };

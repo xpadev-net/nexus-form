@@ -136,7 +136,7 @@ describe("getValidationOutputExportSettings", () => {
       {
         metadata: {
           validationOutputs: [
-            { key: "legacy_score", label: "Legacy Score", value: 88 },
+            { key: "legacy_score", label: "Legacy Score", value: "88" },
           ],
         },
         ruleId: "deleted-rule",

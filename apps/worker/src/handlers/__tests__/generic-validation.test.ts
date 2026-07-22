@@ -923,9 +923,9 @@ describe("handleGenericValidation", () => {
         metadata: { fixtureCase: "success" },
         outputValues: [
           { key: "username", label: "Username", value: "octocat" },
-          { key: "followers", value: 42 },
-          { key: "verified", value: true },
-          { key: "bio", value: null },
+          { key: "followers", value: "42" },
+          { key: "verified", value: "true" },
+          { key: "bio", value: "" },
         ],
       }),
     });
@@ -946,20 +946,23 @@ describe("handleGenericValidation", () => {
           fixtureCase: "success",
           validationOutputs: [
             { key: "username", label: "Username", value: "octocat" },
-            { key: "followers", value: 42 },
-            { key: "verified", value: true },
-            { key: "bio", value: null },
+            { key: "followers", value: "42" },
+            { key: "verified", value: "true" },
+            { key: "bio", value: "" },
           ],
         },
       }),
     );
   });
 
-  it("malformed outputValues は provider result 境界で拒否して失敗結果を書き込む", async () => {
+  it("malformed outputValues (重複キー) は provider result 境界で拒否して失敗結果を書き込む", async () => {
     const rule = makeRule({
       validate: vi.fn().mockResolvedValue({
         isValid: true,
-        outputValues: [{ key: "profile", value: { url: "bad" } }],
+        outputValues: [
+          { key: "username", value: "octocat" },
+          { key: "username", value: "duplicate" },
+        ],
       }),
     });
     mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
@@ -980,6 +983,39 @@ describe("handleGenericValidation", () => {
         success: false,
         errorCode: "VALIDATION_RESULT_MALFORMED",
         errorMessage: "Provider returned invalid result",
+      }),
+    );
+  });
+
+  it("provider の string 形式 outputValues を metadata へ保存する", async () => {
+    const rule = makeRule({
+      validate: vi.fn().mockResolvedValue({
+        isValid: true,
+        outputValues: [
+          { key: "profile", value: '{"url":"https://example.com"}' },
+          { key: "tags", value: '["admin","user"]' },
+        ],
+      }),
+    });
+    mockProviderRegistryGet.mockReturnValue(makeProvider(rule));
+    const job = makeJob({
+      responseId: "r-1",
+      ruleId: "rule-1",
+      referencedBlockId: "block-a",
+    });
+
+    const result = await handleGenericValidation(job);
+
+    expect(result).toEqual({ ok: true, provider: "test-provider" });
+    expect(mockWriteValidationResult).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        metadata: {
+          validationOutputs: [
+            { key: "profile", value: '{"url":"https://example.com"}' },
+            { key: "tags", value: '["admin","user"]' },
+          ],
+        },
       }),
     );
   });

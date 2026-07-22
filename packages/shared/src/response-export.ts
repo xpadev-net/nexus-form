@@ -50,7 +50,7 @@ export type ResponseExportValidationOutputValue = {
   rule_type: string;
   output_key: string;
   label: string;
-  value: string | number | boolean | null;
+  value: string;
 };
 
 /**
@@ -547,7 +547,7 @@ export function buildResponseExportTable(
 function stringifyValidationOutputValue(
   value: ResponseExportValidationOutputValue["value"],
 ): string {
-  return value === null ? "" : String(value);
+  return value;
 }
 
 function stringifyResponseExportValue(

@@ -287,8 +287,8 @@ describe("twitterProvider.rules.user_exists.validate", () => {
           label: "Profile URL",
           value: "https://twitter.com/TwitterDev",
         },
-        { key: "followers", label: "Followers", value: 100 },
-        { key: "verified", label: "Verified", value: true },
+        { key: "followers", label: "Followers", value: "100" },
+        { key: "verified", label: "Verified", value: "true" },
       ],
     });
     expect(getUserByUsernameMock).toHaveBeenCalledWith("TwitterDev");
