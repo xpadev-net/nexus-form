@@ -1188,6 +1188,7 @@ describe("handleSheetsSync — write path", () => {
     await expect(handleSheetsSync(job as never)).rejects.toThrow(
       "Redis connection dropped",
     );
+    expect(mockClearSheet).not.toHaveBeenCalled();
   });
 
   it("full mode clears the sheet and rewrites all historical responses", async () => {

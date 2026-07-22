@@ -585,14 +585,6 @@ async function clearSheetForFullResync(
     responseIds: string[];
   },
 ): Promise<void> {
-  throwIfShuttingDown();
-  const clearResult = await clearSheet(token, {
-    spreadsheetId: params.spreadsheetId,
-    sheetName: params.sheetName,
-  });
-  if (!clearResult.ok) {
-    throwSheetsSyncFailure("clear sheet for full resync", clearResult);
-  }
   const keys = params.responseIds.map(
     (responseId) => `sheets-written:${params.integrationId}:${responseId}`,
   );
@@ -600,6 +592,14 @@ async function clearSheetForFullResync(
     throwIfShuttingDown();
     const chunk = keys.slice(i, i + 500);
     await Promise.all(chunk.map((key) => deleteIdempotencyKey(key)));
+  }
+
+  const clearResult = await clearSheet(token, {
+    spreadsheetId: params.spreadsheetId,
+    sheetName: params.sheetName,
+  });
+  if (!clearResult.ok) {
+    throwSheetsSyncFailure("clear sheet for full resync", clearResult);
   }
 }
 
