@@ -1120,7 +1120,7 @@ describe("handleSheetsSync — idempotency states", () => {
 });
 
 describe("handleSheetsSync — write path", () => {
-  it("full mode skips clearing the sheet when any prepared response is not ready", async () => {
+  it("full mode throws an error when any prepared response is not ready", async () => {
     setupDbSelect(
       [INTEGRATION],
       [
@@ -1146,10 +1146,10 @@ describe("handleSheetsSync — write path", () => {
       responseId: "response-1",
     });
 
-    const result = await handleSheetsSync(job as never);
-
+    await expect(handleSheetsSync(job as never)).rejects.toThrow(
+      "Full sheets sync aborted for integration integration-1: incomplete response preparation",
+    );
     expect(mockClearSheet).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ ok: true, skipped: 1, processed: 1 });
   });
 
   it("full mode propagates Redis idempotency key deletion errors", async () => {

@@ -434,16 +434,18 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   return await withRedisLock(
     lockKey,
     async () => {
-      if (
-        shouldClearSheet &&
-        preparedResponses.every((prepared) => prepared.status === "ready")
-      ) {
+      if (shouldClearSheet) {
+        if (preparedResponses.some((prepared) => prepared.status !== "ready")) {
+          throw new Error(
+            `Full sheets sync aborted for integration ${integrationId}: incomplete response preparation`,
+          );
+        }
         await clearSheetForFullResync(token, {
           spreadsheetId,
           sheetName,
           integrationId,
-          responseIds: preparedResponses.flatMap((prepared) =>
-            prepared.status === "ready" ? [prepared.response.id] : [],
+          responseIds: preparedResponses.map(
+            (prepared) => prepared.response.id,
           ),
         });
       }
