@@ -593,9 +593,13 @@ async function clearSheetForFullResync(
   if (!clearResult.ok) {
     throwSheetsSyncFailure("clear sheet for full resync", clearResult);
   }
-  for (const responseId of params.responseIds) {
-    const key = `sheets-written:${params.integrationId}:${responseId}`;
-    await deleteIdempotencyKey(key);
+  const keys = params.responseIds.map(
+    (responseId) => `sheets-written:${params.integrationId}:${responseId}`,
+  );
+  for (let i = 0; i < keys.length; i += 500) {
+    throwIfShuttingDown();
+    const chunk = keys.slice(i, i + 500);
+    await Promise.all(chunk.map((key) => deleteIdempotencyKey(key)));
   }
 }
 
