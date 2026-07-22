@@ -97,14 +97,20 @@ jobs:
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
           if [ "${{ github.ref_type }}" = "tag" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-            TAG_NAME="${TAG_NAME#refs/tags/}"
-            SEMVER_TAG="${TAG_NAME#v}"
-            if [ "$TAG_NAME" = "$SEMVER_TAG" ]; then
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest,ghcr.io/$OWNER/$IMAGE_NAME:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
-            else
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest,ghcr.io/$OWNER/$IMAGE_NAME:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME:$SEMVER_TAG,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
+            RAW_TAG="${{ github.ref_name }}"
+            RAW_TAG="${RAW_TAG#refs/tags/}"
+            CLEAN_TAG=$(echo "$RAW_TAG" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(echo "$RAW_SEMVER" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:$CLEAN_TAG"
             fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
           else
             TAGS="ghcr.io/$OWNER/$IMAGE_NAME:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME:sha-$SHORT_SHA"
           fi
@@ -152,14 +158,20 @@ jobs:
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
           if [ "${{ github.ref_type }}" = "tag" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-            TAG_NAME="${TAG_NAME#refs/tags/}"
-            SEMVER_TAG="${TAG_NAME#v}"
-            if [ "$TAG_NAME" = "$SEMVER_TAG" ]; then
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest,ghcr.io/$OWNER/$IMAGE_NAME-web:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
-            else
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest,ghcr.io/$OWNER/$IMAGE_NAME-web:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME-web:$SEMVER_TAG,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
+            RAW_TAG="${{ github.ref_name }}"
+            RAW_TAG="${RAW_TAG#refs/tags/}"
+            CLEAN_TAG=$(echo "$RAW_TAG" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(echo "$RAW_SEMVER" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:$CLEAN_TAG"
             fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
           else
             TAGS="ghcr.io/$OWNER/$IMAGE_NAME-web:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME-web:sha-$SHORT_SHA"
           fi
@@ -214,14 +226,20 @@ jobs:
           echo "OWNER=$OWNER" >> $GITHUB_OUTPUT
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_OUTPUT
           if [ "${{ github.ref_type }}" = "tag" ] || [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            TAG_NAME="${{ github.ref_name }}"
-            TAG_NAME="${TAG_NAME#refs/tags/}"
-            SEMVER_TAG="${TAG_NAME#v}"
-            if [ "$TAG_NAME" = "$SEMVER_TAG" ]; then
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest,ghcr.io/$OWNER/$IMAGE_NAME-worker:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
-            else
-              TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest,ghcr.io/$OWNER/$IMAGE_NAME-worker:$TAG_NAME,ghcr.io/$OWNER/$IMAGE_NAME-worker:$SEMVER_TAG,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
+            RAW_TAG="${{ github.ref_name }}"
+            RAW_TAG="${RAW_TAG#refs/tags/}"
+            CLEAN_TAG=$(echo "$RAW_TAG" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+            RAW_SEMVER="${RAW_TAG#v}"
+            CLEAN_SEMVER=$(echo "$RAW_SEMVER" | sed -E -e 's/[^a-zA-Z0-9_.-]/-/g' -e 's/^[.-]+//' -e 's/[.-]+$//')
+
+            TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest"
+            if [ -n "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:$CLEAN_TAG"
             fi
+            if [ -n "$CLEAN_SEMVER" ] && [ "$CLEAN_SEMVER" != "$CLEAN_TAG" ]; then
+              TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:$CLEAN_SEMVER"
+            fi
+            TAGS="$TAGS,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
           else
             TAGS="ghcr.io/$OWNER/$IMAGE_NAME-worker:latest-dev,ghcr.io/$OWNER/$IMAGE_NAME-worker:sha-$SHORT_SHA"
           fi
