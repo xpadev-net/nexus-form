@@ -42,13 +42,18 @@ describe("validationProviderResultSchema", () => {
     });
   });
 
-  it("rejects malformed output values", () => {
-    expect(() =>
+  it("accepts arbitrary object/array output values and rejects duplicate keys", () => {
+    expect(
       validationProviderResultSchema.parse({
         isValid: true,
-        outputValues: [{ key: "profile", value: { url: "bad" } }],
+        outputValues: [
+          { key: "profile", value: { url: "https://example.com" } },
+        ],
       }),
-    ).toThrow();
+    ).toEqual({
+      isValid: true,
+      outputValues: [{ key: "profile", value: { url: "https://example.com" } }],
+    });
 
     expect(() =>
       validationProviderResultSchema.parse({

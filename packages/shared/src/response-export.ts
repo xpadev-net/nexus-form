@@ -43,14 +43,14 @@ export type ResponseExportComponentValidationMetadata =
  * Missing rule/provider fields are normalized by the DB row grouping helper
  * before values reach CSV or Sheets rendering.
  */
-export type ResponseExportValidationOutputValue = {
+export type ResponseExportValidationOutputValue<T = unknown> = {
   rule_id: string;
   rule_name: string;
   provider_name: string;
   rule_type: string;
   output_key: string;
   label: string;
-  value: string | number | boolean | null;
+  value: T;
 };
 
 /**
@@ -547,7 +547,11 @@ export function buildResponseExportTable(
 function stringifyValidationOutputValue(
   value: ResponseExportValidationOutputValue["value"],
 ): string {
-  return value === null ? "" : String(value);
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 function stringifyResponseExportValue(

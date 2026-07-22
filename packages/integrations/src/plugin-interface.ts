@@ -97,7 +97,11 @@ export const validationProviderResultSchema = z.object({
   retryable: z.boolean().optional(),
 });
 
-export interface ValidationProviderRule {
+export interface ValidationProviderRule<
+  TInput = string,
+  TConfig = Record<string, unknown>,
+  TOutputValue = unknown,
+> {
   readonly name: string;
   readonly label: string;
   readonly description: string;
@@ -105,18 +109,18 @@ export interface ValidationProviderRule {
   readonly inputPattern?: string;
   readonly patternTemplate?: ValidationProviderPatternTemplate;
   readonly configFields?: readonly ValidationProviderConfigField[];
-  readonly inputSchema: z.ZodType<string>;
-  readonly configSchema: z.ZodType<Record<string, unknown>>;
+  readonly inputSchema: z.ZodType<TInput>;
+  readonly configSchema: z.ZodType<TConfig>;
   readonly metadataSchema: z.ZodSchema;
 
   validate(
-    input: string,
-    config: Record<string, unknown>,
+    input: TInput,
+    config: TConfig,
     context?: ValidationProviderExecutionContext,
-  ): Promise<ValidationProviderResult>;
+  ): Promise<ValidationProviderResult<TOutputValue>>;
 
-  sanitizeConfig?(config: Record<string, unknown>): Record<string, unknown>;
-  normalizeInput?(input: string): string;
+  sanitizeConfig?(config: Record<string, unknown>): TConfig;
+  normalizeInput?(input: TInput): TInput;
 }
 
 export interface ValidationProvider {
@@ -136,10 +140,10 @@ export interface ValidationProvider {
   healthCheck?(): Promise<boolean>;
 }
 
-export interface ValidationProviderResult {
+export interface ValidationProviderResult<TOutputValue = unknown> {
   isValid: boolean;
   metadata?: Record<string, unknown>;
-  outputValues?: readonly ValidationOutputValue[];
+  outputValues?: readonly ValidationOutputValue<TOutputValue>[];
   errorCode?: string;
   errorMessage?: string;
   retryAfter?: number;

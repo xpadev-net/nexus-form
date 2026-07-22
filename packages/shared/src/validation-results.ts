@@ -9,18 +9,13 @@ export const validationOutputKeySchema = z
   .max(64)
   .regex(/^[a-z][a-z0-9_]*$/);
 
-export const validationOutputScalarValueSchema = z.union([
-  z.string(),
-  z.number().finite(),
-  z.boolean(),
-  z.null(),
-]);
+export const validationOutputScalarValueSchema = z.unknown();
 
 export const validationOutputValueSchema = z
   .object({
     key: validationOutputKeySchema,
     label: z.string().min(1).max(120).optional(),
-    value: validationOutputScalarValueSchema,
+    value: z.unknown(),
   })
   .strict();
 
@@ -46,7 +41,11 @@ const validationOutputMetadataSchema = z
   })
   .passthrough();
 
-export type ValidationOutputValue = z.infer<typeof validationOutputValueSchema>;
+export type ValidationOutputValue<T = unknown> = {
+  key: string;
+  label?: string;
+  value: T;
+};
 
 export const validationOutputExportSettingSchema = z
   .object({

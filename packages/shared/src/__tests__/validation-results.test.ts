@@ -56,23 +56,33 @@ describe("getValidationResultId", () => {
 });
 
 describe("validationOutputValuesSchema", () => {
-  it("accepts any number of named scalar output values", () => {
+  it("accepts arbitrary named output values (scalars, objects, arrays)", () => {
     expect(
       validationOutputValuesSchema.parse([
         { key: "username", label: "Username", value: "octocat" },
         { key: "followers", value: 42 },
         { key: "verified", value: true },
         { key: "bio", value: null },
+        {
+          key: "profile",
+          value: { url: "https://example.com", avatar: "octo.png" },
+        },
+        { key: "roles", value: ["admin", "developer"] },
       ]),
     ).toEqual([
       { key: "username", label: "Username", value: "octocat" },
       { key: "followers", value: 42 },
       { key: "verified", value: true },
       { key: "bio", value: null },
+      {
+        key: "profile",
+        value: { url: "https://example.com", avatar: "octo.png" },
+      },
+      { key: "roles", value: ["admin", "developer"] },
     ]);
   });
 
-  it("rejects duplicate keys and non-scalar values", () => {
+  it("rejects duplicate keys and invalid key formats", () => {
     expect(() =>
       validationOutputValuesSchema.parse([
         { key: "username", value: "octocat" },
@@ -82,7 +92,7 @@ describe("validationOutputValuesSchema", () => {
 
     expect(() =>
       validationOutputValuesSchema.parse([
-        { key: "profile", value: { url: "https://example.com" } },
+        { key: "INVALID-KEY", value: "bad" },
       ]),
     ).toThrow();
   });
