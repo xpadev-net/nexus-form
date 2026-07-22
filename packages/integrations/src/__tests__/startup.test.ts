@@ -363,6 +363,34 @@ describe("startupPlugins plugin drift guard", () => {
     );
   });
 
+  it("deletes its own manifest key on graceful stop so a replacement instance never sees it", async () => {
+    // Without this, a retired instance's manifest would linger for the full
+    // TTL and could fail a freshly-started replacement's initial (no grace
+    // period) startup check even though the retired instance is gone.
+    vi.useFakeTimers();
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+      },
+    });
+
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
+  });
+
   it("keeps refreshing the manifest and compares when the peer appears later", async () => {
     vi.useFakeTimers();
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});

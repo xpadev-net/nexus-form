@@ -6,7 +6,13 @@ import { loadPluginFromFile, PluginLoader } from "./plugin-loader";
 import type { ValidationProviderRegistry } from "./provider-registry";
 
 const PLUGIN_DRIFT_KEY_PREFIX = "nexus-form:validation-plugin-manifest";
-const PLUGIN_DRIFT_TTL_SECONDS = 1800;
+// Kept well above the refresh interval (5x) so a single missed refresh tick
+// can't expire a live instance's key, while still bounding how long a
+// crashed/ungracefully-terminated instance's stale manifest can linger and
+// block a replacement instance's initial (non-grace-period) startup check.
+// Graceful shutdowns delete their own key immediately via stop(), so this
+// TTL is a backstop for abnormal terminations only.
+const PLUGIN_DRIFT_TTL_SECONDS = 300;
 const PLUGIN_DRIFT_REFRESH_INTERVAL_MS = 60_000;
 const PLUGIN_DRIFT_MISMATCH_GRACE_MS = 5 * 60_000;
 
@@ -99,7 +105,10 @@ export interface PluginDriftGuardOptions {
    */
   keyPrefix?: string;
   /**
-   * Optional manifest TTL in seconds. Defaults to 1800 seconds.
+   * Optional manifest TTL in seconds. Defaults to 300 seconds (5x the
+   * default refresh interval). A graceful `stop()` deletes this instance's
+   * key immediately; this TTL only bounds how long an abruptly-terminated
+   * instance's stale manifest can remain visible to peer instances.
    */
   ttlSeconds?: number;
   /**
@@ -367,6 +376,9 @@ function startPluginDriftGuardRefresh(
 
   const gracePeriodMs =
     guard.mismatchGracePeriodMs ?? PLUGIN_DRIFT_MISMATCH_GRACE_MS;
+  const keyPrefix = guard.keyPrefix ?? PLUGIN_DRIFT_KEY_PREFIX;
+  const instanceId = guard.instanceId ?? hostname();
+  const currentKey = `${keyPrefix}:${guard.role}:${instanceId}`;
 
   let stopped = false;
   let running = false;
@@ -445,6 +457,19 @@ function startPluginDriftGuardRefresh(
       stopped = true;
       clearInterval(timer);
       await activeCheck;
+      // Remove this instance's manifest immediately on graceful shutdown so
+      // a replacement instance's initial (non-grace-period) startup check
+      // never has to wait out the TTL to stop seeing a retired instance as
+      // a live peer. This only covers graceful termination; an abrupt crash
+      // still relies on PLUGIN_DRIFT_TTL_SECONDS to expire the stale key.
+      try {
+        await guard.store.del(currentKey);
+      } catch (error) {
+        console.warn(
+          `[${logPrefix}] Plugin drift guard failed to delete ${guard.role} manifest on shutdown:`,
+          error,
+        );
+      }
     },
   };
 }
