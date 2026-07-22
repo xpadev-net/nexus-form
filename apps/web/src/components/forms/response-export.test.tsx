@@ -235,7 +235,7 @@ describe("ResponseExport", () => {
 
     expect(mocks.exportGet).toHaveBeenCalledWith({
       param: { id: "form id" },
-      query: { includeFingerprint: true },
+      query: { includeFingerprint: "true" },
     });
     expect(mocks.toastSuccess).toHaveBeenCalledOnce();
 
