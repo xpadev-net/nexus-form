@@ -133,6 +133,7 @@ function neutralizeSpreadsheetFormulaValues(values: string[]): string[] {
 function buildMetadataHeaders(
   fingerprintComponents: Set<string>,
   isJapanese = false,
+  includeFingerprintColumns = false,
 ): string[] {
   const baseHeaders = isJapanese
     ? [
@@ -141,7 +142,6 @@ function buildMetadataHeaders(
         "送信日時",
         "更新日時",
         "国コード",
-        "UA UUID",
         "ユニーク度スコア",
       ]
     : [
@@ -150,20 +150,30 @@ function buildMetadataHeaders(
         "Submitted At",
         "Updated At",
         "Country Code",
-        "UA UUID",
         "Uniqueness Score",
       ];
+
+  if (!includeFingerprintColumns) {
+    return baseHeaders;
+  }
+
+  const baseHeadersWithUaUuid = [
+    ...baseHeaders.slice(0, 5),
+    "UA UUID",
+    ...baseHeaders.slice(5),
+  ];
 
   const fingerprintHeaders = Array.from(fingerprintComponents)
     .sort()
     .map((component) => `${component} UUID`);
 
-  return [...baseHeaders, ...fingerprintHeaders];
+  return [...baseHeadersWithUaUuid, ...fingerprintHeaders];
 }
 
 function buildMetadataValues(
   record: ResponseExportRecord,
   fingerprintComponents: Set<string>,
+  includeFingerprintColumns = false,
 ): string[] {
   const baseValues = [
     record.metadata.id,
@@ -171,15 +181,24 @@ function buildMetadataValues(
     record.metadata.submitted_at,
     record.metadata.updated_at || "",
     record.metadata.country_code || "",
-    record.metadata.ua_uuid || "",
     record.metadata.uniqueness_score?.toFixed(4) || "",
+  ];
+
+  if (!includeFingerprintColumns) {
+    return baseValues;
+  }
+
+  const baseValuesWithUaUuid = [
+    ...baseValues.slice(0, 5),
+    record.metadata.ua_uuid || "",
+    ...baseValues.slice(5),
   ];
 
   const fingerprintValues = Array.from(fingerprintComponents)
     .sort()
     .map((component) => record.metadata.fingerprint_uuids?.[component] || "");
 
-  return [...baseValues, ...fingerprintValues];
+  return [...baseValuesWithUaUuid, ...fingerprintValues];
 }
 
 function getBlockTitle(
@@ -455,11 +474,17 @@ export function buildResponseExportTable(
   blockTitleMap: Map<string, string>,
   emptyRecordColumns: ResponseExportColumn[] = [],
   emptyValidationOutputColumns?: ResponseExportValidationOutputColumn[],
+  includeFingerprintColumns = false,
 ): ResponseExportTable {
-  const metadataIdHeaders = buildMetadataHeaders(fingerprintComponents, false);
+  const metadataIdHeaders = buildMetadataHeaders(
+    fingerprintComponents,
+    false,
+    includeFingerprintColumns,
+  );
   const metadataTitleHeaders = buildMetadataHeaders(
     fingerprintComponents,
     true,
+    includeFingerprintColumns,
   );
   const componentColumns = buildComponentColumnsFromRecords(
     records,
@@ -480,7 +505,11 @@ export function buildResponseExportTable(
     ...validationOutputColumns.map((column) => column.title),
   ];
   const rows = records.map((record) => {
-    const metadataValues = buildMetadataValues(record, fingerprintComponents);
+    const metadataValues = buildMetadataValues(
+      record,
+      fingerprintComponents,
+      includeFingerprintColumns,
+    );
     const componentValues = componentColumns.map((column) => {
       const answer = record.component_columns?.find(
         (col) => col.block_id === column.id,
@@ -557,14 +586,23 @@ export function mapRecordToSheetRow(
   blockTitleMap: Map<string, string>,
   fingerprintComponents?: Set<string>,
   existingTitleRow?: string[],
+  includeFingerprintColumns = false,
 ): ResponseExportSheetMapping {
   const responseIdHeader = "Response ID";
 
   const metadataIdHeaders = fingerprintComponents
-    ? buildMetadataHeaders(fingerprintComponents, false)
+    ? buildMetadataHeaders(
+        fingerprintComponents,
+        false,
+        includeFingerprintColumns,
+      )
     : [responseIdHeader];
   const metadataTitleHeaders = fingerprintComponents
-    ? buildMetadataHeaders(fingerprintComponents, true)
+    ? buildMetadataHeaders(
+        fingerprintComponents,
+        true,
+        includeFingerprintColumns,
+      )
     : ["回答ID"];
 
   const suffixRegex = /^(.*) \((\d+)\)$/;
@@ -640,7 +678,13 @@ export function mapRecordToSheetRow(
 
     const rowValues: string[] = [];
     if (fingerprintComponents) {
-      rowValues.push(...buildMetadataValues(record, fingerprintComponents));
+      rowValues.push(
+        ...buildMetadataValues(
+          record,
+          fingerprintComponents,
+          includeFingerprintColumns,
+        ),
+      );
     } else {
       rowValues.push(record.metadata.id);
     }
@@ -712,7 +756,11 @@ export function mapRecordToSheetRow(
       : idRow.indexOf(neutralizeSpreadsheetFormulaValue(header));
 
   if (fingerprintComponents) {
-    const metadataValues = buildMetadataValues(record, fingerprintComponents);
+    const metadataValues = buildMetadataValues(
+      record,
+      fingerprintComponents,
+      includeFingerprintColumns,
+    );
     metadataIdHeaders.forEach((header, idx) => {
       let colIndex = findIdColumnIndex(header);
       if (colIndex === -1) {

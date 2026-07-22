@@ -98,6 +98,7 @@ vi.mock("../../lib/google-sheets-client", async (importOriginal) => {
   return {
     ...actual,
     appendRows: vi.fn(),
+    clearSheet: vi.fn(),
     readRange: vi.fn(),
     updateRange: vi.fn(),
   };
@@ -110,6 +111,7 @@ vi.mock("../../lib/oauth-token-store", () => ({
 }));
 
 vi.mock("../../lib/redis-lock", () => ({
+  deleteIdempotencyKey: vi.fn(),
   getIdempotencyKeyValue: vi.fn(),
   getIdempotencyKeyTtlMs: vi.fn(),
   setIdempotencyKey: vi.fn(),
@@ -132,6 +134,7 @@ import {
 import { and } from "drizzle-orm";
 import {
   appendRows,
+  clearSheet,
   readRange,
   SHEETS_API_TIMEOUT_MS,
   updateRange,
@@ -142,6 +145,7 @@ import {
   refreshTokenIfNeeded,
 } from "../../lib/oauth-token-store";
 import {
+  deleteIdempotencyKey,
   getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
@@ -173,6 +177,8 @@ const mockRefreshTokenIfNeeded = vi.mocked(refreshTokenIfNeeded);
 const mockReadRange = vi.mocked(readRange);
 const mockUpdateRange = vi.mocked(updateRange);
 const mockAppendRows = vi.mocked(appendRows);
+const mockClearSheet = vi.mocked(clearSheet);
+const mockDeleteIdempotencyKey = vi.mocked(deleteIdempotencyKey);
 const mockSafeParseResponseData = vi.mocked(safeParseResponseData);
 
 const INTEGRATION = {
@@ -265,6 +271,12 @@ function setupHappyPathMocks() {
     ok: true,
     data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
   } as never);
+
+  mockClearSheet.mockResolvedValue({
+    ok: true,
+    data: { clearedRange: "Sheet1!A1:Z1000000" },
+  } as never);
+  mockDeleteIdempotencyKey.mockResolvedValue(undefined);
 }
 
 function getInvocationCallOrder(
@@ -1108,7 +1120,7 @@ describe("handleSheetsSync — idempotency states", () => {
 });
 
 describe("handleSheetsSync — write path", () => {
-  it("full mode processes historical responses and skips rows already present in the sheet", async () => {
+  it("full mode clears the sheet and rewrites all historical responses", async () => {
     setupDbSelect(
       // 1. formIntegration lookup
       [INTEGRATION],
@@ -1148,6 +1160,13 @@ describe("handleSheetsSync — write path", () => {
       return null;
     });
     mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
+    // response-1 reads an empty (just-cleared) sheet; response-2 reads the
+    // headers written by response-1 plus the appended response-1 id column.
     mockReadRange
       .mockResolvedValueOnce({
         ok: true,
@@ -1155,11 +1174,34 @@ describe("handleSheetsSync — write path", () => {
       } as never)
       .mockResolvedValueOnce({
         ok: true,
-        data: { values: [["Response ID", "block-1"]] },
+        data: {
+          values: [
+            [
+              "Response ID",
+              "Respondent UUID",
+              "Submitted At",
+              "Updated At",
+              "Country Code",
+              "Uniqueness Score",
+              "block-1",
+            ],
+            [
+              "回答ID",
+              "回答者UUID",
+              "送信日時",
+              "更新日時",
+              "国コード",
+              "ユニーク度スコア",
+              "block-1",
+            ],
+          ],
+        },
       } as never)
       .mockResolvedValueOnce({
         ok: true,
-        data: { values: [["Response ID"], ["response-2"]] },
+        data: {
+          values: [["Response ID"], ["回答ID"], ["response-1"]],
+        },
       } as never);
     mockSafeParseResponseData.mockImplementation((json) => {
       const parsed: unknown = JSON.parse(String(json));
@@ -1192,11 +1234,21 @@ describe("handleSheetsSync — write path", () => {
       mode: "full",
       processed: 2,
       total: 2,
-      skipped: 1,
+      skipped: 0,
       updatedRange: "Sheet1!A2",
-      updatedRows: 1,
+      updatedRows: 2,
     });
-    expect(mockAppendRows).toHaveBeenCalledOnce();
+    expect(mockClearSheet).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      sheetName: "Sheet1",
+    });
+    expect(mockDeleteIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+    );
+    expect(mockDeleteIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-2",
+    );
+    expect(mockAppendRows).toHaveBeenCalledTimes(2);
     expect(mockWithRedisLock).toHaveBeenCalledOnce();
     expect(mockWithRedisLock).toHaveBeenCalledWith(
       "sheets-sync:integration-1",
@@ -1210,7 +1262,7 @@ describe("handleSheetsSync — write path", () => {
     expect(mockAppendRows).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        rows: [["response-1", "", "", "", "", "", "1.0000", "first"]],
+        rows: [["response-1", "", "", "", "", "1.0000", "first"]],
       }),
     );
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
@@ -1256,6 +1308,11 @@ describe("handleSheetsSync — write path", () => {
     mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
     mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockClearSheet.mockResolvedValue({
+      ok: true,
+      data: { clearedRange: "Sheet1!A1:Z1000000" },
+    } as never);
+    mockDeleteIdempotencyKey.mockResolvedValue(undefined);
     mockReadRange.mockResolvedValue({
       ok: true,
       data: { values: [["Response ID", "block-1"]] },
@@ -1287,6 +1344,7 @@ describe("handleSheetsSync — write path", () => {
       skipped: 0,
       total: 2,
     });
+    expect(mockClearSheet).toHaveBeenCalledOnce();
     expect(mockAppendRows).toHaveBeenCalledTimes(2);
     const appendedRows = mockAppendRows.mock.calls.flatMap(
       ([, params]) => params.rows,
@@ -1519,7 +1577,6 @@ describe("handleSheetsSync — write path", () => {
       "Submitted At",
       "Updated At",
       "Country Code",
-      "UA UUID",
       "Uniqueness Score",
       "block-1",
     ];
@@ -1550,7 +1607,6 @@ describe("handleSheetsSync — write path", () => {
           "送信日時",
           "更新日時",
           "国コード",
-          "UA UUID",
           "ユニーク度スコア",
           "block-1",
         ],
@@ -1600,7 +1656,6 @@ describe("handleSheetsSync — write path", () => {
       "Submitted At",
       "Updated At",
       "Country Code",
-      "UA UUID",
       "Uniqueness Score",
       "block-1",
     ];
@@ -1616,7 +1671,6 @@ describe("handleSheetsSync — write path", () => {
               "2026-05-17T01:00:00.000Z",
               "",
               "JP",
-              "",
               "1.0000",
               "legacy answer",
             ],
@@ -1657,7 +1711,6 @@ describe("handleSheetsSync — write path", () => {
               "Submitted At",
               "Updated At",
               "Country Code",
-              "UA UUID",
               "Uniqueness Score",
               "block-1",
             ],
@@ -1762,9 +1815,7 @@ describe("handleSheetsSync — write path", () => {
           "Submitted At",
           "Updated At",
           "Country Code",
-          "UA UUID",
           "Uniqueness Score",
-          "canvas UUID",
           "formula-block",
         ],
         [
@@ -1773,9 +1824,7 @@ describe("handleSheetsSync — write path", () => {
           "送信日時",
           "更新日時",
           "国コード",
-          "UA UUID",
           "ユニーク度スコア",
-          "canvas UUID",
           "'=Formula",
         ],
       ],
@@ -1790,13 +1839,17 @@ describe("handleSheetsSync — write path", () => {
             "2026-05-17T01:00:00.000Z",
             "2026-05-17T02:30:00.000Z",
             "JP",
-            "ba045095-ca94-5563-96ed-a888a2137271",
             "1.0000",
-            "2125e6c8-927f-51bd-9bae-51b41e1793a4",
             "' =cmd",
           ],
         ],
       }),
+    );
+    expect(mockUpdateRange.mock.calls[0]?.[1].values[0]).not.toContain(
+      "UA UUID",
+    );
+    expect(mockUpdateRange.mock.calls[0]?.[1].values[0]).not.toContain(
+      "canvas UUID",
     );
   });
 
@@ -1885,7 +1938,6 @@ describe("handleSheetsSync — write path", () => {
           "Submitted At",
           "Updated At",
           "Country Code",
-          "UA UUID",
           "Uniqueness Score",
           "validation_output:rule-gh:profile_score",
           "validation_output:rule-gh:username",
@@ -1896,7 +1948,6 @@ describe("handleSheetsSync — write path", () => {
           "送信日時",
           "更新日時",
           "国コード",
-          "UA UUID",
           "ユニーク度スコア",
           "Validation: GitHub rule (rule-gh) / Profile score [profile_score]",
           "Validation: GitHub rule (rule-gh) / GitHub username [username]",
@@ -1913,7 +1964,6 @@ describe("handleSheetsSync — write path", () => {
             "2026-05-17T01:00:00.000Z",
             "",
             "JP",
-            "",
             "1.0000",
             "98.5",
             "octocat",
@@ -2164,7 +2214,6 @@ describe("handleSheetsSync — write path", () => {
       "Submitted At",
       "Updated At",
       "Country Code",
-      "UA UUID",
       "Uniqueness Score",
       "tool-dropdown",
       "interest-checkbox",
@@ -2177,7 +2226,6 @@ describe("handleSheetsSync — write path", () => {
       "送信日時",
       "更新日時",
       "国コード",
-      "UA UUID",
       "ユニーク度スコア",
       "利用ツール",
       "興味",
@@ -2194,7 +2242,6 @@ describe("handleSheetsSync — write path", () => {
             "2026-05-17T01:00:00.000Z",
             "",
             "JP",
-            "",
             "1.0000",
             "React",
             "TypeScript, React",
@@ -2284,7 +2331,6 @@ describe("handleSheetsSync — write path", () => {
             "response-1",
             "respondent-individual",
             "2026-05-17T01:00:00.000Z",
-            "",
             "",
             "",
             "1.0000",

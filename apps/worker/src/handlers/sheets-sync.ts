@@ -42,6 +42,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
+  clearSheet,
   type GoogleApiError,
   readRange,
   SHEETS_API_TIMEOUT_MS,
@@ -54,6 +55,7 @@ import {
   refreshTokenIfNeeded,
 } from "../lib/oauth-token-store";
 import {
+  deleteIdempotencyKey,
   getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
@@ -73,7 +75,6 @@ const SHARED_BASE_ID_HEADERS = [
   "Submitted At",
   "Updated At",
   "Country Code",
-  "UA UUID",
   UNIQUENESS_SCORE_ID_HEADER,
 ];
 const SHARED_BASE_TITLE_HEADERS = [
@@ -82,7 +83,6 @@ const SHARED_BASE_TITLE_HEADERS = [
   "送信日時",
   "更新日時",
   "国コード",
-  "UA UUID",
   "ユニーク度スコア",
 ];
 // Maximum Sheets API calls inside the critical section:
@@ -353,7 +353,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   await job.updateProgress(20);
 
   // 3. 同期対象のレスポンスを取得
-  const responses = await getSheetsSyncTargetResponses({
+  const { responses, shouldClearSheet } = await getSheetsSyncTargetResponses({
     formId,
     mode,
     responseId,
@@ -434,6 +434,16 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   return await withRedisLock(
     lockKey,
     async () => {
+      if (shouldClearSheet) {
+        await clearSheetForFullResync(token, {
+          spreadsheetId,
+          sheetName,
+          integrationId,
+          responseIds: preparedResponses.flatMap((prepared) =>
+            prepared.status === "ready" ? [prepared.response.id] : [],
+          ),
+        });
+      }
       for (const prepared of preparedResponses) {
         const result =
           prepared.status === "ready"
@@ -505,7 +515,10 @@ async function getSheetsSyncTargetResponses(params: {
   formId: string;
   mode: SheetsSyncJob["mode"];
   responseId: string;
-}): Promise<SheetsSyncTargetResponse[]> {
+}): Promise<{
+  responses: SheetsSyncTargetResponse[];
+  shouldClearSheet: boolean;
+}> {
   if (params.mode === "incremental") {
     const [response] = await db
       .select()
@@ -521,7 +534,7 @@ async function getSheetsSyncTargetResponses(params: {
     if (!response) {
       throw new Error(`Form response not found: ${params.responseId}`);
     }
-    return [response];
+    return { responses: [response], shouldClearSheet: false };
   }
 
   const responses = await db
@@ -548,14 +561,41 @@ async function getSheetsSyncTargetResponses(params: {
   }
 
   if (targetResponseIndex === 0) {
-    return responses;
+    return { responses, shouldClearSheet: true };
   }
 
   const targetResponse = responses[targetResponseIndex];
   if (!targetResponse) {
     throw new Error(`Form response not found: ${params.responseId}`);
   }
-  return [targetResponse];
+  return { responses: [targetResponse], shouldClearSheet: false };
+}
+
+async function clearSheetForFullResync(
+  token: OAuthToken,
+  params: {
+    spreadsheetId: string;
+    sheetName: string;
+    integrationId: string;
+    responseIds: string[];
+  },
+): Promise<void> {
+  throwIfShuttingDown();
+  const clearResult = await clearSheet(token, {
+    spreadsheetId: params.spreadsheetId,
+    sheetName: params.sheetName,
+  });
+  if (!clearResult.ok) {
+    throwSheetsSyncFailure("clear sheet for full resync", clearResult);
+  }
+  for (const responseId of params.responseIds) {
+    const key = `sheets-written:${params.integrationId}:${responseId}`;
+    await deleteIdempotencyKey(key).catch((error: unknown) => {
+      console.warn(
+        `[sheets-sync] Could not delete idempotency key ${key}: ${error instanceof Error ? error.message : error}`,
+      );
+    });
+  }
 }
 
 async function prepareSheetsSyncResponses(

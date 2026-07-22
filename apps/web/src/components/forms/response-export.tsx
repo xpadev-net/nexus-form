@@ -67,12 +67,14 @@ function getContentDispositionFilename(
 
 export function ResponseExport({ formId }: ResponseExportProps) {
   const [isExporting, setIsExporting] = useState(false);
+  const [includeFingerprint, setIncludeFingerprint] = useState(false);
 
   const handleExportCsv = async () => {
     setIsExporting(true);
     try {
       const response = await client.api.forms[":id"].responses.export.$get({
         param: { id: formId },
+        query: { includeFingerprint: includeFingerprint ? "true" : "false" },
       });
       if (!response.ok) {
         throw new Error(await readExportError(response));
@@ -104,19 +106,31 @@ export function ResponseExport({ formId }: ResponseExportProps) {
   };
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={handleExportCsv}
-      disabled={isExporting}
-      aria-busy={isExporting}
-    >
-      {isExporting ? (
-        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-      ) : (
-        <Download className="mr-1 h-3.5 w-3.5" />
-      )}
-      {isExporting ? "CSV生成中..." : "CSVエクスポート"}
-    </Button>
+    <div className="flex items-center gap-2">
+      <label className="flex items-center gap-1 text-sm">
+        <input
+          type="checkbox"
+          checked={includeFingerprint}
+          onChange={(e) => setIncludeFingerprint(e.target.checked)}
+          disabled={isExporting}
+          className="h-3.5 w-3.5"
+        />
+        fingerprint列を含める
+      </label>
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleExportCsv}
+        disabled={isExporting}
+        aria-busy={isExporting}
+      >
+        {isExporting ? (
+          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Download className="mr-1 h-3.5 w-3.5" />
+        )}
+        {isExporting ? "CSV生成中..." : "CSVエクスポート"}
+      </Button>
+    </div>
   );
 }

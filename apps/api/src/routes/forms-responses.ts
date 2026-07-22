@@ -1691,133 +1691,150 @@ export const formsResponsesRouter = createHonoApp()
       );
     },
   )
-  .get("/:id/responses/export", async (c) => {
-    const formId = c.req.param("id");
-
-    const [targetForm] = await db
-      .select({ plateContent: form.plateContent })
-      .from(form)
-      .where(eq(form.id, formId))
-      .limit(1);
-    if (!targetForm) return c.json(errorResponse("Form not found"), 404);
-
-    const responseRows = await db
-      .select({
-        id: formResponse.id,
-        formId: formResponse.formId,
-        responseDataJson: formResponse.responseDataJson,
-        submittedAt: formResponse.submittedAt,
-        updatedAt: formResponse.updatedAt,
-        respondentUuid: formResponse.respondentUuid,
-        userAgent: formResponse.userAgent,
-        sessionId: formResponse.sessionId,
-        countryCode: formResponse.countryCode,
-      })
-      .from(formResponse)
-      .where(eq(formResponse.formId, formId))
-      .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
-      .limit(RESPONSE_EXPORT_ROW_LIMIT + 1);
-
-    if (responseRows.length > RESPONSE_EXPORT_ROW_LIMIT) {
-      return c.json(
-        errorResponse(
-          `Response export is limited to ${RESPONSE_EXPORT_ROW_LIMIT} responses`,
-        ),
-        413,
-      );
-    }
-
-    const responseIds = responseRows.map((row) => row.id);
-    const fingerprintRows =
-      responseIds.length > 0
-        ? await db
-            .select({
-              responseId: fingerprintDetail.responseId,
-              componentName: fingerprintDetail.componentName,
-              componentValueHash: fingerprintDetail.componentValueHash,
-              fingerprintType: fingerprintDetail.fingerprintType,
-            })
-            .from(fingerprintDetail)
-            .where(inArray(fingerprintDetail.responseId, responseIds))
-        : [];
-
-    const fingerprintsByResponseId = new Map<
-      string,
-      Array<{
-        componentName: string;
-        componentValueHash: string;
-        fingerprintType: string;
-      }>
-    >();
-    for (const row of fingerprintRows) {
-      const current = fingerprintsByResponseId.get(row.responseId) ?? [];
-      current.push({
-        componentName: row.componentName,
-        componentValueHash: row.componentValueHash,
-        fingerprintType: row.fingerprintType,
-      });
-      fingerprintsByResponseId.set(row.responseId, current);
-    }
-
-    const formBlocks = buildExportBlocksFromPlateContent(
-      targetForm.plateContent,
-    );
-    const [activeStructure] = await db
-      .select({ structureJson: formStructure.structureJson })
-      .from(formStructure)
-      .where(
-        and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
-      )
-      .orderBy(desc(formStructure.version))
-      .limit(1);
-    const validationOutputExportSettings =
-      parseValidationOutputExportSettingsFromStructureJson(
-        activeStructure?.structureJson,
-      );
-    const validationOutputsByResponseId =
-      await getValidationOutputsByResponseId({
-        formId,
-        responseIds,
-      });
-    const blockTitleMap = new Map(
-      formBlocks.map((block) => {
-        const content =
-          block.content && typeof block.content === "object"
-            ? (block.content as Record<string, unknown>)
-            : null;
-        return [block.blockId, String(content?.title || block.blockId)];
+  .get(
+    "/:id/responses/export",
+    zValidator(
+      "query",
+      z.object({
+        includeFingerprint: z
+          .enum(["true", "false"])
+          .default("false")
+          .transform((value) => value === "true"),
       }),
-    );
-    const { records, fingerprintComponents } = buildResponseExportRecords(
-      formId,
-      responseRows.map((row) => ({
-        ...row,
-        sessionId: process.env.SESSION_ALIAS_SALT ? row.sessionId : null,
-        fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
-      })),
-      formBlocks,
-      validationOutputsByResponseId,
-    );
-    const validationOutputColumns =
-      buildValidationOutputColumnsForResponseExport(
-        validationOutputExportSettings,
+    ),
+    async (c) => {
+      const formId = c.req.param("id");
+      const { includeFingerprint } = c.req.valid("query");
+
+      const [targetForm] = await db
+        .select({ plateContent: form.plateContent })
+        .from(form)
+        .where(eq(form.id, formId))
+        .limit(1);
+      if (!targetForm) return c.json(errorResponse("Form not found"), 404);
+
+      const responseRows = await db
+        .select({
+          id: formResponse.id,
+          formId: formResponse.formId,
+          responseDataJson: formResponse.responseDataJson,
+          submittedAt: formResponse.submittedAt,
+          updatedAt: formResponse.updatedAt,
+          respondentUuid: formResponse.respondentUuid,
+          userAgent: formResponse.userAgent,
+          sessionId: formResponse.sessionId,
+          countryCode: formResponse.countryCode,
+        })
+        .from(formResponse)
+        .where(eq(formResponse.formId, formId))
+        .orderBy(desc(formResponse.submittedAt), desc(formResponse.id))
+        .limit(RESPONSE_EXPORT_ROW_LIMIT + 1);
+
+      if (responseRows.length > RESPONSE_EXPORT_ROW_LIMIT) {
+        return c.json(
+          errorResponse(
+            `Response export is limited to ${RESPONSE_EXPORT_ROW_LIMIT} responses`,
+          ),
+          413,
+        );
+      }
+
+      const responseIds = responseRows.map((row) => row.id);
+      const fingerprintRows =
+        responseIds.length > 0
+          ? await db
+              .select({
+                responseId: fingerprintDetail.responseId,
+                componentName: fingerprintDetail.componentName,
+                componentValueHash: fingerprintDetail.componentValueHash,
+                fingerprintType: fingerprintDetail.fingerprintType,
+              })
+              .from(fingerprintDetail)
+              .where(inArray(fingerprintDetail.responseId, responseIds))
+          : [];
+
+      const fingerprintsByResponseId = new Map<
+        string,
+        Array<{
+          componentName: string;
+          componentValueHash: string;
+          fingerprintType: string;
+        }>
+      >();
+      for (const row of fingerprintRows) {
+        const current = fingerprintsByResponseId.get(row.responseId) ?? [];
+        current.push({
+          componentName: row.componentName,
+          componentValueHash: row.componentValueHash,
+          fingerprintType: row.fingerprintType,
+        });
+        fingerprintsByResponseId.set(row.responseId, current);
+      }
+
+      const formBlocks = buildExportBlocksFromPlateContent(
+        targetForm.plateContent,
+      );
+      const [activeStructure] = await db
+        .select({ structureJson: formStructure.structureJson })
+        .from(formStructure)
+        .where(
+          and(
+            eq(formStructure.formId, formId),
+            eq(formStructure.isActive, true),
+          ),
+        )
+        .orderBy(desc(formStructure.version))
+        .limit(1);
+      const validationOutputExportSettings =
+        parseValidationOutputExportSettingsFromStructureJson(
+          activeStructure?.structureJson,
+        );
+      const validationOutputsByResponseId =
+        await getValidationOutputsByResponseId({
+          formId,
+          responseIds,
+        });
+      const blockTitleMap = new Map(
+        formBlocks.map((block) => {
+          const content =
+            block.content && typeof block.content === "object"
+              ? (block.content as Record<string, unknown>)
+              : null;
+          return [block.blockId, String(content?.title || block.blockId)];
+        }),
+      );
+      const { records, fingerprintComponents } = buildResponseExportRecords(
+        formId,
+        responseRows.map((row) => ({
+          ...row,
+          sessionId: process.env.SESSION_ALIAS_SALT ? row.sessionId : null,
+          fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+        })),
+        formBlocks,
         validationOutputsByResponseId,
       );
-    const csv = formatRecordsToCsv(
-      records,
-      fingerprintComponents,
-      blockTitleMap,
-      buildResponseExportColumnsFromBlocks(formBlocks),
-      validationOutputColumns,
-    );
+      const validationOutputColumns =
+        buildValidationOutputColumnsForResponseExport(
+          validationOutputExportSettings,
+          validationOutputsByResponseId,
+        );
+      const csv = formatRecordsToCsv(
+        records,
+        fingerprintComponents,
+        blockTitleMap,
+        buildResponseExportColumnsFromBlocks(formBlocks),
+        validationOutputColumns,
+        includeFingerprint,
+      );
 
-    return c.body(csv, 200, {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="${csvAttachmentFilename(
-        formId,
-      )}"`,
-    });
-  })
+      return c.body(csv, 200, {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${csvAttachmentFilename(
+          formId,
+        )}"`,
+      });
+    },
+  )
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");
