@@ -523,14 +523,21 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             : {
                 ok: true,
                 skipped: true,
-                reason: "invalid_data",
-                provider: "google-sheets",
+                reason: "invalid_data" as const,
+                provider: "google-sheets" as const,
                 jobId: job.id,
               };
         await updateSheetsSyncProgress(job, 100, 1, total).catch(() => {
           // Best-effort progress update; job result is what matters.
         });
-        return result;
+        const isSkipped = "skipped" in result && result.skipped;
+        return {
+          ...result,
+          mode,
+          processed: total,
+          total,
+          skipped: isSkipped ? total : 0,
+        };
       }
 
       for (const prepared of preparedResponses) {
@@ -1401,7 +1408,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   await updateSheetsSyncProgress(job, 60, 0, 1);
 
   const piggybackCandidates = await findIncrementalPiggybackCandidates({
-    cap: INCREMENTAL_PIGGYBACK_BATCH_CAP,
+    cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
     excludeResponseId: target.response.id,
     formId,
     lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,

@@ -496,10 +496,13 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
@@ -580,10 +583,13 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockGetIdempotencyKeyTtlMs).toHaveBeenCalledOnce();
     expect(mockReadRange).not.toHaveBeenCalled();
@@ -664,10 +670,13 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
@@ -710,10 +719,13 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).toHaveBeenCalledTimes(2);
@@ -790,10 +802,13 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
@@ -1999,10 +2014,13 @@ describe("handleSheetsSync — write path", () => {
     });
     expect(secondResult).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).toHaveBeenCalledOnce();
     expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
@@ -2148,10 +2166,13 @@ describe("handleSheetsSync — write path", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockUpdateRange).not.toHaveBeenCalled();
@@ -2188,10 +2209,13 @@ describe("handleSheetsSync — write path", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockUpdateRange).not.toHaveBeenCalled();
@@ -2965,10 +2989,13 @@ describe("handleSheetsSync — write path", () => {
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "invalid_data",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
     expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
@@ -3130,10 +3157,13 @@ describe("handleSheetsSync — incremental piggyback batching (issue 688)", () =
 
     expect(result).toEqual({
       ok: true,
-      skipped: true,
+      skipped: 1,
       reason: "duplicate",
       provider: "google-sheets",
       jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
     });
     expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
@@ -3224,5 +3254,53 @@ describe("handleSheetsSync — incremental piggyback batching (issue 688)", () =
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     );
+  });
+
+  it("does not exceed the batch limit cap when candidate count is large", async () => {
+    const candidateCount = 200;
+    const candidates = Array.from({ length: candidateCount }, (_, i) => ({
+      ...RESPONSE,
+      id: `candidate-${i}`,
+      responseDataJson: "{}",
+    }));
+    const candidateIds = candidates.map((c) => ({ id: c.id }));
+
+    setupDbSelect(
+      [INTEGRATION], // 0: integration
+      [RESPONSE], // 1: target response
+      [], // 2: form.plateContent
+      [{ id: RESPONSE.id }, ...candidateIds], // 3: uniqueness responseRows
+      [], // 4: fingerprintDetail for uniqueness calc
+      [], // 5: formStructure
+      [], // 6: validationOutputsByResponseId (target)
+      candidateIds, // 7: candidate IDs lookup (returns all 200 candidates)
+      candidates.slice(0, 199), // 8: candidate details lookup (only first 199 due to cap = 199)
+      [], // 9: fingerprintDetail scoped to piggyback candidates
+      [], // 10: validationOutputsByResponseId (piggyback)
+    );
+
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({} as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2:A201", updatedRows: 200 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockAppendRows).toHaveBeenCalledOnce();
+    const callArgs = mockAppendRows.mock.calls[0];
+    if (!callArgs) throw new Error("appendRows not called");
+    const appendedRows = callArgs[1].rows;
+    expect(appendedRows.length).toBe(200); // 1 target + 199 candidates
   });
 });
