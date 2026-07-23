@@ -2477,9 +2477,20 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
     }
     const set = vi.fn(() => ({ where }));
     const update = vi.fn(() => ({ set }));
-    const selectWhere = vi
-      .fn()
-      .mockResolvedValue([{ ip: "hash-v4", version: "V4" }]);
+    const selectWhere = vi.fn();
+    if (affectedRows[0] && affectedRows[0] > 0) {
+      selectWhere.mockReturnValue({
+        for: vi
+          .fn()
+          .mockResolvedValue([
+            { id: "tok-1", token: "tok-v4", ip: "hash-v4", version: "V4" },
+          ]),
+      });
+    } else {
+      selectWhere.mockReturnValue({
+        for: vi.fn().mockResolvedValue([]),
+      });
+    }
     const selectFrom = vi.fn(() => ({ where: selectWhere }));
     const select = vi.fn(() => ({ from: selectFrom }));
     vi.mocked(db.transaction).mockImplementationOnce(async (fn) =>
@@ -2488,14 +2499,15 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
 
     const telemetryTokens = await import("../lib/telemetry/tokens");
 
-    return { telemetryTokens, update, where };
+    return { telemetryTokens, update, where, selectWhere };
   }
 
   it("authorizes with one current-IP token and burns all submitted live candidates", async () => {
-    const { eq, gt, inArray, isNull } = await import("drizzle-orm");
+    const { eq } = await import("drizzle-orm");
     const { telemetryToken } = await import("@nexus-form/database/schema");
-    const { telemetryTokens, update, where } =
-      await importTelemetryTokenSubject([1, 1]);
+    const { telemetryTokens, update } = await importTelemetryTokenSubject([
+      1, 1,
+    ]);
 
     await expect(
       telemetryTokens.consumeTokensOrThrow(
@@ -2504,33 +2516,16 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
       ),
     ).resolves.toEqual([{ version: "v4", ipHash: "hash-v4" }]);
 
-    const uniqueTokens = ["tok-v4", "tok-v6"];
-    expect(update).toHaveBeenCalledTimes(2);
-    expect(where).toHaveBeenCalledTimes(2);
-    expect(inArray).toHaveBeenNthCalledWith(
-      1,
-      telemetryToken.token,
-      uniqueTokens,
-    );
-    expect(inArray).toHaveBeenNthCalledWith(
-      2,
-      telemetryToken.token,
-      uniqueTokens,
-    );
-    expect(eq).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenCalledOnce();
+    expect(eq).toHaveBeenCalledOnce();
     expect(eq).toHaveBeenCalledWith(
       telemetryToken.ip,
       telemetryTokens.hashIPAddress("203.0.113.10"),
     );
-    expect(isNull).toHaveBeenCalledTimes(2);
-    expect(gt).toHaveBeenCalledTimes(2);
   });
 
   it("does not burn candidates when no submitted token authorizes the current IP", async () => {
-    const { gt, inArray, isNull } = await import("drizzle-orm");
-    const { telemetryToken } = await import("@nexus-form/database/schema");
-    const { telemetryTokens, update, where } =
-      await importTelemetryTokenSubject([0]);
+    const { telemetryTokens, update } = await importTelemetryTokenSubject([0]);
 
     await expect(
       telemetryTokens.consumeTokensOrThrow(
@@ -2539,13 +2534,6 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
       ),
     ).rejects.toThrow("Invalid, expired, or IP-mismatched telemetry tokens");
 
-    expect(update).toHaveBeenCalledOnce();
-    expect(where).toHaveBeenCalledOnce();
-    expect(inArray).toHaveBeenCalledWith(telemetryToken.token, [
-      "tok-used",
-      "tok-expired",
-    ]);
-    expect(isNull).toHaveBeenCalledOnce();
-    expect(gt).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,7 @@ import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 
 type TelemetryTokenRow = InferSelectModel<typeof telemetryToken>;
 
-function getAffectedRows(result: unknown): number {
+function _getAffectedRows(result: unknown): number {
   if (!Array.isArray(result)) return 0;
   const [header] = result;
   if (
@@ -71,13 +71,14 @@ export async function consumeTokensOrThrow(
     throw new Error("No telemetry tokens provided");
   }
 
-  // Mark current-IP matching unused tokens first; at least one match authorizes
-  // the submit. v4/v6 tokens are alternative address-family evidence.
   const now = new Date();
   return db.transaction(async (tx) => {
-    const result = await tx
-      .update(telemetryToken)
-      .set({ usedAt: now })
+    // 1. Verify that at least one submitted token matches the current client IP
+    const matchingTokens = await tx
+      .select({
+        id: telemetryToken.id,
+      })
+      .from(telemetryToken)
       .where(
         and(
           inArray(telemetryToken.token, unique),
@@ -85,27 +86,17 @@ export async function consumeTokensOrThrow(
           isNull(telemetryToken.usedAt),
           gt(telemetryToken.expiresAt, now),
         ),
-      );
+      )
+      .for("update");
 
-    if (getAffectedRows(result) === 0) {
+    if (matchingTokens.length === 0) {
       throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
     }
 
-    // Omit the IP predicate here so authorized dual-stack submits also burn
-    // the submitted sibling token bound to the other address family.
-    await tx
-      .update(telemetryToken)
-      .set({ usedAt: now })
-      .where(
-        and(
-          inArray(telemetryToken.token, unique),
-          isNull(telemetryToken.usedAt),
-          gt(telemetryToken.expiresAt, now),
-        ),
-      );
-
-    const consumed = await tx
+    // 2. Select all valid submitted candidate tokens (including dual-stack siblings)
+    const allSubmittedTokens = await tx
       .select({
+        id: telemetryToken.id,
         ip: telemetryToken.ip,
         version: telemetryToken.version,
       })
@@ -113,11 +104,21 @@ export async function consumeTokensOrThrow(
       .where(
         and(
           inArray(telemetryToken.token, unique),
-          eq(telemetryToken.usedAt, now),
+          isNull(telemetryToken.usedAt),
+          gt(telemetryToken.expiresAt, now),
         ),
-      );
+      )
+      .for("update");
 
-    return consumed.map((row) => ({
+    const idsToBurn = allSubmittedTokens.map((t) => t.id);
+    if (idsToBurn.length > 0) {
+      await tx
+        .update(telemetryToken)
+        .set({ usedAt: now })
+        .where(inArray(telemetryToken.id, idsToBurn));
+    }
+
+    return allSubmittedTokens.map((row) => ({
       version: row.version === "V4" ? ("v4" as const) : ("v6" as const),
       ipHash: row.ip,
     }));
