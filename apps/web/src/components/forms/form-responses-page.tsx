@@ -14,7 +14,10 @@ import { toast } from "sonner";
 import { FormResponseAnalytics } from "@/components/forms/form-response-analytics";
 import { ResponseDetailView } from "@/components/forms/response-detail-view";
 import { ResponseExport } from "@/components/forms/response-export";
-import { ResponseFilter } from "@/components/forms/response-filter";
+import {
+  ResponseFilter,
+  type ValidationFilterStatus,
+} from "@/components/forms/response-filter";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,14 +37,7 @@ import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ViewMode = "list" | "analytics";
 
-export type ValidationFilterStatus =
-  | "ALL"
-  | "SUCCESS"
-  | "FAILED"
-  | "COMPLETED"
-  | "PENDING"
-  | "PROCESSING"
-  | "MISSING";
+export type { ValidationFilterStatus };
 
 type RevalidationRequest = {
   responseIds: string[];

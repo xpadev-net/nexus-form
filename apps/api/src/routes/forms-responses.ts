@@ -314,20 +314,14 @@ async function getValidationStatusSummariesForResponses(
   if (responseIds.length === 0) return map;
 
   try {
-    const selectQuery = db.select({
-      responseId: externalServiceValidationResult.responseId,
-      status: externalServiceValidationResult.status,
-      success: externalServiceValidationResult.success,
-    });
-    if (!selectQuery || typeof selectQuery.from !== "function") return map;
-
-    const fromChain = selectQuery.from(externalServiceValidationResult);
-    if (!fromChain || typeof fromChain.where !== "function") return map;
-
-    const results = await fromChain.where(
-      inArray(externalServiceValidationResult.responseId, responseIds),
-    );
-    if (!Array.isArray(results)) return map;
+    const results = await db
+      .select({
+        responseId: externalServiceValidationResult.responseId,
+        status: externalServiceValidationResult.status,
+        success: externalServiceValidationResult.success,
+      })
+      .from(externalServiceValidationResult)
+      .where(inArray(externalServiceValidationResult.responseId, responseIds));
 
     const grouped = new Map<
       string,
@@ -400,8 +394,11 @@ async function getValidationStatusSummariesForResponses(
 
       map.set(responseId, { validationStatus: null, validationSuccess: null });
     }
-  } catch {
-    // Return empty map if query execution or mock fails
+  } catch (error) {
+    logWarn("Failed to fetch validation status summaries", "forms-responses", {
+      error,
+      responseIds,
+    });
   }
 
   return map;
@@ -1722,7 +1719,7 @@ async function getFilteredAndSortedResponses(options: {
   let candidates: ResponseListRow[] = [];
   const dbSortField =
     options.sortField === "uniquenessScore" ? "submittedAt" : options.sortField;
-  const maxCandidateRows = Number.MAX_SAFE_INTEGER;
+  const maxCandidateRows = RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT;
   const needsScoreSummary =
     options.sortField === "uniquenessScore" ||
     options.minScore !== undefined ||
@@ -1785,17 +1782,31 @@ async function getFilteredAndSortedResponses(options: {
     typeof options.minScore === "number" ||
     typeof options.maxScore === "number";
 
-  if (hasScoreFilters && uniquenessScores !== null) {
-    const min = options.minScore;
-    const max = options.maxScore;
-    if (typeof min === "number") {
-      decorated = decorated.filter(
-        (item) => item.uniquenessScore !== null && item.uniquenessScore >= min,
-      );
-    }
-    if (typeof max === "number") {
-      decorated = decorated.filter(
-        (item) => item.uniquenessScore !== null && item.uniquenessScore <= max,
+  if (hasScoreFilters) {
+    if (uniquenessScores !== null) {
+      const min = options.minScore;
+      const max = options.maxScore;
+      if (typeof min === "number") {
+        decorated = decorated.filter(
+          (item) =>
+            item.uniquenessScore !== null && item.uniquenessScore >= min,
+        );
+      }
+      if (typeof max === "number") {
+        decorated = decorated.filter(
+          (item) =>
+            item.uniquenessScore !== null && item.uniquenessScore <= max,
+        );
+      }
+    } else {
+      logWarn(
+        "Skipping score filter due to uniqueness calculation cap",
+        "forms-responses",
+        {
+          formId: options.formId,
+          candidateCount: candidateIds.length,
+          limit: RESPONSE_UNIQUENESS_CALCULATION_LIMIT,
+        },
       );
     }
   }

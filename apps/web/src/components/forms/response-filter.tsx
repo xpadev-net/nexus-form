@@ -61,6 +61,7 @@ export function ResponseFilter({
   onResetFilters,
 }: ResponseFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isCustomMode, setIsCustomMode] = useState(false);
 
   // Active filter counting
   const activeFiltersCount =
@@ -70,6 +71,7 @@ export function ResponseFilter({
     (sort !== "submittedAt" || order !== "desc" ? 1 : 0);
 
   const getScorePreset = (): ScorePreset => {
+    if (isCustomMode) return "CUSTOM";
     if (minScore === 0.8 && maxScore === null) return "HIGH";
     if (minScore === 0.4 && maxScore === 0.8) return "MID";
     if (minScore === null && maxScore === 0.4) return "LOW";
@@ -78,6 +80,11 @@ export function ResponseFilter({
   };
 
   const handleScorePresetChange = (preset: ScorePreset) => {
+    if (preset === "CUSTOM") {
+      setIsCustomMode(true);
+      return;
+    }
+    setIsCustomMode(false);
     if (!onScoreRangeChange) return;
     switch (preset) {
       case "HIGH":
@@ -92,10 +99,12 @@ export function ResponseFilter({
       case "ALL":
         onScoreRangeChange(null, null);
         break;
-      case "CUSTOM":
-        // leave minScore/maxScore as is
-        break;
     }
+  };
+
+  const handleResetFilters = () => {
+    setIsCustomMode(false);
+    onResetFilters?.();
   };
 
   return (
@@ -149,7 +158,7 @@ export function ResponseFilter({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={onResetFilters}
+            onClick={handleResetFilters}
             className="gap-1 text-muted-foreground hover:text-foreground"
             aria-label="フィルターをリセット"
           >

@@ -91,6 +91,16 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
       sessionId: "session-2",
       countryCode: "US",
     },
+    {
+      id: "resp-3",
+      formId: "form-1",
+      submittedAt: new Date("2026-01-03T00:00:00.000Z"),
+      updatedAt: null,
+      respondentUuid: "user-uuid-3",
+      userAgent: null,
+      sessionId: "session-2",
+      countryCode: "US",
+    },
   ];
 
   const sampleValidationResults = [
@@ -103,6 +113,32 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
       responseId: "resp-2",
       status: "FAILED",
       success: false,
+    },
+    {
+      responseId: "resp-3",
+      status: "PENDING",
+      success: null,
+    },
+  ];
+
+  const sampleFingerprints = [
+    {
+      responseId: "resp-1",
+      componentName: "canvas",
+      componentValueHash: "hash-unique-1",
+      fingerprintType: "canvas",
+    },
+    {
+      responseId: "resp-2",
+      componentName: "canvas",
+      componentValueHash: "hash-shared",
+      fingerprintType: "canvas",
+    },
+    {
+      responseId: "resp-3",
+      componentName: "canvas",
+      componentValueHash: "hash-shared",
+      fingerprintType: "canvas",
     },
   ];
 
@@ -140,10 +176,21 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
         };
       }
 
-      if (columns.includes("responseId")) {
+      if (columns.includes("status")) {
         return {
           from: vi.fn().mockReturnValue({
             where: vi.fn().mockResolvedValue(sampleValidationResults),
+          }),
+        };
+      }
+
+      if (
+        columns.includes("componentName") ||
+        columns.includes("fingerprintType")
+      ) {
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(sampleFingerprints),
           }),
         };
       }
@@ -174,8 +221,13 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { responses: unknown[] };
+    const body = (await res.json()) as {
+      responses: Array<{ id: string; uniquenessScore: number | null }>;
+    };
     expect(body.responses).toBeDefined();
+    expect(body.responses.length).toBe(1);
+    expect(body.responses[0]?.id).toBe("resp-1");
+    expect(body.responses[0]?.uniquenessScore).toBe(1.0);
   });
 
   it("sorts responses by uniquenessScore", async () => {
@@ -184,7 +236,15 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
     );
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { responses: unknown[] };
+    const body = (await res.json()) as {
+      responses: Array<{ id: string; uniquenessScore: number | null }>;
+    };
     expect(body.responses).toBeDefined();
+    expect(body.responses.length).toBe(3);
+    const scores = body.responses.map((r) => r.uniquenessScore);
+    expect(scores[0]).toBe(0.0);
+    expect(scores[1]).toBe(0.0);
+    expect(scores[2]).toBe(1.0);
+    expect(body.responses[2]?.id).toBe("resp-1");
   });
 });
