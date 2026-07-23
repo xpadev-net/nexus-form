@@ -86,6 +86,7 @@ vi.mock("../lib/security/password", () => ({
 
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
@@ -799,12 +800,16 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(201);
       expect(txSpy).toHaveBeenCalledOnce();
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(200);
+      expect(insertedFingerprints).toHaveLength(201);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ fingerprintType: "browser" }),
           expect.objectContaining({ fingerprintType: "fingerprintjs" }),
           expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
+          expect.objectContaining({
+            fingerprintType: "telemetry",
+            componentName: "v4",
+          }),
         ]),
       );
       txSpy.mockRestore();

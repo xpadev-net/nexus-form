@@ -148,6 +148,7 @@ vi.mock("../lib/sessions/jwt", () => ({
 
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi.fn(),
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 const FORM_LOOKUP = {

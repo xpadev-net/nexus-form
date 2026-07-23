@@ -75,7 +75,7 @@ import {
   signSessionJwt,
   verifySessionJwt,
 } from "../lib/sessions/jwt";
-import { consumeTokensOrThrow } from "../lib/telemetry/tokens";
+import { consumeTokensOrThrow, hashIPAddress } from "../lib/telemetry/tokens";
 import { errorResponse } from "../types/domain/common";
 import type { FormSnapshot } from "../types/domain/form-snapshot";
 import {
@@ -1006,9 +1006,32 @@ export const formsPublicRouter = createHonoApp()
             countryCode: null,
           });
 
-          if (fingerprints.length > 0) {
+          const telemetryFingerprints: Array<{
+            type: string;
+            name: string;
+            value_hash: string;
+          }> = [];
+
+          if (payload.telemetry?.v4Token) {
+            telemetryFingerprints.push({
+              type: "telemetry",
+              name: "v4",
+              value_hash: hashIPAddress(ip),
+            });
+          }
+          if (payload.telemetry?.v6Token) {
+            telemetryFingerprints.push({
+              type: "telemetry",
+              name: "v6",
+              value_hash: hashIPAddress(ip),
+            });
+          }
+
+          const allFingerprints = [...fingerprints, ...telemetryFingerprints];
+
+          if (allFingerprints.length > 0) {
             await tx.insert(fingerprintDetail).values(
-              fingerprints.map((fp) => ({
+              allFingerprints.map((fp) => ({
                 id: randomUUID(),
                 responseId,
                 fingerprintType: fp.type,

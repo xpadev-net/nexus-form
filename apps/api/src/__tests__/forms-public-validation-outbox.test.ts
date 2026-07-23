@@ -101,6 +101,7 @@ vi.mock("../lib/security/hcaptcha", () => ({
 
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: mocks.consumeTokensOrThrow,
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
