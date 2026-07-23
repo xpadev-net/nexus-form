@@ -2471,6 +2471,9 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
 
   async function importTelemetryTokenSubject(affectedRows: number[]) {
     const { db } = await import("@nexus-form/database");
+    const telemetryTokens = await import("../lib/telemetry/tokens");
+    const validIpHash = telemetryTokens.hashIPAddress("203.0.113.10");
+
     const where = vi.fn();
     for (const affectedRowCount of affectedRows) {
       where.mockResolvedValueOnce([{ affectedRows: affectedRowCount }]);
@@ -2479,16 +2482,20 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
     const update = vi.fn(() => ({ set }));
     const selectWhere = vi.fn();
     if (affectedRows[0] && affectedRows[0] > 0) {
+      const forMock = vi
+        .fn()
+        .mockResolvedValue([
+          { id: "tok-1", token: "tok-v4", ip: validIpHash, version: "V4" },
+        ]);
       selectWhere.mockReturnValue({
-        for: vi
-          .fn()
-          .mockResolvedValue([
-            { id: "tok-1", token: "tok-v4", ip: "hash-v4", version: "V4" },
-          ]),
+        orderBy: vi.fn(() => ({ for: forMock })),
+        for: forMock,
       });
     } else {
+      const forMock = vi.fn().mockResolvedValue([]);
       selectWhere.mockReturnValue({
-        for: vi.fn().mockResolvedValue([]),
+        orderBy: vi.fn(() => ({ for: forMock })),
+        for: forMock,
       });
     }
     const selectFrom = vi.fn(() => ({ where: selectWhere }));
@@ -2497,14 +2504,10 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
       fn({ update, select } as never),
     );
 
-    const telemetryTokens = await import("../lib/telemetry/tokens");
-
     return { telemetryTokens, update, where, selectWhere };
   }
 
   it("authorizes with one current-IP token and burns all submitted live candidates", async () => {
-    const { eq } = await import("drizzle-orm");
-    const { telemetryToken } = await import("@nexus-form/database/schema");
     const { telemetryTokens, update } = await importTelemetryTokenSubject([
       1, 1,
     ]);
@@ -2514,14 +2517,11 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
         ["tok-v4", "tok-v6", "tok-v4"],
         "203.0.113.10",
       ),
-    ).resolves.toEqual([{ version: "v4", ipHash: "hash-v4" }]);
+    ).resolves.toEqual([
+      { version: "v4", ipHash: telemetryTokens.hashIPAddress("203.0.113.10") },
+    ]);
 
     expect(update).toHaveBeenCalledOnce();
-    expect(eq).toHaveBeenCalledOnce();
-    expect(eq).toHaveBeenCalledWith(
-      telemetryToken.ip,
-      telemetryTokens.hashIPAddress("203.0.113.10"),
-    );
   });
 
   it("does not burn candidates when no submitted token authorizes the current IP", async () => {

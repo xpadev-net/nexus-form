@@ -75,11 +75,19 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.db.select.mockReturnValue({ from: mocks.selectFrom });
   mocks.selectFrom.mockReturnValue({ where: mocks.selectWhere });
+  const mockIp = expectedHash("203.0.113.10", "telemetry-salt");
   mocks.selectWhere.mockReturnValue({
+    orderBy: vi.fn().mockReturnValue({
+      for: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "tok-1", token: "token-a", ip: mockIp, version: "V4" },
+        ]),
+    }),
     for: vi
       .fn()
       .mockResolvedValue([
-        { id: "tok-1", token: "token-a", ip: "hash-ip", version: "V4" },
+        { id: "tok-1", token: "token-a", ip: mockIp, version: "V4" },
       ]),
   });
   mocks.db.update.mockReturnValue({ set: mocks.updateSet });
@@ -161,24 +169,15 @@ describe("consumeTokensOrThrow", () => {
       ["token-a", "token-a", "token-b"],
       "203.0.113.10",
     );
-    expect(result).toEqual([{ version: "v4", ipHash: "hash-ip" }]);
+    expect(result).toEqual([
+      { version: "v4", ipHash: expectedHash("203.0.113.10", "telemetry-salt") },
+    ]);
 
     expect(mocks.inArray).toHaveBeenCalledWith("telemetryToken.token", [
       "token-a",
       "token-b",
     ]);
-    expect(mocks.eq).toHaveBeenCalledWith(
-      "telemetryToken.ip",
-      expectedHash("203.0.113.10", "telemetry-salt"),
-    );
-    const ipCondition = mocks.eq.mock.results[0]?.value;
-    expect(mocks.and).toHaveBeenCalledWith(
-      expect.anything(),
-      ipCondition,
-      expect.anything(),
-      expect.anything(),
-    );
-    expect(mocks.selectWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.selectWhere).toHaveBeenCalledOnce();
     expect(mocks.updateSet).toHaveBeenCalledWith({
       usedAt: expect.any(Date),
     });
@@ -191,9 +190,11 @@ describe("consumeTokensOrThrow", () => {
       ["token-a", "token-b"],
       "203.0.113.10",
     );
-    expect(result).toEqual([{ version: "v4", ipHash: "hash-ip" }]);
+    expect(result).toEqual([
+      { version: "v4", ipHash: expectedHash("203.0.113.10", "telemetry-salt") },
+    ]);
 
-    expect(mocks.selectWhere).toHaveBeenCalledTimes(2);
+    expect(mocks.selectWhere).toHaveBeenCalledOnce();
     expect(mocks.updateSet).toHaveBeenCalledWith({
       usedAt: expect.any(Date),
     });
@@ -202,7 +203,9 @@ describe("consumeTokensOrThrow", () => {
   it("rejects tokens when no row matches the current IP hash", async () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
     mocks.selectWhere.mockReturnValueOnce({
-      for: vi.fn().mockResolvedValue([]),
+      orderBy: vi.fn().mockReturnValue({
+        for: vi.fn().mockResolvedValue([]),
+      }),
     });
 
     await expect(

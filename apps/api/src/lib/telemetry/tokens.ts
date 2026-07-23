@@ -66,34 +66,16 @@ export async function consumeTokensOrThrow(
   tokens: string[],
   currentIp: string,
 ): Promise<ConsumedTelemetryToken[]> {
-  const unique = [...new Set(tokens)];
+  const unique = [...new Set(tokens)].sort();
   if (unique.length === 0) {
     throw new Error("No telemetry tokens provided");
   }
 
   const now = new Date();
+  const currentIpHash = hashIPAddress(currentIp);
+
   return db.transaction(async (tx) => {
-    // 1. Verify that at least one submitted token matches the current client IP
-    const matchingTokens = await tx
-      .select({
-        id: telemetryToken.id,
-      })
-      .from(telemetryToken)
-      .where(
-        and(
-          inArray(telemetryToken.token, unique),
-          eq(telemetryToken.ip, hashIPAddress(currentIp)),
-          isNull(telemetryToken.usedAt),
-          gt(telemetryToken.expiresAt, now),
-        ),
-      )
-      .for("update");
-
-    if (matchingTokens.length === 0) {
-      throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
-    }
-
-    // 2. Select all valid submitted candidate tokens (including dual-stack siblings)
+    // 1. Lock all valid submitted candidate tokens in deterministic order
     const allSubmittedTokens = await tx
       .select({
         id: telemetryToken.id,
@@ -108,8 +90,18 @@ export async function consumeTokensOrThrow(
           gt(telemetryToken.expiresAt, now),
         ),
       )
+      .orderBy(telemetryToken.token)
       .for("update");
 
+    // 2. Verify that at least one locked token matches the current client IP
+    const hasAuthorizedToken = allSubmittedTokens.some(
+      (t) => t.ip === currentIpHash,
+    );
+    if (!hasAuthorizedToken) {
+      throw new Error("Invalid, expired, or IP-mismatched telemetry tokens");
+    }
+
+    // 3. Atomically burn all candidate tokens (including dual-stack siblings)
     const idsToBurn = allSubmittedTokens.map((t) => t.id);
     if (idsToBurn.length > 0) {
       await tx
