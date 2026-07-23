@@ -106,33 +106,52 @@ describe("formsResponsesRouter - response filtering and sorting", () => {
     },
   ];
 
+  function createQueryChainMock(rows: Array<Record<string, unknown>>) {
+    const offsetChain = {
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const orderedChain = {
+      offset: vi.fn().mockReturnValue(offsetChain),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    const whereChain = {
+      orderBy: vi.fn().mockReturnValue(orderedChain),
+      offset: vi.fn().mockReturnValue(offsetChain),
+      limit: vi.fn().mockResolvedValue(rows),
+    };
+    return {
+      where: vi.fn().mockReturnValue(whereChain),
+    };
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mocks.db.select.mockImplementation(() => ({
-      from: vi.fn().mockImplementation(() => {
-        const queryChain = {
-          where: vi.fn().mockImplementation(() => {
-            const whereChain = Promise.resolve(
-              sampleValidationResults,
-            ) as unknown as {
-              orderBy: ReturnType<typeof vi.fn>;
-              limit: ReturnType<typeof vi.fn>;
-              then: (
-                onfulfilled?: (value: unknown) => unknown,
-              ) => Promise<unknown>;
-            };
-            whereChain.orderBy = vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue(sampleResponses),
-            });
-            whereChain.limit = vi.fn().mockResolvedValue(sampleResponses);
-            return whereChain;
-          }),
-          limit: vi.fn().mockResolvedValue([{ plateContent: "[]" }]),
+    mocks.db.select.mockImplementation((selection) => {
+      const columns = selection
+        ? Object.keys(selection as Record<string, string>)
+        : [];
+
+      if (columns.includes("plateContent")) {
+        return {
+          from: vi
+            .fn()
+            .mockReturnValue(createQueryChainMock([{ plateContent: "[]" }])),
         };
-        return queryChain;
-      }),
-    }));
+      }
+
+      if (columns.includes("responseId")) {
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(sampleValidationResults),
+          }),
+        };
+      }
+
+      return {
+        from: vi.fn().mockReturnValue(createQueryChainMock(sampleResponses)),
+      };
+    });
   });
 
   it("filters responses by validationStatus=SUCCESS", async () => {
