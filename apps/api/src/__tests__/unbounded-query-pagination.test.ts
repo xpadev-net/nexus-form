@@ -499,7 +499,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     expect(mocks.offsetCalls).toContain(5);
     expect(mocks.limitCalls).toContain(6);
     expect(mocks.limitCalls).toContain(5001);
-    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.db.select).toHaveBeenCalledTimes(3);
   });
 
   it("returns null uniqueness scores when the bounded calculation scope is exceeded", async () => {
@@ -535,7 +535,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       responses: [{ id: "response-1", uniquenessScore: null }],
     });
     expect(mocks.limitCalls).toContain(5001);
-    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.db.select).toHaveBeenCalledTimes(3);
   });
 
   it("escapes wildcard characters in response search filters", async () => {
@@ -603,7 +603,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
       .mocked(sql)
       .mock.calls.filter((call) => call[1] === "formResponse.responseDataJson");
     expect(responseBodySearchCalls).toHaveLength(0);
-    expect(mocks.db.select).toHaveBeenCalledTimes(2);
+    expect(mocks.db.select).toHaveBeenCalledTimes(3);
   });
 
   it("searches response body text and choice display labels with q before paginating", async () => {
