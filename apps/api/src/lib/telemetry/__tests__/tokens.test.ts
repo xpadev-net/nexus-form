@@ -75,7 +75,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.db.select.mockReturnValue({ from: mocks.selectFrom });
   mocks.selectFrom.mockReturnValue({ where: mocks.selectWhere });
-  mocks.selectWhere.mockResolvedValue([{ token: "token-a" }]);
+  mocks.selectWhere.mockResolvedValue([
+    { token: "token-a", ip: "hash-ip", version: "V4" },
+  ]);
   mocks.db.update.mockReturnValue({ set: mocks.updateSet });
   mocks.db.transaction.mockImplementation(async (callback) => {
     return callback(mocks.db);
@@ -151,10 +153,11 @@ describe("consumeTokensOrThrow", () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
     mocks.updateWhere.mockResolvedValue([{ affectedRows: 1 }]);
 
-    await consumeTokensOrThrow(
+    const result = await consumeTokensOrThrow(
       ["token-a", "token-a", "token-b"],
       "203.0.113.10",
     );
+    expect(result).toEqual([{ version: "v4", ipHash: "hash-ip" }]);
 
     expect(mocks.inArray).toHaveBeenCalledWith("telemetryToken.token", [
       "token-a",
@@ -191,9 +194,11 @@ describe("consumeTokensOrThrow", () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
     mocks.updateWhere.mockResolvedValue([{ affectedRows: 2 }]);
 
-    await expect(
-      consumeTokensOrThrow(["token-a", "token-b"], "203.0.113.10"),
-    ).resolves.toBeUndefined();
+    const result = await consumeTokensOrThrow(
+      ["token-a", "token-b"],
+      "203.0.113.10",
+    );
+    expect(result).toEqual([{ version: "v4", ipHash: "hash-ip" }]);
 
     const ipCondition = mocks.eq.mock.results[0]?.value;
     expect(mocks.updateWhere).toHaveBeenCalledTimes(2);
@@ -222,6 +227,7 @@ describe("consumeTokensOrThrow", () => {
 describe("findTelemetryTokens", () => {
   it("finds only unused tokens that match the current IP hash", async () => {
     setEnv("TELEMETRY_IP_SALT", "telemetry-salt");
+    mocks.selectWhere.mockResolvedValueOnce([{ token: "token-a" }]);
 
     await expect(
       findTelemetryTokens(["token-a"], "203.0.113.10"),

@@ -85,8 +85,9 @@ vi.mock("../lib/security/password", () => ({
 }));
 
 vi.mock("../lib/telemetry/tokens", () => ({
-  consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
-  hashIPAddress: (ip: string) => `hash:${ip}`,
+  consumeTokensOrThrow: vi
+    .fn()
+    .mockResolvedValue([{ version: "v4", ipHash: "hash-v4" }]),
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
@@ -852,14 +853,24 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
         db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
         "transaction",
       );
-      const txInsert = vi.fn(() => ({
-        values: vi.fn().mockResolvedValue(undefined),
+      const insertedFingerprints: unknown[] = [];
+      const txInsert = vi.fn((_table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (Array.isArray(values)) {
+            insertedFingerprints.push(...values);
+          }
+        }),
       }));
       txSpy.mockImplementation(async (fn) =>
         fn({ insert: txInsert, select: vi.fn() }),
       );
 
       const { formsPublicRouter } = await import("../routes/forms-public");
+
+      vi.mocked(consumeTokensOrThrow).mockResolvedValueOnce([
+        { version: "v4", ipHash: "hash-v4" },
+        { version: "v6", ipHash: "hash-v6" },
+      ]);
 
       const res = await formsPublicRouter.request(
         "/public/test-public-id/submit",
@@ -880,6 +891,19 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
         ["tok-v4", "tok-v6"],
         "127.0.0.1",
       );
+      expect(insertedFingerprints).toHaveLength(2);
+      expect(insertedFingerprints).toEqual([
+        expect.objectContaining({
+          fingerprintType: "telemetry",
+          componentName: "v4",
+          componentValueHash: "hash-v4",
+        }),
+        expect.objectContaining({
+          fingerprintType: "telemetry",
+          componentName: "v6",
+          componentValueHash: "hash-v6",
+        }),
+      ]);
       txSpy.mockRestore();
     },
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
@@ -2453,8 +2477,13 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
     }
     const set = vi.fn(() => ({ where }));
     const update = vi.fn(() => ({ set }));
+    const selectWhere = vi
+      .fn()
+      .mockResolvedValue([{ ip: "hash-v4", version: "V4" }]);
+    const selectFrom = vi.fn(() => ({ where: selectWhere }));
+    const select = vi.fn(() => ({ from: selectFrom }));
     vi.mocked(db.transaction).mockImplementationOnce(async (fn) =>
-      fn({ update } as never),
+      fn({ update, select } as never),
     );
 
     const telemetryTokens = await import("../lib/telemetry/tokens");
@@ -2473,7 +2502,7 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
         ["tok-v4", "tok-v6", "tok-v4"],
         "203.0.113.10",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([{ version: "v4", ipHash: "hash-v4" }]);
 
     const uniqueTokens = ["tok-v4", "tok-v6"];
     expect(update).toHaveBeenCalledTimes(2);
@@ -2488,7 +2517,7 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
       telemetryToken.token,
       uniqueTokens,
     );
-    expect(eq).toHaveBeenCalledOnce();
+    expect(eq).toHaveBeenCalledTimes(2);
     expect(eq).toHaveBeenCalledWith(
       telemetryToken.ip,
       telemetryTokens.hashIPAddress("203.0.113.10"),

@@ -49,19 +49,23 @@ export function hashIPAddress(ip: string): string {
     .digest("hex");
 }
 
+export type ConsumedTelemetryToken = {
+  version: "v4" | "v6";
+  ipHash: string;
+};
+
 /**
  * Atomically consumes unused telemetry tokens bound to the current client IP.
  *
  * @param tokens - Telemetry token values submitted by the public form.
  * @param currentIp - Normalized client IP address observed during submission.
- * @returns Resolves when at least one token is valid, unused, unexpired, and IP-bound to currentIp.
- * Matching tokens authorize the submit; other submitted unused/unexpired candidates are consumed too.
+ * @returns Consumed telemetry tokens with their address family and bound IP hashes.
  * @throws When no tokens are provided or no token is valid for the current IP.
  */
 export async function consumeTokensOrThrow(
   tokens: string[],
   currentIp: string,
-): Promise<void> {
+): Promise<ConsumedTelemetryToken[]> {
   const unique = [...new Set(tokens)];
   if (unique.length === 0) {
     throw new Error("No telemetry tokens provided");
@@ -70,7 +74,7 @@ export async function consumeTokensOrThrow(
   // Mark current-IP matching unused tokens first; at least one match authorizes
   // the submit. v4/v6 tokens are alternative address-family evidence.
   const now = new Date();
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const result = await tx
       .update(telemetryToken)
       .set({ usedAt: now })
@@ -99,6 +103,24 @@ export async function consumeTokensOrThrow(
           gt(telemetryToken.expiresAt, now),
         ),
       );
+
+    const consumed = await tx
+      .select({
+        ip: telemetryToken.ip,
+        version: telemetryToken.version,
+      })
+      .from(telemetryToken)
+      .where(
+        and(
+          inArray(telemetryToken.token, unique),
+          eq(telemetryToken.usedAt, now),
+        ),
+      );
+
+    return consumed.map((row) => ({
+      version: row.version === "V4" ? ("v4" as const) : ("v6" as const),
+      ipHash: row.ip,
+    }));
   });
 }
 

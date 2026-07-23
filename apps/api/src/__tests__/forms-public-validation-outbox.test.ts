@@ -53,7 +53,9 @@ const mocks = vi.hoisted(() => {
     addSheetsSyncJob: vi.fn(),
     addNotificationJob: vi.fn(),
     addValidationJob: vi.fn(),
-    consumeTokensOrThrow: vi.fn(),
+    consumeTokensOrThrow: vi
+      .fn()
+      .mockResolvedValue([{ version: "v4", ipHash: "hash-v4" }]),
     db: {
       select: vi.fn(),
       insert: vi.fn(),
@@ -673,7 +675,9 @@ function resetPublicSubmitMocks(
     },
   );
   mocks.verifyHCaptcha.mockResolvedValue(true);
-  mocks.consumeTokensOrThrow.mockResolvedValue(undefined);
+  mocks.consumeTokensOrThrow.mockResolvedValue([
+    { version: "v4", ipHash: "hash-v4" },
+  ]);
   mocks.processFormSchedule.mockResolvedValue(null);
   mocks.resolveSessionIdOrCreate.mockResolvedValue({
     sessionId: "session-1",

@@ -75,7 +75,7 @@ import {
   signSessionJwt,
   verifySessionJwt,
 } from "../lib/sessions/jwt";
-import { consumeTokensOrThrow, hashIPAddress } from "../lib/telemetry/tokens";
+import { consumeTokensOrThrow } from "../lib/telemetry/tokens";
 import { errorResponse } from "../types/domain/common";
 import type { FormSnapshot } from "../types/domain/form-snapshot";
 import {
@@ -837,6 +837,11 @@ export const formsPublicRouter = createHonoApp()
         payload.telemetry.v6Token,
       ].filter((t): t is string => !!t);
 
+      let consumedTelemetryTokens: Array<{
+        version: "v4" | "v6";
+        ipHash: string;
+      }> = [];
+
       if (!formSecurityBypassEnabled) {
         if (ip === "unknown") {
           logWarn("POST: telemetry token IP detection failed", "forms-public", {
@@ -874,7 +879,10 @@ export const formsPublicRouter = createHonoApp()
         }
 
         try {
-          await consumeTokensOrThrow(telemetryTokens, ip);
+          consumedTelemetryTokens = await consumeTokensOrThrow(
+            telemetryTokens,
+            ip,
+          );
         } catch {
           return c.json(
             errorResponse("Invalid or expired telemetry tokens"),
@@ -1006,26 +1014,13 @@ export const formsPublicRouter = createHonoApp()
             countryCode: null,
           });
 
-          const telemetryFingerprints: Array<{
-            type: string;
-            name: string;
-            value_hash: string;
-          }> = [];
-
-          if (payload.telemetry?.v4Token) {
-            telemetryFingerprints.push({
+          const telemetryFingerprints = consumedTelemetryTokens.map(
+            (token) => ({
               type: "telemetry",
-              name: "v4",
-              value_hash: hashIPAddress(ip),
-            });
-          }
-          if (payload.telemetry?.v6Token) {
-            telemetryFingerprints.push({
-              type: "telemetry",
-              name: "v6",
-              value_hash: hashIPAddress(ip),
-            });
-          }
+              name: token.version,
+              value_hash: token.ipHash,
+            }),
+          );
 
           const allFingerprints = [...fingerprints, ...telemetryFingerprints];
 
