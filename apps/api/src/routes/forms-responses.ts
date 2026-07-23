@@ -1725,6 +1725,7 @@ async function getFilteredAndSortedResponses(options: {
     options.minScore !== undefined ||
     options.maxScore !== undefined;
 
+  let candidateScanTruncated = false;
   if (options.searchTerm) {
     const { responses } = await listResponsesWithSearch({
       formId: options.formId,
@@ -1762,7 +1763,10 @@ async function getFilteredAndSortedResponses(options: {
 
       candidateOffset += rows.length;
       if (rows.length < RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT) break;
-      if (candidateOffset >= maxCandidateRows) break;
+      if (candidateOffset >= maxCandidateRows) {
+        candidateScanTruncated = true;
+        break;
+      }
     }
   }
 
@@ -1846,7 +1850,8 @@ async function getFilteredAndSortedResponses(options: {
 
   const offset = (options.page - 1) * options.limit;
   const pagedResponses = decorated.slice(offset, offset + options.limit);
-  const hasNext = decorated.length > offset + options.limit;
+  const hasNext =
+    candidateScanTruncated || decorated.length > offset + options.limit;
 
   return { responses: pagedResponses, hasNext };
 }
