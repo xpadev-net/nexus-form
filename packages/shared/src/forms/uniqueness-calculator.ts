@@ -109,9 +109,9 @@ export function calculatePairwiseMatchedWeight(
 
 /**
  * 一致重み (Matched Weight) を [0.0, 1.0] の連続した滑らかなユニーク度スコアに正規化する
- * - W <= 1.4 (自然な別人のノイズ一致) -> 0.90 ~ 1.00
- * - W = 4.0 (中間・グレーゾーン) -> 0.50
- * - W >= 7.0 (同一環境・重複投稿) -> 0.03 -> 0.00
+ * - W <= 1.4 (自然な別人のノイズ一致) -> 0.90 ~ 1.00 (e.g. W=1.4 で ~0.9577)
+ * - W = 4.0 (中間・グレーゾーン) -> ~0.5250
+ * - W >= 7.0 (同一環境・重複投稿) -> ~0.0661 -> 0.00
  */
 export function normalizeMatchedWeightToUniqueness(
   matchedWeight: number,
