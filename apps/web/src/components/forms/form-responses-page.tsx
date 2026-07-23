@@ -26,12 +26,22 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useValidationSSE } from "@/hooks/forms/use-validation-sse";
 import { client, rpc } from "@/lib/api";
 import { formatJapanLocaleDateTime } from "@/lib/formatters";
 
 type ViewMode = "list" | "analytics";
+
+export type ValidationFilterStatus =
+  | "ALL"
+  | "SUCCESS"
+  | "FAILED"
+  | "COMPLETED"
+  | "PENDING"
+  | "PROCESSING"
+  | "MISSING";
 
 type RevalidationRequest = {
   responseIds: string[];
@@ -42,6 +52,11 @@ interface FormResponsesState {
   page: number;
   keyword: string;
   debouncedKeyword: string;
+  minScore: number | null;
+  maxScore: number | null;
+  validationStatus: ValidationFilterStatus | null;
+  sort: "submittedAt" | "updatedAt" | "uniquenessScore";
+  order: "asc" | "desc";
   selectedResponseId: string | null;
   selectedResponseIds: string[];
   viewMode: ViewMode;
@@ -51,6 +66,14 @@ type FormResponsesAction =
   | { type: "reset" }
   | { type: "set-keyword"; keyword: string }
   | { type: "commit-keyword"; keyword: string }
+  | { type: "set-score-range"; min: number | null; max: number | null }
+  | {
+      type: "set-validation-status";
+      validationStatus: ValidationFilterStatus | null;
+    }
+  | { type: "set-sort"; sort: "submittedAt" | "updatedAt" | "uniquenessScore" }
+  | { type: "set-order"; order: "asc" | "desc" }
+  | { type: "reset-filters" }
   | { type: "select-response"; responseId: string }
   | { type: "toggle-response-selection"; responseId: string }
   | { type: "clear-response-selection" }
@@ -63,6 +86,11 @@ const initialFormResponsesState: FormResponsesState = {
   page: 1,
   keyword: "",
   debouncedKeyword: "",
+  minScore: null,
+  maxScore: null,
+  validationStatus: null,
+  sort: "submittedAt",
+  order: "desc",
   selectedResponseId: null,
   selectedResponseIds: [],
   viewMode: "list",
@@ -87,6 +115,49 @@ function formResponsesReducer(
         ...state,
         debouncedKeyword: action.keyword,
         page: action.keyword !== state.debouncedKeyword ? 1 : state.page,
+      };
+    case "set-score-range":
+      return {
+        ...state,
+        minScore: action.min,
+        maxScore: action.max,
+        page: 1,
+        selectedResponseId: null,
+        selectedResponseIds: [],
+      };
+    case "set-validation-status":
+      return {
+        ...state,
+        validationStatus: action.validationStatus,
+        page: 1,
+        selectedResponseId: null,
+        selectedResponseIds: [],
+      };
+    case "set-sort":
+      return {
+        ...state,
+        sort: action.sort,
+        page: 1,
+      };
+    case "set-order":
+      return {
+        ...state,
+        order: action.order,
+        page: 1,
+      };
+    case "reset-filters":
+      return {
+        ...state,
+        keyword: "",
+        debouncedKeyword: "",
+        minScore: null,
+        maxScore: null,
+        validationStatus: null,
+        sort: "submittedAt",
+        order: "desc",
+        page: 1,
+        selectedResponseId: null,
+        selectedResponseIds: [],
       };
     case "select-response":
       return { ...state, selectedResponseId: action.responseId };
@@ -170,6 +241,11 @@ export function FormResponsesContent({
       state.page,
       limit,
       state.debouncedKeyword,
+      state.minScore,
+      state.maxScore,
+      state.validationStatus,
+      state.sort,
+      state.order,
     ],
     queryFn: () =>
       rpc(
@@ -179,6 +255,17 @@ export function FormResponsesContent({
             page: String(state.page),
             limit: String(limit),
             ...(state.debouncedKeyword ? { q: state.debouncedKeyword } : {}),
+            ...(state.minScore !== null
+              ? { minScore: String(state.minScore) }
+              : {}),
+            ...(state.maxScore !== null
+              ? { maxScore: String(state.maxScore) }
+              : {}),
+            ...(state.validationStatus
+              ? { validationStatus: state.validationStatus }
+              : {}),
+            sort: state.sort,
+            order: state.order,
           },
         }),
       ),
@@ -443,6 +530,25 @@ export function FormResponsesContent({
               <ResponseFilter
                 keyword={state.keyword}
                 onKeywordChange={handleKeywordChange}
+                minScore={state.minScore}
+                maxScore={state.maxScore}
+                onScoreRangeChange={(min, max) =>
+                  dispatch({ type: "set-score-range", min, max })
+                }
+                validationStatus={state.validationStatus}
+                onValidationStatusChange={(status) =>
+                  dispatch({
+                    type: "set-validation-status",
+                    validationStatus: status,
+                  })
+                }
+                sort={state.sort}
+                onSortChange={(sort) => dispatch({ type: "set-sort", sort })}
+                order={state.order}
+                onOrderChange={(order) =>
+                  dispatch({ type: "set-order", order })
+                }
+                onResetFilters={() => dispatch({ type: "reset-filters" })}
               />
             </div>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2">
@@ -539,7 +645,10 @@ export function FormResponsesContent({
                 {data.responses.length === 0 && !isSearching ? (
                   <div className="flex flex-col items-center gap-2 rounded border border-dashed p-8 text-muted-foreground">
                     <p className="text-sm">
-                      {state.debouncedKeyword
+                      {state.debouncedKeyword ||
+                      state.minScore !== null ||
+                      state.maxScore !== null ||
+                      state.validationStatus
                         ? "検索条件に一致する回答はありません。"
                         : "回答はまだありません。"}
                     </p>
@@ -579,10 +688,47 @@ export function FormResponsesContent({
                             className="flex min-w-0 flex-1 items-center justify-between text-left disabled:cursor-not-allowed"
                           >
                             <span className="flex flex-col gap-1">
-                              <span className="text-sm font-medium">
-                                {response.respondentUuid
-                                  ? `回答者: ${response.respondentUuid.slice(0, 8)}...`
-                                  : `回答 #${response.id.slice(0, 8)}`}
+                              <span className="flex items-center gap-2">
+                                <span className="text-sm font-medium">
+                                  {response.respondentUuid
+                                    ? `回答者: ${response.respondentUuid.slice(0, 8)}...`
+                                    : `回答 #${response.id.slice(0, 8)}`}
+                                </span>
+                                {response.validationStatus && (
+                                  <Badge
+                                    variant={
+                                      response.validationStatus ===
+                                        "COMPLETED" &&
+                                      response.validationSuccess !== false
+                                        ? "default"
+                                        : response.validationStatus ===
+                                              "FAILED" ||
+                                            response.validationSuccess === false
+                                          ? "destructive"
+                                          : response.validationStatus ===
+                                              "PENDING"
+                                            ? "secondary"
+                                            : "outline"
+                                    }
+                                    className="px-1.5 py-0 text-[10px]"
+                                  >
+                                    {response.validationStatus ===
+                                      "COMPLETED" &&
+                                    response.validationSuccess !== false
+                                      ? "検証成功"
+                                      : response.validationStatus ===
+                                            "FAILED" ||
+                                          response.validationSuccess === false
+                                        ? "検証失敗"
+                                        : response.validationStatus ===
+                                            "PENDING"
+                                          ? "検証待機中"
+                                          : response.validationStatus ===
+                                              "PROCESSING"
+                                            ? "検証処理中"
+                                            : "参照欠落"}
+                                  </Badge>
+                                )}
                               </span>
                               <span className="text-xs text-muted-foreground">
                                 提出:{" "}

@@ -107,7 +107,20 @@ const listResponsesQuerySchema = z.object({
   q: z.string().max(200).optional(),
   /** @deprecated q を使用する。既存クライアント互換のため当面受け付ける。 */
   keyword: z.string().max(200).optional(),
-  sort: z.enum(["submittedAt", "updatedAt"]).optional(),
+  minScore: z.coerce.number().min(0).max(1).optional(),
+  maxScore: z.coerce.number().min(0).max(1).optional(),
+  validationStatus: z
+    .enum([
+      "ALL",
+      "SUCCESS",
+      "FAILED",
+      "COMPLETED",
+      "PENDING",
+      "PROCESSING",
+      "MISSING",
+    ])
+    .optional(),
+  sort: z.enum(["submittedAt", "updatedAt", "uniquenessScore"]).optional(),
   order: z.enum(["asc", "desc"]).optional(),
 });
 
@@ -283,6 +296,151 @@ async function getUniquenessScoresForForm(
   );
 }
 
+type ValidationStatusSummary = {
+  validationStatus:
+    | "COMPLETED"
+    | "FAILED"
+    | "PENDING"
+    | "PROCESSING"
+    | "MISSING"
+    | null;
+  validationSuccess: boolean | null;
+};
+
+async function getValidationStatusSummariesForResponses(
+  responseIds: string[],
+): Promise<Map<string, ValidationStatusSummary>> {
+  const map = new Map<string, ValidationStatusSummary>();
+  if (responseIds.length === 0) return map;
+
+  try {
+    const selectQuery = db.select({
+      responseId: externalServiceValidationResult.responseId,
+      status: externalServiceValidationResult.status,
+      success: externalServiceValidationResult.success,
+    });
+    if (!selectQuery || typeof selectQuery.from !== "function") return map;
+
+    const fromChain = selectQuery.from(externalServiceValidationResult);
+    if (!fromChain || typeof fromChain.where !== "function") return map;
+
+    const results = await fromChain.where(
+      inArray(externalServiceValidationResult.responseId, responseIds),
+    );
+    if (!Array.isArray(results)) return map;
+
+    const grouped = new Map<
+      string,
+      Array<{ status: ValidationStatusValue; success: boolean | null }>
+    >();
+
+    for (const row of results) {
+      const list = grouped.get(row.responseId) ?? [];
+      list.push({ status: row.status, success: row.success });
+      grouped.set(row.responseId, list);
+    }
+
+    for (const responseId of responseIds) {
+      const list = grouped.get(responseId);
+      if (!list || list.length === 0) {
+        map.set(responseId, {
+          validationStatus: null,
+          validationSuccess: null,
+        });
+        continue;
+      }
+
+      const hasFailed = list.some(
+        (item) => item.status === "FAILED" || item.success === false,
+      );
+      if (hasFailed) {
+        map.set(responseId, {
+          validationStatus: "FAILED",
+          validationSuccess: false,
+        });
+        continue;
+      }
+
+      const hasPending = list.some((item) => item.status === "PENDING");
+      if (hasPending) {
+        map.set(responseId, {
+          validationStatus: "PENDING",
+          validationSuccess: null,
+        });
+        continue;
+      }
+
+      const hasProcessing = list.some((item) => item.status === "PROCESSING");
+      if (hasProcessing) {
+        map.set(responseId, {
+          validationStatus: "PROCESSING",
+          validationSuccess: null,
+        });
+        continue;
+      }
+
+      const hasMissing = list.some((item) => item.status === "MISSING");
+      if (hasMissing) {
+        map.set(responseId, {
+          validationStatus: "MISSING",
+          validationSuccess: null,
+        });
+        continue;
+      }
+
+      const allCompleted = list.every((item) => item.status === "COMPLETED");
+      if (allCompleted) {
+        const allSuccess = list.every((item) => item.success === true);
+        map.set(responseId, {
+          validationStatus: "COMPLETED",
+          validationSuccess: allSuccess,
+        });
+        continue;
+      }
+
+      map.set(responseId, { validationStatus: null, validationSuccess: null });
+    }
+  } catch {
+    // Return empty map if query execution or mock fails
+  }
+
+  return map;
+}
+
+function matchesValidationStatusFilter(
+  summary: ValidationStatusSummary,
+  filterStatus?: string,
+): boolean {
+  if (!filterStatus || filterStatus === "ALL") return true;
+
+  if (filterStatus === "SUCCESS") {
+    return (
+      summary.validationStatus === "COMPLETED" &&
+      summary.validationSuccess === true
+    );
+  }
+  if (filterStatus === "FAILED") {
+    return (
+      summary.validationStatus === "FAILED" ||
+      summary.validationSuccess === false
+    );
+  }
+  if (filterStatus === "COMPLETED") {
+    return summary.validationStatus === "COMPLETED";
+  }
+  if (filterStatus === "PENDING") {
+    return summary.validationStatus === "PENDING";
+  }
+  if (filterStatus === "PROCESSING") {
+    return summary.validationStatus === "PROCESSING";
+  }
+  if (filterStatus === "MISSING") {
+    return summary.validationStatus === "MISSING";
+  }
+
+  return true;
+}
+
 function addUniquenessScore<T extends { id: string }>(
   row: T,
   scores: Map<string, number> | null,
@@ -290,6 +448,33 @@ function addUniquenessScore<T extends { id: string }>(
   return {
     ...row,
     uniquenessScore: scores === null ? null : (scores.get(row.id) ?? 1),
+  };
+}
+
+function decorateResponseRow<T extends { id: string }>(
+  row: T,
+  scores: Map<string, number> | null,
+  validationSummaries: Map<string, ValidationStatusSummary>,
+): T & {
+  uniquenessScore: number | null;
+  validationStatus:
+    | "COMPLETED"
+    | "FAILED"
+    | "PENDING"
+    | "PROCESSING"
+    | "MISSING"
+    | null;
+  validationSuccess: boolean | null;
+} {
+  const summary = validationSummaries.get(row.id) ?? {
+    validationStatus: null,
+    validationSuccess: null,
+  };
+  return {
+    ...row,
+    uniquenessScore: scores === null ? null : (scores.get(row.id) ?? 1),
+    validationStatus: summary.validationStatus,
+    validationSuccess: summary.validationSuccess,
   };
 }
 
@@ -492,6 +677,7 @@ async function listResponsesWithSearch(options: {
   searchTerm: string;
   page: number;
   limit: number;
+  maxCandidateRows?: number;
   sortField: "submittedAt" | "updatedAt";
   sortOrder: "asc" | "desc";
 }): Promise<{ responses: ResponseListRow[]; hasNext: boolean }> {
@@ -503,18 +689,17 @@ async function listResponsesWithSearch(options: {
   const choiceLabels = buildResponseChoiceLabelsByQuestion(plateContent);
   const targetMatchCount =
     (options.page - 1) * options.limit + options.limit + 1;
+  const maxCandidateRows =
+    options.maxCandidateRows ?? RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT;
   const batchSize = Math.max(options.limit + 1, RESPONSE_SEARCH_MIN_BATCH_SIZE);
   const matches: ResponseListRow[] = [];
   let candidateOffset = 0;
 
   while (
     matches.length < targetMatchCount &&
-    candidateOffset < RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT
+    candidateOffset < maxCandidateRows
   ) {
-    const batchLimit = Math.min(
-      batchSize,
-      RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT - candidateOffset,
-    );
+    const batchLimit = Math.min(batchSize, maxCandidateRows - candidateOffset);
     const rows = await db
       .select({
         id: formResponse.id,
@@ -1523,44 +1708,40 @@ async function discardQueuedValidationJob(params: {
   }
 }
 
-export const formsResponsesRouter = createHonoApp()
-  .use("/:id/responses*", withDualFormAuth("EDITOR"))
-  .get(
-    "/:id/responses",
-    zValidator("query", listResponsesQuerySchema),
-    async (c) => {
-      const formId = c.req.param("id");
-      const query = c.req.valid("query");
-      const sortField = query.sort ?? "submittedAt";
-      const sortOrder = query.order ?? "desc";
-      const offset = (query.page - 1) * query.limit;
-      const searchTerm = (query.q ?? query.keyword)?.trim();
-      if (searchTerm) {
-        const { responses, hasNext } = await listResponsesWithSearch({
-          formId,
-          searchTerm,
-          page: query.page,
-          limit: query.limit,
-          sortField,
-          sortOrder,
-        });
-        const uniquenessScores = await getUniquenessScoresForForm(
-          formId,
-          responses.map((response) => response.id),
-        );
+async function getFilteredAndSortedResponses(options: {
+  formId: string;
+  searchTerm?: string;
+  minScore?: number;
+  maxScore?: number;
+  validationStatus?: string;
+  sortField: "submittedAt" | "updatedAt" | "uniquenessScore";
+  sortOrder: "asc" | "desc";
+  page: number;
+  limit: number;
+}) {
+  let candidates: ResponseListRow[] = [];
+  const dbSortField =
+    options.sortField === "uniquenessScore" ? "submittedAt" : options.sortField;
+  const maxCandidateRows = Number.MAX_SAFE_INTEGER;
+  const needsScoreSummary =
+    options.sortField === "uniquenessScore" ||
+    options.minScore !== undefined ||
+    options.maxScore !== undefined;
 
-        return c.json(
-          ResponsesListResponseSchema.parse({
-            responses: responses.map((response) =>
-              addUniquenessScore(response, uniquenessScores),
-            ),
-            page: query.page,
-            limit: query.limit,
-            hasNext,
-          }),
-        );
-      }
-
+  if (options.searchTerm) {
+    const { responses } = await listResponsesWithSearch({
+      formId: options.formId,
+      searchTerm: options.searchTerm,
+      page: options.page,
+      limit: options.limit,
+      maxCandidateRows,
+      sortField: dbSortField,
+      sortOrder: options.sortOrder,
+    });
+    candidates = responses;
+  } else {
+    let candidateOffset = 0;
+    while (true) {
       const rows = await db
         .select({
           id: formResponse.id,
@@ -1573,24 +1754,193 @@ export const formsResponsesRouter = createHonoApp()
           countryCode: formResponse.countryCode,
         })
         .from(formResponse)
-        .where(eq(formResponse.formId, formId))
-        .orderBy(buildResponseListOrderBy(sortField, sortOrder))
-        .offset(offset)
-        .limit(query.limit + 1);
-      const responses = rows.slice(0, query.limit);
+        .where(eq(formResponse.formId, options.formId))
+        .orderBy(buildResponseListOrderBy(dbSortField, options.sortOrder))
+        .offset(candidateOffset)
+        .limit(RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT);
+
+      if (rows.length === 0) break;
+
+      candidates.push(...rows);
+
+      candidateOffset += rows.length;
+      if (rows.length < RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT) break;
+      if (candidateOffset >= maxCandidateRows) break;
+    }
+  }
+
+  const candidateIds = candidates.map((c) => c.id);
+  const [uniquenessScores, validationSummaries] = await Promise.all([
+    needsScoreSummary
+      ? getUniquenessScoresForForm(options.formId, candidateIds)
+      : Promise.resolve<Map<string, number> | null>(null),
+    getValidationStatusSummariesForResponses(candidateIds),
+  ]);
+
+  let decorated = candidates.map((row) =>
+    decorateResponseRow(row, uniquenessScores, validationSummaries),
+  );
+
+  const hasScoreFilters =
+    typeof options.minScore === "number" ||
+    typeof options.maxScore === "number";
+
+  if (hasScoreFilters && uniquenessScores !== null) {
+    const min = options.minScore;
+    const max = options.maxScore;
+    if (typeof min === "number") {
+      decorated = decorated.filter(
+        (item) => item.uniquenessScore !== null && item.uniquenessScore >= min,
+      );
+    }
+    if (typeof max === "number") {
+      decorated = decorated.filter(
+        (item) => item.uniquenessScore !== null && item.uniquenessScore <= max,
+      );
+    }
+  }
+
+  if (options.validationStatus && options.validationStatus !== "ALL") {
+    const filterStat = options.validationStatus;
+    decorated = decorated.filter((item) =>
+      matchesValidationStatusFilter(
+        {
+          validationStatus: item.validationStatus ?? null,
+          validationSuccess: item.validationSuccess ?? null,
+        },
+        filterStat,
+      ),
+    );
+  }
+
+  if (options.sortField === "uniquenessScore") {
+    if (uniquenessScores !== null) {
+      decorated.sort((a, b) => {
+        const scoreA = a.uniquenessScore ?? -1;
+        const scoreB = b.uniquenessScore ?? -1;
+        return options.sortOrder === "asc" ? scoreA - scoreB : scoreB - scoreA;
+      });
+    } else {
+      logWarn(
+        "Skipping uniqueness sort due to uniqueness calculation cap",
+        "forms-responses",
+        {
+          formId: options.formId,
+          candidateCount: candidateIds.length,
+          limit: RESPONSE_UNIQUENESS_CALCULATION_LIMIT,
+        },
+      );
+    }
+  }
+
+  const offset = (options.page - 1) * options.limit;
+  const pagedResponses = decorated.slice(offset, offset + options.limit);
+  const hasNext = decorated.length > offset + options.limit;
+
+  return { responses: pagedResponses, hasNext };
+}
+
+export const formsResponsesRouter = createHonoApp()
+  .use("/:id/responses*", withDualFormAuth("EDITOR"))
+  .get(
+    "/:id/responses",
+    zValidator("query", listResponsesQuerySchema),
+    async (c) => {
+      const formId = c.req.param("id");
+      const query = c.req.valid("query");
+      const sortField = query.sort ?? "submittedAt";
+      const sortOrder = query.order ?? "desc";
+      const searchTerm = (query.q ?? query.keyword)?.trim();
+
+      const hasSpecialFilter =
+        query.minScore !== undefined ||
+        query.maxScore !== undefined ||
+        query.validationStatus !== undefined ||
+        sortField === "uniquenessScore";
+
+      if (hasSpecialFilter) {
+        const { responses, hasNext } = await getFilteredAndSortedResponses({
+          formId,
+          searchTerm,
+          minScore: query.minScore,
+          maxScore: query.maxScore,
+          validationStatus: query.validationStatus,
+          sortField,
+          sortOrder,
+          page: query.page,
+          limit: query.limit,
+        });
+
+        return c.json(
+          ResponsesListResponseSchema.parse({
+            responses,
+            page: query.page,
+            limit: query.limit,
+            hasNext,
+          }),
+        );
+      }
+
+      let baseResponses: ResponseListRow[] = [];
+      let hasNext = false;
+
+      if (searchTerm) {
+        const searchResult = await listResponsesWithSearch({
+          formId,
+          searchTerm,
+          page: query.page,
+          limit: query.limit,
+          sortField: sortField as "submittedAt" | "updatedAt",
+          sortOrder,
+        });
+        baseResponses = searchResult.responses;
+        hasNext = searchResult.hasNext;
+      } else {
+        const offset = (query.page - 1) * query.limit;
+        const rows = await db
+          .select({
+            id: formResponse.id,
+            formId: formResponse.formId,
+            submittedAt: formResponse.submittedAt,
+            updatedAt: formResponse.updatedAt,
+            respondentUuid: formResponse.respondentUuid,
+            userAgent: formResponse.userAgent,
+            sessionId: formResponse.sessionId,
+            countryCode: formResponse.countryCode,
+          })
+          .from(formResponse)
+          .where(eq(formResponse.formId, formId))
+          .orderBy(
+            buildResponseListOrderBy(
+              sortField as "submittedAt" | "updatedAt",
+              sortOrder,
+            ),
+          )
+          .offset(offset)
+          .limit(query.limit + 1);
+
+        baseResponses = rows.slice(0, query.limit);
+        hasNext = rows.length > query.limit;
+      }
+
+      const responseIds = baseResponses.map((r) => r.id);
       const uniquenessScores = await getUniquenessScoresForForm(
         formId,
-        responses.map((response) => response.id),
+        responseIds,
+      );
+      const validationSummaries =
+        await getValidationStatusSummariesForResponses(responseIds);
+
+      const responses = baseResponses.map((r) =>
+        decorateResponseRow(r, uniquenessScores, validationSummaries),
       );
 
       return c.json(
         ResponsesListResponseSchema.parse({
-          responses: responses.map((response) =>
-            addUniquenessScore(response, uniquenessScores),
-          ),
+          responses,
           page: query.page,
           limit: query.limit,
-          hasNext: rows.length > query.limit,
+          hasNext,
         }),
       );
     },

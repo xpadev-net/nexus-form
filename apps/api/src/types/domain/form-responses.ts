@@ -7,6 +7,11 @@ export const ResponseListItemSchema = FormResponseRowSchema.omit({
   responseDataJson: true,
 }).extend({
   uniquenessScore: z.number().min(0).max(1).nullable(),
+  validationStatus: z
+    .enum(["COMPLETED", "FAILED", "PENDING", "PROCESSING", "MISSING"])
+    .nullable()
+    .optional(),
+  validationSuccess: z.boolean().nullable().optional(),
 });
 export type ResponseListItem = z.infer<typeof ResponseListItemSchema>;
 
