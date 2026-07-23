@@ -42,6 +42,7 @@ import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
+  batchUpdate,
   clearSheet,
   type GoogleApiError,
   readRange,
@@ -59,6 +60,7 @@ import {
   getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
+  setIdempotencyKeys,
   withRedisLock,
 } from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
@@ -791,19 +793,11 @@ async function bulkWriteFullResyncResponses(params: {
   const doneKeys = readyResponses.map((prepared) =>
     getSheetsSyncIdempotencyKey(integrationId, prepared.response.id),
   );
-  for (let i = 0; i < doneKeys.length; i += 500) {
-    throwIfShuttingDown();
-    const chunk = doneKeys.slice(i, i + 500);
-    await Promise.all(
-      chunk.map((key) =>
-        setIdempotencyKey(key, DONE_IDEMPOTENCY_TTL_SECONDS, "done").catch(
-          (e: unknown) => {
-            console.warn(
-              `[sheets-sync] Could not persist idempotency key ${key}: ${e instanceof Error ? e.message : e}`,
-            );
-          },
-        ),
-      ),
+  try {
+    await setIdempotencyKeys(doneKeys, DONE_IDEMPOTENCY_TTL_SECONDS, "done");
+  } catch (e: unknown) {
+    console.warn(
+      `[sheets-sync] Could not persist idempotency keys: ${e instanceof Error ? e.message : e}`,
     );
   }
 
@@ -1228,8 +1222,9 @@ async function findIncrementalPiggybackCandidates(params: {
   const since = new Date(
     (params.now ?? new Date()).getTime() - params.lookbackMs,
   );
-  const rows = await db
-    .select()
+  // 1. 直近のlookbackMs期間に送信されたレスポンスIDと送信日時をDBから取得（インデックスを利用して高速にIDのみ抽出）
+  const recentResponses = await db
+    .select({ id: formResponse.id, submittedAt: formResponse.submittedAt })
     .from(formResponse)
     .where(
       and(
@@ -1237,14 +1232,30 @@ async function findIncrementalPiggybackCandidates(params: {
         gte(formResponse.submittedAt, since),
       ),
     )
-    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
-    .limit(params.cap);
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
 
-  return rows.filter(
-    (row) =>
-      row.id !== params.excludeResponseId &&
-      !isResponseIdWrittenToSheet(row.id, params.sheetResponseIds),
-  );
+  // 2. すでにシートに書き込まれたIDとターゲットIDを除外した未送信のIDリストを作成
+  const sheetResponseIdSet = new Set(params.sheetResponseIds);
+  const pendingResponseIds = recentResponses
+    .filter(
+      (row) =>
+        row.id !== params.excludeResponseId &&
+        !sheetResponseIdSet.has(row.id) &&
+        !sheetResponseIdSet.has(neutralizeSpreadsheetFormulaValue(row.id)),
+    )
+    .map((row) => row.id)
+    .slice(0, params.cap);
+
+  if (pendingResponseIds.length === 0) {
+    return [];
+  }
+
+  // 3. 未送信ID（最大cap件）のデータをDBから取得して返す
+  return await db
+    .select()
+    .from(formResponse)
+    .where(inArray(formResponse.id, pendingResponseIds))
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
 }
 
 /**
@@ -1488,17 +1499,13 @@ async function writeIncrementalSheetsSyncBatch(params: {
   const doneKeys = batch.map((prepared) =>
     getSheetsSyncIdempotencyKey(integrationId, prepared.response.id),
   );
-  await Promise.all(
-    doneKeys.map((key) =>
-      setIdempotencyKey(key, DONE_IDEMPOTENCY_TTL_SECONDS, "done").catch(
-        (e: unknown) => {
-          console.warn(
-            `[sheets-sync] Could not persist idempotency key ${key}: ${e instanceof Error ? e.message : e}`,
-          );
-        },
-      ),
-    ),
-  );
+  try {
+    await setIdempotencyKeys(doneKeys, DONE_IDEMPOTENCY_TTL_SECONDS, "done");
+  } catch (e: unknown) {
+    console.warn(
+      `[sheets-sync] Could not persist idempotency keys: ${e instanceof Error ? e.message : e}`,
+    );
+  }
 
   return {
     ok: true,
@@ -1913,18 +1920,16 @@ async function updateExistingUniquenessScoreCells(
   throwIfShuttingDown();
   const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
 
+  const batchData: Array<{ rangeA1: string; values: string[][] }> = [];
   let rangeStartRow: number | null = null;
   let rangeValues: string[][] = [];
-  const flushRange = async (endRow: number) => {
+
+  const collectRange = (endRow: number) => {
     if (rangeStartRow === null || rangeValues.length === 0) return;
-    const result = await updateRange(token, {
-      spreadsheetId: params.spreadsheetId,
+    batchData.push({
       rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
       values: rangeValues,
     });
-    if (!result.ok) {
-      throwSheetsSyncFailure("update uniqueness scores", result);
-    }
     rangeStartRow = null;
     rangeValues = [];
   };
@@ -1936,14 +1941,25 @@ async function updateExistingUniquenessScoreCells(
       responseId,
     );
     if (score === undefined && !params.shouldBlankUnavailableScores) {
-      await flushRange(rowNumber - 1);
+      collectRange(rowNumber - 1);
       continue;
     }
 
     rangeStartRow ??= rowNumber;
     rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
   }
-  await flushRange(params.responseIds.length + params.headerRowCount);
+  collectRange(params.responseIds.length + params.headerRowCount);
+
+  if (batchData.length > 0) {
+    throwIfShuttingDown();
+    const result = await batchUpdate(token, {
+      spreadsheetId: params.spreadsheetId,
+      data: batchData,
+    });
+    if (!result.ok) {
+      throwSheetsSyncFailure("update uniqueness scores in batch", result);
+    }
+  }
 }
 
 async function waitForPendingIdempotencyToResolve(
