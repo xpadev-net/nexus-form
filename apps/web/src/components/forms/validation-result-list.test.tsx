@@ -25,6 +25,7 @@ type ValidationStatus =
 
 type ValidationItem = {
   error_message: string | null;
+  error_code?: string | null;
   id: string;
   provider_name: string;
   referenced_block_id: string;
@@ -36,6 +37,8 @@ type ValidationItem = {
   service: string | null;
   status: ValidationStatus;
   success: boolean | null;
+  output_values?: Array<{ key: string; label?: string; value: string }>;
+  metadata?: unknown;
 };
 
 const mocks = vi.hoisted(
@@ -199,6 +202,56 @@ describe("ValidationResultList", () => {
 
     expect(mocks.toastError).toHaveBeenCalledWith("キャンセルに失敗しました");
     expect(mocks.validationResultsRefetch).toHaveBeenCalledOnce();
+
+    act(() => root.unmount());
+  });
+
+  it("displays explicit error_message when validation fails", () => {
+    mocks.validations = [
+      {
+        ...createValidation("FAILED"),
+        success: false,
+        error_message: "Discord サーバーに参加していません",
+      },
+    ];
+
+    const container = document.createElement("div");
+    const root = renderList(container);
+
+    const errorEl = container.querySelector(
+      '[data-testid="validation-error-validation-result-1"]',
+    );
+    expect(errorEl).not.toBeNull();
+    expect(errorEl?.textContent).toContain(
+      "Discord サーバーに参加していません",
+    );
+
+    act(() => root.unmount());
+  });
+
+  it("displays custom output values (custom fields)", () => {
+    mocks.validations = [
+      {
+        ...createValidation("COMPLETED"),
+        success: true,
+        output_values: [
+          { key: "username", label: "ユーザー名", value: "octocat" },
+          { key: "roles", label: "ロール一覧", value: "Developer, Admin" },
+        ],
+      },
+    ];
+
+    const container = document.createElement("div");
+    const root = renderList(container);
+
+    const customFieldsEl = container.querySelector(
+      '[data-testid="validation-custom-fields-validation-result-1"]',
+    );
+    expect(customFieldsEl).not.toBeNull();
+    expect(customFieldsEl?.textContent).toContain("ユーザー名");
+    expect(customFieldsEl?.textContent).toContain("octocat");
+    expect(customFieldsEl?.textContent).toContain("ロール一覧");
+    expect(customFieldsEl?.textContent).toContain("Developer, Admin");
 
     act(() => root.unmount());
   });

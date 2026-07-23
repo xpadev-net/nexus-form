@@ -1,4 +1,8 @@
 import {
+  parseValidationOutputValuesFromMetadata,
+  type ValidationOutputValue,
+} from "@nexus-form/shared";
+import {
   AlertCircle,
   CheckCircle2,
   Clock,
@@ -50,6 +54,9 @@ type ValidationItem = {
   status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "MISSING" | null;
   success: boolean | null;
   error_message: string | null;
+  error_code?: string | null;
+  output_values?: ValidationOutputValue[];
+  metadata?: unknown;
 };
 
 function groupByRule(items: ValidationItem[]): Array<{
@@ -165,59 +172,103 @@ export function ValidationResultList({
                   const canCancel =
                     result.status === "PENDING" ||
                     result.status === "PROCESSING";
+
+                  const outputValues =
+                    result.output_values && result.output_values.length > 0
+                      ? result.output_values
+                      : parseValidationOutputValuesFromMetadata(
+                          result.metadata,
+                        );
+
                   return (
-                    <li
-                      key={result.id}
-                      className="flex items-center justify-between gap-2 px-3 py-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon
-                          className={`h-4 w-4 shrink-0 ${
-                            result.status === "PROCESSING" ? "animate-spin" : ""
-                          }`}
-                        />
-                        <span className="text-sm">
-                          {result.referenced_block_label ??
-                            result.referenced_block_id}
-                        </span>
-                        <Badge variant={config.variant}>{config.label}</Badge>
-                        {result.success === true ? (
-                          <Badge
-                            variant="outline"
-                            className="border-emerald-300 text-emerald-700"
-                          >
-                            成功
-                          </Badge>
-                        ) : result.success === false ? (
-                          <Badge
-                            variant="outline"
-                            className="border-red-300 text-red-700"
-                          >
-                            失敗
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {result.error_message ? (
-                          <span
-                            className="text-xs text-destructive"
-                            title={result.error_message}
-                          >
-                            <AlertCircle className="h-3.5 w-3.5" />
+                    <li key={result.id} className="space-y-2 px-3 py-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Icon
+                            className={`h-4 w-4 shrink-0 ${
+                              result.status === "PROCESSING"
+                                ? "animate-spin"
+                                : ""
+                            }`}
+                          />
+                          <span className="text-sm font-medium">
+                            {result.referenced_block_label ??
+                              result.referenced_block_id}
                           </span>
-                        ) : null}
-                        {!isMissing && canCancel ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => handleCancel(result.id)}
-                            disabled={cancelValidationMutation.isPending}
-                          >
-                            キャンセル
-                          </Button>
-                        ) : null}
+                          <Badge variant={config.variant}>{config.label}</Badge>
+                          {result.success === true ? (
+                            <Badge
+                              variant="outline"
+                              className="border-emerald-300 bg-emerald-50/50 text-emerald-700"
+                            >
+                              成功
+                            </Badge>
+                          ) : result.success === false ? (
+                            <Badge
+                              variant="outline"
+                              className="border-red-300 bg-red-50/50 text-red-700"
+                            >
+                              失敗
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {!isMissing && canCancel ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs"
+                              onClick={() => handleCancel(result.id)}
+                              disabled={cancelValidationMutation.isPending}
+                            >
+                              キャンセル
+                            </Button>
+                          ) : null}
+                        </div>
                       </div>
+
+                      {result.error_message ? (
+                        <div
+                          className="flex items-start gap-1.5 rounded-md border border-destructive/20 bg-destructive/10 p-2 text-xs text-destructive"
+                          data-testid={`validation-error-${result.id}`}
+                        >
+                          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          <div className="break-all">
+                            {result.error_code && (
+                              <span className="mr-1 font-semibold">
+                                [{result.error_code}]
+                              </span>
+                            )}
+                            <span>{result.error_message}</span>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {outputValues.length > 0 ? (
+                        <div
+                          className="space-y-1.5 rounded-md border bg-muted/40 p-2.5 text-xs"
+                          data-testid={`validation-custom-fields-${result.id}`}
+                        >
+                          <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                            カスタムフィールド
+                          </div>
+                          <div className="grid gap-1.5 sm:grid-cols-2">
+                            {outputValues.map((output) => (
+                              <div
+                                key={output.key}
+                                className="flex items-baseline justify-between gap-2 rounded border border-border/50 bg-background/60 px-2 py-1"
+                              >
+                                <span className="shrink-0 font-medium text-muted-foreground">
+                                  {output.label || output.key}
+                                </span>
+                                <span className="break-all font-mono text-foreground text-right">
+                                  {output.value}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}
