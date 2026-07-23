@@ -255,4 +255,30 @@ describe("ValidationResultList", () => {
 
     act(() => root.unmount());
   });
+
+  it("displays custom output values extracted from metadata fallback", () => {
+    mocks.validations = [
+      {
+        ...createValidation("COMPLETED"),
+        success: true,
+        metadata: {
+          validationOutputs: [
+            { key: "tenant_id", label: "テナントID", value: "tenant-99" },
+          ],
+        },
+      },
+    ];
+
+    const container = document.createElement("div");
+    const root = renderList(container);
+
+    const customFieldsEl = container.querySelector(
+      '[data-testid="validation-custom-fields-validation-result-1"]',
+    );
+    expect(customFieldsEl).not.toBeNull();
+    expect(customFieldsEl?.textContent).toContain("テナントID");
+    expect(customFieldsEl?.textContent).toContain("tenant-99");
+
+    act(() => root.unmount());
+  });
 });

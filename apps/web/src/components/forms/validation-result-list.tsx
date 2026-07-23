@@ -233,7 +233,7 @@ export function ValidationResultList({
                           data-testid={`validation-error-${result.id}`}
                         >
                           <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          <div className="break-all">
+                          <div className="break-words">
                             {result.error_code && (
                               <span className="mr-1 font-semibold">
                                 [{result.error_code}]
@@ -252,21 +252,21 @@ export function ValidationResultList({
                           <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
                             カスタムフィールド
                           </div>
-                          <div className="grid gap-1.5 sm:grid-cols-2">
+                          <dl className="grid gap-1.5 sm:grid-cols-2">
                             {outputValues.map((output) => (
                               <div
                                 key={output.key}
                                 className="flex items-baseline justify-between gap-2 rounded border border-border/50 bg-background/60 px-2 py-1"
                               >
-                                <span className="shrink-0 font-medium text-muted-foreground">
+                                <dt className="shrink-0 font-medium text-muted-foreground">
                                   {output.label || output.key}
-                                </span>
-                                <span className="break-all font-mono text-foreground text-right">
+                                </dt>
+                                <dd className="break-words font-mono text-foreground text-right">
                                   {output.value}
-                                </span>
+                                </dd>
                               </div>
                             ))}
-                          </div>
+                          </dl>
                         </div>
                       ) : null}
                     </li>
