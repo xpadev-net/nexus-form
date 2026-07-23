@@ -17,8 +17,7 @@ import {
 import {
   buildResponseExportValidationOutputColumns,
   buildResponseLabelLookupFromQuestions,
-  COMPONENT_WEIGHTS,
-  DEFAULT_COMPONENT_WEIGHT,
+  calculateUniquenessScoreMap,
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
@@ -30,6 +29,7 @@ import {
   type ResponseDataItem,
   type ResponseExportRecord,
   type ResponseExportValidationOutputValue,
+  type ResponseWithFingerprints,
   resolveResponseDisplayValue,
   responsePayloadItemSchema,
   type SheetsSyncJobData,
@@ -238,14 +238,7 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 
 const IntegrationConfigSchema = z.record(z.string(), z.unknown());
 type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
-type FingerprintSet = {
-  id: string;
-  fingerprintDetails: Array<{
-    componentName: string;
-    componentValueHash: string;
-    fingerprintType: string;
-  }>;
-};
+type FingerprintSet = ResponseWithFingerprints;
 
 type ResponseUniquenessScores = {
   allScores: Map<string, number>;
@@ -1332,6 +1325,7 @@ async function preparePiggybackResponses(params: {
 
     const fingerprintSet: FingerprintSet = {
       id: response.id,
+      sessionId: response.sessionId,
       fingerprintDetails: fingerprintsByResponseId.get(response.id) ?? [],
     };
 
@@ -1562,7 +1556,7 @@ async function getUniquenessScoresForResponses(
   targetResponseIds: string[],
 ): Promise<Map<string, ResponseUniquenessScores>> {
   const responseRows = await db
-    .select({ id: formResponse.id })
+    .select({ id: formResponse.id, sessionId: formResponse.sessionId })
     .from(formResponse)
     .where(eq(formResponse.formId, formId))
     .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
@@ -1628,6 +1622,7 @@ async function getUniquenessScoresForResponses(
 
   const fingerprintSets = responseRows.map((row) => ({
     id: row.id,
+    sessionId: row.sessionId,
     fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
   }));
 
@@ -1649,17 +1644,6 @@ async function getUniquenessScoresForResponses(
         },
       ];
     }),
-  );
-}
-
-function calculateUniquenessScoreMap(
-  responses: FingerprintSet[],
-): Map<string, number> {
-  return new Map(
-    responses.map((response) => [
-      response.id,
-      calculateUniqueness(response, responses),
-    ]),
   );
 }
 
@@ -1709,71 +1693,6 @@ function uuidV5(name: string, namespace: string): string {
     hex.slice(16, 20),
     hex.slice(20, 32),
   ].join("-");
-}
-
-function calculateSimilarity(
-  response1: FingerprintSet,
-  response2: FingerprintSet,
-): number {
-  if (
-    response1.fingerprintDetails.length === 0 ||
-    response2.fingerprintDetails.length === 0
-  ) {
-    return 0;
-  }
-
-  const allComponents = new Set<string>();
-  for (const detail of response1.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
-  for (const detail of response2.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
-
-  let totalWeight = 0;
-  let matchedWeight = 0;
-  for (const componentName of allComponents) {
-    const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
-    totalWeight += weight;
-
-    const detail1 = response1.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
-    const detail2 = response2.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
-    if (
-      detail1 &&
-      detail2 &&
-      detail1.componentValueHash === detail2.componentValueHash &&
-      detail1.fingerprintType === detail2.fingerprintType
-    ) {
-      matchedWeight += weight;
-    }
-  }
-
-  return totalWeight === 0 ? 0 : matchedWeight / totalWeight;
-}
-
-function calculateUniqueness(
-  targetResponse: FingerprintSet,
-  allResponses: FingerprintSet[],
-): number {
-  if (allResponses.length <= 1) return 1;
-
-  const otherResponses = allResponses.filter(
-    (response) => response.id !== targetResponse.id,
-  );
-  if (otherResponses.length === 0) return 1;
-
-  const averageSimilarity =
-    otherResponses.reduce(
-      (sum, otherResponse) =>
-        sum + calculateSimilarity(targetResponse, otherResponse),
-      0,
-    ) / otherResponses.length;
-
-  return Math.max(0, Math.min(1, 1 - averageSimilarity));
 }
 
 function isResponseIdWrittenToSheet(

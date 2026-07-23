@@ -94,6 +94,13 @@ export {
   PasswordProtectionPublicationSnapshotSchema,
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
+export type { ResponseWithFingerprints } from "./forms/uniqueness-calculator";
+export {
+  calculateAllUniquenessScores,
+  calculateSimilarity,
+  calculateUniqueness,
+  calculateUniquenessScoreMap,
+} from "./forms/uniqueness-calculator";
 export type {
   CompletionTargetActionSource,
   CompletionTargetHasAnswerableQuestionsIssue,

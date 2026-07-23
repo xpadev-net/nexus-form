@@ -209,7 +209,7 @@ async function getUniquenessScoresForForm(
   if (targetResponseIds.length === 0) return new Map();
 
   const responseRows = await db
-    .select({ id: formResponse.id })
+    .select({ id: formResponse.id, sessionId: formResponse.sessionId })
     .from(formResponse)
     .where(eq(formResponse.formId, formId))
     .limit(RESPONSE_UNIQUENESS_CALCULATION_LIMIT + 1);
@@ -259,6 +259,7 @@ async function getUniquenessScoresForForm(
 
   const fingerprintSets = responseRows.map((row) => ({
     id: row.id,
+    sessionId: row.sessionId,
     fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
   }));
   const fingerprintSetsById = new Map(
@@ -1807,7 +1808,7 @@ export const formsResponsesRouter = createHonoApp()
         formId,
         responseRows.map((row) => ({
           ...row,
-          sessionId: process.env.SESSION_ALIAS_SALT ? row.sessionId : null,
+          sessionId: row.sessionId,
           fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
         })),
         formBlocks,
