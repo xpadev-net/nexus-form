@@ -37,6 +37,34 @@ describe("uniqueness-calculator", () => {
     expect(score2).toBe(0.0);
   });
 
+  it("returns 0.0 immediately if target response shares a v6 telemetry token with another response", () => {
+    const r1: ResponseWithFingerprints = {
+      id: "res-1",
+      sessionId: "session-1",
+      fingerprintDetails: [
+        {
+          componentName: "v6",
+          componentValueHash: "ipv6-hash-xyz",
+          fingerprintType: "telemetry",
+        },
+      ],
+    };
+    const r2: ResponseWithFingerprints = {
+      id: "res-2",
+      sessionId: "session-2",
+      fingerprintDetails: [
+        {
+          componentName: "v6",
+          componentValueHash: "ipv6-hash-xyz",
+          fingerprintType: "telemetry",
+        },
+      ],
+    };
+
+    expect(calculateUniqueness(r1, [r1, r2])).toBe(0.0);
+    expect(calculateUniqueness(r2, [r1, r2])).toBe(0.0);
+  });
+
   it("handles whitespace-padded sessionIds correctly when checking matches", () => {
     const r1: ResponseWithFingerprints = {
       id: "res-1",
