@@ -837,6 +837,11 @@ export const formsPublicRouter = createHonoApp()
         payload.telemetry.v6Token,
       ].filter((t): t is string => !!t);
 
+      let consumedTelemetryTokens: Array<{
+        version: "v4" | "v6";
+        ipHash: string;
+      }> = [];
+
       if (!formSecurityBypassEnabled) {
         if (ip === "unknown") {
           logWarn("POST: telemetry token IP detection failed", "forms-public", {
@@ -874,7 +879,10 @@ export const formsPublicRouter = createHonoApp()
         }
 
         try {
-          await consumeTokensOrThrow(telemetryTokens, ip);
+          consumedTelemetryTokens = await consumeTokensOrThrow(
+            telemetryTokens,
+            ip,
+          );
         } catch {
           return c.json(
             errorResponse("Invalid or expired telemetry tokens"),
@@ -1006,9 +1014,19 @@ export const formsPublicRouter = createHonoApp()
             countryCode: null,
           });
 
-          if (fingerprints.length > 0) {
+          const telemetryFingerprints = consumedTelemetryTokens.map(
+            (token) => ({
+              type: "telemetry",
+              name: token.version,
+              value_hash: token.ipHash,
+            }),
+          );
+
+          const allFingerprints = [...fingerprints, ...telemetryFingerprints];
+
+          if (allFingerprints.length > 0) {
             await tx.insert(fingerprintDetail).values(
-              fingerprints.map((fp) => ({
+              allFingerprints.map((fp) => ({
                 id: randomUUID(),
                 responseId,
                 fingerprintType: fp.type,

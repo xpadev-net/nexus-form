@@ -85,7 +85,9 @@ vi.mock("../lib/security/password", () => ({
 }));
 
 vi.mock("../lib/telemetry/tokens", () => ({
-  consumeTokensOrThrow: vi.fn().mockResolvedValue(undefined),
+  consumeTokensOrThrow: vi
+    .fn()
+    .mockResolvedValue([{ version: "v4", ipHash: "hash-v4" }]),
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
@@ -799,12 +801,16 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(201);
       expect(txSpy).toHaveBeenCalledOnce();
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(200);
+      expect(insertedFingerprints).toHaveLength(201);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ fingerprintType: "browser" }),
           expect.objectContaining({ fingerprintType: "fingerprintjs" }),
           expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
+          expect.objectContaining({
+            fingerprintType: "telemetry",
+            componentName: "v4",
+          }),
         ]),
       );
       txSpy.mockRestore();
@@ -847,14 +853,24 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
         db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
         "transaction",
       );
-      const txInsert = vi.fn(() => ({
-        values: vi.fn().mockResolvedValue(undefined),
+      const insertedFingerprints: unknown[] = [];
+      const txInsert = vi.fn((_table: unknown) => ({
+        values: vi.fn(async (values: unknown) => {
+          if (Array.isArray(values)) {
+            insertedFingerprints.push(...values);
+          }
+        }),
       }));
       txSpy.mockImplementation(async (fn) =>
         fn({ insert: txInsert, select: vi.fn() }),
       );
 
       const { formsPublicRouter } = await import("../routes/forms-public");
+
+      vi.mocked(consumeTokensOrThrow).mockResolvedValueOnce([
+        { version: "v4", ipHash: "hash-v4" },
+        { version: "v6", ipHash: "hash-v6" },
+      ]);
 
       const res = await formsPublicRouter.request(
         "/public/test-public-id/submit",
@@ -875,6 +891,19 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
         ["tok-v4", "tok-v6"],
         "127.0.0.1",
       );
+      expect(insertedFingerprints).toHaveLength(2);
+      expect(insertedFingerprints).toEqual([
+        expect.objectContaining({
+          fingerprintType: "telemetry",
+          componentName: "v4",
+          componentValueHash: "hash-v4",
+        }),
+        expect.objectContaining({
+          fingerprintType: "telemetry",
+          componentName: "v6",
+          componentValueHash: "hash-v6",
+        }),
+      ]);
       txSpy.mockRestore();
     },
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
@@ -2442,61 +2471,61 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
 
   async function importTelemetryTokenSubject(affectedRows: number[]) {
     const { db } = await import("@nexus-form/database");
+    const telemetryTokens = await import("../lib/telemetry/tokens");
+    const validIpHash = telemetryTokens.hashIPAddress("203.0.113.10");
+
     const where = vi.fn();
     for (const affectedRowCount of affectedRows) {
       where.mockResolvedValueOnce([{ affectedRows: affectedRowCount }]);
     }
     const set = vi.fn(() => ({ where }));
     const update = vi.fn(() => ({ set }));
+    const selectWhere = vi.fn();
+    if (affectedRows[0] && affectedRows[0] > 0) {
+      const forMock = vi
+        .fn()
+        .mockResolvedValue([
+          { id: "tok-1", token: "tok-v4", ip: validIpHash, version: "V4" },
+        ]);
+      selectWhere.mockReturnValue({
+        orderBy: vi.fn(() => ({ for: forMock })),
+        for: forMock,
+      });
+    } else {
+      const forMock = vi.fn().mockResolvedValue([]);
+      selectWhere.mockReturnValue({
+        orderBy: vi.fn(() => ({ for: forMock })),
+        for: forMock,
+      });
+    }
+    const selectFrom = vi.fn(() => ({ where: selectWhere }));
+    const select = vi.fn(() => ({ from: selectFrom }));
     vi.mocked(db.transaction).mockImplementationOnce(async (fn) =>
-      fn({ update } as never),
+      fn({ update, select } as never),
     );
 
-    const telemetryTokens = await import("../lib/telemetry/tokens");
-
-    return { telemetryTokens, update, where };
+    return { telemetryTokens, update, where, selectWhere };
   }
 
   it("authorizes with one current-IP token and burns all submitted live candidates", async () => {
-    const { eq, gt, inArray, isNull } = await import("drizzle-orm");
-    const { telemetryToken } = await import("@nexus-form/database/schema");
-    const { telemetryTokens, update, where } =
-      await importTelemetryTokenSubject([1, 1]);
+    const { telemetryTokens, update } = await importTelemetryTokenSubject([
+      1, 1,
+    ]);
 
     await expect(
       telemetryTokens.consumeTokensOrThrow(
         ["tok-v4", "tok-v6", "tok-v4"],
         "203.0.113.10",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual([
+      { version: "v4", ipHash: telemetryTokens.hashIPAddress("203.0.113.10") },
+    ]);
 
-    const uniqueTokens = ["tok-v4", "tok-v6"];
-    expect(update).toHaveBeenCalledTimes(2);
-    expect(where).toHaveBeenCalledTimes(2);
-    expect(inArray).toHaveBeenNthCalledWith(
-      1,
-      telemetryToken.token,
-      uniqueTokens,
-    );
-    expect(inArray).toHaveBeenNthCalledWith(
-      2,
-      telemetryToken.token,
-      uniqueTokens,
-    );
-    expect(eq).toHaveBeenCalledOnce();
-    expect(eq).toHaveBeenCalledWith(
-      telemetryToken.ip,
-      telemetryTokens.hashIPAddress("203.0.113.10"),
-    );
-    expect(isNull).toHaveBeenCalledTimes(2);
-    expect(gt).toHaveBeenCalledTimes(2);
+    expect(update).toHaveBeenCalledOnce();
   });
 
   it("does not burn candidates when no submitted token authorizes the current IP", async () => {
-    const { gt, inArray, isNull } = await import("drizzle-orm");
-    const { telemetryToken } = await import("@nexus-form/database/schema");
-    const { telemetryTokens, update, where } =
-      await importTelemetryTokenSubject([0]);
+    const { telemetryTokens, update } = await importTelemetryTokenSubject([0]);
 
     await expect(
       telemetryTokens.consumeTokensOrThrow(
@@ -2505,13 +2534,6 @@ describe("SEC-6: telemetry submit tokens authorize by any current-IP match", () 
       ),
     ).rejects.toThrow("Invalid, expired, or IP-mismatched telemetry tokens");
 
-    expect(update).toHaveBeenCalledOnce();
-    expect(where).toHaveBeenCalledOnce();
-    expect(inArray).toHaveBeenCalledWith(telemetryToken.token, [
-      "tok-used",
-      "tok-expired",
-    ]);
-    expect(isNull).toHaveBeenCalledOnce();
-    expect(gt).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
   });
 });

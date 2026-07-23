@@ -200,6 +200,7 @@ vi.mock("../lib/sessions/jwt", () => ({
 
 vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: mocks.consumeTokensOrThrow,
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 vi.mock("../lib/queues", () => ({
