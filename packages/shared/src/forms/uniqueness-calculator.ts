@@ -4,9 +4,11 @@
  * 減点方式（Matched Weight Deduction Model）を採用し、
  * 一致した指紋要素の信頼度（重み）の合計に応じてユニーク度スコア（1.0 -> 0.0）を減少させます。
  *
- * 識別力の低いノイズ項目（OS名、標準解像度、標準言語等）の重みを大幅に引き下げ、
- * Wi-Fiとモバイル回線等でIPが異なるケースでも、高識別指紋（Canvas, WebGL, Fonts, Audio, WebRTC）を
- * もとに同端末・同一人物を精度高く識別・減点します。
+ * 実運用データの分散分析を踏まえ、真に個人を識別できるシグナル
+ * （Canvas, Fonts, System, Screen）を主軸に据え、ハードウェア homogeneity で衝突多発する
+ * Audio/WebGL/WebRTC の重みを引き下げています。また Wi-Fi/モバイル回線切替でIPが異なる
+ * ケースでも、高識別指紋の一致から同端末・同一人物を精度高く識別・減点します。
+ * 詳細な重み定義は `../constants/fingerprint-weights` を参照。
  */
 
 import {
@@ -41,6 +43,11 @@ export type UniquenessRatingLabel = "高" | "中" | "低";
 
 /**
  * ユニーク度スコアから 3 段階の評価（"高" | "中" | "低"）を判定する
+ *
+ * 閾値は実運用データの分布を踏まえて調整:
+ * - 高: ユニーク性が高く、他者と容易に区別できる回答
+ * - 中: 類似ブラウザ環境との一致があり、ユニーク性は中程度
+ * - 低: 強い重複証拠がある、または v6/sessionId 一発アウト
  */
 export function getUniquenessScoreRating(
   score: number | null | undefined,
@@ -48,10 +55,10 @@ export function getUniquenessScoreRating(
   if (typeof score !== "number" || Number.isNaN(score)) {
     return "";
   }
-  if (score >= 0.9) {
+  if (score >= 0.8) {
     return "高";
   }
-  if (score >= 0.4) {
+  if (score >= 0.5) {
     return "中";
   }
   return "低";
@@ -124,6 +131,11 @@ export function calculatePairwiseMatchedWeight(
   const r2HasV4 = Boolean(v4_2 && v4_2.size > 0);
   const r2HasV6 = Boolean(v6_2 && v6_2.size > 0);
 
+  // 片方の回答者がデュアルスタック（v4+v6 を同時保持）であれば、ペア全体をデュアルとして扱う。
+  // デュアルスタック環境ではモバイル回線切替等でIPが変動しやすいため、
+  // v4 のみ一致でも 1.0（低減点）に留め、誤検知を抑制する設計。
+  // 片方だけシングルスタックでも同様にデュアル扱いにするのは、
+  // どちらの回答者がデュアルスタック環境にいるか不明なケースへの安全側フォールバック。
   const isDualStack = (r1HasV4 && r1HasV6) || (r2HasV4 && r2HasV6);
 
   const v4Match = hasSetIntersection(v4_1, v4_2);
@@ -196,17 +208,24 @@ export function calculateUniqueness(
     return 0.0;
   }
 
-  // 2. v6 (IPv6) トークンが一致する場合は即 0.0 (一発アウト)
-  const targetV6 = targetResponse.fingerprintDetails.find(
-    (d) => d.fingerprintType === "telemetry" && d.componentName === "v6",
+  // 2. v6 (IPv6) テレメトリートークンが一致する場合は即 0.0 (一発アウト)
+  // buildComponentMap は fingerprintType を区別しないため、v6 判定専用に
+  // telemetry プロバイダーのエントリのみを抽出して Set を構築する。
+  // 非 telemetry プロバイダーの「v6」コンポーネントを誤検知しないようにするため。
+  const targetV6TelemetryHashes = new Set(
+    targetResponse.fingerprintDetails
+      .filter(
+        (d) => d.componentName === "v6" && d.fingerprintType === "telemetry",
+      )
+      .map((d) => d.componentValueHash),
   );
-  if (targetV6?.componentValueHash) {
+  if (targetV6TelemetryHashes.size > 0) {
     const hasV6Match = otherResponses.some((other) =>
       other.fingerprintDetails.some(
         (d) =>
-          d.fingerprintType === "telemetry" &&
           d.componentName === "v6" &&
-          d.componentValueHash === targetV6.componentValueHash,
+          d.fingerprintType === "telemetry" &&
+          targetV6TelemetryHashes.has(d.componentValueHash),
       ),
     );
     if (hasV6Match) {
@@ -233,17 +252,23 @@ export function calculateUniqueness(
   }
 
   // 4. 重み減点モデルによるユニーク度スコア算出
-  // - ノイズ範囲（matchedWeight <= 3.0） -> 0.90 ~ 1.00
-  // - 類似ブラウザ（3.0 < matchedWeight <= 6.0） -> 0.40 ~ 0.89
-  // - 同一端末・同一人物（Wi-Fi/モバイル切り替え、あるいは同一IPの重複）(matchedWeight > 6.0) -> 0.0000 付近へ急速減少
+  //
+  // 実運用データの分布を踏まえ、重みが高いほど同一人物寄りと判断する設計に調整。
+  //
+  // - 高帯: ユニーク性が高い領域ではほぼ減点しない。
+  // - 中帯: 一部一致があるが同一性確度は中程度。
+  // - 低帯: 重複の根拠が揃うほど急速に減点し、同一疑いを強める。
   if (maxMatchedWeight <= 3.0) {
     return Number((1.0 - (maxMatchedWeight / 3.0) * 0.1).toFixed(4));
-  } else if (maxMatchedWeight <= 6.0) {
+  } else if (maxMatchedWeight <= 5.5) {
     const extra = maxMatchedWeight - 3.0;
-    return Number((0.9 - (extra / 3.0) * 0.5).toFixed(4));
+    return Number((0.9 - (extra / 2.5) * 0.25).toFixed(4));
+  } else if (maxMatchedWeight <= 8.0) {
+    const extra = maxMatchedWeight - 5.5;
+    return Number((0.65 - (extra / 2.5) * 0.45).toFixed(4));
   } else {
-    const extra = maxMatchedWeight - 6.0;
-    return Math.max(0.0, Number((0.4 - extra * 0.25).toFixed(4)));
+    const extra = maxMatchedWeight - 8.0;
+    return Math.max(0.0, Number((0.2 - extra * 0.1).toFixed(4)));
   }
 }
 
@@ -265,6 +290,9 @@ export function calculateAllUniquenessScores(
   }));
 }
 
+/**
+ * 複数の回答のユニーク度を一括計算し、responseId をキーとした Map を返す
+ */
 export function calculateUniquenessScoreMap(
   responses: ResponseWithFingerprints[],
 ): Map<string, number> {
