@@ -227,7 +227,7 @@ describe("uniqueness-calculator", () => {
     });
 
     it("applies dynamic IP weights correctly for dual-stack vs single-stack", () => {
-      // Single-stack v4 match = 1.5
+      // Single-stack v4 match = 2.2
       const rSingle1: ResponseWithFingerprints = {
         id: "s1",
         fingerprintDetails: [
@@ -250,9 +250,9 @@ describe("uniqueness-calculator", () => {
       };
       expect(
         calculatePairwiseMatchedWeight(rSingle1, rSingle2).ipMatchedWeight,
-      ).toBe(1.5);
+      ).toBe(2.2);
 
-      // Dual-stack v4 + v6 match = 2.0
+      // Dual-stack v4 + v6 match = 3.0
       const rDual1: ResponseWithFingerprints = {
         id: "d1",
         fingerprintDetails: [
@@ -285,9 +285,9 @@ describe("uniqueness-calculator", () => {
       };
       expect(
         calculatePairwiseMatchedWeight(rDual1, rDual2).ipMatchedWeight,
-      ).toBe(2.0);
+      ).toBe(3.0);
 
-      // Dual-stack v4 only match (v6 differs/unmatched) = 0.7
+      // Dual-stack v4 only match (v6 differs/unmatched) = 1.0
       const rDualPartial: ResponseWithFingerprints = {
         id: "d3",
         fingerprintDetails: [
@@ -305,7 +305,7 @@ describe("uniqueness-calculator", () => {
       };
       expect(
         calculatePairwiseMatchedWeight(rDual1, rDualPartial).ipMatchedWeight,
-      ).toBe(0.7);
+      ).toBe(1.0);
     });
   });
 });

@@ -89,14 +89,14 @@ export function calculatePairwiseMatchedWeight(
   if (isDualStack) {
     // デュアルスタック環境
     if (v4Match && v6Match) {
-      ipMatchedWeight = 2.0; // 両方一致で最高重み
+      ipMatchedWeight = 3.0; // 両方一致で強力な即時・急降下減点
     } else if (v4Match || v6Match) {
-      ipMatchedWeight = 0.7; // モバイル回線等の変動を考慮して少し低い重み
+      ipMatchedWeight = 1.0; // モバイル回線等のIP変動を考慮した減点
     }
   } else {
     // シングルスタック環境（v4のみ / v6のみ）
     if (v4Match || v6Match) {
-      ipMatchedWeight = 1.5; // 存在するプロトコルの高い識別力
+      ipMatchedWeight = 2.2; // 存在するプロトコルの高い識別力
     }
   }
 
