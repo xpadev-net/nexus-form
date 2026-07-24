@@ -21,6 +21,7 @@ import {
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  getUniquenessScoreRating,
   groupResponseExportValidationOutputsByResponseId,
   isAnswerableBlockType,
   mapRecordToSheetRow,
@@ -71,6 +72,8 @@ export type SheetsSyncJob = SheetsSyncJobData;
 const RESPONSE_ID_HEADER = "Response ID";
 const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
 const UNIQUENESS_SCORE_ID_HEADER = "Uniqueness Score";
+const UNIQUENESS_RATING_HEADER = "ユニーク度評価";
+const UNIQUENESS_RATING_ID_HEADER = "Uniqueness Rating";
 const SHARED_BASE_ID_HEADERS = [
   RESPONSE_ID_HEADER,
   "Respondent UUID",
@@ -78,6 +81,7 @@ const SHARED_BASE_ID_HEADERS = [
   "Updated At",
   "Country Code",
   UNIQUENESS_SCORE_ID_HEADER,
+  UNIQUENESS_RATING_ID_HEADER,
 ];
 const SHARED_BASE_TITLE_HEADERS = [
   "回答ID",
@@ -86,6 +90,7 @@ const SHARED_BASE_TITLE_HEADERS = [
   "更新日時",
   "国コード",
   "ユニーク度スコア",
+  "ユニーク度評価",
 ];
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
@@ -1789,26 +1794,26 @@ function isSharedSheetLayout(
   titleHeaders: string[],
   responseIdIndex: number,
 ): boolean {
-  return (
-    responseIdIndex === 0 &&
-    SHARED_BASE_ID_HEADERS.every(
-      (header, index) => headers[index] === header,
-    ) &&
-    isSharedTitleHeaderRow(titleHeaders)
+  if (responseIdIndex !== 0) {
+    return false;
+  }
+  const baseIdHeaders = SHARED_BASE_ID_HEADERS.slice(0, 6);
+  const matchesBaseIdHeaders = baseIdHeaders.every(
+    (header, index) => headers[index] === header,
   );
+  return matchesBaseIdHeaders && isSharedTitleHeaderRow(titleHeaders);
 }
 
 function isSharedTitleHeaderRow(titleHeaders: string[]): boolean {
   let hasTitleHeader = false;
-  const hasOnlySharedTitleHeaders = SHARED_BASE_TITLE_HEADERS.every(
-    (header, index) => {
-      const existing = titleHeaders[index];
-      if (existing === undefined || existing === "") return true;
-      if (existing !== header) return false;
-      hasTitleHeader = true;
-      return true;
-    },
-  );
+  const baseTitleHeaders = SHARED_BASE_TITLE_HEADERS.slice(0, 6);
+  const hasOnlySharedTitleHeaders = baseTitleHeaders.every((header, index) => {
+    const existing = titleHeaders[index];
+    if (existing === undefined || existing === "") return true;
+    if (existing !== header) return false;
+    hasTitleHeader = true;
+    return true;
+  });
   return hasTitleHeader && hasOnlySharedTitleHeaders;
 }
 
@@ -1843,21 +1848,53 @@ async function updateExistingUniquenessScoreCells(
     return;
   }
 
+  const uniquenessRatingIndex = findUniquenessRatingHeaderIndex(params.headers);
+  const isAdjacentRating =
+    uniquenessRatingIndex !== -1 &&
+    uniquenessRatingIndex === uniquenessScoreIndex + 1;
+  const hasNonAdjacentRating =
+    uniquenessRatingIndex !== -1 && !isAdjacentRating;
+
   throwIfShuttingDown();
-  const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const scoreColumnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const ratingColumnLetter =
+    uniquenessRatingIndex !== -1
+      ? columnIndexToLetter(uniquenessRatingIndex)
+      : "";
 
   const batchData: Array<{ rangeA1: string; values: string[][] }> = [];
   let rangeStartRow: number | null = null;
-  let rangeValues: string[][] = [];
+  let rangeScoreValues: string[][] = [];
+  let rangeRatingValues: string[][] = [];
+  let rangeCombinedValues: string[][] = [];
 
   const collectRange = (endRow: number) => {
-    if (rangeStartRow === null || rangeValues.length === 0) return;
-    batchData.push({
-      rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
-      values: rangeValues,
-    });
+    if (rangeStartRow === null) return;
+    if (isAdjacentRating) {
+      if (rangeCombinedValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${scoreColumnLetter}${rangeStartRow}:${ratingColumnLetter}${endRow}`,
+          values: rangeCombinedValues,
+        });
+      }
+    } else {
+      if (rangeScoreValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${scoreColumnLetter}${rangeStartRow}:${scoreColumnLetter}${endRow}`,
+          values: rangeScoreValues,
+        });
+      }
+      if (hasNonAdjacentRating && rangeRatingValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${ratingColumnLetter}${rangeStartRow}:${ratingColumnLetter}${endRow}`,
+          values: rangeRatingValues,
+        });
+      }
+    }
     rangeStartRow = null;
-    rangeValues = [];
+    rangeScoreValues = [];
+    rangeRatingValues = [];
+    rangeCombinedValues = [];
   };
 
   for (const [index, responseId] of params.responseIds.entries()) {
@@ -1872,7 +1909,27 @@ async function updateExistingUniquenessScoreCells(
     }
 
     rangeStartRow ??= rowNumber;
-    rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
+    if (score === undefined) {
+      if (isAdjacentRating) {
+        rangeCombinedValues.push(["", ""]);
+      } else {
+        rangeScoreValues.push([""]);
+        if (hasNonAdjacentRating) {
+          rangeRatingValues.push([""]);
+        }
+      }
+    } else {
+      const formattedScore = score.toFixed(4);
+      const ratingLabel = getUniquenessScoreRating(score);
+      if (isAdjacentRating) {
+        rangeCombinedValues.push([formattedScore, ratingLabel]);
+      } else {
+        rangeScoreValues.push([formattedScore]);
+        if (hasNonAdjacentRating) {
+          rangeRatingValues.push([ratingLabel]);
+        }
+      }
+    }
   }
   collectRange(params.responseIds.length + params.headerRowCount);
 
@@ -2046,6 +2103,13 @@ function findUniquenessScoreHeaderIndex(headers: string[]): number {
   const idHeaderIndex = headers.indexOf(UNIQUENESS_SCORE_ID_HEADER);
   return idHeaderIndex === -1
     ? headers.indexOf(UNIQUENESS_SCORE_HEADER)
+    : idHeaderIndex;
+}
+
+function findUniquenessRatingHeaderIndex(headers: string[]): number {
+  const idHeaderIndex = headers.indexOf(UNIQUENESS_RATING_ID_HEADER);
+  return idHeaderIndex === -1
+    ? headers.indexOf(UNIQUENESS_RATING_HEADER)
     : idHeaderIndex;
 }
 

@@ -63,8 +63,12 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
   const responseExport = await import(
     "../../../../../packages/shared/src/response-export"
   );
+  const uniquenessCalc = await import(
+    "../../../../../packages/shared/src/forms/uniqueness-calculator"
+  );
   return {
     ...actual,
+    getUniquenessScoreRating: uniquenessCalc.getUniquenessScoreRating,
     denormalizeSpreadsheetFormulaValue:
       responseExport.denormalizeSpreadsheetFormulaValue,
     groupResponseExportValidationOutputsByResponseId:
@@ -780,6 +784,7 @@ describe("handleSheetsSync — idempotency states", () => {
               "国コード",
               "UA UUID",
               "ユニーク度スコア",
+              "ユニーク度評価",
               "block-1",
             ],
           ],
@@ -1365,6 +1370,7 @@ describe("handleSheetsSync — write path", () => {
             "Updated At",
             "Country Code",
             "Uniqueness Score",
+            "Uniqueness Rating",
             "block-1",
           ],
           [
@@ -1374,6 +1380,7 @@ describe("handleSheetsSync — write path", () => {
             "更新日時",
             "国コード",
             "ユニーク度スコア",
+            "ユニーク度評価",
             "block-1",
           ],
         ],
@@ -1383,8 +1390,8 @@ describe("handleSheetsSync — write path", () => {
       TOKEN,
       expect.objectContaining({
         rows: [
-          ["response-1", "", "", "", "", "1.0000", "first"],
-          ["response-2", "", "", "", "", "1.0000", "second"],
+          ["response-1", "", "", "", "", "1.0000", "高", "first"],
+          ["response-2", "", "", "", "", "1.0000", "高", "second"],
         ],
       }),
     );
@@ -1472,8 +1479,8 @@ describe("handleSheetsSync — write path", () => {
       ([, params]) => params.rows,
     );
     expect(appendedRows).toEqual([
-      ["response-1", "", "", "", "", "1.0000", "first"],
-      ["response-3", "", "", "", "", "1.0000", "third"],
+      ["response-1", "", "", "", "", "1.0000", "高", "first"],
+      ["response-3", "", "", "", "", "1.0000", "高", "third"],
     ]);
     expect(appendedRows.flat()).not.toContain("response-deleted");
   });
@@ -1788,6 +1795,7 @@ describe("handleSheetsSync — write path", () => {
             "Updated At",
             "Country Code",
             "Uniqueness Score",
+            "Uniqueness Rating",
             "block-1",
             "block-2",
           ],
@@ -1798,6 +1806,7 @@ describe("handleSheetsSync — write path", () => {
             "更新日時",
             "国コード",
             "ユニーク度スコア",
+            "ユニーク度評価",
             "block-1",
             "block-2",
           ],
@@ -1814,8 +1823,8 @@ describe("handleSheetsSync — write path", () => {
       TOKEN,
       expect.objectContaining({
         rows: [
-          ["response-1", "", "", "", "", "1.0000", "first"],
-          ["response-2", "", "", "", "", "1.0000", "", "second-field"],
+          ["response-1", "", "", "", "", "1.0000", "高", "first"],
+          ["response-2", "", "", "", "", "1.0000", "高", "", "second-field"],
         ],
       }),
     );
@@ -2056,6 +2065,7 @@ describe("handleSheetsSync — write path", () => {
       "Updated At",
       "Country Code",
       "Uniqueness Score",
+      "Uniqueness Rating",
       "block-1",
     ];
     mockReadRange
@@ -2068,7 +2078,7 @@ describe("handleSheetsSync — write path", () => {
       .mockResolvedValueOnce({
         ok: true,
         data: {
-          values: [["Response ID"], ["回答ID"]],
+          values: [sharedIdRow, ["回答ID"]],
         },
       } as never);
 
@@ -2086,10 +2096,82 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "block-1",
         ],
       ],
     });
+  });
+
+  it("upgrades legacy 6-column shared sheets with Uniqueness Rating column during incremental sync", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const legacy6ColumnIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    const legacy6ColumnTitleRow = [
+      "回答ID",
+      "回答者UUID",
+      "送信日時",
+      "更新日時",
+      "国コード",
+      "ユニーク度スコア",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [legacy6ColumnIdRow, legacy6ColumnTitleRow],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [legacy6ColumnIdRow, legacy6ColumnTitleRow],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        [
+          "Response ID",
+          "Respondent UUID",
+          "Submitted At",
+          "Updated At",
+          "Country Code",
+          "Uniqueness Score",
+          "block-1",
+          "Uniqueness Rating",
+        ],
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "ユニーク度スコア",
+          "block-1",
+          "ユニーク度評価",
+        ],
+      ],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "", "", "", "", "1.0000", "hello", "高"]],
+      }),
+    );
   });
 
   it("does not treat a legacy first data row value as a shared title row", async () => {
@@ -2300,6 +2382,7 @@ describe("handleSheetsSync — write path", () => {
           "Updated At",
           "Country Code",
           "Uniqueness Score",
+          "Uniqueness Rating",
           "formula-block",
         ],
         [
@@ -2309,6 +2392,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "'=Formula",
         ],
       ],
@@ -2324,6 +2408,7 @@ describe("handleSheetsSync — write path", () => {
             "2026-05-17T02:30:00.000Z",
             "JP",
             "1.0000",
+            "高",
             "' =cmd",
           ],
         ],
@@ -2423,6 +2508,7 @@ describe("handleSheetsSync — write path", () => {
           "Updated At",
           "Country Code",
           "Uniqueness Score",
+          "Uniqueness Rating",
           "validation_output:rule-gh:profile_score",
           "validation_output:rule-gh:username",
         ],
@@ -2433,6 +2519,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "Validation: GitHub rule (rule-gh) / Profile score [profile_score]",
           "Validation: GitHub rule (rule-gh) / GitHub username [username]",
         ],
@@ -2449,6 +2536,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "JP",
             "1.0000",
+            "高",
             "98.5",
             "octocat",
           ],
@@ -2699,6 +2787,7 @@ describe("handleSheetsSync — write path", () => {
       "Updated At",
       "Country Code",
       "Uniqueness Score",
+      "Uniqueness Rating",
       "tool-dropdown",
       "interest-checkbox",
       "availability-choice-grid",
@@ -2711,6 +2800,7 @@ describe("handleSheetsSync — write path", () => {
       "更新日時",
       "国コード",
       "ユニーク度スコア",
+      "ユニーク度評価",
       "利用ツール",
       "興味",
       "参加可能日",
@@ -2727,6 +2817,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "JP",
             "1.0000",
+            "高",
             "React",
             "TypeScript, React",
             "月曜: 午前\n火曜: 未回答",
@@ -2818,6 +2909,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "",
             "1.0000",
+            "高",
             "個人",
             "",
           ],

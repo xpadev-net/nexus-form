@@ -98,6 +98,7 @@ export type {
   ComponentMap,
   PairwiseMatchResult,
   ResponseWithFingerprints,
+  UniquenessRatingLabel,
 } from "./forms/uniqueness-calculator";
 export {
   buildComponentMap,
@@ -105,6 +106,7 @@ export {
   calculatePairwiseMatchedWeight,
   calculateUniqueness,
   calculateUniquenessScoreMap,
+  getUniquenessScoreRating,
   hasSetIntersection,
 } from "./forms/uniqueness-calculator";
 export type {

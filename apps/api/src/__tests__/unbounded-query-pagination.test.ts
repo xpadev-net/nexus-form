@@ -910,7 +910,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
     const csv = await res.text();
     expect(csv.split("\n")[0]).toContain('"氏名"');
     expect(csv.split("\n")[1]).toBe(
-      '"response-1","respondent-alpha","2026-01-01T00:00:00.000Z","","JP","1.0000","山田 太郎"',
+      '"response-1","respondent-alpha","2026-01-01T00:00:00.000Z","","JP","1.0000","高","山田 太郎"',
     );
     expect(mocks.db.select).toHaveBeenCalledTimes(5);
     expect(mocks.limitCalls).toContain(5001);
@@ -1014,7 +1014,7 @@ describe("R3-H5 paginates formerly unbounded list endpoints", () => {
 
     expect(res.status).toBe(200);
     await expect(res.text()).resolves.toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","氏名"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","氏名"',
     );
     expect(mocks.db.select).toHaveBeenCalledTimes(3);
     expect(mocks.limitCalls).toContain(5001);
