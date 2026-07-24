@@ -179,7 +179,7 @@ describe("uniqueness-calculator", () => {
   });
 
   describe("calculatePairwiseMatchedWeight", () => {
-    it("returns 0 totalWeight if either response has empty fingerprintDetails", () => {
+    it("returns 0 matchedWeight if either response has empty fingerprintDetails", () => {
       const r1: ResponseWithFingerprints = { id: "1", fingerprintDetails: [] };
       const r2: ResponseWithFingerprints = {
         id: "2",
@@ -191,8 +191,8 @@ describe("uniqueness-calculator", () => {
           },
         ],
       };
-      expect(calculatePairwiseMatchedWeight(r1, r2).totalWeight).toBe(0);
-      expect(calculatePairwiseMatchedWeight(r2, r1).totalWeight).toBe(0);
+      expect(calculatePairwiseMatchedWeight(r1, r2).matchedWeight).toBe(0);
+      expect(calculatePairwiseMatchedWeight(r2, r1).matchedWeight).toBe(0);
     });
 
     it("calculates matched weights correctly and deduplicates across providers", () => {
@@ -222,9 +222,8 @@ describe("uniqueness-calculator", () => {
         ],
       };
 
-      // fonts weight is 1.0 (deduplicated across providers)
       const res = calculatePairwiseMatchedWeight(r1, r2);
-      expect(res.otherWeight).toBe(1.0);
+      expect(res.matchedWeight).toBe(1.0);
     });
 
     it("detects v4 and v6 matches correctly", () => {

@@ -3,8 +3,10 @@
  * 回答者のユニーク度を算出するロジックを実装します。
  * 減点方式（Matched Weight Deduction Model）を採用し、
  * 一致した指紋要素の信頼度（重み）の合計に応じてユニーク度スコア（1.0 -> 0.0）を減少させます。
- * IPアドレス（v4/v6）を最も強力な識別シグナルとして位置付け、
- * IPが不一致の一般的ユーザーが同一端末モデルの標準ブラウザ要素（ノイズ）で過剰減点されないよう保護します。
+ *
+ * 識別力の低いノイズ項目（OS名、標準解像度、標準言語等）の重みを大幅に引き下げ、
+ * Wi-Fiとモバイル回線等でIPが異なるケースでも、高識別指紋（Canvas, WebGL, Fonts, Audio, WebRTC）を
+ * もとに同端末・同一人物を精度高く識別・減点します。
  */
 
 import {
@@ -33,17 +35,12 @@ export interface ResponseWithFingerprints {
 export function calculatePairwiseMatchedWeight(
   response1: ResponseWithFingerprints,
   response2: ResponseWithFingerprints,
-): {
-  v4Match: boolean;
-  v6Match: boolean;
-  otherWeight: number;
-  totalWeight: number;
-} {
+): { v4Match: boolean; v6Match: boolean; matchedWeight: number } {
   if (
     response1.fingerprintDetails.length === 0 ||
     response2.fingerprintDetails.length === 0
   ) {
-    return { v4Match: false, v6Match: false, otherWeight: 0, totalWeight: 0 };
+    return { v4Match: false, v6Match: false, matchedWeight: 0 };
   }
 
   const r1CompMap = new Map<string, Set<string>>();
@@ -72,26 +69,28 @@ export function calculatePairwiseMatchedWeight(
   const v6Match = Boolean(v6_1 && v6_2 && [...v6_1].some((h) => v6_2.has(h)));
 
   // 2. その他のブラウザ指紋要素の一致判定（コンポーネント名でデデュープ）
-  let otherWeight = 0;
+  let matchedWeight = 0;
   for (const [compName, hashes1] of r1CompMap.entries()) {
     if (compName === "v4" || compName === "v6") continue;
     const hashes2 = r2CompMap.get(compName);
     if (hashes2 && [...hashes1].some((h) => hashes2.has(h))) {
       const weight = COMPONENT_WEIGHTS[compName] ?? DEFAULT_COMPONENT_WEIGHT;
-      otherWeight += weight;
+      matchedWeight += weight;
     }
   }
 
-  let ipWeight = 0;
-  if (v4Match && v6Match) ipWeight = 4.0;
-  else if (v4Match) ipWeight = 3.0;
-  else if (v6Match) ipWeight = 4.0;
+  // IPが一致している場合は加重ボーナス
+  if (v4Match) {
+    matchedWeight += COMPONENT_WEIGHTS.v4 ?? 0.5;
+  }
+  if (v6Match) {
+    matchedWeight += COMPONENT_WEIGHTS.v6 ?? 0.5;
+  }
 
   return {
     v4Match,
     v6Match,
-    otherWeight,
-    totalWeight: ipWeight + otherWeight,
+    matchedWeight,
   };
 }
 
@@ -144,42 +143,28 @@ export function calculateUniqueness(
   }
 
   // 3. 他の全回答の中で、最も一致重みの大きかった相手を探索
-  let maxV4MatchedWeight = 0;
-  let hasV4Match = false;
-  let maxDifferentIPMatchedWeight = 0;
+  let maxMatchedWeight = 0;
 
   for (const otherResponse of otherResponses) {
     const p = calculatePairwiseMatchedWeight(targetResponse, otherResponse);
-    if (p.v4Match) {
-      hasV4Match = true;
-      if (p.otherWeight > maxV4MatchedWeight) {
-        maxV4MatchedWeight = p.otherWeight;
-      }
-    } else {
-      if (p.otherWeight > maxDifferentIPMatchedWeight) {
-        maxDifferentIPMatchedWeight = p.otherWeight;
-      }
+    if (p.matchedWeight > maxMatchedWeight) {
+      maxMatchedWeight = p.matchedWeight;
     }
   }
 
-  // ケースA: 同一 IPv4 アドレスの一致相手が存在する場合
-  // 同じIPアドレスから送信され、指紋要素の一致重みが一定（>2.0）以上重なる場合は確定重複・同一アクター（スコア 0.0）
-  if (hasV4Match) {
-    if (maxV4MatchedWeight >= 2.0) {
-      return Math.max(0.0, Number((1.0 - maxV4MatchedWeight / 3.5).toFixed(4)));
-    }
+  // 4. 重み減点モデルによるユニーク度スコア算出
+  // - ノイズ範囲（matchedWeight <= 3.0） -> 0.90 ~ 1.00
+  // - 類似ブラウザ（3.0 < matchedWeight <= 6.0） -> 0.40 ~ 0.89
+  // - 同一端末・同一人物（Wi-Fi/モバイル切り替え、あるいは同一IPの重複）(matchedWeight > 6.0) -> 0.0000 付近へ急速減少
+  if (maxMatchedWeight <= 3.0) {
+    return Number((1.0 - (maxMatchedWeight / 3.0) * 0.1).toFixed(4));
+  } else if (maxMatchedWeight <= 6.0) {
+    const extra = maxMatchedWeight - 3.0;
+    return Number((0.9 - (extra / 3.0) * 0.5).toFixed(4));
+  } else {
+    const extra = maxMatchedWeight - 6.0;
+    return Math.max(0.0, Number((0.4 - extra * 0.25).toFixed(4)));
   }
-
-  // ケースB: 異なる IP アドレスの相手との比較
-  // ブラウザ標準環境（OS/言語/標準解像度/標準フォント等）のノイズ上限値 = 6.0
-  // W <= 6.0 の場合はノイズ範囲内としてスコア 0.90 ~ 1.00 を保護
-  // W > 6.0 (同一型番端末の完全一致等) の場合も、IPが異なる一般ユーザーとして 0.60 ~ 0.85 を維持
-  if (maxDifferentIPMatchedWeight <= 6.0) {
-    return Number((1.0 - (maxDifferentIPMatchedWeight / 6.0) * 0.1).toFixed(4));
-  }
-
-  const extraNoise = maxDifferentIPMatchedWeight - 6.0;
-  return Math.max(0.6, Number((0.9 - (extraNoise / 6.0) * 0.25).toFixed(4)));
 }
 
 /**
