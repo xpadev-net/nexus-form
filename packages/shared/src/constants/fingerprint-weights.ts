@@ -5,10 +5,6 @@
  * 各コンポーネントの重みは、そのコンポーネントが個人を識別する能力に比例する。
  */
 export const COMPONENT_WEIGHTS: Record<string, number> = {
-  // 複合ハッシュ (IPトークン: 重みスケール連動)
-  v4: 1.5,
-  v6: 1.5,
-
   // 高い個人の識別力
   canvas: 1.2,
   fonts: 1.0,

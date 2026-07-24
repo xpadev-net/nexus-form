@@ -94,11 +94,18 @@ export {
   PasswordProtectionPublicationSnapshotSchema,
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
-export type { ResponseWithFingerprints } from "./forms/uniqueness-calculator";
+export type {
+  ComponentMap,
+  PairwiseMatchResult,
+  ResponseWithFingerprints,
+} from "./forms/uniqueness-calculator";
 export {
+  buildComponentMap,
   calculateAllUniquenessScores,
+  calculatePairwiseMatchedWeight,
   calculateUniqueness,
   calculateUniquenessScoreMap,
+  hasSetIntersection,
 } from "./forms/uniqueness-calculator";
 export type {
   CompletionTargetActionSource,

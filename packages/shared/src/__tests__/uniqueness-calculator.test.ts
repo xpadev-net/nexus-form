@@ -1,12 +1,59 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildComponentMap,
   calculatePairwiseMatchedWeight,
   calculateUniqueness,
   calculateUniquenessScoreMap,
+  hasSetIntersection,
   type ResponseWithFingerprints,
 } from "../forms/uniqueness-calculator";
 
 describe("uniqueness-calculator", () => {
+  describe("hasSetIntersection helper", () => {
+    it("returns false for undefined or empty sets", () => {
+      expect(hasSetIntersection(undefined, new Set(["a"]))).toBe(false);
+      expect(hasSetIntersection(new Set(["a"]), undefined)).toBe(false);
+      expect(hasSetIntersection(new Set(), new Set(["a"]))).toBe(false);
+    });
+
+    it("detects shared items correctly", () => {
+      expect(hasSetIntersection(new Set(["a", "b"]), new Set(["b", "c"]))).toBe(
+        true,
+      );
+      expect(hasSetIntersection(new Set(["a", "b"]), new Set(["c", "d"]))).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("buildComponentMap helper", () => {
+    it("builds a component map with sets of value hashes", () => {
+      const response: ResponseWithFingerprints = {
+        id: "r1",
+        fingerprintDetails: [
+          {
+            componentName: "fonts",
+            componentValueHash: "h1",
+            fingerprintType: "fp",
+          },
+          {
+            componentName: "fonts",
+            componentValueHash: "h2",
+            fingerprintType: "tm",
+          },
+          {
+            componentName: "canvas",
+            componentValueHash: "h3",
+            fingerprintType: "fp",
+          },
+        ],
+      };
+      const map = buildComponentMap(response);
+      expect(map.get("fonts")).toEqual(new Set(["h1", "h2"]));
+      expect(map.get("canvas")).toEqual(new Set(["h3"]));
+    });
+  });
+
   it("returns 0.0 immediately if target response shares a sessionId with another response", () => {
     const r1: ResponseWithFingerprints = {
       id: "res-1",
