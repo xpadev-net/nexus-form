@@ -972,7 +972,7 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockAppendRows).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        rows: [["response-1", "hello", "0.9883"]],
+        rows: [["response-1", "hello", "0.9600"]],
       }),
     );
   });
@@ -1039,14 +1039,14 @@ describe("handleSheetsSync — idempotency states", () => {
       data: [
         {
           rangeA1: "Sheet1!B2:B2",
-          values: [["0.9883"]],
+          values: [["0.9600"]],
         },
       ],
     });
     expect(mockAppendRows).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        rows: [["response-2", "0.9883", "hello"]],
+        rows: [["response-2", "0.9600", "hello"]],
       }),
     );
   });
@@ -1113,7 +1113,7 @@ describe("handleSheetsSync — idempotency states", () => {
       data: [
         {
           rangeA1: "Sheet1!B2:B2",
-          values: [["0.9883"]],
+          values: [["0.9600"]],
         },
       ],
     });
