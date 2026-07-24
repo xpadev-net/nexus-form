@@ -19,6 +19,8 @@ describe("uniqueness-calculator", () => {
       expect(getUniquenessScoreRating(0.3999)).toBe("低");
       expect(getUniquenessScoreRating(0.0)).toBe("低");
       expect(getUniquenessScoreRating(undefined)).toBe("");
+      expect(getUniquenessScoreRating(null)).toBe("");
+      expect(getUniquenessScoreRating(NaN)).toBe("");
     });
   });
   describe("hasSetIntersection helper", () => {

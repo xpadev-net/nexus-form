@@ -2103,6 +2103,77 @@ describe("handleSheetsSync — write path", () => {
     });
   });
 
+  it("upgrades legacy 6-column shared sheets with Uniqueness Rating column during incremental sync", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    const legacy6ColumnIdRow = [
+      "Response ID",
+      "Respondent UUID",
+      "Submitted At",
+      "Updated At",
+      "Country Code",
+      "Uniqueness Score",
+      "block-1",
+    ];
+    const legacy6ColumnTitleRow = [
+      "回答ID",
+      "回答者UUID",
+      "送信日時",
+      "更新日時",
+      "国コード",
+      "ユニーク度スコア",
+      "block-1",
+    ];
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [legacy6ColumnIdRow, legacy6ColumnTitleRow],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [legacy6ColumnIdRow, legacy6ColumnTitleRow],
+        },
+      } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockUpdateRange).toHaveBeenCalledWith(TOKEN, {
+      spreadsheetId: "spreadsheet-id",
+      rangeA1: "Sheet1!1:2",
+      values: [
+        [
+          "Response ID",
+          "Respondent UUID",
+          "Submitted At",
+          "Updated At",
+          "Country Code",
+          "Uniqueness Score",
+          "block-1",
+          "Uniqueness Rating",
+        ],
+        [
+          "回答ID",
+          "回答者UUID",
+          "送信日時",
+          "更新日時",
+          "国コード",
+          "ユニーク度スコア",
+          "block-1",
+          "ユニーク度評価",
+        ],
+      ],
+    });
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "", "", "", "", "1.0000", "hello", "高"]],
+      }),
+    );
+  });
+
   it("does not treat a legacy first data row value as a shared title row", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
