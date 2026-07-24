@@ -21,6 +21,7 @@ import {
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  getUniquenessScoreRating,
   groupResponseExportValidationOutputsByResponseId,
   isAnswerableBlockType,
   mapRecordToSheetRow,
@@ -71,6 +72,8 @@ export type SheetsSyncJob = SheetsSyncJobData;
 const RESPONSE_ID_HEADER = "Response ID";
 const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
 const UNIQUENESS_SCORE_ID_HEADER = "Uniqueness Score";
+const UNIQUENESS_RATING_HEADER = "ユニーク度評価";
+const UNIQUENESS_RATING_ID_HEADER = "Uniqueness Rating";
 const SHARED_BASE_ID_HEADERS = [
   RESPONSE_ID_HEADER,
   "Respondent UUID",
@@ -78,6 +81,7 @@ const SHARED_BASE_ID_HEADERS = [
   "Updated At",
   "Country Code",
   UNIQUENESS_SCORE_ID_HEADER,
+  UNIQUENESS_RATING_ID_HEADER,
 ];
 const SHARED_BASE_TITLE_HEADERS = [
   "回答ID",
@@ -86,6 +90,7 @@ const SHARED_BASE_TITLE_HEADERS = [
   "更新日時",
   "国コード",
   "ユニーク度スコア",
+  "ユニーク度評価",
 ];
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
@@ -1843,8 +1848,16 @@ async function updateExistingUniquenessScoreCells(
     return;
   }
 
+  const nextHeader = params.headers[uniquenessScoreIndex + 1]?.trim();
+  const includesRatingColumn =
+    nextHeader === UNIQUENESS_RATING_HEADER ||
+    nextHeader === UNIQUENESS_RATING_ID_HEADER;
+
   throwIfShuttingDown();
-  const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const startColumnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const endColumnLetter = includesRatingColumn
+    ? columnIndexToLetter(uniquenessScoreIndex + 1)
+    : startColumnLetter;
 
   const batchData: Array<{ rangeA1: string; values: string[][] }> = [];
   let rangeStartRow: number | null = null;
@@ -1853,7 +1866,7 @@ async function updateExistingUniquenessScoreCells(
   const collectRange = (endRow: number) => {
     if (rangeStartRow === null || rangeValues.length === 0) return;
     batchData.push({
-      rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
+      rangeA1: `${params.sheetName}!${startColumnLetter}${rangeStartRow}:${endColumnLetter}${endRow}`,
       values: rangeValues,
     });
     rangeStartRow = null;
@@ -1872,7 +1885,15 @@ async function updateExistingUniquenessScoreCells(
     }
 
     rangeStartRow ??= rowNumber;
-    rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
+    if (score === undefined) {
+      rangeValues.push(includesRatingColumn ? ["", ""] : [""]);
+    } else {
+      const formattedScore = score.toFixed(4);
+      const ratingLabel = getUniquenessScoreRating(score);
+      rangeValues.push(
+        includesRatingColumn ? [formattedScore, ratingLabel] : [formattedScore],
+      );
+    }
   }
   collectRange(params.responseIds.length + params.headerRowCount);
 

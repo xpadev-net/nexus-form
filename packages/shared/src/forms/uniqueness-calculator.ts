@@ -37,6 +37,26 @@ export interface PairwiseMatchResult {
   matchedWeight: number;
 }
 
+export type UniquenessRatingLabel = "高" | "中" | "低";
+
+/**
+ * ユニーク度スコアから 3 段階の評価（"高" | "中" | "低"）を判定する
+ */
+export function getUniquenessScoreRating(
+  score: number | null | undefined,
+): UniquenessRatingLabel | "" {
+  if (typeof score !== "number" || Number.isNaN(score)) {
+    return "";
+  }
+  if (score >= 0.9) {
+    return "高";
+  }
+  if (score >= 0.4) {
+    return "中";
+  }
+  return "低";
+}
+
 export type ComponentMap = Map<string, Set<string>>;
 
 /**

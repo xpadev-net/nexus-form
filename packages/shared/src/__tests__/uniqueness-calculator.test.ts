@@ -4,11 +4,23 @@ import {
   calculatePairwiseMatchedWeight,
   calculateUniqueness,
   calculateUniquenessScoreMap,
+  getUniquenessScoreRating,
   hasSetIntersection,
   type ResponseWithFingerprints,
 } from "../forms/uniqueness-calculator";
 
 describe("uniqueness-calculator", () => {
+  describe("getUniquenessScoreRating helper", () => {
+    it("returns correct 3-tier rating labels", () => {
+      expect(getUniquenessScoreRating(1.0)).toBe("高");
+      expect(getUniquenessScoreRating(0.9)).toBe("高");
+      expect(getUniquenessScoreRating(0.8999)).toBe("中");
+      expect(getUniquenessScoreRating(0.4)).toBe("中");
+      expect(getUniquenessScoreRating(0.3999)).toBe("低");
+      expect(getUniquenessScoreRating(0.0)).toBe("低");
+      expect(getUniquenessScoreRating(undefined)).toBe("");
+    });
+  });
   describe("hasSetIntersection helper", () => {
     it("returns false for undefined or empty sets", () => {
       expect(hasSetIntersection(undefined, new Set(["a"]))).toBe(false);

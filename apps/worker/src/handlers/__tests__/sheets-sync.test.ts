@@ -65,6 +65,7 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
   );
   return {
     ...actual,
+    getUniquenessScoreRating: actual.getUniquenessScoreRating,
     denormalizeSpreadsheetFormulaValue:
       responseExport.denormalizeSpreadsheetFormulaValue,
     groupResponseExportValidationOutputsByResponseId:
@@ -780,6 +781,7 @@ describe("handleSheetsSync — idempotency states", () => {
               "国コード",
               "UA UUID",
               "ユニーク度スコア",
+              "ユニーク度評価",
               "block-1",
             ],
           ],
@@ -1374,6 +1376,7 @@ describe("handleSheetsSync — write path", () => {
             "更新日時",
             "国コード",
             "ユニーク度スコア",
+            "ユニーク度評価",
             "block-1",
           ],
         ],
@@ -1472,8 +1475,8 @@ describe("handleSheetsSync — write path", () => {
       ([, params]) => params.rows,
     );
     expect(appendedRows).toEqual([
-      ["response-1", "", "", "", "", "1.0000", "first"],
-      ["response-3", "", "", "", "", "1.0000", "third"],
+      ["response-1", "", "", "", "", "1.0000", "高", "first"],
+      ["response-3", "", "", "", "", "1.0000", "高", "third"],
     ]);
     expect(appendedRows.flat()).not.toContain("response-deleted");
   });
@@ -1798,6 +1801,7 @@ describe("handleSheetsSync — write path", () => {
             "更新日時",
             "国コード",
             "ユニーク度スコア",
+            "ユニーク度評価",
             "block-1",
             "block-2",
           ],
@@ -2086,6 +2090,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "block-1",
         ],
       ],
@@ -2309,6 +2314,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "'=Formula",
         ],
       ],
@@ -2433,6 +2439,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
+          "ユニーク度評価",
           "Validation: GitHub rule (rule-gh) / Profile score [profile_score]",
           "Validation: GitHub rule (rule-gh) / GitHub username [username]",
         ],
@@ -2699,6 +2706,7 @@ describe("handleSheetsSync — write path", () => {
       "Updated At",
       "Country Code",
       "Uniqueness Score",
+      "Uniqueness Rating",
       "tool-dropdown",
       "interest-checkbox",
       "availability-choice-grid",
@@ -2711,6 +2719,7 @@ describe("handleSheetsSync — write path", () => {
       "更新日時",
       "国コード",
       "ユニーク度スコア",
+      "ユニーク度評価",
       "利用ツール",
       "興味",
       "参加可能日",
@@ -2727,6 +2736,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "JP",
             "1.0000",
+            "高",
             "React",
             "TypeScript, React",
             "月曜: 午前\n火曜: 未回答",
@@ -2818,6 +2828,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "",
             "1.0000",
+            "高",
             "個人",
             "",
           ],
