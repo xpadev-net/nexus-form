@@ -226,31 +226,86 @@ describe("uniqueness-calculator", () => {
       expect(res.matchedWeight).toBe(1.0);
     });
 
-    it("detects v4 and v6 matches correctly", () => {
-      const r1: ResponseWithFingerprints = {
-        id: "1",
+    it("applies dynamic IP weights correctly for dual-stack vs single-stack", () => {
+      // Single-stack v4 match = 1.5
+      const rSingle1: ResponseWithFingerprints = {
+        id: "s1",
         fingerprintDetails: [
           {
             componentName: "v4",
-            componentValueHash: "v4-hash",
+            componentValueHash: "v4-same",
             fingerprintType: "telemetry",
           },
         ],
       };
-      const r2: ResponseWithFingerprints = {
-        id: "2",
+      const rSingle2: ResponseWithFingerprints = {
+        id: "s2",
         fingerprintDetails: [
           {
             componentName: "v4",
-            componentValueHash: "v4-hash",
+            componentValueHash: "v4-same",
             fingerprintType: "telemetry",
           },
         ],
       };
+      expect(
+        calculatePairwiseMatchedWeight(rSingle1, rSingle2).ipMatchedWeight,
+      ).toBe(1.5);
 
-      const res = calculatePairwiseMatchedWeight(r1, r2);
-      expect(res.v4Match).toBe(true);
-      expect(res.v6Match).toBe(false);
+      // Dual-stack v4 + v6 match = 2.0
+      const rDual1: ResponseWithFingerprints = {
+        id: "d1",
+        fingerprintDetails: [
+          {
+            componentName: "v4",
+            componentValueHash: "v4-same",
+            fingerprintType: "telemetry",
+          },
+          {
+            componentName: "v6",
+            componentValueHash: "v6-same",
+            fingerprintType: "telemetry",
+          },
+        ],
+      };
+      const rDual2: ResponseWithFingerprints = {
+        id: "d2",
+        fingerprintDetails: [
+          {
+            componentName: "v4",
+            componentValueHash: "v4-same",
+            fingerprintType: "telemetry",
+          },
+          {
+            componentName: "v6",
+            componentValueHash: "v6-same",
+            fingerprintType: "telemetry",
+          },
+        ],
+      };
+      expect(
+        calculatePairwiseMatchedWeight(rDual1, rDual2).ipMatchedWeight,
+      ).toBe(2.0);
+
+      // Dual-stack v4 only match (v6 differs/unmatched) = 0.7
+      const rDualPartial: ResponseWithFingerprints = {
+        id: "d3",
+        fingerprintDetails: [
+          {
+            componentName: "v4",
+            componentValueHash: "v4-same",
+            fingerprintType: "telemetry",
+          },
+          {
+            componentName: "v6",
+            componentValueHash: "v6-diff",
+            fingerprintType: "telemetry",
+          },
+        ],
+      };
+      expect(
+        calculatePairwiseMatchedWeight(rDual1, rDualPartial).ipMatchedWeight,
+      ).toBe(0.7);
     });
   });
 });

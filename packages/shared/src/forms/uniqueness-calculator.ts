@@ -29,18 +29,28 @@ export interface ResponseWithFingerprints {
 
 /**
  * 2つの回答間で一致した指紋項目の信頼度（重み）の合計を計算する
- * プロバイダー間（fingerprintjs と thumbmarkjs 等）での重みの二重カウントを防止し、
- * コンポーネント単位でデデュープして評価します。
+ * デュアルスタック (IPv4+IPv6) とシングルスタックの環境特性に応じた動的 IP 重み評価を行い、
+ * プロバイダー間での重みの二重カウントを防止し、コンポーネント単位でデデュープして評価します。
  */
 export function calculatePairwiseMatchedWeight(
   response1: ResponseWithFingerprints,
   response2: ResponseWithFingerprints,
-): { v4Match: boolean; v6Match: boolean; matchedWeight: number } {
+): {
+  v4Match: boolean;
+  v6Match: boolean;
+  ipMatchedWeight: number;
+  matchedWeight: number;
+} {
   if (
     response1.fingerprintDetails.length === 0 ||
     response2.fingerprintDetails.length === 0
   ) {
-    return { v4Match: false, v6Match: false, matchedWeight: 0 };
+    return {
+      v4Match: false,
+      v6Match: false,
+      ipMatchedWeight: 0,
+      matchedWeight: 0,
+    };
   }
 
   const r1CompMap = new Map<string, Set<string>>();
@@ -59,38 +69,55 @@ export function calculatePairwiseMatchedWeight(
     r2CompMap.get(d.componentName)?.add(d.componentValueHash);
   }
 
-  // 1. IP (telemetry) の一致判定
+  // 1. IP (telemetry) の動的評価
   const v4_1 = r1CompMap.get("v4");
   const v4_2 = r2CompMap.get("v4");
   const v6_1 = r1CompMap.get("v6");
   const v6_2 = r2CompMap.get("v6");
 
+  const r1HasV4 = Boolean(v4_1 && v4_1.size > 0);
+  const r1HasV6 = Boolean(v6_1 && v6_1.size > 0);
+  const r2HasV4 = Boolean(v4_2 && v4_2.size > 0);
+  const r2HasV6 = Boolean(v6_2 && v6_2.size > 0);
+
+  const isDualStack = (r1HasV4 && r1HasV6) || (r2HasV4 && r2HasV6);
+
   const v4Match = Boolean(v4_1 && v4_2 && [...v4_1].some((h) => v4_2.has(h)));
   const v6Match = Boolean(v6_1 && v6_2 && [...v6_1].some((h) => v6_2.has(h)));
 
+  let ipMatchedWeight = 0;
+  if (isDualStack) {
+    // デュアルスタック環境
+    if (v4Match && v6Match) {
+      ipMatchedWeight = 2.0; // 両方一致で最高重み
+    } else if (v4Match || v6Match) {
+      ipMatchedWeight = 0.7; // モバイル回線等の変動を考慮して少し低い重み
+    }
+  } else {
+    // シングルスタック環境（v4のみ / v6のみ）
+    if (v4Match || v6Match) {
+      ipMatchedWeight = 1.5; // 存在するプロトコルの高い識別力
+    }
+  }
+
   // 2. その他のブラウザ指紋要素の一致判定（コンポーネント名でデデュープ）
-  let matchedWeight = 0;
+  let otherMatchedWeight = 0;
   for (const [compName, hashes1] of r1CompMap.entries()) {
     if (compName === "v4" || compName === "v6") continue;
     const hashes2 = r2CompMap.get(compName);
     if (hashes2 && [...hashes1].some((h) => hashes2.has(h))) {
       const weight = COMPONENT_WEIGHTS[compName] ?? DEFAULT_COMPONENT_WEIGHT;
-      matchedWeight += weight;
+      otherMatchedWeight += weight;
     }
   }
 
-  // IPが一致している場合は加重ボーナス
-  if (v4Match) {
-    matchedWeight += COMPONENT_WEIGHTS.v4 ?? 0.5;
-  }
-  if (v6Match) {
-    matchedWeight += COMPONENT_WEIGHTS.v6 ?? 0.5;
-  }
+  const totalMatchedWeight = ipMatchedWeight + otherMatchedWeight;
 
   return {
     v4Match,
     v6Match,
-    matchedWeight,
+    ipMatchedWeight,
+    matchedWeight: totalMatchedWeight,
   };
 }
 
