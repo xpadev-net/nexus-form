@@ -208,26 +208,35 @@ export function calculateUniqueness(
     return 0.0;
   }
 
-  // 2. v6 (IPv6) トークンが一致する場合は即 0.0 (一発アウト)
-  // buildComponentMap は fingerprintType を区別せずコンポーネント名でまとめるため、
-  // v6 エントリが複数あってもすべて Set に集約される。hasSetIntersection で正確に判定する。
-  const targetCompMap =
-    componentMapCache?.get(targetResponse.id) ??
-    buildComponentMap(targetResponse);
-  const targetV6Hashes = targetCompMap.get("v6");
-  if (targetV6Hashes && targetV6Hashes.size > 0) {
-    const hasV6Match = otherResponses.some((other) => {
-      const otherCompMap =
-        componentMapCache?.get(other.id) ?? buildComponentMap(other);
-      return hasSetIntersection(targetV6Hashes, otherCompMap.get("v6"));
-    });
+  // 2. v6 (IPv6) テレメトリートークンが一致する場合は即 0.0 (一発アウト)
+  // buildComponentMap は fingerprintType を区別しないため、v6 判定専用に
+  // telemetry プロバイダーのエントリのみを抽出して Set を構築する。
+  // 非 telemetry プロバイダーの「v6」コンポーネントを誤検知しないようにするため。
+  const targetV6TelemetryHashes = new Set(
+    targetResponse.fingerprintDetails
+      .filter(
+        (d) => d.componentName === "v6" && d.fingerprintType === "telemetry",
+      )
+      .map((d) => d.componentValueHash),
+  );
+  if (targetV6TelemetryHashes.size > 0) {
+    const hasV6Match = otherResponses.some((other) =>
+      other.fingerprintDetails.some(
+        (d) =>
+          d.componentName === "v6" &&
+          d.fingerprintType === "telemetry" &&
+          targetV6TelemetryHashes.has(d.componentValueHash),
+      ),
+    );
     if (hasV6Match) {
       return 0.0;
     }
   }
 
   // 3. 他の全回答の中で、最も一致重みの大きかった相手を探索
-  // targetCompMap はステップ2で既に構築済みのためそのまま再利用する
+  const targetCompMap =
+    componentMapCache?.get(targetResponse.id) ??
+    buildComponentMap(targetResponse);
 
   let maxMatchedWeight = 0;
 
