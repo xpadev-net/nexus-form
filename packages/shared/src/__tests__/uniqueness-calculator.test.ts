@@ -760,16 +760,16 @@ describe("uniqueness-calculator", () => {
       expect(calculateUniqueness(r1, [r1, r2])).toBe(1.0);
     });
 
-    it("returns 0.0 for v6 component matching regardless of fingerprintType value", () => {
+    it("returns 0.0 for v6 telemetry component matching", () => {
       // buildComponentMap は fingerprintType を区別しないため、
-      // v6 コンポーネント名が一致すれば fingerprintType に関わらず一発アウトになる
+      // v6 テレメトリートークンが一致すれば一発アウトになる
       const r1: ResponseWithFingerprints = {
         id: "neg-r3",
         fingerprintDetails: [
           {
             componentName: "v6",
             componentValueHash: "ipv6-hash-X",
-            fingerprintType: "browser",
+            fingerprintType: "telemetry",
           },
         ],
       };
