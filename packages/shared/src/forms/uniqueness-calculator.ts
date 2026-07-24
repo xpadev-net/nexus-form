@@ -3,7 +3,8 @@
  * 回答者のユニーク度を算出するロジックを実装します。
  * 減点方式（Matched Weight Deduction Model）を採用し、
  * 一致した指紋要素の信頼度（重み）の合計に応じてユニーク度スコア（1.0 -> 0.0）を減少させます。
- * 不一致項目は単に無視され、別アクターであることの証明としては扱いません。
+ * IPアドレス（v4/v6）を最も強力な識別シグナルとして位置付け、
+ * IPが不一致の一般的ユーザーが同一端末モデルの標準ブラウザ要素（ノイズ）で過剰減点されないよう保護します。
  */
 
 import {
@@ -26,106 +27,72 @@ export interface ResponseWithFingerprints {
 
 /**
  * 2つの回答間で一致した指紋項目の信頼度（重み）の合計を計算する
+ * プロバイダー間（fingerprintjs と thumbmarkjs 等）での重みの二重カウントを防止し、
+ * コンポーネント単位でデデュープして評価します。
  */
 export function calculatePairwiseMatchedWeight(
   response1: ResponseWithFingerprints,
   response2: ResponseWithFingerprints,
-): number {
+): {
+  v4Match: boolean;
+  v6Match: boolean;
+  otherWeight: number;
+  totalWeight: number;
+} {
   if (
     response1.fingerprintDetails.length === 0 ||
     response2.fingerprintDetails.length === 0
   ) {
-    return 0;
+    return { v4Match: false, v6Match: false, otherWeight: 0, totalWeight: 0 };
   }
 
-  const r1Map = new Map<
-    string,
-    (typeof response1.fingerprintDetails)[number]
-  >();
+  const r1CompMap = new Map<string, Set<string>>();
   for (const d of response1.fingerprintDetails) {
-    r1Map.set(`${d.fingerprintType}:${d.componentName}`, d);
+    if (!r1CompMap.has(d.componentName)) {
+      r1CompMap.set(d.componentName, new Set());
+    }
+    r1CompMap.get(d.componentName)?.add(d.componentValueHash);
   }
 
-  const r2Map = new Map<
-    string,
-    (typeof response2.fingerprintDetails)[number]
-  >();
+  const r2CompMap = new Map<string, Set<string>>();
   for (const d of response2.fingerprintDetails) {
-    r2Map.set(`${d.fingerprintType}:${d.componentName}`, d);
+    if (!r2CompMap.has(d.componentName)) {
+      r2CompMap.set(d.componentName, new Set());
+    }
+    r2CompMap.get(d.componentName)?.add(d.componentValueHash);
   }
 
-  // 1. IP (telemetry) の動的重み判定
-  const hasV4_1 = r1Map.has("telemetry:v4");
-  const hasV6_1 = r1Map.has("telemetry:v6");
-  const hasV4_2 = r2Map.has("telemetry:v4");
-  const hasV6_2 = r2Map.has("telemetry:v6");
+  // 1. IP (telemetry) の一致判定
+  const v4_1 = r1CompMap.get("v4");
+  const v4_2 = r2CompMap.get("v4");
+  const v6_1 = r1CompMap.get("v6");
+  const v6_2 = r2CompMap.get("v6");
 
-  const v4Match =
-    r1Map.has("telemetry:v4") &&
-    r2Map.has("telemetry:v4") &&
-    r1Map.get("telemetry:v4")?.componentValueHash ===
-      r2Map.get("telemetry:v4")?.componentValueHash;
+  const v4Match = Boolean(v4_1 && v4_2 && [...v4_1].some((h) => v4_2.has(h)));
+  const v6Match = Boolean(v6_1 && v6_2 && [...v6_1].some((h) => v6_2.has(h)));
 
-  const v6Match =
-    r1Map.has("telemetry:v6") &&
-    r2Map.has("telemetry:v6") &&
-    r1Map.get("telemetry:v6")?.componentValueHash ===
-      r2Map.get("telemetry:v6")?.componentValueHash;
-
-  let ipMatchedWeight = 0;
-  const isDualStack = (hasV4_1 && hasV6_1) || (hasV4_2 && hasV6_2);
-
-  if (isDualStack) {
-    // デュアルスタック環境
-    if (v4Match && v6Match) {
-      ipMatchedWeight = 2.0; // 両方一致で最高重み
-    } else if (v4Match || v6Match) {
-      ipMatchedWeight = 0.7; // モバイル回線等の変動を考慮して少し低い重み
-    }
-  } else {
-    // シングルスタック環境（v4のみ / v6のみ）
-    if (v4Match || v6Match) {
-      ipMatchedWeight = 1.5; // 存在するプロトコルの高い識別力
+  // 2. その他のブラウザ指紋要素の一致判定（コンポーネント名でデデュープ）
+  let otherWeight = 0;
+  for (const [compName, hashes1] of r1CompMap.entries()) {
+    if (compName === "v4" || compName === "v6") continue;
+    const hashes2 = r2CompMap.get(compName);
+    if (hashes2 && [...hashes1].some((h) => hashes2.has(h))) {
+      const weight = COMPONENT_WEIGHTS[compName] ?? DEFAULT_COMPONENT_WEIGHT;
+      otherWeight += weight;
     }
   }
 
-  // 2. その他のブラウザ指紋要素の一致判定
-  let otherMatchedWeight = 0;
-  for (const [key, detail1] of r1Map.entries()) {
-    if (key.startsWith("telemetry:")) continue; // IPは個別判定済みのため除外
+  let ipWeight = 0;
+  if (v4Match && v6Match) ipWeight = 4.0;
+  else if (v4Match) ipWeight = 3.0;
+  else if (v6Match) ipWeight = 4.0;
 
-    const detail2 = r2Map.get(key);
-    if (detail2 && detail1.componentValueHash === detail2.componentValueHash) {
-      const componentName = key.split(":")[1];
-      const weight =
-        (componentName ? COMPONENT_WEIGHTS[componentName] : undefined) ??
-        DEFAULT_COMPONENT_WEIGHT;
-      otherMatchedWeight += weight;
-    }
-  }
-
-  return ipMatchedWeight + otherMatchedWeight;
-}
-
-/**
- * 一致重み (Matched Weight) を [0.0, 1.0] の連続した滑らかなユニーク度スコアに正規化する
- * - W <= 1.4 (自然な別人のノイズ一致) -> 0.90 ~ 1.00 (e.g. W=1.4 で ~0.9577)
- * - W = 4.0 (中間・グレーゾーン) -> ~0.5250
- * - W >= 7.0 (同一環境・重複投稿) -> ~0.0661 -> 0.00
- */
-export function normalizeMatchedWeightToUniqueness(
-  matchedWeight: number,
-): number {
-  if (matchedWeight <= 0) {
-    return 1.0;
-  }
-
-  const midpoint = 4.0;
-  const slope = 0.9;
-  const rawScore = 1.0 / (1.0 + Math.exp(slope * (matchedWeight - midpoint)));
-  const scaled = rawScore * 1.05;
-
-  return Math.max(0.0, Math.min(1.0, Number(scaled.toFixed(4))));
+  return {
+    v4Match,
+    v6Match,
+    otherWeight,
+    totalWeight: ipWeight + otherWeight,
+  };
 }
 
 /**
@@ -177,19 +144,42 @@ export function calculateUniqueness(
   }
 
   // 3. 他の全回答の中で、最も一致重みの大きかった相手を探索
-  let maxMatchedWeight = 0;
+  let maxV4MatchedWeight = 0;
+  let hasV4Match = false;
+  let maxDifferentIPMatchedWeight = 0;
+
   for (const otherResponse of otherResponses) {
-    const matchedWeight = calculatePairwiseMatchedWeight(
-      targetResponse,
-      otherResponse,
-    );
-    if (matchedWeight > maxMatchedWeight) {
-      maxMatchedWeight = matchedWeight;
+    const p = calculatePairwiseMatchedWeight(targetResponse, otherResponse);
+    if (p.v4Match) {
+      hasV4Match = true;
+      if (p.otherWeight > maxV4MatchedWeight) {
+        maxV4MatchedWeight = p.otherWeight;
+      }
+    } else {
+      if (p.otherWeight > maxDifferentIPMatchedWeight) {
+        maxDifferentIPMatchedWeight = p.otherWeight;
+      }
     }
   }
 
-  // シグモイド正規化関数で 0.0 ~ 1.0 にスケーリング
-  return normalizeMatchedWeightToUniqueness(maxMatchedWeight);
+  // ケースA: 同一 IPv4 アドレスの一致相手が存在する場合
+  // 同じIPアドレスから送信され、指紋要素の一致重みが一定（>2.0）以上重なる場合は確定重複・同一アクター（スコア 0.0）
+  if (hasV4Match) {
+    if (maxV4MatchedWeight >= 2.0) {
+      return Math.max(0.0, Number((1.0 - maxV4MatchedWeight / 3.5).toFixed(4)));
+    }
+  }
+
+  // ケースB: 異なる IP アドレスの相手との比較
+  // ブラウザ標準環境（OS/言語/標準解像度/標準フォント等）のノイズ上限値 = 6.0
+  // W <= 6.0 の場合はノイズ範囲内としてスコア 0.90 ~ 1.00 を保護
+  // W > 6.0 (同一型番端末の完全一致等) の場合も、IPが異なる一般ユーザーとして 0.60 ~ 0.85 を維持
+  if (maxDifferentIPMatchedWeight <= 6.0) {
+    return Number((1.0 - (maxDifferentIPMatchedWeight / 6.0) * 0.1).toFixed(4));
+  }
+
+  const extraNoise = maxDifferentIPMatchedWeight - 6.0;
+  return Math.max(0.6, Number((0.9 - (extraNoise / 6.0) * 0.25).toFixed(4)));
 }
 
 /**
