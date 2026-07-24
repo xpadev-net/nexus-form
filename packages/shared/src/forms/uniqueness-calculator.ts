@@ -3,7 +3,10 @@
  * 回答者のユニーク度を算出するロジックを実装します。
  * 減点方式（Matched Weight Deduction Model）を採用し、
  * 一致した指紋要素の信頼度（重み）の合計に応じてユニーク度スコア（1.0 -> 0.0）を減少させます。
- * 不一致項目は単に無視され、別アクターであることの証明としては扱いません。
+ *
+ * 識別力の低いノイズ項目（OS名、標準解像度、標準言語等）の重みを大幅に引き下げ、
+ * Wi-Fiとモバイル回線等でIPが異なるケースでも、高識別指紋（Canvas, WebGL, Fonts, Audio, WebRTC）を
+ * もとに同端末・同一人物を精度高く識別・減点します。
  */
 
 import {
@@ -25,107 +28,121 @@ export interface ResponseWithFingerprints {
 }
 
 /**
- * 2つの回答間で一致した指紋項目の信頼度（重み）の合計を計算する
+ * ペア一致評価結果の名前付き型定義
+ */
+export interface PairwiseMatchResult {
+  v4Match: boolean;
+  v6Match: boolean;
+  ipMatchedWeight: number;
+  matchedWeight: number;
+}
+
+export type ComponentMap = Map<string, Set<string>>;
+
+/**
+ * 回答データの指紋詳細から componentName -> Set<componentValueHash> のマップを構築する
+ */
+export function buildComponentMap(
+  response: ResponseWithFingerprints,
+): ComponentMap {
+  const compMap = new Map<string, Set<string>>();
+  for (const d of response.fingerprintDetails) {
+    let set = compMap.get(d.componentName);
+    if (!set) {
+      set = new Set<string>();
+      compMap.set(d.componentName, set);
+    }
+    set.add(d.componentValueHash);
+  }
+  return compMap;
+}
+
+/**
+ * 2つの Set 間で共通の要素（Intersection）が存在するか判定する共通ヘルパー
+ */
+export function hasSetIntersection(
+  set1?: Set<string>,
+  set2?: Set<string>,
+): boolean {
+  if (!set1 || !set2 || set1.size === 0 || set2.size === 0) {
+    return false;
+  }
+  return [...set1].some((item) => set2.has(item));
+}
+
+/**
+ * 2つの回答間（または事前構築された ComponentMap 間）で一致した指紋項目の信頼度（重み）の合計を計算する
+ * デュアルスタック (IPv4+IPv6) とシングルスタックの環境特性に応じた動的 IP 重み評価を行い、
+ * プロバイダー間での重みの二重カウントを防止し、コンポーネント単位でデデュープして評価します。
  */
 export function calculatePairwiseMatchedWeight(
-  response1: ResponseWithFingerprints,
-  response2: ResponseWithFingerprints,
-): number {
-  if (
-    response1.fingerprintDetails.length === 0 ||
-    response2.fingerprintDetails.length === 0
-  ) {
-    return 0;
+  response1: ResponseWithFingerprints | ComponentMap,
+  response2: ResponseWithFingerprints | ComponentMap,
+): PairwiseMatchResult {
+  const r1CompMap =
+    response1 instanceof Map ? response1 : buildComponentMap(response1);
+  const r2CompMap =
+    response2 instanceof Map ? response2 : buildComponentMap(response2);
+
+  if (r1CompMap.size === 0 || r2CompMap.size === 0) {
+    return {
+      v4Match: false,
+      v6Match: false,
+      ipMatchedWeight: 0,
+      matchedWeight: 0,
+    };
   }
 
-  const r1Map = new Map<
-    string,
-    (typeof response1.fingerprintDetails)[number]
-  >();
-  for (const d of response1.fingerprintDetails) {
-    r1Map.set(`${d.fingerprintType}:${d.componentName}`, d);
-  }
+  // 1. IP (telemetry) の動的評価
+  const v4_1 = r1CompMap.get("v4");
+  const v4_2 = r2CompMap.get("v4");
+  const v6_1 = r1CompMap.get("v6");
+  const v6_2 = r2CompMap.get("v6");
 
-  const r2Map = new Map<
-    string,
-    (typeof response2.fingerprintDetails)[number]
-  >();
-  for (const d of response2.fingerprintDetails) {
-    r2Map.set(`${d.fingerprintType}:${d.componentName}`, d);
-  }
+  const r1HasV4 = Boolean(v4_1 && v4_1.size > 0);
+  const r1HasV6 = Boolean(v6_1 && v6_1.size > 0);
+  const r2HasV4 = Boolean(v4_2 && v4_2.size > 0);
+  const r2HasV6 = Boolean(v6_2 && v6_2.size > 0);
 
-  // 1. IP (telemetry) の動的重み判定
-  const hasV4_1 = r1Map.has("telemetry:v4");
-  const hasV6_1 = r1Map.has("telemetry:v6");
-  const hasV4_2 = r2Map.has("telemetry:v4");
-  const hasV6_2 = r2Map.has("telemetry:v6");
+  const isDualStack = (r1HasV4 && r1HasV6) || (r2HasV4 && r2HasV6);
 
-  const v4Match =
-    r1Map.has("telemetry:v4") &&
-    r2Map.has("telemetry:v4") &&
-    r1Map.get("telemetry:v4")?.componentValueHash ===
-      r2Map.get("telemetry:v4")?.componentValueHash;
-
-  const v6Match =
-    r1Map.has("telemetry:v6") &&
-    r2Map.has("telemetry:v6") &&
-    r1Map.get("telemetry:v6")?.componentValueHash ===
-      r2Map.get("telemetry:v6")?.componentValueHash;
+  const v4Match = hasSetIntersection(v4_1, v4_2);
+  const v6Match = hasSetIntersection(v6_1, v6_2);
 
   let ipMatchedWeight = 0;
-  const isDualStack = (hasV4_1 && hasV6_1) || (hasV4_2 && hasV6_2);
-
   if (isDualStack) {
     // デュアルスタック環境
     if (v4Match && v6Match) {
-      ipMatchedWeight = 2.0; // 両方一致で最高重み
+      ipMatchedWeight = 3.0; // 両方一致で強力な即時・急降下減点
     } else if (v4Match || v6Match) {
-      ipMatchedWeight = 0.7; // モバイル回線等の変動を考慮して少し低い重み
+      ipMatchedWeight = 1.0; // モバイル回線等のIP変動を考慮した減点
     }
   } else {
     // シングルスタック環境（v4のみ / v6のみ）
     if (v4Match || v6Match) {
-      ipMatchedWeight = 1.5; // 存在するプロトコルの高い識別力
+      ipMatchedWeight = 2.2; // 存在するプロトコルの高い識別力
     }
   }
 
-  // 2. その他のブラウザ指紋要素の一致判定
+  // 2. その他のブラウザ指紋要素の一致判定（コンポーネント名でデデュープ）
   let otherMatchedWeight = 0;
-  for (const [key, detail1] of r1Map.entries()) {
-    if (key.startsWith("telemetry:")) continue; // IPは個別判定済みのため除外
-
-    const detail2 = r2Map.get(key);
-    if (detail2 && detail1.componentValueHash === detail2.componentValueHash) {
-      const componentName = key.split(":")[1];
-      const weight =
-        (componentName ? COMPONENT_WEIGHTS[componentName] : undefined) ??
-        DEFAULT_COMPONENT_WEIGHT;
+  for (const [compName, hashes1] of r1CompMap.entries()) {
+    if (compName === "v4" || compName === "v6") continue;
+    const hashes2 = r2CompMap.get(compName);
+    if (hasSetIntersection(hashes1, hashes2)) {
+      const weight = COMPONENT_WEIGHTS[compName] ?? DEFAULT_COMPONENT_WEIGHT;
       otherMatchedWeight += weight;
     }
   }
 
-  return ipMatchedWeight + otherMatchedWeight;
-}
+  const totalMatchedWeight = ipMatchedWeight + otherMatchedWeight;
 
-/**
- * 一致重み (Matched Weight) を [0.0, 1.0] の連続した滑らかなユニーク度スコアに正規化する
- * - W <= 1.4 (自然な別人のノイズ一致) -> 0.90 ~ 1.00 (e.g. W=1.4 で ~0.9577)
- * - W = 4.0 (中間・グレーゾーン) -> ~0.5250
- * - W >= 7.0 (同一環境・重複投稿) -> ~0.0661 -> 0.00
- */
-export function normalizeMatchedWeightToUniqueness(
-  matchedWeight: number,
-): number {
-  if (matchedWeight <= 0) {
-    return 1.0;
-  }
-
-  const midpoint = 4.0;
-  const slope = 0.9;
-  const rawScore = 1.0 / (1.0 + Math.exp(slope * (matchedWeight - midpoint)));
-  const scaled = rawScore * 1.05;
-
-  return Math.max(0.0, Math.min(1.0, Number(scaled.toFixed(4))));
+  return {
+    v4Match,
+    v6Match,
+    ipMatchedWeight,
+    matchedWeight: totalMatchedWeight,
+  };
 }
 
 /**
@@ -134,6 +151,7 @@ export function normalizeMatchedWeightToUniqueness(
 export function calculateUniqueness(
   targetResponse: ResponseWithFingerprints,
   allResponses: ResponseWithFingerprints[],
+  componentMapCache?: Map<string, ComponentMap>,
 ): number {
   if (allResponses.length <= 1) {
     return 1.0;
@@ -177,19 +195,36 @@ export function calculateUniqueness(
   }
 
   // 3. 他の全回答の中で、最も一致重みの大きかった相手を探索
+  const targetCompMap =
+    componentMapCache?.get(targetResponse.id) ??
+    buildComponentMap(targetResponse);
+
   let maxMatchedWeight = 0;
+
   for (const otherResponse of otherResponses) {
-    const matchedWeight = calculatePairwiseMatchedWeight(
-      targetResponse,
-      otherResponse,
-    );
-    if (matchedWeight > maxMatchedWeight) {
-      maxMatchedWeight = matchedWeight;
+    const otherCompMap =
+      componentMapCache?.get(otherResponse.id) ??
+      buildComponentMap(otherResponse);
+
+    const p = calculatePairwiseMatchedWeight(targetCompMap, otherCompMap);
+    if (p.matchedWeight > maxMatchedWeight) {
+      maxMatchedWeight = p.matchedWeight;
     }
   }
 
-  // シグモイド正規化関数で 0.0 ~ 1.0 にスケーリング
-  return normalizeMatchedWeightToUniqueness(maxMatchedWeight);
+  // 4. 重み減点モデルによるユニーク度スコア算出
+  // - ノイズ範囲（matchedWeight <= 3.0） -> 0.90 ~ 1.00
+  // - 類似ブラウザ（3.0 < matchedWeight <= 6.0） -> 0.40 ~ 0.89
+  // - 同一端末・同一人物（Wi-Fi/モバイル切り替え、あるいは同一IPの重複）(matchedWeight > 6.0) -> 0.0000 付近へ急速減少
+  if (maxMatchedWeight <= 3.0) {
+    return Number((1.0 - (maxMatchedWeight / 3.0) * 0.1).toFixed(4));
+  } else if (maxMatchedWeight <= 6.0) {
+    const extra = maxMatchedWeight - 3.0;
+    return Number((0.9 - (extra / 3.0) * 0.5).toFixed(4));
+  } else {
+    const extra = maxMatchedWeight - 6.0;
+    return Math.max(0.0, Number((0.4 - extra * 0.25).toFixed(4)));
+  }
 }
 
 /**
@@ -198,9 +233,15 @@ export function calculateUniqueness(
 export function calculateAllUniquenessScores(
   responses: ResponseWithFingerprints[],
 ): Array<{ responseId: string; uniquenessScore: number }> {
+  // 事前に各レスポンスの ComponentMap を1回だけ構築して使い回す
+  const cache = new Map<string, ComponentMap>();
+  for (const response of responses) {
+    cache.set(response.id, buildComponentMap(response));
+  }
+
   return responses.map((response) => ({
     responseId: response.id,
-    uniquenessScore: calculateUniqueness(response, responses),
+    uniquenessScore: calculateUniqueness(response, responses, cache),
   }));
 }
 

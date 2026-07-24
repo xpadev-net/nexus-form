@@ -1,13 +1,59 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildComponentMap,
   calculatePairwiseMatchedWeight,
   calculateUniqueness,
   calculateUniquenessScoreMap,
-  normalizeMatchedWeightToUniqueness,
+  hasSetIntersection,
   type ResponseWithFingerprints,
 } from "../forms/uniqueness-calculator";
 
 describe("uniqueness-calculator", () => {
+  describe("hasSetIntersection helper", () => {
+    it("returns false for undefined or empty sets", () => {
+      expect(hasSetIntersection(undefined, new Set(["a"]))).toBe(false);
+      expect(hasSetIntersection(new Set(["a"]), undefined)).toBe(false);
+      expect(hasSetIntersection(new Set(), new Set(["a"]))).toBe(false);
+    });
+
+    it("detects shared items correctly", () => {
+      expect(hasSetIntersection(new Set(["a", "b"]), new Set(["b", "c"]))).toBe(
+        true,
+      );
+      expect(hasSetIntersection(new Set(["a", "b"]), new Set(["c", "d"]))).toBe(
+        false,
+      );
+    });
+  });
+
+  describe("buildComponentMap helper", () => {
+    it("builds a component map with sets of value hashes", () => {
+      const response: ResponseWithFingerprints = {
+        id: "r1",
+        fingerprintDetails: [
+          {
+            componentName: "fonts",
+            componentValueHash: "h1",
+            fingerprintType: "fp",
+          },
+          {
+            componentName: "fonts",
+            componentValueHash: "h2",
+            fingerprintType: "tm",
+          },
+          {
+            componentName: "canvas",
+            componentValueHash: "h3",
+            fingerprintType: "fp",
+          },
+        ],
+      };
+      const map = buildComponentMap(response);
+      expect(map.get("fonts")).toEqual(new Set(["h1", "h2"]));
+      expect(map.get("canvas")).toEqual(new Set(["h3"]));
+    });
+  });
+
   it("returns 0.0 immediately if target response shares a sessionId with another response", () => {
     const r1: ResponseWithFingerprints = {
       id: "res-1",
@@ -106,7 +152,6 @@ describe("uniqueness-calculator", () => {
       ],
     };
 
-    // Both fail the non-empty sessionId check, so falls back to fingerprint calculation (1.0 since hashes differ)
     expect(calculateUniqueness(r1, [r1, r2])).toBe(1.0);
     expect(calculateUniqueness(r2, [r1, r2])).toBe(1.0);
   });
@@ -181,7 +226,7 @@ describe("uniqueness-calculator", () => {
   });
 
   describe("calculatePairwiseMatchedWeight", () => {
-    it("returns 0 if either response has empty fingerprintDetails", () => {
+    it("returns 0 matchedWeight if either response has empty fingerprintDetails", () => {
       const r1: ResponseWithFingerprints = { id: "1", fingerprintDetails: [] };
       const r2: ResponseWithFingerprints = {
         id: "2",
@@ -193,23 +238,23 @@ describe("uniqueness-calculator", () => {
           },
         ],
       };
-      expect(calculatePairwiseMatchedWeight(r1, r2)).toBe(0);
-      expect(calculatePairwiseMatchedWeight(r2, r1)).toBe(0);
+      expect(calculatePairwiseMatchedWeight(r1, r2).matchedWeight).toBe(0);
+      expect(calculatePairwiseMatchedWeight(r2, r1).matchedWeight).toBe(0);
     });
 
-    it("calculates matched weights correctly for browser components", () => {
+    it("calculates matched weights correctly and deduplicates across providers", () => {
       const r1: ResponseWithFingerprints = {
         id: "1",
         fingerprintDetails: [
           {
             componentName: "fonts",
             componentValueHash: "same-fonts",
-            fingerprintType: "browser",
+            fingerprintType: "fingerprintjs",
           },
           {
-            componentName: "screen",
-            componentValueHash: "same-screen",
-            fingerprintType: "browser",
+            componentName: "fonts",
+            componentValueHash: "same-fonts",
+            fingerprintType: "thumbmarkjs",
           },
         ],
       };
@@ -219,22 +264,17 @@ describe("uniqueness-calculator", () => {
           {
             componentName: "fonts",
             componentValueHash: "same-fonts",
-            fingerprintType: "browser",
-          },
-          {
-            componentName: "screen",
-            componentValueHash: "different-screen",
-            fingerprintType: "browser",
+            fingerprintType: "fingerprintjs",
           },
         ],
       };
 
-      // fonts weight is 1.0 (from COMPONENT_WEIGHTS)
-      expect(calculatePairwiseMatchedWeight(r1, r2)).toBe(1.0);
+      const res = calculatePairwiseMatchedWeight(r1, r2);
+      expect(res.matchedWeight).toBe(1.0);
     });
 
     it("applies dynamic IP weights correctly for dual-stack vs single-stack", () => {
-      // Single-stack v4 match = 1.5
+      // Single-stack v4 match = 2.2
       const rSingle1: ResponseWithFingerprints = {
         id: "s1",
         fingerprintDetails: [
@@ -255,9 +295,11 @@ describe("uniqueness-calculator", () => {
           },
         ],
       };
-      expect(calculatePairwiseMatchedWeight(rSingle1, rSingle2)).toBe(1.5);
+      expect(
+        calculatePairwiseMatchedWeight(rSingle1, rSingle2).ipMatchedWeight,
+      ).toBe(2.2);
 
-      // Dual-stack v4 + v6 match = 2.0
+      // Dual-stack v4 + v6 match = 3.0
       const rDual1: ResponseWithFingerprints = {
         id: "d1",
         fingerprintDetails: [
@@ -288,33 +330,29 @@ describe("uniqueness-calculator", () => {
           },
         ],
       };
-      expect(calculatePairwiseMatchedWeight(rDual1, rDual2)).toBe(2.0);
-    });
-  });
+      expect(
+        calculatePairwiseMatchedWeight(rDual1, rDual2).ipMatchedWeight,
+      ).toBe(3.0);
 
-  describe("normalizeMatchedWeightToUniqueness", () => {
-    it("returns 1.0 for matchedWeight <= 0", () => {
-      expect(normalizeMatchedWeightToUniqueness(0)).toBe(1.0);
-      expect(normalizeMatchedWeightToUniqueness(-1)).toBe(1.0);
-    });
-
-    it("calibrates values according to JSDoc thresholds", () => {
-      // W = 1.4 (natural noise threshold for distinct users) -> ~0.9577
-      const score1_4 = normalizeMatchedWeightToUniqueness(1.4);
-      expect(score1_4).toBeGreaterThanOrEqual(0.9);
-      expect(score1_4).toBeLessThanOrEqual(1.0);
-
-      // W = 4.0 (midpoint) -> ~0.5250
-      const score4_0 = normalizeMatchedWeightToUniqueness(4.0);
-      expect(score4_0).toBeCloseTo(0.525, 2);
-
-      // W = 7.0 (heavy overlap / duplicate) -> ~0.0661
-      const score7_0 = normalizeMatchedWeightToUniqueness(7.0);
-      expect(score7_0).toBeLessThan(0.1);
-
-      // W = 12.0 (near identical) -> ~0.0002 -> clamped low
-      const score12_0 = normalizeMatchedWeightToUniqueness(12.0);
-      expect(score12_0).toBeLessThan(0.01);
+      // Dual-stack v4 only match (v6 differs/unmatched) = 1.0
+      const rDualPartial: ResponseWithFingerprints = {
+        id: "d3",
+        fingerprintDetails: [
+          {
+            componentName: "v4",
+            componentValueHash: "v4-same",
+            fingerprintType: "telemetry",
+          },
+          {
+            componentName: "v6",
+            componentValueHash: "v6-diff",
+            fingerprintType: "telemetry",
+          },
+        ],
+      };
+      expect(
+        calculatePairwiseMatchedWeight(rDual1, rDualPartial).ipMatchedWeight,
+      ).toBe(1.0);
     });
   });
 });
