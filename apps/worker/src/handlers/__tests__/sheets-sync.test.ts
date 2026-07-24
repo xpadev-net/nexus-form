@@ -63,9 +63,12 @@ vi.mock("@nexus-form/shared", async (importOriginal) => {
   const responseExport = await import(
     "../../../../../packages/shared/src/response-export"
   );
+  const uniquenessCalc = await import(
+    "../../../../../packages/shared/src/forms/uniqueness-calculator"
+  );
   return {
     ...actual,
-    getUniquenessScoreRating: actual.getUniquenessScoreRating,
+    getUniquenessScoreRating: uniquenessCalc.getUniquenessScoreRating,
     denormalizeSpreadsheetFormulaValue:
       responseExport.denormalizeSpreadsheetFormulaValue,
     groupResponseExportValidationOutputsByResponseId:
@@ -1367,6 +1370,7 @@ describe("handleSheetsSync — write path", () => {
             "Updated At",
             "Country Code",
             "Uniqueness Score",
+            "Uniqueness Rating",
             "block-1",
           ],
           [
@@ -1386,8 +1390,8 @@ describe("handleSheetsSync — write path", () => {
       TOKEN,
       expect.objectContaining({
         rows: [
-          ["response-1", "", "", "", "", "1.0000", "first"],
-          ["response-2", "", "", "", "", "1.0000", "second"],
+          ["response-1", "", "", "", "", "1.0000", "高", "first"],
+          ["response-2", "", "", "", "", "1.0000", "高", "second"],
         ],
       }),
     );
@@ -1791,6 +1795,7 @@ describe("handleSheetsSync — write path", () => {
             "Updated At",
             "Country Code",
             "Uniqueness Score",
+            "Uniqueness Rating",
             "block-1",
             "block-2",
           ],
@@ -1818,8 +1823,8 @@ describe("handleSheetsSync — write path", () => {
       TOKEN,
       expect.objectContaining({
         rows: [
-          ["response-1", "", "", "", "", "1.0000", "first"],
-          ["response-2", "", "", "", "", "1.0000", "", "second-field"],
+          ["response-1", "", "", "", "", "1.0000", "高", "first"],
+          ["response-2", "", "", "", "", "1.0000", "高", "", "second-field"],
         ],
       }),
     );
@@ -2060,6 +2065,7 @@ describe("handleSheetsSync — write path", () => {
       "Updated At",
       "Country Code",
       "Uniqueness Score",
+      "Uniqueness Rating",
       "block-1",
     ];
     mockReadRange
@@ -2072,7 +2078,7 @@ describe("handleSheetsSync — write path", () => {
       .mockResolvedValueOnce({
         ok: true,
         data: {
-          values: [["Response ID"], ["回答ID"]],
+          values: [sharedIdRow, ["回答ID"]],
         },
       } as never);
 
@@ -2305,6 +2311,7 @@ describe("handleSheetsSync — write path", () => {
           "Updated At",
           "Country Code",
           "Uniqueness Score",
+          "Uniqueness Rating",
           "formula-block",
         ],
         [
@@ -2330,6 +2337,7 @@ describe("handleSheetsSync — write path", () => {
             "2026-05-17T02:30:00.000Z",
             "JP",
             "1.0000",
+            "高",
             "' =cmd",
           ],
         ],
@@ -2429,6 +2437,7 @@ describe("handleSheetsSync — write path", () => {
           "Updated At",
           "Country Code",
           "Uniqueness Score",
+          "Uniqueness Rating",
           "validation_output:rule-gh:profile_score",
           "validation_output:rule-gh:username",
         ],
@@ -2456,6 +2465,7 @@ describe("handleSheetsSync — write path", () => {
             "",
             "JP",
             "1.0000",
+            "高",
             "98.5",
             "octocat",
           ],
