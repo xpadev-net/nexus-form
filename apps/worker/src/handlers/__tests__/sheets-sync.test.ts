@@ -930,6 +930,65 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
+  it("keeps provider-qualified fingerprint components distinct when calculating uniqueness", async () => {
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [],
+      [{ id: "response-1" }, { id: "response-2" }],
+      [
+        {
+          responseId: "response-1",
+          componentName: "canvas",
+          componentValueHash: "browser-canvas-hash",
+          fingerprintType: "browser",
+        },
+        {
+          responseId: "response-1",
+          componentName: "canvas",
+          componentValueHash: "fingerprintjs-canvas-hash-a",
+          fingerprintType: "fingerprintjs",
+        },
+        {
+          responseId: "response-2",
+          componentName: "canvas",
+          componentValueHash: "browser-canvas-hash",
+          fingerprintType: "browser",
+        },
+        {
+          responseId: "response-2",
+          componentName: "canvas",
+          componentValueHash: "fingerprintjs-canvas-hash-b",
+          fingerprintType: "fingerprintjs",
+        },
+      ],
+    );
+    mockGetOAuthToken.mockResolvedValue(TOKEN as never);
+    mockRefreshTokenIfNeeded.mockResolvedValue(TOKEN as never);
+    mockWithRedisLock.mockImplementation(async (_key, fn) => fn());
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockSetIdempotencyKey.mockResolvedValue(undefined);
+    mockReadRange.mockResolvedValue({
+      ok: true,
+      data: { values: [["Response ID", "block-1"]] },
+    } as never);
+    mockSafeParseResponseData.mockReturnValue({ "block-1": "hello" } as never);
+    mockUpdateRange.mockResolvedValue({ ok: true } as never);
+    mockAppendRows.mockResolvedValue({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2", updatedRows: 1 },
+    } as never);
+
+    await handleSheetsSync(makeJob());
+
+    expect(mockAppendRows).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rows: [["response-1", "hello", "0.5000"]],
+      }),
+    );
+  });
+
   it("updates existing sheet rows with recalculated uniqueness scores before appending", async () => {
     setupDbSelect(
       [INTEGRATION],

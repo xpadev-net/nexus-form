@@ -15,6 +15,7 @@ import {
   formValidationRule,
 } from "@nexus-form/database/schema";
 import {
+  buildFingerprintComponentKey,
   buildResponseExportValidationOutputColumns,
   buildResponseLabelLookupFromQuestions,
   COMPONENT_WEIGHTS,
@@ -1057,7 +1058,9 @@ async function getUniquenessScoresForResponses(
     const current = fingerprintsByResponseId.get(fingerprintResponseId) ?? [];
     current.push({ componentName, componentValueHash, fingerprintType });
     fingerprintsByResponseId.set(fingerprintResponseId, current);
-    fingerprintComponents.add(componentName);
+    fingerprintComponents.add(
+      buildFingerprintComponentKey(fingerprintType, componentName),
+    );
   }
 
   const fingerprintSets = responseRows.map((row) => ({
@@ -1106,7 +1109,10 @@ function buildFingerprintUuids(
   const namespace = uuidV5(formId, UUID_V5_DNS_NAMESPACE);
   return Object.fromEntries(
     target.fingerprintDetails.map((fingerprint) => [
-      fingerprint.componentName,
+      buildFingerprintComponentKey(
+        fingerprint.fingerprintType,
+        fingerprint.componentName,
+      ),
       uuidV5(fingerprint.componentValueHash, namespace),
     ]),
   );
@@ -1156,30 +1162,48 @@ function calculateSimilarity(
     return 0;
   }
 
-  const allComponents = new Set<string>();
-  for (const detail of response1.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
-  for (const detail of response2.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
+  const fingerprintsByComponentKey1 = new Map(
+    response1.fingerprintDetails.map((detail) => [
+      buildFingerprintComponentKey(
+        detail.fingerprintType,
+        detail.componentName,
+      ),
+      detail,
+    ]),
+  );
+  const fingerprintsByComponentKey2 = new Map(
+    response2.fingerprintDetails.map((detail) => [
+      buildFingerprintComponentKey(
+        detail.fingerprintType,
+        detail.componentName,
+      ),
+      detail,
+    ]),
+  );
+
+  const allComponents = new Set<string>([
+    ...fingerprintsByComponentKey1.keys(),
+    ...fingerprintsByComponentKey2.keys(),
+  ]);
 
   let totalWeight = 0;
   let matchedWeight = 0;
-  for (const componentName of allComponents) {
+  for (const componentKey of allComponents) {
+    const detail1 = fingerprintsByComponentKey1.get(componentKey);
+    const detail2 = fingerprintsByComponentKey2.get(componentKey);
+    const componentName = detail1?.componentName ?? detail2?.componentName;
+    if (!componentName) {
+      continue;
+    }
+
     const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
     totalWeight += weight;
 
-    const detail1 = response1.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
-    const detail2 = response2.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
     if (
       detail1 &&
       detail2 &&
       detail1.componentValueHash === detail2.componentValueHash &&
+      detail1.componentName === detail2.componentName &&
       detail1.fingerprintType === detail2.fingerprintType
     ) {
       matchedWeight += weight;
