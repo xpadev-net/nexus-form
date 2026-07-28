@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
 import { db, formSubmitOutbox } from "@nexus-form/database";
-import {
-  type SheetsSyncJobData,
-  sheetsSyncJobDataSchema,
-} from "@nexus-form/shared";
+import { addJobWithCleanup, sheetsSyncJobDataSchema } from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
 import { sql } from "drizzle-orm";
 import { redisConnection } from "./redis";
@@ -25,7 +22,9 @@ const SHEETS_SYNC_JOB_DEFAULTS: DefaultJobOptions = {
 let sheetsSyncQueue: Queue | null = null;
 
 function buildValidationRefreshKey(params: {
-  validationResultId: string;
+  formId: string;
+  integrationId: string;
+  responseId: string;
   snapshotVersion?: number;
 }): {
   effectType: string;
@@ -33,7 +32,11 @@ function buildValidationRefreshKey(params: {
   jobId: string;
 } {
   const hash = createHash("sha256")
-    .update(params.validationResultId)
+    .update(params.formId)
+    .update("\0")
+    .update(params.integrationId)
+    .update("\0")
+    .update(params.responseId)
     .update("\0")
     .update(params.snapshotVersion?.toString() ?? "")
     .digest("hex")
@@ -45,38 +48,16 @@ function buildValidationRefreshKey(params: {
   };
 }
 
-async function addValidationRefreshJobWithCleanup(params: {
-  jobData: SheetsSyncJobData;
-  jobId: string;
-}): Promise<void> {
-  const queue = getSheetsSyncQueue();
-  const existingJob = await queue.getJob(params.jobId);
-  if (existingJob) {
-    const state = await existingJob.getState();
-    if (state === "failed" || state === "completed") {
-      try {
-        await existingJob.remove();
-      } catch (error) {
-        if ((await existingJob.getState()) !== "active") {
-          throw error;
-        }
-      }
-    }
-  }
-  await queue.add("validation-refresh", params.jobData, {
-    jobId: params.jobId,
-  });
-}
-
 async function persistValidationRefreshOutboxRow(params: {
   formId: string;
   integrationId: string;
   responseId: string;
   snapshotVersion?: number;
-  validationResultId: string;
 }): Promise<void> {
   const refreshKey = buildValidationRefreshKey({
-    validationResultId: params.validationResultId,
+    formId: params.formId,
+    integrationId: params.integrationId,
+    responseId: params.responseId,
     snapshotVersion: params.snapshotVersion,
   });
   const now = new Date();
@@ -133,11 +114,12 @@ export async function enqueueValidationRefreshSheetsSyncJob(params: {
   formId: string;
   integrationId: string;
   responseId: string;
-  validationResultId: string;
   snapshotVersion?: number;
 }): Promise<void> {
   const refreshKey = buildValidationRefreshKey({
-    validationResultId: params.validationResultId,
+    formId: params.formId,
+    integrationId: params.integrationId,
+    responseId: params.responseId,
     snapshotVersion: params.snapshotVersion,
   });
   const jobData = sheetsSyncJobDataSchema.parse({
@@ -149,9 +131,10 @@ export async function enqueueValidationRefreshSheetsSyncJob(params: {
     refreshValidationOutputs: true,
   });
   try {
-    await addValidationRefreshJobWithCleanup({
+    await addJobWithCleanup(getSheetsSyncQueue(), {
       jobData,
       jobId: refreshKey.jobId,
+      jobName: "validation-refresh",
     });
   } catch (error) {
     console.warn(
@@ -163,7 +146,6 @@ export async function enqueueValidationRefreshSheetsSyncJob(params: {
       integrationId: params.integrationId,
       responseId: params.responseId,
       snapshotVersion: params.snapshotVersion,
-      validationResultId: params.validationResultId,
     });
   }
 }

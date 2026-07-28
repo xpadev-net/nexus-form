@@ -66,7 +66,7 @@ describe("sheets-sync-queue", () => {
     }));
   });
 
-  it("enqueues validation refresh jobs with a validation result scoped job id", async () => {
+  it("enqueues validation refresh jobs with a stable job id", async () => {
     const { enqueueValidationRefreshSheetsSyncJob } = await import(
       "../sheets-sync-queue"
     );
@@ -76,7 +76,6 @@ describe("sheets-sync-queue", () => {
       integrationId: "integration-1",
       responseId: "response-1",
       snapshotVersion: 7,
-      validationResultId: "validation-result:abcdef1234567890",
     });
 
     expect(mocks.queue.add).toHaveBeenCalledWith(
@@ -105,20 +104,54 @@ describe("sheets-sync-queue", () => {
       integrationId: "integration-1",
       responseId: "response-1",
       snapshotVersion: 7,
-      validationResultId: "validation-result:abcdef1234567890",
     });
     await enqueueValidationRefreshSheetsSyncJob({
       formId: "form-1",
       integrationId: "integration-1",
       responseId: "response-1",
       snapshotVersion: 8,
-      validationResultId: "validation-result:abcdef1234567890",
     });
 
     const jobIds = mocks.queue.add.mock.calls.map(
       ([, , options]) => options?.jobId,
     );
     expect(jobIds[0]).not.toBe(jobIds[1]);
+  });
+
+  it.each([
+    "failed",
+    "completed",
+  ] as const)("replaces an existing terminal refresh job in %s state", async (state) => {
+    const remove = vi.fn(async () => undefined);
+    mocks.queue.getJob.mockResolvedValueOnce({
+      getState: vi.fn(async () => state),
+      remove,
+    });
+    const { enqueueValidationRefreshSheetsSyncJob } = await import(
+      "../sheets-sync-queue"
+    );
+
+    await enqueueValidationRefreshSheetsSyncJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      responseId: "response-1",
+      snapshotVersion: 7,
+    });
+
+    expect(remove).toHaveBeenCalledOnce();
+    expect(mocks.queue.add).toHaveBeenCalledWith(
+      "validation-refresh",
+      expect.objectContaining({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+        snapshotVersion: 7,
+        refreshValidationOutputs: true,
+      }),
+      expect.objectContaining({
+        jobId: expect.stringMatching(/^sheets-refresh\./),
+      }),
+    );
   });
 
   it("persists a durable outbox row when direct enqueue fails", async () => {
@@ -132,7 +165,6 @@ describe("sheets-sync-queue", () => {
       integrationId: "integration-1",
       responseId: "response-1",
       snapshotVersion: 7,
-      validationResultId: "validation-result:abcdef1234567890",
     });
 
     expect(mocks.db.insert).toHaveBeenCalledTimes(1);

@@ -110,6 +110,7 @@ export {
   getUniquenessScoreRating,
   hasSetIntersection,
 } from "./forms/uniqueness-calculator";
+export { addJobWithCleanup } from "./job-queue-utils";
 export type {
   CompletionTargetActionSource,
   CompletionTargetHasAnswerableQuestionsIssue,

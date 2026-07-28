@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { formResponse, formSubmitOutbox } from "@nexus-form/database/schema";
 import {
+  addJobWithCleanup,
   FormSubmitNotificationJobDataSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
@@ -208,21 +209,11 @@ async function enqueueClaimedRow(row: ClaimedSubmitOutboxRow): Promise<void> {
       snapshotVersion: row.snapshotVersion ?? undefined,
       refreshValidationOutputs: true,
     });
-    const queue = getSheetsSyncQueue();
-    const existingJob = await queue.getJob(row.id);
-    if (existingJob) {
-      const state = await existingJob.getState();
-      if (state === "failed" || state === "completed") {
-        try {
-          await existingJob.remove();
-        } catch (error) {
-          if ((await existingJob.getState()) !== "active") {
-            throw error;
-          }
-        }
-      }
-    }
-    await queue.add("validation-refresh", jobData, { jobId: row.id });
+    await addJobWithCleanup(getSheetsSyncQueue(), {
+      jobData,
+      jobId: row.id,
+      jobName: "validation-refresh",
+    });
     return;
   }
 
