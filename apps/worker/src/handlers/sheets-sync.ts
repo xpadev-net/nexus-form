@@ -433,7 +433,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
-  const activeFormStructure = await getActiveFormStructure(formId);
+  const activeFormStructure =
+    structureSnapshotVersion === undefined
+      ? await getActiveFormStructure(formId)
+      : undefined;
   const currentStructureJson =
     structureSnapshotVersion === undefined
       ? activeFormStructure?.structureJson
@@ -442,7 +445,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const validationOutputExportSettings =
     parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
   const validationOutputSnapshotVersion = refreshValidationOutputs
-    ? structureSnapshotVersion
+    ? (structureSnapshotVersion ?? activeFormStructure?.version)
     : undefined;
   const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
