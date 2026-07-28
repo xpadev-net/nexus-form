@@ -234,6 +234,12 @@ export async function writeValidationResult(params: {
     }
 
     await tx
+      .select({ id: formResponse.id })
+      .from(formResponse)
+      .where(eq(formResponse.id, params.responseId))
+      .for("update");
+
+    await tx
       .insert(externalServiceValidationResult)
       .values({
         id: resultId,
