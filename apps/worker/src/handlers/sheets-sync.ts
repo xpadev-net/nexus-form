@@ -1469,6 +1469,8 @@ function buildRowFromResponse(
       blockTitleMap,
       fingerprintComponents,
       existingTitleHeaders,
+      undefined,
+      false,
     );
     return {
       headers: mapped.idRow,

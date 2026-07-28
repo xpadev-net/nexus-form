@@ -1808,7 +1808,7 @@ describe("handleSheetsSync — write path", () => {
     expect(mockUpdateRange).not.toHaveBeenCalled();
   });
 
-  it("uses the shared export sheet contract for empty-sheet headers, metadata, and formula neutralization", async () => {
+  it("uses the shared export sheet contract for empty-sheet headers, metadata, and raw Sheets writes", async () => {
     const responseDataJson = JSON.stringify([
       {
         question_id: "formula-block",
@@ -1896,7 +1896,7 @@ describe("handleSheetsSync — write path", () => {
           "更新日時",
           "国コード",
           "ユニーク度スコア",
-          "'=Formula",
+          "=Formula",
         ],
       ],
     });
@@ -1905,13 +1905,13 @@ describe("handleSheetsSync — write path", () => {
       expect.objectContaining({
         rows: [
           [
-            "'=response-1",
-            "'-respondent-1",
+            "=response-1",
+            "-respondent-1",
             "2026-05-17T01:00:00.000Z",
             "2026-05-17T02:30:00.000Z",
             "JP",
             "1.0000",
-            "' =cmd",
+            " =cmd",
           ],
         ],
       }),
