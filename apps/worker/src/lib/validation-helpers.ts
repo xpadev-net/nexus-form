@@ -186,7 +186,10 @@ export async function getValidationContext(
 }
 
 /**
- * バリデーション結果をDBに書き込み、SSEイベントを publish する。
+ * Writes one validation result row, preserves the originating snapshotVersion when present,
+ * publishes the validation SSE event, and enqueues a Sheets refresh once the response no
+ * longer has unfinished validation work.
+ *
  * INSERT ... ON DUPLICATE KEY UPDATE で競合状態を回避する。
  */
 export async function writeValidationResult(params: {
@@ -202,7 +205,7 @@ export async function writeValidationResult(params: {
   errorMessage?: string;
   jobId?: string;
   snapshotVersion?: number;
-}) {
+}): Promise<string> {
   const now = new Date();
   const status: "COMPLETED" | "FAILED" | "MISSING" =
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
@@ -320,25 +323,25 @@ export async function writeValidationResult(params: {
   await publishValidationEvent(event);
 
   if (shouldRefreshSheets) {
-    try {
-      const [sheetsIntegration] = await db
-        .select({ id: formIntegration.id })
-        .from(formIntegration)
-        .where(eq(formIntegration.formId, params.formId))
-        .limit(1);
-      if (sheetsIntegration) {
+    const [sheetsIntegration] = await db
+      .select({ id: formIntegration.id })
+      .from(formIntegration)
+      .where(eq(formIntegration.formId, params.formId))
+      .limit(1);
+    if (sheetsIntegration) {
+      try {
         await enqueueValidationRefreshSheetsSyncJob({
           formId: params.formId,
           integrationId: sheetsIntegration.id,
           responseId: params.responseId,
           snapshotVersion: params.snapshotVersion,
         });
+      } catch (error) {
+        console.warn(
+          "[validation-helpers] Failed to enqueue Sheets validation refresh:",
+          error,
+        );
       }
-    } catch (error) {
-      console.warn(
-        "[validation-helpers] Failed to enqueue Sheets validation refresh:",
-        error,
-      );
     }
   }
 

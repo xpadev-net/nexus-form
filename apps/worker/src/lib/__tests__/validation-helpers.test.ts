@@ -554,6 +554,35 @@ describe("writeValidationResult", () => {
     );
   });
 
+  it("logs refresh enqueue failures without failing the validation write", async () => {
+    selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
+    enqueueValidationRefreshSheetsSyncJob.mockRejectedValueOnce(
+      new Error("Redis unavailable"),
+    );
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      jobId: "job-1",
+    };
+
+    await expect(writeValidationResult(params)).resolves.toBe(
+      getValidationResultId(params),
+    );
+
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "COMPLETED" }),
+    );
+    expect(enqueueValidationRefreshSheetsSyncJob).toHaveBeenCalledWith({
+      formId: params.formId,
+      integrationId: "integration-1",
+      responseId: params.responseId,
+    });
+  });
+
   it("skips the Sheets refresh while unfinished validation rows remain", async () => {
     selectForUpdate.mockResolvedValueOnce([
       { status: "PROCESSING", errorCode: null, jobId: null },

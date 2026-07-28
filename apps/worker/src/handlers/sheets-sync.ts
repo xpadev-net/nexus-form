@@ -385,8 +385,13 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   // 4. 送信時 snapshot の Plate コンテンツからブロックタイトルマップを構築。
   // 古いジョブに snapshotVersion が無い場合だけ現在の draft にフォールバックする。
+  const refreshSnapshotVersion =
+    refreshValidationOutputs && snapshotVersion === undefined
+      ? await getSubmittedSnapshotVersion(formId, responseId)
+      : undefined;
+  const structureSnapshotVersion = snapshotVersion ?? refreshSnapshotVersion;
   const [plateRecord] =
-    snapshotVersion === undefined
+    structureSnapshotVersion === undefined
       ? await db
           .select({ plateContent: form.plateContent })
           .from(form)
@@ -401,7 +406,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           .where(
             and(
               eq(formSnapshot.formId, formId),
-              eq(formSnapshot.version, snapshotVersion),
+              eq(formSnapshot.version, structureSnapshotVersion),
             ),
           )
           .limit(1);
@@ -428,31 +433,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
-  const refreshSnapshotVersion =
-    refreshValidationOutputs && snapshotVersion === undefined
-      ? await getSubmittedSnapshotVersion(formId, responseId)
-      : undefined;
-  const structureSnapshotVersion = snapshotVersion ?? refreshSnapshotVersion;
-  const activeFormStructure =
-    structureSnapshotVersion === undefined
-      ? await getActiveFormStructure(formId)
-      : undefined;
+  const activeFormStructure = await getActiveFormStructure(formId);
   const currentStructureJson =
-    activeFormStructure?.structureJson ??
-    (structureSnapshotVersion === undefined
-      ? undefined
-      : (
-          await getStructureJsonBySnapshotVersion(
-            formId,
-            structureSnapshotVersion,
-          )
-        )?.structureJson);
+    structureSnapshotVersion === undefined
+      ? activeFormStructure?.structureJson
+      : (getSnapshotStructureJson(plateRecord) ??
+        activeFormStructure?.structureJson);
   const validationOutputExportSettings =
-    parseValidationOutputExportSettingsFromStructureJson(
-      snapshotVersion === undefined
-        ? currentStructureJson
-        : getSnapshotStructureJson(plateRecord),
-    );
+    parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
   const validationOutputSnapshotVersion = refreshValidationOutputs
     ? structureSnapshotVersion
     : undefined;
@@ -908,23 +896,6 @@ async function getSubmittedSnapshotVersion(
     )
     .limit(1);
   return outboxRow?.snapshotVersion ?? undefined;
-}
-
-async function getStructureJsonBySnapshotVersion(
-  formId: string,
-  snapshotVersion: number,
-): Promise<{ structureJson: string | null } | undefined> {
-  const [snapshot] = await db
-    .select({ structureJson: formSnapshot.structureJson })
-    .from(formSnapshot)
-    .where(
-      and(
-        eq(formSnapshot.formId, formId),
-        eq(formSnapshot.version, snapshotVersion),
-      ),
-    )
-    .limit(1);
-  return snapshot;
 }
 
 async function getActiveFormStructure(
@@ -1634,7 +1605,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
         throw new Error("Expected a single prepared row for refresh update");
       }
       const updateRow = [...singleRow];
-      while (updateRow.length < sheetCheck.headers.length) {
+      while (updateRow.length < headers.length) {
         updateRow.push("");
       }
       const lastColumnLetter = columnIndexToLetter(updateRow.length - 1);
