@@ -47,7 +47,10 @@ vi.mock("../../queues", () => ({
   getFormSubmitNotificationQueue: vi.fn(() => ({
     add: mocks.addNotificationJob,
   })),
-  getSheetsSyncQueue: vi.fn(() => ({ add: mocks.addSheetsJob })),
+  getSheetsSyncQueue: vi.fn(() => ({
+    add: mocks.addSheetsJob,
+    getJob: vi.fn(async () => null),
+  })),
 }));
 vi.mock("../../sentry", () => ({ captureError: mocks.captureError }));
 vi.mock("drizzle-orm", () => ({
@@ -72,7 +75,7 @@ type ClaimedRow = {
   id: string;
   responseId: string;
   formId: string;
-  effectType: "NOTIFICATION" | "SHEETS";
+  effectType: string;
   snapshotVersion: number | null;
   integrationId: string | null;
   attemptCount: number;
@@ -97,6 +100,15 @@ function sheetsRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
   return notificationRow({
     id: "sheets-auto.integration-1.response-1",
     effectType: "SHEETS",
+    integrationId: "integration-1",
+    ...overrides,
+  });
+}
+
+function sheetsRefreshRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
+  return notificationRow({
+    id: "sheets-refresh.abcdef0123456789",
+    effectType: "SHEETS_REFRESH_abcdef0123456789",
     integrationId: "integration-1",
     ...overrides,
   });
@@ -201,6 +213,30 @@ describe("submit outbox sweeper", () => {
         snapshotVersion: 7,
       },
       { jobId: sheets.id },
+    );
+  });
+
+  it("enqueues Sheets refresh outbox rows as validation refresh jobs", async () => {
+    const refresh = sheetsRefreshRow();
+    useClaimBatches([[refresh]]);
+    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+
+    await expect(sweepSubmitOutbox()).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+    });
+    expect(mocks.addSheetsJob).toHaveBeenCalledWith(
+      "validation-refresh",
+      {
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "incremental",
+        responseId: "response-1",
+        snapshotVersion: 7,
+        refreshValidationOutputs: true,
+      },
+      { jobId: refresh.id },
     );
   });
 

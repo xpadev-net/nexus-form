@@ -196,6 +196,36 @@ async function enqueueClaimedRow(row: ClaimedSubmitOutboxRow): Promise<void> {
     return;
   }
 
+  if (row.effectType.startsWith("SHEETS_REFRESH_")) {
+    if (!row.integrationId) {
+      throw new Error("Sheets refresh outbox row is missing integrationId");
+    }
+    const jobData = sheetsSyncJobDataSchema.parse({
+      formId: row.formId,
+      integrationId: row.integrationId,
+      mode: "incremental",
+      responseId: row.responseId,
+      snapshotVersion: row.snapshotVersion ?? undefined,
+      refreshValidationOutputs: true,
+    });
+    const queue = getSheetsSyncQueue();
+    const existingJob = await queue.getJob(row.id);
+    if (existingJob) {
+      const state = await existingJob.getState();
+      if (state === "failed" || state === "completed") {
+        try {
+          await existingJob.remove();
+        } catch (error) {
+          if ((await existingJob.getState()) !== "active") {
+            throw error;
+          }
+        }
+      }
+    }
+    await queue.add("validation-refresh", jobData, { jobId: row.id });
+    return;
+  }
+
   throw new Error(`Unsupported submit outbox effect: ${row.effectType}`);
 }
 

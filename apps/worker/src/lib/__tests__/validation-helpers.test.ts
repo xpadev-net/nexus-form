@@ -456,9 +456,13 @@ describe("writeValidationResult", () => {
       metadata: { ok: true },
       jobId: "job-1",
     };
+    const snapshotVersion = 7;
     const expectedId = getValidationResultId(params);
 
-    const resultId = await writeValidationResult(params);
+    const resultId = await writeValidationResult({
+      ...params,
+      snapshotVersion,
+    });
 
     expect(resultId).toBe(expectedId);
     expect(db.transaction).toHaveBeenCalled();
@@ -491,6 +495,8 @@ describe("writeValidationResult", () => {
       formId: params.formId,
       integrationId: "integration-1",
       responseId: params.responseId,
+      snapshotVersion,
+      validationResultId: expectedId,
     });
   });
 
@@ -530,6 +536,7 @@ describe("writeValidationResult", () => {
       success: true,
       jobId: "job-1",
     };
+    const expectedId = getValidationResultId(params);
 
     await writeValidationResult(params);
 
@@ -542,6 +549,7 @@ describe("writeValidationResult", () => {
         formId: params.formId,
         integrationId: "integration-1",
         responseId: params.responseId,
+        validationResultId: expectedId,
       }),
     );
   });

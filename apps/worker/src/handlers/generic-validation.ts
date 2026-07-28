@@ -688,6 +688,7 @@ export const handleGenericValidation = async (
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
     jobId: job.id?.toString(),
+    snapshotVersion: jobData.snapshotVersion,
   });
 
   return { ok: result.isValid, provider: provider.name };

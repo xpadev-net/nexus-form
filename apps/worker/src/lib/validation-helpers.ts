@@ -201,6 +201,7 @@ export async function writeValidationResult(params: {
   errorCode?: string;
   errorMessage?: string;
   jobId?: string;
+  snapshotVersion?: number;
 }) {
   const now = new Date();
   const status: "COMPLETED" | "FAILED" | "MISSING" =
@@ -296,6 +297,8 @@ export async function writeValidationResult(params: {
           formId: params.formId,
           integrationId: sheetsIntegration.id,
           responseId: params.responseId,
+          snapshotVersion: params.snapshotVersion,
+          validationResultId: resultId,
         });
       } catch (error) {
         console.warn(
