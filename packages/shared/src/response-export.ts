@@ -1,4 +1,5 @@
 import { isAnswerableBlockType } from "./forms/form-block";
+import { getUniquenessScoreRating } from "./forms/uniqueness-calculator";
 import type { ResponseItemValidationMetadata } from "./response-data";
 import {
   parseValidationOutputValuesFromMetadata,
@@ -150,6 +151,7 @@ function buildMetadataHeaders(
         "更新日時",
         "国コード",
         "ユニーク度スコア",
+        "ユニーク度評価",
       ]
     : [
         "Response ID",
@@ -158,6 +160,7 @@ function buildMetadataHeaders(
         "Updated At",
         "Country Code",
         "Uniqueness Score",
+        "Uniqueness Rating",
       ];
 
   if (!includeFingerprintColumns) {
@@ -182,13 +185,17 @@ function buildMetadataValues(
   fingerprintComponents: Set<string>,
   includeFingerprintColumns = false,
 ): string[] {
+  const score = record.metadata.uniqueness_score;
+  const ratingLabel = getUniquenessScoreRating(score);
+
   const baseValues = [
     record.metadata.id,
     record.metadata.respondent_uuid,
     record.metadata.submitted_at,
     record.metadata.updated_at || "",
     record.metadata.country_code || "",
-    record.metadata.uniqueness_score?.toFixed(4) || "",
+    typeof score === "number" ? score.toFixed(4) : "",
+    ratingLabel,
   ];
 
   if (!includeFingerprintColumns) {

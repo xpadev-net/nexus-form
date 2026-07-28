@@ -143,6 +143,7 @@ export function buildResponseExportRecords(
   // ユニーク度スコアを事前計算
   const responsesWithFingerprints = responses.map((response) => ({
     id: response.id,
+    sessionId: response.sessionId,
     fingerprintDetails: response.fingerprintDetails.map((fp) => ({
       componentName: fp.componentName,
       componentValueHash: fp.componentValueHash,
@@ -252,9 +253,10 @@ export function buildResponseExportRecords(
         fingerprint_uuids: fingerprintUuids,
         ua_uuid: uaUuid,
         uniqueness_score: uniquenessScore,
-        session_alias: response.sessionId
-          ? computeSessionAlias(formId, response.sessionId)
-          : undefined,
+        session_alias:
+          response.sessionId && process.env.SESSION_ALIAS_SALT
+            ? computeSessionAlias(formId, response.sessionId)
+            : undefined,
       },
       component_columns: componentColumns,
       validation_output_columns:

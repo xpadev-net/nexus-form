@@ -286,30 +286,25 @@ async function claimPendingValidationOutboxRows(options: {
   const claimToken = randomUUID();
 
   return db.transaction(async (tx) => {
-    const rows = await tx
+    // TiDB's planner can fail with "Can't find column ... in schema" when a
+    // locking read (FOR UPDATE [SKIP LOCKED]) is combined with a JOIN. Lock
+    // the candidate rows from a single table first, then fetch the
+    // JOIN-derived enrichment data in a separate, non-locking read — the
+    // row locks from the first query already hold these rows for the rest
+    // of the transaction.
+    const lockedRows = await tx
       .select({
         id: externalServiceValidationResult.id,
         responseId: externalServiceValidationResult.responseId,
         ruleId: externalServiceValidationResult.ruleId,
         referencedBlockId: externalServiceValidationResult.referencedBlockId,
         service: externalServiceValidationResult.service,
-        formId: formResponse.formId,
         snapshotVersion: externalServiceValidationResult.snapshotVersion,
-        liveRuleType: formValidationRule.ruleType,
-        liveConfigJson: formValidationRule.configJson,
         enqueueAttemptCount:
           externalServiceValidationResult.enqueueAttemptCount,
         enqueueMode: externalServiceValidationResult.enqueueMode,
       })
       .from(externalServiceValidationResult)
-      .innerJoin(
-        formResponse,
-        eq(formResponse.id, externalServiceValidationResult.responseId),
-      )
-      .leftJoin(
-        formValidationRule,
-        eq(formValidationRule.id, externalServiceValidationResult.ruleId),
-      )
       .where(
         and(
           eq(externalServiceValidationResult.status, "PENDING"),
@@ -322,7 +317,46 @@ async function claimPendingValidationOutboxRows(options: {
       .limit(options.batchSize)
       .for("update", { skipLocked: true });
 
-    if (rows.length === 0) return [];
+    if (lockedRows.length === 0) return [];
+
+    const ids = lockedRows.map((row) => row.id);
+
+    const enrichmentRows = await tx
+      .select({
+        id: externalServiceValidationResult.id,
+        formId: formResponse.formId,
+        liveRuleType: formValidationRule.ruleType,
+        liveConfigJson: formValidationRule.configJson,
+      })
+      .from(externalServiceValidationResult)
+      .innerJoin(
+        formResponse,
+        eq(formResponse.id, externalServiceValidationResult.responseId),
+      )
+      .leftJoin(
+        formValidationRule,
+        eq(formValidationRule.id, externalServiceValidationResult.ruleId),
+      )
+      .where(inArray(externalServiceValidationResult.id, ids));
+
+    const enrichmentById = new Map(enrichmentRows.map((row) => [row.id, row]));
+
+    const rows: PendingValidationOutboxRow[] = lockedRows.map((row) => {
+      const enrichment = enrichmentById.get(row.id);
+      return {
+        id: row.id,
+        responseId: row.responseId,
+        ruleId: row.ruleId,
+        referencedBlockId: row.referencedBlockId,
+        service: row.service,
+        formId: enrichment?.formId ?? "",
+        snapshotVersion: row.snapshotVersion,
+        liveRuleType: enrichment?.liveRuleType ?? null,
+        liveConfigJson: enrichment?.liveConfigJson ?? null,
+        enqueueAttemptCount: row.enqueueAttemptCount,
+        enqueueMode: row.enqueueMode,
+      };
+    });
 
     await tx
       .update(externalServiceValidationResult)
@@ -332,10 +366,7 @@ async function claimPendingValidationOutboxRows(options: {
       })
       .where(
         and(
-          inArray(
-            externalServiceValidationResult.id,
-            rows.map((row) => row.id),
-          ),
+          inArray(externalServiceValidationResult.id, ids),
           eq(externalServiceValidationResult.status, "PENDING"),
           eq(externalServiceValidationResult.enqueueMode, "STABLE"),
           isNull(externalServiceValidationResult.jobId),

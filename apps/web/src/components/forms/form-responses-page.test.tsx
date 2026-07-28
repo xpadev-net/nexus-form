@@ -151,8 +151,22 @@ const apiMock = vi.hoisted(() => ({
 const filterMock = vi.hoisted(
   (): {
     onKeywordChange: ((value: string) => void) | null;
+    onScoreRangeChange:
+      | ((min: number | null, max: number | null) => void)
+      | null;
+    onValidationStatusChange: ((status: string | null) => void) | null;
+    onSortChange:
+      | ((sort: "submittedAt" | "updatedAt" | "uniquenessScore") => void)
+      | null;
+    onOrderChange: ((order: "asc" | "desc") => void) | null;
+    onResetFilters: (() => void) | null;
   } => ({
     onKeywordChange: null,
+    onScoreRangeChange: null,
+    onValidationStatusChange: null,
+    onSortChange: null,
+    onOrderChange: null,
+    onResetFilters: null,
   }),
 );
 
@@ -200,11 +214,28 @@ vi.mock("@/components/forms/response-filter", () => ({
   ResponseFilter: ({
     keyword,
     onKeywordChange,
+    onScoreRangeChange,
+    onValidationStatusChange,
+    onSortChange,
+    onOrderChange,
+    onResetFilters,
   }: {
     keyword: string;
     onKeywordChange: (value: string) => void;
+    onScoreRangeChange?: (min: number | null, max: number | null) => void;
+    onValidationStatusChange?: (status: string | null) => void;
+    onSortChange?: (
+      sort: "submittedAt" | "updatedAt" | "uniquenessScore",
+    ) => void;
+    onOrderChange?: (order: "asc" | "desc") => void;
+    onResetFilters?: () => void;
   }) => {
     filterMock.onKeywordChange = onKeywordChange;
+    filterMock.onScoreRangeChange = onScoreRangeChange ?? null;
+    filterMock.onValidationStatusChange = onValidationStatusChange ?? null;
+    filterMock.onSortChange = onSortChange ?? null;
+    filterMock.onOrderChange = onOrderChange ?? null;
+    filterMock.onResetFilters = onResetFilters ?? null;
     return (
       <label>
         Filter
@@ -592,6 +623,39 @@ describe("FormResponsesContent accessibility", () => {
         page: "1",
         limit: "20",
         q: "Needle",
+        sort: "submittedAt",
+        order: "desc",
+      },
+    });
+
+    act(() => root.unmount());
+  });
+
+  it("passes score range, validation status, and sort filters to API query", () => {
+    const container = document.createElement("div");
+    const root = renderResponses(container);
+
+    expect(filterMock.onScoreRangeChange).not.toBeNull();
+    expect(filterMock.onValidationStatusChange).not.toBeNull();
+    expect(filterMock.onSortChange).not.toBeNull();
+
+    act(() => {
+      filterMock.onScoreRangeChange?.(0.8, 1.0);
+      filterMock.onValidationStatusChange?.("SUCCESS");
+      filterMock.onSortChange?.("uniquenessScore");
+    });
+
+    queryMock.lastOptions?.queryFn();
+    expect(apiMock.getResponses).toHaveBeenLastCalledWith({
+      param: { id: "form-1" },
+      query: {
+        page: "1",
+        limit: "20",
+        minScore: "0.8",
+        maxScore: "1",
+        validationStatus: "SUCCESS",
+        sort: "uniquenessScore",
+        order: "desc",
       },
     });
 

@@ -244,8 +244,8 @@ describe("response export", () => {
 
     expect(csv).toBe(
       [
-        '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
-        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","1.0000","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
+        '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","氏名","希望枠","興味","利用ツール","参加可能日","参加可能時間","満足度","未回答"',
+        '"response-1","respondent-1","2026-05-17T01:00:00.000Z","","JP","1.0000","高","山田 太郎","午前","TypeScript, React","React","月曜: 午前\n火曜: 未回答","月曜: 午前, 夜\n火曜: 未回答\n水曜: 未回答","5",""',
       ].join("\n"),
     );
     expect(csv).not.toContain("区切り");
@@ -265,7 +265,7 @@ describe("response export", () => {
         "choice-block",
       ]),
     ).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","氏名","希望枠"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","氏名","希望枠"',
     );
   });
 
@@ -320,6 +320,7 @@ describe("response export", () => {
         "Country Code",
         "UA UUID",
         "Uniqueness Score",
+        "Uniqueness Rating",
         "canvas UUID",
         "webgl UUID",
         "choice-block",
@@ -333,6 +334,7 @@ describe("response export", () => {
         "国コード",
         "UA UUID",
         "ユニーク度スコア",
+        "ユニーク度評価",
         "canvas UUID",
         "webgl UUID",
         "希望枠",
@@ -347,6 +349,7 @@ describe("response export", () => {
           "JP",
           "",
           "1.0000",
+          "高",
           "canvas-uuid",
           "webgl-uuid",
           "午前",
@@ -394,6 +397,7 @@ describe("response export", () => {
       "Updated At",
       "Country Code",
       "Uniqueness Score",
+      "Uniqueness Rating",
       "choice-block",
     ]);
     expect(table.headerTitles).toEqual([
@@ -403,6 +407,7 @@ describe("response export", () => {
       "更新日時",
       "国コード",
       "ユニーク度スコア",
+      "ユニーク度評価",
       "希望枠",
     ]);
     expect(table.rows[0]).toEqual([
@@ -412,6 +417,7 @@ describe("response export", () => {
       "",
       "JP",
       "1.0000",
+      "高",
       "午前",
     ]);
     expect(table.headerIds).not.toContain("UA UUID");
@@ -473,6 +479,7 @@ describe("response export", () => {
         "Updated At",
         "Country Code",
         "Uniqueness Score",
+        "Uniqueness Rating",
         "first-question",
         "second-question",
       ],
@@ -483,6 +490,7 @@ describe("response export", () => {
         "更新日時",
         "国コード",
         "ユニーク度スコア",
+        "ユニーク度評価",
         "最初の質問",
         "次の質問",
       ],
@@ -491,7 +499,7 @@ describe("response export", () => {
     expect(
       formatRecordsToCsv([], new Set(), sectionedTitleMap, emptyColumns),
     ).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","最初の質問","次の質問"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","最初の質問","次の質問"',
     );
   });
 
@@ -665,10 +673,10 @@ describe("response export", () => {
     const csv = formatRecordsToCsv(records, fingerprintComponents, s16TitleMap);
 
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","予約日","予約時刻","満足度","スライダー"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","予約日","予約時刻","満足度","スライダー"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-s16","respondent-s16","2026-05-17T01:00:00.000Z","2026-05-17T02:30:00.000Z","JP","1.0000","2026-06-16","10:30","4","7"',
+      '"response-s16","respondent-s16","2026-05-17T01:00:00.000Z","2026-05-17T02:30:00.000Z","JP","1.0000","高","2026-06-16","10:30","4","7"',
     );
   });
 
@@ -787,13 +795,13 @@ describe("response export", () => {
     );
 
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","契約種別","法人名"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","契約種別","法人名"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","1.0000","個人",""',
+      '"response-individual","respondent-individual","2026-05-17T01:00:00.000Z","","JP","1.0000","高","個人",""',
     );
     expect(csv.split("\n")[2]).toBe(
-      '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","1.0000","法人","Nexus 株式会社"',
+      '"response-corporate","respondent-corporate","2026-05-17T01:00:00.000Z","","JP","1.0000","高","法人","Nexus 株式会社"',
     );
     expect(csv).not.toContain("法人追加情報");
     expect(csv).not.toContain("UA UUID");
@@ -879,10 +887,10 @@ describe("response export", () => {
       sectionedTitleMap,
     );
     expect(csv.split("\n")[0]).toBe(
-      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","最初の質問","次の質問"',
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価","最初の質問","次の質問"',
     );
     expect(csv.split("\n")[1]).toBe(
-      '"response-sectioned","respondent-sectioned","2026-05-17T01:00:00.000Z","","JP","1.0000","回答1","回答2"',
+      '"response-sectioned","respondent-sectioned","2026-05-17T01:00:00.000Z","","JP","1.0000","高","回答1","回答2"',
     );
     expect(csv).not.toContain("導入");
     expect(csv).not.toContain("中間");

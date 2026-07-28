@@ -95,6 +95,21 @@ export {
   PasswordProtectionPublicationStateSchema,
 } from "./forms/password-protection-publication";
 export type {
+  ComponentMap,
+  PairwiseMatchResult,
+  ResponseWithFingerprints,
+  UniquenessRatingLabel,
+} from "./forms/uniqueness-calculator";
+export {
+  buildComponentMap,
+  calculateAllUniquenessScores,
+  calculatePairwiseMatchedWeight,
+  calculateUniqueness,
+  calculateUniquenessScoreMap,
+  getUniquenessScoreRating,
+  hasSetIntersection,
+} from "./forms/uniqueness-calculator";
+export type {
   CompletionTargetActionSource,
   CompletionTargetHasAnswerableQuestionsIssue,
   CompletionTargetNotFoundIssue,

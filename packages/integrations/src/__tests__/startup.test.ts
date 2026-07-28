@@ -68,6 +68,14 @@ class MemoryDriftStore implements PluginDriftStore {
   async del(key: string): Promise<number> {
     return this.values.delete(key) ? 1 : 0;
   }
+
+  async keys(pattern: string): Promise<string[]> {
+    if (!pattern.endsWith("*")) {
+      return this.values.has(pattern) ? [pattern] : [];
+    }
+    const prefix = pattern.slice(0, -1);
+    return [...this.values.keys()].filter((key) => key.startsWith(prefix));
+  }
 }
 
 function makeProvider(name: string): ValidationProvider {
@@ -326,7 +334,7 @@ describe("startupPlugins plugin drift guard", () => {
     vi.useRealTimers();
   });
 
-  it("records the current runtime manifest when the peer is not present", async () => {
+  it("records the current runtime manifest when no peer instance is present", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
@@ -336,13 +344,14 @@ describe("startupPlugins plugin drift guard", () => {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         ttlSeconds: 60,
       },
     });
 
-    const rawManifest = store.values.get("test:plugins:api");
+    const rawManifest = store.values.get("test:plugins:api:api-1");
     expect(rawManifest).toBeDefined();
     expect(JSON.parse(rawManifest ?? "{}")).toMatchObject({
       role: "api",
@@ -350,8 +359,36 @@ describe("startupPlugins plugin drift guard", () => {
       pluginHashes: [],
     });
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("could not find worker manifest"),
+      expect.stringContaining("could not find any worker manifest"),
     );
+  });
+
+  it("deletes its own manifest key on graceful stop so a replacement instance never sees it", async () => {
+    // Without this, a retired instance's manifest would linger for the full
+    // TTL and could fail a freshly-started replacement's initial (no grace
+    // period) startup check even though the retired instance is gone.
+    vi.useFakeTimers();
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+      },
+    });
+
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
   });
 
   it("keeps refreshing the manifest and compares when the peer appears later", async () => {
@@ -365,6 +402,7 @@ describe("startupPlugins plugin drift guard", () => {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         ttlSeconds: 1800,
@@ -374,13 +412,13 @@ describe("startupPlugins plugin drift guard", () => {
     });
 
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("worker", ["github"])),
     );
     await vi.advanceTimersByTimeAsync(10);
 
     expect(
-      store.setCalls.filter((call) => call.key === "test:plugins:api"),
+      store.setCalls.filter((call) => call.key === "test:plugins:api:api-1"),
     ).toHaveLength(2);
     expect(store.setCalls.at(-1)?.ttlSeconds).toBe(1800);
     expect(warnSpy).toHaveBeenCalledWith(
@@ -392,7 +430,7 @@ describe("startupPlugins plugin drift guard", () => {
     await handle.stop();
   });
 
-  it("treats periodic drift as fatal by default", async () => {
+  it("treats periodic drift as fatal immediately when the grace period is disabled", async () => {
     vi.useFakeTimers();
     const queueMicrotaskSpy = vi.fn();
     vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
@@ -404,20 +442,118 @@ describe("startupPlugins plugin drift guard", () => {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 0,
       },
     });
 
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("worker", ["github"])),
     );
     await vi.advanceTimersByTimeAsync(10);
 
     expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
-    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("tolerates periodic drift during the grace period, then escalates once it elapses", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 10,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+
+    // First mismatch: still within the grace period, so no escalation yet.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("tolerating during grace period"),
+      expect.any(Error),
+    );
+
+    // Mismatch has now persisted past the grace period: escalate and crash.
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
+  it("resets the grace period once the peer manifest matches again", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 10,
+      },
+    });
+
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+
+    // The worker catches up (e.g. its own rollout completes) before the
+    // grace period elapses: the mismatch clock must reset, not accumulate.
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["discord"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("recovered after a transient mismatch"),
+    );
+
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+
     expect(handle).toBeDefined();
     if (!handle) throw new Error("plugin drift guard handle missing");
     await handle.stop();
@@ -431,12 +567,13 @@ describe("startupPlugins plugin drift guard", () => {
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
+    store.keys = async () => ["test:plugins:worker:worker-1"];
     const peerRead = createDeferred<string | null>();
     let readCount = 0;
     store.get = async (key: string): Promise<string | null> => {
       readCount += 1;
       if (readCount === 1) return null;
-      expect(key).toBe("test:plugins:worker");
+      expect(key).toBe("test:plugins:worker:worker-1");
       return peerRead.promise;
     };
 
@@ -444,6 +581,7 @@ describe("startupPlugins plugin drift guard", () => {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         refreshIntervalMs: 10,
@@ -466,6 +604,67 @@ describe("startupPlugins plugin drift guard", () => {
     );
   });
 
+  it("does not reset the grace period when the peer manifest merely goes missing", async () => {
+    vi.useFakeTimers();
+    const queueMicrotaskSpy = vi.fn();
+    vi.stubGlobal("queueMicrotask", queueMicrotaskSpy);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+
+    const handle = await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+        refreshIntervalMs: 10,
+        mismatchGracePeriodMs: 15,
+      },
+    });
+
+    // Tick 1: peer is present but mismatched. Grace clock starts.
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("tolerating during grace period"),
+      expect.any(Error),
+    );
+
+    // Tick 2: the peer manifest key vanishes (e.g. TTL expiry or a peer
+    // restart mid-rollout). This must NOT be treated as recovery, or the
+    // grace clock would reset and a genuinely stuck mismatch could persist
+    // forever by flapping between "mismatched" and "peer absent".
+    store.values.delete("test:plugins:worker:worker-1");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("recovered after a transient mismatch"),
+    );
+
+    // Tick 3: the peer reappears, still mismatched. Total elapsed since the
+    // original tick-1 mismatch now exceeds the grace period, so this must
+    // escalate — proving the clock was preserved across the "pending" tick
+    // rather than restarted.
+    store.values.set(
+      "test:plugins:worker:worker-1",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+    await vi.advanceTimersByTimeAsync(10);
+    expect(queueMicrotaskSpy).toHaveBeenCalledWith(expect.any(Function));
+
+    expect(handle).toBeDefined();
+    if (!handle) throw new Error("plugin drift guard handle missing");
+    await handle.stop();
+  });
+
   it("passes startup when the peer manifest matches providers and plugin hashes", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
@@ -473,7 +672,7 @@ describe("startupPlugins plugin drift guard", () => {
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("worker", ["discord"])),
     );
 
@@ -481,15 +680,72 @@ describe("startupPlugins plugin drift guard", () => {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
       },
     });
 
-    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
     expect(warnSpy).not.toHaveBeenCalled();
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Plugin drift guard matched worker"),
+      expect.stringContaining(
+        "Plugin drift guard matched all 1 worker instance(s)",
+      ),
+    );
+  });
+
+  it("detects drift even when only one of several peer instances mismatches", async () => {
+    // Reproduces the real topology: several independently deployed worker
+    // Deployments (discord/github/twitter/sheets/notifications/vrchat) each
+    // publish their own manifest. If even one instance is out of sync with
+    // the current process, the guard must not let a matching sibling
+    // instance mask it.
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.values.set(
+      "test:plugins:worker:worker-rolled",
+      JSON.stringify(makeManifest("worker", ["discord"])),
+    );
+    store.values.set(
+      "test:plugins:worker:worker-not-yet-rolled",
+      JSON.stringify(makeManifest("worker", ["github"])),
+    );
+
+    await expect(
+      startupPlugins(registry, {
+        logPrefix: "api",
+        pluginDriftGuard: {
+          role: "api",
+          instanceId: "api-1",
+          store,
+          keyPrefix: "test:plugins",
+        },
+      }),
+    ).rejects.toThrow("Plugin drift detected");
+  });
+
+  it("treats all-expired peer keys as pending rather than a confirmed match", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const registry = new ValidationProviderRegistry();
+    registry.register(makeProvider("discord"));
+    const store = new MemoryDriftStore();
+    store.keys = async () => ["test:plugins:worker:worker-1"];
+    store.get = async () => null; // expired between keys() and get()
+
+    await startupPlugins(registry, {
+      logPrefix: "api",
+      pluginDriftGuard: {
+        role: "api",
+        instanceId: "api-1",
+        store,
+        keyPrefix: "test:plugins",
+      },
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("could not resolve any worker manifest"),
     );
   });
 
@@ -533,18 +789,19 @@ export default {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
       },
     });
 
-    const rawManifest = store.values.get("test:plugins:api");
+    const rawManifest = store.values.get("test:plugins:api:api-1");
     expect(JSON.parse(rawManifest ?? "{}")).toMatchObject({
       providers: ["builtin_discord"],
       pluginHashes: [expectedHash],
     });
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("could not find worker manifest"),
+      expect.stringContaining("could not find any worker manifest"),
     );
   });
 
@@ -553,7 +810,7 @@ export default {
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("worker", ["github"])),
     );
 
@@ -562,12 +819,13 @@ export default {
         logPrefix: "api",
         pluginDriftGuard: {
           role: "api",
+          instanceId: "api-1",
           store,
           keyPrefix: "test:plugins",
         },
       }),
     ).rejects.toThrow("Plugin drift detected");
-    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
   });
 
   it("fails startup when the peer manifest has different plugin hashes", async () => {
@@ -575,7 +833,7 @@ export default {
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("worker", ["discord"], ["hash-a"])),
     );
 
@@ -584,12 +842,13 @@ export default {
         logPrefix: "api",
         pluginDriftGuard: {
           role: "api",
+          instanceId: "api-1",
           store,
           keyPrefix: "test:plugins",
         },
       }),
     ).rejects.toThrow("pluginHashes");
-    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
   });
 
   it("fails startup when the peer manifest role does not match the key", async () => {
@@ -597,7 +856,7 @@ export default {
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
     store.values.set(
-      "test:plugins:worker",
+      "test:plugins:worker:worker-1",
       JSON.stringify(makeManifest("api", ["discord"])),
     );
 
@@ -606,19 +865,20 @@ export default {
         logPrefix: "api",
         pluginDriftGuard: {
           role: "api",
+          instanceId: "api-1",
           store,
           keyPrefix: "test:plugins",
         },
       }),
     ).rejects.toThrow("expected worker manifest");
-    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
   });
 
   it.each([
     {
       label: "non-JSON peer manifest",
       peerManifest: "not-json",
-      error: "non-JSON worker manifest",
+      error: "invalid worker manifest(s)",
     },
     {
       label: "invalid peer manifest",
@@ -627,7 +887,7 @@ export default {
         role: "worker",
         providers: ["discord"],
       }),
-      error: "invalid worker manifest",
+      error: "invalid worker manifest(s)",
     },
   ])("cleans up current manifest after $label", async ({
     peerManifest,
@@ -636,26 +896,27 @@ export default {
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
-    store.values.set("test:plugins:worker", peerManifest);
+    store.values.set("test:plugins:worker:worker-1", peerManifest);
 
     await expect(
       startupPlugins(registry, {
         logPrefix: "api",
         pluginDriftGuard: {
           role: "api",
+          instanceId: "api-1",
           store,
           keyPrefix: "test:plugins",
         },
       }),
     ).rejects.toThrow(error);
-    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
   });
 
   it.each([
     {
       label: "non-JSON peer manifest",
       peerManifest: "not-json",
-      warning: "non-JSON worker manifest",
+      warning: "invalid worker manifest(s)",
     },
     {
       label: "invalid peer manifest",
@@ -664,12 +925,12 @@ export default {
         role: "worker",
         providers: ["discord"],
       }),
-      warning: "invalid worker manifest",
+      warning: "invalid worker manifest(s)",
     },
     {
       label: "wrong peer role",
       peerManifest: JSON.stringify(makeManifest("api", ["discord"])),
-      warning: "expected worker manifest",
+      warning: "invalid worker manifest(s)",
     },
     {
       label: "provider drift",
@@ -684,19 +945,20 @@ export default {
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
-    store.values.set("test:plugins:worker", peerManifest);
+    store.values.set("test:plugins:worker:worker-1", peerManifest);
 
     await startupPlugins(registry, {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         failOnMismatch: false,
       },
     });
 
-    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(warning));
   });
 
@@ -705,7 +967,7 @@ export default {
     const registry = new ValidationProviderRegistry();
     registry.register(makeProvider("discord"));
     const store = new MemoryDriftStore();
-    store.get = async () => {
+    store.keys = async () => {
       throw new Error("Redis unavailable");
     };
 
@@ -713,13 +975,14 @@ export default {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         failOnMismatch: false,
       },
     });
 
-    expect(store.values.has("test:plugins:api")).toBe(true);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("warning-only check failed"),
       expect.any(Error),
@@ -739,13 +1002,14 @@ export default {
       logPrefix: "api",
       pluginDriftGuard: {
         role: "api",
+        instanceId: "api-1",
         store,
         keyPrefix: "test:plugins",
         failOnMismatch: false,
       },
     });
 
-    expect(store.values.has("test:plugins:api")).toBe(false);
+    expect(store.values.has("test:plugins:api:api-1")).toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("warning-only check failed"),
       expect.any(Error),

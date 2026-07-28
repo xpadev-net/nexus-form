@@ -17,11 +17,11 @@ import {
 import {
   buildResponseExportValidationOutputColumns,
   buildResponseLabelLookupFromQuestions,
-  COMPONENT_WEIGHTS,
-  DEFAULT_COMPONENT_WEIGHT,
+  calculateUniquenessScoreMap,
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
+  getUniquenessScoreRating,
   groupResponseExportValidationOutputsByResponseId,
   isAnswerableBlockType,
   mapRecordToSheetRow,
@@ -30,6 +30,7 @@ import {
   type ResponseDataItem,
   type ResponseExportRecord,
   type ResponseExportValidationOutputValue,
+  type ResponseWithFingerprints,
   resolveResponseDisplayValue,
   responsePayloadItemSchema,
   type SheetsSyncJobData,
@@ -38,10 +39,11 @@ import {
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
+  batchUpdate,
   clearSheet,
   type GoogleApiError,
   readRange,
@@ -59,6 +61,7 @@ import {
   getIdempotencyKeyTtlMs,
   getIdempotencyKeyValue,
   setIdempotencyKey,
+  setIdempotencyKeys,
   withRedisLock,
 } from "../lib/redis-lock";
 import { safeParseResponseData } from "../lib/response-data-extractor";
@@ -69,6 +72,8 @@ export type SheetsSyncJob = SheetsSyncJobData;
 const RESPONSE_ID_HEADER = "Response ID";
 const UNIQUENESS_SCORE_HEADER = "ユニーク度スコア";
 const UNIQUENESS_SCORE_ID_HEADER = "Uniqueness Score";
+const UNIQUENESS_RATING_HEADER = "ユニーク度評価";
+const UNIQUENESS_RATING_ID_HEADER = "Uniqueness Rating";
 const SHARED_BASE_ID_HEADERS = [
   RESPONSE_ID_HEADER,
   "Respondent UUID",
@@ -76,6 +81,7 @@ const SHARED_BASE_ID_HEADERS = [
   "Updated At",
   "Country Code",
   UNIQUENESS_SCORE_ID_HEADER,
+  UNIQUENESS_RATING_ID_HEADER,
 ];
 const SHARED_BASE_TITLE_HEADERS = [
   "回答ID",
@@ -84,6 +90,7 @@ const SHARED_BASE_TITLE_HEADERS = [
   "更新日時",
   "国コード",
   "ユニーク度スコア",
+  "ユニーク度評価",
 ];
 // Maximum Sheets API calls inside the critical section:
 // 2 reads (idempotency check) + 1 conditional header update
@@ -91,6 +98,22 @@ const SHARED_BASE_TITLE_HEADERS = [
 const SHEETS_SYNC_API_CALLS_IN_CRITICAL_SECTION = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = 5000;
 const MAX_FULL_SHEETS_SYNC_RESPONSES = 1000;
+// Maximum rows sent in a single appendRows call during a full resync.
+// MAX_FULL_SHEETS_SYNC_RESPONSES (1000) rows would still fit one request's
+// size limits, but chunking keeps the "redo unit" small if a chunk hits a
+// transient 429/5xx (a retry re-clears and rewrites the whole sheet anyway).
+export const FULL_RESYNC_APPEND_CHUNK_SIZE = 200;
+// Cap on how many other not-yet-synced same-integration responses a single
+// incremental job will piggyback onto its own write (see issue 688). Equal to
+// FULL_RESYNC_APPEND_CHUNK_SIZE so the whole batch always fits in one
+// appendRows call — no chunking loop, and no need to resize the Redis lock
+// TTL for the extra work.
+const INCREMENTAL_PIGGYBACK_BATCH_CAP = FULL_RESYNC_APPEND_CHUNK_SIZE;
+// How far back to look for piggyback candidates. Deliberately bounded: this
+// only targets short submission bursts, not long-standing sync backlogs —
+// anything older than this still gets written by its own individual job,
+// exactly as before this change.
+const INCREMENTAL_PIGGYBACK_LOOKBACK_MS = 5 * 60 * 1000;
 // Add the headroom using the same timeout unit as Sheets API calls.
 const SHEETS_SYNC_LOCK_BUFFER_MS = SHEETS_API_TIMEOUT_MS;
 const PENDING_IDEMPOTENCY_EXTRA_BUFFER_MS = 30_000;
@@ -220,14 +243,7 @@ const GoogleSheetsIntegrationSettingSchema = z.object({
 
 const IntegrationConfigSchema = z.record(z.string(), z.unknown());
 type IntegrationConfig = z.infer<typeof IntegrationConfigSchema>;
-type FingerprintSet = {
-  id: string;
-  fingerprintDetails: Array<{
-    componentName: string;
-    componentValueHash: string;
-    fingerprintType: string;
-  }>;
-};
+type FingerprintSet = ResponseWithFingerprints;
 
 type ResponseUniquenessScores = {
   allScores: Map<string, number>;
@@ -448,7 +464,80 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
             (prepared) => prepared.response.id,
           ),
         });
+
+        const readyResponses = preparedResponses.filter(
+          (
+            prepared,
+          ): prepared is Extract<
+            PreparedSheetsSyncResponse,
+            { status: "ready" }
+          > => prepared.status === "ready",
+        );
+        const bulkResult = await bulkWriteFullResyncResponses({
+          blockTitleMap,
+          extractedQuestions,
+          integrationId,
+          job,
+          readyResponses,
+          sheetName,
+          spreadsheetId,
+          token,
+          total,
+          validationOutputsByResponseId,
+        });
+
+        return {
+          ok: true,
+          provider: "google-sheets",
+          jobId: job.id,
+          mode,
+          processed: preparedResponses.length,
+          total,
+          skipped: 0,
+          updatedRange: bulkResult.updatedRange,
+          updatedRows: bulkResult.updatedRows,
+        };
       }
+      if (mode === "incremental") {
+        const prepared = preparedResponses[0];
+        if (!prepared) {
+          throw new Error(`Form response not found: ${responseId}`);
+        }
+        const result =
+          prepared.status === "ready"
+            ? await writeIncrementalSheetsSyncBatch({
+                blockTitleMap,
+                extractedQuestions,
+                formId,
+                integrationId,
+                job,
+                sheetName,
+                spreadsheetId,
+                target: prepared,
+                token,
+                validationOutputExportSettings,
+                validationOutputsByResponseId,
+              })
+            : {
+                ok: true,
+                skipped: true,
+                reason: "invalid_data" as const,
+                provider: "google-sheets" as const,
+                jobId: job.id,
+              };
+        await updateSheetsSyncProgress(job, 100, 1, total).catch(() => {
+          // Best-effort progress update; job result is what matters.
+        });
+        const isSkipped = "skipped" in result && result.skipped;
+        return {
+          ...result,
+          mode,
+          processed: total,
+          total,
+          skipped: isSkipped ? total : 0,
+        };
+      }
+
       for (const prepared of preparedResponses) {
         const result =
           prepared.status === "ready"
@@ -482,10 +571,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         await updateSheetsSyncProgress(job, 100, processed, total).catch(() => {
           // Best-effort progress update; job result is what matters.
         });
-
-        if (mode === "incremental") {
-          return result;
-        }
       }
 
       return {
@@ -601,6 +686,131 @@ async function clearSheetForFullResync(
   if (!clearResult.ok) {
     throwSheetsSyncFailure("clear sheet for full resync", clearResult);
   }
+}
+
+/**
+ * Writes every ready response for a full resync in bulk instead of one Sheets
+ * API round trip per response. Safe only because the caller has just cleared
+ * the sheet under the integration lock: the header/row state this function
+ * would otherwise re-read from Sheets on every iteration is always exactly
+ * what this same call already wrote in a prior iteration, so it can be
+ * tracked in memory instead. This also means the per-existing-row uniqueness
+ * score backfill (`updateExistingUniquenessScoreCells`) is unnecessary here —
+ * every row's own score is already computed against the full response
+ * cohort by `getUniquenessScoresForResponses` before this function runs.
+ *
+ * `readyResponses` is never empty in practice: `getSheetsSyncTargetResponses`
+ * throws if a full-mode sync has zero form responses, and the caller already
+ * asserts every prepared response is "ready" before invoking this function.
+ */
+async function bulkWriteFullResyncResponses(params: {
+  blockTitleMap: Map<string, string>;
+  extractedQuestions: ExtractedQuestion[];
+  integrationId: string;
+  job: Job<SheetsSyncJob>;
+  readyResponses: Array<
+    Extract<PreparedSheetsSyncResponse, { status: "ready" }>
+  >;
+  sheetName: string;
+  spreadsheetId: string;
+  token: OAuthToken;
+  total: number;
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >;
+}): Promise<{ updatedRange: string | undefined; updatedRows: number }> {
+  const {
+    blockTitleMap,
+    extractedQuestions,
+    integrationId,
+    job,
+    readyResponses,
+    sheetName,
+    spreadsheetId,
+    token,
+    total,
+    validationOutputsByResponseId,
+  } = params;
+
+  let headers: string[] = [];
+  let titleHeaders: string[] = [];
+  const rows: string[][] = [];
+
+  for (const prepared of readyResponses) {
+    const built = buildRowFromResponse(
+      headers,
+      titleHeaders,
+      "shared",
+      prepared.responseData,
+      extractedQuestions,
+      blockTitleMap,
+      prepared.response,
+      prepared.uniquenessScores.targetScore,
+      prepared.uniquenessScores.fingerprintComponents,
+      prepared.uniquenessScores.targetFingerprintUuids,
+      validationOutputsByResponseId.get(prepared.response.id) ?? [],
+    );
+    headers = built.headers;
+    titleHeaders = built.titleHeaders;
+    rows.push(built.row);
+  }
+
+  await updateSheetsSyncProgress(job, 50, 0, total).catch(() => {
+    // Best-effort progress update; job result is what matters.
+  });
+
+  throwIfShuttingDown();
+  const headerUpdateResult = await updateRange(token, {
+    spreadsheetId,
+    rangeA1: `${sheetName}!1:2`,
+    values: [headers, titleHeaders],
+  });
+  if (!headerUpdateResult.ok) {
+    throwSheetsSyncFailure("update headers", headerUpdateResult);
+  }
+
+  let updatedRange: string | undefined;
+  let updatedRows = 0;
+  for (let i = 0; i < rows.length; i += FULL_RESYNC_APPEND_CHUNK_SIZE) {
+    throwIfShuttingDown();
+    const chunk = rows.slice(i, i + FULL_RESYNC_APPEND_CHUNK_SIZE);
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows: chunk,
+    });
+    if (!appendResult.ok) {
+      throwSheetsSyncFailure("append rows", appendResult);
+    }
+    updatedRange = appendResult.data.updatedRange;
+    updatedRows += appendResult.data.updatedRows;
+    await updateSheetsSyncProgress(
+      job,
+      80,
+      Math.min(i + chunk.length, rows.length),
+      total,
+    ).catch(() => {
+      // Best-effort progress update; job result is what matters.
+    });
+  }
+
+  const doneKeys = readyResponses.map((prepared) =>
+    getSheetsSyncIdempotencyKey(integrationId, prepared.response.id),
+  );
+  try {
+    await setIdempotencyKeys(doneKeys, DONE_IDEMPOTENCY_TTL_SECONDS, "done");
+  } catch (e: unknown) {
+    console.warn(
+      `[sheets-sync] Could not persist idempotency keys: ${e instanceof Error ? e.message : e}`,
+    );
+  }
+
+  await updateSheetsSyncProgress(job, 100, total, total).catch(() => {
+    // Best-effort progress update; job result is what matters.
+  });
+
+  return { updatedRange, updatedRows };
 }
 
 async function prepareSheetsSyncResponses(
@@ -770,6 +980,99 @@ async function getValidationOutputsByResponseId(params: {
   );
 }
 
+type SheetsSyncDuplicateSkipResult = {
+  ok: true;
+  skipped: true;
+  reason: "duplicate";
+  provider: "google-sheets";
+  jobId: string | undefined;
+};
+
+type WritableSheetsSyncTargetResolution =
+  | { status: "skip"; result: SheetsSyncDuplicateSkipResult }
+  | { status: "writable"; sheetCheck: SheetReadResult };
+
+/**
+ * Resolves a single response's own Redis idempotency key against the sheet's
+ * current content, blocking (while holding the integration lock) until it's
+ * safe to write. Shared by the single-response write path and the
+ * incremental batch path — both need this exact "own key" duplicate guard
+ * before they may touch the sheet at all.
+ */
+async function resolveWritableSheetsSyncTarget(params: {
+  idempotencyKey: string;
+  job: Job<SheetsSyncJob>;
+  responseId: string;
+  sheetName: string;
+  spreadsheetId: string;
+  token: OAuthToken;
+}): Promise<WritableSheetsSyncTargetResolution> {
+  const { idempotencyKey, job, responseId, sheetName, spreadsheetId, token } =
+    params;
+
+  const duplicateSkippedResult = (): SheetsSyncDuplicateSkipResult => ({
+    ok: true,
+    skipped: true,
+    reason: "duplicate",
+    provider: "google-sheets",
+    jobId: job.id,
+  });
+
+  // BullMQ jobId deduplication prevents duplicate concurrent jobs.
+  // A Redis idempotency key guards against duplicate rows on BullMQ retries
+  // (jobId dedup only applies while the job is still in the queue).
+  while (true) {
+    const keyValue = await getIdempotencyKeyValue(idempotencyKey);
+
+    if (keyValue === "done") {
+      // A prior attempt already wrote the row; skip.
+      return { status: "skip", result: duplicateSkippedResult() };
+    }
+
+    if (keyValue === "pending") {
+      // The lock TTL expired while another job's critical section is still in
+      // progress, or the prior attempt crashed before the row was written.
+      // Keep the integration lock while waiting so no other response can
+      // update headers or append rows for this integration in between.
+      const pendingResult =
+        await waitForPendingIdempotencyToResolve(idempotencyKey);
+      if (pendingResult === "done") {
+        return { status: "skip", result: duplicateSkippedResult() };
+      }
+      continue;
+    }
+
+    // Mark as "pending" before any Sheets API call in this critical section.
+    // If Redis is unavailable, throw so the job retries rather than writing
+    // without the duplicate guard.
+    await setIdempotencyKey(
+      idempotencyKey,
+      PENDING_IDEMPOTENCY_TTL_SECONDS,
+      "pending",
+    );
+
+    const sheetCheck = await readSheetForIdempotency(token, {
+      spreadsheetId,
+      sheetName,
+      responseId,
+    });
+    if (sheetCheck.exists) {
+      await setIdempotencyKey(
+        idempotencyKey,
+        DONE_IDEMPOTENCY_TTL_SECONDS,
+        "done",
+      ).catch((e: unknown) => {
+        console.warn(
+          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+        );
+      });
+      return { status: "skip", result: duplicateSkippedResult() };
+    }
+
+    return { status: "writable", sheetCheck };
+  }
+}
+
 async function writePreparedSheetsSyncResponse(params: {
   blockTitleMap: Map<string, string>;
   extractedQuestions: ExtractedQuestion[];
@@ -803,158 +1106,420 @@ async function writePreparedSheetsSyncResponse(params: {
     response.id,
   );
 
-  const duplicateSkippedResult = () => ({
-    ok: true,
-    skipped: true,
-    reason: "duplicate",
-    provider: "google-sheets",
-    jobId: job.id,
+  const resolution = await resolveWritableSheetsSyncTarget({
+    idempotencyKey,
+    job,
+    responseId: response.id,
+    sheetName,
+    spreadsheetId,
+    token,
+  });
+  if (resolution.status === "skip") {
+    return resolution.result;
+  }
+  const { sheetCheck } = resolution;
+
+  // ヘッダー行を取得
+  const existingHeaders = sheetCheck.headers;
+
+  await updateSheetsSyncProgress(job, 60, progress.processed, progress.total);
+
+  // ヘッダーと行データを構築
+  const { headers, titleHeaders, row } = buildRowFromResponse(
+    existingHeaders,
+    sheetCheck.titleHeaders,
+    sheetCheck.layout,
+    responseData,
+    extractedQuestions,
+    blockTitleMap,
+    response,
+    uniquenessScores.targetScore,
+    uniquenessScores.fingerprintComponents,
+    uniquenessScores.targetFingerprintUuids,
+    validationOutputsByResponseId.get(response.id) ?? [],
+  );
+
+  const titleHeadersChanged =
+    sheetCheck.layout !== "legacy" &&
+    hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
+
+  // ヘッダーが変更された場合は更新
+  if (
+    existingHeaders.length === 0 ||
+    headers.length > existingHeaders.length ||
+    titleHeadersChanged
+  ) {
+    throwIfShuttingDown();
+    const headerUpdateResult = await updateRange(token, {
+      spreadsheetId,
+      rangeA1:
+        sheetCheck.layout === "legacy"
+          ? `${sheetName}!1:1`
+          : `${sheetName}!1:2`,
+      values:
+        sheetCheck.layout === "legacy" ? [headers] : [headers, titleHeaders],
+    });
+    if (!headerUpdateResult.ok) {
+      throwSheetsSyncFailure("update headers", headerUpdateResult);
+    }
+  }
+  await updateExistingUniquenessScoreCells(token, {
+    spreadsheetId,
+    sheetName,
+    headers,
+    responseIds: sheetCheck.responseIds,
+    headerRowCount: sheetCheck.headerRowCount,
+    shouldBlankUnavailableScores: uniquenessScores.shouldBlankUnavailableScores,
+    uniquenessScores: uniquenessScores.allScores,
+  });
+  await updateSheetsSyncProgress(job, 80, progress.processed, progress.total);
+
+  // 行を追記
+  throwIfShuttingDown();
+  const appendResult = await appendRows(token, {
+    spreadsheetId,
+    sheetName,
+    rows: [row],
   });
 
-  // BullMQ jobId deduplication prevents duplicate concurrent jobs.
-  // A Redis idempotency key guards against duplicate rows on BullMQ retries
-  // (jobId dedup only applies while the job is still in the queue).
-  while (true) {
-    const keyValue = await getIdempotencyKeyValue(idempotencyKey);
+  if (!appendResult.ok) {
+    throwSheetsSyncFailure("append rows", appendResult);
+  }
+  // Promote "pending" → "done" BEFORE updateProgress so a
+  // transient BullMQ/Redis error on progress update doesn't trigger a retry
+  // that would duplicate the row. Keep it for the manual retry window.
+  // Best-effort: do NOT throw on failure.
+  await setIdempotencyKey(
+    idempotencyKey,
+    DONE_IDEMPOTENCY_TTL_SECONDS,
+    "done",
+  ).catch((e: unknown) => {
+    console.warn(
+      `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
+    );
+  });
 
-    if (keyValue === "done") {
-      // A prior attempt already wrote the row; skip.
-      return duplicateSkippedResult();
-    }
+  return {
+    ok: true,
+    provider: "google-sheets",
+    jobId: job.id,
+    updatedRange: appendResult.data.updatedRange,
+    updatedRows: appendResult.data.updatedRows,
+  };
+}
 
-    const markDuplicateWritten = async () => {
-      await setIdempotencyKey(
-        idempotencyKey,
-        DONE_IDEMPOTENCY_TTL_SECONDS,
-        "done",
-      ).catch((e: unknown) => {
-        console.warn(
-          `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-        );
-      });
-      return duplicateSkippedResult();
-    };
+/**
+ * Finds other same-form responses not yet written to this integration's
+ * sheet, submitted within a short recent window. Bounded to `cap` results,
+ * ordered oldest-first, so a sustained burst is drained in FIFO order across
+ * successive piggyback batches rather than repeatedly re-fetching the same
+ * newest slice (see issue 688 design discussion — plain "most recent N" sampling
+ * can permanently starve older pending responses under a sustained burst).
+ */
+async function findIncrementalPiggybackCandidates(params: {
+  cap: number;
+  excludeResponseId: string;
+  formId: string;
+  lookbackMs: number;
+  now?: Date;
+  sheetResponseIds: string[];
+}): Promise<SheetsSyncTargetResponse[]> {
+  const since = new Date(
+    (params.now ?? new Date()).getTime() - params.lookbackMs,
+  );
+  // 1. 直近のlookbackMs期間に送信されたレスポンスIDと送信日時をDBから取得（インデックスを利用して高速にIDのみ抽出）
+  const recentResponses = await db
+    .select({ id: formResponse.id, submittedAt: formResponse.submittedAt })
+    .from(formResponse)
+    .where(
+      and(
+        eq(formResponse.formId, params.formId),
+        gte(formResponse.submittedAt, since),
+      ),
+    )
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
 
-    if (keyValue === "pending") {
-      // The lock TTL expired while another job's critical section is still in
-      // progress, or the prior attempt crashed before the row was written.
-      // Keep the integration lock while waiting so no other response can
-      // update headers or append rows for this integration in between.
-      const pendingResult =
-        await waitForPendingIdempotencyToResolve(idempotencyKey);
-      if (pendingResult === "done") {
-        return duplicateSkippedResult();
-      }
-      continue;
-    }
+  // 2. すでにシートに書き込まれたIDとターゲットIDを除外した未送信のIDリストを作成
+  const sheetResponseIdSet = new Set(params.sheetResponseIds);
+  const pendingResponseIds = recentResponses
+    .filter(
+      (row) =>
+        row.id !== params.excludeResponseId &&
+        !sheetResponseIdSet.has(row.id) &&
+        !sheetResponseIdSet.has(neutralizeSpreadsheetFormulaValue(row.id)),
+    )
+    .map((row) => row.id)
+    .slice(0, params.cap);
 
-    // Mark as "pending" before any Sheets API call in this critical section.
-    // If Redis is unavailable, throw so the job retries rather than writing
-    // without the duplicate guard.
-    await setIdempotencyKey(
-      idempotencyKey,
-      PENDING_IDEMPOTENCY_TTL_SECONDS,
-      "pending",
+  if (pendingResponseIds.length === 0) {
+    return [];
+  }
+
+  // 3. 未送信ID（最大cap件）のデータをDBから取得して返す
+  return await db
+    .select()
+    .from(formResponse)
+    .where(inArray(formResponse.id, pendingResponseIds))
+    .orderBy(asc(formResponse.submittedAt), asc(formResponse.id));
+}
+
+/**
+ * Prepares piggyback candidates without repeating the target's own O(n) DB
+ * read + O(n²) similarity pass (`getUniquenessScoresForResponses`). Reuses
+ * the target's already-computed form-wide `allScores` map — every candidate
+ * is scored from that SAME snapshot rather than a second, independently
+ * computed one. A candidate submitted after that snapshot was taken (and
+ * thus absent from it) is skipped rather than guessed at; it will be picked
+ * up by its own future job like any other unhandled response.
+ */
+async function preparePiggybackResponses(params: {
+  candidates: SheetsSyncTargetResponse[];
+  formId: string;
+  target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
+}): Promise<Array<Extract<PreparedSheetsSyncResponse, { status: "ready" }>>> {
+  const { candidates, formId, target } = params;
+  if (candidates.length === 0) return [];
+
+  const { allScores, fingerprintComponents, shouldBlankUnavailableScores } =
+    target.uniquenessScores;
+
+  const fingerprintRows = await db
+    .select({
+      responseId: fingerprintDetail.responseId,
+      componentName: fingerprintDetail.componentName,
+      componentValueHash: fingerprintDetail.componentValueHash,
+      fingerprintType: fingerprintDetail.fingerprintType,
+    })
+    .from(fingerprintDetail)
+    .where(
+      inArray(
+        fingerprintDetail.responseId,
+        candidates.map((candidate) => candidate.id),
+      ),
     );
 
-    const sheetCheck = await readSheetForIdempotency(token, {
-      spreadsheetId,
-      sheetName,
-      responseId: response.id,
+  const fingerprintsByResponseId = new Map<
+    string,
+    FingerprintSet["fingerprintDetails"]
+  >();
+  for (const row of fingerprintRows) {
+    const current = fingerprintsByResponseId.get(row.responseId) ?? [];
+    current.push({
+      componentName: row.componentName,
+      componentValueHash: row.componentValueHash,
+      fingerprintType: row.fingerprintType,
     });
-    if (sheetCheck.exists) {
-      return markDuplicateWritten();
-    }
+    fingerprintsByResponseId.set(row.responseId, current);
+  }
 
-    // ヘッダー行を取得
-    const existingHeaders = sheetCheck.headers;
+  const prepared: Array<
+    Extract<PreparedSheetsSyncResponse, { status: "ready" }>
+  > = [];
+  for (const response of candidates) {
+    const responseData = safeParseResponseData(
+      response.responseDataJson,
+      response.id,
+    );
+    if (!responseData) continue; // invalid_data: leave for its own future job
 
-    await updateSheetsSyncProgress(job, 60, progress.processed, progress.total);
+    const targetScore =
+      allScores.size > 0
+        ? allScores.get(response.id)
+        : target.uniquenessScores.targetScore;
+    if (targetScore === undefined) continue; // not covered by the target's snapshot yet
 
-    // ヘッダーと行データを構築
-    const { headers, titleHeaders, row } = buildRowFromResponse(
-      existingHeaders,
-      sheetCheck.titleHeaders,
-      sheetCheck.layout,
+    const fingerprintSet: FingerprintSet = {
+      id: response.id,
+      sessionId: response.sessionId,
+      fingerprintDetails: fingerprintsByResponseId.get(response.id) ?? [],
+    };
+
+    prepared.push({
+      status: "ready",
+      response,
       responseData,
+      uniquenessScores: {
+        allScores,
+        fingerprintComponents,
+        shouldBlankUnavailableScores,
+        targetScore,
+        targetFingerprintUuids: buildFingerprintUuids(formId, fingerprintSet),
+      },
+    });
+  }
+  return prepared;
+}
+
+/**
+ * Writes an incremental response together with any other same-integration
+ * responses not yet in the sheet, in one batched write (see issue 688). Reuses
+ * the header row + Response ID column already read by
+ * `resolveWritableSheetsSyncTarget` for the duplicate check, so piggybacking
+ * costs no extra Sheets API round trips beyond a slightly larger append.
+ */
+async function writeIncrementalSheetsSyncBatch(params: {
+  blockTitleMap: Map<string, string>;
+  extractedQuestions: ExtractedQuestion[];
+  formId: string;
+  integrationId: string;
+  job: Job<SheetsSyncJob>;
+  sheetName: string;
+  spreadsheetId: string;
+  target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
+  token: OAuthToken;
+  validationOutputExportSettings: ValidationOutputExportSettings;
+  validationOutputsByResponseId: Map<
+    string,
+    ResponseExportValidationOutputValue[]
+  >;
+}) {
+  const {
+    blockTitleMap,
+    extractedQuestions,
+    formId,
+    integrationId,
+    job,
+    sheetName,
+    spreadsheetId,
+    target,
+    token,
+    validationOutputExportSettings,
+    validationOutputsByResponseId,
+  } = params;
+
+  const idempotencyKey = getSheetsSyncIdempotencyKey(
+    integrationId,
+    target.response.id,
+  );
+  const resolution = await resolveWritableSheetsSyncTarget({
+    idempotencyKey,
+    job,
+    responseId: target.response.id,
+    sheetName,
+    spreadsheetId,
+    token,
+  });
+  if (resolution.status === "skip") {
+    return resolution.result;
+  }
+  const { sheetCheck } = resolution;
+
+  await updateSheetsSyncProgress(job, 60, 0, 1);
+
+  const piggybackCandidates = await findIncrementalPiggybackCandidates({
+    cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
+    excludeResponseId: target.response.id,
+    formId,
+    lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,
+    sheetResponseIds: sheetCheck.responseIds,
+  });
+  const piggybackReady = await preparePiggybackResponses({
+    candidates: piggybackCandidates,
+    formId,
+    target,
+  });
+
+  let mergedValidationOutputs = validationOutputsByResponseId;
+  if (piggybackReady.length > 0) {
+    const extraValidationOutputs = await getValidationOutputsByResponseId({
+      formId,
+      responseIds: piggybackReady.map((prepared) => prepared.response.id),
+      settings: validationOutputExportSettings,
+    });
+    mergedValidationOutputs = new Map([
+      ...validationOutputsByResponseId,
+      ...extraValidationOutputs,
+    ]);
+  }
+
+  const batch = [target, ...piggybackReady];
+
+  let headers = sheetCheck.headers;
+  let titleHeaders = sheetCheck.titleHeaders;
+  const rows: string[][] = [];
+  for (const prepared of batch) {
+    const built = buildRowFromResponse(
+      headers,
+      titleHeaders,
+      sheetCheck.layout,
+      prepared.responseData,
       extractedQuestions,
       blockTitleMap,
-      response,
-      uniquenessScores.targetScore,
-      uniquenessScores.fingerprintComponents,
-      uniquenessScores.targetFingerprintUuids,
-      validationOutputsByResponseId.get(response.id) ?? [],
+      prepared.response,
+      prepared.uniquenessScores.targetScore,
+      prepared.uniquenessScores.fingerprintComponents,
+      prepared.uniquenessScores.targetFingerprintUuids,
+      mergedValidationOutputs.get(prepared.response.id) ?? [],
     );
-
-    const titleHeadersChanged =
-      sheetCheck.layout !== "legacy" &&
-      hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
-
-    // ヘッダーが変更された場合は更新
-    if (
-      existingHeaders.length === 0 ||
-      headers.length > existingHeaders.length ||
-      titleHeadersChanged
-    ) {
-      throwIfShuttingDown();
-      const headerUpdateResult = await updateRange(token, {
-        spreadsheetId,
-        rangeA1:
-          sheetCheck.layout === "legacy"
-            ? `${sheetName}!1:1`
-            : `${sheetName}!1:2`,
-        values:
-          sheetCheck.layout === "legacy" ? [headers] : [headers, titleHeaders],
-      });
-      if (!headerUpdateResult.ok) {
-        throwSheetsSyncFailure("update headers", headerUpdateResult);
-      }
-    }
-    await updateExistingUniquenessScoreCells(token, {
-      spreadsheetId,
-      sheetName,
-      headers,
-      responseIds: sheetCheck.responseIds,
-      headerRowCount: sheetCheck.headerRowCount,
-      shouldBlankUnavailableScores:
-        uniquenessScores.shouldBlankUnavailableScores,
-      uniquenessScores: uniquenessScores.allScores,
-    });
-    await updateSheetsSyncProgress(job, 80, progress.processed, progress.total);
-
-    // 行を追記
-    throwIfShuttingDown();
-    const appendResult = await appendRows(token, {
-      spreadsheetId,
-      sheetName,
-      rows: [row],
-    });
-
-    if (!appendResult.ok) {
-      throwSheetsSyncFailure("append rows", appendResult);
-    }
-    // Promote "pending" → "done" BEFORE updateProgress so a
-    // transient BullMQ/Redis error on progress update doesn't trigger a retry
-    // that would duplicate the row. Keep it for the manual retry window.
-    // Best-effort: do NOT throw on failure.
-    await setIdempotencyKey(
-      idempotencyKey,
-      DONE_IDEMPOTENCY_TTL_SECONDS,
-      "done",
-    ).catch((e: unknown) => {
-      console.warn(
-        `[sheets-sync] Could not persist idempotency key ${idempotencyKey}: ${e instanceof Error ? e.message : e}`,
-      );
-    });
-
-    return {
-      ok: true,
-      provider: "google-sheets",
-      jobId: job.id,
-      updatedRange: appendResult.data.updatedRange,
-      updatedRows: appendResult.data.updatedRows,
-    };
+    headers = built.headers;
+    titleHeaders = built.titleHeaders;
+    rows.push(built.row);
   }
+
+  const titleHeadersChanged =
+    sheetCheck.layout !== "legacy" &&
+    hasSheetRowChanged(titleHeaders, sheetCheck.titleHeaders);
+
+  if (
+    sheetCheck.headers.length === 0 ||
+    headers.length > sheetCheck.headers.length ||
+    titleHeadersChanged
+  ) {
+    throwIfShuttingDown();
+    const headerUpdateResult = await updateRange(token, {
+      spreadsheetId,
+      rangeA1:
+        sheetCheck.layout === "legacy"
+          ? `${sheetName}!1:1`
+          : `${sheetName}!1:2`,
+      values:
+        sheetCheck.layout === "legacy" ? [headers] : [headers, titleHeaders],
+    });
+    if (!headerUpdateResult.ok) {
+      throwSheetsSyncFailure("update headers", headerUpdateResult);
+    }
+  }
+
+  await updateExistingUniquenessScoreCells(token, {
+    spreadsheetId,
+    sheetName,
+    headers,
+    responseIds: sheetCheck.responseIds,
+    headerRowCount: sheetCheck.headerRowCount,
+    shouldBlankUnavailableScores:
+      target.uniquenessScores.shouldBlankUnavailableScores,
+    uniquenessScores: target.uniquenessScores.allScores,
+  });
+  await updateSheetsSyncProgress(job, 80, 0, 1);
+
+  throwIfShuttingDown();
+  const appendResult = await appendRows(token, {
+    spreadsheetId,
+    sheetName,
+    rows,
+  });
+  if (!appendResult.ok) {
+    throwSheetsSyncFailure("append rows", appendResult);
+  }
+
+  const doneKeys = batch.map((prepared) =>
+    getSheetsSyncIdempotencyKey(integrationId, prepared.response.id),
+  );
+  try {
+    await setIdempotencyKeys(doneKeys, DONE_IDEMPOTENCY_TTL_SECONDS, "done");
+  } catch (e: unknown) {
+    console.warn(
+      `[sheets-sync] Could not persist idempotency keys: ${e instanceof Error ? e.message : e}`,
+    );
+  }
+
+  return {
+    ok: true,
+    provider: "google-sheets",
+    jobId: job.id,
+    updatedRange: appendResult.data.updatedRange,
+    updatedRows: appendResult.data.updatedRows,
+  };
 }
 
 function getSheetsSyncIdempotencyKey(
@@ -996,7 +1561,7 @@ async function getUniquenessScoresForResponses(
   targetResponseIds: string[],
 ): Promise<Map<string, ResponseUniquenessScores>> {
   const responseRows = await db
-    .select({ id: formResponse.id })
+    .select({ id: formResponse.id, sessionId: formResponse.sessionId })
     .from(formResponse)
     .where(eq(formResponse.formId, formId))
     .orderBy(asc(formResponse.submittedAt), asc(formResponse.id))
@@ -1062,6 +1627,7 @@ async function getUniquenessScoresForResponses(
 
   const fingerprintSets = responseRows.map((row) => ({
     id: row.id,
+    sessionId: row.sessionId,
     fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
   }));
 
@@ -1083,17 +1649,6 @@ async function getUniquenessScoresForResponses(
         },
       ];
     }),
-  );
-}
-
-function calculateUniquenessScoreMap(
-  responses: FingerprintSet[],
-): Map<string, number> {
-  return new Map(
-    responses.map((response) => [
-      response.id,
-      calculateUniqueness(response, responses),
-    ]),
   );
 }
 
@@ -1145,69 +1700,14 @@ function uuidV5(name: string, namespace: string): string {
   ].join("-");
 }
 
-function calculateSimilarity(
-  response1: FingerprintSet,
-  response2: FingerprintSet,
-): number {
-  if (
-    response1.fingerprintDetails.length === 0 ||
-    response2.fingerprintDetails.length === 0
-  ) {
-    return 0;
-  }
-
-  const allComponents = new Set<string>();
-  for (const detail of response1.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
-  for (const detail of response2.fingerprintDetails) {
-    allComponents.add(detail.componentName);
-  }
-
-  let totalWeight = 0;
-  let matchedWeight = 0;
-  for (const componentName of allComponents) {
-    const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
-    totalWeight += weight;
-
-    const detail1 = response1.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
-    const detail2 = response2.fingerprintDetails.find(
-      (detail) => detail.componentName === componentName,
-    );
-    if (
-      detail1 &&
-      detail2 &&
-      detail1.componentValueHash === detail2.componentValueHash &&
-      detail1.fingerprintType === detail2.fingerprintType
-    ) {
-      matchedWeight += weight;
-    }
-  }
-
-  return totalWeight === 0 ? 0 : matchedWeight / totalWeight;
-}
-
-function calculateUniqueness(
-  targetResponse: FingerprintSet,
-  allResponses: FingerprintSet[],
-): number {
-  if (allResponses.length <= 1) return 1;
-
-  const otherResponses = allResponses.filter(
-    (response) => response.id !== targetResponse.id,
+function isResponseIdWrittenToSheet(
+  responseId: string,
+  sheetResponseIds: string[],
+): boolean {
+  return (
+    sheetResponseIds.includes(responseId) ||
+    sheetResponseIds.includes(neutralizeSpreadsheetFormulaValue(responseId))
   );
-  if (otherResponses.length === 0) return 1;
-
-  const averageSimilarity =
-    otherResponses.reduce(
-      (sum, otherResponse) =>
-        sum + calculateSimilarity(targetResponse, otherResponse),
-      0,
-    ) / otherResponses.length;
-
-  return Math.max(0, Math.min(1, 1 - averageSimilarity));
 }
 
 async function readSheetForIdempotency(
@@ -1277,12 +1777,7 @@ async function readSheetForIdempotency(
   const responseIds = entireColumn.data.values
     .slice(headerRowCount)
     .map((row) => (typeof row[0] === "string" ? row[0] : ""));
-  const neutralizedResponseId = neutralizeSpreadsheetFormulaValue(
-    params.responseId,
-  );
-  const exists =
-    responseIds.includes(params.responseId) ||
-    responseIds.includes(neutralizedResponseId);
+  const exists = isResponseIdWrittenToSheet(params.responseId, responseIds);
   return {
     ok: true,
     exists,
@@ -1299,26 +1794,26 @@ function isSharedSheetLayout(
   titleHeaders: string[],
   responseIdIndex: number,
 ): boolean {
-  return (
-    responseIdIndex === 0 &&
-    SHARED_BASE_ID_HEADERS.every(
-      (header, index) => headers[index] === header,
-    ) &&
-    isSharedTitleHeaderRow(titleHeaders)
+  if (responseIdIndex !== 0) {
+    return false;
+  }
+  const baseIdHeaders = SHARED_BASE_ID_HEADERS.slice(0, 6);
+  const matchesBaseIdHeaders = baseIdHeaders.every(
+    (header, index) => headers[index] === header,
   );
+  return matchesBaseIdHeaders && isSharedTitleHeaderRow(titleHeaders);
 }
 
 function isSharedTitleHeaderRow(titleHeaders: string[]): boolean {
   let hasTitleHeader = false;
-  const hasOnlySharedTitleHeaders = SHARED_BASE_TITLE_HEADERS.every(
-    (header, index) => {
-      const existing = titleHeaders[index];
-      if (existing === undefined || existing === "") return true;
-      if (existing !== header) return false;
-      hasTitleHeader = true;
-      return true;
-    },
-  );
+  const baseTitleHeaders = SHARED_BASE_TITLE_HEADERS.slice(0, 6);
+  const hasOnlySharedTitleHeaders = baseTitleHeaders.every((header, index) => {
+    const existing = titleHeaders[index];
+    if (existing === undefined || existing === "") return true;
+    if (existing !== header) return false;
+    hasTitleHeader = true;
+    return true;
+  });
   return hasTitleHeader && hasOnlySharedTitleHeaders;
 }
 
@@ -1353,23 +1848,53 @@ async function updateExistingUniquenessScoreCells(
     return;
   }
 
-  throwIfShuttingDown();
-  const columnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const uniquenessRatingIndex = findUniquenessRatingHeaderIndex(params.headers);
+  const isAdjacentRating =
+    uniquenessRatingIndex !== -1 &&
+    uniquenessRatingIndex === uniquenessScoreIndex + 1;
+  const hasNonAdjacentRating =
+    uniquenessRatingIndex !== -1 && !isAdjacentRating;
 
+  throwIfShuttingDown();
+  const scoreColumnLetter = columnIndexToLetter(uniquenessScoreIndex);
+  const ratingColumnLetter =
+    uniquenessRatingIndex !== -1
+      ? columnIndexToLetter(uniquenessRatingIndex)
+      : "";
+
+  const batchData: Array<{ rangeA1: string; values: string[][] }> = [];
   let rangeStartRow: number | null = null;
-  let rangeValues: string[][] = [];
-  const flushRange = async (endRow: number) => {
-    if (rangeStartRow === null || rangeValues.length === 0) return;
-    const result = await updateRange(token, {
-      spreadsheetId: params.spreadsheetId,
-      rangeA1: `${params.sheetName}!${columnLetter}${rangeStartRow}:${columnLetter}${endRow}`,
-      values: rangeValues,
-    });
-    if (!result.ok) {
-      throwSheetsSyncFailure("update uniqueness scores", result);
+  let rangeScoreValues: string[][] = [];
+  let rangeRatingValues: string[][] = [];
+  let rangeCombinedValues: string[][] = [];
+
+  const collectRange = (endRow: number) => {
+    if (rangeStartRow === null) return;
+    if (isAdjacentRating) {
+      if (rangeCombinedValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${scoreColumnLetter}${rangeStartRow}:${ratingColumnLetter}${endRow}`,
+          values: rangeCombinedValues,
+        });
+      }
+    } else {
+      if (rangeScoreValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${scoreColumnLetter}${rangeStartRow}:${scoreColumnLetter}${endRow}`,
+          values: rangeScoreValues,
+        });
+      }
+      if (hasNonAdjacentRating && rangeRatingValues.length > 0) {
+        batchData.push({
+          rangeA1: `${params.sheetName}!${ratingColumnLetter}${rangeStartRow}:${ratingColumnLetter}${endRow}`,
+          values: rangeRatingValues,
+        });
+      }
     }
     rangeStartRow = null;
-    rangeValues = [];
+    rangeScoreValues = [];
+    rangeRatingValues = [];
+    rangeCombinedValues = [];
   };
 
   for (const [index, responseId] of params.responseIds.entries()) {
@@ -1379,14 +1904,45 @@ async function updateExistingUniquenessScoreCells(
       responseId,
     );
     if (score === undefined && !params.shouldBlankUnavailableScores) {
-      await flushRange(rowNumber - 1);
+      collectRange(rowNumber - 1);
       continue;
     }
 
     rangeStartRow ??= rowNumber;
-    rangeValues.push([score === undefined ? "" : score.toFixed(4)]);
+    if (score === undefined) {
+      if (isAdjacentRating) {
+        rangeCombinedValues.push(["", ""]);
+      } else {
+        rangeScoreValues.push([""]);
+        if (hasNonAdjacentRating) {
+          rangeRatingValues.push([""]);
+        }
+      }
+    } else {
+      const formattedScore = score.toFixed(4);
+      const ratingLabel = getUniquenessScoreRating(score);
+      if (isAdjacentRating) {
+        rangeCombinedValues.push([formattedScore, ratingLabel]);
+      } else {
+        rangeScoreValues.push([formattedScore]);
+        if (hasNonAdjacentRating) {
+          rangeRatingValues.push([ratingLabel]);
+        }
+      }
+    }
   }
-  await flushRange(params.responseIds.length + params.headerRowCount);
+  collectRange(params.responseIds.length + params.headerRowCount);
+
+  if (batchData.length > 0) {
+    throwIfShuttingDown();
+    const result = await batchUpdate(token, {
+      spreadsheetId: params.spreadsheetId,
+      data: batchData,
+    });
+    if (!result.ok) {
+      throwSheetsSyncFailure("update uniqueness scores in batch", result);
+    }
+  }
 }
 
 async function waitForPendingIdempotencyToResolve(
@@ -1549,6 +2105,13 @@ function findUniquenessScoreHeaderIndex(headers: string[]): number {
   const idHeaderIndex = headers.indexOf(UNIQUENESS_SCORE_ID_HEADER);
   return idHeaderIndex === -1
     ? headers.indexOf(UNIQUENESS_SCORE_HEADER)
+    : idHeaderIndex;
+}
+
+function findUniquenessRatingHeaderIndex(headers: string[]): number {
+  const idHeaderIndex = headers.indexOf(UNIQUENESS_RATING_ID_HEADER);
+  return idHeaderIndex === -1
+    ? headers.indexOf(UNIQUENESS_RATING_HEADER)
     : idHeaderIndex;
 }
 
