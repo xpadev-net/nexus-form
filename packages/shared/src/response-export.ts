@@ -14,6 +14,7 @@ export type ResponseExportRecord = {
     submitted_at: string;
     updated_at?: string;
     country_code?: string;
+    session_id?: string | null;
     fingerprint_uuids?: Record<string, string | null>;
     ua_uuid?: string | null;
     uniqueness_score?: number;
@@ -162,6 +163,7 @@ function buildMetadataHeaders(
 
   const baseHeadersWithUaUuid = [
     ...baseHeaders.slice(0, 5),
+    isJapanese ? "セッションID" : "Session ID",
     "UA UUID",
     ...baseHeaders.slice(5),
   ];
@@ -197,6 +199,7 @@ function buildMetadataValues(
 
   const baseValuesWithUaUuid = [
     ...baseValues.slice(0, 5),
+    record.metadata.session_id || "",
     record.metadata.ua_uuid || "",
     ...baseValues.slice(5),
   ];

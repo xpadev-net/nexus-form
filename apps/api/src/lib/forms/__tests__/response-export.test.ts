@@ -171,7 +171,7 @@ describe("response export", () => {
           submittedAt,
           updatedAt: null,
           userAgent: null,
-          sessionId: null,
+          sessionId: "=session-1",
           countryCode: "JP",
           fingerprintDetails: [],
         },
@@ -317,6 +317,42 @@ describe("response export", () => {
     expect(records[1]?.metadata.uniqueness_score).toBe(0.5);
   });
 
+  it("does not include session ID in the default CSV export even when fingerprints exist", () => {
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      "form-session-default-export",
+      [
+        {
+          id: "response-session-default",
+          formId: "form-session-default-export",
+          responseDataJson: "[]",
+          respondentUuid: "respondent-session-default",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: "session-default",
+          countryCode: "JP",
+          fingerprintDetails: [
+            {
+              fingerprintType: "browser",
+              componentName: "canvas",
+              componentValueHash: "browser-canvas-hash",
+            },
+          ],
+        },
+      ],
+      [],
+    );
+
+    const csv = formatRecordsToCsv(records, fingerprintComponents, new Map());
+
+    expect(csv.split("\n")[0]).toBe(
+      '"回答ID","回答者UUID","送信日時","更新日時","国コード","ユニーク度スコア","ユニーク度評価"',
+    );
+    expect(csv).not.toContain("Session ID");
+    expect(csv).not.toContain("セッションID");
+    expect(csv).toContain("response-session-default");
+  });
+
   it("returns a header row when CSV output has no records", () => {
     const questionTitleMap = new Map([
       ["name-block", "氏名"],
@@ -342,6 +378,7 @@ describe("response export", () => {
         respondent_uuid: "respondent-1",
         submitted_at: "2026-05-17T01:00:00.000Z",
         country_code: "JP",
+        session_id: "session-1",
         fingerprint_uuids: {
           "browser:canvas": "canvas-uuid",
           "fingerprintjs:webgl": "webgl-uuid",
@@ -383,6 +420,7 @@ describe("response export", () => {
         "Submitted At",
         "Updated At",
         "Country Code",
+        "Session ID",
         "UA UUID",
         "Uniqueness Score",
         "Uniqueness Rating",
@@ -397,6 +435,7 @@ describe("response export", () => {
         "送信日時",
         "更新日時",
         "国コード",
+        "セッションID",
         "UA UUID",
         "ユニーク度スコア",
         "ユニーク度評価",
@@ -412,6 +451,7 @@ describe("response export", () => {
           "2026-05-17T01:00:00.000Z",
           "",
           "JP",
+          "session-1",
           "",
           "1.0000",
           "高",
@@ -577,6 +617,7 @@ describe("response export", () => {
         submitted_at: "2026-05-17T01:00:00.000Z",
         updated_at: "\t2026-05-17T02:30:00.000Z",
         country_code: "JP",
+        session_id: "=session-1",
         fingerprint_uuids: {
           "=browser:canvas": "+fingerprint",
         },
@@ -646,6 +687,7 @@ describe("response export", () => {
     for (const expectedCell of [
       '"\'=response-1"',
       '"\'\t2026-05-17T02:30:00.000Z"',
+      '"\'=session-1"',
       '"\' @ua"',
       '"\'+fingerprint"',
       '"\' =cmd"',
@@ -797,7 +839,7 @@ describe("response export", () => {
           submittedAt,
           updatedAt: null,
           userAgent: null,
-          sessionId: null,
+          sessionId: "session-individual",
           countryCode: "JP",
           fingerprintDetails: [],
         },
@@ -822,7 +864,7 @@ describe("response export", () => {
           submittedAt,
           updatedAt: null,
           userAgent: null,
-          sessionId: null,
+          sessionId: "session-corporate",
           countryCode: "JP",
           fingerprintDetails: [],
         },
@@ -934,7 +976,7 @@ describe("response export", () => {
           submittedAt,
           updatedAt: null,
           userAgent: null,
-          sessionId: null,
+          sessionId: "session-sectioned",
           countryCode: "JP",
           fingerprintDetails: [],
         },

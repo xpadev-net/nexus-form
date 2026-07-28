@@ -261,6 +261,7 @@ export function buildResponseExportRecords(
         submitted_at: response.submittedAt.toISOString(),
         updated_at: response.updatedAt?.toISOString(),
         country_code: response.countryCode ?? undefined,
+        session_id: response.sessionId ?? undefined,
         fingerprint_uuids: fingerprintUuids,
         ua_uuid: uaUuid,
         uniqueness_score: uniquenessScore,
