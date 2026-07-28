@@ -323,25 +323,25 @@ export async function writeValidationResult(params: {
   await publishValidationEvent(event);
 
   if (shouldRefreshSheets) {
-    const [sheetsIntegration] = await db
-      .select({ id: formIntegration.id })
-      .from(formIntegration)
-      .where(eq(formIntegration.formId, params.formId))
-      .limit(1);
-    if (sheetsIntegration) {
-      try {
+    try {
+      const [sheetsIntegration] = await db
+        .select({ id: formIntegration.id })
+        .from(formIntegration)
+        .where(eq(formIntegration.formId, params.formId))
+        .limit(1);
+      if (sheetsIntegration) {
         await enqueueValidationRefreshSheetsSyncJob({
           formId: params.formId,
           integrationId: sheetsIntegration.id,
           responseId: params.responseId,
           snapshotVersion: params.snapshotVersion,
         });
-      } catch (error) {
-        console.warn(
-          "[validation-helpers] Failed to enqueue Sheets validation refresh:",
-          error,
-        );
       }
+    } catch (error) {
+      console.warn(
+        "[validation-helpers] Failed to enqueue Sheets validation refresh:",
+        error,
+      );
     }
   }
 

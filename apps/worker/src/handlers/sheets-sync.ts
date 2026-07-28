@@ -451,26 +451,36 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const validationOutputSnapshotVersion = refreshValidationOutputs
     ? structureSnapshotVersion
     : undefined;
-  const validationOutputResult =
-    refreshValidationOutputs && validationOutputSnapshotVersion === undefined
-      ? {
-          hasValidationRows: false,
-          outputsByResponseId: new Map<
-            string,
-            ResponseExportValidationOutputValue[]
-          >(),
-        }
-      : await getValidationOutputsByResponseId({
-          formId,
-          responseIds: preparedResponses.flatMap((prepared) =>
-            prepared.status === "ready" ? [prepared.response.id] : [],
-          ),
-          settings: validationOutputExportSettings,
-          snapshotVersion: validationOutputSnapshotVersion,
-        });
+  const total = preparedResponses.length;
+  if (
+    refreshValidationOutputs &&
+    validationOutputSnapshotVersion === undefined
+  ) {
+    const staleSkippedResult: SheetsSyncStaleSkipResult = {
+      ok: true,
+      skipped: true,
+      reason: "stale",
+      provider: "google-sheets",
+      jobId: job.id,
+    };
+    return {
+      ...staleSkippedResult,
+      mode,
+      processed: total,
+      total,
+      skipped: total,
+    };
+  }
+  const validationOutputResult = await getValidationOutputsByResponseId({
+    formId,
+    responseIds: preparedResponses.flatMap((prepared) =>
+      prepared.status === "ready" ? [prepared.response.id] : [],
+    ),
+    settings: validationOutputExportSettings,
+    snapshotVersion: validationOutputSnapshotVersion,
+  });
   const validationOutputsByResponseId =
     validationOutputResult.outputsByResponseId;
-  const total = preparedResponses.length;
   let processed = 0;
   let skipped = 0;
   let updatedRows = 0;

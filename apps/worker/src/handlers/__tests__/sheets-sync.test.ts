@@ -784,7 +784,7 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
-  it("refreshes an existing Sheets row after validation completes", async () => {
+  it("returns stale when a validation refresh job cannot resolve a snapshot version", async () => {
     setupHappyPathMocks();
     mockReadRange
       .mockResolvedValueOnce({
@@ -810,26 +810,16 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toMatchObject({
       ok: true,
+      reason: "stale",
       provider: "google-sheets",
       mode: "incremental",
       processed: 1,
       total: 1,
-      skipped: 0,
+      skipped: 1,
     });
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockUpdateRange).toHaveBeenCalledTimes(1);
-    expect(mockUpdateRange).toHaveBeenCalledWith(
-      TOKEN,
-      expect.objectContaining({
-        rangeA1: "Sheet1!A2:C2",
-        values: [["response-1", "hello", expect.any(String)]],
-      }),
-    );
-    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
-      "sheets-written:integration-1:response-1",
-      DONE_IDEMPOTENCY_TTL_SECONDS,
-      "done",
-    );
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
   });
 
   it("refreshes an existing Sheets row using the submitted snapshot when the validation refresh job is versionless", async () => {
