@@ -433,7 +433,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         ? currentStructureJson
         : getSnapshotStructureJson(plateRecord),
     );
-  const validationOutputsByResponseId = await getValidationOutputsByResponseId({
+  const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
     responseIds: preparedResponses.flatMap((prepared) =>
       prepared.status === "ready" ? [prepared.response.id] : [],
@@ -444,6 +444,8 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
         ? snapshotVersion
         : undefined,
   });
+  const validationOutputsByResponseId =
+    validationOutputResult.outputsByResponseId;
   const total = preparedResponses.length;
   let processed = 0;
   let skipped = 0;
@@ -525,6 +527,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 target: prepared,
                 token,
                 validationOutputExportSettings,
+                hasValidationRows: validationOutputResult.hasValidationRows,
                 validationOutputsByResponseId,
               })
             : {
@@ -920,8 +923,13 @@ async function getValidationOutputsByResponseId(params: {
   responseIds: string[];
   settings: ValidationOutputExportSettings;
   snapshotVersion?: number;
-}): Promise<Map<string, ResponseExportValidationOutputValue[]>> {
-  if (params.responseIds.length === 0) return new Map();
+}): Promise<{
+  hasValidationRows: boolean;
+  outputsByResponseId: Map<string, ResponseExportValidationOutputValue[]>;
+}> {
+  if (params.responseIds.length === 0) {
+    return { hasValidationRows: false, outputsByResponseId: new Map() };
+  }
 
   const rows = await db
     .select({
@@ -971,33 +979,36 @@ async function getValidationOutputsByResponseId(params: {
     params.settings,
     [...outputsByResponseId.values()].flat(),
   );
-  return new Map(
-    params.responseIds.map((responseId) => {
-      const valueByColumnKey = new Map(
-        (outputsByResponseId.get(responseId) ?? []).map((value) => [
-          `${value.rule_id}:${value.output_key}`,
-          value,
-        ]),
-      );
-      return [
-        responseId,
-        selectedColumns.map((column) => {
-          const value = valueByColumnKey.get(
-            `${column.ruleId}:${column.outputKey}`,
-          );
-          return {
-            rule_id: column.ruleId,
-            rule_name: column.ruleName,
-            provider_name: column.providerName,
-            rule_type: column.ruleType,
-            output_key: column.outputKey,
-            label: column.label,
-            value: value?.value ?? "",
-          };
-        }),
-      ];
-    }),
-  );
+  return {
+    hasValidationRows: rows.length > 0,
+    outputsByResponseId: new Map(
+      params.responseIds.map((responseId) => {
+        const valueByColumnKey = new Map(
+          (outputsByResponseId.get(responseId) ?? []).map((value) => [
+            `${value.rule_id}:${value.output_key}`,
+            value,
+          ]),
+        );
+        return [
+          responseId,
+          selectedColumns.map((column) => {
+            const value = valueByColumnKey.get(
+              `${column.ruleId}:${column.outputKey}`,
+            );
+            return {
+              rule_id: column.ruleId,
+              rule_name: column.ruleName,
+              provider_name: column.providerName,
+              rule_type: column.ruleType,
+              output_key: column.outputKey,
+              label: column.label,
+              value: value?.value ?? "",
+            };
+          }),
+        ];
+      }),
+    ),
+  };
 }
 
 type SheetsSyncDuplicateSkipResult = {
@@ -1410,6 +1421,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
   token: OAuthToken;
   validationOutputExportSettings: ValidationOutputExportSettings;
+  hasValidationRows: boolean;
   validationOutputsByResponseId: Map<
     string,
     ResponseExportValidationOutputValue[]
@@ -1428,6 +1440,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     target,
     token,
     validationOutputExportSettings,
+    hasValidationRows,
     validationOutputsByResponseId,
   } = params;
 
@@ -1438,7 +1451,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   if (
     refreshValidationOutputs &&
     snapshotVersion !== undefined &&
-    (validationOutputsByResponseId.get(target.response.id)?.length ?? 0) === 0
+    !hasValidationRows
   ) {
     return {
       ok: true,
@@ -1480,14 +1493,14 @@ async function writeIncrementalSheetsSyncBatch(params: {
 
   let mergedValidationOutputs = validationOutputsByResponseId;
   if (piggybackReady.length > 0) {
-    const extraValidationOutputs = await getValidationOutputsByResponseId({
+    const extraValidationResult = await getValidationOutputsByResponseId({
       formId,
       responseIds: piggybackReady.map((prepared) => prepared.response.id),
       settings: validationOutputExportSettings,
     });
     mergedValidationOutputs = new Map([
       ...validationOutputsByResponseId,
-      ...extraValidationOutputs,
+      ...extraValidationResult.outputsByResponseId,
     ]);
   }
 

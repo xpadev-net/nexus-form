@@ -258,11 +258,13 @@ export async function writeValidationResult(params: {
           success: params.success,
           attemptCount: sql`${externalServiceValidationResult.attemptCount} + 1`,
           lastAttemptAt: now,
-          snapshotVersion: params.snapshotVersion ?? null,
           metadata: params.metadata ?? null,
           errorCode: params.errorCode ?? null,
           errorMessage: params.errorMessage ?? null,
           jobId: params.jobId ?? null,
+          ...(params.snapshotVersion === undefined
+            ? {}
+            : { snapshotVersion: params.snapshotVersion }),
         },
       });
 
