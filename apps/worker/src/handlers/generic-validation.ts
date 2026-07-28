@@ -266,6 +266,9 @@ export const handleGenericValidation = async (
 
   const jobData = genericValidationJobDataSchema.parse(job.data);
   const { responseId, ruleId, referencedBlockId, snapshotVersion } = jobData;
+  const writeValidationResultForJob = async (
+    params: Parameters<typeof writeValidationResult>[0],
+  ) => writeValidationResult({ ...params, snapshotVersion });
 
   let context: Awaited<ReturnType<typeof getValidationContext>>;
   try {
@@ -279,7 +282,7 @@ export const handleGenericValidation = async (
     if (error instanceof ReferencedBlockMissingError) {
       // ジョブ enqueue 後に参照ブロックが削除されたケース。
       // 状態を MISSING にして終了する。
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId: error.formId,
         ruleId,
@@ -334,7 +337,7 @@ export const handleGenericValidation = async (
   const provider = providerRegistry.get(serviceType);
   const providerRule = provider?.rules[ruleType];
   if (!provider || !providerRule) {
-    await writeValidationResult({
+    await writeValidationResultForJob({
       responseId,
       formId,
       ruleId,
@@ -360,7 +363,7 @@ export const handleGenericValidation = async (
     providerConfig = providerRule.configSchema.parse(sanitizedConfig);
   } catch (zodError) {
     logZodError("[generic-validation] CONFIG_VALIDATION_ERROR", zodError);
-    await writeValidationResult({
+    await writeValidationResultForJob({
       responseId,
       formId,
       ruleId,
@@ -379,7 +382,7 @@ export const handleGenericValidation = async (
     validatedInput = providerRule.inputSchema.parse(referencedValue);
   } catch (zodError) {
     logZodError("[generic-validation] INPUT_VALIDATION_ERROR", zodError);
-    await writeValidationResult({
+    await writeValidationResultForJob({
       responseId,
       formId,
       ruleId,
@@ -402,7 +405,7 @@ export const handleGenericValidation = async (
         "[generic-validation] INPUT_VALIDATION_ERROR (normalize)",
         normalizeError,
       );
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId,
         ruleId,
@@ -472,7 +475,7 @@ export const handleGenericValidation = async (
       throw error;
     }
     if (isAbortError(error) && isFinalBullMqAttempt(job)) {
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId,
         ruleId,
@@ -514,7 +517,7 @@ export const handleGenericValidation = async (
       hasRetryAfter;
 
     if (isRetryable && isFinalBullMqAttempt(job)) {
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId,
         ruleId,
@@ -532,7 +535,7 @@ export const handleGenericValidation = async (
       throw error;
     }
 
-    await writeValidationResult({
+    await writeValidationResultForJob({
       responseId,
       formId,
       ruleId,
@@ -553,7 +556,7 @@ export const handleGenericValidation = async (
       "[generic-validation] VALIDATION_RESULT_MALFORMED",
       resultParse.error,
     );
-    await writeValidationResult({
+    await writeValidationResultForJob({
       responseId,
       formId,
       ruleId,
@@ -572,7 +575,7 @@ export const handleGenericValidation = async (
     if (result.retryAfter != null && result.retryAfter > 0) {
       const retryAfterCount = jobData.retryAfterCount ?? 0;
       if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
-        await writeValidationResult({
+        await writeValidationResultForJob({
           responseId,
           formId,
           ruleId,
@@ -597,7 +600,7 @@ export const handleGenericValidation = async (
     }
 
     if (isFinalBullMqAttempt(job)) {
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId,
         ruleId,
@@ -623,7 +626,7 @@ export const handleGenericValidation = async (
   ) {
     const retryAfterCount = jobData.retryAfterCount ?? 0;
     if (retryAfterCount >= getRetryAfterAttemptsLimit()) {
-      await writeValidationResult({
+      await writeValidationResultForJob({
         responseId,
         formId,
         ruleId,
@@ -674,7 +677,7 @@ export const handleGenericValidation = async (
     }
   }
 
-  await writeValidationResult({
+  await writeValidationResultForJob({
     responseId,
     formId,
     ruleId,
@@ -688,6 +691,7 @@ export const handleGenericValidation = async (
     errorCode: result.errorCode,
     errorMessage: result.errorMessage,
     jobId: job.id?.toString(),
+    snapshotVersion: jobData.snapshotVersion,
   });
 
   return { ok: result.isValid, provider: provider.name };

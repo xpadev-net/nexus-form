@@ -5,7 +5,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { db, formIntegration, formResponse } from "@nexus-form/database";
+import {
+  db,
+  formIntegration,
+  formResponse,
+  formSubmitOutbox,
+} from "@nexus-form/database";
 import {
   externalServiceValidationResult,
   fingerprintDetail,
@@ -41,7 +46,7 @@ import {
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -302,6 +307,7 @@ function resolveGoogleSheetsConfig(
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const { formId, integrationId, mode, responseId, snapshotVersion } =
     sheetsSyncJobDataSchema.parse(job.data);
+  const refreshValidationOutputs = job.data.refreshValidationOutputs === true;
 
   // 1. Integration設定を取得
   const [integration] = await db
@@ -379,8 +385,20 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   // 4. 送信時 snapshot の Plate コンテンツからブロックタイトルマップを構築。
   // 古いジョブに snapshotVersion が無い場合だけ現在の draft にフォールバックする。
+  const refreshSnapshotVersion =
+    refreshValidationOutputs && snapshotVersion === undefined
+      ? await getSubmittedSnapshotVersion(formId, responseId)
+      : undefined;
+  const validationSnapshotVersion =
+    refreshValidationOutputs &&
+    snapshotVersion === undefined &&
+    refreshSnapshotVersion === undefined
+      ? await getSubmittedValidationSnapshotVersion(formId, responseId)
+      : undefined;
+  const structureSnapshotVersion =
+    snapshotVersion ?? refreshSnapshotVersion ?? validationSnapshotVersion;
   const [plateRecord] =
-    snapshotVersion === undefined
+    structureSnapshotVersion === undefined
       ? await db
           .select({ plateContent: form.plateContent })
           .from(form)
@@ -395,7 +413,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
           .where(
             and(
               eq(formSnapshot.formId, formId),
-              eq(formSnapshot.version, snapshotVersion),
+              eq(formSnapshot.version, structureSnapshotVersion),
             ),
           )
           .limit(1);
@@ -422,24 +440,40 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
-  const currentStructureJson =
-    snapshotVersion === undefined
-      ? await getActiveFormStructureJson(formId)
+  const activeFormStructure =
+    structureSnapshotVersion === undefined && !refreshValidationOutputs
+      ? await getActiveFormStructure(formId)
       : undefined;
+  const currentStructureJson =
+    getSnapshotStructureJson(plateRecord) ?? activeFormStructure?.structureJson;
+  const validationOutputSnapshotVersion = refreshValidationOutputs
+    ? structureSnapshotVersion
+    : undefined;
+  const total = preparedResponses.length;
+  if (
+    refreshValidationOutputs &&
+    validationOutputSnapshotVersion === undefined
+  ) {
+    return {
+      ...makeSheetsSyncStaleSkipResult(job.id),
+      mode,
+      processed: total,
+      total,
+      skipped: total,
+    };
+  }
   const validationOutputExportSettings =
-    parseValidationOutputExportSettingsFromStructureJson(
-      snapshotVersion === undefined
-        ? currentStructureJson
-        : getSnapshotStructureJson(plateRecord),
-    );
-  const validationOutputsByResponseId = await getValidationOutputsByResponseId({
+    parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
+  const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
     responseIds: preparedResponses.flatMap((prepared) =>
       prepared.status === "ready" ? [prepared.response.id] : [],
     ),
     settings: validationOutputExportSettings,
+    snapshotVersion: validationOutputSnapshotVersion,
   });
-  const total = preparedResponses.length;
+  const validationOutputsByResponseId =
+    validationOutputResult.outputsByResponseId;
   let processed = 0;
   let skipped = 0;
   let updatedRows = 0;
@@ -513,6 +547,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 formId,
                 integrationId,
                 job,
+                refreshValidationOutputs,
                 sheetName,
                 spreadsheetId,
                 target: prepared,
@@ -600,6 +635,18 @@ function getSheetsSyncLockOptions(responseCount: number) {
       SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS +
       SHEETS_SYNC_LOCK_TTL_MS * (lockMultiplier - 1),
     signal: workerShutdownSignal,
+  };
+}
+
+function makeSheetsSyncStaleSkipResult(
+  jobId: string | undefined,
+): SheetsSyncStaleSkipResult {
+  return {
+    ok: true,
+    skipped: true,
+    reason: "stale",
+    provider: "google-sheets",
+    jobId,
   };
 }
 
@@ -864,18 +911,71 @@ async function prepareSheetsSyncResponses(
   });
 }
 
-async function getActiveFormStructureJson(
+async function getSubmittedSnapshotVersion(
   formId: string,
-): Promise<string | undefined> {
+  responseId: string,
+): Promise<number | undefined> {
+  const [outboxRow] = await db
+    .select({ snapshotVersion: formSubmitOutbox.snapshotVersion })
+    .from(formSubmitOutbox)
+    .where(
+      and(
+        eq(formSubmitOutbox.formId, formId),
+        eq(formSubmitOutbox.responseId, responseId),
+        eq(formSubmitOutbox.effectType, "SHEETS"),
+      ),
+    )
+    .limit(1);
+  return outboxRow?.snapshotVersion ?? undefined;
+}
+
+async function getSubmittedValidationSnapshotVersion(
+  formId: string,
+  responseId: string,
+): Promise<number | undefined> {
+  const [validationRow] = await db
+    .select({
+      snapshotVersion: externalServiceValidationResult.snapshotVersion,
+    })
+    .from(externalServiceValidationResult)
+    .innerJoin(
+      formResponse,
+      eq(externalServiceValidationResult.responseId, formResponse.id),
+    )
+    .where(
+      and(
+        eq(formResponse.formId, formId),
+        eq(formResponse.id, responseId),
+        eq(externalServiceValidationResult.status, "COMPLETED"),
+        isNotNull(externalServiceValidationResult.snapshotVersion),
+      ),
+    )
+    .orderBy(desc(externalServiceValidationResult.createdAt))
+    .limit(1);
+
+  return validationRow?.snapshotVersion ?? undefined;
+}
+
+async function getActiveFormStructure(
+  formId: string,
+): Promise<{ structureJson: string | undefined; version: number } | undefined> {
   const [activeStructure] = await db
-    .select({ structureJson: formStructure.structureJson })
+    .select({
+      structureJson: formStructure.structureJson,
+      version: formStructure.version,
+    })
     .from(formStructure)
     .where(
       and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
     )
     .orderBy(desc(formStructure.version))
     .limit(1);
-  return activeStructure?.structureJson;
+  return activeStructure
+    ? {
+        structureJson: activeStructure.structureJson,
+        version: activeStructure.version,
+      }
+    : undefined;
 }
 
 function getSnapshotStructureJson(
@@ -912,8 +1012,14 @@ async function getValidationOutputsByResponseId(params: {
   formId: string;
   responseIds: string[];
   settings: ValidationOutputExportSettings;
-}): Promise<Map<string, ResponseExportValidationOutputValue[]>> {
-  if (params.responseIds.length === 0) return new Map();
+  snapshotVersion?: number;
+}): Promise<{
+  hasValidationRows: boolean;
+  outputsByResponseId: Map<string, ResponseExportValidationOutputValue[]>;
+}> {
+  if (params.responseIds.length === 0) {
+    return { hasValidationRows: false, outputsByResponseId: new Map() };
+  }
 
   const rows = await db
     .select({
@@ -935,11 +1041,21 @@ async function getValidationOutputsByResponseId(params: {
       eq(externalServiceValidationResult.ruleId, formValidationRule.id),
     )
     .where(
-      and(
-        eq(formResponse.formId, params.formId),
-        inArray(formResponse.id, params.responseIds),
-        eq(externalServiceValidationResult.status, "COMPLETED"),
-      ),
+      params.snapshotVersion === undefined
+        ? and(
+            eq(formResponse.formId, params.formId),
+            inArray(formResponse.id, params.responseIds),
+            eq(externalServiceValidationResult.status, "COMPLETED"),
+          )
+        : and(
+            eq(formResponse.formId, params.formId),
+            inArray(formResponse.id, params.responseIds),
+            eq(externalServiceValidationResult.status, "COMPLETED"),
+            eq(
+              externalServiceValidationResult.snapshotVersion,
+              params.snapshotVersion,
+            ),
+          ),
     )
     .orderBy(
       desc(externalServiceValidationResult.updatedAt),
@@ -953,33 +1069,36 @@ async function getValidationOutputsByResponseId(params: {
     params.settings,
     [...outputsByResponseId.values()].flat(),
   );
-  return new Map(
-    params.responseIds.map((responseId) => {
-      const valueByColumnKey = new Map(
-        (outputsByResponseId.get(responseId) ?? []).map((value) => [
-          `${value.rule_id}:${value.output_key}`,
-          value,
-        ]),
-      );
-      return [
-        responseId,
-        selectedColumns.map((column) => {
-          const value = valueByColumnKey.get(
-            `${column.ruleId}:${column.outputKey}`,
-          );
-          return {
-            rule_id: column.ruleId,
-            rule_name: column.ruleName,
-            provider_name: column.providerName,
-            rule_type: column.ruleType,
-            output_key: column.outputKey,
-            label: column.label,
-            value: value?.value ?? "",
-          };
-        }),
-      ];
-    }),
-  );
+  return {
+    hasValidationRows: rows.length > 0,
+    outputsByResponseId: new Map(
+      params.responseIds.map((responseId) => {
+        const valueByColumnKey = new Map(
+          (outputsByResponseId.get(responseId) ?? []).map((value) => [
+            `${value.rule_id}:${value.output_key}`,
+            value,
+          ]),
+        );
+        return [
+          responseId,
+          selectedColumns.map((column) => {
+            const value = valueByColumnKey.get(
+              `${column.ruleId}:${column.outputKey}`,
+            );
+            return {
+              rule_id: column.ruleId,
+              rule_name: column.ruleName,
+              provider_name: column.providerName,
+              rule_type: column.ruleType,
+              output_key: column.outputKey,
+              label: column.label,
+              value: value?.value ?? "",
+            };
+          }),
+        ];
+      }),
+    ),
+  };
 }
 
 type SheetsSyncDuplicateSkipResult = {
@@ -990,8 +1109,19 @@ type SheetsSyncDuplicateSkipResult = {
   jobId: string | undefined;
 };
 
+type SheetsSyncStaleSkipResult = {
+  ok: true;
+  skipped: true;
+  reason: "stale";
+  provider: "google-sheets";
+  jobId: string | undefined;
+};
+
 type WritableSheetsSyncTargetResolution =
-  | { status: "skip"; result: SheetsSyncDuplicateSkipResult }
+  | {
+      status: "skip";
+      result: SheetsSyncDuplicateSkipResult | SheetsSyncStaleSkipResult;
+    }
   | { status: "writable"; sheetCheck: SheetReadResult };
 
 /**
@@ -1005,12 +1135,20 @@ async function resolveWritableSheetsSyncTarget(params: {
   idempotencyKey: string;
   job: Job<SheetsSyncJob>;
   responseId: string;
+  refreshValidationOutputs: boolean;
   sheetName: string;
   spreadsheetId: string;
   token: OAuthToken;
 }): Promise<WritableSheetsSyncTargetResolution> {
-  const { idempotencyKey, job, responseId, sheetName, spreadsheetId, token } =
-    params;
+  const {
+    idempotencyKey,
+    job,
+    responseId,
+    refreshValidationOutputs,
+    sheetName,
+    spreadsheetId,
+    token,
+  } = params;
 
   const duplicateSkippedResult = (): SheetsSyncDuplicateSkipResult => ({
     ok: true,
@@ -1026,7 +1164,7 @@ async function resolveWritableSheetsSyncTarget(params: {
   while (true) {
     const keyValue = await getIdempotencyKeyValue(idempotencyKey);
 
-    if (keyValue === "done") {
+    if (keyValue === "done" && !refreshValidationOutputs) {
       // A prior attempt already wrote the row; skip.
       return { status: "skip", result: duplicateSkippedResult() };
     }
@@ -1038,7 +1176,7 @@ async function resolveWritableSheetsSyncTarget(params: {
       // update headers or append rows for this integration in between.
       const pendingResult =
         await waitForPendingIdempotencyToResolve(idempotencyKey);
-      if (pendingResult === "done") {
+      if (pendingResult === "done" && !refreshValidationOutputs) {
         return { status: "skip", result: duplicateSkippedResult() };
       }
       continue;
@@ -1058,7 +1196,7 @@ async function resolveWritableSheetsSyncTarget(params: {
       sheetName,
       responseId,
     });
-    if (sheetCheck.exists) {
+    if (sheetCheck.exists && !refreshValidationOutputs) {
       await setIdempotencyKey(
         idempotencyKey,
         DONE_IDEMPOTENCY_TTL_SECONDS,
@@ -1112,6 +1250,7 @@ async function writePreparedSheetsSyncResponse(params: {
     idempotencyKey,
     job,
     responseId: response.id,
+    refreshValidationOutputs: false,
     sheetName,
     spreadsheetId,
     token,
@@ -1365,6 +1504,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   formId: string;
   integrationId: string;
   job: Job<SheetsSyncJob>;
+  refreshValidationOutputs: boolean;
   sheetName: string;
   spreadsheetId: string;
   target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
@@ -1381,6 +1521,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     formId,
     integrationId,
     job,
+    refreshValidationOutputs,
     sheetName,
     spreadsheetId,
     target,
@@ -1399,6 +1540,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     responseId: target.response.id,
     sheetName,
     spreadsheetId,
+    refreshValidationOutputs,
     token,
   });
   if (resolution.status === "skip") {
@@ -1408,29 +1550,30 @@ async function writeIncrementalSheetsSyncBatch(params: {
 
   await updateSheetsSyncProgress(job, 60, 0, 1);
 
-  const piggybackCandidates = await findIncrementalPiggybackCandidates({
-    cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
-    excludeResponseId: target.response.id,
-    formId,
-    lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,
-    sheetResponseIds: sheetCheck.responseIds,
-  });
-  const piggybackReady = await preparePiggybackResponses({
-    candidates: piggybackCandidates,
-    formId,
-    target,
-  });
+  const piggybackReady = refreshValidationOutputs
+    ? []
+    : await preparePiggybackResponses({
+        candidates: await findIncrementalPiggybackCandidates({
+          cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
+          excludeResponseId: target.response.id,
+          formId,
+          lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,
+          sheetResponseIds: sheetCheck.responseIds,
+        }),
+        formId,
+        target,
+      });
 
   let mergedValidationOutputs = validationOutputsByResponseId;
   if (piggybackReady.length > 0) {
-    const extraValidationOutputs = await getValidationOutputsByResponseId({
+    const extraValidationResult = await getValidationOutputsByResponseId({
       formId,
       responseIds: piggybackReady.map((prepared) => prepared.response.id),
       settings: validationOutputExportSettings,
     });
     mergedValidationOutputs = new Map([
       ...validationOutputsByResponseId,
-      ...extraValidationOutputs,
+      ...extraValidationResult.outputsByResponseId,
     ]);
   }
 
@@ -1495,13 +1638,57 @@ async function writeIncrementalSheetsSyncBatch(params: {
   await updateSheetsSyncProgress(job, 80, 0, 1);
 
   throwIfShuttingDown();
-  const appendResult = await appendRows(token, {
-    spreadsheetId,
-    sheetName,
-    rows,
-  });
-  if (!appendResult.ok) {
-    throwSheetsSyncFailure("append rows", appendResult);
+  let updatedRange: string;
+  let updatedRows = 0;
+  if (refreshValidationOutputs && sheetCheck.exists && batch.length === 1) {
+    const rowNumber = findSheetResponseRowNumber(
+      sheetCheck.responseIds,
+      target.response.id,
+      sheetCheck.headerRowCount,
+    );
+    if (rowNumber === null) {
+      const appendResult = await appendRows(token, {
+        spreadsheetId,
+        sheetName,
+        rows,
+      });
+      if (!appendResult.ok) {
+        throwSheetsSyncFailure("append rows", appendResult);
+      }
+      updatedRange = appendResult.data.updatedRange;
+      updatedRows = appendResult.data.updatedRows;
+    } else {
+      const singleRow = rows[0];
+      if (!singleRow) {
+        throw new Error("Expected a single prepared row for refresh update");
+      }
+      const updateRow = [...singleRow];
+      while (updateRow.length < headers.length) {
+        updateRow.push("");
+      }
+      const lastColumnLetter = columnIndexToLetter(updateRow.length - 1);
+      const updateResult = await updateRange(token, {
+        spreadsheetId,
+        rangeA1: `${sheetName}!A${rowNumber}:${lastColumnLetter}${rowNumber}`,
+        values: [updateRow],
+      });
+      if (!updateResult.ok) {
+        throwSheetsSyncFailure("update existing row", updateResult);
+      }
+      updatedRange = updateResult.data.updatedRange;
+      updatedRows = updateResult.data.updatedRows ?? 1;
+    }
+  } else {
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows,
+    });
+    if (!appendResult.ok) {
+      throwSheetsSyncFailure("append rows", appendResult);
+    }
+    updatedRange = appendResult.data.updatedRange;
+    updatedRows = appendResult.data.updatedRows;
   }
 
   const doneKeys = batch.map((prepared) =>
@@ -1519,8 +1706,8 @@ async function writeIncrementalSheetsSyncBatch(params: {
     ok: true,
     provider: "google-sheets",
     jobId: job.id,
-    updatedRange: appendResult.data.updatedRange,
-    updatedRows: appendResult.data.updatedRows,
+    updatedRange,
+    updatedRows,
   };
 }
 
@@ -1820,6 +2007,22 @@ function isResponseIdWrittenToSheet(
     sheetResponseIds.includes(responseId) ||
     sheetResponseIds.includes(neutralizeSpreadsheetFormulaValue(responseId))
   );
+}
+
+function findSheetResponseRowNumber(
+  sheetResponseIds: string[],
+  responseId: string,
+  headerRowCount: number,
+): number | null {
+  const rowIndex = sheetResponseIds.findIndex(
+    (sheetResponseId) =>
+      sheetResponseId === responseId ||
+      sheetResponseId === neutralizeSpreadsheetFormulaValue(responseId),
+  );
+  if (rowIndex === -1) {
+    return null;
+  }
+  return rowIndex + headerRowCount + 1;
 }
 
 async function readSheetForIdempotency(

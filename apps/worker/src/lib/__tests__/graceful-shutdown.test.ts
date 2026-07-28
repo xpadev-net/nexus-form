@@ -68,6 +68,7 @@ describe("createGracefulShutdown", () => {
   it("closes workers, lock client, and exits with the requested code", async () => {
     const worker = { close: vi.fn().mockResolvedValue(undefined) };
     const closeMetricsQueues = vi.fn().mockResolvedValue(undefined);
+    const closeSheetsSyncQueue = vi.fn().mockResolvedValue(undefined);
     const closePublisher = vi.fn().mockResolvedValue(undefined);
     const closeLockClient = vi.fn().mockResolvedValue(undefined);
     const closePluginDriftGuard = vi.fn().mockResolvedValue(undefined);
@@ -80,6 +81,7 @@ describe("createGracefulShutdown", () => {
       metricsInterval: null,
       timeoutMs: 30_000,
       closeMetricsQueues,
+      closeSheetsSyncQueue,
       closePublisher,
       closeLockClient,
       closePluginDriftGuard,
@@ -93,6 +95,7 @@ describe("createGracefulShutdown", () => {
 
     expect(worker.close).toHaveBeenCalledTimes(1);
     expect(closeMetricsQueues).toHaveBeenCalledTimes(1);
+    expect(closeSheetsSyncQueue).toHaveBeenCalledTimes(1);
     expect(closePublisher).toHaveBeenCalledTimes(1);
     expect(closePluginDriftGuard).toHaveBeenCalledTimes(1);
     expect(closeLockClient).toHaveBeenCalledTimes(1);
@@ -108,6 +111,7 @@ describe("createGracefulShutdown", () => {
       metricsInterval: null,
       timeoutMs: 30_000,
       closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
+      closeSheetsSyncQueue: vi.fn().mockResolvedValue(undefined),
       closePublisher: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),
@@ -135,6 +139,7 @@ describe("createGracefulShutdown", () => {
       metricsInterval: null,
       timeoutMs: 30_000,
       closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
+      closeSheetsSyncQueue: vi.fn().mockResolvedValue(undefined),
       closePublisher: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),

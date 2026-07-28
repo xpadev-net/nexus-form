@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@nexus-form/database";
 import { formResponse, formSubmitOutbox } from "@nexus-form/database/schema";
 import {
+  addJobWithCleanup,
   FormSubmitNotificationJobDataSchema,
   sheetsSyncJobDataSchema,
 } from "@nexus-form/shared";
@@ -193,6 +194,29 @@ async function enqueueClaimedRow(row: ClaimedSubmitOutboxRow): Promise<void> {
       snapshotVersion: row.snapshotVersion ?? undefined,
     });
     await getSheetsSyncQueue().add("auto-sync", jobData, { jobId: row.id });
+    return;
+  }
+
+  if (row.effectType.startsWith("SHEETS_REFRESH_")) {
+    if (!row.integrationId) {
+      throw new Error("Sheets refresh outbox row is missing integrationId");
+    }
+    if (row.snapshotVersion === null) {
+      throw new Error("Sheets refresh outbox row is missing snapshotVersion");
+    }
+    const jobData = sheetsSyncJobDataSchema.parse({
+      formId: row.formId,
+      integrationId: row.integrationId,
+      mode: "incremental",
+      responseId: row.responseId,
+      snapshotVersion: row.snapshotVersion,
+      refreshValidationOutputs: true,
+    });
+    await addJobWithCleanup(getSheetsSyncQueue(), {
+      jobData,
+      jobId: row.id,
+      jobName: "validation-refresh",
+    });
     return;
   }
 

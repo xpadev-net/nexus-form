@@ -19,6 +19,12 @@ vi.mock("@nexus-form/database", () => ({
     formId: "formResponse.formId",
     submittedAt: "formResponse.submittedAt",
   },
+  formSubmitOutbox: {
+    effectType: "formSubmitOutbox.effectType",
+    formId: "formSubmitOutbox.formId",
+    responseId: "formSubmitOutbox.responseId",
+    snapshotVersion: "formSubmitOutbox.snapshotVersion",
+  },
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
@@ -26,6 +32,7 @@ vi.mock("@nexus-form/database/schema", () => ({
     responseId: "externalServiceValidationResult.responseId",
     ruleId: "externalServiceValidationResult.ruleId",
     metadata: "externalServiceValidationResult.metadata",
+    snapshotVersion: "externalServiceValidationResult.snapshotVersion",
     service: "externalServiceValidationResult.service",
     status: "externalServiceValidationResult.status",
     updatedAt: "externalServiceValidationResult.updatedAt",
@@ -94,6 +101,7 @@ vi.mock("drizzle-orm", () => ({
     type: "gte",
     value,
   })),
+  isNotNull: vi.fn((column: unknown) => ({ column, type: "isNotNull" })),
   inArray: vi.fn((column: unknown, values: unknown[]) => ({
     column,
     type: "inArray",
@@ -227,21 +235,24 @@ const TOKEN = {
 };
 
 function makeJob(
-  data: {
+  data: Partial<{
     formId: string;
     integrationId: string;
-    mode?: "incremental" | "full";
+    mode: "incremental" | "full";
     responseId: string;
-    snapshotVersion?: number;
-  } = {
+    snapshotVersion: number;
+    refreshValidationOutputs: boolean;
+  }> = {},
+): Job {
+  const jobData = {
     formId: "form-1",
     integrationId: "integration-1",
     responseId: "response-1",
-  },
-): Job {
+    ...data,
+  };
   return {
     id: "job-1",
-    data,
+    data: jobData,
     discard: vi.fn(),
     updateProgress: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
@@ -270,6 +281,22 @@ function setupDbSelect(...results: unknown[][]) {
 }
 
 function setupHappyPathMocks() {
+  mockDb.select.mockReset();
+  mockGetOAuthToken.mockReset();
+  mockRefreshTokenIfNeeded.mockReset();
+  mockWithRedisLock.mockReset();
+  mockGetIdempotencyKeyValue.mockReset();
+  mockGetIdempotencyKeyTtlMs.mockReset();
+  mockSetIdempotencyKey.mockReset();
+  mockSetIdempotencyKeys.mockReset();
+  mockReadRange.mockReset();
+  mockUpdateRange.mockReset();
+  mockBatchUpdate.mockReset();
+  mockAppendRows.mockReset();
+  mockClearSheet.mockReset();
+  mockDeleteIdempotencyKey.mockReset();
+  mockSafeParseResponseData.mockReset();
+
   // DB: integration → response → form (no plateContent)
   setupDbSelect([INTEGRATION], [RESPONSE], []);
 
@@ -754,6 +781,97 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
       getInvocationCallOrder(mockReadRange, 0),
+    );
+  });
+
+  it("returns stale when a validation refresh job cannot resolve a snapshot version", async () => {
+    setupHappyPathMocks();
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "block-1", "Uniqueness Score"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+    mockUpdateRange.mockResolvedValueOnce({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2:C2", updatedRows: 1 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({ refreshValidationOutputs: true }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      reason: "stale",
+      provider: "google-sheets",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
+      skipped: 1,
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
+    expect(mockSetIdempotencyKey).not.toHaveBeenCalled();
+  });
+
+  it("refreshes an existing Sheets row using the submitted snapshot when the validation refresh job is versionless", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [{ snapshotVersion: 7 }],
+      [{ structureJson: JSON.stringify({ settings: {} }), version: 7 }],
+    );
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [
+            ["Response ID", "block-1", "Uniqueness Score", "Legacy validation"],
+          ],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+    mockUpdateRange.mockResolvedValueOnce({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2:C2", updatedRows: 1 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({ refreshValidationOutputs: true }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
+      skipped: 0,
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rangeA1: "Sheet1!A2:D2",
+        values: [["response-1", "hello", expect.any(String), ""]],
+      }),
     );
   });
 

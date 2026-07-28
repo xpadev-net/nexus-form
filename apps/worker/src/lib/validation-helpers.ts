@@ -5,6 +5,7 @@
 import {
   db,
   externalServiceValidationResult,
+  formIntegration,
   formResponse,
   formSnapshot,
 } from "@nexus-form/database";
@@ -19,6 +20,7 @@ import {
 import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
+import { enqueueValidationRefreshSheetsSyncJob } from "./sheets-sync-queue";
 
 export class ConcurrentDeleteError extends Error {
   constructor(
@@ -184,7 +186,10 @@ export async function getValidationContext(
 }
 
 /**
- * バリデーション結果をDBに書き込み、SSEイベントを publish する。
+ * Writes one validation result row, preserves the originating snapshotVersion when present,
+ * publishes the validation SSE event, and enqueues a Sheets refresh once the response no
+ * longer has unfinished validation work.
+ *
  * INSERT ... ON DUPLICATE KEY UPDATE で競合状態を回避する。
  */
 export async function writeValidationResult(params: {
@@ -199,13 +204,14 @@ export async function writeValidationResult(params: {
   errorCode?: string;
   errorMessage?: string;
   jobId?: string;
-}) {
+  snapshotVersion?: number;
+}): Promise<string> {
   const now = new Date();
   const status: "COMPLETED" | "FAILED" | "MISSING" =
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
   const resultId = getValidationResultId(params);
 
-  const { skipped } = await db.transaction(async (tx) => {
+  const validationWriteOutcome = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({
         status: externalServiceValidationResult.status,
@@ -231,12 +237,19 @@ export async function writeValidationResult(params: {
     }
 
     await tx
+      .select({ id: formResponse.id })
+      .from(formResponse)
+      .where(eq(formResponse.id, params.responseId))
+      .for("update");
+
+    await tx
       .insert(externalServiceValidationResult)
       .values({
         id: resultId,
         responseId: params.responseId,
         ruleId: params.ruleId,
         referencedBlockId: params.referencedBlockId,
+        snapshotVersion: params.snapshotVersion ?? null,
         service: params.service,
         status,
         success: params.success,
@@ -258,15 +271,42 @@ export async function writeValidationResult(params: {
           errorCode: params.errorCode ?? null,
           errorMessage: params.errorMessage ?? null,
           jobId: params.jobId ?? null,
+          ...(params.snapshotVersion === undefined
+            ? {}
+            : { snapshotVersion: params.snapshotVersion }),
         },
       });
 
-    return { skipped: false };
+    const incompleteValidationResultWhere = and(
+      eq(externalServiceValidationResult.responseId, params.responseId),
+      params.snapshotVersion === undefined
+        ? isNull(externalServiceValidationResult.snapshotVersion)
+        : eq(
+            externalServiceValidationResult.snapshotVersion,
+            params.snapshotVersion,
+          ),
+      or(
+        eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.status, "PROCESSING"),
+      ),
+    );
+    const incompleteValidationResults = await tx
+      .select({ id: externalServiceValidationResult.id })
+      .from(externalServiceValidationResult)
+      .where(incompleteValidationResultWhere)
+      .for("update");
+
+    return {
+      skipped: false,
+      shouldRefreshSheets: incompleteValidationResults.length === 0,
+    };
   });
 
-  if (skipped) {
+  if (validationWriteOutcome.skipped) {
     return resultId;
   }
+  const shouldRefreshSheets =
+    validationWriteOutcome.shouldRefreshSheets ?? false;
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
@@ -281,6 +321,29 @@ export async function writeValidationResult(params: {
     timestamp: now.toISOString(),
   };
   await publishValidationEvent(event);
+
+  if (shouldRefreshSheets) {
+    try {
+      const [sheetsIntegration] = await db
+        .select({ id: formIntegration.id })
+        .from(formIntegration)
+        .where(eq(formIntegration.formId, params.formId))
+        .limit(1);
+      if (sheetsIntegration) {
+        await enqueueValidationRefreshSheetsSyncJob({
+          formId: params.formId,
+          integrationId: sheetsIntegration.id,
+          responseId: params.responseId,
+          snapshotVersion: params.snapshotVersion,
+        });
+      }
+    } catch (error) {
+      console.warn(
+        "[validation-helpers] Failed to enqueue Sheets validation refresh:",
+        error,
+      );
+    }
+  }
 
   return resultId;
 }

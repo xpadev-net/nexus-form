@@ -33,6 +33,10 @@ const mocks = vi.hoisted(() => {
       update: vi.fn(),
     },
     forCalls: [] as unknown[][],
+    sheetsExistingJob: null as null | {
+      getState: ReturnType<typeof vi.fn>;
+      remove: ReturnType<typeof vi.fn>;
+    },
     responseReadIds: [] as unknown[],
     logError: vi.fn(),
     schema,
@@ -47,7 +51,10 @@ vi.mock("../../queues", () => ({
   getFormSubmitNotificationQueue: vi.fn(() => ({
     add: mocks.addNotificationJob,
   })),
-  getSheetsSyncQueue: vi.fn(() => ({ add: mocks.addSheetsJob })),
+  getSheetsSyncQueue: vi.fn(() => ({
+    add: mocks.addSheetsJob,
+    getJob: vi.fn(async () => mocks.sheetsExistingJob),
+  })),
 }));
 vi.mock("../../sentry", () => ({ captureError: mocks.captureError }));
 vi.mock("drizzle-orm", () => ({
@@ -72,7 +79,7 @@ type ClaimedRow = {
   id: string;
   responseId: string;
   formId: string;
-  effectType: "NOTIFICATION" | "SHEETS";
+  effectType: string;
   snapshotVersion: number | null;
   integrationId: string | null;
   attemptCount: number;
@@ -97,6 +104,15 @@ function sheetsRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
   return notificationRow({
     id: "sheets-auto.integration-1.response-1",
     effectType: "SHEETS",
+    integrationId: "integration-1",
+    ...overrides,
+  });
+}
+
+function sheetsRefreshRow(overrides: Partial<ClaimedRow> = {}): ClaimedRow {
+  return notificationRow({
+    id: "sheets-refresh.abcdef0123456789",
+    effectType: "SHEETS_REFRESH_abcdef0123456789",
     integrationId: "integration-1",
     ...overrides,
   });
@@ -160,6 +176,7 @@ describe("submit outbox sweeper", () => {
     mocks.updateSets.length = 0;
     mocks.forCalls.length = 0;
     mocks.responseReadIds.length = 0;
+    mocks.sheetsExistingJob = null;
     mocks.addNotificationJob.mockResolvedValue({ id: "notification-job" });
     mocks.addSheetsJob.mockResolvedValue({ id: "sheets-job" });
     useSuccessfulUpdates();
@@ -202,6 +219,70 @@ describe("submit outbox sweeper", () => {
       },
       { jobId: sheets.id },
     );
+  });
+
+  it("enqueues Sheets refresh outbox rows as validation refresh jobs", async () => {
+    const refresh = sheetsRefreshRow();
+    useClaimBatches([[refresh]]);
+    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+
+    await expect(sweepSubmitOutbox()).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+    });
+    expect(mocks.addSheetsJob).toHaveBeenCalledWith(
+      "validation-refresh",
+      {
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "incremental",
+        responseId: "response-1",
+        snapshotVersion: 7,
+        refreshValidationOutputs: true,
+      },
+      { jobId: refresh.id },
+    );
+  });
+
+  it.each([
+    "active",
+    "completed",
+  ] as const)("reuses a validation refresh job when an existing Sheets job is %s", async (state:
+    | "active"
+    | "completed"): Promise<void> => {
+    const remove = vi.fn(async () => undefined);
+    mocks.sheetsExistingJob = {
+      getState: vi.fn(async () => state),
+      remove,
+    };
+    const refresh = sheetsRefreshRow();
+    useClaimBatches([[refresh]]);
+    const { sweepSubmitOutbox } = await import("../submit-outbox-sweeper");
+
+    await expect(sweepSubmitOutbox()).resolves.toEqual({
+      scanned: 1,
+      enqueued: 1,
+      failed: 0,
+    });
+    expect(mocks.addSheetsJob).toHaveBeenCalledWith(
+      "validation-refresh",
+      expect.objectContaining({
+        formId: "form-1",
+        integrationId: "integration-1",
+        mode: "incremental",
+        responseId: "response-1",
+        snapshotVersion: 7,
+        refreshValidationOutputs: true,
+      }),
+      { jobId: refresh.id },
+    );
+    expect(mocks.sheetsExistingJob?.getState).toHaveBeenCalledWith();
+    if (state === "completed") {
+      expect(remove).toHaveBeenCalledOnce();
+    } else {
+      expect(remove).not.toHaveBeenCalled();
+    }
   });
 
   it("releases a failed Redis claim and recovers it on a later sweep", async () => {

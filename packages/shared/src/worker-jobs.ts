@@ -100,6 +100,7 @@ export const sheetsSyncJobDataSchema = z.object({
   mode: sheetsSyncModeSchema.default("incremental"),
   responseId: z.string().min(1),
   snapshotVersion: z.number().int().positive().optional(),
+  refreshValidationOutputs: z.boolean().optional(),
 });
 
 export type SheetsSyncJobData = z.infer<typeof sheetsSyncJobDataSchema>;
