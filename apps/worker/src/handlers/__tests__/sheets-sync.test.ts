@@ -2393,7 +2393,7 @@ describe("handleSheetsSync — write path", () => {
           "国コード",
           "ユニーク度スコア",
           "ユニーク度評価",
-          "'=Formula",
+          "=Formula",
         ],
       ],
     });
@@ -2409,7 +2409,7 @@ describe("handleSheetsSync — write path", () => {
             "JP",
             "1.0000",
             "高",
-            "' =cmd",
+            " =cmd",
           ],
         ],
       }),
