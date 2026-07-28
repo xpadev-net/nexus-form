@@ -173,4 +173,21 @@ describe("worker job schemas", () => {
       responseId: "response-1",
     });
   });
+
+  it("accepts sheets sync jobs that refresh validation outputs", () => {
+    expect(
+      sheetsSyncJobDataSchema.parse({
+        formId: "form-1",
+        integrationId: "integration-1",
+        responseId: "response-1",
+        refreshValidationOutputs: true,
+      }),
+    ).toEqual({
+      formId: "form-1",
+      integrationId: "integration-1",
+      mode: "incremental",
+      responseId: "response-1",
+      refreshValidationOutputs: true,
+    });
+  });
 });

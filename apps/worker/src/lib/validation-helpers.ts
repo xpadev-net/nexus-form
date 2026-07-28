@@ -5,6 +5,7 @@
 import {
   db,
   externalServiceValidationResult,
+  formIntegration,
   formResponse,
   formSnapshot,
 } from "@nexus-form/database";
@@ -19,6 +20,7 @@ import {
 import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { publishValidationEvent } from "./redis-publisher";
 import { extractReferencedValueFromJson } from "./response-data-extractor";
+import { enqueueValidationRefreshSheetsSyncJob } from "./sheets-sync-queue";
 
 export class ConcurrentDeleteError extends Error {
   constructor(
@@ -281,6 +283,28 @@ export async function writeValidationResult(params: {
     timestamp: now.toISOString(),
   };
   await publishValidationEvent(event);
+
+  if (status === "COMPLETED") {
+    const [sheetsIntegration] = await db
+      .select({ id: formIntegration.id })
+      .from(formIntegration)
+      .where(eq(formIntegration.formId, params.formId))
+      .limit(1);
+    if (sheetsIntegration) {
+      try {
+        await enqueueValidationRefreshSheetsSyncJob({
+          formId: params.formId,
+          integrationId: sheetsIntegration.id,
+          responseId: params.responseId,
+        });
+      } catch (error) {
+        console.warn(
+          "[validation-helpers] Failed to enqueue Sheets validation refresh:",
+          error,
+        );
+      }
+    }
+  }
 
   return resultId;
 }

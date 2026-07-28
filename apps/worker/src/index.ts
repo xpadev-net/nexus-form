@@ -31,6 +31,7 @@ import { getPublisherConnectionOptions } from "./lib/redis";
 import { closeLockClient } from "./lib/redis-lock";
 import { closePublisher } from "./lib/redis-publisher";
 import { captureError, flushSentry, initSentry } from "./lib/sentry";
+import { closeSheetsSyncQueue } from "./lib/sheets-sync-queue";
 import { abortWorkerShutdown } from "./lib/shutdown-signal";
 import { createWorker } from "./lib/worker-factory";
 import {
@@ -340,6 +341,7 @@ async function main() {
     metricsInterval,
     timeoutMs: SHUTDOWN_TIMEOUT_MS,
     closeMetricsQueues,
+    closeSheetsSyncQueue,
     closePublisher,
     closePluginDriftGuard,
     closeLockClient,

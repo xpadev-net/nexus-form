@@ -302,6 +302,7 @@ function resolveGoogleSheetsConfig(
 export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const { formId, integrationId, mode, responseId, snapshotVersion } =
     sheetsSyncJobDataSchema.parse(job.data);
+  const refreshValidationOutputs = job.data.refreshValidationOutputs === true;
 
   // 1. Integration設定を取得
   const [integration] = await db
@@ -513,6 +514,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 formId,
                 integrationId,
                 job,
+                refreshValidationOutputs,
                 sheetName,
                 spreadsheetId,
                 target: prepared,
@@ -1005,12 +1007,20 @@ async function resolveWritableSheetsSyncTarget(params: {
   idempotencyKey: string;
   job: Job<SheetsSyncJob>;
   responseId: string;
+  refreshValidationOutputs: boolean;
   sheetName: string;
   spreadsheetId: string;
   token: OAuthToken;
 }): Promise<WritableSheetsSyncTargetResolution> {
-  const { idempotencyKey, job, responseId, sheetName, spreadsheetId, token } =
-    params;
+  const {
+    idempotencyKey,
+    job,
+    responseId,
+    refreshValidationOutputs,
+    sheetName,
+    spreadsheetId,
+    token,
+  } = params;
 
   const duplicateSkippedResult = (): SheetsSyncDuplicateSkipResult => ({
     ok: true,
@@ -1026,7 +1036,7 @@ async function resolveWritableSheetsSyncTarget(params: {
   while (true) {
     const keyValue = await getIdempotencyKeyValue(idempotencyKey);
 
-    if (keyValue === "done") {
+    if (keyValue === "done" && !refreshValidationOutputs) {
       // A prior attempt already wrote the row; skip.
       return { status: "skip", result: duplicateSkippedResult() };
     }
@@ -1038,7 +1048,7 @@ async function resolveWritableSheetsSyncTarget(params: {
       // update headers or append rows for this integration in between.
       const pendingResult =
         await waitForPendingIdempotencyToResolve(idempotencyKey);
-      if (pendingResult === "done") {
+      if (pendingResult === "done" && !refreshValidationOutputs) {
         return { status: "skip", result: duplicateSkippedResult() };
       }
       continue;
@@ -1058,7 +1068,7 @@ async function resolveWritableSheetsSyncTarget(params: {
       sheetName,
       responseId,
     });
-    if (sheetCheck.exists) {
+    if (sheetCheck.exists && !refreshValidationOutputs) {
       await setIdempotencyKey(
         idempotencyKey,
         DONE_IDEMPOTENCY_TTL_SECONDS,
@@ -1112,6 +1122,7 @@ async function writePreparedSheetsSyncResponse(params: {
     idempotencyKey,
     job,
     responseId: response.id,
+    refreshValidationOutputs: false,
     sheetName,
     spreadsheetId,
     token,
@@ -1365,6 +1376,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   formId: string;
   integrationId: string;
   job: Job<SheetsSyncJob>;
+  refreshValidationOutputs: boolean;
   sheetName: string;
   spreadsheetId: string;
   target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
@@ -1381,6 +1393,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     formId,
     integrationId,
     job,
+    refreshValidationOutputs,
     sheetName,
     spreadsheetId,
     target,
@@ -1399,6 +1412,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     responseId: target.response.id,
     sheetName,
     spreadsheetId,
+    refreshValidationOutputs,
     token,
   });
   if (resolution.status === "skip") {
@@ -1408,18 +1422,19 @@ async function writeIncrementalSheetsSyncBatch(params: {
 
   await updateSheetsSyncProgress(job, 60, 0, 1);
 
-  const piggybackCandidates = await findIncrementalPiggybackCandidates({
-    cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
-    excludeResponseId: target.response.id,
-    formId,
-    lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,
-    sheetResponseIds: sheetCheck.responseIds,
-  });
-  const piggybackReady = await preparePiggybackResponses({
-    candidates: piggybackCandidates,
-    formId,
-    target,
-  });
+  const piggybackReady = refreshValidationOutputs
+    ? []
+    : await preparePiggybackResponses({
+        candidates: await findIncrementalPiggybackCandidates({
+          cap: INCREMENTAL_PIGGYBACK_BATCH_CAP - 1,
+          excludeResponseId: target.response.id,
+          formId,
+          lookbackMs: INCREMENTAL_PIGGYBACK_LOOKBACK_MS,
+          sheetResponseIds: sheetCheck.responseIds,
+        }),
+        formId,
+        target,
+      });
 
   let mergedValidationOutputs = validationOutputsByResponseId;
   if (piggybackReady.length > 0) {
@@ -1495,13 +1510,53 @@ async function writeIncrementalSheetsSyncBatch(params: {
   await updateSheetsSyncProgress(job, 80, 0, 1);
 
   throwIfShuttingDown();
-  const appendResult = await appendRows(token, {
-    spreadsheetId,
-    sheetName,
-    rows,
-  });
-  if (!appendResult.ok) {
-    throwSheetsSyncFailure("append rows", appendResult);
+  let updatedRange: string;
+  let updatedRows = 0;
+  if (refreshValidationOutputs && sheetCheck.exists && batch.length === 1) {
+    const rowNumber = findSheetResponseRowNumber(
+      sheetCheck.responseIds,
+      target.response.id,
+      sheetCheck.headerRowCount,
+    );
+    if (rowNumber === null) {
+      const appendResult = await appendRows(token, {
+        spreadsheetId,
+        sheetName,
+        rows,
+      });
+      if (!appendResult.ok) {
+        throwSheetsSyncFailure("append rows", appendResult);
+      }
+      updatedRange = appendResult.data.updatedRange;
+      updatedRows = appendResult.data.updatedRows;
+    } else {
+      const singleRow = rows[0];
+      if (!singleRow) {
+        throw new Error("Expected a single prepared row for refresh update");
+      }
+      const lastColumnLetter = columnIndexToLetter(singleRow.length - 1);
+      const updateResult = await updateRange(token, {
+        spreadsheetId,
+        rangeA1: `${sheetName}!A${rowNumber}:${lastColumnLetter}${rowNumber}`,
+        values: rows,
+      });
+      if (!updateResult.ok) {
+        throwSheetsSyncFailure("update existing row", updateResult);
+      }
+      updatedRange = updateResult.data.updatedRange;
+      updatedRows = updateResult.data.updatedRows ?? 1;
+    }
+  } else {
+    const appendResult = await appendRows(token, {
+      spreadsheetId,
+      sheetName,
+      rows,
+    });
+    if (!appendResult.ok) {
+      throwSheetsSyncFailure("append rows", appendResult);
+    }
+    updatedRange = appendResult.data.updatedRange;
+    updatedRows = appendResult.data.updatedRows;
   }
 
   const doneKeys = batch.map((prepared) =>
@@ -1519,8 +1574,8 @@ async function writeIncrementalSheetsSyncBatch(params: {
     ok: true,
     provider: "google-sheets",
     jobId: job.id,
-    updatedRange: appendResult.data.updatedRange,
-    updatedRows: appendResult.data.updatedRows,
+    updatedRange,
+    updatedRows,
   };
 }
 
@@ -1820,6 +1875,22 @@ function isResponseIdWrittenToSheet(
     sheetResponseIds.includes(responseId) ||
     sheetResponseIds.includes(neutralizeSpreadsheetFormulaValue(responseId))
   );
+}
+
+function findSheetResponseRowNumber(
+  sheetResponseIds: string[],
+  responseId: string,
+  headerRowCount: number,
+): number | null {
+  const rowIndex = sheetResponseIds.findIndex(
+    (sheetResponseId) =>
+      sheetResponseId === responseId ||
+      sheetResponseId === neutralizeSpreadsheetFormulaValue(responseId),
+  );
+  if (rowIndex === -1) {
+    return null;
+  }
+  return rowIndex + headerRowCount + 1;
 }
 
 async function readSheetForIdempotency(

@@ -133,6 +133,7 @@ function evaluateSqlCondition(
 
 const {
   insertValues,
+  enqueueValidationRefreshSheetsSyncJob,
   onDuplicateKeyUpdate,
   publishValidationEvent,
   selectForUpdate,
@@ -146,6 +147,7 @@ const {
   updateWhere,
 } = vi.hoisted(() => ({
   insertValues: vi.fn(),
+  enqueueValidationRefreshSheetsSyncJob: vi.fn(),
   onDuplicateKeyUpdate: vi.fn(),
   publishValidationEvent: vi.fn(),
   selectForUpdate: vi.fn(),
@@ -193,6 +195,10 @@ vi.mock("@nexus-form/database", () => ({
     jobId: "jobId",
     status: "status",
   },
+  formIntegration: {
+    id: "formIntegration.id",
+    formId: "formIntegration.formId",
+  },
   formResponse: {
     id: "id",
     formId: "formId",
@@ -208,6 +214,10 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("../redis-publisher", () => ({
   publishValidationEvent,
+}));
+
+vi.mock("../sheets-sync-queue", () => ({
+  enqueueValidationRefreshSheetsSyncJob,
 }));
 
 beforeEach(() => {
@@ -233,6 +243,7 @@ beforeEach(() => {
   vi.mocked(db.transaction).mockClear();
   insertValues.mockClear();
   onDuplicateKeyUpdate.mockClear();
+  enqueueValidationRefreshSheetsSyncJob.mockClear();
   selectForUpdate.mockClear();
   selectFrom.mockClear();
   selectLeftJoin.mockClear();
@@ -243,6 +254,7 @@ beforeEach(() => {
   updateSet.mockClear();
   updateWhere.mockClear();
   publishValidationEvent.mockClear();
+  enqueueValidationRefreshSheetsSyncJob.mockClear();
 });
 
 describe("getValidationResultId", () => {
@@ -433,6 +445,7 @@ describe("getValidationContext", () => {
 
 describe("writeValidationResult", () => {
   it("returns the deterministic result id after locked upsert", async () => {
+    selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     const params = {
       responseId: "response-1",
       formId: "form-1",
@@ -474,6 +487,11 @@ describe("writeValidationResult", () => {
         status: "COMPLETED",
       }),
     );
+    expect(enqueueValidationRefreshSheetsSyncJob).toHaveBeenCalledWith({
+      formId: params.formId,
+      integrationId: "integration-1",
+      responseId: params.responseId,
+    });
   });
 
   it("does not overwrite a validation result cancelled by the user", async () => {
@@ -499,6 +517,7 @@ describe("writeValidationResult", () => {
   });
 
   it("can overwrite a non-cancelled failed validation result for retry completion", async () => {
+    selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "FAILED", errorCode: "VALIDATION_ERROR" },
     ]);
@@ -517,6 +536,13 @@ describe("writeValidationResult", () => {
     expect(insertValues).toHaveBeenCalled();
     expect(publishValidationEvent).toHaveBeenCalledWith(
       expect.objectContaining({ status: "COMPLETED" }),
+    );
+    expect(enqueueValidationRefreshSheetsSyncJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formId: params.formId,
+        integrationId: "integration-1",
+        responseId: params.responseId,
+      }),
     );
   });
 

@@ -19,6 +19,8 @@ export interface GracefulShutdownOptions {
   timeoutMs: number;
   /** Closes BullMQ Queue instances used only for metrics collection. */
   closeMetricsQueues: () => Promise<void>;
+  /** Closes the worker-side Google Sheets sync queue helper. */
+  closeSheetsSyncQueue: () => Promise<void>;
   /** Closes the shared Redis publisher after workers have drained. */
   closePublisher: () => Promise<void>;
   /** Closes the shared Redis lock client after workers have drained. */
@@ -86,6 +88,7 @@ export function createGracefulShutdown({
   metricsInterval,
   timeoutMs,
   closeMetricsQueues,
+  closeSheetsSyncQueue,
   closePublisher,
   closeLockClient,
   closePluginDriftGuard = async () => undefined,
@@ -143,7 +146,11 @@ export function createGracefulShutdown({
 
       try {
         await Promise.all(workers.map((worker) => worker.close()));
-        await Promise.all([closeMetricsQueues(), closePublisher()]);
+        await Promise.all([
+          closeMetricsQueues(),
+          closeSheetsSyncQueue(),
+          closePublisher(),
+        ]);
         await closePluginDriftGuard();
         await closeLockClient();
         logger.log("[worker] All workers closed gracefully");

@@ -227,21 +227,24 @@ const TOKEN = {
 };
 
 function makeJob(
-  data: {
+  data: Partial<{
     formId: string;
     integrationId: string;
-    mode?: "incremental" | "full";
+    mode: "incremental" | "full";
     responseId: string;
-    snapshotVersion?: number;
-  } = {
+    snapshotVersion: number;
+    refreshValidationOutputs: boolean;
+  }> = {},
+): Job {
+  const jobData = {
     formId: "form-1",
     integrationId: "integration-1",
     responseId: "response-1",
-  },
-): Job {
+    ...data,
+  };
   return {
     id: "job-1",
-    data,
+    data: jobData,
     discard: vi.fn(),
     updateProgress: vi.fn().mockResolvedValue(undefined),
   } as unknown as Job;
@@ -754,6 +757,54 @@ describe("handleSheetsSync — idempotency states", () => {
     });
     expect(getInvocationCallOrder(mockSetIdempotencyKey, 0)).toBeLessThan(
       getInvocationCallOrder(mockReadRange, 0),
+    );
+  });
+
+  it("refreshes an existing Sheets row after validation completes", async () => {
+    setupHappyPathMocks();
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "block-1", "Uniqueness Score"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+    mockUpdateRange.mockResolvedValueOnce({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2:C2", updatedRows: 1 },
+    } as never);
+
+    const result = await handleSheetsSync(
+      makeJob({ refreshValidationOutputs: true }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "google-sheets",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
+      skipped: 0,
+    });
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rangeA1: "Sheet1!A2:C2",
+        values: [["response-1", "hello", expect.any(String)]],
+      }),
+    );
+    expect(mockSetIdempotencyKey).toHaveBeenCalledWith(
+      "sheets-written:integration-1:response-1",
+      DONE_IDEMPOTENCY_TTL_SECONDS,
+      "done",
     );
   });
 
