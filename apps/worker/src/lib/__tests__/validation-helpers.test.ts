@@ -445,6 +445,7 @@ describe("getValidationContext", () => {
 
 describe("writeValidationResult", () => {
   it("returns the deterministic result id after locked upsert", async () => {
+    selectLimit.mockResolvedValueOnce([]);
     selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     const params = {
       responseId: "response-1",
@@ -524,6 +525,7 @@ describe("writeValidationResult", () => {
   });
 
   it("can overwrite a non-cancelled failed validation result for retry completion", async () => {
+    selectLimit.mockResolvedValueOnce([]);
     selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "FAILED", errorCode: "VALIDATION_ERROR" },
@@ -552,6 +554,30 @@ describe("writeValidationResult", () => {
         responseId: params.responseId,
       }),
     );
+  });
+
+  it("skips the Sheets refresh while unfinished validation rows remain", async () => {
+    selectLimit.mockResolvedValueOnce([{ id: "unfinished-validation" }]);
+    selectForUpdate.mockResolvedValueOnce([
+      { status: "PROCESSING", errorCode: null, jobId: null },
+    ]);
+    const params = {
+      responseId: "response-1",
+      formId: "form-1",
+      ruleId: "rule-1",
+      referencedBlockId: "question-1",
+      service: "discord",
+      success: true,
+      jobId: "job-1",
+    };
+
+    await writeValidationResult(params);
+
+    expect(publishValidationEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "COMPLETED" }),
+    );
+    expect(enqueueValidationRefreshSheetsSyncJob).not.toHaveBeenCalled();
+    expect(selectLimit).toHaveBeenCalledTimes(1);
   });
 
   it("does not overwrite or publish when the current row belongs to a newer job", async () => {

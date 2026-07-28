@@ -155,7 +155,7 @@ describe("sheets-sync-queue", () => {
   });
 
   it("persists a durable outbox row when direct enqueue fails", async () => {
-    mocks.queue.add.mockRejectedValueOnce(new Error("Redis unavailable"));
+    mocks.queue.add.mockRejectedValue(new Error("Redis unavailable"));
     const { enqueueValidationRefreshSheetsSyncJob } = await import(
       "../sheets-sync-queue"
     );

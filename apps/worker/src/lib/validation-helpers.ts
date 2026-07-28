@@ -208,7 +208,7 @@ export async function writeValidationResult(params: {
     params.status ?? (params.success ? "COMPLETED" : "FAILED");
   const resultId = getValidationResultId(params);
 
-  const { skipped } = await db.transaction(async (tx) => {
+  const validationWriteOutcome = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select({
         status: externalServiceValidationResult.status,
@@ -268,12 +268,36 @@ export async function writeValidationResult(params: {
         },
       });
 
-    return { skipped: false };
+    const incompleteValidationResultWhere = and(
+      eq(externalServiceValidationResult.responseId, params.responseId),
+      params.snapshotVersion === undefined
+        ? isNull(externalServiceValidationResult.snapshotVersion)
+        : eq(
+            externalServiceValidationResult.snapshotVersion,
+            params.snapshotVersion,
+          ),
+      or(
+        eq(externalServiceValidationResult.status, "PENDING"),
+        eq(externalServiceValidationResult.status, "PROCESSING"),
+      ),
+    );
+    const [incompleteValidationResult] = await tx
+      .select({ id: externalServiceValidationResult.id })
+      .from(externalServiceValidationResult)
+      .where(incompleteValidationResultWhere)
+      .limit(1);
+
+    return {
+      skipped: false,
+      shouldRefreshSheets: incompleteValidationResult === undefined,
+    };
   });
 
-  if (skipped) {
+  if (validationWriteOutcome.skipped) {
     return resultId;
   }
+  const shouldRefreshSheets =
+    validationWriteOutcome.shouldRefreshSheets ?? false;
 
   const event: ValidationSSEEvent = {
     type: "validation_status_changed",
@@ -289,7 +313,7 @@ export async function writeValidationResult(params: {
   };
   await publishValidationEvent(event);
 
-  if (status === "COMPLETED") {
+  if (shouldRefreshSheets) {
     try {
       const [sheetsIntegration] = await db
         .select({ id: formIntegration.id })

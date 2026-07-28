@@ -21,6 +21,12 @@ const SHEETS_SYNC_JOB_DEFAULTS: DefaultJobOptions = {
 
 let sheetsSyncQueue: Queue | null = null;
 
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
 function buildValidationRefreshKey(params: {
   formId: string;
   integrationId: string;
@@ -130,22 +136,31 @@ export async function enqueueValidationRefreshSheetsSyncJob(params: {
     snapshotVersion: params.snapshotVersion,
     refreshValidationOutputs: true,
   });
-  try {
-    await addJobWithCleanup(getSheetsSyncQueue(), {
-      jobData,
-      jobId: refreshKey.jobId,
-      jobName: "validation-refresh",
-    });
-  } catch (error) {
-    console.warn(
-      `[sheets-sync] Failed to enqueue Sheets validation refresh directly; persisting durable outbox row for ${refreshKey.id}:`,
-      error,
-    );
-    await persistValidationRefreshOutboxRow({
-      formId: params.formId,
-      integrationId: params.integrationId,
-      responseId: params.responseId,
-      snapshotVersion: params.snapshotVersion,
-    });
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await addJobWithCleanup(getSheetsSyncQueue(), {
+        jobData,
+        jobId: refreshKey.jobId,
+        jobName: "validation-refresh",
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) {
+        await delay(100 * attempt);
+      }
+    }
   }
+
+  console.error(
+    `[sheets-sync] Failed to enqueue Sheets validation refresh directly after retries; persisting durable outbox row for ${refreshKey.id}:`,
+    lastError,
+  );
+  await persistValidationRefreshOutboxRow({
+    formId: params.formId,
+    integrationId: params.integrationId,
+    responseId: params.responseId,
+    snapshotVersion: params.snapshotVersion,
+  });
 }

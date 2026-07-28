@@ -1,6 +1,6 @@
 export type QueueJobHandleLike = {
-  getState(): Promise<string>;
-  remove(): Promise<void>;
+  getState(): Promise<unknown>;
+  remove(): Promise<unknown>;
 };
 
 export type QueueWithJobLookupLike<TJobData> = {
