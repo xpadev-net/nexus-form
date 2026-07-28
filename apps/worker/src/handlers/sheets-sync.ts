@@ -46,7 +46,7 @@ import {
   type ValidatorQuestion,
 } from "@nexus-form/shared";
 import { type Job, UnrecoverableError } from "bullmq";
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import {
   appendRows,
@@ -389,7 +389,14 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     refreshValidationOutputs && snapshotVersion === undefined
       ? await getSubmittedSnapshotVersion(formId, responseId)
       : undefined;
-  const structureSnapshotVersion = snapshotVersion ?? refreshSnapshotVersion;
+  const validationSnapshotVersion =
+    refreshValidationOutputs &&
+    snapshotVersion === undefined &&
+    refreshSnapshotVersion === undefined
+      ? await getSubmittedValidationSnapshotVersion(formId, responseId)
+      : undefined;
+  const structureSnapshotVersion =
+    snapshotVersion ?? refreshSnapshotVersion ?? validationSnapshotVersion;
   const [plateRecord] =
     structureSnapshotVersion === undefined
       ? await db
@@ -434,18 +441,15 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
   const activeFormStructure =
-    structureSnapshotVersion === undefined
+    structureSnapshotVersion === undefined && !refreshValidationOutputs
       ? await getActiveFormStructure(formId)
       : undefined;
   const currentStructureJson =
-    structureSnapshotVersion === undefined
-      ? activeFormStructure?.structureJson
-      : (getSnapshotStructureJson(plateRecord) ??
-        activeFormStructure?.structureJson);
+    getSnapshotStructureJson(plateRecord) ?? activeFormStructure?.structureJson;
   const validationOutputExportSettings =
     parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
   const validationOutputSnapshotVersion = refreshValidationOutputs
-    ? (structureSnapshotVersion ?? activeFormStructure?.version)
+    ? structureSnapshotVersion
     : undefined;
   const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
@@ -899,6 +903,33 @@ async function getSubmittedSnapshotVersion(
     )
     .limit(1);
   return outboxRow?.snapshotVersion ?? undefined;
+}
+
+async function getSubmittedValidationSnapshotVersion(
+  formId: string,
+  responseId: string,
+): Promise<number | undefined> {
+  const [validationRow] = await db
+    .select({
+      snapshotVersion: externalServiceValidationResult.snapshotVersion,
+    })
+    .from(externalServiceValidationResult)
+    .innerJoin(
+      formResponse,
+      eq(externalServiceValidationResult.responseId, formResponse.id),
+    )
+    .where(
+      and(
+        eq(formResponse.formId, formId),
+        eq(formResponse.id, responseId),
+        eq(externalServiceValidationResult.status, "COMPLETED"),
+        isNotNull(externalServiceValidationResult.snapshotVersion),
+      ),
+    )
+    .orderBy(desc(externalServiceValidationResult.createdAt))
+    .limit(1);
+
+  return validationRow?.snapshotVersion ?? undefined;
 }
 
 async function getActiveFormStructure(

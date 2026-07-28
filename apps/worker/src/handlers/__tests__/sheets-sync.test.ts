@@ -101,6 +101,7 @@ vi.mock("drizzle-orm", () => ({
     type: "gte",
     value,
   })),
+  isNotNull: vi.fn((column: unknown) => ({ column, type: "isNotNull" })),
   inArray: vi.fn((column: unknown, values: unknown[]) => ({
     column,
     type: "inArray",
