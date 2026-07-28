@@ -809,9 +809,14 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
-  it("refreshes an existing Sheets row even when no validation outputs match its snapshotVersion", async () => {
+  it("refreshes an existing Sheets row using the active snapshot when the validation refresh job is versionless", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    setupDbSelect(
+      [INTEGRATION],
+      [RESPONSE],
+      [{ structureJson: JSON.stringify({ settings: {} }), version: 3 }],
+    );
     mockReadRange
       .mockResolvedValueOnce({
         ok: true,
@@ -831,7 +836,7 @@ describe("handleSheetsSync — idempotency states", () => {
     } as never);
 
     const result = await handleSheetsSync(
-      makeJob({ refreshValidationOutputs: true, snapshotVersion: 3 }),
+      makeJob({ refreshValidationOutputs: true }),
     );
 
     expect(result).toMatchObject({

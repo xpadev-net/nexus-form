@@ -423,26 +423,30 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
-  const currentStructureJson =
+  const activeFormStructure =
     snapshotVersion === undefined
-      ? await getActiveFormStructureJson(formId)
+      ? await getActiveFormStructure(formId)
       : undefined;
+  const currentStructureJson = activeFormStructure?.structureJson;
   const validationOutputExportSettings =
     parseValidationOutputExportSettingsFromStructureJson(
       snapshotVersion === undefined
         ? currentStructureJson
         : getSnapshotStructureJson(plateRecord),
     );
+  const validationOutputSnapshotVersion =
+    refreshValidationOutputs && snapshotVersion === undefined
+      ? activeFormStructure?.version
+      : refreshValidationOutputs
+        ? snapshotVersion
+        : undefined;
   const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
     responseIds: preparedResponses.flatMap((prepared) =>
       prepared.status === "ready" ? [prepared.response.id] : [],
     ),
     settings: validationOutputExportSettings,
-    snapshotVersion:
-      refreshValidationOutputs && snapshotVersion !== undefined
-        ? snapshotVersion
-        : undefined,
+    snapshotVersion: validationOutputSnapshotVersion,
   });
   const validationOutputsByResponseId =
     validationOutputResult.outputsByResponseId;
@@ -872,18 +876,26 @@ async function prepareSheetsSyncResponses(
   });
 }
 
-async function getActiveFormStructureJson(
+async function getActiveFormStructure(
   formId: string,
-): Promise<string | undefined> {
+): Promise<{ structureJson: string | undefined; version: number } | undefined> {
   const [activeStructure] = await db
-    .select({ structureJson: formStructure.structureJson })
+    .select({
+      structureJson: formStructure.structureJson,
+      version: formStructure.version,
+    })
     .from(formStructure)
     .where(
       and(eq(formStructure.formId, formId), eq(formStructure.isActive, true)),
     )
     .orderBy(desc(formStructure.version))
     .limit(1);
-  return activeStructure?.structureJson;
+  return activeStructure
+    ? {
+        structureJson: activeStructure.structureJson,
+        version: activeStructure.version,
+      }
+    : undefined;
 }
 
 function getSnapshotStructureJson(
