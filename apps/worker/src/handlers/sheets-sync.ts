@@ -15,9 +15,11 @@ import {
   formValidationRule,
 } from "@nexus-form/database/schema";
 import {
+  buildFingerprintComponentKey,
   buildResponseExportValidationOutputColumns,
   buildResponseLabelLookupFromQuestions,
-  calculateUniquenessScoreMap,
+  COMPONENT_WEIGHTS,
+  DEFAULT_COMPONENT_WEIGHT,
   denormalizeSpreadsheetFormulaValue,
   type ExtractedQuestion,
   extractQuestionsFromPlateContent,
@@ -1622,7 +1624,9 @@ async function getUniquenessScoresForResponses(
     const current = fingerprintsByResponseId.get(fingerprintResponseId) ?? [];
     current.push({ componentName, componentValueHash, fingerprintType });
     fingerprintsByResponseId.set(fingerprintResponseId, current);
-    fingerprintComponents.add(componentName);
+    fingerprintComponents.add(
+      buildFingerprintComponentKey(fingerprintType, componentName),
+    );
   }
 
   const fingerprintSets = responseRows.map((row) => ({
@@ -1661,7 +1665,10 @@ function buildFingerprintUuids(
   const namespace = uuidV5(formId, UUID_V5_DNS_NAMESPACE);
   return Object.fromEntries(
     target.fingerprintDetails.map((fingerprint) => [
-      fingerprint.componentName,
+      buildFingerprintComponentKey(
+        fingerprint.fingerprintType,
+        fingerprint.componentName,
+      ),
       uuidV5(fingerprint.componentValueHash, namespace),
     ]),
   );
@@ -1698,6 +1705,111 @@ function uuidV5(name: string, namespace: string): string {
     hex.slice(16, 20),
     hex.slice(20, 32),
   ].join("-");
+}
+
+function calculateSimilarity(
+  response1: FingerprintSet,
+  response2: FingerprintSet,
+): number {
+  if (
+    response1.fingerprintDetails.length === 0 ||
+    response2.fingerprintDetails.length === 0
+  ) {
+    return 0;
+  }
+
+  const fingerprintsByComponentKey1 = new Map(
+    response1.fingerprintDetails.map((detail) => [
+      buildFingerprintComponentKey(
+        detail.fingerprintType,
+        detail.componentName,
+      ),
+      detail,
+    ]),
+  );
+  const fingerprintsByComponentKey2 = new Map(
+    response2.fingerprintDetails.map((detail) => [
+      buildFingerprintComponentKey(
+        detail.fingerprintType,
+        detail.componentName,
+      ),
+      detail,
+    ]),
+  );
+
+  const allComponents = new Set<string>([
+    ...fingerprintsByComponentKey1.keys(),
+    ...fingerprintsByComponentKey2.keys(),
+  ]);
+
+  let totalWeight = 0;
+  let matchedWeight = 0;
+  for (const componentKey of allComponents) {
+    const detail1 = fingerprintsByComponentKey1.get(componentKey);
+    const detail2 = fingerprintsByComponentKey2.get(componentKey);
+    const componentName = detail1?.componentName ?? detail2?.componentName;
+    if (!componentName) {
+      continue;
+    }
+
+    const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
+    totalWeight += weight;
+
+    if (
+      detail1 &&
+      detail2 &&
+      detail1.componentValueHash === detail2.componentValueHash &&
+      detail1.componentName === detail2.componentName &&
+      detail1.fingerprintType === detail2.fingerprintType
+    ) {
+      matchedWeight += weight;
+    }
+  }
+
+  return totalWeight === 0 ? 0 : matchedWeight / totalWeight;
+}
+
+function calculateUniqueness(
+  targetResponse: FingerprintSet,
+  allResponses: FingerprintSet[],
+): number {
+  if (allResponses.length <= 1) return 1;
+
+  const otherResponses = allResponses.filter(
+    (response) => response.id !== targetResponse.id,
+  );
+
+  if (otherResponses.length === 0) return 1;
+
+  const targetSessionId = targetResponse.sessionId?.trim();
+  if (
+    targetSessionId &&
+    otherResponses.some(
+      (response) => response.sessionId?.trim() === targetSessionId,
+    )
+  ) {
+    return 0;
+  }
+
+  const averageSimilarity =
+    otherResponses.reduce(
+      (sum, otherResponse) =>
+        sum + calculateSimilarity(targetResponse, otherResponse),
+      0,
+    ) / otherResponses.length;
+
+  return Math.max(0, Math.min(1, 1 - averageSimilarity));
+}
+
+function calculateUniquenessScoreMap(
+  responses: FingerprintSet[],
+): Map<string, number> {
+  return new Map(
+    responses.map((response) => [
+      response.id,
+      calculateUniqueness(response, responses),
+    ]),
+  );
 }
 
 function isResponseIdWrittenToSheet(

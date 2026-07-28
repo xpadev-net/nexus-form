@@ -48,6 +48,7 @@ export {
   FORM_STATUS_VALUES,
   VALIDATION_STATUS_VALUES,
 } from "./constants/status";
+export { buildFingerprintComponentKey } from "./fingerprint";
 export type {
   ConditionContext,
   FormLogicAction,

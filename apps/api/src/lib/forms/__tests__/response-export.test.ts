@@ -252,6 +252,71 @@ describe("response export", () => {
     expect(csv).not.toContain("UA UUID");
   });
 
+  it("keeps fingerprint provider keys distinct when calculating uniqueness", () => {
+    const { records, fingerprintComponents } = buildResponseExportRecords(
+      "form-fp-collision",
+      [
+        {
+          id: "response-1",
+          formId: "form-fp-collision",
+          responseDataJson: "[]",
+          respondentUuid: "respondent-1",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [
+            {
+              fingerprintType: "browser",
+              componentName: "canvas",
+              componentValueHash: "browser-canvas-hash",
+            },
+            {
+              fingerprintType: "fingerprintjs",
+              componentName: "canvas",
+              componentValueHash: "fingerprintjs-canvas-hash-a",
+            },
+          ],
+        },
+        {
+          id: "response-2",
+          formId: "form-fp-collision",
+          responseDataJson: "[]",
+          respondentUuid: "respondent-2",
+          submittedAt,
+          updatedAt: null,
+          userAgent: null,
+          sessionId: null,
+          countryCode: "JP",
+          fingerprintDetails: [
+            {
+              fingerprintType: "browser",
+              componentName: "canvas",
+              componentValueHash: "browser-canvas-hash",
+            },
+            {
+              fingerprintType: "fingerprintjs",
+              componentName: "canvas",
+              componentValueHash: "fingerprintjs-canvas-hash-b",
+            },
+          ],
+        },
+      ],
+      [],
+    );
+
+    expect(fingerprintComponents).toEqual(
+      new Set(["browser:canvas", "fingerprintjs:canvas"]),
+    );
+    expect(records[0]?.metadata.fingerprint_uuids).toEqual({
+      "browser:canvas": expect.any(String),
+      "fingerprintjs:canvas": expect.any(String),
+    });
+    expect(records[0]?.metadata.uniqueness_score).toBe(0.5);
+    expect(records[1]?.metadata.uniqueness_score).toBe(0.5);
+  });
+
   it("returns a header row when CSV output has no records", () => {
     const questionTitleMap = new Map([
       ["name-block", "氏名"],
@@ -278,8 +343,8 @@ describe("response export", () => {
         submitted_at: "2026-05-17T01:00:00.000Z",
         country_code: "JP",
         fingerprint_uuids: {
-          canvas: "canvas-uuid",
-          webgl: "webgl-uuid",
+          "browser:canvas": "canvas-uuid",
+          "fingerprintjs:webgl": "webgl-uuid",
         },
         ua_uuid: null,
         uniqueness_score: 1,
@@ -305,7 +370,7 @@ describe("response export", () => {
     expect(
       buildResponseExportTable(
         [record],
-        new Set(["webgl", "canvas"]),
+        new Set(["browser:canvas", "fingerprintjs:webgl"]),
         blockTitleMap,
         [],
         undefined,
@@ -321,8 +386,8 @@ describe("response export", () => {
         "UA UUID",
         "Uniqueness Score",
         "Uniqueness Rating",
-        "canvas UUID",
-        "webgl UUID",
+        "browser:canvas UUID",
+        "fingerprintjs:webgl UUID",
         "choice-block",
         "checkbox-block",
       ],
@@ -335,8 +400,8 @@ describe("response export", () => {
         "UA UUID",
         "ユニーク度スコア",
         "ユニーク度評価",
-        "canvas UUID",
-        "webgl UUID",
+        "browser:canvas UUID",
+        "fingerprintjs:webgl UUID",
         "希望枠",
         "興味",
       ],
@@ -386,7 +451,7 @@ describe("response export", () => {
 
     const table = buildResponseExportTable(
       [record],
-      new Set(["canvas"]),
+      new Set(["browser:canvas"]),
       new Map([["choice-block", "希望枠"]]),
     );
 
@@ -421,7 +486,7 @@ describe("response export", () => {
       "午前",
     ]);
     expect(table.headerIds).not.toContain("UA UUID");
-    expect(table.headerIds).not.toContain("canvas UUID");
+    expect(table.headerIds).not.toContain("browser:canvas UUID");
   });
 
   it("omits section separators from shared empty headers and CSV before, between, and after questions", () => {
@@ -513,7 +578,7 @@ describe("response export", () => {
         updated_at: "\t2026-05-17T02:30:00.000Z",
         country_code: "JP",
         fingerprint_uuids: {
-          "=canvas": "+fingerprint",
+          "=browser:canvas": "+fingerprint",
         },
         ua_uuid: " @ua",
         uniqueness_score: 1,
@@ -568,7 +633,7 @@ describe("response export", () => {
 
     const csv = formatRecordsToCsv(
       [record],
-      new Set(["=canvas"]),
+      new Set(["=browser:canvas"]),
       formulaTitleMap,
       [],
       undefined,
@@ -577,7 +642,7 @@ describe("response export", () => {
 
     expect(csv.split("\n")[0]).toContain('"\'=Text"');
     expect(csv.split("\n")[0]).toContain('"\'-Minus"');
-    expect(csv.split("\n")[0]).toContain('"\'=canvas UUID"');
+    expect(csv.split("\n")[0]).toContain('"\'=browser:canvas UUID"');
     for (const expectedCell of [
       '"\'=response-1"',
       '"\'\t2026-05-17T02:30:00.000Z"',
@@ -961,7 +1026,7 @@ describe("response export", () => {
         updated_at: "\t2026-05-17T02:30:00.000Z",
         country_code: "JP",
         fingerprint_uuids: {
-          "=canvas": "+fingerprint",
+          "=browser:canvas": "+fingerprint",
         },
         ua_uuid: " @ua",
         uniqueness_score: 1,
@@ -997,12 +1062,12 @@ describe("response export", () => {
       record,
       [],
       sheetTitleMap,
-      new Set(["=canvas"]),
+      new Set(["=browser:canvas"]),
       undefined,
       true,
     );
 
-    expect(newLayoutRow.idRow).toContain("'=canvas UUID");
+    expect(newLayoutRow.idRow).toContain("'=browser:canvas UUID");
     expect(newLayoutRow.idRow).toContain("'=text-block");
     expect(newLayoutRow.idRow).toContain("'-minus-block");
     expect(newLayoutRow.titleRow).toContain("'=Text");
@@ -1025,7 +1090,7 @@ describe("response export", () => {
       record,
       newLayoutRow.idRow,
       sheetTitleMap,
-      new Set(["=canvas"]),
+      new Set(["=browser:canvas"]),
       newLayoutRow.titleRow,
       true,
     );

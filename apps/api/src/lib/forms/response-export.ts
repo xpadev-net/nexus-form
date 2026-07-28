@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  buildFingerprintComponentKey,
   buildResponseExportColumnsFromBlocks,
   buildResponseExportTable,
   buildResponseExportValidationOutputColumns,
@@ -145,6 +146,10 @@ export function buildResponseExportRecords(
     id: response.id,
     sessionId: response.sessionId,
     fingerprintDetails: response.fingerprintDetails.map((fp) => ({
+      componentKey: buildFingerprintComponentKey(
+        fp.fingerprintType,
+        fp.componentName,
+      ),
       componentName: fp.componentName,
       componentValueHash: fp.componentValueHash,
       fingerprintType: fp.fingerprintType,
@@ -155,7 +160,9 @@ export function buildResponseExportRecords(
   const fingerprintComponents = new Set<string>();
   responses.forEach((response) => {
     response.fingerprintDetails.forEach((fp) => {
-      fingerprintComponents.add(fp.componentName);
+      fingerprintComponents.add(
+        buildFingerprintComponentKey(fp.fingerprintType, fp.componentName),
+      );
     });
   });
 
@@ -221,7 +228,11 @@ export function buildResponseExportRecords(
     const fingerprintUuids: Record<string, string | null> = {};
     response.fingerprintDetails.forEach((fp) => {
       const componentUuid = uuidv5(fp.componentValueHash, namespace);
-      fingerprintUuids[fp.componentName] = componentUuid;
+      const componentKey = buildFingerprintComponentKey(
+        fp.fingerprintType,
+        fp.componentName,
+      );
+      fingerprintUuids[componentKey] = componentUuid;
     });
 
     const uaUuid = response.userAgent
