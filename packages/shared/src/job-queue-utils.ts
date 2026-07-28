@@ -1,16 +1,16 @@
-export type QueueJobHandleLike = {
+export interface QueueJobHandleLike {
   getState(): Promise<unknown>;
   remove(): Promise<unknown>;
-};
+}
 
-export type QueueWithJobLookupLike<TJobData> = {
+export interface QueueWithJobLookupLike<TJobData> {
   getJob(jobId: string): Promise<QueueJobHandleLike | null | undefined>;
   add(
     jobName: string,
     jobData: TJobData,
     options: { jobId: string },
   ): Promise<unknown>;
-};
+}
 
 export async function addJobWithCleanup<TJobData>(
   queue: QueueWithJobLookupLike<TJobData>,

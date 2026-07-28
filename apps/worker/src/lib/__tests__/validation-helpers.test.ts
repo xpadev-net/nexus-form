@@ -445,7 +445,6 @@ describe("getValidationContext", () => {
 
 describe("writeValidationResult", () => {
   it("returns the deterministic result id after locked upsert", async () => {
-    selectLimit.mockResolvedValueOnce([]);
     selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     const params = {
       responseId: "response-1",
@@ -525,7 +524,6 @@ describe("writeValidationResult", () => {
   });
 
   it("can overwrite a non-cancelled failed validation result for retry completion", async () => {
-    selectLimit.mockResolvedValueOnce([]);
     selectLimit.mockResolvedValueOnce([{ id: "integration-1" }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "FAILED", errorCode: "VALIDATION_ERROR" },
@@ -557,7 +555,6 @@ describe("writeValidationResult", () => {
   });
 
   it("skips the Sheets refresh while unfinished validation rows remain", async () => {
-    selectLimit.mockResolvedValueOnce([{ id: "unfinished-validation" }]);
     selectForUpdate.mockResolvedValueOnce([
       { status: "PROCESSING", errorCode: null, jobId: null },
     ]);

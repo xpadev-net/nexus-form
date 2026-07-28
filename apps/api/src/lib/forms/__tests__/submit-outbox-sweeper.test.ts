@@ -248,7 +248,9 @@ describe("submit outbox sweeper", () => {
   it.each([
     "active",
     "completed",
-  ] as const)("reuses a validation refresh job when an existing Sheets job is %s", async (state) => {
+  ] as const)("reuses a validation refresh job when an existing Sheets job is %s", async (state:
+    | "active"
+    | "completed"): Promise<void> => {
     const remove = vi.fn(async () => undefined);
     mocks.sheetsExistingJob = {
       getState: vi.fn(async () => state),

@@ -809,9 +809,26 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
-  it("skips a stale validation refresh job when no validation outputs match its snapshotVersion", async () => {
+  it("refreshes an existing Sheets row even when no validation outputs match its snapshotVersion", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
+    mockReadRange
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID", "block-1", "Uniqueness Score"]],
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          values: [["Response ID"], ["response-1"]],
+        },
+      } as never);
+    mockUpdateRange.mockResolvedValueOnce({
+      ok: true,
+      data: { updatedRange: "Sheet1!A2:C2", updatedRows: 1 },
+    } as never);
 
     const result = await handleSheetsSync(
       makeJob({ refreshValidationOutputs: true, snapshotVersion: 3 }),
@@ -819,17 +836,22 @@ describe("handleSheetsSync — idempotency states", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      skipped: 1,
-      reason: "stale",
       provider: "google-sheets",
       jobId: "job-1",
       mode: "incremental",
       processed: 1,
       total: 1,
+      skipped: 0,
     });
-    expect(mockReadRange).not.toHaveBeenCalled();
     expect(mockAppendRows).not.toHaveBeenCalled();
-    expect(mockUpdateRange).not.toHaveBeenCalled();
+    expect(mockUpdateRange).toHaveBeenCalledTimes(1);
+    expect(mockUpdateRange).toHaveBeenCalledWith(
+      TOKEN,
+      expect.objectContaining({
+        rangeA1: "Sheet1!A2:C2",
+        values: [["response-1", "hello", expect.any(String)]],
+      }),
+    );
   });
 
   it("detects duplicate rows when a formula-like response ID was neutralized in Sheets", async () => {

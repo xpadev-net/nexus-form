@@ -287,15 +287,15 @@ export async function writeValidationResult(params: {
         eq(externalServiceValidationResult.status, "PROCESSING"),
       ),
     );
-    const [incompleteValidationResult] = await tx
+    const incompleteValidationResults = await tx
       .select({ id: externalServiceValidationResult.id })
       .from(externalServiceValidationResult)
       .where(incompleteValidationResultWhere)
-      .limit(1);
+      .for("update");
 
     return {
       skipped: false,
-      shouldRefreshSheets: incompleteValidationResult === undefined,
+      shouldRefreshSheets: incompleteValidationResults.length === 0,
     };
   });
 

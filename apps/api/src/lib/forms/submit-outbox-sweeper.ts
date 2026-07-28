@@ -201,12 +201,15 @@ async function enqueueClaimedRow(row: ClaimedSubmitOutboxRow): Promise<void> {
     if (!row.integrationId) {
       throw new Error("Sheets refresh outbox row is missing integrationId");
     }
+    if (row.snapshotVersion === null) {
+      throw new Error("Sheets refresh outbox row is missing snapshotVersion");
+    }
     const jobData = sheetsSyncJobDataSchema.parse({
       formId: row.formId,
       integrationId: row.integrationId,
       mode: "incremental",
       responseId: row.responseId,
-      snapshotVersion: row.snapshotVersion ?? undefined,
+      snapshotVersion: row.snapshotVersion,
       refreshValidationOutputs: true,
     });
     await addJobWithCleanup(getSheetsSyncQueue(), {

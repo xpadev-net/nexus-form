@@ -521,13 +521,11 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 integrationId,
                 job,
                 refreshValidationOutputs,
-                snapshotVersion,
                 sheetName,
                 spreadsheetId,
                 target: prepared,
                 token,
                 validationOutputExportSettings,
-                hasValidationRows: validationOutputResult.hasValidationRows,
                 validationOutputsByResponseId,
               })
             : {
@@ -1415,13 +1413,11 @@ async function writeIncrementalSheetsSyncBatch(params: {
   integrationId: string;
   job: Job<SheetsSyncJob>;
   refreshValidationOutputs: boolean;
-  snapshotVersion?: number;
   sheetName: string;
   spreadsheetId: string;
   target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
   token: OAuthToken;
   validationOutputExportSettings: ValidationOutputExportSettings;
-  hasValidationRows: boolean;
   validationOutputsByResponseId: Map<
     string,
     ResponseExportValidationOutputValue[]
@@ -1434,13 +1430,11 @@ async function writeIncrementalSheetsSyncBatch(params: {
     integrationId,
     job,
     refreshValidationOutputs,
-    snapshotVersion,
     sheetName,
     spreadsheetId,
     target,
     token,
     validationOutputExportSettings,
-    hasValidationRows,
     validationOutputsByResponseId,
   } = params;
 
@@ -1448,19 +1442,6 @@ async function writeIncrementalSheetsSyncBatch(params: {
     integrationId,
     target.response.id,
   );
-  if (
-    refreshValidationOutputs &&
-    snapshotVersion !== undefined &&
-    !hasValidationRows
-  ) {
-    return {
-      ok: true,
-      skipped: true,
-      reason: "stale",
-      provider: "google-sheets",
-      jobId: job.id,
-    } as const;
-  }
   const resolution = await resolveWritableSheetsSyncTarget({
     idempotencyKey,
     job,
