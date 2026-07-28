@@ -131,6 +131,13 @@ function neutralizeSpreadsheetFormulaValues(values: string[]): string[] {
   return values.map(neutralizeSpreadsheetFormulaValue);
 }
 
+function maybeNeutralizeSpreadsheetFormulaValues(
+  values: string[],
+  neutralize: boolean,
+): string[] {
+  return neutralize ? neutralizeSpreadsheetFormulaValues(values) : values;
+}
+
 function buildMetadataHeaders(
   fingerprintComponents: Set<string>,
   isJapanese = false,
@@ -594,6 +601,7 @@ export function mapRecordToSheetRow(
   fingerprintComponents?: Set<string>,
   existingTitleRow?: string[],
   includeFingerprintColumns = false,
+  neutralizeForSpreadsheet = true,
 ): ResponseExportSheetMapping {
   const responseIdHeader = "Response ID";
 
@@ -720,9 +728,18 @@ export function mapRecordToSheetRow(
     const row = [...rowValues, ...componentValues, ...validationOutputValues];
 
     return {
-      idRow: neutralizeSpreadsheetFormulaValues(idRow),
-      titleRow: neutralizeSpreadsheetFormulaValues(titleRow),
-      row: neutralizeSpreadsheetFormulaValues(row),
+      idRow: maybeNeutralizeSpreadsheetFormulaValues(
+        idRow,
+        neutralizeForSpreadsheet,
+      ),
+      titleRow: maybeNeutralizeSpreadsheetFormulaValues(
+        titleRow,
+        neutralizeForSpreadsheet,
+      ),
+      row: maybeNeutralizeSpreadsheetFormulaValues(
+        row,
+        neutralizeForSpreadsheet,
+      ),
       isNewLayout: true,
     };
   }
@@ -899,9 +916,15 @@ export function mapRecordToSheetRow(
   }
 
   return {
-    idRow: neutralizeSpreadsheetFormulaValues(idRow),
-    titleRow: neutralizeSpreadsheetFormulaValues(titleRow),
-    row: neutralizeSpreadsheetFormulaValues(row),
+    idRow: maybeNeutralizeSpreadsheetFormulaValues(
+      idRow,
+      neutralizeForSpreadsheet,
+    ),
+    titleRow: maybeNeutralizeSpreadsheetFormulaValues(
+      titleRow,
+      neutralizeForSpreadsheet,
+    ),
+    row: maybeNeutralizeSpreadsheetFormulaValues(row, neutralizeForSpreadsheet),
     isNewLayout: false,
   };
 }
