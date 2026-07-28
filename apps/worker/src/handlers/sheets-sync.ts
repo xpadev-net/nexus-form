@@ -446,8 +446,6 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       : undefined;
   const currentStructureJson =
     getSnapshotStructureJson(plateRecord) ?? activeFormStructure?.structureJson;
-  const validationOutputExportSettings =
-    parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
   const validationOutputSnapshotVersion = refreshValidationOutputs
     ? structureSnapshotVersion
     : undefined;
@@ -456,21 +454,16 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
     refreshValidationOutputs &&
     validationOutputSnapshotVersion === undefined
   ) {
-    const staleSkippedResult: SheetsSyncStaleSkipResult = {
-      ok: true,
-      skipped: true,
-      reason: "stale",
-      provider: "google-sheets",
-      jobId: job.id,
-    };
     return {
-      ...staleSkippedResult,
+      ...makeSheetsSyncStaleSkipResult(job.id),
       mode,
       processed: total,
       total,
       skipped: total,
     };
   }
+  const validationOutputExportSettings =
+    parseValidationOutputExportSettingsFromStructureJson(currentStructureJson);
   const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
     responseIds: preparedResponses.flatMap((prepared) =>
@@ -642,6 +635,18 @@ function getSheetsSyncLockOptions(responseCount: number) {
       SHEETS_SYNC_LOCK_WAIT_TIMEOUT_MS +
       SHEETS_SYNC_LOCK_TTL_MS * (lockMultiplier - 1),
     signal: workerShutdownSignal,
+  };
+}
+
+function makeSheetsSyncStaleSkipResult(
+  jobId: string | undefined,
+): SheetsSyncStaleSkipResult {
+  return {
+    ok: true,
+    skipped: true,
+    reason: "stale",
+    provider: "google-sheets",
+    jobId,
   };
 }
 
