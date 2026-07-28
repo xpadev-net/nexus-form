@@ -1781,6 +1781,16 @@ function calculateUniqueness(
 
   if (otherResponses.length === 0) return 1;
 
+  const targetSessionId = targetResponse.sessionId?.trim();
+  if (
+    targetSessionId &&
+    otherResponses.some(
+      (response) => response.sessionId?.trim() === targetSessionId,
+    )
+  ) {
+    return 0;
+  }
+
   const averageSimilarity =
     otherResponses.reduce(
       (sum, otherResponse) =>
