@@ -342,3 +342,59 @@ export async function clearSheet(
     return { ok: false, error: mapApiError(e) };
   }
 }
+
+const SheetsBatchUpdateResponseSchema = z.object({
+  totalUpdatedRows: z.number().int().nonnegative().optional(),
+  responses: z
+    .array(
+      z.object({
+        updatedRange: z.string().min(1),
+        updatedRows: z.number().int().nonnegative().optional(),
+      }),
+    )
+    .optional()
+    .default([]),
+});
+
+export async function batchUpdate(
+  token: OAuthToken,
+  params: {
+    spreadsheetId: string;
+    data: Array<{
+      rangeA1: string;
+      values: string[][];
+    }>;
+  },
+): Promise<Result<{ totalUpdatedRows: number }>> {
+  const endpoint = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(params.spreadsheetId)}/values:batchUpdate`;
+  try {
+    const raw = await fetchGoogleSheetsAPI({
+      accessToken: token.accessToken,
+      endpoint,
+      method: "POST",
+      body: {
+        valueInputOption: "RAW",
+        data: params.data.map((item) => ({
+          range: item.rangeA1,
+          values: item.values,
+        })),
+      },
+    });
+    const parsed = SheetsBatchUpdateResponseSchema.safeParse(raw);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        error: invalidSuccessResponseError("batchUpdate", parsed.error),
+      };
+    }
+    const data = parsed.data;
+    return {
+      ok: true,
+      data: {
+        totalUpdatedRows: data.totalUpdatedRows ?? 0,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: mapApiError(e) };
+  }
+}

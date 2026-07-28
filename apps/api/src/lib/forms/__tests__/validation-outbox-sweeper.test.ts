@@ -44,6 +44,7 @@ const mocks = vi.hoisted(() => {
     schema,
     sequence: [] as string[],
     selectWheres: [] as unknown[],
+    enrichmentWheres: [] as unknown[],
     updateSets: [] as unknown[],
     updateWheres: [] as unknown[],
   };
@@ -139,19 +140,28 @@ function usePendingRows(rows: PendingRow[]) {
   usePendingRowsResult(Promise.resolve(rows));
 }
 
+// The sweeper claims eligible rows in two steps to work around a TiDB
+// planner bug where a locking read (FOR UPDATE SKIP LOCKED) combined with a
+// JOIN can fail to resolve join columns. Step 1 locks rows from the
+// validation result table alone; step 2 reads the JOIN-derived enrichment
+// fields for those already-locked ids. These helpers mock both steps.
 function usePendingRowsResult(rows: Promise<PendingRow[]>) {
   const forUpdate = vi.fn(async () =>
     (await rows).filter((row) => row.enqueueMode === "STABLE"),
   );
   const limit = vi.fn(() => ({ for: forUpdate }));
   const orderBy = vi.fn(() => ({ limit }));
-  const where = vi.fn((condition: unknown) => {
+  const lockWhere = vi.fn((condition: unknown) => {
     mocks.selectWheres.push(condition);
     return { orderBy };
   });
-  const leftJoin = vi.fn(() => ({ where }));
+  const enrichmentWhere = vi.fn(async (condition: unknown) => {
+    mocks.enrichmentWheres.push(condition);
+    return (await rows).filter((row) => row.enqueueMode === "STABLE");
+  });
+  const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
   const innerJoin = vi.fn(() => ({ leftJoin }));
-  const from = vi.fn(() => ({ innerJoin }));
+  const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
   mocks.db.select.mockReturnValue({ from });
   mocks.db.transaction.mockImplementation(
     async (callback: (tx: unknown) => unknown) =>
@@ -167,13 +177,17 @@ function useClaimRowsSequence(rowsByClaim: PendingRow[][]) {
       const forUpdate = vi.fn(async () => rows);
       const limit = vi.fn(() => ({ for: forUpdate }));
       const orderBy = vi.fn(() => ({ limit }));
-      const where = vi.fn((condition: unknown) => {
+      const lockWhere = vi.fn((condition: unknown) => {
         mocks.selectWheres.push(condition);
         return { orderBy };
       });
-      const leftJoin = vi.fn(() => ({ where }));
+      const enrichmentWhere = vi.fn(async (condition: unknown) => {
+        mocks.enrichmentWheres.push(condition);
+        return rows;
+      });
+      const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
       const innerJoin = vi.fn(() => ({ leftJoin }));
-      const from = vi.fn(() => ({ innerJoin }));
+      const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
       const select = vi.fn(() => ({ from }));
       return callback({ select, update: mocks.db.update });
     },
@@ -474,23 +488,27 @@ function useStatefulValidationOutbox(
 
   const select = vi.fn(() => ({
     from: vi.fn(() => ({
+      where: vi.fn((where: unknown) => {
+        mocks.selectWheres.push(where);
+        return {
+          orderBy: vi.fn(() => ({
+            limit: vi.fn((limit: number) => ({
+              for: vi.fn(async () => {
+                const databaseNow = options.getDatabaseNow();
+                return matchesRuntimePredicate(row, where, databaseNow) &&
+                  limit > 0
+                  ? [toPendingRow(row)]
+                  : [];
+              }),
+            })),
+          })),
+        };
+      }),
       innerJoin: vi.fn(() => ({
         leftJoin: vi.fn(() => ({
-          where: vi.fn((where: unknown) => {
-            mocks.selectWheres.push(where);
-            return {
-              orderBy: vi.fn(() => ({
-                limit: vi.fn((limit: number) => ({
-                  for: vi.fn(async () => {
-                    const databaseNow = options.getDatabaseNow();
-                    return matchesRuntimePredicate(row, where, databaseNow) &&
-                      limit > 0
-                      ? [toPendingRow(row)]
-                      : [];
-                  }),
-                })),
-              })),
-            };
+          where: vi.fn(async (where: unknown) => {
+            mocks.enrichmentWheres.push(where);
+            return [toPendingRow(row)];
           }),
         })),
       })),
@@ -521,6 +539,7 @@ describe("validation outbox sweeper", () => {
     vi.clearAllMocks();
     mocks.sequence.length = 0;
     mocks.selectWheres.length = 0;
+    mocks.enrichmentWheres.length = 0;
     mocks.updateSets.length = 0;
     mocks.updateWheres.length = 0;
     mocks.providerRegistryGet.mockReturnValue({
@@ -1723,6 +1742,53 @@ describe("validation outbox sweeper", () => {
       errorCode: "RULE_CONFIG_NOT_FOUND",
       errorMessage:
         "Validation rule configuration was not found in response snapshot",
+    });
+  });
+
+  it("queries the enrichment join by the exact ids locked in the first step and fails safely when it finds no match", async () => {
+    const row = pendingRow({ snapshotVersion: 7 });
+    const forUpdate = vi.fn(async () => [row]);
+    const limit = vi.fn(() => ({ for: forUpdate }));
+    const orderBy = vi.fn(() => ({ limit }));
+    const lockWhere = vi.fn((condition: unknown) => {
+      mocks.selectWheres.push(condition);
+      return { orderBy };
+    });
+    const enrichmentWhere = vi.fn(async (condition: unknown) => {
+      mocks.enrichmentWheres.push(condition);
+      return [];
+    });
+    const leftJoin = vi.fn(() => ({ where: enrichmentWhere }));
+    const innerJoin = vi.fn(() => ({ leftJoin }));
+    const from = vi.fn(() => ({ where: lockWhere, innerJoin }));
+    mocks.db.select.mockReturnValue({ from });
+    mocks.db.transaction.mockImplementation(
+      async (callback: (tx: unknown) => unknown) =>
+        callback({ select: mocks.db.select, update: mocks.db.update }),
+    );
+    useUpdateResults([{ affectedRows: 1 }, { affectedRows: 1 }]);
+
+    const { sweepValidationOutbox } = await import(
+      "../validation-outbox-sweeper"
+    );
+    const result = await sweepValidationOutbox({ staleMs: 0, batchSize: 10 });
+
+    expect(result).toEqual({
+      scanned: 1,
+      enqueued: 0,
+      failed: 1,
+      retryScheduled: 0,
+    });
+    expect(mocks.addValidationJob).not.toHaveBeenCalled();
+    expect(mocks.updateSets[1]).toMatchObject({
+      status: "FAILED",
+      errorCode: "RULE_CONFIG_NOT_FOUND",
+    });
+    expect(mocks.enrichmentWheres).toHaveLength(1);
+    expect(mocks.enrichmentWheres[0]).toMatchObject({
+      type: "inArray",
+      left: mocks.schema.externalServiceValidationResult.id,
+      right: [row.id],
     });
   });
 

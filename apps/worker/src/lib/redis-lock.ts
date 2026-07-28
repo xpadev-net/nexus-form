@@ -142,6 +142,28 @@ export async function setIdempotencyKey(
   await getLockClient().set(key, value, "EX", ttlSeconds);
 }
 
+/** 複数の冪等性キーを一括で value・TTL 付きでセットする。ioredis の pipeline を使用。 */
+export async function setIdempotencyKeys(
+  keys: string[],
+  ttlSeconds: number,
+  value = "done",
+): Promise<void> {
+  if (keys.length === 0) return;
+  const redis = getLockClient();
+  const pipeline = redis.pipeline();
+  for (const key of keys) {
+    pipeline.set(key, value, "EX", ttlSeconds);
+  }
+  const results = await pipeline.exec();
+  if (results) {
+    for (const [err] of results) {
+      if (err) {
+        throw err;
+      }
+    }
+  }
+}
+
 /**
  * 冪等性キーを削除する。完全再同期（full モード）でシートを wipe する際、
  * 過去に書き込んだ行の "done" キーを事前に消すことで再書き込みを許可する。

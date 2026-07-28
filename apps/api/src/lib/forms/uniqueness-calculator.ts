@@ -1,31 +1,30 @@
-/**
- * ユニーク度算出ロジック
- * 回答者のユニーク度を算出するロジックを実装します。
- * 各回答について、他の全回答との類似度を重み付きで計算し、ユニーク度スコア（0-1）を導出します。
- */
-
 import {
+  buildFingerprintComponentKey,
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,
 } from "@nexus-form/shared";
 
-/**
- * フィンガープリント詳細を含む回答の型定義
- */
 export interface ResponseWithFingerprints {
   id: string;
+  sessionId?: string | null;
   fingerprintDetails: Array<{
-    componentKey: string;
+    componentKey?: string;
     componentName: string;
     componentValueHash: string;
     fingerprintType: string;
   }>;
 }
 
-/**
- * 2つの回答間の類似度を重み付きで計算
- */
-export function calculateSimilarity(
+function getFingerprintComponentKey(
+  detail: ResponseWithFingerprints["fingerprintDetails"][number],
+): string {
+  return (
+    detail.componentKey ??
+    buildFingerprintComponentKey(detail.fingerprintType, detail.componentName)
+  );
+}
+
+function calculateSimilarity(
   response1: ResponseWithFingerprints,
   response2: ResponseWithFingerprints,
 ): number {
@@ -36,23 +35,27 @@ export function calculateSimilarity(
     return 0;
   }
 
-  // 両回答の和集合で重みを正規化して非対称性を解消
   const allComponents = new Set<string>();
-
   for (const detail of response1.fingerprintDetails) {
-    allComponents.add(detail.componentKey);
+    allComponents.add(getFingerprintComponentKey(detail));
   }
   for (const detail of response2.fingerprintDetails) {
-    allComponents.add(detail.componentKey);
+    allComponents.add(getFingerprintComponentKey(detail));
   }
 
   let totalWeight = 0;
   let matchedWeight = 0;
   const details1ByKey = new Map(
-    response1.fingerprintDetails.map((detail) => [detail.componentKey, detail]),
+    response1.fingerprintDetails.map((detail) => [
+      getFingerprintComponentKey(detail),
+      detail,
+    ]),
   );
   const details2ByKey = new Map(
-    response2.fingerprintDetails.map((detail) => [detail.componentKey, detail]),
+    response2.fingerprintDetails.map((detail) => [
+      getFingerprintComponentKey(detail),
+      detail,
+    ]),
   );
 
   for (const componentKey of allComponents) {
@@ -80,9 +83,6 @@ export function calculateSimilarity(
   return matchedWeight / totalWeight;
 }
 
-/**
- * 対象回答のユニーク度を算出する（0-1のスコア）
- */
 export function calculateUniqueness(
   targetResponse: ResponseWithFingerprints,
   allResponses: ResponseWithFingerprints[],
@@ -94,28 +94,32 @@ export function calculateUniqueness(
   const otherResponses = allResponses.filter(
     (response) => response.id !== targetResponse.id,
   );
-
   if (otherResponses.length === 0) {
     return 1.0;
   }
 
+  const targetSessionId = targetResponse.sessionId?.trim();
+  if (
+    targetSessionId &&
+    otherResponses.some(
+      (response) => response.sessionId?.trim() === targetSessionId,
+    )
+  ) {
+    return 0.0;
+  }
+
   const similarities: number[] = [];
   for (const otherResponse of otherResponses) {
-    const similarity = calculateSimilarity(targetResponse, otherResponse);
-    similarities.push(similarity);
+    similarities.push(calculateSimilarity(targetResponse, otherResponse));
   }
 
   const avgSimilarity =
     similarities.reduce((sum, sim) => sum + sim, 0) / similarities.length;
-
   const uniqueness = 1 - avgSimilarity;
 
   return Math.max(0, Math.min(1, uniqueness));
 }
 
-/**
- * 複数の回答のユニーク度を一括計算
- */
 export function calculateAllUniquenessScores(
   responses: ResponseWithFingerprints[],
 ): Array<{ responseId: string; uniquenessScore: number }> {

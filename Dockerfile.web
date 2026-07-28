@@ -12,6 +12,9 @@ COPY ./apps/web/package.json ./apps/web/
 COPY ./packages/database/package.json ./packages/database/
 COPY ./packages/integrations/package.json ./packages/integrations/
 COPY ./packages/shared/package.json ./packages/shared/
+COPY ./packages/validation-provider-discord/package.json ./packages/validation-provider-discord/
+COPY ./packages/validation-provider-github/package.json ./packages/validation-provider-github/
+COPY ./packages/validation-provider-twitter/package.json ./packages/validation-provider-twitter/
 
 RUN pnpm install --frozen-lockfile --prod=false
 
@@ -24,6 +27,9 @@ COPY ./apps/web/ ./apps/web/
 COPY ./packages/database/ ./packages/database/
 COPY ./packages/integrations/ ./packages/integrations/
 COPY ./packages/shared/ ./packages/shared/
+COPY ./packages/validation-provider-discord/ ./packages/validation-provider-discord/
+COPY ./packages/validation-provider-github/ ./packages/validation-provider-github/
+COPY ./packages/validation-provider-twitter/ ./packages/validation-provider-twitter/
 
 ARG VITE_BRAND_APP_NAME
 ARG VITE_BRAND_PRIMARY_COLOR
