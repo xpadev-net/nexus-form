@@ -19,6 +19,12 @@ vi.mock("@nexus-form/database", () => ({
     formId: "formResponse.formId",
     submittedAt: "formResponse.submittedAt",
   },
+  formSubmitOutbox: {
+    effectType: "formSubmitOutbox.effectType",
+    formId: "formSubmitOutbox.formId",
+    responseId: "formSubmitOutbox.responseId",
+    snapshotVersion: "formSubmitOutbox.snapshotVersion",
+  },
 }));
 
 vi.mock("@nexus-form/database/schema", () => ({
@@ -274,6 +280,22 @@ function setupDbSelect(...results: unknown[][]) {
 }
 
 function setupHappyPathMocks() {
+  mockDb.select.mockReset();
+  mockGetOAuthToken.mockReset();
+  mockRefreshTokenIfNeeded.mockReset();
+  mockWithRedisLock.mockReset();
+  mockGetIdempotencyKeyValue.mockReset();
+  mockGetIdempotencyKeyTtlMs.mockReset();
+  mockSetIdempotencyKey.mockReset();
+  mockSetIdempotencyKeys.mockReset();
+  mockReadRange.mockReset();
+  mockUpdateRange.mockReset();
+  mockBatchUpdate.mockReset();
+  mockAppendRows.mockReset();
+  mockClearSheet.mockReset();
+  mockDeleteIdempotencyKey.mockReset();
+  mockSafeParseResponseData.mockReset();
+
   // DB: integration → response → form (no plateContent)
   setupDbSelect([INTEGRATION], [RESPONSE], []);
 
@@ -809,19 +831,22 @@ describe("handleSheetsSync — idempotency states", () => {
     );
   });
 
-  it("refreshes an existing Sheets row using the active snapshot when the validation refresh job is versionless", async () => {
+  it("refreshes an existing Sheets row using the submitted snapshot when the validation refresh job is versionless", async () => {
     setupHappyPathMocks();
     mockGetIdempotencyKeyValue.mockResolvedValue(null);
     setupDbSelect(
       [INTEGRATION],
       [RESPONSE],
-      [{ structureJson: JSON.stringify({ settings: {} }), version: 3 }],
+      [{ snapshotVersion: 7 }],
+      [{ structureJson: JSON.stringify({ settings: {} }), version: 7 }],
     );
     mockReadRange
       .mockResolvedValueOnce({
         ok: true,
         data: {
-          values: [["Response ID", "block-1", "Uniqueness Score"]],
+          values: [
+            ["Response ID", "block-1", "Uniqueness Score", "Legacy validation"],
+          ],
         },
       } as never)
       .mockResolvedValueOnce({
@@ -853,8 +878,8 @@ describe("handleSheetsSync — idempotency states", () => {
     expect(mockUpdateRange).toHaveBeenCalledWith(
       TOKEN,
       expect.objectContaining({
-        rangeA1: "Sheet1!A2:C2",
-        values: [["response-1", "hello", expect.any(String)]],
+        rangeA1: "Sheet1!A2:D2",
+        values: [["response-1", "hello", expect.any(String), ""]],
       }),
     );
   });

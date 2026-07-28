@@ -5,7 +5,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { db, formIntegration, formResponse } from "@nexus-form/database";
+import {
+  db,
+  formIntegration,
+  formResponse,
+  formSubmitOutbox,
+} from "@nexus-form/database";
 import {
   externalServiceValidationResult,
   fingerprintDetail,
@@ -423,23 +428,34 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const lockKey = `sheets-sync:${integrationId}`;
 
   const preparedResponses = await prepareSheetsSyncResponses(formId, responses);
+  const refreshSnapshotVersion =
+    refreshValidationOutputs && snapshotVersion === undefined
+      ? await getSubmittedSnapshotVersion(formId, responseId)
+      : undefined;
+  const structureSnapshotVersion = snapshotVersion ?? refreshSnapshotVersion;
   const activeFormStructure =
-    snapshotVersion === undefined
+    structureSnapshotVersion === undefined
       ? await getActiveFormStructure(formId)
       : undefined;
-  const currentStructureJson = activeFormStructure?.structureJson;
+  const currentStructureJson =
+    activeFormStructure?.structureJson ??
+    (structureSnapshotVersion === undefined
+      ? undefined
+      : (
+          await getStructureJsonBySnapshotVersion(
+            formId,
+            structureSnapshotVersion,
+          )
+        )?.structureJson);
   const validationOutputExportSettings =
     parseValidationOutputExportSettingsFromStructureJson(
       snapshotVersion === undefined
         ? currentStructureJson
         : getSnapshotStructureJson(plateRecord),
     );
-  const validationOutputSnapshotVersion =
-    refreshValidationOutputs && snapshotVersion === undefined
-      ? activeFormStructure?.version
-      : refreshValidationOutputs
-        ? snapshotVersion
-        : undefined;
+  const validationOutputSnapshotVersion = refreshValidationOutputs
+    ? structureSnapshotVersion
+    : undefined;
   const validationOutputResult = await getValidationOutputsByResponseId({
     formId,
     responseIds: preparedResponses.flatMap((prepared) =>
@@ -874,6 +890,41 @@ async function prepareSheetsSyncResponses(
       uniquenessScores,
     };
   });
+}
+
+async function getSubmittedSnapshotVersion(
+  formId: string,
+  responseId: string,
+): Promise<number | undefined> {
+  const [outboxRow] = await db
+    .select({ snapshotVersion: formSubmitOutbox.snapshotVersion })
+    .from(formSubmitOutbox)
+    .where(
+      and(
+        eq(formSubmitOutbox.formId, formId),
+        eq(formSubmitOutbox.responseId, responseId),
+        eq(formSubmitOutbox.effectType, "SHEETS"),
+      ),
+    )
+    .limit(1);
+  return outboxRow?.snapshotVersion ?? undefined;
+}
+
+async function getStructureJsonBySnapshotVersion(
+  formId: string,
+  snapshotVersion: number,
+): Promise<{ structureJson: string | null } | undefined> {
+  const [snapshot] = await db
+    .select({ structureJson: formSnapshot.structureJson })
+    .from(formSnapshot)
+    .where(
+      and(
+        eq(formSnapshot.formId, formId),
+        eq(formSnapshot.version, snapshotVersion),
+      ),
+    )
+    .limit(1);
+  return snapshot;
 }
 
 async function getActiveFormStructure(
@@ -1582,11 +1633,15 @@ async function writeIncrementalSheetsSyncBatch(params: {
       if (!singleRow) {
         throw new Error("Expected a single prepared row for refresh update");
       }
-      const lastColumnLetter = columnIndexToLetter(singleRow.length - 1);
+      const updateRow = [...singleRow];
+      while (updateRow.length < sheetCheck.headers.length) {
+        updateRow.push("");
+      }
+      const lastColumnLetter = columnIndexToLetter(updateRow.length - 1);
       const updateResult = await updateRange(token, {
         spreadsheetId,
         rangeA1: `${sheetName}!A${rowNumber}:${lastColumnLetter}${rowNumber}`,
-        values: rows,
+        values: [updateRow],
       });
       if (!updateResult.ok) {
         throwSheetsSyncFailure("update existing row", updateResult);
