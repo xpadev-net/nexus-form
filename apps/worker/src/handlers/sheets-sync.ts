@@ -451,14 +451,23 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
   const validationOutputSnapshotVersion = refreshValidationOutputs
     ? structureSnapshotVersion
     : undefined;
-  const validationOutputResult = await getValidationOutputsByResponseId({
-    formId,
-    responseIds: preparedResponses.flatMap((prepared) =>
-      prepared.status === "ready" ? [prepared.response.id] : [],
-    ),
-    settings: validationOutputExportSettings,
-    snapshotVersion: validationOutputSnapshotVersion,
-  });
+  const validationOutputResult =
+    refreshValidationOutputs && validationOutputSnapshotVersion === undefined
+      ? {
+          hasValidationRows: false,
+          outputsByResponseId: new Map<
+            string,
+            ResponseExportValidationOutputValue[]
+          >(),
+        }
+      : await getValidationOutputsByResponseId({
+          formId,
+          responseIds: preparedResponses.flatMap((prepared) =>
+            prepared.status === "ready" ? [prepared.response.id] : [],
+          ),
+          settings: validationOutputExportSettings,
+          snapshotVersion: validationOutputSnapshotVersion,
+        });
   const validationOutputsByResponseId =
     validationOutputResult.outputsByResponseId;
   const total = preparedResponses.length;
