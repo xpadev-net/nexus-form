@@ -12,6 +12,7 @@ import {
 } from "@nexus-form/database/schema";
 import { providerRegistry } from "@nexus-form/integrations";
 import {
+  buildFingerprintComponentKey,
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   extractQuestionsFromPlateContent,
@@ -241,6 +242,7 @@ async function getUniquenessScoresForForm(
   const fingerprintsByResponseId = new Map<
     string,
     Array<{
+      componentKey: string;
       componentName: string;
       componentValueHash: string;
       fingerprintType: string;
@@ -253,7 +255,15 @@ async function getUniquenessScoresForForm(
     fingerprintType,
   } of fingerprintRows) {
     const current = fingerprintsByResponseId.get(responseId) ?? [];
-    current.push({ componentName, componentValueHash, fingerprintType });
+    current.push({
+      componentKey: buildFingerprintComponentKey(
+        fingerprintType,
+        componentName,
+      ),
+      componentName,
+      componentValueHash,
+      fingerprintType,
+    });
     fingerprintsByResponseId.set(responseId, current);
   }
 
@@ -1756,6 +1766,7 @@ export const formsResponsesRouter = createHonoApp()
       const fingerprintsByResponseId = new Map<
         string,
         Array<{
+          componentKey: string;
           componentName: string;
           componentValueHash: string;
           fingerprintType: string;
@@ -1764,6 +1775,10 @@ export const formsResponsesRouter = createHonoApp()
       for (const row of fingerprintRows) {
         const current = fingerprintsByResponseId.get(row.responseId) ?? [];
         current.push({
+          componentKey: buildFingerprintComponentKey(
+            row.fingerprintType,
+            row.componentName,
+          ),
           componentName: row.componentName,
           componentValueHash: row.componentValueHash,
           fingerprintType: row.fingerprintType,

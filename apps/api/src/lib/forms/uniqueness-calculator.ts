@@ -15,6 +15,7 @@ import {
 export interface ResponseWithFingerprints {
   id: string;
   fingerprintDetails: Array<{
+    componentKey: string;
     componentName: string;
     componentValueHash: string;
     fingerprintType: string;
@@ -39,25 +40,28 @@ export function calculateSimilarity(
   const allComponents = new Set<string>();
 
   for (const detail of response1.fingerprintDetails) {
-    allComponents.add(detail.componentName);
+    allComponents.add(detail.componentKey);
   }
   for (const detail of response2.fingerprintDetails) {
-    allComponents.add(detail.componentName);
+    allComponents.add(detail.componentKey);
   }
 
   let totalWeight = 0;
   let matchedWeight = 0;
+  const details1ByKey = new Map(
+    response1.fingerprintDetails.map((detail) => [detail.componentKey, detail]),
+  );
+  const details2ByKey = new Map(
+    response2.fingerprintDetails.map((detail) => [detail.componentKey, detail]),
+  );
 
-  for (const componentName of allComponents) {
+  for (const componentKey of allComponents) {
+    const detail1 = details1ByKey.get(componentKey);
+    const detail2 = details2ByKey.get(componentKey);
+    const componentName =
+      detail1?.componentName ?? detail2?.componentName ?? componentKey;
     const weight = COMPONENT_WEIGHTS[componentName] ?? DEFAULT_COMPONENT_WEIGHT;
     totalWeight += weight;
-
-    const detail1 = response1.fingerprintDetails.find(
-      (d) => d.componentName === componentName,
-    );
-    const detail2 = response2.fingerprintDetails.find(
-      (d) => d.componentName === componentName,
-    );
 
     if (
       detail1 &&
