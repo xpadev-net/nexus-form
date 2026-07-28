@@ -26,6 +26,7 @@ vi.mock("@nexus-form/database/schema", () => ({
     responseId: "externalServiceValidationResult.responseId",
     ruleId: "externalServiceValidationResult.ruleId",
     metadata: "externalServiceValidationResult.metadata",
+    snapshotVersion: "externalServiceValidationResult.snapshotVersion",
     service: "externalServiceValidationResult.service",
     status: "externalServiceValidationResult.status",
     updatedAt: "externalServiceValidationResult.updatedAt",
@@ -806,6 +807,29 @@ describe("handleSheetsSync — idempotency states", () => {
       DONE_IDEMPOTENCY_TTL_SECONDS,
       "done",
     );
+  });
+
+  it("skips a stale validation refresh job when no validation outputs match its snapshotVersion", async () => {
+    setupHappyPathMocks();
+    mockGetIdempotencyKeyValue.mockResolvedValue(null);
+
+    const result = await handleSheetsSync(
+      makeJob({ refreshValidationOutputs: true, snapshotVersion: 3 }),
+    );
+
+    expect(result).toMatchObject({
+      ok: true,
+      skipped: 1,
+      reason: "stale",
+      provider: "google-sheets",
+      jobId: "job-1",
+      mode: "incremental",
+      processed: 1,
+      total: 1,
+    });
+    expect(mockReadRange).not.toHaveBeenCalled();
+    expect(mockAppendRows).not.toHaveBeenCalled();
+    expect(mockUpdateRange).not.toHaveBeenCalled();
   });
 
   it("detects duplicate rows when a formula-like response ID was neutralized in Sheets", async () => {

@@ -95,6 +95,32 @@ describe("sheets-sync-queue", () => {
     expect(mocks.db.insert).not.toHaveBeenCalled();
   });
 
+  it("changes the validation refresh job id when snapshotVersion changes", async () => {
+    const { enqueueValidationRefreshSheetsSyncJob } = await import(
+      "../sheets-sync-queue"
+    );
+
+    await enqueueValidationRefreshSheetsSyncJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      responseId: "response-1",
+      snapshotVersion: 7,
+      validationResultId: "validation-result:abcdef1234567890",
+    });
+    await enqueueValidationRefreshSheetsSyncJob({
+      formId: "form-1",
+      integrationId: "integration-1",
+      responseId: "response-1",
+      snapshotVersion: 8,
+      validationResultId: "validation-result:abcdef1234567890",
+    });
+
+    const jobIds = mocks.queue.add.mock.calls.map(
+      ([, , options]) => options?.jobId,
+    );
+    expect(jobIds[0]).not.toBe(jobIds[1]);
+  });
+
   it("persists a durable outbox row when direct enqueue fails", async () => {
     mocks.queue.add.mockRejectedValueOnce(new Error("Redis unavailable"));
     const { enqueueValidationRefreshSheetsSyncJob } = await import(

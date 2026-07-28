@@ -24,13 +24,18 @@ const SHEETS_SYNC_JOB_DEFAULTS: DefaultJobOptions = {
 
 let sheetsSyncQueue: Queue | null = null;
 
-function buildValidationRefreshKey(validationResultId: string): {
+function buildValidationRefreshKey(params: {
+  validationResultId: string;
+  snapshotVersion?: number;
+}): {
   effectType: string;
   id: string;
   jobId: string;
 } {
   const hash = createHash("sha256")
-    .update(validationResultId)
+    .update(params.validationResultId)
+    .update("\0")
+    .update(params.snapshotVersion?.toString() ?? "")
     .digest("hex")
     .slice(0, 16);
   return {
@@ -70,7 +75,10 @@ async function persistValidationRefreshOutboxRow(params: {
   snapshotVersion?: number;
   validationResultId: string;
 }): Promise<void> {
-  const refreshKey = buildValidationRefreshKey(params.validationResultId);
+  const refreshKey = buildValidationRefreshKey({
+    validationResultId: params.validationResultId,
+    snapshotVersion: params.snapshotVersion,
+  });
   const now = new Date();
   await db
     .insert(formSubmitOutbox)
@@ -128,7 +136,10 @@ export async function enqueueValidationRefreshSheetsSyncJob(params: {
   validationResultId: string;
   snapshotVersion?: number;
 }): Promise<void> {
-  const refreshKey = buildValidationRefreshKey(params.validationResultId);
+  const refreshKey = buildValidationRefreshKey({
+    validationResultId: params.validationResultId,
+    snapshotVersion: params.snapshotVersion,
+  });
   const jobData = sheetsSyncJobDataSchema.parse({
     formId: params.formId,
     integrationId: params.integrationId,

@@ -439,6 +439,10 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
       prepared.status === "ready" ? [prepared.response.id] : [],
     ),
     settings: validationOutputExportSettings,
+    snapshotVersion:
+      refreshValidationOutputs && snapshotVersion !== undefined
+        ? snapshotVersion
+        : undefined,
   });
   const total = preparedResponses.length;
   let processed = 0;
@@ -515,6 +519,7 @@ export const handleSheetsSync = async (job: Job<SheetsSyncJob>) => {
                 integrationId,
                 job,
                 refreshValidationOutputs,
+                snapshotVersion,
                 sheetName,
                 spreadsheetId,
                 target: prepared,
@@ -914,6 +919,7 @@ async function getValidationOutputsByResponseId(params: {
   formId: string;
   responseIds: string[];
   settings: ValidationOutputExportSettings;
+  snapshotVersion?: number;
 }): Promise<Map<string, ResponseExportValidationOutputValue[]>> {
   if (params.responseIds.length === 0) return new Map();
 
@@ -937,11 +943,21 @@ async function getValidationOutputsByResponseId(params: {
       eq(externalServiceValidationResult.ruleId, formValidationRule.id),
     )
     .where(
-      and(
-        eq(formResponse.formId, params.formId),
-        inArray(formResponse.id, params.responseIds),
-        eq(externalServiceValidationResult.status, "COMPLETED"),
-      ),
+      params.snapshotVersion === undefined
+        ? and(
+            eq(formResponse.formId, params.formId),
+            inArray(formResponse.id, params.responseIds),
+            eq(externalServiceValidationResult.status, "COMPLETED"),
+          )
+        : and(
+            eq(formResponse.formId, params.formId),
+            inArray(formResponse.id, params.responseIds),
+            eq(externalServiceValidationResult.status, "COMPLETED"),
+            eq(
+              externalServiceValidationResult.snapshotVersion,
+              params.snapshotVersion,
+            ),
+          ),
     )
     .orderBy(
       desc(externalServiceValidationResult.updatedAt),
@@ -992,8 +1008,19 @@ type SheetsSyncDuplicateSkipResult = {
   jobId: string | undefined;
 };
 
+type SheetsSyncStaleSkipResult = {
+  ok: true;
+  skipped: true;
+  reason: "stale";
+  provider: "google-sheets";
+  jobId: string | undefined;
+};
+
 type WritableSheetsSyncTargetResolution =
-  | { status: "skip"; result: SheetsSyncDuplicateSkipResult }
+  | {
+      status: "skip";
+      result: SheetsSyncDuplicateSkipResult | SheetsSyncStaleSkipResult;
+    }
   | { status: "writable"; sheetCheck: SheetReadResult };
 
 /**
@@ -1377,6 +1404,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
   integrationId: string;
   job: Job<SheetsSyncJob>;
   refreshValidationOutputs: boolean;
+  snapshotVersion?: number;
   sheetName: string;
   spreadsheetId: string;
   target: Extract<PreparedSheetsSyncResponse, { status: "ready" }>;
@@ -1394,6 +1422,7 @@ async function writeIncrementalSheetsSyncBatch(params: {
     integrationId,
     job,
     refreshValidationOutputs,
+    snapshotVersion,
     sheetName,
     spreadsheetId,
     target,
@@ -1406,6 +1435,19 @@ async function writeIncrementalSheetsSyncBatch(params: {
     integrationId,
     target.response.id,
   );
+  if (
+    refreshValidationOutputs &&
+    snapshotVersion !== undefined &&
+    (validationOutputsByResponseId.get(target.response.id)?.length ?? 0) === 0
+  ) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "stale",
+      provider: "google-sheets",
+      jobId: job.id,
+    } as const;
+  }
   const resolution = await resolveWritableSheetsSyncTarget({
     idempotencyKey,
     job,

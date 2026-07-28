@@ -473,6 +473,7 @@ describe("writeValidationResult", () => {
         responseId: params.responseId,
         ruleId: params.ruleId,
         referencedBlockId: params.referencedBlockId,
+        snapshotVersion,
       }),
     );
     expect(onDuplicateKeyUpdate).toHaveBeenCalledWith({
@@ -480,6 +481,7 @@ describe("writeValidationResult", () => {
         id: expectedId,
         status: "COMPLETED",
         success: true,
+        snapshotVersion,
       }),
     });
     expect(publishValidationEvent).toHaveBeenCalledWith(
