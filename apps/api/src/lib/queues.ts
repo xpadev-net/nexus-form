@@ -156,18 +156,18 @@ async function markResponseLinkAnalysisDirty(
     reason: "response-submitted" | "response-deleted" | "manual";
   },
 ): Promise<void> {
-  await getResponseLinkAnalysisDirtyClient().set(
-    getResponseLinkAnalysisDirtyKey(jobData.formId),
-    "1",
-    "EX",
-    RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
-  );
   await addJobWithCleanup(queue, {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
     jobData,
     jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
     jobName: jobData.reason,
   });
+  await getResponseLinkAnalysisDirtyClient().set(
+    getResponseLinkAnalysisDirtyKey(jobData.formId),
+    "1",
+    "EX",
+    RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
+  );
 }
 
 /**

@@ -130,13 +130,6 @@ export async function closeResponseLinkAnalysisResources(): Promise<void> {
   await Promise.all([queue?.close(), dirtyClient?.quit()]);
 }
 
-function isResponseLinkAnalysisDirtyJob(
-  formId: string,
-  jobId: string,
-): boolean {
-  return jobId.startsWith(`${buildResponseLinkAnalysisJobId(formId)}.dirty.`);
-}
-
 async function consumeResponseLinkAnalysisDirty(
   formId: string,
 ): Promise<boolean> {
@@ -285,17 +278,25 @@ function addBucketPairs(
   if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
     return { skippedBucketCount: 1, truncated: false };
   }
-  const pairCount = (ids.length * (ids.length - 1)) / 2;
-  if (candidatePairs.size + pairCount > options.maxCandidatePairs) {
-    return { skippedBucketCount: 1, truncated: true };
-  }
+  const newPairKeys: string[] = [];
   for (let i = 0; i < ids.length; i += 1) {
     for (let j = i + 1; j < ids.length; j += 1) {
       const left = ids[i];
       const right = ids[j];
       if (!left || !right) continue;
-      candidatePairs.add(pairKey(left, right));
+      const key = pairKey(left, right);
+      if (candidatePairs.has(key)) continue;
+      newPairKeys.push(key);
+      if (
+        candidatePairs.size + newPairKeys.length >
+        options.maxCandidatePairs
+      ) {
+        return { skippedBucketCount: 1, truncated: true };
+      }
     }
+  }
+  for (const key of newPairKeys) {
+    candidatePairs.add(key);
   }
   return { skippedBucketCount: 0, truncated: false };
 }
@@ -721,18 +722,16 @@ export async function analyzeResponseLinks(
  *
  * The handler serializes work per form with a database lock, purges old stale
  * runs before analysis, and lets failures propagate so BullMQ retry policy can
- * run. Dirty rescue jobs only analyze when they can consume a dirty marker at
- * start; stale dirty jobs no-op so coalesced rescue jobs do not multiply full
- * analyses after another worker has already consumed the marker. If API
- * enqueueing marks the form dirty during analysis, a fixed follow-up job is
- * scheduled after the lock is released.
+ * run. Dirty rescue jobs are themselves a durable signal that a mutation could
+ * not be represented by the stable slots; they also consume the Redis dirty
+ * marker when present. If API enqueueing marks the form dirty during analysis,
+ * a fixed follow-up job is scheduled after the lock is released.
  */
 export async function handleResponseLinkAnalysis(
   job: Job<ResponseLinkAnalysisJobData>,
 ): Promise<{ runId: string; linkCount: number; groupCount: number }> {
   const data = responseLinkAnalysisJobDataSchema.parse(job.data);
   const jobId = job.id ?? stableId("job", [data.formId]);
-  const isDirtyJob = isResponseLinkAnalysisDirtyJob(data.formId, jobId);
 
   const result = await withFormAnalysisLock(
     data.formId,
@@ -782,13 +781,7 @@ export async function handleResponseLinkAnalysis(
           .where(inArray(responseLinkAnalysisRun.id, staleRunIdChunk));
       }
 
-      const consumedDirtyMarker = await consumeResponseLinkAnalysisDirty(
-        data.formId,
-      );
-      if (isDirtyJob && !consumedDirtyMarker) {
-        throwIfAborted(signal);
-        return { runId: "", linkCount: 0, groupCount: 0 };
-      }
+      await consumeResponseLinkAnalysisDirty(data.formId);
       throwIfAborted(signal);
       return analyzeResponseLinks(data.formId, { signal });
     },

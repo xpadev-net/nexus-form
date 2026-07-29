@@ -334,6 +334,26 @@ describe("analyzeResponseLinks", () => {
     );
   });
 
+  it("does not double-count overlapping bucket pairs against the candidate cap", async () => {
+    mocks.responseRows = Array.from({ length: 5 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: "same-respondent",
+      userAgent: null,
+    }));
+
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
+
+    expect(result.linkCount).toBe(10);
+    expect(result.groupCount).toBe(1);
+    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "COMPLETED" }),
+    );
+  });
+
   it("completes a bounded degraded run when only oversized popular buckets are skipped", async () => {
     mocks.responseRows = Array.from({ length: 201 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
@@ -470,15 +490,15 @@ describe("handleResponseLinkAnalysis", () => {
     expect(mocks.redisQuit).toHaveBeenCalledTimes(1);
   });
 
-  it("skips stale dirty jobs when the marker was already consumed", async () => {
+  it("runs dirty rescue jobs even when the marker was already consumed", async () => {
     const result = await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "response-submitted" },
       id: "response-link-analysis.form-1.dirty.178528321",
     } as Job<ResponseLinkAnalysisJobData>);
 
-    expect(result).toEqual({ runId: "", linkCount: 0, groupCount: 0 });
-    expect(mocks.dbInsert).toHaveBeenCalledTimes(1);
-    expect(mocks.dbSelect).toHaveBeenCalledTimes(1);
+    expect(result.linkCount).toBe(0);
+    expect(mocks.dbInsert).toHaveBeenCalledTimes(2);
+    expect(mocks.dbSelect).toHaveBeenCalledTimes(2);
     expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
 

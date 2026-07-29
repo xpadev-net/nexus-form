@@ -433,6 +433,34 @@ describe("queues", () => {
     );
   });
 
+  it("does not leave a dirty marker when dirty rescue enqueue fails", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.add.mockRejectedValueOnce(new Error("queue unavailable"));
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up" ||
+        jobId === "response-link-analysis.form-1.overflow"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await expect(
+      enqueueResponseLinkAnalysisJob({
+        formId: "form-1",
+        reason: "response-deleted",
+      }),
+    ).rejects.toThrow("queue unavailable");
+
+    expect(mocks.redisSet).not.toHaveBeenCalled();
+  });
+
   it("quits the response-link analysis dirty client on close", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
