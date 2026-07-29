@@ -37,6 +37,10 @@ vi.mock("@nexus-form/database", () => ({
     id: "fingerprintCollectionAttempt.id",
     formId: "fingerprintCollectionAttempt.formId",
     challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
+    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
+    consumedAt: "fingerprintCollectionAttempt.consumedAt",
+    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
   },
   fingerprintCollectionDetail: {
     attemptId: "fingerprintCollectionDetail.attemptId",
@@ -58,6 +62,10 @@ vi.mock("@nexus-form/database/schema", () => ({
     id: "fingerprintCollectionAttempt.id",
     formId: "fingerprintCollectionAttempt.formId",
     challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
+    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
+    consumedAt: "fingerprintCollectionAttempt.consumedAt",
+    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
   },
   fingerprintCollectionDetail: {
     attemptId: "fingerprintCollectionDetail.attemptId",

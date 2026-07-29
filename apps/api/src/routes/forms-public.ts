@@ -35,7 +35,7 @@ import {
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
 } from "@nexus-form/shared";
-import { and, count, eq, isNull, lte, or } from "drizzle-orm";
+import { and, count, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
 import { parseStoredStructure } from "../lib/forms/parse-stored-structure";
 import { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
@@ -825,8 +825,14 @@ async function cleanupExpiredSecurityExchanges(
       and(
         isNull(fingerprintCollectionAttempt.consumedAt),
         or(
-          lte(fingerprintCollectionAttempt.challengeExpiresAt, currentTime),
-          lte(fingerprintCollectionAttempt.collectionExpiresAt, currentTime),
+          and(
+            isNull(fingerprintCollectionAttempt.finalizedAt),
+            lte(fingerprintCollectionAttempt.challengeExpiresAt, currentTime),
+          ),
+          and(
+            isNotNull(fingerprintCollectionAttempt.finalizedAt),
+            lte(fingerprintCollectionAttempt.collectionExpiresAt, currentTime),
+          ),
         ),
       ),
     );
