@@ -1,5 +1,6 @@
 import {
   addJobWithCleanup,
+  buildResponseLinkAnalysisDirtyJobId,
   buildResponseLinkAnalysisJobId,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   getResponseLinkAnalysisDirtyKey,
@@ -148,13 +149,25 @@ function getResponseLinkAnalysisDirtyClient(): Redis {
   return _responseLinkAnalysisDirtyClient;
 }
 
-async function markResponseLinkAnalysisDirty(formId: string): Promise<void> {
+async function markResponseLinkAnalysisDirty(
+  queue: Queue,
+  jobData: {
+    formId: string;
+    reason: "response-submitted" | "response-deleted" | "manual";
+  },
+): Promise<void> {
   await getResponseLinkAnalysisDirtyClient().set(
-    getResponseLinkAnalysisDirtyKey(formId),
+    getResponseLinkAnalysisDirtyKey(jobData.formId),
     "1",
     "EX",
     RESPONSE_LINK_ANALYSIS_DIRTY_TTL_SECONDS,
   );
+  await addJobWithCleanup(queue, {
+    delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+    jobData,
+    jobId: buildResponseLinkAnalysisDirtyJobId(jobData.formId),
+    jobName: jobData.reason,
+  });
 }
 
 /**
@@ -163,8 +176,9 @@ async function markResponseLinkAnalysisDirty(formId: string): Promise<void> {
  * Mutations normally coalesce into a stable primary job. If that job is already
  * active, one stable follow-up is scheduled; if primary and follow-up are both
  * active, one stable overflow is scheduled. When all three slots are already
- * active, the mutation is recorded as a dirty marker so the worker schedules a
- * fresh follow-up after the current analysis releases the form lock.
+ * active, the mutation is recorded as a dirty marker and a coalesced dirty job
+ * is scheduled for the next time bucket so a later worker remains available to
+ * consume markers written during the final active-handler return race.
  */
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
@@ -190,7 +204,7 @@ export async function enqueueResponseLinkAnalysisJob(params: {
     const overflowJob = await queue.getJob(overflowJobId);
     const overflowState = await overflowJob?.getState();
     if (isActiveJobState(overflowState)) {
-      await markResponseLinkAnalysisDirty(params.formId);
+      await markResponseLinkAnalysisDirty(queue, jobData);
       return;
     }
     jobId = overflowJobId;

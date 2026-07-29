@@ -101,6 +101,13 @@ function getResponseLinkAnalysisDirtyClient(): Redis {
   return responseLinkAnalysisDirtyClient;
 }
 
+function isResponseLinkAnalysisDirtyJob(
+  formId: string,
+  jobId: string,
+): boolean {
+  return jobId.startsWith(`${buildResponseLinkAnalysisJobId(formId)}.dirty.`);
+}
+
 async function consumeResponseLinkAnalysisDirty(
   formId: string,
 ): Promise<boolean> {
@@ -679,17 +686,22 @@ export async function analyzeResponseLinks(
  *
  * The handler serializes work per form with a database lock, purges old stale
  * runs before analysis, and lets failures propagate so BullMQ retry policy can
- * run. If API enqueueing marked the form dirty while all stable job slots were
- * already active, a fixed follow-up job is scheduled after the lock is released.
+ * run. Dirty rescue jobs only analyze when they can consume a dirty marker at
+ * start; stale dirty jobs no-op so coalesced rescue jobs do not multiply full
+ * analyses after another worker has already consumed the marker. If API
+ * enqueueing marks the form dirty during analysis, a fixed follow-up job is
+ * scheduled after the lock is released.
  */
 export async function handleResponseLinkAnalysis(
   job: Job<ResponseLinkAnalysisJobData>,
 ): Promise<{ runId: string; linkCount: number; groupCount: number }> {
   const data = responseLinkAnalysisJobDataSchema.parse(job.data);
+  const jobId = job.id ?? stableId("job", [data.formId]);
+  const isDirtyJob = isResponseLinkAnalysisDirtyJob(data.formId, jobId);
 
   const result = await withFormAnalysisLock(
     data.formId,
-    job.id ?? stableId("job", [data.formId]),
+    jobId,
     async (signal) => {
       await db
         .update(responseLinkAnalysisRun)
@@ -735,6 +747,13 @@ export async function handleResponseLinkAnalysis(
           .where(inArray(responseLinkAnalysisRun.id, staleRunIdChunk));
       }
 
+      const consumedDirtyMarker = await consumeResponseLinkAnalysisDirty(
+        data.formId,
+      );
+      if (isDirtyJob && !consumedDirtyMarker) {
+        throwIfAborted(signal);
+        return { runId: "", linkCount: 0, groupCount: 0 };
+      }
       throwIfAborted(signal);
       return analyzeResponseLinks(data.formId, { signal });
     },

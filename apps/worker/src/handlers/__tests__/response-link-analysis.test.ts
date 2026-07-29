@@ -377,7 +377,7 @@ describe("handleResponseLinkAnalysis", () => {
   });
 
   it("queues a fixed follow-up after consuming a dirty response-link marker", async () => {
-    mocks.redisDel.mockResolvedValueOnce(1);
+    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
 
     const result = await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "manual" },
@@ -385,6 +385,7 @@ describe("handleResponseLinkAnalysis", () => {
     } as Job<ResponseLinkAnalysisJobData>);
 
     expect(result.linkCount).toBe(0);
+    expect(mocks.redisDel).toHaveBeenCalledTimes(2);
     expect(mocks.redisDel).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
     );
@@ -396,6 +397,20 @@ describe("handleResponseLinkAnalysis", () => {
         jobId: "response-link-analysis.form-1.follow-up",
       },
     );
+  });
+
+  it("skips stale dirty jobs when the marker was already consumed", async () => {
+    const result = await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "response-submitted" },
+      id: "response-link-analysis.form-1.dirty.178528321",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(result).toEqual({ runId: "", linkCount: 0, groupCount: 0 });
+    expect(mocks.dbInsert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "responseLinkAnalysisRun.status" }),
+    );
+    expect(mocks.dbSelect).toHaveBeenCalledTimes(1);
+    expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
 
   it("refreshes the form lock heartbeat while analysis is running", async () => {

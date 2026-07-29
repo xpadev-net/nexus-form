@@ -89,6 +89,17 @@ export function buildResponseLinkAnalysisJobId(
   return slot === "primary" ? base : `${base}.${slot}`;
 }
 
+export function buildResponseLinkAnalysisDirtyJobId(
+  formId: string,
+  scheduledAtMs: number = Date.now(),
+): string {
+  const bucket = Math.floor(
+    (scheduledAtMs + RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS) /
+      RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+  );
+  return `${buildResponseLinkAnalysisJobId(formId)}.dirty.${bucket}`;
+}
+
 export function getResponseLinkAnalysisDirtyKey(formId: string): string {
   return `response-link-analysis:dirty:${formId}`;
 }

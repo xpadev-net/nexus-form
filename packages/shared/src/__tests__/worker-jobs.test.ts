@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildAutoSheetsSyncJobId,
   buildManualSheetsSyncJobId,
+  buildResponseLinkAnalysisDirtyJobId,
+  buildResponseLinkAnalysisJobId,
   buildValidationOutboxJobId,
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
@@ -100,6 +102,26 @@ describe("sheets sync job ids", () => {
     expect(
       buildManualSheetsSyncJobId("integration:one", "response:two"),
     ).not.toBe(manualJobId);
+  });
+});
+
+describe("response link analysis job ids", () => {
+  it("coalesces dirty jobs by the next response-link analysis delay bucket", () => {
+    expect(buildResponseLinkAnalysisJobId("form-1")).toBe(
+      "response-link-analysis.form-1",
+    );
+    expect(buildResponseLinkAnalysisJobId("form-1", "follow-up")).toBe(
+      "response-link-analysis.form-1.follow-up",
+    );
+    expect(buildResponseLinkAnalysisDirtyJobId("form-1", 5_000)).toBe(
+      "response-link-analysis.form-1.dirty.1",
+    );
+    expect(buildResponseLinkAnalysisDirtyJobId("form-1", 9_999)).toBe(
+      "response-link-analysis.form-1.dirty.1",
+    );
+    expect(buildResponseLinkAnalysisDirtyJobId("form-1", 10_000)).toBe(
+      "response-link-analysis.form-1.dirty.2",
+    );
   });
 });
 

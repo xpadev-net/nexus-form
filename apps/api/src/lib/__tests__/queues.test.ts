@@ -1,5 +1,5 @@
 import type { DefaultJobOptions } from "bullmq";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeQueues,
   enqueueResponseLinkAnalysisJob,
@@ -74,6 +74,10 @@ describe("queues", () => {
     mocks.redisDisconnect.mockClear();
     mocks.redisSet.mockClear();
     mocks.queueInstances.length = 0;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("limits retained validation jobs by default", () => {
@@ -323,7 +327,9 @@ describe("queues", () => {
     );
   });
 
-  it("marks response-link analysis dirty when every stable analysis slot is active", async () => {
+  it("marks response-link analysis dirty and schedules a coalesced dirty job when every stable analysis slot is active", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-29T00:00:05.000Z"));
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
     queue?.getJob.mockImplementation(async (jobId: string) => {
@@ -345,12 +351,19 @@ describe("queues", () => {
       reason: "response-deleted",
     });
 
-    expect(queue?.add).not.toHaveBeenCalled();
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
       "1",
       "EX",
       86_400,
+    );
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.dirty.178528321",
+      },
     );
   });
 
