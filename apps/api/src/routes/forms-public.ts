@@ -1,4 +1,10 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
 import {
   assertRequiredSecurityMigrationsApplied,
@@ -7,7 +13,6 @@ import {
 import {
   externalServiceValidationResult,
   fingerprintCollectionAttempt,
-  fingerprintCollectionDetail,
   fingerprintDetail,
   form,
   formIntegration,
@@ -93,24 +98,12 @@ export { MAX_PUBLIC_PASSWORD_LENGTH } from "../lib/forms/password-protection";
 
 // ── Schemas ──────────────────────────────────────────────────────────
 
-const MAX_FINGERPRINTS = 200;
-const MAX_FINGERPRINT_VALUE_LENGTH = 255;
 const FINGERPRINT_COLLECTOR_VERSION = "nf-web-1";
 const FINGERPRINT_EXCHANGE_VERSION = 1;
 const FINGERPRINT_CHALLENGE_TTL_MS = 3 * 60 * 1000;
 const FINGERPRINT_COLLECTION_TTL_MS = 5 * 60 * 1000;
-const MAX_FINGERPRINT_EXCHANGE_BLOB_LENGTH = 100_000;
 const TEST_FINGERPRINT_COLLECTION_TOKEN = "test-security-check-token";
-const REQUIRED_EXCHANGE_TYPES = [
-  "browser",
-  "fingerprintjs",
-  "thumbmarkjs",
-] as const;
-const MIN_EXCHANGE_COMPONENTS_BY_TYPE = {
-  browser: 4,
-  fingerprintjs: 3,
-  thumbmarkjs: 3,
-} as const;
+const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
@@ -227,7 +220,7 @@ const exchangeCloseSchema = z
     r: z.string().min(1).max(MAX_TOKEN_LENGTH),
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
-    b: z.string().min(1).max(MAX_FINGERPRINT_EXCHANGE_BLOB_LENGTH),
+    p: z.string().min(1).max(MAX_TOKEN_LENGTH),
   })
   .strict();
 
@@ -235,8 +228,6 @@ const exchangeOpenResponseSchema = z.object({
   r: z.string(),
   v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
   c: z.literal(FINGERPRINT_COLLECTOR_VERSION),
-  m: z.tuple([z.string(), z.string(), z.string()]),
-  o: z.array(z.number().int()),
   n: z.string(),
   e: z.number().int(),
 });
@@ -244,6 +235,15 @@ const exchangeOpenResponseSchema = z.object({
 const exchangeCloseResponseSchema = z.object({
   t: z.string(),
   e: z.number().int(),
+});
+
+const securityReceiptPayloadSchema = z.object({
+  a: z.string().min(1),
+  e: z.number().int(),
+  f: z.string().min(1),
+  n: z.string().min(1),
+  u: z.string().min(1),
+  v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
 });
 
 const verifyPasswordSchema = z.object({
@@ -428,90 +428,81 @@ function hashExchangeToken(token: string): string {
   return sha256Hex(`fingerprint-exchange-token:${token}`);
 }
 
-function randomShortKey(existing: Set<string>): string {
-  for (;;) {
-    const key = randomBytes(2).toString("base64url").slice(0, 3);
-    if (!existing.has(key)) {
-      existing.add(key);
-      return key;
-    }
+function hashExchangeCookie(token: string): string {
+  return sha256Hex(`security-exchange-cookie:${token}`);
+}
+
+function getSecurityExchangeSigningSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (secret) return secret;
+  if (process.env.NODE_ENV === "test") return "test-security-exchange-secret";
+  throw new Error("AUTH_SECRET is required for security exchange receipts");
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+}
+
+function signSecurityReceiptPayload(encodedPayload: string): string {
+  return createHmac("sha256", getSecurityExchangeSigningSecret())
+    .update(encodedPayload)
+    .digest("base64url");
+}
+
+function createSecurityReceiptToken(params: {
+  attemptId: string;
+  expiresAt: Date;
+  formId: string;
+  publicId: string;
+}): string {
+  const encodedPayload = base64UrlJson({
+    a: params.attemptId,
+    e: params.expiresAt.valueOf(),
+    f: params.formId,
+    n: randomToken(16),
+    u: params.publicId,
+    v: FINGERPRINT_EXCHANGE_VERSION,
+  });
+  return `${encodedPayload}.${signSecurityReceiptPayload(encodedPayload)}`;
+}
+
+function verifySecurityReceiptToken(
+  token: string,
+  currentTime: Date,
+): {
+  attemptId: string;
+  expiresAt: number;
+  formId: string;
+  publicId: string;
+} | null {
+  const [encodedPayload, signature, extra] = token.split(".");
+  if (!encodedPayload || !signature || extra !== undefined) return null;
+
+  const expectedSignature = signSecurityReceiptPayload(encodedPayload);
+  const signatureBuffer = Buffer.from(signature, "base64url");
+  const expectedSignatureBuffer = Buffer.from(expectedSignature, "base64url");
+  if (
+    signatureBuffer.length !== expectedSignatureBuffer.length ||
+    !timingSafeEqual(signatureBuffer, expectedSignatureBuffer)
+  ) {
+    return null;
   }
-}
 
-function createExchangeFieldMap(): [string, string, string] {
-  const existing = new Set<string>();
-  return [
-    randomShortKey(existing),
-    randomShortKey(existing),
-    randomShortKey(existing),
-  ];
-}
-
-function createComponentOrder(): number[] {
-  const values = [1, 2, 3];
-  for (let i = values.length - 1; i > 0; i -= 1) {
-    const j = (randomBytes(1)[0] ?? 0) % (i + 1);
-    const left = values[i] ?? 0;
-    values[i] = values[j] ?? left;
-    values[j] = left;
-  }
-  return values;
-}
-
-function xorWithDerivedStream(payload: Buffer, seed: string): Buffer {
-  const output = Buffer.alloc(payload.length);
-  let offset = 0;
-  let counter = 0;
-  while (offset < payload.length) {
-    const block = createHash("sha256")
-      .update(seed)
-      .update(":")
-      .update(String(counter))
-      .digest();
-    for (const byte of block) {
-      if (offset >= payload.length) break;
-      output[offset] = (payload[offset] ?? 0) ^ byte;
-      offset += 1;
-    }
-    counter += 1;
-  }
-  return output;
-}
-
-function decodeExchangeBlob(params: {
-  blob: string;
-  challengeToken: string;
-  exchangeNonce: string;
-  clientNonce: string;
-}): unknown {
-  let encrypted: Buffer;
   try {
-    encrypted = Buffer.from(params.blob, "base64url");
+    const parsed = securityReceiptPayloadSchema.parse(
+      JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")),
+    );
+    if (parsed.e <= currentTime.valueOf()) return null;
+    return {
+      attemptId: parsed.a,
+      expiresAt: parsed.e,
+      formId: parsed.f,
+      publicId: parsed.u,
+    };
   } catch {
-    throw new Error("Invalid exchange blob encoding");
-  }
-  const seed = [
-    params.challengeToken,
-    params.exchangeNonce,
-    params.clientNonce,
-  ].join("\0");
-  const plaintext = xorWithDerivedStream(encrypted, seed).toString("utf8");
-  try {
-    return JSON.parse(plaintext);
-  } catch {
-    throw new Error("Invalid exchange blob payload");
+    return null;
   }
 }
-
-const exchangeFieldMapSchema = z.tuple([z.string(), z.string(), z.string()]);
-const exchangeTypeByCode = new Map<
-  number,
-  "browser" | "fingerprintjs" | "thumbmarkjs"
->([
-  [1, "browser"],
-  [2, "fingerprintjs"],
-  [3, "thumbmarkjs"],
-]);
 
 class FingerprintCollectionTokenError extends Error {
   constructor() {
@@ -520,77 +511,84 @@ class FingerprintCollectionTokenError extends Error {
   }
 }
 
-function parseExchangeDetails(
-  decoded: unknown,
-  fieldMap: [string, string, string],
-): Array<{ type: string; name: string; value_hash: string }> {
-  if (!Array.isArray(decoded)) {
-    throw new Error("Exchange payload must be an array");
-  }
-  if (decoded.length > MAX_FINGERPRINTS) {
-    throw new Error("Exchange payload has too many components");
-  }
+const exchangeServerContextSchema = z.object({
+  k: z.string().length(64),
+});
 
-  const [typeKey, nameKey, hashKey] = fieldMap;
-  return decoded.map((entry) => {
-    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
-      throw new Error("Exchange component must be an object");
+function getCookieValue(request: Request, cookieName: string): string | null {
+  const cookieHeader = request.headers.get("cookie") ?? "";
+  for (const part of cookieHeader.split(";")) {
+    const [rawName, ...rawValueParts] = part.trim().split("=");
+    if (rawName === cookieName) {
+      return rawValueParts.join("=") || null;
     }
-    const record = entry as Record<string, unknown>;
-    const typeCode = record[typeKey];
-    const type =
-      typeof typeCode === "number"
-        ? exchangeTypeByCode.get(typeCode)
-        : undefined;
-    const name = record[nameKey];
-    const valueHash = record[hashKey];
-    if (!type || typeof name !== "string" || typeof valueHash !== "string") {
-      throw new Error("Exchange component has invalid fields");
-    }
-    if (
-      name.length === 0 ||
-      name.length > MAX_FINGERPRINT_VALUE_LENGTH ||
-      valueHash.length === 0 ||
-      valueHash.length > MAX_FINGERPRINT_VALUE_LENGTH
-    ) {
-      throw new Error("Exchange component exceeds field limits");
-    }
-    return { type, name, value_hash: valueHash };
-  });
+  }
+  return null;
 }
 
-function assertExchangeDetailsComplete(
-  details: Array<{ type: string; name: string; value_hash: string }>,
-  expectedUserAgentHash: string,
-): void {
-  const countsByType = new Map<string, number>();
-  const namesByType = new Map<string, Set<string>>();
-  for (const detail of details) {
-    countsByType.set(detail.type, (countsByType.get(detail.type) ?? 0) + 1);
-    const names = namesByType.get(detail.type) ?? new Set<string>();
-    names.add(detail.name);
-    namesByType.set(detail.type, names);
+function securityExchangeCookie(value: string, maxAgeSeconds: number): string {
+  return [
+    `${SECURITY_EXCHANGE_COOKIE_NAME}=${value}`,
+    "Path=/api/forms/public",
+    "HttpOnly",
+    "SameSite=Lax",
+    process.env.NODE_ENV === "production" ? "Secure" : null,
+    `Max-Age=${maxAgeSeconds}`,
+  ]
+    .filter(Boolean)
+    .join("; ");
+}
+
+function normalizeHttpOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+function getTrustedExchangeOrigins(requestUrl: string): Set<string> {
+  const origins = new Set<string>();
+  const requestOrigin = normalizeHttpOrigin(requestUrl);
+  if (requestOrigin) origins.add(requestOrigin);
+
+  for (const candidate of [
+    process.env.VITE_BASE_URL,
+    ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
+  ]) {
+    const origin = normalizeHttpOrigin(candidate?.trim());
+    if (origin) origins.add(origin);
+  }
+  return origins;
+}
+
+function assertSecurityExchangeRequestContext(request: Request): void {
+  const secFetchSite = request.headers.get("sec-fetch-site");
+  const secFetchMode = request.headers.get("sec-fetch-mode");
+  const secFetchDest = request.headers.get("sec-fetch-dest");
+  if (
+    secFetchMode !== "cors" ||
+    secFetchDest !== "empty" ||
+    !["same-origin", "same-site"].includes(secFetchSite ?? "")
+  ) {
+    throw new Error("Invalid security exchange request context");
   }
 
-  for (const type of REQUIRED_EXCHANGE_TYPES) {
-    const countForType = countsByType.get(type) ?? 0;
-    if (countForType < MIN_EXCHANGE_COMPONENTS_BY_TYPE[type]) {
-      throw new Error("Security exchange payload is incomplete");
-    }
-  }
-
-  const browserNames = namesByType.get("browser") ?? new Set<string>();
-  for (const name of ["timezone", "language", "platform", "userAgent"]) {
-    if (!browserNames.has(name)) {
-      throw new Error("Security exchange payload is incomplete");
-    }
-  }
-
-  const userAgentDetail = details.find(
-    (detail) => detail.type === "browser" && detail.name === "userAgent",
+  const origin = normalizeHttpOrigin(
+    request.headers.get("origin") ?? undefined,
   );
-  if (userAgentDetail?.value_hash !== expectedUserAgentHash) {
-    throw new Error("Security exchange payload conflicts with request context");
+  if (!origin || !getTrustedExchangeOrigins(request.url).has(origin)) {
+    throw new Error("Invalid security exchange request origin");
+  }
+
+  const referer = normalizeHttpOrigin(
+    request.headers.get("referer") ?? undefined,
+  );
+  if (referer && referer !== origin) {
+    throw new Error("Invalid security exchange request referrer");
   }
 }
 
@@ -619,7 +617,6 @@ async function consumeFingerprintCollectionOrThrow(params: {
   responseId: string;
 }): Promise<{
   attemptId: string | null;
-  details: Array<{ type: string; name: string; value_hash: string }>;
 }> {
   if (
     process.env.NODE_ENV === "test" &&
@@ -627,17 +624,14 @@ async function consumeFingerprintCollectionOrThrow(params: {
   ) {
     return {
       attemptId: null,
-      details: [
-        {
-          type: "browser",
-          name: "security-check",
-          value_hash: "test-security-check-hash",
-        },
-      ],
     };
   }
 
   const now = new Date();
+  const receipt = verifySecurityReceiptToken(params.token, now);
+  if (!receipt) {
+    throw new FingerprintCollectionTokenError();
+  }
   const [attempt] = await params.tx
     .select({
       id: fingerprintCollectionAttempt.id,
@@ -660,6 +654,8 @@ async function consumeFingerprintCollectionOrThrow(params: {
 
   if (
     !attempt ||
+    attempt.id !== receipt.attemptId ||
+    receipt.formId !== params.formId ||
     attempt.formId !== params.formId ||
     attempt.observedIpHash !== hashIPAddress(params.currentIp) ||
     attempt.userAgentHash !== hashUserAgent(params.userAgent) ||
@@ -671,25 +667,12 @@ async function consumeFingerprintCollectionOrThrow(params: {
     throw new FingerprintCollectionTokenError();
   }
 
-  const details = await params.tx
-    .select({
-      type: fingerprintCollectionDetail.fingerprintType,
-      name: fingerprintCollectionDetail.componentName,
-      value_hash: fingerprintCollectionDetail.componentValueHash,
-    })
-    .from(fingerprintCollectionDetail)
-    .where(eq(fingerprintCollectionDetail.attemptId, attempt.id));
-
-  if (details.length === 0) {
-    throw new FingerprintCollectionTokenError();
-  }
-
   await params.tx
     .update(fingerprintCollectionAttempt)
     .set({ consumedAt: now, consumedResponseId: params.responseId })
     .where(eq(fingerprintCollectionAttempt.id, attempt.id));
 
-  return { attemptId: attempt.id, details };
+  return { attemptId: attempt.id };
 }
 
 function extractBlockIdsFromPlateContent(plateContent: string): Set<string> {
@@ -991,13 +974,17 @@ export const formsPublicRouter = createHonoApp()
       }
       const userAgent = c.req.header("user-agent") ?? undefined;
       if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
-        return c.json(errorResponse("User-Agent is too long"), 400);
+        return c.json(errorResponse("Invalid request"), 400);
+      }
+      try {
+        assertSecurityExchangeRequestContext(c.req.raw);
+      } catch {
+        return c.json(errorResponse("Invalid request"), 400);
       }
 
       const challengeToken = randomToken();
+      const serverContextToken = randomToken(24);
       const exchangeNonce = randomToken(16);
-      const fieldMap = createExchangeFieldMap();
-      const componentOrder = createComponentOrder();
       const challengeExpiresAt = new Date(
         Date.now() + FINGERPRINT_CHALLENGE_TTL_MS,
       );
@@ -1013,18 +1000,23 @@ export const formsPublicRouter = createHonoApp()
         collectorVersion: FINGERPRINT_COLLECTOR_VERSION,
         exchangeVersion: FINGERPRINT_EXCHANGE_VERSION,
         exchangeNonce,
-        fieldMapJson: fieldMap,
-        componentOrderJson: componentOrder,
+        fieldMapJson: { k: hashExchangeCookie(serverContextToken) },
+        componentOrderJson: [],
         challengeExpiresAt,
       });
 
+      c.header(
+        "Set-Cookie",
+        securityExchangeCookie(
+          serverContextToken,
+          Math.ceil(FINGERPRINT_CHALLENGE_TTL_MS / 1000),
+        ),
+      );
       return c.json(
         exchangeOpenResponseSchema.parse({
           r: challengeToken,
           v: FINGERPRINT_EXCHANGE_VERSION,
           c: FINGERPRINT_COLLECTOR_VERSION,
-          m: fieldMap,
-          o: componentOrder,
           n: exchangeNonce,
           e: challengeExpiresAt.valueOf(),
         }),
@@ -1061,11 +1053,20 @@ export const formsPublicRouter = createHonoApp()
       }
       const userAgent = c.req.header("user-agent") ?? undefined;
       if (userAgent && userAgent.length > MAX_USER_AGENT_LENGTH) {
-        return c.json(errorResponse("User-Agent is too long"), 400);
+        return c.json(errorResponse("Invalid request"), 400);
       }
 
       try {
-        const collectionToken = randomToken();
+        assertSecurityExchangeRequestContext(c.req.raw);
+        if (!isFormSecurityBypassEnabled()) {
+          const captchaValid = await verifyHCaptcha(payload.p, {
+            remoteip: ipResult.ip,
+          });
+          if (!captchaValid) {
+            throw new Error("Invalid security exchange proof");
+          }
+        }
+        let collectionToken = "";
         const collectionExpiresAt = new Date(
           Date.now() + FINGERPRINT_COLLECTION_TTL_MS,
         );
@@ -1105,24 +1106,26 @@ export const formsPublicRouter = createHonoApp()
             throw new Error("Invalid security exchange challenge");
           }
 
-          const fieldMap = exchangeFieldMapSchema.parse(attempt.fieldMapJson);
-          const decoded = decodeExchangeBlob({
-            blob: payload.b,
-            challengeToken: payload.r,
-            exchangeNonce: attempt.exchangeNonce,
-            clientNonce: payload.n,
-          });
-          const details = parseExchangeDetails(decoded, fieldMap);
-          if (details.length === 0) {
-            throw new Error("Security exchange payload is empty");
+          const serverContext = exchangeServerContextSchema.parse(
+            attempt.fieldMapJson,
+          );
+          const serverContextToken = getCookieValue(
+            c.req.raw,
+            SECURITY_EXCHANGE_COOKIE_NAME,
+          );
+          if (
+            !serverContextToken ||
+            hashExchangeCookie(serverContextToken) !== serverContext.k
+          ) {
+            throw new Error("Invalid security exchange context");
           }
 
-          const uniqueDetails = new Map<string, (typeof details)[number]>();
-          for (const detail of details) {
-            uniqueDetails.set(`${detail.type}\0${detail.name}`, detail);
-          }
-          const acceptedDetails = [...uniqueDetails.values()];
-          assertExchangeDetailsComplete(acceptedDetails, attempt.userAgentHash);
+          collectionToken = createSecurityReceiptToken({
+            attemptId: attempt.id,
+            expiresAt: collectionExpiresAt,
+            formId: resolved.target.id,
+            publicId,
+          });
 
           await tx
             .update(fingerprintCollectionAttempt)
@@ -1132,18 +1135,9 @@ export const formsPublicRouter = createHonoApp()
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
-
-          await tx.insert(fingerprintCollectionDetail).values(
-            acceptedDetails.map((detail) => ({
-              id: randomUUID(),
-              attemptId: attempt.id,
-              fingerprintType: detail.type,
-              componentName: detail.name,
-              componentValueHash: detail.value_hash,
-            })),
-          );
         });
 
+        c.header("Set-Cookie", securityExchangeCookie("", 0));
         return c.json(
           exchangeCloseResponseSchema.parse({
             t: collectionToken,
@@ -1174,13 +1168,24 @@ export const formsPublicRouter = createHonoApp()
       });
       const { ip } = submitIpResult;
       const formSecurityBypassEnabled = isFormSecurityBypassEnabled();
+      const verifiedSecurityReceipt = payload.securityVerificationToken
+        ? verifySecurityReceiptToken(
+            payload.securityVerificationToken,
+            new Date(),
+          )
+        : null;
+      const securityReceiptMatchesRoute =
+        verifiedSecurityReceipt?.publicId === publicId;
 
-      // 1. Verify hCaptcha before any form-specific work.
-      const captchaValid = await verifyHCaptcha(payload.captchaToken, {
-        remoteip: ip,
-      });
-      if (!captchaValid) {
-        return c.json(errorResponse("Captcha verification failed"), 403);
+      // 1. Security exchange close verifies hCaptcha for the normal path. Keep
+      // submit-side validation for bypass and malformed legacy-style requests.
+      if (formSecurityBypassEnabled || !securityReceiptMatchesRoute) {
+        const captchaValid = await verifyHCaptcha(payload.captchaToken, {
+          remoteip: ip,
+        });
+        if (!captchaValid) {
+          return c.json(errorResponse("Captcha verification failed"), 403);
+        }
       }
 
       // 2. Look up form
@@ -1474,6 +1479,18 @@ export const formsPublicRouter = createHonoApp()
             }
           }
 
+          const collectionResult =
+            requireSecurityCheck && payload.securityVerificationToken
+              ? await consumeFingerprintCollectionOrThrow({
+                  tx,
+                  token: payload.securityVerificationToken,
+                  formId: target.id,
+                  currentIp: ip,
+                  userAgent,
+                  responseId,
+                })
+              : { attemptId: null };
+
           const { sessionId, jwt: sessionJwt } = await resolveSessionIdOrCreate(
             jwtToken,
             { ip, ua: userAgent },
@@ -1522,18 +1539,6 @@ export const formsPublicRouter = createHonoApp()
             userAgent: userAgent ?? null,
             countryCode: null,
           });
-
-          const collectionResult =
-            requireSecurityCheck && payload.securityVerificationToken
-              ? await consumeFingerprintCollectionOrThrow({
-                  tx,
-                  token: payload.securityVerificationToken,
-                  formId: target.id,
-                  currentIp: ip,
-                  userAgent,
-                  responseId,
-                })
-              : { attemptId: null, details: [] };
 
           const telemetryFingerprints = consumedTelemetryTokens.map(
             (token) => ({

@@ -22,10 +22,7 @@ import {
   FormResponseProvider,
   useFormResponse,
 } from "@/contexts/form-response-context";
-import {
-  type FingerprintType,
-  useFingerprint,
-} from "@/hooks/fingerprint/use-fingerprint";
+import { useFingerprint } from "@/hooks/fingerprint/use-fingerprint";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { client, RpcError, rpc } from "@/lib/api";
 import { getRuntimeBrandConfig } from "@/lib/brand-config";
@@ -59,28 +56,12 @@ const fetchPublicForm = (publicId: string) =>
 
 const responsesSchema = z.array(responsePayloadItemSchema);
 const formSecurityBypassToken = "form-security-dev-bypass";
-const MAX_FINGERPRINTS_FOR_SUBMIT = 200;
 const fingerprintExchangeVersion = 1;
-const fingerprintTypeCode: Record<FingerprintType, number> = {
-  browser: 1,
-  fingerprintjs: 2,
-  thumbmarkjs: 3,
-};
 
 const hasPublicSubmitTelemetryToken = (
   token: PublicSubmitTelemetryToken | undefined,
 ): token is PublicSubmitTelemetryToken =>
   Boolean(token?.v4Token || token?.v6Token);
-
-type CollectedFingerprintComponent = {
-  componentName: string;
-  componentValueHash: string;
-};
-
-type CollectedFingerprintData = {
-  fingerprintType: FingerprintType | string;
-  components: CollectedFingerprintComponent[];
-};
 
 type ResponseSummaryItem = {
   questionId: string;
@@ -103,44 +84,6 @@ function isHCaptchaBypassEnabledForDevelopment(): boolean {
   );
 }
 
-const fingerprintTypePriority = (type: string, name: string): number => {
-  if (type === "fingerprintjs" && name === "visitorId") return 300;
-  if (type === "browser") return 250;
-  if (type === "fingerprintjs") return 200;
-  if (type === "thumbmarkjs") return 100;
-  return 0;
-};
-
-function buildFingerprintPayloadForSubmit(
-  collectedFingerprints: CollectedFingerprintData[],
-): { type: FingerprintType; name: string; value_hash: string }[] {
-  const flat = collectedFingerprints.flatMap(
-    ({ fingerprintType, components }) =>
-      components.map((comp, index) => ({
-        type: fingerprintType,
-        name: comp.componentName,
-        value_hash: comp.componentValueHash,
-        priority:
-          fingerprintTypePriority(fingerprintType, comp.componentName) +
-          1_000 -
-          index,
-        sourceOrder: index,
-      })),
-  );
-
-  return flat
-    .sort((a, b) => {
-      if (a.priority !== b.priority) return b.priority - a.priority;
-      return a.sourceOrder - b.sourceOrder;
-    })
-    .slice(0, MAX_FINGERPRINTS_FOR_SUBMIT)
-    .map(({ type, name, value_hash }) => ({
-      type: type as FingerprintType,
-      name,
-      value_hash,
-    }));
-}
-
 function base64UrlEncode(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -152,73 +95,10 @@ function base64UrlEncode(bytes: Uint8Array): string {
     .replace(/=+$/, "");
 }
 
-async function xorWithDerivedStream(
-  payload: Uint8Array,
-  seed: string,
-): Promise<Uint8Array> {
-  const output = new Uint8Array(payload.length);
-  const encoder = new TextEncoder();
-  let offset = 0;
-  let counter = 0;
-  while (offset < payload.length) {
-    const block = new Uint8Array(
-      await crypto.subtle.digest(
-        "SHA-256",
-        encoder.encode(`${seed}:${counter}`),
-      ),
-    );
-    for (const byte of block) {
-      if (offset >= payload.length) break;
-      output[offset] = (payload[offset] ?? 0) ^ byte;
-      offset += 1;
-    }
-    counter += 1;
-  }
-  return output;
-}
-
 function randomClientNonce(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   return base64UrlEncode(bytes);
-}
-
-async function buildFingerprintExchangeBlob(params: {
-  challengeToken: string;
-  exchangeNonce: string;
-  clientNonce: string;
-  fieldMap: [string, string, string];
-  componentOrder: number[];
-  fingerprints: { type: FingerprintType; name: string; value_hash: string }[];
-}): Promise<string> {
-  const [typeKey, nameKey, hashKey] = params.fieldMap;
-  const orderIndex = new Map(
-    params.componentOrder.map((code, index) => [code, index]),
-  );
-  const encodedEntries = params.fingerprints
-    .map((fingerprint, index) => ({
-      sortCode: fingerprintTypeCode[fingerprint.type],
-      originalIndex: index,
-      wire: {
-        [typeKey]: fingerprintTypeCode[fingerprint.type],
-        [nameKey]: fingerprint.name,
-        [hashKey]: fingerprint.value_hash,
-      } satisfies Record<string, string | number>,
-    }))
-    .sort((a, b) => {
-      const left = orderIndex.get(a.sortCode) ?? Number.MAX_SAFE_INTEGER;
-      const right = orderIndex.get(b.sortCode) ?? Number.MAX_SAFE_INTEGER;
-      if (left !== right) return left - right;
-      return a.originalIndex - b.originalIndex;
-    })
-    .map((entry) => entry.wire);
-  const plaintext = new TextEncoder().encode(JSON.stringify(encodedEntries));
-  const seed = [
-    params.challengeToken,
-    params.exchangeNonce,
-    params.clientNonce,
-  ].join("\0");
-  return base64UrlEncode(await xorWithDerivedStream(plaintext, seed));
 }
 
 interface PublicFormPageState {
@@ -706,15 +586,10 @@ function PublicFormPageInner() {
           collectedFp = await collectFingerprints();
         }
 
-        const fingerprintsPayload =
-          requireSecurityCheck && !formSecurityBypassEnabled
-            ? buildFingerprintPayloadForSubmit(collectedFp)
-            : [];
-
         if (
           requireSecurityCheck &&
           !formSecurityBypassEnabled &&
-          fingerprintsPayload.length === 0
+          collectedFp.length === 0
         ) {
           throw new Error(
             "セキュリティ確認に失敗しました。ページを再読み込みしてください。",
@@ -728,23 +603,12 @@ function PublicFormPageInner() {
               param: { publicId },
             }),
           );
-          if (
-            exchangeOpen.v !== fingerprintExchangeVersion ||
-            exchangeOpen.m.length !== 3
-          ) {
+          if (exchangeOpen.v !== fingerprintExchangeVersion) {
             throw new Error(
               "セキュリティ確認の初期化に失敗しました。ページを再読み込みしてください。",
             );
           }
           const clientNonce = randomClientNonce();
-          const blob = await buildFingerprintExchangeBlob({
-            challengeToken: exchangeOpen.r,
-            exchangeNonce: exchangeOpen.n,
-            clientNonce,
-            fieldMap: [exchangeOpen.m[0], exchangeOpen.m[1], exchangeOpen.m[2]],
-            componentOrder: exchangeOpen.o,
-            fingerprints: fingerprintsPayload,
-          });
           const exchangeClose = await rpc(
             client.api.forms.public[":publicId"].exchange.close.$post({
               param: { publicId },
@@ -752,7 +616,7 @@ function PublicFormPageInner() {
                 r: exchangeOpen.r,
                 v: fingerprintExchangeVersion,
                 n: clientNonce,
-                b: blob,
+                p: captchaToken,
               },
             }),
           );

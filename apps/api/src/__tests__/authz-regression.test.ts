@@ -287,6 +287,17 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+function securityExchangeHeaders(cookieToken?: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Origin: "http://localhost",
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+    ...(cookieToken ? { Cookie: `nf_sc=${cookieToken}` } : {}),
+  };
+}
+
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
   const db = dbRaw as { select: ReturnType<typeof vi.fn> };
   let callIdx = 0;
@@ -1134,12 +1145,12 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         "/public/test-public-id/exchange/close",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: securityExchangeHeaders("cookie-token"),
           body: JSON.stringify({
             r: "missing-challenge",
             v: 1,
             n: "client-nonce",
-            b: "AAAA",
+            p: "test-captcha-token",
           }),
         },
       );
@@ -1167,12 +1178,12 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         "/public/test-public-id/exchange/close",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: securityExchangeHeaders(),
           body: JSON.stringify({
             r: "challenge",
             v: 1,
             n: "nonce",
-            b: "AAAA",
+            p: "test-captcha-token",
             require_fingerprint: true,
           }),
         },
@@ -1186,6 +1197,141 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       expect(responseText).not.toContain("require_fingerprint");
       expect(responseText).not.toContain("fingerprint");
       expect(dbSelect).not.toHaveBeenCalled();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects security exchange close without the server-issued context cookie",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  fieldMapJson: {
+                    k: sha256Hex("security-exchange-cookie:cookie-token"),
+                  },
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders(),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "finalizes security exchange close only with the matching server-issued context cookie",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txWhere = vi.fn(async () => undefined);
+      const txSet = vi.fn(() => ({ where: txWhere }));
+      const txUpdate = vi.fn(() => ({ set: txSet }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  fieldMapJson: {
+                    k: sha256Hex("security-exchange-cookie:cookie-token"),
+                  },
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(200);
+      await expect(res.json()).resolves.toMatchObject({
+        t: expect.any(String),
+        e: expect.any(Number),
+      });
+      expect(txUpdate).toHaveBeenCalledOnce();
+      expect(res.headers.get("Set-Cookie")).toContain("nf_sc=");
+      expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+      transactionSpy.mockRestore();
     },
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
   );
@@ -1268,12 +1414,12 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         "/public/test-public-id/exchange/close",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: securityExchangeHeaders("cookie-token"),
           body: JSON.stringify({
             r: "challenge",
             v: 1,
             n: "client-nonce",
-            b: "AAAA",
+            p: "test-captcha-token",
           }),
         },
       );
@@ -1414,7 +1560,7 @@ describe("R3-H3: hCaptcha is verified before public submit work", () => {
           ],
           captchaToken: "invalid-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          securityVerificationToken: "test-security-check-token",
+          securityVerificationToken: "fake-security-token",
         }),
       },
     );

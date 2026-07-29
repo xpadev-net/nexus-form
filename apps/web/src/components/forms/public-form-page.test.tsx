@@ -234,8 +234,6 @@ function mockPublicRpc(
         r: "challenge-token",
         v: 1,
         c: "nf-web-1",
-        m: ["a1", "b2", "c3"],
-        o: [1, 2, 3],
         n: "server-nonce",
         e: Date.now() + 60_000,
       };
@@ -588,8 +586,6 @@ describe("PublicFormPage", () => {
           r: "challenge-token",
           v: 1,
           c: "nf-web-1",
-          m: ["a1", "b2", "c3"],
-          o: [1, 2, 3],
           n: "server-nonce",
           e: Date.now() + 60_000,
         };
@@ -1109,8 +1105,6 @@ describe("PublicFormPage", () => {
           r: "challenge-token",
           v: 1,
           c: "nf-web-1",
-          m: ["a1", "b2", "c3"],
-          o: [2, 1, 3],
           n: "server-nonce",
           e: Date.now() + 60_000,
         };
@@ -1143,8 +1137,8 @@ describe("PublicFormPage", () => {
     expect(apiMocks.exchangeClosePost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
-        b: expect.any(String),
         n: expect.any(String),
+        p: "form-security-dev-bypass",
         r: "challenge-token",
         v: 1,
       }),
@@ -1161,8 +1155,9 @@ describe("PublicFormPage", () => {
     const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
     expect(submitArgs?.json).not.toHaveProperty("fingerprints");
     const closeArgs = apiMocks.exchangeClosePost.mock.calls[0]?.[0];
-    expect(closeArgs?.json.b).not.toContain("visitorId");
-    expect(closeArgs?.json.b).not.toContain("value_hash");
+    expect(closeArgs?.json).not.toHaveProperty("b");
+    expect(JSON.stringify(closeArgs?.json)).not.toContain("visitorId");
+    expect(JSON.stringify(closeArgs?.json)).not.toContain("value_hash");
 
     await act(async () => {
       root.unmount();
