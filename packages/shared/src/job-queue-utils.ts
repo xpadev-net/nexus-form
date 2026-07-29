@@ -5,6 +5,8 @@
 export interface QueueJobHandleLike {
   /** Returns the queue backend's current job state for duplicate/cleanup checks. */
   getState(): Promise<unknown>;
+  /** Updates delayed jobs to use a fresh coalescing window when supported. */
+  changeDelay?(delay: number): Promise<unknown>;
   /** Removes the job from the queue and resolves when the deletion is acknowledged. */
   remove(): Promise<unknown>;
 }
@@ -48,6 +50,12 @@ export async function addJobWithCleanup<TJobData>(
           throw error;
         }
       }
+    } else if (
+      state === "delayed" &&
+      params.delay !== undefined &&
+      existingJob.changeDelay
+    ) {
+      await existingJob.changeDelay(params.delay);
     }
   }
 

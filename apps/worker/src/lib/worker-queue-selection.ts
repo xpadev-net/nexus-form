@@ -1,8 +1,10 @@
-import { FORM_SUBMIT_NOTIFICATION_QUEUE } from "@nexus-form/shared";
+import {
+  FORM_SUBMIT_NOTIFICATION_QUEUE,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
+} from "@nexus-form/shared";
 
 export const GOOGLE_SHEETS_SYNC_QUEUE = "google-sheets-sync";
-export const RESPONSE_LINK_ANALYSIS_QUEUE = "response-link-analysis";
-export { FORM_SUBMIT_NOTIFICATION_QUEUE };
+export { FORM_SUBMIT_NOTIFICATION_QUEUE, RESPONSE_LINK_ANALYSIS_QUEUE };
 
 export type WorkerQueueSelection = {
   validationQueues: string[];

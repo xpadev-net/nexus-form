@@ -1,6 +1,7 @@
 import {
   addJobWithCleanup,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
 import { type DefaultJobOptions, Queue } from "bullmq";
@@ -40,6 +41,15 @@ const SHEETS_JOB_DEFAULTS: DefaultJobOptions = {
 const NOTIFICATION_JOB_DEFAULTS: DefaultJobOptions = {
   ...JOB_RETENTION_DEFAULTS,
   ...STANDARD_QUEUE_RETRY_JOB_OPTIONS,
+};
+
+const RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS: DefaultJobOptions = {
+  ...JOB_RETENTION_DEFAULTS,
+  attempts: 2,
+  backoff: {
+    type: "exponential",
+    delay: 60_000,
+  },
 };
 
 const RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS = 10_000;
@@ -109,12 +119,16 @@ export function getFormSubmitNotificationQueue(): Queue {
 export function getResponseLinkAnalysisQueue(): Queue {
   if (!_responseLinkAnalysisQueue) {
     const { connection } = getRedisConnection();
-    _responseLinkAnalysisQueue = new Queue("response-link-analysis", {
+    _responseLinkAnalysisQueue = new Queue(RESPONSE_LINK_ANALYSIS_QUEUE, {
       connection,
-      defaultJobOptions: NOTIFICATION_JOB_DEFAULTS,
+      defaultJobOptions: RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS,
     });
   }
   return _responseLinkAnalysisQueue;
+}
+
+function isRunningOrPendingJobState(state: unknown): boolean {
+  return state !== "completed" && state !== "failed" && state !== undefined;
 }
 
 export async function enqueueResponseLinkAnalysisJob(params: {
@@ -124,11 +138,16 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   const jobData = responseLinkAnalysisJobDataSchema.parse(params);
   const queue = getResponseLinkAnalysisQueue();
   const primaryJobId = `response-link-analysis.${params.formId}`;
+  const followUpJobId = `${primaryJobId}.follow-up`;
   const primaryJob = await queue.getJob(primaryJobId);
   const primaryState = await primaryJob?.getState();
+  const followUpJob = await queue.getJob(followUpJobId);
+  const followUpState = await followUpJob?.getState();
   const jobId =
-    primaryState === "active" || primaryState === "waiting-children"
-      ? `${primaryJobId}.follow-up`
+    isRunningOrPendingJobState(followUpState) ||
+    primaryState === "active" ||
+    primaryState === "waiting-children"
+      ? followUpJobId
       : primaryJobId;
 
   await addJobWithCleanup(queue, {

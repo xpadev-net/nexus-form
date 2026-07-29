@@ -1,9 +1,19 @@
-import {
-  RESPONSE_LINK_MODEL_VERSION,
-  validationOutputValuesSchema,
-} from "@nexus-form/shared";
+import { validationOutputValuesSchema } from "@nexus-form/shared";
 import { z } from "zod";
 import { FormResponseRowSchema } from "./form-row";
+
+export type {
+  ResponseLinkAnalysisRecalculateResponse,
+  ResponseSuspicionGroupDetailResponse,
+  ResponseSuspicionGroupListItem,
+  ResponseSuspicionGroupsResponse,
+} from "@nexus-form/shared";
+export {
+  ResponseLinkAnalysisRecalculateResponseSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupListItemSchema,
+  ResponseSuspicionGroupsResponseSchema,
+} from "@nexus-form/shared";
 
 /** GET /:id/responses のリストアイテム（responseDataJson を含まない）。 */
 export const ResponseListItemSchema = FormResponseRowSchema.omit({
@@ -266,85 +276,6 @@ export const ResponseDetailResponseSchema = z.object({
 });
 export type ResponseDetailResponse = z.infer<
   typeof ResponseDetailResponseSchema
->;
-
-const ResponseLinkStrengthSchema = z.enum([
-  "NONE",
-  "SUPPORT",
-  "STRONG",
-  "HARD",
-]);
-
-const FamilyContributionSchema = z.object({
-  family: z.string(),
-  score: z.number(),
-  reasonCodes: z.array(z.string()),
-});
-
-export const ResponseSuspicionGroupListItemSchema = z.object({
-  groupKey: z.string(),
-  technicalConfidence: ResponseLinkStrengthSchema,
-  responseCount: z.number().int(),
-  strongLinkCount: z.number().int(),
-  supportLinkCount: z.number().int(),
-  reasonCodes: z.array(z.string()),
-  topFamilies: z.array(FamilyContributionSchema),
-});
-export type ResponseSuspicionGroupListItem = z.infer<
-  typeof ResponseSuspicionGroupListItemSchema
->;
-
-export const ResponseSuspicionGroupsResponseSchema = z.object({
-  run: z
-    .object({
-      id: z.string(),
-      modelVersion: z.literal(RESPONSE_LINK_MODEL_VERSION),
-      statsVersion: z.string().nullable(),
-      populationSize: z.number().int(),
-      completedAt: z.string().nullable(),
-    })
-    .nullable(),
-  groups: z.array(ResponseSuspicionGroupListItemSchema),
-});
-export type ResponseSuspicionGroupsResponse = z.infer<
-  typeof ResponseSuspicionGroupsResponseSchema
->;
-
-export const ResponseSuspicionGroupDetailResponseSchema = z.object({
-  run: ResponseSuspicionGroupsResponseSchema.shape.run,
-  group: ResponseSuspicionGroupListItemSchema.nullable(),
-  members: z.array(
-    z.object({
-      responseId: z.string(),
-      submittedAt: z.string(),
-      respondentUuid: z.string(),
-      strongestStrength: ResponseLinkStrengthSchema,
-      strongestEvidence: z.number(),
-    }),
-  ),
-  links: z.array(
-    z.object({
-      responseIdA: z.string(),
-      responseIdB: z.string(),
-      strength: ResponseLinkStrengthSchema,
-      deviceEvidence: z.number(),
-      v4Support: z.boolean(),
-      v6Strong: z.boolean(),
-      stateSupport: z.boolean(),
-      reasonCodes: z.array(z.string()),
-      familyContributions: z.array(FamilyContributionSchema),
-    }),
-  ),
-});
-export type ResponseSuspicionGroupDetailResponse = z.infer<
-  typeof ResponseSuspicionGroupDetailResponseSchema
->;
-
-export const ResponseLinkAnalysisRecalculateResponseSchema = z.object({
-  enqueued: z.boolean(),
-});
-export type ResponseLinkAnalysisRecalculateResponse = z.infer<
-  typeof ResponseLinkAnalysisRecalculateResponseSchema
 >;
 
 /** POST /:id/responses/bulk-delete の 1 件結果。 */

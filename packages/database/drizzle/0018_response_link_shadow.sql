@@ -3,7 +3,7 @@ CREATE TABLE `ResponseLinkAnalysisRun` (
 	`formId` varchar(128) NOT NULL,
 	`modelVersion` varchar(64) NOT NULL,
 	`statsVersion` varchar(128),
-	`status` varchar(32) NOT NULL,
+	`status` enum('PROCESSING','COMPLETED','FAILED','STALE') NOT NULL,
 	`populationSize` int NOT NULL DEFAULT 0,
 	`metadataJson` json,
 	`startedAt` timestamp NOT NULL DEFAULT (now()),
@@ -20,7 +20,7 @@ CREATE TABLE `ResponsePairLink` (
 	`formId` varchar(128) NOT NULL,
 	`responseIdA` varchar(128) NOT NULL,
 	`responseIdB` varchar(128) NOT NULL,
-	`strength` varchar(16) NOT NULL,
+	`strength` enum('NONE','SUPPORT','STRONG','HARD') NOT NULL,
 	`deviceEvidence` float NOT NULL DEFAULT 0,
 	`v4Support` boolean NOT NULL DEFAULT false,
 	`v6Strong` boolean NOT NULL DEFAULT false,
@@ -36,7 +36,7 @@ CREATE TABLE `ResponseSuspicionGroup` (
 	`runId` varchar(128) NOT NULL,
 	`formId` varchar(128) NOT NULL,
 	`groupKey` varchar(512) NOT NULL,
-	`technicalConfidence` varchar(16) NOT NULL,
+	`technicalConfidence` enum('NONE','SUPPORT','STRONG','HARD') NOT NULL,
 	`responseCount` int NOT NULL DEFAULT 0,
 	`strongLinkCount` int NOT NULL DEFAULT 0,
 	`supportLinkCount` int NOT NULL DEFAULT 0,
@@ -51,7 +51,7 @@ CREATE TABLE `ResponseSuspicionGroupMember` (
 	`runId` varchar(128) NOT NULL,
 	`groupId` varchar(255) NOT NULL,
 	`responseId` varchar(128) NOT NULL,
-	`strongestStrength` varchar(16) NOT NULL,
+	`strongestStrength` enum('NONE','SUPPORT','STRONG','HARD') NOT NULL,
 	`strongestEvidence` float NOT NULL DEFAULT 0,
 	`createdAt` timestamp NOT NULL DEFAULT (now()),
 	CONSTRAINT `ResponseSuspicionGroupMember_id` PRIMARY KEY(`id`),
@@ -69,6 +69,7 @@ ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGrou
 ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `RSGM_group_fk` FOREIGN KEY (`groupId`) REFERENCES `ResponseSuspicionGroup`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGroupMember_responseId_FormResponse_id_fk` FOREIGN KEY (`responseId`) REFERENCES `FormResponse`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `RLAR_formId_status_completedAt_idx` ON `ResponseLinkAnalysisRun` (`formId`,`status`,`completedAt`);--> statement-breakpoint
+CREATE INDEX `RLAR_form_model_status_completed_idx` ON `ResponseLinkAnalysisRun` (`formId`,`modelVersion`,`status`,`completedAt`);--> statement-breakpoint
 CREATE INDEX `RLAR_formId_modelVersion_idx` ON `ResponseLinkAnalysisRun` (`formId`,`modelVersion`);--> statement-breakpoint
 CREATE INDEX `RPL_formId_runId_strength_idx` ON `ResponsePairLink` (`formId`,`runId`,`strength`);--> statement-breakpoint
 CREATE INDEX `RPL_runId_responseA_idx` ON `ResponsePairLink` (`runId`,`responseIdA`);--> statement-breakpoint

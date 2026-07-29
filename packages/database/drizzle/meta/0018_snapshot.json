@@ -2546,7 +2546,7 @@
         },
         "status": {
           "name": "status",
-          "type": "varchar(32)",
+          "type": "enum('PROCESSING','COMPLETED','FAILED','STALE')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2609,6 +2609,11 @@
         "RLAR_formId_status_completedAt_idx": {
           "name": "RLAR_formId_status_completedAt_idx",
           "columns": ["formId", "status", "completedAt"],
+          "isUnique": false
+        },
+        "RLAR_form_model_status_completed_idx": {
+          "name": "RLAR_form_model_status_completed_idx",
+          "columns": ["formId", "modelVersion", "status", "completedAt"],
           "isUnique": false
         },
         "RLAR_formId_modelVersion_idx": {
@@ -2677,7 +2682,7 @@
         },
         "strength": {
           "name": "strength",
-          "type": "varchar(16)",
+          "type": "enum('NONE','SUPPORT','STRONG','HARD')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2832,7 +2837,7 @@
         },
         "technicalConfidence": {
           "name": "technicalConfidence",
-          "type": "varchar(16)",
+          "type": "enum('NONE','SUPPORT','STRONG','HARD')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -2951,7 +2956,7 @@
         },
         "strongestStrength": {
           "name": "strongestStrength",
-          "type": "varchar(16)",
+          "type": "enum('NONE','SUPPORT','STRONG','HARD')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false

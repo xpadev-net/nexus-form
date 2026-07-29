@@ -40,6 +40,7 @@ vi.mock("@nexus-form/database", () => ({
   formResponse: {
     id: "formResponse.id",
     formId: "formResponse.formId",
+    submittedAt: "formResponse.submittedAt",
     sessionId: "formResponse.sessionId",
     respondentUuid: "formResponse.respondentUuid",
     userAgent: "formResponse.userAgent",
@@ -58,6 +59,7 @@ vi.mock("@nexus-form/database", () => ({
 
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...conditions: unknown[]) => ({ conditions, type: "and" })),
+  desc: vi.fn((column: unknown) => ({ column, type: "desc" })),
   eq: vi.fn((column: unknown, value: unknown) => ({
     column,
     type: "eq",
@@ -81,15 +83,23 @@ function setupDbMocks() {
   const dbInsertValues = vi.fn().mockResolvedValue(undefined);
   mocks.dbInsert.mockReturnValue({ values: dbInsertValues });
 
-  mocks.dbSelect.mockImplementation((selection: Record<string, unknown>) => ({
-    from: vi.fn(() => ({
-      where: vi.fn(async () =>
-        "fingerprintType" in selection
-          ? mocks.fingerprintRows
-          : mocks.responseRows,
-      ),
-    })),
-  }));
+  mocks.dbSelect.mockImplementation((selection: Record<string, unknown>) => {
+    if ("fingerprintType" in selection) {
+      const fingerprintQuery = {
+        from: vi.fn(() => fingerprintQuery),
+        where: vi.fn(async () => mocks.fingerprintRows),
+      };
+      return fingerprintQuery;
+    }
+
+    const query = {
+      from: vi.fn(() => query),
+      orderBy: vi.fn(() => query),
+      limit: vi.fn(async () => mocks.responseRows),
+      where: vi.fn(() => query),
+    };
+    return query;
+  });
 
   mocks.txInsert.mockImplementation((table: unknown) => ({
     values: vi.fn(async (values: unknown) => {
@@ -174,6 +184,32 @@ describe("analyzeResponseLinks", () => {
         }),
       }),
     ]);
+    const groupInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroup",
+    );
+    expect(groupInsert?.values).toEqual(
+      expect.objectContaining({
+        responseCount: 2,
+        strongLinkCount: 1,
+        supportLinkCount: 0,
+        technicalConfidence: "STRONG",
+      }),
+    );
+    const memberInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responseSuspicionGroupMember",
+    );
+    expect(memberInsert?.values).toEqual([
+      expect.objectContaining({
+        responseId: "response-a",
+        strongestStrength: "STRONG",
+        strongestEvidence: 0,
+      }),
+      expect.objectContaining({
+        responseId: "response-b",
+        strongestStrength: "STRONG",
+        strongestEvidence: 0,
+      }),
+    ]);
   });
 
   it("does not drop oversized hard session buckets", async () => {
@@ -191,30 +227,35 @@ describe("analyzeResponseLinks", () => {
   });
 
   it("persists partial results when the candidate cap is exceeded", async () => {
-    mocks.responseRows = Array.from({ length: 318 }, (_, index) => ({
+    mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
       respondentUuid: `respondent-${index}`,
       userAgent: null,
     }));
 
-    const result = await analyzeResponseLinks("form-1");
+    const result = await analyzeResponseLinks("form-1", {
+      maxCandidatePairs: 10,
+    });
 
-    expect(result.linkCount).toBe(50_000);
+    expect(result.linkCount).toBe(10);
     expect(result.groupCount).toBe(1);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
     expect(
       Array.isArray(pairInsert?.values) ? pairInsert.values : [],
-    ).toHaveLength(50_000);
+    ).toHaveLength(10);
     const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         metadataJson: {
-          candidatePairCount: 50_000,
-          candidatePairLimit: 50_000,
+          candidatePairCount: 10,
+          candidatePairLimit: 10,
           candidatePairsTruncated: true,
+          responsePopulationLimit: 5000,
+          responsePopulationTruncated: false,
+          skippedCandidateBucketCount: 0,
         },
         status: "COMPLETED",
       }),
@@ -224,9 +265,13 @@ describe("analyzeResponseLinks", () => {
   it("marks the run as FAILED when analysis throws", async () => {
     mocks.dbSelect.mockImplementationOnce(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(async () => {
-          throw new Error("database read failed");
-        }),
+        where: vi.fn(() => ({
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(async () => {
+              throw new Error("database read failed");
+            }),
+          })),
+        })),
       })),
     }));
 

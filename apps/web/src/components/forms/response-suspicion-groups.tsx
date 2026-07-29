@@ -1,7 +1,7 @@
 import type {
   ResponseSuspicionGroupDetailResponse,
   ResponseSuspicionGroupsResponse,
-} from "@nexus-form/api/src/types/domain/form-responses";
+} from "@nexus-form/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link2, Loader2, RefreshCw } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -28,23 +28,22 @@ function confidenceLabel(strength: string): string {
   }
 }
 
+const reasonLabels: Record<string, string> = {
+  "hard:session": "同一セッション",
+  "strong:telemetry:v6": "IPv6一致",
+  "strong:visitorId-with-device-family": "visitorId + 独立端末特徴",
+  "strong:respondentUuid-with-device": "回答者UUID + 端末特徴",
+  "strong:multiple-device-families": "複数端末特徴",
+  "support:visitorId": "visitorId一致",
+  "support:device": "端末特徴一致",
+  "support:telemetry:v4": "IPv4一致",
+  "support:userAgent": "User-Agent一致",
+  "support:respondentUuid": "回答者UUID一致",
+};
+
 function reasonLabel(reasonCode: string): string {
-  if (reasonCode === "hard:session") return "同一セッション";
-  if (reasonCode === "strong:telemetry:v6") return "IPv6一致";
-  if (reasonCode === "strong:visitorId-with-device-family") {
-    return "visitorId + 独立端末特徴";
-  }
-  if (reasonCode === "strong:respondentUuid-with-device") {
-    return "回答者UUID + 端末特徴";
-  }
-  if (reasonCode === "strong:multiple-device-families") {
-    return "複数端末特徴";
-  }
-  if (reasonCode === "support:visitorId") return "visitorId一致";
-  if (reasonCode === "support:device") return "端末特徴一致";
-  if (reasonCode === "support:telemetry:v4") return "IPv4一致";
-  if (reasonCode === "support:userAgent") return "User-Agent一致";
-  if (reasonCode === "support:respondentUuid") return "回答者UUID一致";
+  const mapped = reasonLabels[reasonCode];
+  if (mapped) return mapped;
   if (reasonCode.startsWith("match:")) return reasonCode.replace("match:", "");
   return reasonCode;
 }
@@ -114,8 +113,12 @@ export function ResponseSuspicionGroups({
           param: { id: formId },
         }),
       ),
-    onSuccess: async () => {
-      toast.success("疑義グループの再計算を開始しました");
+    onSuccess: async (result) => {
+      if (result.enqueued) {
+        toast.success("疑義グループの再計算を開始しました");
+      } else {
+        toast.info("疑義グループの再計算はすでに実行中です");
+      }
       await queryClient.invalidateQueries({
         queryKey: ["responseSuspicionGroups", formId],
       });
@@ -178,10 +181,16 @@ export function ResponseSuspicionGroups({
       ) : (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
           <div className="space-y-2">
+            {groupsQuery.data?.hasNext && (
+              <p className="rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">
+                表示は先頭100グループまでです。全件確認が必要な場合は再計算結果の保存データを参照してください。
+              </p>
+            )}
             {groups.map((group) => (
               <button
                 key={group.groupKey}
                 type="button"
+                aria-pressed={selectedGroupKey === group.groupKey}
                 onClick={() => setSelectedGroupKey(group.groupKey)}
                 className={[
                   "w-full rounded-md border p-3 text-left transition-colors",
@@ -234,6 +243,11 @@ export function ResponseSuspicionGroups({
               <div className="space-y-4">
                 <div>
                   <h3 className="text-sm font-semibold">回答</h3>
+                  {detailQuery.data?.hasNextMembers && (
+                    <p className="mt-2 rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">
+                      表示は先頭200回答までです。
+                    </p>
+                  )}
                   <div className="mt-2 space-y-2">
                     {(detailQuery.data?.members ?? []).map((member) => (
                       <div
@@ -259,6 +273,11 @@ export function ResponseSuspicionGroups({
 
                 <div>
                   <h3 className="text-sm font-semibold">リンク根拠</h3>
+                  {detailQuery.data?.hasNextLinks && (
+                    <p className="mt-2 rounded-md border bg-muted/20 p-2 text-xs text-muted-foreground">
+                      表示は先頭1000リンクまでです。
+                    </p>
+                  )}
                   <div className="mt-2 space-y-2">
                     {(detailQuery.data?.links ?? []).map((link) => (
                       <div

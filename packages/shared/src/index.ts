@@ -119,6 +119,20 @@ export {
   RESPONSE_LINK_STRENGTHS,
 } from "./forms/response-link-model-v2";
 export type {
+  ResponseLinkAnalysisRecalculateResponse,
+  ResponseSuspicionGroupDetailResponse,
+  ResponseSuspicionGroupListItem,
+  ResponseSuspicionGroupsResponse,
+} from "./forms/response-suspicion-groups";
+export {
+  FamilyContributionSchema,
+  ResponseLinkAnalysisRecalculateResponseSchema,
+  ResponseLinkStrengthSchema,
+  ResponseSuspicionGroupDetailResponseSchema,
+  ResponseSuspicionGroupListItemSchema,
+  ResponseSuspicionGroupsResponseSchema,
+} from "./forms/response-suspicion-groups";
+export type {
   ComponentMap,
   PairwiseMatchResult,
   ResponseWithFingerprints,
@@ -398,6 +412,7 @@ export {
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
+  RESPONSE_LINK_ANALYSIS_QUEUE,
   responseLinkAnalysisJobDataSchema,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,

@@ -246,6 +246,8 @@ describe("response deletion API", () => {
       selectLimitQuery([{ id: "response-1" }]),
     );
     const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
+    const { RESPONSE_LINK_MODEL_VERSION } = await import("@nexus-form/shared");
 
     const res = await router.request("/form-1/responses/response-1", {
       method: "DELETE",
@@ -288,7 +290,7 @@ describe("response deletion API", () => {
           {
             op: "eq",
             left: "responseLinkAnalysisRun.modelVersion",
-            right: "response-link-v2-rarity-shadow",
+            right: RESPONSE_LINK_MODEL_VERSION,
           },
           {
             op: "eq",
@@ -297,6 +299,37 @@ describe("response deletion API", () => {
           },
         ],
       },
+    });
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+  });
+
+  it("queues response link analysis after bulk deletion", async () => {
+    mocks.db.select.mockReturnValueOnce(
+      selectWhereQuery([{ id: "response-1" }]),
+    );
+    const router = await importRouter();
+    const { enqueueResponseLinkAnalysisJob } = await import("../lib/queues");
+
+    const res = await router.request("/form-1/responses/bulk-delete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ responseIds: ["response-1", "missing"] }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      success: false,
+      data: {
+        deleted: 1,
+        failed: 1,
+      },
+    });
+    expect(enqueueResponseLinkAnalysisJob).toHaveBeenCalledWith({
+      formId: "form-1",
+      reason: "response-deleted",
     });
   });
 

@@ -237,7 +237,9 @@ async function main() {
 
   if (selectedQueues.includeResponseLinkAnalysis) {
     workers.push(
-      createWorker(RESPONSE_LINK_ANALYSIS_QUEUE, handleResponseLinkAnalysis),
+      createWorker(RESPONSE_LINK_ANALYSIS_QUEUE, handleResponseLinkAnalysis, {
+        concurrency: 1,
+      }),
     );
   }
 

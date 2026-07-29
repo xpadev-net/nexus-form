@@ -101,7 +101,7 @@ describe("queues", () => {
     });
   });
 
-  it("coalesces response link analysis jobs by form", async () => {
+  it("uses a stable jobId per form for response link analysis jobs", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
 
@@ -129,12 +129,63 @@ describe("queues", () => {
     );
   });
 
+  it("uses response-link analysis retry defaults", () => {
+    getResponseLinkAnalysisQueue();
+
+    expect(mocks.queueInstances[0]?.options.defaultJobOptions).toMatchObject({
+      attempts: 2,
+      backoff: {
+        type: "exponential",
+        delay: 60_000,
+      },
+      removeOnComplete: 100,
+      removeOnFail: 100,
+    });
+  });
+
   it("coalesces active response link analysis changes into one follow-up job", async () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
-    queue?.getJob.mockResolvedValue({
-      getState: vi.fn(async () => "active"),
-      remove: vi.fn(async () => undefined),
+    queue?.getJob.mockImplementation(async (jobId: string) =>
+      jobId === "response-link-analysis.form-1"
+        ? {
+            getState: vi.fn(async () => "active"),
+            remove: vi.fn(async () => undefined),
+          }
+        : null,
+    );
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1.follow-up" },
+    );
+  });
+
+  it("extends an existing follow-up response link analysis job before starting another primary job", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const changeDelay = vi.fn(async () => undefined);
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          getState: vi.fn(async () => "completed"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.follow-up") {
+        return {
+          changeDelay,
+          getState: vi.fn(async () => "delayed"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
     });
 
     await enqueueResponseLinkAnalysisJob({
@@ -142,6 +193,7 @@ describe("queues", () => {
       reason: "response-deleted",
     });
 
+    expect(changeDelay).toHaveBeenCalledWith(10_000);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
       { formId: "form-1", reason: "response-deleted" },

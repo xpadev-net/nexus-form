@@ -20,13 +20,22 @@ import {
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
 import type { Job } from "bullmq";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 const CANDIDATE_BUCKET_LIMIT = 200;
-const MAX_CANDIDATE_PAIRS = 50_000;
+const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
+const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
+const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
+const INSERT_CHUNK_SIZE = 500;
 
 type CandidatePairBuildResult = {
   candidatePairs: Set<string>;
+  skippedBucketCount: number;
+  truncated: boolean;
+};
+
+type BucketPairAddResult = {
+  skippedBucketCount: number;
   truncated: boolean;
 };
 
@@ -61,32 +70,70 @@ function strengthRank(strength: ResponseLinkStrength): number {
   return ["NONE", "SUPPORT", "STRONG", "HARD"].indexOf(strength);
 }
 
+function chunks<T>(values: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    result.push(values.slice(index, index + size));
+  }
+  return result;
+}
+
 function addBucketPairs(
   candidatePairs: Set<string>,
   responseIds: Iterable<string>,
-  options: { bucketLimit?: number } = {},
-): boolean {
+  options: { bucketLimit?: number; maxCandidatePairs: number },
+): BucketPairAddResult {
   const ids = [...new Set(responseIds)].sort();
-  if (ids.length < 2) return false;
-  if (options.bucketLimit && ids.length > options.bucketLimit) return false;
+  if (ids.length < 2) return { skippedBucketCount: 0, truncated: false };
+  if (options.bucketLimit !== undefined && ids.length > options.bucketLimit) {
+    return { skippedBucketCount: 1, truncated: false };
+  }
   for (let i = 0; i < ids.length; i += 1) {
     for (let j = i + 1; j < ids.length; j += 1) {
       const left = ids[i];
       const right = ids[j];
       if (!left || !right) continue;
-      if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) {
-        return true;
+      if (candidatePairs.size >= options.maxCandidatePairs) {
+        return { skippedBucketCount: 0, truncated: true };
       }
       candidatePairs.add(pairKey(left, right));
     }
   }
-  return false;
+  return { skippedBucketCount: 0, truncated: false };
+}
+
+function pushBucketValue(
+  buckets: Map<string, string[]>,
+  key: string,
+  responseId: string,
+): void {
+  const existing = buckets.get(key);
+  if (existing) {
+    existing.push(responseId);
+    return;
+  }
+  buckets.set(key, [responseId]);
+}
+
+function pushLinkValue(
+  linksByResponseId: Map<string, ResponsePairLinkEvaluation[]>,
+  responseId: string,
+  link: ResponsePairLinkEvaluation,
+): void {
+  const existing = linksByResponseId.get(responseId);
+  if (existing) {
+    existing.push(link);
+    return;
+  }
+  linksByResponseId.set(responseId, [link]);
 }
 
 function buildCandidatePairs(
   responses: ResponseLinkAnalysisResponse[],
+  maxCandidatePairs: number,
 ): CandidatePairBuildResult {
   const candidatePairs = new Set<string>();
+  let skippedBucketCount = 0;
   let truncated = false;
   const sessionBuckets = new Map<string, string[]>();
   const respondentBuckets = new Map<string, string[]>();
@@ -97,24 +144,15 @@ function buildCandidatePairs(
   for (const response of responses) {
     const sessionId = response.sessionId?.trim();
     if (sessionId) {
-      sessionBuckets.set(sessionId, [
-        ...(sessionBuckets.get(sessionId) ?? []),
-        response.id,
-      ]);
+      pushBucketValue(sessionBuckets, sessionId, response.id);
     }
     const respondentUuid = response.respondentUuid?.trim();
     if (respondentUuid) {
-      respondentBuckets.set(respondentUuid, [
-        ...(respondentBuckets.get(respondentUuid) ?? []),
-        response.id,
-      ]);
+      pushBucketValue(respondentBuckets, respondentUuid, response.id);
     }
     const userAgent = response.userAgent?.trim();
     if (userAgent) {
-      uaBuckets.set(userAgent, [
-        ...(uaBuckets.get(userAgent) ?? []),
-        response.id,
-      ]);
+      pushBucketValue(uaBuckets, userAgent, response.id);
     }
 
     for (const detail of response.fingerprintDetails) {
@@ -140,7 +178,7 @@ function buildCandidatePairs(
       const buckets = isStrongSignal
         ? strongSignalBuckets
         : boundedSignalBuckets;
-      buckets.set(key, [...(buckets.get(key) ?? []), response.id]);
+      pushBucketValue(buckets, key, response.id);
     }
   }
 
@@ -150,27 +188,34 @@ function buildCandidatePairs(
     strongSignalBuckets,
   ]) {
     for (const responseIds of buckets.values()) {
-      truncated = addBucketPairs(candidatePairs, responseIds) || truncated;
-      if (truncated) return { candidatePairs, truncated };
+      const result = addBucketPairs(candidatePairs, responseIds, {
+        maxCandidatePairs,
+      });
+      skippedBucketCount += result.skippedBucketCount;
+      truncated = result.truncated || truncated;
+      if (truncated) return { candidatePairs, skippedBucketCount, truncated };
     }
   }
 
   for (const buckets of [boundedSignalBuckets, uaBuckets]) {
     for (const responseIds of buckets.values()) {
-      truncated =
-        addBucketPairs(candidatePairs, responseIds, {
-          bucketLimit: CANDIDATE_BUCKET_LIMIT,
-        }) || truncated;
-      if (truncated) return { candidatePairs, truncated };
+      const result = addBucketPairs(candidatePairs, responseIds, {
+        bucketLimit: CANDIDATE_BUCKET_LIMIT,
+        maxCandidatePairs,
+      });
+      skippedBucketCount += result.skippedBucketCount;
+      truncated = result.truncated || truncated;
+      if (truncated) return { candidatePairs, skippedBucketCount, truncated };
     }
   }
 
-  return { candidatePairs, truncated };
+  return { candidatePairs, skippedBucketCount, truncated };
 }
 
 async function loadResponses(
   formId: string,
-): Promise<ResponseLinkAnalysisResponse[]> {
+  maxResponses: number,
+): Promise<{ responses: ResponseLinkAnalysisResponse[]; truncated: boolean }> {
   const responseRows = await db
     .select({
       id: formResponse.id,
@@ -179,25 +224,38 @@ async function loadResponses(
       userAgent: formResponse.userAgent,
     })
     .from(formResponse)
-    .where(eq(formResponse.formId, formId));
+    .where(eq(formResponse.formId, formId))
+    .orderBy(desc(formResponse.submittedAt))
+    .limit(maxResponses + 1);
 
-  if (responseRows.length === 0) return [];
+  const truncated = responseRows.length > maxResponses;
+  const retainedRows = responseRows.slice(0, maxResponses);
 
-  const fingerprints = await db
-    .select({
-      responseId: fingerprintDetail.responseId,
-      fingerprintType: fingerprintDetail.fingerprintType,
-      componentName: fingerprintDetail.componentName,
-      componentValue: fingerprintDetail.componentValue,
-      componentValueHash: fingerprintDetail.componentValueHash,
-    })
-    .from(fingerprintDetail)
-    .where(
-      inArray(
-        fingerprintDetail.responseId,
-        responseRows.map((row) => row.id),
-      ),
-    );
+  if (retainedRows.length === 0) return { responses: [], truncated };
+
+  const fingerprints: Array<{
+    responseId: string;
+    fingerprintType: string;
+    componentName: string;
+    componentValue: string | null;
+    componentValueHash: string;
+  }> = [];
+  for (const responseIdBatch of chunks(
+    retainedRows.map((row) => row.id),
+    FINGERPRINT_RESPONSE_ID_BATCH_SIZE,
+  )) {
+    const batchRows = await db
+      .select({
+        responseId: fingerprintDetail.responseId,
+        fingerprintType: fingerprintDetail.fingerprintType,
+        componentName: fingerprintDetail.componentName,
+        componentValue: fingerprintDetail.componentValue,
+        componentValueHash: fingerprintDetail.componentValueHash,
+      })
+      .from(fingerprintDetail)
+      .where(inArray(fingerprintDetail.responseId, responseIdBatch));
+    fingerprints.push(...batchRows);
+  }
 
   const fingerprintsByResponseId = new Map<
     string,
@@ -209,13 +267,16 @@ async function loadResponses(
     fingerprintsByResponseId.set(row.responseId, current);
   }
 
-  return responseRows.map((row: ResponseRow) => ({
-    id: row.id,
-    sessionId: row.sessionId,
-    respondentUuid: row.respondentUuid,
-    userAgent: row.userAgent,
-    fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
-  }));
+  return {
+    responses: retainedRows.map((row: ResponseRow) => ({
+      id: row.id,
+      sessionId: row.sessionId,
+      respondentUuid: row.respondentUuid,
+      userAgent: row.userAgent,
+      fingerprintDetails: fingerprintsByResponseId.get(row.id) ?? [],
+    })),
+    truncated,
+  };
 }
 
 async function persistResults(params: {
@@ -238,37 +299,44 @@ async function persistResults(params: {
   } = params;
 
   await db.transaction(async (tx) => {
+    const linksByResponseId = new Map<string, ResponsePairLinkEvaluation[]>();
+    for (const link of links) {
+      pushLinkValue(linksByResponseId, link.responseIdA, link);
+      pushLinkValue(linksByResponseId, link.responseIdB, link);
+    }
+
     if (links.length > 0) {
-      await tx.insert(responsePairLink).values(
-        links.map((link) => ({
-          id: stableId("response-pair-link", [
-            runId,
-            link.responseIdA,
-            link.responseIdB,
-          ]),
+      const rows = links.map((link) => ({
+        id: stableId("response-pair-link", [
           runId,
-          formId,
-          responseIdA: link.responseIdA,
-          responseIdB: link.responseIdB,
+          link.responseIdA,
+          link.responseIdB,
+        ]),
+        runId,
+        formId,
+        responseIdA: link.responseIdA,
+        responseIdB: link.responseIdB,
+        strength: link.strength,
+        deviceEvidence: link.deviceEvidence,
+        v4Support: link.v4Support,
+        v6Strong: link.v6Strong,
+        stateSupport: link.stateSupport,
+        breakdownJson: {
+          modelVersion: link.modelVersion,
           strength: link.strength,
           deviceEvidence: link.deviceEvidence,
+          familyContributions: link.familyContributions,
           v4Support: link.v4Support,
           v6Strong: link.v6Strong,
           stateSupport: link.stateSupport,
-          breakdownJson: {
-            modelVersion: link.modelVersion,
-            strength: link.strength,
-            deviceEvidence: link.deviceEvidence,
-            familyContributions: link.familyContributions,
-            v4Support: link.v4Support,
-            v6Strong: link.v6Strong,
-            stateSupport: link.stateSupport,
-            populationSize: link.populationSize,
-            statsVersion: link.statsVersion,
-            reasonCodes: link.reasonCodes,
-          },
-        })),
-      );
+          populationSize: link.populationSize,
+          statsVersion: link.statsVersion,
+          reasonCodes: link.reasonCodes,
+        },
+      }));
+      for (const chunk of chunks(rows, INSERT_CHUNK_SIZE)) {
+        await tx.insert(responsePairLink).values(chunk);
+      }
     }
 
     for (const group of groups) {
@@ -289,10 +357,7 @@ async function persistResults(params: {
       });
 
       const memberRows = group.responseIds.map((responseId) => {
-        const memberLinks = links.filter(
-          (link) =>
-            link.responseIdA === responseId || link.responseIdB === responseId,
-        );
+        const memberLinks = linksByResponseId.get(responseId) ?? [];
         const strongest = memberLinks.reduce<ResponseLinkStrength>(
           (current, link) =>
             strengthRank(link.strength) > strengthRank(current)
@@ -300,9 +365,9 @@ async function persistResults(params: {
               : current,
           "NONE",
         );
-        const strongestEvidence = Math.max(
+        const strongestEvidence = memberLinks.reduce(
+          (current, link) => Math.max(current, link.deviceEvidence),
           0,
-          ...memberLinks.map((link) => link.deviceEvidence),
         );
         return {
           id: stableId("response-suspicion-group-member", [
@@ -317,7 +382,9 @@ async function persistResults(params: {
         };
       });
       if (memberRows.length > 0) {
-        await tx.insert(responseSuspicionGroupMember).values(memberRows);
+        for (const chunk of chunks(memberRows, INSERT_CHUNK_SIZE)) {
+          await tx.insert(responseSuspicionGroupMember).values(chunk);
+        }
       }
     }
 
@@ -335,7 +402,10 @@ async function persistResults(params: {
   });
 }
 
-export async function analyzeResponseLinks(formId: string): Promise<{
+export async function analyzeResponseLinks(
+  formId: string,
+  options: { maxCandidatePairs?: number } = {},
+): Promise<{
   runId: string;
   linkCount: number;
   groupCount: number;
@@ -350,12 +420,16 @@ export async function analyzeResponseLinks(formId: string): Promise<{
   });
 
   try {
-    const responses = await loadResponses(formId);
+    const { responses, truncated: responsePopulationTruncated } =
+      await loadResponses(formId, DEFAULT_ANALYSIS_RESPONSE_LIMIT);
     const stats = buildRarityStats(responses);
     const responsesById = new Map(
       responses.map((response) => [response.id, response]),
     );
-    const { candidatePairs, truncated } = buildCandidatePairs(responses);
+    const maxCandidatePairs =
+      options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
+    const { candidatePairs, skippedBucketCount, truncated } =
+      buildCandidatePairs(responses, maxCandidatePairs);
     const links: ResponsePairLinkEvaluation[] = [];
 
     for (const key of candidatePairs) {
@@ -376,8 +450,11 @@ export async function analyzeResponseLinks(formId: string): Promise<{
       groups,
       metadataJson: {
         candidatePairCount: candidatePairs.size,
-        candidatePairLimit: MAX_CANDIDATE_PAIRS,
+        candidatePairLimit: maxCandidatePairs,
         candidatePairsTruncated: truncated,
+        responsePopulationLimit: DEFAULT_ANALYSIS_RESPONSE_LIMIT,
+        responsePopulationTruncated,
+        skippedCandidateBucketCount: skippedBucketCount,
       },
       statsVersion: stats.statsVersion,
       populationSize: stats.populationSize,

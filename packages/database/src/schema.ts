@@ -1,5 +1,6 @@
 import {
   FORM_STATUS_VALUES,
+  RESPONSE_LINK_STRENGTHS,
   VALIDATION_STATUS_VALUES,
 } from "@nexus-form/shared";
 import { relations, sql } from "drizzle-orm";
@@ -67,6 +68,28 @@ export const dataSubjectRequestStatusEnum = mysqlEnum(
 export const validationStatusEnum = mysqlEnum(
   "validation_status",
   VALIDATION_STATUS_VALUES,
+);
+
+export const responseLinkAnalysisStatusEnum = mysqlEnum("status", [
+  "PROCESSING",
+  "COMPLETED",
+  "FAILED",
+  "STALE",
+]);
+
+export const responsePairLinkStrengthEnum = mysqlEnum(
+  "strength",
+  RESPONSE_LINK_STRENGTHS,
+);
+
+export const responseSuspicionGroupConfidenceEnum = mysqlEnum(
+  "technicalConfidence",
+  RESPONSE_LINK_STRENGTHS,
+);
+
+export const responseSuspicionGroupMemberStrengthEnum = mysqlEnum(
+  "strongestStrength",
+  RESPONSE_LINK_STRENGTHS,
 );
 
 export const validationEnqueueModeEnum = mysqlEnum("validation_enqueue_mode", [
@@ -531,7 +554,7 @@ export const responseLinkAnalysisRun = mysqlTable(
       .references(() => form.id, { onDelete: "cascade" }),
     modelVersion: varchar("modelVersion", { length: 64 }).notNull(),
     statsVersion: varchar("statsVersion", { length: 128 }),
-    status: varchar("status", { length: 32 }).notNull(),
+    status: responseLinkAnalysisStatusEnum.notNull(),
     populationSize: int("populationSize").notNull().default(0),
     metadataJson: json("metadataJson"),
     startedAt: timestamp("startedAt").defaultNow().notNull(),
@@ -546,6 +569,12 @@ export const responseLinkAnalysisRun = mysqlTable(
   (table) => [
     index("RLAR_formId_status_completedAt_idx").on(
       table.formId,
+      table.status,
+      table.completedAt,
+    ),
+    index("RLAR_form_model_status_completed_idx").on(
+      table.formId,
+      table.modelVersion,
       table.status,
       table.completedAt,
     ),
@@ -569,7 +598,7 @@ export const responsePairLink = mysqlTable(
     responseIdB: varchar("responseIdB", { length: 128 })
       .notNull()
       .references(() => formResponse.id, { onDelete: "cascade" }),
-    strength: varchar("strength", { length: 16 }).notNull(),
+    strength: responsePairLinkStrengthEnum.notNull(),
     deviceEvidence: float("deviceEvidence").notNull().default(0),
     v4Support: boolean("v4Support").default(false).notNull(),
     v6Strong: boolean("v6Strong").default(false).notNull(),
@@ -604,9 +633,7 @@ export const responseSuspicionGroup = mysqlTable(
       .notNull()
       .references(() => form.id, { onDelete: "cascade" }),
     groupKey: varchar("groupKey", { length: 512 }).notNull(),
-    technicalConfidence: varchar("technicalConfidence", {
-      length: 16,
-    }).notNull(),
+    technicalConfidence: responseSuspicionGroupConfidenceEnum.notNull(),
     responseCount: int("responseCount").notNull().default(0),
     strongLinkCount: int("strongLinkCount").notNull().default(0),
     supportLinkCount: int("supportLinkCount").notNull().default(0),
@@ -634,7 +661,7 @@ export const responseSuspicionGroupMember = mysqlTable(
     responseId: varchar("responseId", { length: 128 })
       .notNull()
       .references(() => formResponse.id, { onDelete: "cascade" }),
-    strongestStrength: varchar("strongestStrength", { length: 16 }).notNull(),
+    strongestStrength: responseSuspicionGroupMemberStrengthEnum.notNull(),
     strongestEvidence: float("strongestEvidence").notNull().default(0),
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },

@@ -6,6 +6,7 @@ export const VALIDATION_RETRY_JOB_PREFIX = "validation-retry-";
 export const VALIDATION_REVALIDATION_JOB_PREFIX = "validation-revalidation-";
 export const SHEETS_SYNC_AUTO_JOB_PREFIX = "sheets-auto.";
 export const SHEETS_SYNC_MANUAL_JOB_PREFIX = "sheets-manual.";
+export const RESPONSE_LINK_ANALYSIS_QUEUE = "response-link-analysis";
 
 /**
  * Maps validation result ids (e.g. `validation-result:<hash>`) to a BullMQ-safe segment.

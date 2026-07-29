@@ -106,6 +106,9 @@ const LIKE_ESCAPE_CHAR = "!";
 const RESPONSE_SEARCH_MIN_BATCH_SIZE = 200;
 const RESPONSE_SEARCH_CANDIDATE_SCAN_LIMIT = 5000;
 const RESPONSE_EXPORT_ROW_LIMIT = 5000;
+const RESPONSE_SUSPICION_GROUP_LIST_LIMIT = 100;
+const RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT = 200;
+const RESPONSE_SUSPICION_GROUP_LINK_LIMIT = 1000;
 const VALIDATION_REVALIDATION_ENQUEUE_CONCURRENCY = 5;
 const RESPONSE_UNIQUENESS_CALCULATION_LIMIT = RESPONSE_EXPORT_ROW_LIMIT;
 
@@ -505,6 +508,11 @@ function parseLinkSummary(value: unknown): {
   topFamilies: Array<{ family: string; score: number; reasonCodes: string[] }>;
 } {
   const parsed = linkSummarySchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response link summaryJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
   return {
     reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
     topFamilies: parsed.success ? (parsed.data.topFamilies ?? []) : [],
@@ -520,6 +528,11 @@ function parsePairBreakdown(value: unknown): {
   }>;
 } {
   const parsed = pairBreakdownSchema.safeParse(value);
+  if (!parsed.success) {
+    logWarn("Invalid response pair breakdownJson", "forms-responses", {
+      issues: parsed.error.issues,
+    });
+  }
   return {
     reasonCodes: parsed.success ? (parsed.data.reasonCodes ?? []) : [],
     familyContributions: parsed.success
@@ -528,7 +541,17 @@ function parsePairBreakdown(value: unknown): {
   };
 }
 
-async function getLatestCompletedResponseLinkRun(formId: string) {
+type LatestCompletedResponseLinkRun = {
+  id: string;
+  modelVersion: string;
+  statsVersion: string | null;
+  populationSize: number;
+  completedAt: Date | null;
+};
+
+async function getLatestCompletedResponseLinkRun(
+  formId: string,
+): Promise<LatestCompletedResponseLinkRun | null> {
   const [run] = await db
     .select({
       id: responseLinkAnalysisRun.id,
@@ -2329,6 +2352,7 @@ export const formsResponsesRouter = createHonoApp()
         ResponseSuspicionGroupsResponseSchema.parse({
           run: null,
           groups: [],
+          hasNext: false,
         }),
       );
     }
@@ -2347,7 +2371,9 @@ export const formsResponsesRouter = createHonoApp()
       .orderBy(
         desc(responseSuspicionGroup.responseCount),
         desc(responseSuspicionGroup.strongLinkCount),
-      );
+      )
+      .limit(RESPONSE_SUSPICION_GROUP_LIST_LIMIT + 1);
+    const visibleRows = rows.slice(0, RESPONSE_SUSPICION_GROUP_LIST_LIMIT);
 
     return c.json(
       ResponseSuspicionGroupsResponseSchema.parse({
@@ -2355,7 +2381,7 @@ export const formsResponsesRouter = createHonoApp()
           ...run,
           completedAt: run.completedAt?.toISOString() ?? null,
         },
-        groups: rows.map((row) => {
+        groups: visibleRows.map((row) => {
           const summary = parseLinkSummary(row.summaryJson);
           return {
             groupKey: row.groupKey,
@@ -2367,6 +2393,7 @@ export const formsResponsesRouter = createHonoApp()
             topFamilies: summary.topFamilies,
           };
         }),
+        hasNext: rows.length > RESPONSE_SUSPICION_GROUP_LIST_LIMIT,
       }),
     );
   })
@@ -2384,6 +2411,8 @@ export const formsResponsesRouter = createHonoApp()
       group: null,
       members: [],
       links: [],
+      hasNextMembers: false,
+      hasNextLinks: false,
     };
     if (!run) {
       return c.json(ResponseSuspicionGroupDetailResponseSchema.parse(empty));
@@ -2409,10 +2438,10 @@ export const formsResponsesRouter = createHonoApp()
       .limit(1);
 
     if (!groupRow) {
-      return c.json(ResponseSuspicionGroupDetailResponseSchema.parse(empty));
+      return c.json(errorResponse("Suspicion group not found"), 404);
     }
 
-    const members = await db
+    const memberRows = await db
       .select({
         responseId: responseSuspicionGroupMember.responseId,
         submittedAt: formResponse.submittedAt,
@@ -2426,11 +2455,13 @@ export const formsResponsesRouter = createHonoApp()
         eq(responseSuspicionGroupMember.responseId, formResponse.id),
       )
       .where(eq(responseSuspicionGroupMember.groupId, groupRow.id))
-      .orderBy(desc(formResponse.submittedAt));
+      .orderBy(desc(formResponse.submittedAt))
+      .limit(RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT + 1);
 
+    const members = memberRows.slice(0, RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT);
     const memberIdList = members.map((member) => member.responseId);
     const memberIds = new Set(memberIdList);
-    const linkRows =
+    const rawLinkRows =
       memberIds.size > 0
         ? await db
             .select({
@@ -2451,7 +2482,14 @@ export const formsResponsesRouter = createHonoApp()
                 inArray(responsePairLink.responseIdB, memberIdList),
               ),
             )
+            .limit(RESPONSE_SUSPICION_GROUP_LINK_LIMIT + 1)
         : [];
+    const linkRows = rawLinkRows
+      .filter(
+        (link) =>
+          memberIds.has(link.responseIdA) && memberIds.has(link.responseIdB),
+      )
+      .slice(0, RESPONSE_SUSPICION_GROUP_LINK_LIMIT);
     const summary = parseLinkSummary(groupRow.summaryJson);
 
     return c.json(
@@ -2476,37 +2514,38 @@ export const formsResponsesRouter = createHonoApp()
           strongestStrength: member.strongestStrength,
           strongestEvidence: member.strongestEvidence,
         })),
-        links: linkRows
-          .filter(
-            (link) =>
-              memberIds.has(link.responseIdA) &&
-              memberIds.has(link.responseIdB),
-          )
-          .map((link) => {
-            const breakdown = parsePairBreakdown(link.breakdownJson);
-            return {
-              responseIdA: link.responseIdA,
-              responseIdB: link.responseIdB,
-              strength: link.strength,
-              deviceEvidence: link.deviceEvidence,
-              v4Support: link.v4Support,
-              v6Strong: link.v6Strong,
-              stateSupport: link.stateSupport,
-              reasonCodes: breakdown.reasonCodes,
-              familyContributions: breakdown.familyContributions,
-            };
-          }),
+        links: linkRows.map((link) => {
+          const breakdown = parsePairBreakdown(link.breakdownJson);
+          return {
+            responseIdA: link.responseIdA,
+            responseIdB: link.responseIdB,
+            strength: link.strength,
+            deviceEvidence: link.deviceEvidence,
+            v4Support: link.v4Support,
+            v6Strong: link.v6Strong,
+            stateSupport: link.stateSupport,
+            reasonCodes: breakdown.reasonCodes,
+            familyContributions: breakdown.familyContributions,
+          };
+        }),
+        hasNextMembers:
+          memberRows.length > RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT,
+        hasNextLinks: rawLinkRows.length > RESPONSE_SUSPICION_GROUP_LINK_LIMIT,
       }),
     );
   })
-  .post("/:id/responses/link-analysis/recalculate", async (c) => {
-    const formId = c.req.param("id");
-    await enqueueResponseLinkAnalysisJob({ formId, reason: "manual" });
-    return c.json(
-      ResponseLinkAnalysisRecalculateResponseSchema.parse({ enqueued: true }),
-      202,
-    );
-  })
+  .post(
+    "/:id/responses/link-analysis/recalculate",
+    createRateLimit({ windowMs: 60_000, maxRequests: 10 }),
+    async (c) => {
+      const formId = c.req.param("id");
+      await enqueueResponseLinkAnalysisJob({ formId, reason: "manual" });
+      return c.json(
+        ResponseLinkAnalysisRecalculateResponseSchema.parse({ enqueued: true }),
+        202,
+      );
+    },
+  )
   .get("/:id/responses/:responseId", async (c) => {
     const formId = c.req.param("id");
     const responseId = c.req.param("responseId");
@@ -2672,7 +2711,7 @@ export const formsResponsesRouter = createHonoApp()
         formId,
         reason: "response-deleted",
       }).catch((error) => {
-        logError("Failed to queue response link analysis", "api", {
+        logError("Failed to queue response link analysis", "forms-responses", {
           error,
           responseId,
           formId,
@@ -2764,12 +2803,16 @@ export const formsResponsesRouter = createHonoApp()
             formId,
             reason: "response-deleted",
           }).catch((error) => {
-            logError("Failed to queue response link analysis", "api", {
-              error,
-              formId,
-              deletedCount: idsToDelete.length,
-              reason: "responses-deleted",
-            });
+            logError(
+              "Failed to queue response link analysis",
+              "forms-responses",
+              {
+                error,
+                formId,
+                deletedCount: idsToDelete.length,
+                reason: "response-deleted",
+              },
+            );
           });
         } catch {
           for (const id of idsToDelete) {
