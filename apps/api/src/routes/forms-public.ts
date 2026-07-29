@@ -13,6 +13,7 @@ import {
 import {
   externalServiceValidationResult,
   fingerprintCollectionAttempt,
+  fingerprintCollectionDetail,
   fingerprintDetail,
   form,
   formIntegration,
@@ -726,6 +727,25 @@ function digestSecurityObservations(params: {
   );
 }
 
+function buildSecurityObservationDetails(params: {
+  attemptId: string;
+  observations: ExchangeObservationTuple[];
+  plan: SecurityObservationPlanEntry[];
+}): Array<typeof fingerprintCollectionDetail.$inferInsert> {
+  const slots = new Map(params.plan.map((entry) => [entry.a, entry]));
+  return params.observations.map(([slot, valueHash]) => {
+    const entry = slots.get(slot);
+    if (!entry) throw new Error("Invalid security observation slot");
+    return {
+      id: randomUUID(),
+      attemptId: params.attemptId,
+      fingerprintType: String(entry.f),
+      componentName: entry.c,
+      componentValueHash: valueHash,
+    };
+  });
+}
+
 function getCookieValue(request: Request, cookieName: string): string | null {
   const cookieHeader = request.headers.get("cookie") ?? "";
   for (const part of cookieHeader.split(";")) {
@@ -1356,6 +1376,11 @@ export const formsPublicRouter = createHonoApp()
             plan: serverContext.s,
             userAgentHash: hashUserAgent(userAgent),
           });
+          const observationDetails = buildSecurityObservationDetails({
+            attemptId: attempt.id,
+            observations: payload.d,
+            plan: serverContext.s,
+          });
 
           collectionToken = createSecurityReceiptToken({
             attemptId: attempt.id,
@@ -1364,6 +1389,10 @@ export const formsPublicRouter = createHonoApp()
             observationDigest,
             publicId,
           });
+
+          await tx
+            .insert(fingerprintCollectionDetail)
+            .values(observationDetails);
 
           await tx
             .update(fingerprintCollectionAttempt)
