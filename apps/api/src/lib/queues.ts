@@ -180,10 +180,20 @@ async function markResponseLinkAnalysisDirty(
  * is scheduled for the next time bucket so a later worker remains available to
  * consume markers written during the final active-handler return race.
  */
+export type ResponseLinkAnalysisEnqueueOutcome =
+  | "enqueued"
+  | "coalesced"
+  | "dirty";
+
+export type ResponseLinkAnalysisEnqueueResult = {
+  enqueued: boolean;
+  status: ResponseLinkAnalysisEnqueueOutcome;
+};
+
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
   reason: "response-submitted" | "response-deleted" | "manual";
-}): Promise<void> {
+}): Promise<ResponseLinkAnalysisEnqueueResult> {
   const jobData = responseLinkAnalysisJobDataSchema.parse(params);
   const queue = getResponseLinkAnalysisQueue();
   const primaryJobId = buildResponseLinkAnalysisJobId(params.formId);
@@ -195,6 +205,7 @@ export async function enqueueResponseLinkAnalysisJob(params: {
     params.formId,
     "overflow",
   );
+  let overflowState: unknown;
   const primaryJob = await queue.getJob(primaryJobId);
   const primaryState = await primaryJob?.getState();
   const followUpJob = await queue.getJob(followUpJobId);
@@ -202,10 +213,10 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   let jobId = primaryJobId;
   if (isActiveJobState(primaryState) && isActiveJobState(followUpState)) {
     const overflowJob = await queue.getJob(overflowJobId);
-    const overflowState = await overflowJob?.getState();
+    overflowState = await overflowJob?.getState();
     if (isActiveJobState(overflowState)) {
       await markResponseLinkAnalysisDirty(queue, jobData);
-      return;
+      return { enqueued: false, status: "dirty" };
     }
     jobId = overflowJobId;
   } else if (isActiveJobState(followUpState)) {
@@ -224,20 +235,39 @@ export async function enqueueResponseLinkAnalysisJob(params: {
       jobId: targetJobId,
       jobName: params.reason,
     });
+  const stateForJobId = (targetJobId: string): unknown => {
+    if (targetJobId === primaryJobId) return primaryState;
+    if (targetJobId === followUpJobId) return followUpState;
+    return overflowState;
+  };
+  const resultForJobId = (
+    targetJobId: string,
+  ): ResponseLinkAnalysisEnqueueResult =>
+    isRunningOrPendingJobState(stateForJobId(targetJobId))
+      ? { enqueued: false, status: "coalesced" }
+      : { enqueued: true, status: "enqueued" };
 
   const result = await enqueueWithJobId(jobId);
-  if (result.outcome !== "delayed-job-state-changed") return;
+  if (result.outcome !== "delayed-job-state-changed") {
+    return resultForJobId(jobId);
+  }
+
+  if (jobId === overflowJobId) {
+    await markResponseLinkAnalysisDirty(queue, jobData);
+    return { enqueued: false, status: "dirty" };
+  }
 
   const fallbackJobId = jobId === primaryJobId ? followUpJobId : primaryJobId;
   const fallbackResult = await enqueueWithJobId(fallbackJobId);
   if (fallbackResult.outcome === "delayed-job-state-changed") {
-    await addJobWithCleanup(queue, {
-      delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
-      jobData,
-      jobId: overflowJobId,
-      jobName: params.reason,
-    });
+    const overflowResult = await enqueueWithJobId(overflowJobId);
+    if (overflowResult.outcome === "delayed-job-state-changed") {
+      await markResponseLinkAnalysisDirty(queue, jobData);
+      return { enqueued: false, status: "dirty" };
+    }
+    return { enqueued: true, status: "enqueued" };
   }
+  return resultForJobId(fallbackJobId);
 }
 
 export async function closeQueues(): Promise<void> {
@@ -254,7 +284,7 @@ export async function closeQueues(): Promise<void> {
     _sheetsSyncQueue = null;
     _formSubmitNotificationQueue = null;
     _responseLinkAnalysisQueue = null;
-    _responseLinkAnalysisDirtyClient?.disconnect();
+    await _responseLinkAnalysisDirtyClient?.quit();
     _responseLinkAnalysisDirtyClient = null;
   }
 }

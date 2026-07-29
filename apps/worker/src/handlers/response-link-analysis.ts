@@ -25,7 +25,7 @@ import {
   type ResponsePairLinkEvaluation,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
-import { type Job, Queue } from "bullmq";
+import { type DefaultJobOptions, type Job, Queue } from "bullmq";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import Redis from "ioredis";
 import { getPublisherConnectionOptions, redisConnection } from "../lib/redis";
@@ -38,6 +38,15 @@ const INSERT_CHUNK_SIZE = 500;
 const LOCK_ACQUIRE_TIMEOUT_MS = 30 * 60_000;
 const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
 const LOCK_RETRY_DELAY_MS = 30_000;
+const RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS: DefaultJobOptions = {
+  attempts: 2,
+  backoff: {
+    type: "exponential",
+    delay: 60_000,
+  },
+  removeOnComplete: 100,
+  removeOnFail: 100,
+};
 
 type CandidatePairBuildResult = {
   candidatePairs: Set<string>;
@@ -49,6 +58,15 @@ type BucketPairAddResult = {
   skippedBucketCount: number;
   truncated: boolean;
 };
+
+class CandidatePairLimitExceededError extends Error {
+  constructor(candidatePairLimit: number, skippedBucketCount: number) {
+    super(
+      `Response link analysis exceeded candidate pair limit ${candidatePairLimit} and skipped ${skippedBucketCount} candidate bucket(s)`,
+    );
+    this.name = "CandidatePairLimitExceededError";
+  }
+}
 
 type ResponseRow = {
   id: string;
@@ -89,7 +107,10 @@ function sleep(ms: number): Promise<void> {
 function getResponseLinkAnalysisQueue(): Queue<ResponseLinkAnalysisJobData> {
   responseLinkAnalysisQueue ??= new Queue<ResponseLinkAnalysisJobData>(
     RESPONSE_LINK_ANALYSIS_QUEUE,
-    { connection: redisConnection },
+    {
+      connection: redisConnection,
+      defaultJobOptions: RESPONSE_LINK_ANALYSIS_JOB_DEFAULTS,
+    },
   );
   return responseLinkAnalysisQueue;
 }
@@ -99,6 +120,14 @@ function getResponseLinkAnalysisDirtyClient(): Redis {
     getPublisherConnectionOptions(),
   );
   return responseLinkAnalysisDirtyClient;
+}
+
+export async function closeResponseLinkAnalysisResources(): Promise<void> {
+  const queue = responseLinkAnalysisQueue;
+  const dirtyClient = responseLinkAnalysisDirtyClient;
+  responseLinkAnalysisQueue = null;
+  responseLinkAnalysisDirtyClient = null;
+  await Promise.all([queue?.close(), dirtyClient?.quit()]);
 }
 
 function isResponseLinkAnalysisDirtyJob(
@@ -588,9 +617,9 @@ async function persistResults(params: {
 /**
  * Builds and persists response-link shadow results for one form.
  *
- * Candidate generation is capped by `maxCandidatePairs`. Buckets that would
- * exceed the cap are skipped as a degraded completed run and reported in
- * metadata; unexpected errors or abort signals mark the run as failed.
+ * Candidate generation is capped by `maxCandidatePairs`. Oversized popular
+ * buckets are skipped and reported in completed-run metadata; exceeding the
+ * global pair cap fails the run instead of persisting incomplete links/groups.
  */
 export async function analyzeResponseLinks(
   formId: string,
@@ -626,6 +655,12 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
+    if (truncated) {
+      throw new CandidatePairLimitExceededError(
+        maxCandidatePairs,
+        skippedBucketCount,
+      );
+    }
     const links: ResponsePairLinkEvaluation[] = [];
 
     let processedCandidatePairCount = 0;

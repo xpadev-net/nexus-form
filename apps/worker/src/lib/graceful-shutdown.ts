@@ -23,6 +23,8 @@ export interface GracefulShutdownOptions {
   closeSheetsSyncQueue: () => Promise<void>;
   /** Closes the shared Redis publisher after workers have drained. */
   closePublisher: () => Promise<void>;
+  /** Closes response-link analysis helper Queue and Redis clients. */
+  closeResponseLinkAnalysisResources: () => Promise<void>;
   /** Closes the shared Redis lock client after workers have drained. */
   closeLockClient: () => Promise<void>;
   /** Stops the plugin drift guard and closes its resources. */
@@ -90,6 +92,7 @@ export function createGracefulShutdown({
   closeMetricsQueues,
   closeSheetsSyncQueue,
   closePublisher,
+  closeResponseLinkAnalysisResources,
   closeLockClient,
   closePluginDriftGuard = async () => undefined,
   flushSentry,
@@ -150,6 +153,7 @@ export function createGracefulShutdown({
           closeMetricsQueues(),
           closeSheetsSyncQueue(),
           closePublisher(),
+          closeResponseLinkAnalysisResources(),
         ]);
         await closePluginDriftGuard();
         await closeLockClient();

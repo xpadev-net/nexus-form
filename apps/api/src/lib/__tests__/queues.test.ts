@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
     queueInstances,
     getRedisConnection: vi.fn(() => ({ connection: { id: "redis" } })),
     redisDisconnect: vi.fn(),
+    redisQuit: vi.fn(async () => "OK"),
     redisSet: vi.fn(async () => "OK"),
   };
 });
@@ -57,6 +58,7 @@ vi.mock("ioredis", () => ({
   default: vi.fn(function redisMock() {
     return {
       disconnect: mocks.redisDisconnect,
+      quit: mocks.redisQuit,
       set: mocks.redisSet,
     };
   }),
@@ -72,6 +74,7 @@ describe("queues", () => {
     mocks.Queue.mockClear();
     mocks.getRedisConnection.mockClear();
     mocks.redisDisconnect.mockClear();
+    mocks.redisQuit.mockClear();
     mocks.redisSet.mockClear();
     mocks.queueInstances.length = 0;
   });
@@ -122,15 +125,17 @@ describe("queues", () => {
     getResponseLinkAnalysisQueue();
     const queue = mocks.queueInstances[0];
 
-    await enqueueResponseLinkAnalysisJob({
+    const firstResult = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-submitted",
     });
-    await enqueueResponseLinkAnalysisJob({
+    const secondResult = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(firstResult).toEqual({ enqueued: true, status: "enqueued" });
+    expect(secondResult).toEqual({ enqueued: true, status: "enqueued" });
     expect(queue?.add).toHaveBeenCalledTimes(2);
     expect(queue?.add).toHaveBeenNthCalledWith(
       1,
@@ -172,11 +177,12 @@ describe("queues", () => {
         : null,
     );
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
     expect(queue?.add).toHaveBeenCalledTimes(1);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
@@ -206,11 +212,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: false, status: "coalesced" });
     expect(changeDelay).toHaveBeenCalledWith(10_000);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
@@ -247,11 +254,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
     expect(changeDelay).toHaveBeenCalledWith(10_000);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
@@ -282,11 +290,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
     expect(changeDelay).toHaveBeenCalledWith(10_000);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
@@ -311,11 +320,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
     expect(queue?.add).toHaveBeenCalledTimes(1);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
@@ -346,11 +356,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: false, status: "dirty" });
     expect(mocks.redisSet).toHaveBeenCalledWith(
       "response-link-analysis:dirty:form-1",
       "1",
@@ -365,6 +376,88 @@ describe("queues", () => {
         jobId: "response-link-analysis.form-1.dirty.178528321",
       },
     );
+  });
+
+  it("marks response-link analysis dirty when overflow delay refresh loses its state race", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-29T00:00:05.000Z"));
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const overflowChangeDelay = vi.fn(async () => {
+      throw new Error("Job is not in the delayed state");
+    });
+    const overflowGetState = vi
+      .fn()
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("active");
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.overflow") {
+        return {
+          changeDelay: overflowChangeDelay,
+          getState: overflowGetState,
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    const result = await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(result).toEqual({ enqueued: false, status: "dirty" });
+    expect(mocks.redisSet).toHaveBeenCalledWith(
+      "response-link-analysis:dirty:form-1",
+      "1",
+      "EX",
+      86_400,
+    );
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      {
+        delay: 10_000,
+        jobId: "response-link-analysis.form-1.dirty.178528321",
+      },
+    );
+  });
+
+  it("quits the response-link analysis dirty client on close", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (
+        jobId === "response-link-analysis.form-1" ||
+        jobId === "response-link-analysis.form-1.follow-up" ||
+        jobId === "response-link-analysis.form-1.overflow"
+      ) {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+    await closeQueues();
+
+    expect(mocks.redisQuit).toHaveBeenCalledTimes(1);
+    expect(mocks.redisDisconnect).not.toHaveBeenCalled();
   });
 
   it("queues a primary response link analysis job when the follow-up job is already active", async () => {
@@ -386,11 +479,12 @@ describe("queues", () => {
       return null;
     });
 
-    await enqueueResponseLinkAnalysisJob({
+    const result = await enqueueResponseLinkAnalysisJob({
       formId: "form-1",
       reason: "response-deleted",
     });
 
+    expect(result).toEqual({ enqueued: true, status: "enqueued" });
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
       { formId: "form-1", reason: "response-deleted" },

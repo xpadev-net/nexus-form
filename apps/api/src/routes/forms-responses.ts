@@ -602,9 +602,10 @@ async function getLatestCompletedResponseLinkRun(
     .limit(1);
 
   if (!run) return null;
+  const { metadataJson, ...publicRun } = run;
   return {
-    ...run,
-    ...parseResponseLinkRunMetadata(run.metadataJson),
+    ...publicRun,
+    ...parseResponseLinkRunMetadata(metadataJson),
   };
 }
 
@@ -2494,9 +2495,8 @@ export const formsResponsesRouter = createHonoApp()
 
     const members = memberRows.slice(0, RESPONSE_SUSPICION_GROUP_MEMBER_LIMIT);
     const memberIdList = members.map((member) => member.responseId);
-    const memberIds = new Set(memberIdList);
     const rawLinkRows =
-      memberIds.size > 0
+      memberIdList.length > 0
         ? await db
             .select({
               responseIdA: responsePairLink.responseIdA,
@@ -2518,12 +2518,7 @@ export const formsResponsesRouter = createHonoApp()
             )
             .limit(RESPONSE_SUSPICION_GROUP_LINK_LIMIT + 1)
         : [];
-    const linkRows = rawLinkRows
-      .filter(
-        (link) =>
-          memberIds.has(link.responseIdA) && memberIds.has(link.responseIdB),
-      )
-      .slice(0, RESPONSE_SUSPICION_GROUP_LINK_LIMIT);
+    const linkRows = rawLinkRows.slice(0, RESPONSE_SUSPICION_GROUP_LINK_LIMIT);
     const summary = parseLinkSummary(groupRow.summaryJson);
 
     return c.json(
@@ -2573,9 +2568,12 @@ export const formsResponsesRouter = createHonoApp()
     createRateLimit({ windowMs: 60_000, maxRequests: 10 }),
     async (c) => {
       const formId = c.req.param("id");
-      await enqueueResponseLinkAnalysisJob({ formId, reason: "manual" });
+      const result = await enqueueResponseLinkAnalysisJob({
+        formId,
+        reason: "manual",
+      });
       return c.json(
-        ResponseLinkAnalysisRecalculateResponseSchema.parse({ enqueued: true }),
+        ResponseLinkAnalysisRecalculateResponseSchema.parse(result),
         202,
       );
     },

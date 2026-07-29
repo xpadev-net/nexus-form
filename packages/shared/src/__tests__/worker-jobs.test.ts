@@ -8,6 +8,7 @@ import {
   buildValidationRetryJobId,
   buildValidationRevalidationJobId,
   genericValidationJobDataSchema,
+  getResponseLinkAnalysisDirtyKey,
   SHEETS_SYNC_AUTO_JOB_PREFIX,
   SHEETS_SYNC_MANUAL_JOB_PREFIX,
   sanitizeValidationResultIdForRetryJob,
@@ -113,6 +114,9 @@ describe("response link analysis job ids", () => {
     expect(buildResponseLinkAnalysisJobId("form-1", "follow-up")).toBe(
       "response-link-analysis.form-1.follow-up",
     );
+    expect(buildResponseLinkAnalysisJobId("form-1", "overflow")).toBe(
+      "response-link-analysis.form-1.overflow",
+    );
     expect(buildResponseLinkAnalysisDirtyJobId("form-1", 5_000)).toBe(
       "response-link-analysis.form-1.dirty.1",
     );
@@ -121,6 +125,9 @@ describe("response link analysis job ids", () => {
     );
     expect(buildResponseLinkAnalysisDirtyJobId("form-1", 10_000)).toBe(
       "response-link-analysis.form-1.dirty.2",
+    );
+    expect(getResponseLinkAnalysisDirtyKey("form-1")).toBe(
+      "response-link-analysis:dirty:form-1",
     );
   });
 });

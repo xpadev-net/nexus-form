@@ -14,7 +14,10 @@ import Redis from "ioredis";
 import { z } from "zod";
 import { handleFormSubmitNotifications } from "./handlers/form-submit-notifications";
 import { handleGenericValidation } from "./handlers/generic-validation";
-import { handleResponseLinkAnalysis } from "./handlers/response-link-analysis";
+import {
+  closeResponseLinkAnalysisResources,
+  handleResponseLinkAnalysis,
+} from "./handlers/response-link-analysis";
 import {
   AUTH_REQUIRED_SYNC_ERROR_PREFIX,
   handleSheetsSync,
@@ -353,6 +356,7 @@ async function main() {
     closeMetricsQueues,
     closeSheetsSyncQueue,
     closePublisher,
+    closeResponseLinkAnalysisResources,
     closePluginDriftGuard,
     closeLockClient,
     flushSentry,

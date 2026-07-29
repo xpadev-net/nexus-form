@@ -179,10 +179,13 @@ export function ResponseSuspicionGroups({
         </Button>
       </div>
       {run?.candidatePairLimitExceeded && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div
+          className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+          role="status"
+        >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
-            候補数が上限に達したため、一部の候補バケットを除外した縮退結果です。除外バケット数:{" "}
+            衝突数が大きい候補バケットを除外した結果です。除外バケット数:{" "}
             {run.skippedCandidateBucketCount}
           </p>
         </div>

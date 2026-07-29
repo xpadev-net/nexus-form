@@ -49,7 +49,8 @@ export type ResponseSuspicionGroupListItem = z.infer<
  * Paginated list response for the latest completed response-link shadow run.
  * groups contains at most the API page size, and hasNext indicates that more
  * groups exist in persisted analysis data. candidatePairLimitExceeded means
- * the run completed in degraded mode after skipping candidate buckets.
+ * high-collision candidate buckets were skipped to keep the completed shadow
+ * result bounded.
  */
 export const ResponseSuspicionGroupsResponseSchema = z.object({
   run: z
@@ -113,6 +114,7 @@ export type ResponseSuspicionGroupDetailResponse = z.infer<
  */
 export const ResponseLinkAnalysisRecalculateResponseSchema = z.object({
   enqueued: z.boolean(),
+  status: z.enum(["enqueued", "coalesced", "dirty"]),
 });
 export type ResponseLinkAnalysisRecalculateResponse = z.infer<
   typeof ResponseLinkAnalysisRecalculateResponseSchema

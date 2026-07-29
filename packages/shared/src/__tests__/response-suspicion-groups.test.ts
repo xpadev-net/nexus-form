@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RESPONSE_LINK_MODEL_VERSION } from "../forms/response-link-model-v2";
 import {
+  ResponseLinkAnalysisRecalculateResponseSchema,
   ResponseSuspicionGroupDetailResponseSchema,
   ResponseSuspicionGroupsResponseSchema,
 } from "../forms/response-suspicion-groups";
@@ -43,5 +44,14 @@ describe("response-suspicion-groups contract", () => {
       candidatePairLimitExceeded: true,
       skippedCandidateBucketCount: 2,
     });
+  });
+
+  it("exposes response-link recalculation enqueue status", () => {
+    expect(
+      ResponseLinkAnalysisRecalculateResponseSchema.parse({
+        enqueued: false,
+        status: "dirty",
+      }),
+    ).toEqual({ enqueued: false, status: "dirty" });
   });
 });

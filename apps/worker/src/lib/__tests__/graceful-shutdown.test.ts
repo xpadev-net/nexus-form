@@ -70,6 +70,9 @@ describe("createGracefulShutdown", () => {
     const closeMetricsQueues = vi.fn().mockResolvedValue(undefined);
     const closeSheetsSyncQueue = vi.fn().mockResolvedValue(undefined);
     const closePublisher = vi.fn().mockResolvedValue(undefined);
+    const closeResponseLinkAnalysisResources = vi
+      .fn()
+      .mockResolvedValue(undefined);
     const closeLockClient = vi.fn().mockResolvedValue(undefined);
     const closePluginDriftGuard = vi.fn().mockResolvedValue(undefined);
     const flushSentry = vi.fn().mockResolvedValue(undefined);
@@ -83,6 +86,7 @@ describe("createGracefulShutdown", () => {
       closeMetricsQueues,
       closeSheetsSyncQueue,
       closePublisher,
+      closeResponseLinkAnalysisResources,
       closeLockClient,
       closePluginDriftGuard,
       flushSentry,
@@ -97,6 +101,7 @@ describe("createGracefulShutdown", () => {
     expect(closeMetricsQueues).toHaveBeenCalledTimes(1);
     expect(closeSheetsSyncQueue).toHaveBeenCalledTimes(1);
     expect(closePublisher).toHaveBeenCalledTimes(1);
+    expect(closeResponseLinkAnalysisResources).toHaveBeenCalledTimes(1);
     expect(closePluginDriftGuard).toHaveBeenCalledTimes(1);
     expect(closeLockClient).toHaveBeenCalledTimes(1);
     expect(flushSentry).toHaveBeenCalledTimes(1);
@@ -113,6 +118,7 @@ describe("createGracefulShutdown", () => {
       closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
       closeSheetsSyncQueue: vi.fn().mockResolvedValue(undefined),
       closePublisher: vi.fn().mockResolvedValue(undefined),
+      closeResponseLinkAnalysisResources: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),
       captureError,
@@ -141,6 +147,7 @@ describe("createGracefulShutdown", () => {
       closeMetricsQueues: vi.fn().mockResolvedValue(undefined),
       closeSheetsSyncQueue: vi.fn().mockResolvedValue(undefined),
       closePublisher: vi.fn().mockResolvedValue(undefined),
+      closeResponseLinkAnalysisResources: vi.fn().mockResolvedValue(undefined),
       closeLockClient: vi.fn().mockResolvedValue(undefined),
       flushSentry: vi.fn().mockResolvedValue(undefined),
       captureError,

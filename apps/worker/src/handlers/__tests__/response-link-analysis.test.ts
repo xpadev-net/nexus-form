@@ -13,9 +13,12 @@ const mocks = vi.hoisted(() => ({
   txInsert: vi.fn(),
   txUpdate: vi.fn(),
   txInsertedRows: [] as Array<{ table: unknown; values: unknown }>,
+  queueClose: vi.fn(async () => undefined),
   queueAdd: vi.fn(async () => undefined),
   queueGetJob: vi.fn(async () => null),
   redisDel: vi.fn(async () => 0),
+  redisQuit: vi.fn(async () => "OK"),
+  queueOptions: [] as unknown[],
   staleRunRows: [] as Array<{ id: string }>,
   responseRows: [] as Array<{
     id: string;
@@ -33,10 +36,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("bullmq", () => ({
-  Queue: vi.fn(function queueMock() {
+  Queue: vi.fn(function queueMock(_name: string, options?: unknown) {
+    mocks.queueOptions.push(options);
     return {
       add: mocks.queueAdd,
+      close: mocks.queueClose,
       getJob: mocks.queueGetJob,
+      options,
     };
   }),
 }));
@@ -45,6 +51,7 @@ vi.mock("ioredis", () => ({
   default: vi.fn(function redisMock() {
     return {
       del: mocks.redisDel,
+      quit: mocks.redisQuit,
     };
   }),
 }));
@@ -116,6 +123,7 @@ vi.mock("drizzle-orm", () => ({
 
 import {
   analyzeResponseLinks,
+  closeResponseLinkAnalysisResources,
   handleResponseLinkAnalysis,
 } from "../response-link-analysis";
 
@@ -194,13 +202,17 @@ beforeEach(() => {
   mocks.dbUpdatedTables = [];
   mocks.txInsertedRows = [];
   mocks.queueAdd.mockClear();
+  mocks.queueClose.mockClear();
   mocks.queueGetJob.mockClear();
+  mocks.queueOptions = [];
+  mocks.redisQuit.mockClear();
   mocks.redisDel.mockReset();
   mocks.redisDel.mockResolvedValue(0);
   setupDbMocks();
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await closeResponseLinkAnalysisResources();
   vi.useRealTimers();
 });
 
@@ -297,12 +309,37 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("completes a degraded run when the candidate cap is exceeded", async () => {
+  it("fails the run instead of persisting incomplete results when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
       respondentUuid: `respondent-${index}`,
       userAgent: null,
+    }));
+
+    await expect(
+      analyzeResponseLinks("form-1", {
+        maxCandidatePairs: 10,
+      }),
+    ).rejects.toThrow("exceeded candidate pair limit");
+
+    const pairInsert = mocks.txInsertedRows.find(
+      (entry) => entry.table === "responsePairLink",
+    );
+    expect(pairInsert).toBeUndefined();
+    expect(mocks.dbTransaction).not.toHaveBeenCalled();
+    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "FAILED" }),
+    );
+  });
+
+  it("completes a bounded degraded run when only oversized popular buckets are skipped", async () => {
+    mocks.responseRows = Array.from({ length: 201 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: null,
+      respondentUuid: `respondent-${index}`,
+      userAgent: "same-user-agent",
     }));
 
     const result = await analyzeResponseLinks("form-1", {
@@ -319,7 +356,7 @@ describe("analyzeResponseLinks", () => {
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
         metadataJson: expect.objectContaining({
-          candidatePairLimitExceeded: true,
+          candidatePairLimitExceeded: false,
           skippedCandidateBucketCount: 1,
         }),
         status: "COMPLETED",
@@ -399,6 +436,40 @@ describe("handleResponseLinkAnalysis", () => {
     );
   });
 
+  it("uses response-link retry defaults for dirty follow-up queueing", async () => {
+    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(mocks.queueOptions[0]).toMatchObject({
+      defaultJobOptions: {
+        attempts: 2,
+        backoff: {
+          type: "exponential",
+          delay: 60_000,
+        },
+        removeOnComplete: 100,
+        removeOnFail: 100,
+      },
+    });
+  });
+
+  it("closes response-link helper queue and Redis resources", async () => {
+    mocks.redisDel.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+    await closeResponseLinkAnalysisResources();
+
+    expect(mocks.queueClose).toHaveBeenCalledTimes(1);
+    expect(mocks.redisQuit).toHaveBeenCalledTimes(1);
+  });
+
   it("skips stale dirty jobs when the marker was already consumed", async () => {
     const result = await handleResponseLinkAnalysis({
       data: { formId: "form-1", reason: "response-submitted" },
@@ -406,9 +477,7 @@ describe("handleResponseLinkAnalysis", () => {
     } as Job<ResponseLinkAnalysisJobData>);
 
     expect(result).toEqual({ runId: "", linkCount: 0, groupCount: 0 });
-    expect(mocks.dbInsert).not.toHaveBeenCalledWith(
-      expect.objectContaining({ status: "responseLinkAnalysisRun.status" }),
-    );
+    expect(mocks.dbInsert).toHaveBeenCalledTimes(1);
     expect(mocks.dbSelect).toHaveBeenCalledTimes(1);
     expect(mocks.queueAdd).not.toHaveBeenCalled();
   });
