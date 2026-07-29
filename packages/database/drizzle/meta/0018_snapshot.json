@@ -2988,8 +2988,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "ResponseSuspicionGroupMember_groupId_ResponseSuspicionGroup_id_fk": {
-          "name": "ResponseSuspicionGroupMember_groupId_ResponseSuspicionGroup_id_fk",
+        "RSGM_group_fk": {
+          "name": "RSGM_group_fk",
           "tableFrom": "ResponseSuspicionGroupMember",
           "tableTo": "ResponseSuspicionGroup",
           "columnsFrom": ["groupId"],

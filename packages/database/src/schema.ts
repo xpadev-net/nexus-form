@@ -7,6 +7,7 @@ import {
   bigint,
   boolean,
   float,
+  foreignKey,
   index,
   int,
   json,
@@ -628,9 +629,7 @@ export const responseSuspicionGroupMember = mysqlTable(
     runId: varchar("runId", { length: 128 })
       .notNull()
       .references(() => responseLinkAnalysisRun.id, { onDelete: "cascade" }),
-    groupId: varchar("groupId", { length: 255 })
-      .notNull()
-      .references(() => responseSuspicionGroup.id, { onDelete: "cascade" }),
+    groupId: varchar("groupId", { length: 255 }).notNull(),
     responseId: varchar("responseId", { length: 128 })
       .notNull()
       .references(() => formResponse.id, { onDelete: "cascade" }),
@@ -644,6 +643,11 @@ export const responseSuspicionGroupMember = mysqlTable(
       table.responseId,
     ),
     index("RSGM_run_response_idx").on(table.runId, table.responseId),
+    foreignKey({
+      name: "RSGM_group_fk",
+      columns: [table.groupId],
+      foreignColumns: [responseSuspicionGroup.id],
+    }).onDelete("cascade"),
   ],
 );
 

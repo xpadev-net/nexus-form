@@ -65,7 +65,7 @@ ALTER TABLE `ResponsePairLink` ADD CONSTRAINT `ResponsePairLink_responseIdB_Form
 ALTER TABLE `ResponseSuspicionGroup` ADD CONSTRAINT `ResponseSuspicionGroup_runId_ResponseLinkAnalysisRun_id_fk` FOREIGN KEY (`runId`) REFERENCES `ResponseLinkAnalysisRun`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `ResponseSuspicionGroup` ADD CONSTRAINT `ResponseSuspicionGroup_formId_Form_id_fk` FOREIGN KEY (`formId`) REFERENCES `Form`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGroupMember_runId_ResponseLinkAnalysisRun_id_fk` FOREIGN KEY (`runId`) REFERENCES `ResponseLinkAnalysisRun`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGroupMember_groupId_ResponseSuspicionGroup_id_fk` FOREIGN KEY (`groupId`) REFERENCES `ResponseSuspicionGroup`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `RSGM_group_fk` FOREIGN KEY (`groupId`) REFERENCES `ResponseSuspicionGroup`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `ResponseSuspicionGroupMember` ADD CONSTRAINT `ResponseSuspicionGroupMember_responseId_FormResponse_id_fk` FOREIGN KEY (`responseId`) REFERENCES `FormResponse`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `RLAR_formId_status_completedAt_idx` ON `ResponseLinkAnalysisRun` (`formId`,`status`,`completedAt`);--> statement-breakpoint
 CREATE INDEX `RLAR_formId_modelVersion_idx` ON `ResponseLinkAnalysisRun` (`formId`,`modelVersion`);--> statement-breakpoint

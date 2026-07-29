@@ -69,8 +69,12 @@ function addBucketPairs(
       const left = ids[i];
       const right = ids[j];
       if (!left || !right) continue;
+      if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) {
+        throw new Error(
+          `Response link analysis candidate pair cap exceeded (${MAX_CANDIDATE_PAIRS})`,
+        );
+      }
       candidatePairs.add(pairKey(left, right));
-      if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) return;
     }
   }
 }
@@ -142,7 +146,6 @@ function buildCandidatePairs(
   ]) {
     for (const responseIds of buckets.values()) {
       addBucketPairs(candidatePairs, responseIds);
-      if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) return candidatePairs;
     }
   }
 
@@ -151,7 +154,6 @@ function buildCandidatePairs(
       addBucketPairs(candidatePairs, responseIds, {
         bucketLimit: CANDIDATE_BUCKET_LIMIT,
       });
-      if (candidatePairs.size >= MAX_CANDIDATE_PAIRS) return candidatePairs;
     }
   }
 

@@ -190,6 +190,27 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
+  it("fails instead of persisting truncated results when the candidate cap is exceeded", async () => {
+    mocks.responseRows = Array.from({ length: 318 }, (_, index) => ({
+      id: `response-${index.toString().padStart(3, "0")}`,
+      sessionId: "same-session",
+      respondentUuid: `respondent-${index}`,
+      userAgent: null,
+    }));
+
+    await expect(analyzeResponseLinks("form-1")).rejects.toThrow(
+      "Response link analysis candidate pair cap exceeded",
+    );
+
+    expect(
+      mocks.txInsertedRows.some((entry) => entry.table === "responsePairLink"),
+    ).toBe(false);
+    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
+    expect(updateSet).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "FAILED" }),
+    );
+  });
+
   it("marks the run as FAILED when analysis throws", async () => {
     mocks.dbSelect.mockImplementationOnce(() => ({
       from: vi.fn(() => ({

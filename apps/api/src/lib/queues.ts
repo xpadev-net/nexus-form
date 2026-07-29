@@ -1,5 +1,5 @@
+import { randomUUID } from "node:crypto";
 import {
-  addJobWithCleanup,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
   responseLinkAnalysisJobDataSchema,
 } from "@nexus-form/shared";
@@ -117,13 +117,11 @@ export function getResponseLinkAnalysisQueue(): Queue {
 
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
-  reason: "response-submitted" | "manual";
+  reason: "response-submitted" | "response-deleted" | "manual";
 }): Promise<void> {
   const jobData = responseLinkAnalysisJobDataSchema.parse(params);
-  await addJobWithCleanup(getResponseLinkAnalysisQueue(), {
-    jobData,
-    jobId: `response-link-analysis.${params.formId}`,
-    jobName: params.reason,
+  await getResponseLinkAnalysisQueue().add(params.reason, jobData, {
+    jobId: `response-link-analysis.${params.formId}.${randomUUID()}`,
   });
 }
 

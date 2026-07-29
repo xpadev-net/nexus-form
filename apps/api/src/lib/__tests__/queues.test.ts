@@ -2,7 +2,9 @@ import type { DefaultJobOptions } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   closeQueues,
+  enqueueResponseLinkAnalysisJob,
   getFormSubmitNotificationQueue,
+  getResponseLinkAnalysisQueue,
   getSheetsSyncQueue,
   getValidationQueue,
   SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS,
@@ -16,6 +18,7 @@ type QueueOptions = {
 type MockQueue = {
   name: string;
   options: QueueOptions;
+  add: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
 };
 
@@ -28,6 +31,7 @@ const mocks = vi.hoisted(() => {
     const queue = {
       name,
       options,
+      add: vi.fn(async () => undefined),
       close: vi.fn(async () => undefined),
     };
     queueInstances.push(queue);
@@ -93,6 +97,37 @@ describe("queues", () => {
       removeOnComplete: 100,
       removeOnFail: 100,
     });
+  });
+
+  it("uses unique response link analysis job ids so active jobs do not drop follow-up analysis", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-submitted",
+    });
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).toHaveBeenCalledTimes(2);
+    expect(queue?.add).toHaveBeenNthCalledWith(
+      1,
+      "response-submitted",
+      { formId: "form-1", reason: "response-submitted" },
+      { jobId: expect.stringMatching(/^response-link-analysis\.form-1\./) },
+    );
+    expect(queue?.add).toHaveBeenNthCalledWith(
+      2,
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { jobId: expect.stringMatching(/^response-link-analysis\.form-1\./) },
+    );
+    const firstJobId = queue?.add.mock.calls[0]?.[2]?.jobId;
+    const secondJobId = queue?.add.mock.calls[1]?.[2]?.jobId;
+    expect(firstJobId).not.toBe(secondJobId);
   });
 
   it("exposes retry options for manual sheets sync jobs", () => {

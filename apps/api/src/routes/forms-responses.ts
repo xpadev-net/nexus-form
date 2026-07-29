@@ -2655,6 +2655,17 @@ export const formsResponsesRouter = createHonoApp()
           .where(eq(externalServiceValidationResult.responseId, responseId));
         await tx.delete(formResponse).where(eq(formResponse.id, responseId));
       });
+      enqueueResponseLinkAnalysisJob({
+        formId,
+        reason: "response-deleted",
+      }).catch((error) => {
+        logError("Failed to queue response link analysis", "api", {
+          error,
+          responseId,
+          formId,
+          reason: "response-deleted",
+        });
+      });
       return c.json(OkResponseSchema.parse({ ok: true }));
     },
   )
@@ -2723,6 +2734,17 @@ export const formsResponsesRouter = createHonoApp()
             results.push({ responseId: id, status: "deleted" });
             deletedCount++;
           }
+          enqueueResponseLinkAnalysisJob({
+            formId,
+            reason: "response-deleted",
+          }).catch((error) => {
+            logError("Failed to queue response link analysis", "api", {
+              error,
+              formId,
+              deletedCount: idsToDelete.length,
+              reason: "responses-deleted",
+            });
+          });
         } catch {
           for (const id of idsToDelete) {
             results.push({
