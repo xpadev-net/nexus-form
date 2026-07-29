@@ -13,7 +13,6 @@ import {
 import {
   externalServiceValidationResult,
   fingerprintCollectionAttempt,
-  fingerprintCollectionDetail,
   fingerprintDetail,
   form,
   formIntegration,
@@ -446,6 +445,10 @@ function hashUserAgent(userAgent: string | undefined): string {
   return sha256Hex(userAgent ?? "");
 }
 
+function hashPrimaryAcceptLanguage(acceptLanguage: string | undefined): string {
+  return sha256Hex(acceptLanguage?.split(",")[0]?.split(";")[0]?.trim() ?? "");
+}
+
 function hashExchangeToken(token: string): string {
   return sha256Hex(`fingerprint-exchange-token:${token}`);
 }
@@ -662,6 +665,7 @@ function digestSecurityObservations(params: {
   challengeToken: string;
   clientNonce: string;
   exchangeNonce: string;
+  primaryLanguageHash: string;
   observations: ExchangeObservationTuple[];
   plan: SecurityObservationPlanEntry[];
   userAgentHash: string;
@@ -694,9 +698,17 @@ function digestSecurityObservations(params: {
   const userAgentObservationMatches =
     userAgentSlot &&
     observationsBySlot.get(userAgentSlot.a) === params.userAgentHash;
+  const languageSlot = params.plan.find(
+    (entry) =>
+      entry.f === SECURITY_OBSERVATION_FAMILY_BROWSER && entry.n === "language",
+  );
+  const languageObservationMatches =
+    languageSlot &&
+    observationsBySlot.get(languageSlot.a) === params.primaryLanguageHash;
   if (
     missingRequiredSlot ||
     !userAgentObservationMatches ||
+    !languageObservationMatches ||
     families.size < 2 ||
     params.observations.length < 6 ||
     valueHashes.size < 4 ||
@@ -707,43 +719,24 @@ function digestSecurityObservations(params: {
     throw new Error("Incomplete security observation");
   }
 
-  const canonical = [...observationsBySlot]
-    .map(([slot, valueHash]) => {
-      const entry = slots.get(slot);
-      if (!entry) throw new Error("Invalid security observation slot");
-      return `${slot}:${entry.f}:${entry.c}:${valueHash}`;
-    })
+  const planShape = params.plan
+    .map((entry) => `${entry.a}:${entry.f}:${entry.c}:${entry.r ? 1 : 0}`)
     .sort()
     .join("\n");
   return sha256Hex(
     [
-      "security-observation-v1",
+      "security-receipt-v2",
       FINGERPRINT_COLLECTOR_VERSION,
       params.exchangeNonce,
       params.clientNonce,
       hashExchangeToken(params.challengeToken),
-      canonical,
+      params.userAgentHash,
+      params.primaryLanguageHash,
+      planShape,
+      String(params.observations.length),
+      String(families.size),
     ].join("\0"),
   );
-}
-
-function buildSecurityObservationDetails(params: {
-  attemptId: string;
-  observations: ExchangeObservationTuple[];
-  plan: SecurityObservationPlanEntry[];
-}): Array<typeof fingerprintCollectionDetail.$inferInsert> {
-  const slots = new Map(params.plan.map((entry) => [entry.a, entry]));
-  return params.observations.map(([slot, valueHash]) => {
-    const entry = slots.get(slot);
-    if (!entry) throw new Error("Invalid security observation slot");
-    return {
-      id: randomUUID(),
-      attemptId: params.attemptId,
-      fingerprintType: String(entry.f),
-      componentName: entry.c,
-      componentValueHash: valueHash,
-    };
-  });
 }
 
 function getCookieValue(request: Request, cookieName: string): string | null {
@@ -1372,14 +1365,12 @@ export const formsPublicRouter = createHonoApp()
             challengeToken: payload.r,
             clientNonce: payload.n,
             exchangeNonce: attempt.exchangeNonce,
+            primaryLanguageHash: hashPrimaryAcceptLanguage(
+              c.req.header("accept-language") ?? undefined,
+            ),
             observations: payload.d,
             plan: serverContext.s,
             userAgentHash: hashUserAgent(userAgent),
-          });
-          const observationDetails = buildSecurityObservationDetails({
-            attemptId: attempt.id,
-            observations: payload.d,
-            plan: serverContext.s,
           });
 
           collectionToken = createSecurityReceiptToken({
@@ -1389,10 +1380,6 @@ export const formsPublicRouter = createHonoApp()
             observationDigest,
             publicId,
           });
-
-          await tx
-            .insert(fingerprintCollectionDetail)
-            .values(observationDetails);
 
           await tx
             .update(fingerprintCollectionAttempt)

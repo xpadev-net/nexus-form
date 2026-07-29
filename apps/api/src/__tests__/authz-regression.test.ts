@@ -291,6 +291,7 @@ function securityExchangeHeaders(cookieToken?: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
     Origin: "http://localhost",
+    "Accept-Language": "en-US,en;q=0.9",
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
@@ -314,7 +315,7 @@ function securityPlanEntries() {
 function securityEvidenceTuples(): Array<[string, string]> {
   return [
     ["slot-timezone", sha256Hex("tz")],
-    ["slot-language", sha256Hex("lang")],
+    ["slot-language", sha256Hex("en-US")],
     ["slot-platform", sha256Hex("plat")],
     ["slot-user-agent", sha256Hex("")],
     ["slot-visitor", sha256Hex("vid")],
@@ -1305,8 +1306,6 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       mockDbSelectChain(db, [
         [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
       ]);
-      const txInsertValues = vi.fn();
-      const txInsert = vi.fn(() => ({ values: txInsertValues }));
       const txWhere = vi.fn(async () => undefined);
       const txSet = vi.fn(() => ({ where: txWhere }));
       const txUpdate = vi.fn(() => ({ set: txSet }));
@@ -1339,7 +1338,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         "transaction",
       );
       transactionSpy.mockImplementation(async (fn) =>
-        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+        fn({ select: txSelect, update: txUpdate }),
       );
 
       const { formsPublicRouter } = await import("../routes/forms-public");
@@ -1364,21 +1363,6 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         t: expect.any(String),
         e: expect.any(Number),
       });
-      expect(txInsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          attemptId: "fingerprintCollectionDetail.attemptId",
-        }),
-      );
-      expect(txInsertValues).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            attemptId: "attempt-1",
-            fingerprintType: "1",
-            componentName: "a4",
-            componentValueHash: sha256Hex(""),
-          }),
-        ]),
-      );
       expect(txUpdate).toHaveBeenCalledOnce();
       expect(res.headers.get("Set-Cookie")).toContain("nf_sc=");
       expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
@@ -1394,7 +1378,6 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       mockDbSelectChain(db, [
         [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
       ]);
-      const txInsert = vi.fn(() => ({ values: vi.fn() }));
       const txUpdate = vi.fn();
       const txSelect = vi.fn(() => ({
         from: vi.fn(() => ({
@@ -1425,7 +1408,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         "transaction",
       );
       transactionSpy.mockImplementation(async (fn) =>
-        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+        fn({ select: txSelect, update: txUpdate }),
       );
 
       const mismatchedEvidence = securityEvidenceTuples().map(
@@ -1457,7 +1440,81 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       await expect(res.json()).resolves.toEqual({
         error: "Invalid security exchange",
       });
-      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects security exchange close when the accepted language anchor is forged",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  fieldMapJson: {
+                    k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    s: securityPlanEntries(),
+                  },
+                  challengeExpiresAt: new Date(Date.now() + 60_000),
+                  finalizedAt: null,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ select: txSelect, update: txUpdate }),
+      );
+
+      const mismatchedEvidence = securityEvidenceTuples().map(
+        ([slot, valueHash]) =>
+          [
+            slot,
+            slot === "slot-language" ? sha256Hex("forged-language") : valueHash,
+          ] as [string, string],
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: securityExchangeHeaders("cookie-token"),
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            p: "test-captcha-token",
+            d: mismatchedEvidence,
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
       expect(txUpdate).not.toHaveBeenCalled();
       transactionSpy.mockRestore();
     },
