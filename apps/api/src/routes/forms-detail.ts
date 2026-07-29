@@ -57,11 +57,12 @@ const updateFormSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
 });
 
-const updateResponseSettingsSchema = z.object({
-  allowEdit: z.boolean(),
-  maxResponses: z.number().int().min(0).max(100000).nullable(),
-  requireFingerprint: z.boolean(),
-});
+const updateResponseSettingsSchema = z
+  .object({
+    allowEdit: z.boolean(),
+    maxResponses: z.number().int().min(0).max(100000).nullable(),
+  })
+  .strict();
 
 export const UpdateResponseSettingsResponseSchema = z.object({
   success: z.literal(true),
@@ -225,7 +226,6 @@ export const formsDetailRouter = createHonoApp()
           settings: {
             ...currentStructure.settings,
             allow_edit_responses: payload.allowEdit,
-            require_fingerprint: payload.requireFingerprint,
             ...(responseLimit ? { response_limit: responseLimit } : {}),
           },
         };

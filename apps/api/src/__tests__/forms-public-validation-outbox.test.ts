@@ -238,7 +238,6 @@ function activeSnapshot(
       version: 1,
       settings: {
         allow_edit_responses: false,
-        require_fingerprint: false,
       },
     }),
   };
@@ -645,8 +644,8 @@ async function submitPublicForm(
     body: JSON.stringify({
       responses,
       captchaToken: "captcha-token",
-      telemetry,
-      fingerprints: [],
+      telemetry: telemetry,
+      securityVerificationToken: "test-security-check-token",
     }),
   });
 }
@@ -1812,7 +1811,7 @@ describe("R11-C2-a public validation outbox", () => {
     ]);
   });
 
-  it("skips telemetry consumption and required fingerprints in development bypass", async () => {
+  it("skips telemetry token consumption and required verification in development bypass", async () => {
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("FORM_SECURITY_DEV_BYPASS", "true");
     const snapshot = activeSnapshot([]);
@@ -1855,6 +1854,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     const response = await submitPublicForm(responses);
 
     expect(response.status).toBe(201);
+    expect(await response.clone().text()).not.toContain("userAgent");
     expect(mocks.consumeTokensOrThrow).toHaveBeenCalledWith(
       ["telemetry-token"],
       "203.0.113.10",
@@ -1893,7 +1893,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
-  it("allows v4 and v6 telemetry candidates to be validated with any matching token", async () => {
+  it("allows v4 and v6 security candidates to be validated with any matching token", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
@@ -1915,7 +1915,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
-  it("uses the general API IP boundary for token consumption instead of the telemetry boundary", async () => {
+  it("uses the general API IP boundary for token consumption instead of the alternate boundary", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
@@ -1948,7 +1948,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
-  it("rejects divergent submit and telemetry header boundaries before consuming tokens", async () => {
+  it("rejects divergent submit and alternate header boundaries before consuming tokens", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);

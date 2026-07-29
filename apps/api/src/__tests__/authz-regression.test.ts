@@ -7,6 +7,7 @@
  * R2-H3: VIEWER cannot list permissions or invitations (EDITOR gate)
  */
 
+import { createHash } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -31,6 +32,15 @@ vi.mock("@nexus-form/database", () => ({
         fn({}),
       ),
   },
+  assertRequiredSecurityMigrationsApplied: vi.fn().mockResolvedValue(undefined),
+  fingerprintCollectionAttempt: {
+    id: "fingerprintCollectionAttempt.id",
+    formId: "fingerprintCollectionAttempt.formId",
+    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+  },
+  fingerprintCollectionDetail: {
+    attemptId: "fingerprintCollectionDetail.attemptId",
+  },
   user: {},
   session: {},
   account: {},
@@ -44,6 +54,14 @@ vi.mock("@nexus-form/database/schema", () => ({
   formPermission: {},
   formShareLink: {},
   formResponse: {},
+  fingerprintCollectionAttempt: {
+    id: "fingerprintCollectionAttempt.id",
+    formId: "fingerprintCollectionAttempt.formId",
+    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+  },
+  fingerprintCollectionDetail: {
+    attemptId: "fingerprintCollectionDetail.attemptId",
+  },
   fingerprintDetail: {},
   formInvitation: {},
   formStructure: {},
@@ -88,6 +106,7 @@ vi.mock("../lib/telemetry/tokens", () => ({
   consumeTokensOrThrow: vi
     .fn()
     .mockResolvedValue([{ version: "v4", ipHash: "hash-v4" }]),
+  hashIPAddress: (ip: string) => `hash:${ip}`,
 }));
 
 vi.mock("../lib/forms/schedule-processor", () => ({
@@ -262,6 +281,10 @@ function makePublicSubmitFingerprints(count: number) {
     name: `component-${index}`,
     value_hash: `hash-${index.toString().padStart(3, "0")}`,
   }));
+}
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
@@ -691,7 +714,7 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       });
 
@@ -727,16 +750,16 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
   });
 });
 
-// ── R15-C1: Public submit fingerprint payload limit ───────────────────────
+// ── R15-C1: Public submit security evidence persistence ───────────────────
 
-describe("R15-C1: public submit accepts full fingerprint payloads", () => {
+describe("R15-C1: public submit persists linked security evidence", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
   });
 
   it(
-    "accepts fingerprint-required submissions with 200 fingerprint components",
+    "accepts submissions linked to the development telemetry token",
     async () => {
       const { db } = await import("@nexus-form/database");
       const schema = await import("@nexus-form/database/schema");
@@ -793,7 +816,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4" },
-            fingerprints: makePublicSubmitFingerprints(200),
+            securityVerificationToken: "test-security-check-token",
           }),
         },
       );
@@ -801,12 +824,10 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(201);
       expect(txSpy).toHaveBeenCalledOnce();
       expect(txInsert).toHaveBeenCalledWith(schema.fingerprintDetail);
-      expect(insertedFingerprints).toHaveLength(201);
+      expect(insertedFingerprints).toHaveLength(2);
       expect(insertedFingerprints).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ fingerprintType: "browser" }),
-          expect.objectContaining({ fingerprintType: "fingerprintjs" }),
-          expect.objectContaining({ fingerprintType: "thumbmarkjs" }),
           expect.objectContaining({
             fingerprintType: "telemetry",
             componentName: "v4",
@@ -840,7 +861,6 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             version: 1,
             settings: {
               allow_edit_responses: false,
-              require_fingerprint: false,
             },
           }),
         }),
@@ -881,7 +901,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4", v6Token: "tok-v6" },
-            fingerprints: [],
+            securityVerificationToken: "test-security-check-token",
           }),
         },
       );
@@ -891,8 +911,12 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
         ["tok-v4", "tok-v6"],
         "127.0.0.1",
       );
-      expect(insertedFingerprints).toHaveLength(2);
+      expect(insertedFingerprints).toHaveLength(3);
       expect(insertedFingerprints).toEqual([
+        expect.objectContaining({
+          fingerprintType: "browser",
+          componentName: "security-check",
+        }),
         expect.objectContaining({
           fingerprintType: "telemetry",
           componentName: "v4",
@@ -910,7 +934,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
   );
 
   it(
-    "rejects fingerprint payloads above 200 before database work",
+    "rejects legacy fingerprint payloads before database work",
     async () => {
       const { db } = await import("@nexus-form/database");
       const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
@@ -931,7 +955,7 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4" },
-            fingerprints: makePublicSubmitFingerprints(201),
+            fingerprints: makePublicSubmitFingerprints(1),
           }),
         },
       );
@@ -939,6 +963,415 @@ describe("R15-C1: public submit accepts full fingerprint payloads", () => {
       expect(res.status).toBe(400);
       expect(dbSelect).not.toHaveBeenCalled();
       expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects nested legacy fingerprint payloads before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: {
+              v4Token: "tok-v4",
+              fingerprints: makePublicSubmitFingerprints(1),
+            },
+            securityVerificationToken: "test-security-check-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects legacy fingerprint payloads nested in response items before database work",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [
+              {
+                question_id: "q1",
+                question_type: "short_text",
+                value: "answer",
+                fingerprints: makePublicSubmitFingerprints(1),
+              },
+            ],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            securityVerificationToken: "test-security-check-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      expect(dbSelect).not.toHaveBeenCalled();
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "requires a security verification token even when an older snapshot disables the removed toggle",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: {
+              allow_edit_responses: false,
+              require_fingerprint: false,
+            },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Security verification token is required",
+      });
+      expect(transactionSpy).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects an invalid security exchange close challenge without finalizing details",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txInsert = vi.fn();
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => []),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            r: "missing-challenge",
+            v: 1,
+            n: "client-nonce",
+            b: "AAAA",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "redacts security exchange schema errors instead of reflecting rejected keys",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "nonce",
+            b: "AAAA",
+            require_fingerprint: true,
+          }),
+        },
+      );
+
+      const responseText = await res.text();
+      expect(res.status).toBe(400);
+      expect(responseText).toBe(
+        JSON.stringify({ error: "Invalid request payload" }),
+      );
+      expect(responseText).not.toContain("require_fingerprint");
+      expect(responseText).not.toContain("fingerprint");
+      expect(dbSelect).not.toHaveBeenCalled();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it.each([
+    [
+      "expired",
+      {
+        challengeExpiresAt: new Date(Date.now() - 1_000),
+        finalizedAt: null,
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "already finalized",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: new Date(),
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "IP mismatched",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: null,
+        observedIpHash: "hash:203.0.113.99",
+        userAgentHash: sha256Hex(""),
+      },
+    ],
+    [
+      "UA mismatched",
+      {
+        challengeExpiresAt: new Date(Date.now() + 60_000),
+        finalizedAt: null,
+        observedIpHash: "hash:127.0.0.1",
+        userAgentHash: sha256Hex("different-agent"),
+      },
+    ],
+  ])(
+    "rejects %s security exchange close challenges without finalizing details",
+    async (_label, attemptState) => {
+      const { db } = await import("@nexus-form/database");
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txInsert = vi.fn();
+      const txUpdate = vi.fn();
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  exchangeVersion: 1,
+                  exchangeNonce: "server-nonce",
+                  fieldMapJson: ["a", "b", "c"],
+                  ...attemptState,
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/exchange/close",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            r: "challenge",
+            v: 1,
+            n: "client-nonce",
+            b: "AAAA",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(400);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security exchange",
+      });
+      expect(txInsert).not.toHaveBeenCalled();
+      expect(txUpdate).not.toHaveBeenCalled();
+      transactionSpy.mockRestore();
+    },
+    ROUTE_REGRESSION_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "rejects consumed collection tokens before linking details to a new response",
+    async () => {
+      const { db } = await import("@nexus-form/database");
+      const { getLatestSnapshot } = await import(
+        "../lib/forms/snapshot-repository"
+      );
+      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
+        makeSnapshot({
+          plateContent: JSON.stringify([
+            {
+              id: "1",
+              type: "form_short_text",
+              blockId: "q1",
+              children: [{ text: "Name" }],
+            },
+          ]),
+          structureJson: JSON.stringify({
+            version: 1,
+            settings: { allow_edit_responses: false },
+          }),
+        }),
+      );
+      mockDbSelectChain(db, [
+        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
+      ]);
+      const txUpdate = vi.fn();
+      const txInsert = vi.fn(() => ({
+        values: vi.fn(async () => undefined),
+      }));
+      const txSelect = vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn(() => ({
+              for: vi.fn(async () => [
+                {
+                  id: "attempt-1",
+                  formId: FORM_ID,
+                  observedIpHash: "hash:127.0.0.1",
+                  userAgentHash: sha256Hex(""),
+                  collectionExpiresAt: new Date(Date.now() + 60_000),
+                  consumedAt: new Date(),
+                  finalizedAt: new Date(),
+                },
+              ]),
+            })),
+          })),
+        })),
+      }));
+      const transactionSpy = vi.spyOn(
+        db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
+        "transaction",
+      );
+      transactionSpy.mockImplementation(async (fn) =>
+        fn({ insert: txInsert, select: txSelect, update: txUpdate }),
+      );
+
+      const { formsPublicRouter } = await import("../routes/forms-public");
+
+      const res = await formsPublicRouter.request(
+        "/public/test-public-id/submit",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            responses: [],
+            captchaToken: "test-captcha-token",
+            telemetry: { v4Token: "tok-v4" },
+            securityVerificationToken: "already-consumed-token",
+          }),
+        },
+      );
+
+      expect(res.status).toBe(403);
+      await expect(res.json()).resolves.toEqual({
+        error: "Invalid security verification token",
+      });
+      expect(txUpdate).not.toHaveBeenCalled();
       transactionSpy.mockRestore();
     },
     ROUTE_REGRESSION_TEST_TIMEOUT_MS,
@@ -986,7 +1419,7 @@ describe("R3-H3: hCaptcha is verified before public submit work", () => {
           ],
           captchaToken: "invalid-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1134,7 +1567,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1202,7 +1635,7 @@ describe("R3-M21: password protected public submit fails closed", () => {
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1587,7 +2020,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1655,7 +2088,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [{ type: "browser", name: "fp1", value_hash: "h1" }],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1711,7 +2144,7 @@ describe("R5-H3: published form configuration parse failures fail closed", () =>
           ],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -1961,11 +2394,10 @@ describe("R4-H1: password protected public GET gates form body", () => {
         id: FORM_ID,
         isPasswordProtected: true,
       },
-      structure: {
-        settings: { require_fingerprint: true },
-      },
+      structure: { settings: { allow_edit_responses: false } },
       plateContent: '[{"type":"p","children":[{"text":"secret"}]}]',
     });
+    expect(JSON.stringify(body.structure)).not.toContain("require_fingerprint");
     expect(body.structure).not.toHaveProperty("access_control");
     expect(verifySessionJwt).toHaveBeenCalledWith("verified-jwt", {
       formId: FORM_ID,
@@ -2200,7 +2632,7 @@ describe("PWR-2R2: persistent public password grant generations", () => {
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );
@@ -2386,7 +2818,7 @@ describe("PWR-2R2: persistent public password grant generations", () => {
           responses: [],
           captchaToken: "test-captcha-token",
           telemetry: { v4Token: "tok-v4" },
-          fingerprints: [],
+          securityVerificationToken: "test-security-check-token",
         }),
       },
     );

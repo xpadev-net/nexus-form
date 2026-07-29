@@ -1104,7 +1104,7 @@ VITE_HCAPTCHA_SITE_KEY=your-hcaptcha-site-key
 
 #### VITE_FORM_SECURITY_DEV_BYPASS（開発環境のみ）
 
-開発環境でフォーム送信を疎通確認するためのフラグです。`true` にすると hCaptcha、テレメトリIP/トークン、フィンガープリント必須チェックをまとめてバイパスします。
+開発環境でフォーム送信を疎通確認するためのフラグです。`true` にすると hCaptcha、telemetry IP/token、フォーム送信時の検証をまとめてバイパスします。
 本番向けの `k8s/base` には含めず、開発用の Web runtime config と API 環境変数にだけ設定してください。
 `k8s/base/configmap.yaml` にはこのキーの値を置かず、必要な開発用 overlay でだけ追加してください。
 

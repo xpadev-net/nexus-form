@@ -519,6 +519,81 @@ export const fingerprintDetail = mysqlTable(
   ],
 );
 
+// Public fingerprint collection attempts finalized before response submit.
+export const fingerprintCollectionAttempt = mysqlTable(
+  "FingerprintCollectionAttempt",
+  {
+    id: varchar("id", { length: 128 }).primaryKey(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
+    challengeTokenHash: varchar("challengeTokenHash", {
+      length: 64,
+    })
+      .notNull()
+      .unique(),
+    collectionTokenHash: varchar("collectionTokenHash", {
+      length: 64,
+    }).unique(),
+    observedIpHash: varchar("observedIpHash", { length: 255 }).notNull(),
+    userAgentHash: varchar("userAgentHash", { length: 64 }).notNull(),
+    collectorVersion: varchar("collectorVersion", { length: 64 }).notNull(),
+    exchangeVersion: int("exchangeVersion").notNull(),
+    exchangeNonce: varchar("exchangeNonce", { length: 64 }).notNull(),
+    fieldMapJson: json("fieldMapJson").notNull(),
+    componentOrderJson: json("componentOrderJson").notNull(),
+    challengeExpiresAt: timestamp("challengeExpiresAt").notNull(),
+    collectionExpiresAt: timestamp("collectionExpiresAt"),
+    finalizedAt: timestamp("finalizedAt"),
+    consumedAt: timestamp("consumedAt"),
+    consumedResponseId: varchar("consumedResponseId", {
+      length: 128,
+    }).references(() => formResponse.id, { onDelete: "set null" }),
+    createdAt: timestamp("createdAt").defaultNow().notNull(),
+  },
+  (table) => [
+    index("FingerprintCollectionAttempt_formId_idx").on(table.formId),
+    index("FingerprintCollectionAttempt_challengeTokenHash_idx").on(
+      table.challengeTokenHash,
+    ),
+    index("FingerprintCollectionAttempt_collectionTokenHash_idx").on(
+      table.collectionTokenHash,
+    ),
+    index("FingerprintCollectionAttempt_expiresAt_idx").on(
+      table.challengeExpiresAt,
+      table.collectionExpiresAt,
+    ),
+    index("FingerprintCollectionAttempt_consumedAt_idx").on(table.consumedAt),
+  ],
+);
+
+export const fingerprintCollectionDetail = mysqlTable(
+  "FingerprintCollectionDetail",
+  {
+    id: varchar("id", { length: 128 }).primaryKey(),
+    attemptId: varchar("attemptId", { length: 128 })
+      .notNull()
+      .references(() => fingerprintCollectionAttempt.id, {
+        onDelete: "cascade",
+      }),
+    fingerprintType: varchar("fingerprintType", { length: 50 }).notNull(),
+    componentName: varchar("componentName", { length: 255 }).notNull(),
+    componentValueHash: varchar("componentValueHash", {
+      length: 255,
+    }).notNull(),
+    collectedAt: timestamp("collectedAt").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex(
+      "FingerprintCollectionDetail_attemptId_fingerprintType_componentName_key",
+    ).on(table.attemptId, table.fingerprintType, table.componentName),
+    index("FingerprintCollectionDetail_attemptId_idx").on(table.attemptId),
+    index("FingerprintCollectionDetail_fingerprintType_idx").on(
+      table.fingerprintType,
+    ),
+  ],
+);
+
 // ── User Invite ─────────────────────────────────────────────────────
 
 export const userInvite = mysqlTable(

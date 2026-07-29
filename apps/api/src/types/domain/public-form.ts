@@ -1,6 +1,5 @@
 import { FormConfirmationSchema, FormStatus } from "@nexus-form/shared";
 import { z } from "zod";
-import { FormResponseRowSchema } from "./form-row";
 
 /**
  * 公開フォーム UI 向けに whitelist フィルタした構造。
@@ -36,7 +35,11 @@ export type PublicFormResponse = z.infer<typeof PublicFormResponseSchema>;
 /** POST /public/:publicId/submit のレスポンス。 */
 export const PublicSubmitResponseSchema = z.object({
   responseId: z.string(),
-  response: FormResponseRowSchema.nullable(),
+  response: z
+    .object({
+      id: z.string(),
+    })
+    .nullable(),
   confirmation: FormConfirmationSchema,
 });
 export type PublicSubmitResponse = z.infer<typeof PublicSubmitResponseSchema>;

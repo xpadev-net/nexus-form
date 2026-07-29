@@ -49,7 +49,7 @@ type PublicFormData = {
       allow_edit_link?: boolean;
     };
     appearance?: FormAppearance;
-    settings?: { require_fingerprint?: boolean };
+    settings?: Record<string, unknown>;
   } | null;
 };
 
@@ -74,6 +74,8 @@ const useFingerprintMockState = vi.hoisted(() => ({
 const verificationFailureMock = vi.fn();
 const apiMocks = vi.hoisted(() => ({
   rpc: vi.fn(),
+  exchangeClosePost: vi.fn(),
+  exchangeOpenPost: vi.fn(),
   submitPost: vi.fn(),
   telemetryPost: vi.fn(),
 }));
@@ -124,7 +126,7 @@ const unlockedFormData: PublicFormData = {
     title: "Protected form",
   },
   plateContent: "[]",
-  structure: { settings: { require_fingerprint: false } },
+  structure: { settings: {} },
 };
 
 function sectionBranchingPlateContent(): string {
@@ -221,6 +223,28 @@ function renderPublicForm(container: HTMLElement): Root {
     root.render(<PublicFormPage />);
   });
   return root;
+}
+
+function mockPublicRpc(
+  handler: (request: unknown) => Promise<unknown> | unknown,
+) {
+  apiMocks.rpc.mockImplementation(async (request) => {
+    if (request === "exchange-open-request") {
+      return {
+        r: "challenge-token",
+        v: 1,
+        c: "nf-web-1",
+        m: ["a1", "b2", "c3"],
+        o: [1, 2, 3],
+        n: "server-nonce",
+        e: Date.now() + 60_000,
+      };
+    }
+    if (request === "exchange-close-request") {
+      return { t: "collection-token", e: Date.now() + 60_000 };
+    }
+    return handler(request);
+  });
 }
 
 async function waitForPublicSubmitTelemetryTokenQuery(): Promise<void> {
@@ -480,6 +504,10 @@ vi.mock("@/lib/api", () => ({
         public: {
           ":publicId": {
             $get: vi.fn(),
+            exchange: {
+              close: { $post: apiMocks.exchangeClosePost },
+              open: { $post: apiMocks.exchangeOpenPost },
+            },
             submit: { $post: apiMocks.submitPost },
           },
         },
@@ -512,6 +540,15 @@ describe("PublicFormPage", () => {
     vi.unstubAllGlobals();
     vi.stubEnv("VITE_BRAND_PRIVACY_URL", "");
     vi.stubEnv("VITE_BRAND_TERMS_URL", "");
+    vi.stubGlobal("crypto", {
+      getRandomValues: (bytes: Uint8Array) => {
+        bytes.fill(7);
+        return bytes;
+      },
+      subtle: {
+        digest: async () => new Uint8Array(32).buffer,
+      },
+    });
     window.__BRAND_CONFIG__ = undefined;
     window.__NEXUS_FORM_CONFIG__ = undefined;
     publicFormData = lockedFormData;
@@ -523,19 +560,45 @@ describe("PublicFormPage", () => {
       isPending: false,
     };
     publicSubmitTelemetryTokenQueryPromises = [];
-    useFingerprintMockState.collect = vi.fn().mockResolvedValue([]);
-    useFingerprintMockState.fingerprints = [];
+    useFingerprintMockState.fingerprints = [
+      {
+        fingerprintType: "browser",
+        components: [
+          { componentName: "timezone", componentValueHash: "hash-timezone" },
+        ],
+      },
+    ];
+    useFingerprintMockState.collect = vi
+      .fn()
+      .mockResolvedValue(useFingerprintMockState.fingerprints);
     verificationFailureMock.mockClear();
     refetchFormMock.mockClear();
+    apiMocks.exchangeClosePost.mockReset();
+    apiMocks.exchangeOpenPost.mockReset();
     apiMocks.rpc.mockReset();
     apiMocks.submitPost.mockReset();
     apiMocks.telemetryPost.mockReset();
+    apiMocks.exchangeClosePost.mockReturnValue("exchange-close-request");
+    apiMocks.exchangeOpenPost.mockReturnValue("exchange-open-request");
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
-      request === "telemetry-request"
-        ? { token: "telemetry-token" }
-        : undefined,
-    );
+    mockPublicRpc(async (request) => {
+      if (request === "telemetry-request") return { token: "telemetry-token" };
+      if (request === "exchange-open-request") {
+        return {
+          r: "challenge-token",
+          v: 1,
+          c: "nf-web-1",
+          m: ["a1", "b2", "c3"],
+          o: [1, 2, 3],
+          n: "server-nonce",
+          e: Date.now() + 60_000,
+        };
+      }
+      if (request === "exchange-close-request") {
+        return { t: "collection-token", e: Date.now() + 60_000 };
+      }
+      return undefined;
+    });
     requiredValidationMock.findUnansweredRequired.mockReset();
     requiredValidationMock.findUnansweredRequired.mockReturnValue([]);
     formBodyMockState.submitData = { responses: [], visitedQuestionIds: [] };
@@ -629,7 +692,7 @@ describe("PublicFormPage", () => {
         title: "公開中のフォーム",
       },
       plateContent: multipageGridContent,
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
 
     await act(async () => {
@@ -682,7 +745,7 @@ describe("PublicFormPage", () => {
             show_question_numbers: false,
           },
         },
-        settings: { require_fingerprint: false },
+        settings: {},
       },
     };
     const container = document.createElement("div");
@@ -721,11 +784,11 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -783,11 +846,11 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -835,7 +898,7 @@ describe("PublicFormPage", () => {
         title: "Public form",
       },
       plateContent: "[]",
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     window.__BRAND_CONFIG__ = {
       privacyUrl: "https://brand.example/privacy",
@@ -991,7 +1054,7 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("caps mixed submitted fingerprints to the API maximum", async () => {
+  it("exchanges security data before submitting and sends only the collection token", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     publicFormData = {
       form: {
@@ -1007,7 +1070,7 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: true } },
+      structure: { settings: {} },
     };
     useFingerprintMockState.fingerprints = [
       {
@@ -1039,18 +1102,31 @@ describe("PublicFormPage", () => {
     ];
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
-      request === "telemetry-request"
-        ? { token: "telemetry-token" }
-        : {
-            confirmation: {
-              title: "ご回答ありがとうございます",
-              message: "回答を受け付けました。ご協力ありがとうございました。",
-            },
-            response: { id: "response-1" },
-            responseId: "response-1",
-          },
-    );
+    mockPublicRpc(async (request) => {
+      if (request === "telemetry-request") return { token: "telemetry-token" };
+      if (request === "exchange-open-request") {
+        return {
+          r: "challenge-token",
+          v: 1,
+          c: "nf-web-1",
+          m: ["a1", "b2", "c3"],
+          o: [2, 1, 3],
+          n: "server-nonce",
+          e: Date.now() + 60_000,
+        };
+      }
+      if (request === "exchange-close-request") {
+        return { t: "collection-token", e: Date.now() + 60_000 };
+      }
+      return {
+        confirmation: {
+          title: "ご回答ありがとうございます",
+          message: "回答を受け付けました。ご協力ありがとうございました。",
+        },
+        response: { id: "response-1" },
+        responseId: "response-1",
+      };
+    });
 
     const container = document.createElement("div");
     const root = renderPublicForm(container);
@@ -1061,53 +1137,32 @@ describe("PublicFormPage", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(apiMocks.exchangeOpenPost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+    });
+    expect(apiMocks.exchangeClosePost).toHaveBeenCalledWith({
+      param: { publicId: "public-1" },
+      json: expect.objectContaining({
+        b: expect.any(String),
+        n: expect.any(String),
+        r: "challenge-token",
+        v: 1,
+      }),
+    });
     expect(apiMocks.submitPost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v4Token: "telemetry-token" },
-        fingerprints: expect.any(Array),
+        securityVerificationToken: "collection-token",
       }),
     });
-
     const submitArgs = apiMocks.submitPost.mock.calls[0]?.[0];
-    const submittedFingerprints = submitArgs?.json.fingerprints as {
-      name: string;
-      type: string;
-      value_hash: string;
-    }[];
-    expect(submittedFingerprints.length).toBe(200);
-    expect(submittedFingerprints).toEqual(
-      expect.arrayContaining([
-        {
-          name: "visitorId",
-          type: "fingerprintjs",
-          value_hash: "hash-visitor",
-        },
-        { name: "timezone", type: "browser", value_hash: "hash-timezone" },
-        {
-          name: "thumbmarkjs-0",
-          type: "thumbmarkjs",
-          value_hash: "hash-thumb-000",
-        },
-      ]),
-    );
-    expect(
-      submittedFingerprints.every((fingerprint) =>
-        Boolean(fingerprint.value_hash),
-      ),
-    ).toBe(true);
-    expect(
-      submittedFingerprints.some(
-        (fingerprint) => fingerprint.name === "thumbmarkjs-99",
-      ),
-    ).toBe(true);
-    expect(
-      submittedFingerprints.some(
-        (fingerprint) => fingerprint.name === "thumbmarkjs-100",
-      ),
-    ).toBe(false);
+    expect(submitArgs?.json).not.toHaveProperty("fingerprints");
+    const closeArgs = apiMocks.exchangeClosePost.mock.calls[0]?.[0];
+    expect(closeArgs?.json.b).not.toContain("visitorId");
+    expect(closeArgs?.json.b).not.toContain("value_hash");
 
     await act(async () => {
       root.unmount();
@@ -1123,7 +1178,7 @@ describe("PublicFormPage", () => {
         title: "Public form",
       },
       plateContent: "[]",
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     const container = document.createElement("div");
     const root = renderPublicForm(container);
@@ -1157,11 +1212,11 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -1189,7 +1244,7 @@ describe("PublicFormPage", () => {
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v4Token: "telemetry-token" },
-        fingerprints: [],
+        securityVerificationToken: "collection-token",
       },
     });
 
@@ -1241,10 +1296,10 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       expect(request).toBe("submit-request");
       return {
         confirmation: {
@@ -1297,7 +1352,7 @@ describe("PublicFormPage", () => {
           v4Token: "runtime-v4-host-token",
           v6Token: "runtime-v6-host-token",
         },
-        fingerprints: [],
+        securityVerificationToken: "collection-token",
       },
     });
 
@@ -1306,7 +1361,7 @@ describe("PublicFormPage", () => {
     });
   });
 
-  it("preloads the dedicated runtime telemetry v6 host when v4 token fetch fails", async () => {
+  it("preloads the dedicated runtime security v6 host when v4 token fetch fails", async () => {
     vi.stubEnv("VITE_DISABLE_HCAPTCHA", "true");
     window.__NEXUS_FORM_CONFIG__ = {
       telemetryV4Host: "ipv4.runtime.example",
@@ -1343,10 +1398,10 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       expect(request).toBe("submit-request");
       return {
         confirmation: {
@@ -1393,7 +1448,7 @@ describe("PublicFormPage", () => {
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v6Token: "runtime-v6-host-token" },
-        fingerprints: [],
+        securityVerificationToken: "collection-token",
       },
     });
 
@@ -1434,7 +1489,7 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     const container = document.createElement("div");
     const root = renderPublicForm(container);
@@ -1476,7 +1531,7 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       responses: [
@@ -1495,7 +1550,7 @@ describe("PublicFormPage", () => {
     let resolveSecondTelemetryToken:
       | ((value: { token: string }) => void)
       | undefined;
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       if (request === "telemetry-request") {
         telemetryRequestCount += 1;
         if (telemetryRequestCount === 1) {
@@ -1618,7 +1673,7 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       responses: [
@@ -1634,7 +1689,7 @@ describe("PublicFormPage", () => {
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
     let telemetryRequestCount = 0;
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       if (request === "telemetry-request") {
         telemetryRequestCount += 1;
         if (telemetryRequestCount === 1) {
@@ -1710,12 +1765,12 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
     let telemetryRequestCount = 0;
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       if (request === "telemetry-request") {
         telemetryRequestCount += 1;
         if (telemetryRequestCount === 1) {
@@ -1761,7 +1816,7 @@ describe("PublicFormPage", () => {
         responses: [],
         captchaToken: "form-security-dev-bypass",
         telemetry: { v4Token: "telemetry-token-2" },
-        fingerprints: [],
+        securityVerificationToken: "collection-token",
       },
     });
 
@@ -1786,11 +1841,11 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) => {
+    mockPublicRpc(async (request) => {
       if (request === "telemetry-request") {
         return { token: "telemetry-token" };
       }
@@ -1833,7 +1888,7 @@ describe("PublicFormPage", () => {
         title: "Public form",
       },
       plateContent: "[]",
-      structure: { settings: { require_fingerprint: true } },
+      structure: { settings: {} },
     };
     const container = document.createElement("div");
     const root = renderPublicForm(container);
@@ -1897,7 +1952,7 @@ describe("PublicFormPage", () => {
           show_response_id: false,
           allow_edit_link: true,
         },
-        settings: { require_fingerprint: false },
+        settings: {},
       },
     };
     formBodyMockState.submitData = {
@@ -1913,7 +1968,7 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -1993,7 +2048,7 @@ describe("PublicFormPage", () => {
         title: "Public form",
       },
       plateContent: completionTargetPlateContent(),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       completionTargetPageId: "section-complete-vip",
@@ -2009,7 +2064,7 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -2062,7 +2117,7 @@ describe("PublicFormPage", () => {
         title: "Public form",
       },
       plateContent: completionTargetPlateContent({ answerableTarget: true }),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       completionTargetPageId: "section-complete-vip",
@@ -2078,7 +2133,7 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -2132,7 +2187,7 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       responses: [
@@ -2147,7 +2202,7 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -2199,7 +2254,7 @@ describe("PublicFormPage", () => {
         title: "S28 section branching form",
       },
       plateContent: sectionBranchingPlateContent(),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     formBodyMockState.submitData = {
       responses: [
@@ -2214,7 +2269,7 @@ describe("PublicFormPage", () => {
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {
@@ -2286,11 +2341,11 @@ describe("PublicFormPage", () => {
           children: [{ text: "Name" }],
         },
       ]),
-      structure: { settings: { require_fingerprint: false } },
+      structure: { settings: {} },
     };
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     apiMocks.submitPost.mockReturnValue("submit-request");
-    apiMocks.rpc.mockImplementation(async (request) =>
+    mockPublicRpc(async (request) =>
       request === "telemetry-request"
         ? { token: "telemetry-token" }
         : {

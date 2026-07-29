@@ -60,6 +60,12 @@ const fetchPublicForm = (publicId: string) =>
 const responsesSchema = z.array(responsePayloadItemSchema);
 const formSecurityBypassToken = "form-security-dev-bypass";
 const MAX_FINGERPRINTS_FOR_SUBMIT = 200;
+const fingerprintExchangeVersion = 1;
+const fingerprintTypeCode: Record<FingerprintType, number> = {
+  browser: 1,
+  fingerprintjs: 2,
+  thumbmarkjs: 3,
+};
 
 const hasPublicSubmitTelemetryToken = (
   token: PublicSubmitTelemetryToken | undefined,
@@ -133,6 +139,86 @@ function buildFingerprintPayloadForSubmit(
       name,
       value_hash,
     }));
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+}
+
+async function xorWithDerivedStream(
+  payload: Uint8Array,
+  seed: string,
+): Promise<Uint8Array> {
+  const output = new Uint8Array(payload.length);
+  const encoder = new TextEncoder();
+  let offset = 0;
+  let counter = 0;
+  while (offset < payload.length) {
+    const block = new Uint8Array(
+      await crypto.subtle.digest(
+        "SHA-256",
+        encoder.encode(`${seed}:${counter}`),
+      ),
+    );
+    for (const byte of block) {
+      if (offset >= payload.length) break;
+      output[offset] = (payload[offset] ?? 0) ^ byte;
+      offset += 1;
+    }
+    counter += 1;
+  }
+  return output;
+}
+
+function randomClientNonce(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return base64UrlEncode(bytes);
+}
+
+async function buildFingerprintExchangeBlob(params: {
+  challengeToken: string;
+  exchangeNonce: string;
+  clientNonce: string;
+  fieldMap: [string, string, string];
+  componentOrder: number[];
+  fingerprints: { type: FingerprintType; name: string; value_hash: string }[];
+}): Promise<string> {
+  const [typeKey, nameKey, hashKey] = params.fieldMap;
+  const orderIndex = new Map(
+    params.componentOrder.map((code, index) => [code, index]),
+  );
+  const encodedEntries = params.fingerprints
+    .map((fingerprint, index) => ({
+      sortCode: fingerprintTypeCode[fingerprint.type],
+      originalIndex: index,
+      wire: {
+        [typeKey]: fingerprintTypeCode[fingerprint.type],
+        [nameKey]: fingerprint.name,
+        [hashKey]: fingerprint.value_hash,
+      } satisfies Record<string, string | number>,
+    }))
+    .sort((a, b) => {
+      const left = orderIndex.get(a.sortCode) ?? Number.MAX_SAFE_INTEGER;
+      const right = orderIndex.get(b.sortCode) ?? Number.MAX_SAFE_INTEGER;
+      if (left !== right) return left - right;
+      return a.originalIndex - b.originalIndex;
+    })
+    .map((entry) => entry.wire);
+  const plaintext = new TextEncoder().encode(JSON.stringify(encodedEntries));
+  const seed = [
+    params.challengeToken,
+    params.exchangeNonce,
+    params.clientNonce,
+  ].join("\0");
+  return base64UrlEncode(await xorWithDerivedStream(plaintext, seed));
 }
 
 interface PublicFormPageState {
@@ -520,8 +606,7 @@ function PublicFormPageInner() {
   usePageTitle(formData?.form?.title ?? "公開フォーム");
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
-  const requireFingerprint =
-    formData?.structure?.settings?.require_fingerprint !== false;
+  const requireSecurityCheck = true;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
   const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
   const publicFormBodyReady = Boolean(
@@ -611,10 +696,10 @@ function PublicFormPageInner() {
           );
         }
 
-        // フィンガープリントの収集（設定で要求されている場合のみ）
+        // セキュリティ確認
         let collectedFp = fingerprints;
         if (
-          requireFingerprint &&
+          requireSecurityCheck &&
           !formSecurityBypassEnabled &&
           collectedFp.length === 0
         ) {
@@ -622,18 +707,56 @@ function PublicFormPageInner() {
         }
 
         const fingerprintsPayload =
-          requireFingerprint && !formSecurityBypassEnabled
+          requireSecurityCheck && !formSecurityBypassEnabled
             ? buildFingerprintPayloadForSubmit(collectedFp)
             : [];
 
         if (
-          requireFingerprint &&
+          requireSecurityCheck &&
           !formSecurityBypassEnabled &&
           fingerprintsPayload.length === 0
         ) {
           throw new Error(
-            "フィンガープリントの収集に失敗しました。ページを再読み込みしてください。",
+            "セキュリティ確認に失敗しました。ページを再読み込みしてください。",
           );
+        }
+
+        let securityVerificationToken: string | undefined;
+        if (requireSecurityCheck && !formSecurityBypassEnabled) {
+          const exchangeOpen = await rpc(
+            client.api.forms.public[":publicId"].exchange.open.$post({
+              param: { publicId },
+            }),
+          );
+          if (
+            exchangeOpen.v !== fingerprintExchangeVersion ||
+            exchangeOpen.m.length !== 3
+          ) {
+            throw new Error(
+              "セキュリティ確認の初期化に失敗しました。ページを再読み込みしてください。",
+            );
+          }
+          const clientNonce = randomClientNonce();
+          const blob = await buildFingerprintExchangeBlob({
+            challengeToken: exchangeOpen.r,
+            exchangeNonce: exchangeOpen.n,
+            clientNonce,
+            fieldMap: [exchangeOpen.m[0], exchangeOpen.m[1], exchangeOpen.m[2]],
+            componentOrder: exchangeOpen.o,
+            fingerprints: fingerprintsPayload,
+          });
+          const exchangeClose = await rpc(
+            client.api.forms.public[":publicId"].exchange.close.$post({
+              param: { publicId },
+              json: {
+                r: exchangeOpen.r,
+                v: fingerprintExchangeVersion,
+                n: clientNonce,
+                b: blob,
+              },
+            }),
+          );
+          securityVerificationToken = exchangeClose.t;
         }
 
         // ページ読み込み時に取得済みのテレメトリトークンを使用する
@@ -677,7 +800,7 @@ function PublicFormPageInner() {
               responses: parsedInput.data,
               captchaToken,
               telemetry: telemetryToken,
-              fingerprints: fingerprintsPayload,
+              securityVerificationToken,
             },
           }),
         );
@@ -735,14 +858,13 @@ function PublicFormPageInner() {
       formSecurityBypassEnabled,
       hCaptchaBypassEnabled,
       fingerprints,
-      requireFingerprint,
-      collectFingerprints,
       publicSubmitTelemetryToken,
-      publicSubmitTelemetryTokenError,
-      isPublicSubmitTelemetryTokenFetching,
-      isPublicSubmitTelemetryTokenPending,
       refetchPublicSubmitTelemetryToken,
       publicId,
+      collectFingerprints,
+      publicSubmitTelemetryTokenError,
+      isPublicSubmitTelemetryTokenPending,
+      isPublicSubmitTelemetryTokenFetching,
       clearAnswers,
     ],
   );

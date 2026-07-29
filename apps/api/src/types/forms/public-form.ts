@@ -43,37 +43,25 @@ export const FormResponsesSchema = z.record(
 );
 
 // 公開フォーム送信リクエストの型定義
-export const PublicFormSubmissionSchema = z.object({
-  formId: z.string().min(1, "フォームIDは必須です"),
-  responses: z.array(ResponseData), // 配列形式のみ
-  submittedAt: z.string().datetime("有効な日時形式で入力してください"),
-  captchaToken: z.string().min(1, "hCaptchaトークンは必須です"),
-  telemetry: z
-    .object({
-      v4Token: z.string().optional(),
-      v6Token: z.string().optional(),
-    })
-    .refine(
-      (data) => data.v4Token || data.v6Token,
-      "IPv4またはIPv6のテレメトリトークンが少なくとも1つ必要です",
-    ),
-  fingerprints: z
-    .array(
-      z.object({
-        type: z.enum(["fingerprintjs", "thumbmarkjs"]),
-        name: z.string(),
-        value_hash: z.string(),
-      }),
-    )
-    .nonempty("フィンガープリントは必須です")
-    .refine(
-      (arr) => {
-        const types = new Set(arr.map((a) => a.type));
-        return types.has("fingerprintjs") && types.has("thumbmarkjs");
-      },
-      { message: "fingerprintjs と thumbmarkjs が必須です" },
-    ),
-});
+export const PublicFormSubmissionSchema = z
+  .object({
+    formId: z.string().min(1, "フォームIDは必須です"),
+    responses: z.array(ResponseData), // 配列形式のみ
+    submittedAt: z.string().datetime("有効な日時形式で入力してください"),
+    captchaToken: z.string().min(1, "hCaptchaトークンは必須です"),
+    telemetry: z
+      .object({
+        v4Token: z.string().optional(),
+        v6Token: z.string().optional(),
+      })
+      .strict()
+      .refine(
+        (data) => data.v4Token || data.v6Token,
+        "セキュリティ確認に必要なトークンが不足しています",
+      ),
+    securityVerificationToken: z.string().optional(),
+  })
+  .strict();
 
 export type PublicFormSubmission = z.infer<typeof PublicFormSubmissionSchema>;
 
