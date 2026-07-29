@@ -56,6 +56,15 @@ function isDuplicateKeyError(error: unknown): boolean {
   return record.code === "ER_DUP_ENTRY" || record.errno === 1062;
 }
 
+class CandidatePairLimitExceededError extends Error {
+  constructor(limit: number) {
+    super(
+      `Response link analysis candidate pair limit exceeded before a complete shadow result could be produced: ${limit}`,
+    );
+    this.name = "CandidatePairLimitExceededError";
+  }
+}
+
 function affectedRows(result: unknown): number | null {
   if (!result || typeof result !== "object") return null;
   if (Array.isArray(result)) return affectedRows(result[0]);
@@ -563,6 +572,9 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
+    if (truncated) {
+      throw new CandidatePairLimitExceededError(maxCandidatePairs);
+    }
     const links: ResponsePairLinkEvaluation[] = [];
 
     let processedCandidatePairCount = 0;
@@ -590,7 +602,6 @@ export async function analyzeResponseLinks(
       metadataJson: {
         candidatePairCount: candidatePairs.size,
         candidatePairLimit: maxCandidatePairs,
-        candidatePairsTruncated: truncated,
         responsePopulationLimit: DEFAULT_ANALYSIS_RESPONSE_LIMIT,
         responsePopulationTruncated,
         skippedCandidateBucketCount: skippedBucketCount,

@@ -268,7 +268,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("persists truncated shadow results when the candidate cap is exceeded", async () => {
+  it("marks the run as FAILED when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -276,24 +276,20 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    const result = await analyzeResponseLinks("form-1", {
-      maxCandidatePairs: 10,
-    });
+    await expect(
+      analyzeResponseLinks("form-1", {
+        maxCandidatePairs: 10,
+      }),
+    ).rejects.toThrow("candidate pair limit exceeded");
 
-    expect(result.linkCount).toBe(10);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
-    expect(pairInsert?.values).toHaveLength(10);
-    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(pairInsert).toBeUndefined();
+    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadataJson: expect.objectContaining({
-          candidatePairCount: 10,
-          candidatePairLimit: 10,
-          candidatePairsTruncated: true,
-        }),
-        status: "COMPLETED",
+        status: "FAILED",
       }),
     );
   });

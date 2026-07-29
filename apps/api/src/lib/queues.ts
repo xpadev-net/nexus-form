@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   addJobWithCleanup,
   FORM_SUBMIT_NOTIFICATION_QUEUE,
@@ -137,7 +136,7 @@ function isActiveJobState(state: unknown): boolean {
 }
 
 function responseLinkOverflowJobId(formId: string): string {
-  return `response-link-analysis.${formId}.overflow.${randomUUID()}`;
+  return `response-link-analysis.${formId}.overflow`;
 }
 
 export async function enqueueResponseLinkAnalysisJob(params: {

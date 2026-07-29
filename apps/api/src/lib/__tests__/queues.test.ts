@@ -305,9 +305,7 @@ describe("queues", () => {
       { formId: "form-1", reason: "response-deleted" },
       {
         delay: 10_000,
-        jobId: expect.stringMatching(
-          /^response-link-analysis\.form-1\.overflow\./,
-        ),
+        jobId: "response-link-analysis.form-1.overflow",
       },
     );
   });
