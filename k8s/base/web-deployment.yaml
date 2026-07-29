@@ -49,6 +49,16 @@ spec:
               name: nexus-form-config
               key: VITE_FORM_SECURITY_DEV_BYPASS
               optional: true
+        - name: VITE_CAPTCHA_PROVIDER
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_CAPTCHA_PROVIDER
+        - name: VITE_TURNSTILE_SITE_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: nexus-form-config
+              key: VITE_TURNSTILE_SITE_KEY
         - name: VITE_HCAPTCHA_SITE_KEY
           valueFrom:
             configMapKeyRef:

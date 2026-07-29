@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { parseCaptchaProvider } from "@nexus-form/shared";
 import { z } from "zod";
 import { isHCaptchaBypassEnabled } from "./form-security-bypass";
 
@@ -12,6 +14,15 @@ const HCaptchaResponseSchema = z.object({
   "error-codes": z.array(z.string()).optional(),
   score: z.number().optional(),
   score_reason: z.array(z.string()).optional(),
+});
+
+const TurnstileResponseSchema = z.object({
+  success: z.boolean(),
+  challenge_ts: z.string().optional(),
+  hostname: z.string().optional(),
+  "error-codes": z.array(z.string()).optional(),
+  action: z.string().optional(),
+  cdata: z.string().optional(),
 });
 
 /**
@@ -63,6 +74,16 @@ export class HCaptchaVerificationError extends Error {
   }
 }
 
+export class CaptchaVerificationError extends Error {
+  constructor(
+    message: string,
+    public readonly errorCodes?: string[],
+  ) {
+    super(message);
+    this.name = "CaptchaVerificationError";
+  }
+}
+
 /**
  * hCaptchaシークレットキーを取得
  */
@@ -71,6 +92,16 @@ function getSecretKey(): string {
   if (!secretKey) {
     throw new HCaptchaVerificationError(
       "HCAPTCHA_SECRET_KEY is not configured in environment variables",
+    );
+  }
+  return secretKey;
+}
+
+function getTurnstileSecretKey(): string {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+  if (!secretKey) {
+    throw new CaptchaVerificationError(
+      "TURNSTILE_SECRET_KEY is not configured in environment variables",
     );
   }
   return secretKey;
@@ -92,9 +123,19 @@ function normalizeHostname(value: string | undefined): string | null {
 function collectExpectedHostnames(
   optionHostnames: string[] | undefined,
 ): Set<string> {
+  return collectProviderExpectedHostnames(
+    optionHostnames,
+    process.env.HCAPTCHA_EXPECTED_HOSTNAMES,
+  );
+}
+
+function collectProviderExpectedHostnames(
+  optionHostnames: string[] | undefined,
+  providerExpectedHostnames: string | undefined,
+): Set<string> {
   const candidates = [
     ...(optionHostnames ?? []),
-    ...(process.env.HCAPTCHA_EXPECTED_HOSTNAMES?.split(",") ?? []),
+    ...(providerExpectedHostnames?.split(",") ?? []),
     process.env.VITE_BASE_URL,
     ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
   ];
@@ -106,14 +147,24 @@ function collectExpectedHostnames(
   );
 }
 
+function collectTurnstileExpectedHostnames(
+  optionHostnames: string[] | undefined,
+): Set<string> {
+  return collectProviderExpectedHostnames(
+    optionHostnames,
+    process.env.TURNSTILE_EXPECTED_HOSTNAMES,
+  );
+}
+
 function validateHostname(
   hostname: string | undefined,
   expectedHostnames: Set<string>,
+  providerLabel = "hCaptcha",
 ): HCaptchaVerifyResult | null {
   if (expectedHostnames.size === 0) {
     return {
       success: false,
-      errorMessage: "hCaptcha expected hostname is not configured",
+      errorMessage: `${providerLabel} expected hostname is not configured`,
     };
   }
 
@@ -121,7 +172,7 @@ function validateHostname(
   if (!normalizedHostname || !expectedHostnames.has(normalizedHostname)) {
     return {
       success: false,
-      errorMessage: "hCaptcha hostname mismatch",
+      errorMessage: `${providerLabel} hostname mismatch`,
     };
   }
   return null;
@@ -131,11 +182,12 @@ function validateChallengeTimestamp(
   challengeTs: string | undefined,
   maxChallengeAgeMs: number,
   clockSkewMs: number,
+  providerLabel = "hCaptcha",
 ): HCaptchaVerifyResult | null {
   if (!challengeTs) {
     return {
       success: false,
-      errorMessage: "hCaptcha challenge timestamp is missing",
+      errorMessage: `${providerLabel} challenge timestamp is missing`,
     };
   }
 
@@ -143,7 +195,7 @@ function validateChallengeTimestamp(
   if (Number.isNaN(challengeTime)) {
     return {
       success: false,
-      errorMessage: "hCaptcha challenge timestamp is invalid",
+      errorMessage: `${providerLabel} challenge timestamp is invalid`,
     };
   }
 
@@ -151,13 +203,13 @@ function validateChallengeTimestamp(
   if (ageMs < -clockSkewMs) {
     return {
       success: false,
-      errorMessage: "hCaptcha challenge timestamp is in the future",
+      errorMessage: `${providerLabel} challenge timestamp is in the future`,
     };
   }
   if (ageMs > maxChallengeAgeMs) {
     return {
       success: false,
-      errorMessage: "hCaptcha challenge timestamp is too old",
+      errorMessage: `${providerLabel} challenge timestamp is too old`,
     };
   }
   return null;
@@ -171,6 +223,9 @@ async function fetchWithRetry(
   options: RequestInit,
   maxRetries: number,
   timeout: number,
+  failureLabel = "hCaptcha token",
+  createVerificationError: (message: string) => Error = (message) =>
+    new HCaptchaVerificationError(message),
 ): Promise<Response> {
   let lastError: Error | null = null;
 
@@ -198,8 +253,8 @@ async function fetchWithRetry(
     }
   }
 
-  throw new HCaptchaVerificationError(
-    `Failed to verify hCaptcha token after ${maxRetries + 1} attempts: ${lastError?.message}`,
+  throw createVerificationError(
+    `Failed to verify ${failureLabel} after ${maxRetries + 1} attempts: ${lastError?.message}`,
   );
 }
 
@@ -349,6 +404,122 @@ export async function verifyHCaptchaToken(
   }
 }
 
+export async function verifyTurnstileToken(
+  token: string,
+  options: HCaptchaVerifyOptions = {},
+): Promise<HCaptchaVerifyResult> {
+  if (isHCaptchaBypassEnabled()) {
+    return { success: true };
+  }
+
+  const {
+    timeout = 5000,
+    maxRetries = 3,
+    remoteip,
+    sitekey,
+    expectedHostnames,
+    maxChallengeAgeMs = 5 * 60 * 1000,
+    clockSkewMs = 60 * 1000,
+  } = options;
+
+  if (!token || typeof token !== "string" || token.trim() === "") {
+    return {
+      success: false,
+      errorMessage: "Invalid token: token must be a non-empty string",
+    };
+  }
+
+  try {
+    const secretKey = getTurnstileSecretKey();
+    const params = new URLSearchParams({
+      secret: secretKey,
+      response: token,
+      idempotency_key: randomUUID(),
+    });
+
+    if (remoteip) {
+      params.append("remoteip", remoteip);
+    }
+
+    if (sitekey) {
+      params.append("sitekey", sitekey);
+    }
+
+    const response = await fetchWithRetry(
+      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: params.toString(),
+      },
+      maxRetries,
+      timeout,
+      "Turnstile token",
+      (message) => new CaptchaVerificationError(message),
+    );
+
+    if (!response.ok) {
+      throw new CaptchaVerificationError(
+        `Turnstile API returned status ${response.status}`,
+      );
+    }
+
+    const data = await response.json();
+    const validatedData = TurnstileResponseSchema.parse(data);
+
+    if (!validatedData.success) {
+      return {
+        success: false,
+        errorCodes: validatedData["error-codes"],
+        errorMessage: `Turnstile verification failed: ${validatedData["error-codes"]?.join(", ") || "Unknown error"}`,
+      };
+    }
+
+    const hostnameError = validateHostname(
+      validatedData.hostname,
+      collectTurnstileExpectedHostnames(expectedHostnames),
+      "Turnstile",
+    );
+    if (hostnameError) return hostnameError;
+
+    const timestampError = validateChallengeTimestamp(
+      validatedData.challenge_ts,
+      maxChallengeAgeMs,
+      clockSkewMs,
+      "Turnstile",
+    );
+    if (timestampError) return timestampError;
+
+    return { success: true };
+  } catch (error) {
+    if (error instanceof CaptchaVerificationError) {
+      throw error;
+    }
+
+    if (error instanceof z.ZodError) {
+      throw new CaptchaVerificationError(
+        `Invalid Turnstile API response: ${error.message}`,
+      );
+    }
+
+    throw new CaptchaVerificationError(
+      `Unexpected error during Turnstile verification: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export async function verifyCaptchaToken(
+  token: string,
+  options?: HCaptchaVerifyOptions,
+): Promise<HCaptchaVerifyResult> {
+  const provider = parseCaptchaProvider(process.env.CAPTCHA_PROVIDER);
+  return provider === "turnstile"
+    ? verifyTurnstileToken(token, options)
+    : verifyHCaptchaToken(token, options);
+}
+
 /**
  * hCaptchaトークンを検証（シンプル版、boolean返却）
  *
@@ -367,10 +538,16 @@ export async function verifyHCaptcha(
   token: string,
   options?: HCaptchaVerifyOptions,
 ): Promise<boolean> {
+  const provider = parseCaptchaProvider(process.env.CAPTCHA_PROVIDER);
   try {
-    const result = await verifyHCaptchaToken(token, options);
+    const result =
+      provider === "turnstile"
+        ? await verifyTurnstileToken(token, options)
+        : await verifyHCaptchaToken(token, options);
     return result.success;
   } catch {
     return false;
   }
 }
+
+export const verifyCaptcha = verifyHCaptcha;

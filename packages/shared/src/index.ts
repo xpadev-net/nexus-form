@@ -36,6 +36,12 @@ export {
   createBrandConfig,
   DEFAULT_BRAND_CONFIG,
 } from "./branding";
+export type { CaptchaProvider } from "./captcha";
+export {
+  CAPTCHA_PROVIDERS,
+  captchaProviderSchema,
+  parseCaptchaProvider,
+} from "./captcha";
 export {
   COMPONENT_WEIGHTS,
   DEFAULT_COMPONENT_WEIGHT,

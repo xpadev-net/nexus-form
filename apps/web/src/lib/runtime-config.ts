@@ -1,13 +1,19 @@
+import { captchaProviderSchema } from "@nexus-form/shared";
 import { z } from "zod";
 
 const runtimeConfigSchema = z.object({
   apiUrl: z.string().optional().catch(undefined),
   baseUrl: z.string().optional().catch(undefined),
+  captchaProvider: captchaProviderSchema
+    .or(z.literal(""))
+    .optional()
+    .catch(undefined),
   formSecurityDevBypass: z.string().optional().catch(undefined),
   hcaptchaSiteKey: z.string().optional().catch(undefined),
   telemetryHost: z.string().optional().catch(undefined),
   telemetryV4Host: z.string().optional().catch(undefined),
   telemetryV6Host: z.string().optional().catch(undefined),
+  turnstileSiteKey: z.string().optional().catch(undefined),
 });
 
 export type RuntimeConfig = z.infer<typeof runtimeConfigSchema>;

@@ -1,24 +1,37 @@
+import { captchaProviderSchema } from "@nexus-form/shared";
 import type { RuntimeConfig } from "./runtime-config";
 
 type RuntimeConfigEnv = {
   VITE_API_URL?: string;
   VITE_BASE_URL?: string;
+  VITE_CAPTCHA_PROVIDER?: string;
   VITE_FORM_SECURITY_DEV_BYPASS?: string;
   VITE_HCAPTCHA_SITE_KEY?: string;
   VITE_TELEMETRY_HOST?: string;
   VITE_TELEMETRY_V4_HOST?: string;
   VITE_TELEMETRY_V6_HOST?: string;
+  VITE_TURNSTILE_SITE_KEY?: string;
 };
 
+/**
+ * RuntimeConfigEnvからブラウザへ注入するRuntimeConfigを作成します。
+ * 未指定の環境変数は空文字へフォールバックし、captchaProviderとturnstileSiteKeyも含めて返します。
+ */
 export function createRuntimeConfig(env: RuntimeConfigEnv): RuntimeConfig {
+  const captchaProvider = captchaProviderSchema.safeParse(
+    env.VITE_CAPTCHA_PROVIDER?.trim(),
+  );
+
   return {
     apiUrl: env.VITE_API_URL ?? "",
     baseUrl: env.VITE_BASE_URL ?? "",
+    captchaProvider: captchaProvider.success ? captchaProvider.data : "",
     formSecurityDevBypass: env.VITE_FORM_SECURITY_DEV_BYPASS ?? "",
     hcaptchaSiteKey: env.VITE_HCAPTCHA_SITE_KEY ?? "",
     telemetryHost: env.VITE_TELEMETRY_HOST ?? "",
     telemetryV4Host: env.VITE_TELEMETRY_V4_HOST ?? "",
     telemetryV6Host: env.VITE_TELEMETRY_V6_HOST ?? "",
+    turnstileSiteKey: env.VITE_TURNSTILE_SITE_KEY ?? "",
   };
 }
 

@@ -111,61 +111,65 @@ vi.mock("platejs/react", () => ({
   useElement: () => elementHarness.current,
 }));
 
-vi.mock("@nexus-form/shared", () => ({
-  extractTitleFromChildren: (children: Array<{ text?: string }>) =>
-    children.map((child) => child.text ?? "").join(""),
-  fromPlateQuestionType: (type: string) => type,
-  isCompletionTargetPage: (page: { questionIds: string[] }) =>
-    page.questionIds.length === 0,
-  isPlateQuestionType: (type: unknown) =>
-    typeof type === "string" &&
-    type.startsWith("form_") &&
-    type !== "form_section_separator",
-  splitPlateContentIntoPages: (nodes: unknown[]) => {
-    const pages: Array<{
-      pageId: string;
-      title?: string;
-      nodes: unknown[];
-      questionIds: string[];
-    }> = [];
-    let currentPageId = "default";
-    let currentTitle: string | undefined;
-    let currentNodes: unknown[] = [];
+vi.mock("@nexus-form/shared", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@nexus-form/shared")>();
+  return {
+    ...actual,
+    extractTitleFromChildren: (children: Array<{ text?: string }>) =>
+      children.map((child) => child.text ?? "").join(""),
+    fromPlateQuestionType: (type: string) => type,
+    isCompletionTargetPage: (page: { questionIds: string[] }) =>
+      page.questionIds.length === 0,
+    isPlateQuestionType: (type: unknown) =>
+      typeof type === "string" &&
+      type.startsWith("form_") &&
+      type !== "form_section_separator",
+    splitPlateContentIntoPages: (nodes: unknown[]) => {
+      const pages: Array<{
+        pageId: string;
+        title?: string;
+        nodes: unknown[];
+        questionIds: string[];
+      }> = [];
+      let currentPageId = "default";
+      let currentTitle: string | undefined;
+      let currentNodes: unknown[] = [];
 
-    for (const node of nodes) {
-      if (
-        node != null &&
-        typeof node === "object" &&
-        "type" in node &&
-        node.type === "form_section_separator"
-      ) {
-        pages.push({
-          pageId: currentPageId,
-          title: currentTitle,
-          nodes: currentNodes,
-          questionIds: [],
-        });
-        currentPageId =
-          "blockId" in node && typeof node.blockId === "string"
-            ? node.blockId
-            : `page-${pages.length}`;
-        currentTitle = "完了セクション";
-        currentNodes = [];
-      } else {
-        currentNodes.push(node);
+      for (const node of nodes) {
+        if (
+          node != null &&
+          typeof node === "object" &&
+          "type" in node &&
+          node.type === "form_section_separator"
+        ) {
+          pages.push({
+            pageId: currentPageId,
+            title: currentTitle,
+            nodes: currentNodes,
+            questionIds: [],
+          });
+          currentPageId =
+            "blockId" in node && typeof node.blockId === "string"
+              ? node.blockId
+              : `page-${pages.length}`;
+          currentTitle = "完了セクション";
+          currentNodes = [];
+        } else {
+          currentNodes.push(node);
+        }
       }
-    }
 
-    pages.push({
-      pageId: currentPageId,
-      title: currentTitle,
-      nodes: currentNodes,
-      questionIds: [],
-    });
+      pages.push({
+        pageId: currentPageId,
+        title: currentTitle,
+        nodes: currentNodes,
+        questionIds: [],
+      });
 
-    return pages;
-  },
-}));
+      return pages;
+    },
+  };
+});
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({
