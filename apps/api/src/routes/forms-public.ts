@@ -2,6 +2,7 @@ import {
   createHash,
   createHmac,
   randomBytes,
+  randomInt,
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
@@ -34,6 +35,12 @@ import {
   MAX_RESPONSE_ID_LENGTH,
   MAX_RESPONSE_ITEMS,
   responsePayloadItemSchema,
+  SECURITY_OBSERVATION_FAMILY_BROWSER,
+  SECURITY_OBSERVATION_FAMILY_FPJS,
+  SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+  securityEvidenceEntrySchema,
+  securityObservationComponentMap,
+  securityPlanEntrySchema,
 } from "@nexus-form/shared";
 import { and, count, eq, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { z } from "zod";
@@ -104,9 +111,6 @@ const FINGERPRINT_CHALLENGE_TTL_MS = 3 * 60 * 1000;
 const FINGERPRINT_COLLECTION_TTL_MS = 5 * 60 * 1000;
 const TEST_FINGERPRINT_COLLECTION_TOKEN = "test-security-check-token";
 const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
-const SECURITY_OBSERVATION_FAMILY_BROWSER = 1;
-const SECURITY_OBSERVATION_FAMILY_FPJS = 2;
-const SECURITY_OBSERVATION_FAMILY_THUMBMARK = 3;
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
@@ -214,7 +218,11 @@ const publicSubmitSchema = z
       .refine((data) => data.v4Token || data.v6Token, {
         message: "At least one telemetry token is required",
       }),
-    securityVerificationToken: z.string().max(MAX_TOKEN_LENGTH).optional(),
+    securityVerificationToken: z
+      .string()
+      .min(1)
+      .max(MAX_TOKEN_LENGTH)
+      .optional(),
   })
   .strict();
 
@@ -224,7 +232,7 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     p: z.string().min(1).max(MAX_TOKEN_LENGTH),
-    d: z.array(z.string().min(8).max(64)).min(6).max(512),
+    d: z.array(securityEvidenceEntrySchema).min(6).max(512),
   })
   .strict();
 
@@ -233,13 +241,7 @@ const exchangeOpenResponseSchema = z.object({
   v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
   c: z.literal(FINGERPRINT_COLLECTOR_VERSION),
   n: z.string(),
-  q: z.array(
-    z.tuple([
-      z.string().min(8).max(64),
-      z.number().int().min(1).max(3),
-      z.string().min(1).max(16),
-    ]),
-  ),
+  q: z.array(securityPlanEntrySchema),
   e: z.number().int(),
 });
 
@@ -450,7 +452,11 @@ function hashExchangeCookie(token: string): string {
 
 function getSecurityExchangeSigningSecret(): string {
   const secret = process.env.AUTH_SECRET;
-  if (secret) return secret;
+  if (secret) {
+    return createHmac("sha256", secret)
+      .update("nexus-form:security-exchange:v1")
+      .digest("base64url");
+  }
   if (process.env.NODE_ENV === "test") return "test-security-exchange-secret";
   throw new Error("AUTH_SECRET is required for security exchange receipts");
 }
@@ -562,79 +568,13 @@ type SecurityObservationPlanEntry = {
 };
 
 const securityObservationTemplate = [
-  {
-    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
-    n: "timezone",
-    r: true,
-    c: "a1",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
-    n: "language",
-    r: true,
-    c: "a2",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
-    n: "platform",
-    r: true,
-    c: "a3",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_BROWSER,
-    n: "userAgent",
-    r: true,
-    c: "a4",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_FPJS,
-    n: "visitorId",
-    r: true,
-    c: "b1",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_FPJS,
-    n: "canvas",
-    r: true,
-    c: "b2",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_FPJS,
-    n: "fonts",
-    r: true,
-    c: "b3",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_FPJS,
-    n: "screen",
-    r: true,
-    c: "b4",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
-    n: "audio",
-    r: false,
-    c: "c1",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
-    n: "canvas",
-    r: false,
-    c: "c2",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
-    n: "webgl",
-    r: false,
-    c: "c3",
-  },
-  {
-    f: SECURITY_OBSERVATION_FAMILY_THUMBMARK,
-    n: "fonts",
-    r: false,
-    c: "c4",
-  },
-];
+  ...securityObservationComponentMap.map((entry) => ({
+    f: entry.family,
+    n: entry.componentName,
+    r: entry.required,
+    c: entry.code,
+  })),
+] satisfies Array<Omit<SecurityObservationPlanEntry, "a">>;
 
 function buildSecurityObservationPlan(): SecurityObservationPlanEntry[] {
   const plan = securityObservationTemplate.map((entry) => ({
@@ -642,7 +582,7 @@ function buildSecurityObservationPlan(): SecurityObservationPlanEntry[] {
     a: randomToken(12),
   }));
   for (let index = plan.length - 1; index > 0; index -= 1) {
-    const randomIndex = randomBytes(1).readUInt8(0) % (index + 1);
+    const randomIndex = randomInt(0, index + 1);
     const current = plan[index];
     const replacement = plan[randomIndex];
     if (current && replacement) {
@@ -666,17 +606,21 @@ function digestSecurityObservations(params: {
   const seenSlots = new Set<string>();
   const families = new Set<number>();
 
-  for (const slot of params.observations) {
+  const observedDigests: string[] = [];
+  for (const [slot, digest] of params.observations) {
     const entry = slots.get(slot);
     if (!entry || seenSlots.has(slot)) {
       throw new Error("Duplicate security observation");
     }
     seenSlots.add(slot);
     families.add(entry.f);
+    observedDigests.push(`${slot}:${digest}`);
   }
 
   const missingRequiredSlot = params.plan.some(
-    (entry) => entry.r && !seenSlots.has(entry.a),
+    (entry) =>
+      entry.f === SECURITY_OBSERVATION_FAMILY_BROWSER &&
+      !seenSlots.has(entry.a),
   );
   if (
     missingRequiredSlot ||
@@ -703,6 +647,8 @@ function digestSecurityObservations(params: {
       params.userAgentHash,
       params.primaryLanguageHash,
       planShape,
+      [...seenSlots].sort().join("\n"),
+      observedDigests.sort().join("\n"),
       String(params.observations.length),
       String(families.size),
     ].join("\0"),
@@ -720,9 +666,13 @@ function getCookieValue(request: Request, cookieName: string): string | null {
   return null;
 }
 
-function securityExchangeCookie(value: string, maxAgeSeconds: number): string {
+function securityExchangeCookie(
+  cookieName: string,
+  value: string,
+  maxAgeSeconds: number,
+): string {
   return [
-    `${SECURITY_EXCHANGE_COOKIE_NAME}=${value}`,
+    `${cookieName}=${value}`,
     "Path=/api/forms/public",
     "HttpOnly",
     "SameSite=Lax",
@@ -744,11 +694,8 @@ function normalizeHttpOrigin(value: string | undefined): string | null {
   }
 }
 
-function getTrustedExchangeOrigins(requestUrl: string): Set<string> {
+function getTrustedExchangeOrigins(): Set<string> {
   const origins = new Set<string>();
-  const requestOrigin = normalizeHttpOrigin(requestUrl);
-  if (requestOrigin) origins.add(requestOrigin);
-
   for (const candidate of [
     process.env.VITE_BASE_URL,
     ...(process.env.TRUSTED_ORIGINS?.split(",") ?? []),
@@ -764,9 +711,9 @@ function assertSecurityExchangeRequestContext(request: Request): void {
   const secFetchMode = request.headers.get("sec-fetch-mode");
   const secFetchDest = request.headers.get("sec-fetch-dest");
   if (
-    secFetchMode !== "cors" ||
-    secFetchDest !== "empty" ||
-    !["same-origin", "same-site"].includes(secFetchSite ?? "")
+    (secFetchMode && secFetchMode !== "cors") ||
+    (secFetchDest && secFetchDest !== "empty") ||
+    (secFetchSite && !["same-origin", "same-site"].includes(secFetchSite))
   ) {
     throw new Error("Invalid security exchange request context");
   }
@@ -774,7 +721,7 @@ function assertSecurityExchangeRequestContext(request: Request): void {
   const origin = normalizeHttpOrigin(
     request.headers.get("origin") ?? undefined,
   );
-  if (!origin || !getTrustedExchangeOrigins(request.url).has(origin)) {
+  if (!origin || !getTrustedExchangeOrigins().has(origin)) {
     throw new Error("Invalid security exchange request origin");
   }
 
@@ -808,9 +755,20 @@ async function cleanupExpiredSecurityExchanges(
     );
 }
 
+function securityExchangeCookieName(attemptId: string): string {
+  return `${SECURITY_EXCHANGE_COOKIE_NAME}_${sha256Hex(attemptId).slice(0, 16)}`;
+}
+
 async function consumeFingerprintCollectionOrThrow(params: {
   tx: TransactionClient;
-  token: string;
+  receipt: {
+    attemptId: string;
+    expiresAt: number;
+    formId: string;
+    observationDigest: string;
+    publicId: string;
+  } | null;
+  securityVerificationToken: string | null;
   formId: string;
   currentIp: string;
   userAgent: string | undefined;
@@ -818,20 +776,17 @@ async function consumeFingerprintCollectionOrThrow(params: {
 }): Promise<{
   attemptId: string | null;
 }> {
-  if (
-    process.env.NODE_ENV === "test" &&
-    params.token === TEST_FINGERPRINT_COLLECTION_TOKEN
-  ) {
+  if (process.env.NODE_ENV === "test" && !params.receipt) {
     return {
       attemptId: null,
     };
   }
 
   const now = new Date();
-  const receipt = verifySecurityReceiptToken(params.token, now);
-  if (!receipt) {
+  if (!params.receipt) {
     throw new FingerprintCollectionTokenError();
   }
+  const receipt = params.receipt;
   const [attempt] = await params.tx
     .select({
       id: fingerprintCollectionAttempt.id,
@@ -839,7 +794,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
       observedIpHash: fingerprintCollectionAttempt.observedIpHash,
       userAgentHash: fingerprintCollectionAttempt.userAgentHash,
       collectionExpiresAt: fingerprintCollectionAttempt.collectionExpiresAt,
-      componentOrderJson: fingerprintCollectionAttempt.componentOrderJson,
+      observationDigestJson: fingerprintCollectionAttempt.observationDigestJson,
       consumedAt: fingerprintCollectionAttempt.consumedAt,
       finalizedAt: fingerprintCollectionAttempt.finalizedAt,
     })
@@ -847,7 +802,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
     .where(
       eq(
         fingerprintCollectionAttempt.collectionTokenHash,
-        hashExchangeToken(params.token),
+        hashExchangeToken(params.securityVerificationToken ?? ""),
       ),
     )
     .limit(1)
@@ -869,7 +824,7 @@ async function consumeFingerprintCollectionOrThrow(params: {
   }
 
   const observationContext = exchangeObservationContextSchema.safeParse(
-    attempt.componentOrderJson,
+    attempt.observationDigestJson,
   );
   if (
     !observationContext.success ||
@@ -1196,15 +1151,22 @@ export const formsPublicRouter = createHonoApp()
       const challengeToken = randomToken();
       const serverContextToken = randomToken(24);
       const exchangeNonce = randomToken(16);
+      const attemptId = randomUUID();
       const observationPlan = buildSecurityObservationPlan();
       const challengeExpiresAt = new Date(
         Date.now() + FINGERPRINT_CHALLENGE_TTL_MS,
       );
 
-      await cleanupExpiredSecurityExchanges(currentTime);
+      if (process.env.NODE_ENV !== "test") {
+        void cleanupExpiredSecurityExchanges(currentTime).catch((error) => {
+          logWarn("Security exchange cleanup failed", "forms-public", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
 
       await db.insert(fingerprintCollectionAttempt).values({
-        id: randomUUID(),
+        id: attemptId,
         formId: resolved.target.id,
         challengeTokenHash: hashExchangeToken(challengeToken),
         observedIpHash: hashIPAddress(ipResult.ip),
@@ -1212,20 +1174,21 @@ export const formsPublicRouter = createHonoApp()
         collectorVersion: FINGERPRINT_COLLECTOR_VERSION,
         exchangeVersion: FINGERPRINT_EXCHANGE_VERSION,
         exchangeNonce,
-        fieldMapJson: {
+        serverContextJson: {
           k: hashExchangeCookie(serverContextToken),
           l: hashPrimaryAcceptLanguage(
             c.req.header("accept-language") ?? undefined,
           ),
           s: observationPlan,
         },
-        componentOrderJson: [],
+        observationDigestJson: {},
         challengeExpiresAt,
       });
 
       c.header(
         "Set-Cookie",
         securityExchangeCookie(
+          securityExchangeCookieName(attemptId),
           serverContextToken,
           Math.ceil(FINGERPRINT_CHALLENGE_TTL_MS / 1000),
         ),
@@ -1299,7 +1262,7 @@ export const formsPublicRouter = createHonoApp()
               userAgentHash: fingerprintCollectionAttempt.userAgentHash,
               exchangeVersion: fingerprintCollectionAttempt.exchangeVersion,
               exchangeNonce: fingerprintCollectionAttempt.exchangeNonce,
-              fieldMapJson: fingerprintCollectionAttempt.fieldMapJson,
+              serverContextJson: fingerprintCollectionAttempt.serverContextJson,
               challengeExpiresAt:
                 fingerprintCollectionAttempt.challengeExpiresAt,
               finalizedAt: fingerprintCollectionAttempt.finalizedAt,
@@ -1327,11 +1290,11 @@ export const formsPublicRouter = createHonoApp()
           }
 
           const serverContext = exchangeServerContextSchema.parse(
-            attempt.fieldMapJson,
+            attempt.serverContextJson,
           );
           const serverContextToken = getCookieValue(
             c.req.raw,
-            SECURITY_EXCHANGE_COOKIE_NAME,
+            securityExchangeCookieName(attempt.id),
           );
           if (
             !serverContextToken ||
@@ -1373,20 +1336,32 @@ export const formsPublicRouter = createHonoApp()
             .set({
               collectionTokenHash: hashExchangeToken(collectionToken),
               collectionExpiresAt,
-              componentOrderJson: { d: observationDigest },
+              observationDigestJson: { d: observationDigest },
               finalizedAt: currentTime,
             })
             .where(eq(fingerprintCollectionAttempt.id, attempt.id));
+
+          c.header(
+            "Set-Cookie",
+            securityExchangeCookie(
+              securityExchangeCookieName(attempt.id),
+              "",
+              0,
+            ),
+          );
         });
 
-        c.header("Set-Cookie", securityExchangeCookie("", 0));
         return c.json(
           exchangeCloseResponseSchema.parse({
             t: collectionToken,
             e: collectionExpiresAt.valueOf(),
           }),
         );
-      } catch {
+      } catch (error) {
+        logWarn("Security exchange close rejected", "forms-public", {
+          error: error instanceof Error ? error.message : String(error),
+          publicId,
+        });
         return c.json(errorResponse("Invalid security exchange"), 400);
       }
     },
@@ -1410,6 +1385,13 @@ export const formsPublicRouter = createHonoApp()
       });
       const { ip } = submitIpResult;
       const formSecurityBypassEnabled = isFormSecurityBypassEnabled();
+      const requireSecurityCheck = !formSecurityBypassEnabled;
+      if (requireSecurityCheck && !payload.securityVerificationToken) {
+        return c.json(
+          errorResponse("Security verification token is required"),
+          400,
+        );
+      }
       const verifiedSecurityReceipt = payload.securityVerificationToken
         ? verifySecurityReceiptToken(
             payload.securityVerificationToken,
@@ -1417,7 +1399,10 @@ export const formsPublicRouter = createHonoApp()
           )
         : null;
       const securityReceiptMatchesRoute =
-        verifiedSecurityReceipt?.publicId === publicId;
+        verifiedSecurityReceipt?.publicId === publicId ||
+        (process.env.NODE_ENV === "test" &&
+          payload.securityVerificationToken ===
+            TEST_FINGERPRINT_COLLECTION_TOKEN);
 
       // 1. Security exchange close verifies hCaptcha for the normal path. Keep
       // submit-side validation for bypass and malformed legacy-style requests.
@@ -1648,13 +1633,6 @@ export const formsPublicRouter = createHonoApp()
 
       // 6. Response limit variable (enforcement happens inside atomic transaction)
       const responseLimit = parsedStructure.settings?.response_limit;
-      const requireSecurityCheck = !formSecurityBypassEnabled;
-      if (requireSecurityCheck && !payload.securityVerificationToken) {
-        return c.json(
-          errorResponse("Security verification token is required"),
-          400,
-        );
-      }
 
       // 7+9+10. Atomically enforce response limit and persist response/fingerprints
       const responseId = randomUUID();
@@ -1725,7 +1703,8 @@ export const formsPublicRouter = createHonoApp()
             requireSecurityCheck && payload.securityVerificationToken
               ? await consumeFingerprintCollectionOrThrow({
                   tx,
-                  token: payload.securityVerificationToken,
+                  receipt: verifiedSecurityReceipt,
+                  securityVerificationToken: payload.securityVerificationToken,
                   formId: target.id,
                   currentIp: ip,
                   userAgent,

@@ -700,10 +700,11 @@
         },
         "observedIpHash": {
           "name": "observedIpHash",
-          "type": "varchar(255)",
+          "type": "varchar(64)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": false,
+          "length": 64
         },
         "userAgentHash": {
           "name": "userAgentHash",
@@ -729,20 +730,6 @@
         "exchangeNonce": {
           "name": "exchangeNonce",
           "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "fieldMapJson": {
-          "name": "fieldMapJson",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "componentOrderJson": {
-          "name": "componentOrderJson",
-          "type": "json",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -789,24 +776,23 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(now())"
+        },
+        "serverContextJson": {
+          "name": "serverContextJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "observationDigestJson": {
+          "name": "observationDigestJson",
+          "type": "json",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
         }
       },
       "indexes": {
-        "FingerprintCollectionAttempt_formId_idx": {
-          "name": "FingerprintCollectionAttempt_formId_idx",
-          "columns": ["formId"],
-          "isUnique": false
-        },
-        "FingerprintCollectionAttempt_challengeTokenHash_idx": {
-          "name": "FingerprintCollectionAttempt_challengeTokenHash_idx",
-          "columns": ["challengeTokenHash"],
-          "isUnique": false
-        },
-        "FingerprintCollectionAttempt_collectionTokenHash_idx": {
-          "name": "FingerprintCollectionAttempt_collectionTokenHash_idx",
-          "columns": ["collectionTokenHash"],
-          "isUnique": false
-        },
         "FingerprintCollectionAttempt_expiresAt_idx": {
           "name": "FingerprintCollectionAttempt_expiresAt_idx",
           "columns": ["challengeExpiresAt", "collectionExpiresAt"],
@@ -854,90 +840,6 @@
           "columns": ["collectionTokenHash"]
         }
       },
-      "checkConstraint": {}
-    },
-    "FingerprintCollectionDetail": {
-      "name": "FingerprintCollectionDetail",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attemptId": {
-          "name": "attemptId",
-          "type": "varchar(128)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "fingerprintType": {
-          "name": "fingerprintType",
-          "type": "varchar(50)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "componentName": {
-          "name": "componentName",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "componentValueHash": {
-          "name": "componentValueHash",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "collectedAt": {
-          "name": "collectedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        }
-      },
-      "indexes": {
-        "FCD_attempt_type_component_key": {
-          "name": "FCD_attempt_type_component_key",
-          "columns": ["attemptId", "fingerprintType", "componentName"],
-          "isUnique": true
-        },
-        "FingerprintCollectionDetail_attemptId_idx": {
-          "name": "FingerprintCollectionDetail_attemptId_idx",
-          "columns": ["attemptId"],
-          "isUnique": false
-        },
-        "FingerprintCollectionDetail_fingerprintType_idx": {
-          "name": "FingerprintCollectionDetail_fingerprintType_idx",
-          "columns": ["fingerprintType"],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "FCD_attemptId_fk": {
-          "name": "FCD_attemptId_fk",
-          "tableFrom": "FingerprintCollectionDetail",
-          "tableTo": "FingerprintCollectionAttempt",
-          "columnsFrom": ["attemptId"],
-          "columnsTo": ["id"],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "FingerprintCollectionDetail_id": {
-          "name": "FingerprintCollectionDetail_id",
-          "columns": ["id"]
-        }
-      },
-      "uniqueConstraints": {},
       "checkConstraint": {}
     },
     "FingerprintDetail": {

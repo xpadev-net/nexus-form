@@ -168,7 +168,9 @@ export const formSchedule = mysqlTable(
   "FormSchedule",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 }).notNull(),
+    formId: varchar("formId", { length: 128 })
+      .notNull()
+      .references(() => form.id, { onDelete: "cascade" }),
     triggerAt: timestamp("triggerAt").notNull(),
     action: formScheduleActionEnum.notNull(),
     snapshotVersion: int("snapshotVersion"),
@@ -235,9 +237,7 @@ export const formPermission = mysqlTable(
   "FormPermission",
   {
     id: varchar("id", { length: 128 }).primaryKey(),
-    formId: varchar("formId", { length: 128 })
-      .notNull()
-      .references(() => form.id, { onDelete: "cascade" }),
+    formId: varchar("formId", { length: 128 }).notNull(),
     userId: varchar("userId", { length: 191 })
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -534,13 +534,13 @@ export const fingerprintCollectionAttempt = mysqlTable(
     collectionTokenHash: varchar("collectionTokenHash", {
       length: 64,
     }).unique(),
-    observedIpHash: varchar("observedIpHash", { length: 255 }).notNull(),
+    observedIpHash: varchar("observedIpHash", { length: 64 }).notNull(),
     userAgentHash: varchar("userAgentHash", { length: 64 }).notNull(),
     collectorVersion: varchar("collectorVersion", { length: 64 }).notNull(),
     exchangeVersion: int("exchangeVersion").notNull(),
     exchangeNonce: varchar("exchangeNonce", { length: 64 }).notNull(),
-    fieldMapJson: json("fieldMapJson").notNull(),
-    componentOrderJson: json("componentOrderJson").notNull(),
+    serverContextJson: json("serverContextJson").notNull(),
+    observationDigestJson: json("observationDigestJson").notNull(),
     challengeExpiresAt: timestamp("challengeExpiresAt").notNull(),
     collectionExpiresAt: timestamp("collectionExpiresAt"),
     finalizedAt: timestamp("finalizedAt"),
@@ -551,13 +551,6 @@ export const fingerprintCollectionAttempt = mysqlTable(
     createdAt: timestamp("createdAt").defaultNow().notNull(),
   },
   (table) => [
-    index("FingerprintCollectionAttempt_formId_idx").on(table.formId),
-    index("FingerprintCollectionAttempt_challengeTokenHash_idx").on(
-      table.challengeTokenHash,
-    ),
-    index("FingerprintCollectionAttempt_collectionTokenHash_idx").on(
-      table.collectionTokenHash,
-    ),
     index("FingerprintCollectionAttempt_expiresAt_idx").on(
       table.challengeExpiresAt,
       table.collectionExpiresAt,
@@ -573,36 +566,6 @@ export const fingerprintCollectionAttempt = mysqlTable(
       foreignColumns: [formResponse.id],
       name: "FCA_consumedResponseId_fk",
     }).onDelete("set null"),
-  ],
-);
-
-export const fingerprintCollectionDetail = mysqlTable(
-  "FingerprintCollectionDetail",
-  {
-    id: varchar("id", { length: 128 }).primaryKey(),
-    attemptId: varchar("attemptId", { length: 128 }).notNull(),
-    fingerprintType: varchar("fingerprintType", { length: 50 }).notNull(),
-    componentName: varchar("componentName", { length: 255 }).notNull(),
-    componentValueHash: varchar("componentValueHash", {
-      length: 255,
-    }).notNull(),
-    collectedAt: timestamp("collectedAt").defaultNow().notNull(),
-  },
-  (table) => [
-    uniqueIndex("FCD_attempt_type_component_key").on(
-      table.attemptId,
-      table.fingerprintType,
-      table.componentName,
-    ),
-    index("FingerprintCollectionDetail_attemptId_idx").on(table.attemptId),
-    index("FingerprintCollectionDetail_fingerprintType_idx").on(
-      table.fingerprintType,
-    ),
-    foreignKey({
-      columns: [table.attemptId],
-      foreignColumns: [fingerprintCollectionAttempt.id],
-      name: "FCD_attemptId_fk",
-    }).onDelete("cascade"),
   ],
 );
 

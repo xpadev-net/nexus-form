@@ -238,6 +238,10 @@ function securityPlan(): Array<[string, number, string]> {
   ];
 }
 
+function testDigest(index: number): string {
+  return index.toString(16).repeat(64);
+}
+
 function mockPublicRpc(
   handler: (request: unknown) => Promise<unknown> | unknown,
 ) {
@@ -553,12 +557,10 @@ describe("PublicFormPage", () => {
     vi.stubEnv("VITE_BRAND_PRIVACY_URL", "");
     vi.stubEnv("VITE_BRAND_TERMS_URL", "");
     vi.stubGlobal("crypto", {
+      ...(globalThis.crypto ?? {}),
       getRandomValues: (bytes: Uint8Array) => {
         bytes.fill(7);
         return bytes;
-      },
-      subtle: {
-        digest: async () => new Uint8Array(32).buffer,
       },
     });
     window.__BRAND_CONFIG__ = undefined;
@@ -607,19 +609,6 @@ describe("PublicFormPage", () => {
     apiMocks.telemetryPost.mockReturnValue("telemetry-request");
     mockPublicRpc(async (request) => {
       if (request === "telemetry-request") return { token: "telemetry-token" };
-      if (request === "exchange-open-request") {
-        return {
-          r: "challenge-token",
-          v: 1,
-          c: "nf-web-1",
-          n: "server-nonce",
-          q: securityPlan(),
-          e: Date.now() + 60_000,
-        };
-      }
-      if (request === "exchange-close-request") {
-        return { t: "collection-token", e: Date.now() + 60_000 };
-      }
       return undefined;
     });
     requiredValidationMock.findUnansweredRequired.mockReset();
@@ -1099,22 +1088,22 @@ describe("PublicFormPage", () => {
       {
         fingerprintType: "browser",
         components: [
-          { componentName: "timezone", componentValueHash: "hash-timezone" },
-          { componentName: "language", componentValueHash: "hash-language" },
-          { componentName: "platform", componentValueHash: "hash-platform" },
-          { componentName: "userAgent", componentValueHash: "hash-user-agent" },
+          { componentName: "timezone", componentValueHash: testDigest(0) },
+          { componentName: "language", componentValueHash: testDigest(1) },
+          { componentName: "platform", componentValueHash: testDigest(2) },
+          { componentName: "userAgent", componentValueHash: testDigest(3) },
         ],
       },
       {
         fingerprintType: "fingerprintjs",
         components: [
-          { componentName: "visitorId", componentValueHash: "hash-visitor" },
-          { componentName: "canvas", componentValueHash: "hash-canvas" },
-          { componentName: "fonts", componentValueHash: "hash-fonts" },
-          { componentName: "screen", componentValueHash: "hash-screen" },
+          { componentName: "visitorId", componentValueHash: testDigest(4) },
+          { componentName: "canvas", componentValueHash: testDigest(5) },
+          { componentName: "fonts", componentValueHash: testDigest(6) },
+          { componentName: "screen", componentValueHash: testDigest(7) },
           ...Array.from({ length: 95 }, (_, index) => ({
             componentName: `fingerprintjs-${index}`,
-            componentValueHash: `hash-fpjs-${index.toString().padStart(3, "0")}`,
+            componentValueHash: testDigest(index + 8),
           })),
         ],
       },
@@ -1122,7 +1111,7 @@ describe("PublicFormPage", () => {
         fingerprintType: "thumbmarkjs",
         components: Array.from({ length: 130 }, (_, index) => ({
           componentName: `thumbmarkjs-${index}`,
-          componentValueHash: `hash-thumb-${index.toString().padStart(3, "0")}`,
+          componentValueHash: testDigest(index + 108),
         })),
       },
     ];
@@ -1130,19 +1119,6 @@ describe("PublicFormPage", () => {
     apiMocks.submitPost.mockReturnValue("submit-request");
     mockPublicRpc(async (request) => {
       if (request === "telemetry-request") return { token: "telemetry-token" };
-      if (request === "exchange-open-request") {
-        return {
-          r: "challenge-token",
-          v: 1,
-          c: "nf-web-1",
-          n: "server-nonce",
-          q: securityPlan(),
-          e: Date.now() + 60_000,
-        };
-      }
-      if (request === "exchange-close-request") {
-        return { t: "collection-token", e: Date.now() + 60_000 };
-      }
       return {
         confirmation: {
           title: "ご回答ありがとうございます",
@@ -1168,7 +1144,7 @@ describe("PublicFormPage", () => {
     expect(apiMocks.exchangeClosePost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
-        d: expect.arrayContaining([expect.any(String)]),
+        d: expect.arrayContaining([[expect.any(String), expect.any(String)]]),
         n: expect.any(String),
         p: "form-security-dev-bypass",
         r: "challenge-token",

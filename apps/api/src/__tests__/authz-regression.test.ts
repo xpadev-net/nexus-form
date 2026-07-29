@@ -7,11 +7,28 @@
  * R2-H3: VIEWER cannot list permissions or invitations (EDITOR gate)
  */
 
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../load-env", () => ({}));
+
+const securityExchangeTables = vi.hoisted(() => ({
+  fingerprintCollectionAttempt: {
+    id: "fingerprintCollectionAttempt.id",
+    formId: "fingerprintCollectionAttempt.formId",
+    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
+    collectionTokenHash: "fingerprintCollectionAttempt.collectionTokenHash",
+    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
+    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
+    consumedAt: "fingerprintCollectionAttempt.consumedAt",
+    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
+    observedIpHash: "fingerprintCollectionAttempt.observedIpHash",
+    observationDigestJson: "fingerprintCollectionAttempt.observationDigestJson",
+    serverContextJson: "fingerprintCollectionAttempt.serverContextJson",
+    userAgentHash: "fingerprintCollectionAttempt.userAgentHash",
+  },
+}));
 
 vi.mock("@nexus-form/database", () => ({
   db: {
@@ -33,18 +50,8 @@ vi.mock("@nexus-form/database", () => ({
       ),
   },
   assertRequiredSecurityMigrationsApplied: vi.fn().mockResolvedValue(undefined),
-  fingerprintCollectionAttempt: {
-    id: "fingerprintCollectionAttempt.id",
-    formId: "fingerprintCollectionAttempt.formId",
-    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
-    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
-    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
-    consumedAt: "fingerprintCollectionAttempt.consumedAt",
-    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
-  },
-  fingerprintCollectionDetail: {
-    attemptId: "fingerprintCollectionDetail.attemptId",
-  },
+  fingerprintCollectionAttempt:
+    securityExchangeTables.fingerprintCollectionAttempt,
   user: {},
   session: {},
   account: {},
@@ -58,18 +65,8 @@ vi.mock("@nexus-form/database/schema", () => ({
   formPermission: {},
   formShareLink: {},
   formResponse: {},
-  fingerprintCollectionAttempt: {
-    id: "fingerprintCollectionAttempt.id",
-    formId: "fingerprintCollectionAttempt.formId",
-    challengeTokenHash: "fingerprintCollectionAttempt.challengeTokenHash",
-    challengeExpiresAt: "fingerprintCollectionAttempt.challengeExpiresAt",
-    collectionExpiresAt: "fingerprintCollectionAttempt.collectionExpiresAt",
-    consumedAt: "fingerprintCollectionAttempt.consumedAt",
-    finalizedAt: "fingerprintCollectionAttempt.finalizedAt",
-  },
-  fingerprintCollectionDetail: {
-    attemptId: "fingerprintCollectionDetail.attemptId",
-  },
+  fingerprintCollectionAttempt:
+    securityExchangeTables.fingerprintCollectionAttempt,
   fingerprintDetail: {},
   formInvitation: {},
   formStructure: {},
@@ -295,7 +292,14 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function securityExchangeHeaders(cookieToken?: string): Record<string, string> {
+function securityExchangeCookieName(attemptId = "attempt-1"): string {
+  return `nf_sc_${sha256Hex(attemptId).slice(0, 16)}`;
+}
+
+function securityExchangeHeaders(
+  cookieToken?: string,
+  attemptId = "attempt-1",
+): Record<string, string> {
   return {
     "Content-Type": "application/json",
     Origin: "http://localhost",
@@ -303,7 +307,9 @@ function securityExchangeHeaders(cookieToken?: string): Record<string, string> {
     "Sec-Fetch-Site": "same-origin",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Dest": "empty",
-    ...(cookieToken ? { Cookie: `nf_sc=${cookieToken}` } : {}),
+    ...(cookieToken
+      ? { Cookie: `${securityExchangeCookieName(attemptId)}=${cookieToken}` }
+      : {}),
   };
 }
 
@@ -320,17 +326,50 @@ function securityPlanEntries() {
   ];
 }
 
-function securityEvidenceSlots(): string[] {
+function securityEvidenceTuples(): Array<[string, string]> {
   return [
-    "slot-timezone",
-    "slot-language",
-    "slot-platform",
-    "slot-user-agent",
-    "slot-visitor",
-    "slot-canvas",
-    "slot-fonts",
-    "slot-screen",
+    ["slot-timezone", "0".repeat(64)],
+    ["slot-language", "1".repeat(64)],
+    ["slot-platform", "2".repeat(64)],
+    ["slot-user-agent", "3".repeat(64)],
+    ["slot-visitor", "4".repeat(64)],
+    ["slot-canvas", "5".repeat(64)],
+    ["slot-fonts", "6".repeat(64)],
+    ["slot-screen", "7".repeat(64)],
   ];
+}
+
+function validSecurityServerContext() {
+  return {
+    k: sha256Hex("security-exchange-cookie:cookie-token"),
+    l: sha256Hex("en-US"),
+    s: securityPlanEntries(),
+  };
+}
+
+function createSignedSecurityReceipt(params: {
+  attemptId: string;
+  digest: string;
+  expiresAt: number;
+  formId: string;
+  publicId: string;
+}): string {
+  const encodedPayload = Buffer.from(
+    JSON.stringify({
+      a: params.attemptId,
+      d: params.digest,
+      e: params.expiresAt,
+      f: params.formId,
+      n: "test-receipt-nonce",
+      u: params.publicId,
+      v: 1,
+    }),
+    "utf8",
+  ).toString("base64url");
+  const signature = createHmac("sha256", "test-security-exchange-secret")
+    .update(encodedPayload)
+    .digest("base64url");
+  return `${encodedPayload}.${signature}`;
 }
 
 function mockDbSelectChain(dbRaw: unknown, resultSets: unknown[][]): void {
@@ -799,9 +838,21 @@ describe("R2-H2: Response-limit count check runs inside a db.transaction()", () 
 // ── R15-C1: Public submit security evidence persistence ───────────────────
 
 describe("R15-C1: public submit persists linked security evidence", () => {
+  let previousBaseUrl: string | undefined;
+
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    previousBaseUrl = process.env.VITE_BASE_URL;
+    process.env.VITE_BASE_URL = "http://localhost";
+  });
+
+  afterEach(() => {
+    if (previousBaseUrl === undefined) {
+      delete process.env.VITE_BASE_URL;
+    } else {
+      process.env.VITE_BASE_URL = previousBaseUrl;
+    }
   });
 
   it(
@@ -1093,31 +1144,8 @@ describe("R15-C1: public submit persists linked security evidence", () => {
     "requires a security verification token even when an older snapshot disables the removed toggle",
     async () => {
       const { db } = await import("@nexus-form/database");
-      const { getLatestSnapshot } = await import(
-        "../lib/forms/snapshot-repository"
-      );
-      vi.mocked(getLatestSnapshot).mockResolvedValueOnce(
-        makeSnapshot({
-          plateContent: JSON.stringify([
-            {
-              id: "1",
-              type: "form_short_text",
-              blockId: "q1",
-              children: [{ text: "Name" }],
-            },
-          ]),
-          structureJson: JSON.stringify({
-            version: 1,
-            settings: {
-              allow_edit_responses: false,
-              require_fingerprint: false,
-            },
-          }),
-        }),
-      );
-      mockDbSelectChain(db, [
-        [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
-      ]);
+      const dbSelect = (db as unknown as { select: ReturnType<typeof vi.fn> })
+        .select;
       const transactionSpy = vi.spyOn(
         db as { transaction: (fn: (tx: unknown) => unknown) => unknown },
         "transaction",
@@ -1142,6 +1170,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
       await expect(res.json()).resolves.toEqual({
         error: "Security verification token is required",
       });
+      expect(dbSelect).not.toHaveBeenCalled();
       expect(transactionSpy).not.toHaveBeenCalled();
       transactionSpy.mockRestore();
     },
@@ -1186,7 +1215,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1220,7 +1249,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
             require_fingerprint: true,
           }),
         },
@@ -1257,11 +1286,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   formId: FORM_ID,
                   exchangeVersion: 1,
                   exchangeNonce: "server-nonce",
-                  fieldMapJson: {
-                    k: sha256Hex("security-exchange-cookie:cookie-token"),
-                    l: sha256Hex("en-US"),
-                    s: securityPlanEntries(),
-                  },
+                  serverContextJson: validSecurityServerContext(),
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
                   observedIpHash: "hash:127.0.0.1",
@@ -1292,7 +1317,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1328,11 +1353,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   formId: FORM_ID,
                   exchangeVersion: 1,
                   exchangeNonce: "server-nonce",
-                  fieldMapJson: {
-                    k: sha256Hex("security-exchange-cookie:cookie-token"),
-                    l: sha256Hex("en-US"),
-                    s: securityPlanEntries(),
-                  },
+                  serverContextJson: validSecurityServerContext(),
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
                   observedIpHash: "hash:127.0.0.1",
@@ -1363,7 +1384,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1374,7 +1395,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         e: expect.any(Number),
       });
       expect(txUpdate).toHaveBeenCalledOnce();
-      expect(res.headers.get("Set-Cookie")).toContain("nf_sc=");
+      expect(res.headers.get("Set-Cookie")).toContain("nf_sc_");
       expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
       transactionSpy.mockRestore();
     },
@@ -1399,11 +1420,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   formId: FORM_ID,
                   exchangeVersion: 1,
                   exchangeNonce: "server-nonce",
-                  fieldMapJson: {
-                    k: sha256Hex("security-exchange-cookie:cookie-token"),
-                    l: sha256Hex("en-US"),
-                    s: securityPlanEntries(),
-                  },
+                  serverContextJson: validSecurityServerContext(),
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
                   observedIpHash: "hash:127.0.0.1",
@@ -1422,7 +1439,10 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         fn({ select: txSelect, update: txUpdate }),
       );
 
-      const duplicatedEvidence = [...securityEvidenceSlots(), "slot-canvas"];
+      const duplicatedEvidence = [
+        ...securityEvidenceTuples(),
+        ["slot-canvas", "8".repeat(64)] as [string, string],
+      ];
 
       const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1469,11 +1489,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   formId: FORM_ID,
                   exchangeVersion: 1,
                   exchangeNonce: "server-nonce",
-                  fieldMapJson: {
-                    k: sha256Hex("security-exchange-cookie:cookie-token"),
-                    l: sha256Hex("en-US"),
-                    s: securityPlanEntries(),
-                  },
+                  serverContextJson: validSecurityServerContext(),
                   challengeExpiresAt: new Date(Date.now() + 60_000),
                   finalizedAt: null,
                   observedIpHash: "hash:127.0.0.1",
@@ -1507,7 +1523,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1578,7 +1594,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   formId: FORM_ID,
                   exchangeVersion: 1,
                   exchangeNonce: "server-nonce",
-                  fieldMapJson: ["a", "b", "c"],
+                  serverContextJson: validSecurityServerContext(),
                   ...attemptState,
                 },
               ]),
@@ -1606,7 +1622,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceSlots(),
+            d: securityEvidenceTuples(),
           }),
         },
       );
@@ -1649,6 +1665,14 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         [{ id: FORM_ID, status: "PUBLISHED", plateContent: "[]" }],
       ]);
       const txUpdate = vi.fn();
+      const observationDigest = "a".repeat(64);
+      const securityReceiptToken = createSignedSecurityReceipt({
+        attemptId: "attempt-1",
+        digest: observationDigest,
+        expiresAt: Date.now() + 60_000,
+        formId: FORM_ID,
+        publicId: "test-public-id",
+      });
       const txInsert = vi.fn(() => ({
         values: vi.fn(async () => undefined),
       }));
@@ -1663,6 +1687,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   observedIpHash: "hash:127.0.0.1",
                   userAgentHash: sha256Hex(""),
                   collectionExpiresAt: new Date(Date.now() + 60_000),
+                  observationDigestJson: { d: observationDigest },
                   consumedAt: new Date(),
                   finalizedAt: new Date(),
                 },
@@ -1690,7 +1715,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             responses: [],
             captchaToken: "test-captcha-token",
             telemetry: { v4Token: "tok-v4" },
-            securityVerificationToken: "already-consumed-token",
+            securityVerificationToken: securityReceiptToken,
           }),
         },
       );

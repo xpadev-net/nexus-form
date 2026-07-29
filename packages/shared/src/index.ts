@@ -223,6 +223,18 @@ export {
   textMatchesPattern,
 } from "./response-validation-rules";
 export type {
+  SecurityEvidenceEntry,
+  SecurityPlanEntry,
+} from "./security-exchange";
+export {
+  SECURITY_OBSERVATION_FAMILY_BROWSER,
+  SECURITY_OBSERVATION_FAMILY_FPJS,
+  SECURITY_OBSERVATION_FAMILY_THUMBMARK,
+  securityEvidenceEntrySchema,
+  securityObservationComponentMap,
+  securityPlanEntrySchema,
+} from "./security-exchange";
+export type {
   EditorSSEEvent,
   SseAccessRevokedEvent,
   SseAccessRevokeTarget,

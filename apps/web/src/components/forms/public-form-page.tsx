@@ -4,6 +4,9 @@ import {
   type ResponseDataItem,
   resolvePageIndexByPageId,
   responsePayloadItemSchema,
+  type SecurityEvidenceEntry,
+  type SecurityPlanEntry,
+  securityObservationComponentMap,
   splitPlateContentIntoPages,
 } from "@nexus-form/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -77,22 +80,15 @@ type CollectedSignal = {
   }>;
 };
 
-type SecurityPlanEntry = [string, number, string];
-
-const securityPlanComponentNames = new Map([
-  ["1:a1", { fingerprintType: "browser", componentName: "timezone" }],
-  ["1:a2", { fingerprintType: "browser", componentName: "language" }],
-  ["1:a3", { fingerprintType: "browser", componentName: "platform" }],
-  ["1:a4", { fingerprintType: "browser", componentName: "userAgent" }],
-  ["2:b1", { fingerprintType: "fingerprintjs", componentName: "visitorId" }],
-  ["2:b2", { fingerprintType: "fingerprintjs", componentName: "canvas" }],
-  ["2:b3", { fingerprintType: "fingerprintjs", componentName: "fonts" }],
-  ["2:b4", { fingerprintType: "fingerprintjs", componentName: "screen" }],
-  ["3:c1", { fingerprintType: "thumbmarkjs", componentName: "audio" }],
-  ["3:c2", { fingerprintType: "thumbmarkjs", componentName: "canvas" }],
-  ["3:c3", { fingerprintType: "thumbmarkjs", componentName: "webgl" }],
-  ["3:c4", { fingerprintType: "thumbmarkjs", componentName: "fonts" }],
-]);
+const securityPlanComponentNames = new Map(
+  securityObservationComponentMap.map((entry) => [
+    `${entry.family}:${entry.code}`,
+    {
+      fingerprintType: entry.fingerprintType,
+      componentName: entry.componentName,
+    },
+  ]),
+);
 
 function isFormSecurityBypassEnabledForDevelopment(): boolean {
   const formSecurityBypassFlag = getRuntimeConfigValue(
@@ -129,7 +125,7 @@ function randomClientNonce(): string {
 function buildSecurityEvidence(
   collected: CollectedSignal[],
   plan: SecurityPlanEntry[],
-): string[] {
+): SecurityEvidenceEntry[] {
   const valuesByKey = new Map<string, string>();
   for (const item of collected) {
     for (const component of item.components) {
@@ -146,7 +142,7 @@ function buildSecurityEvidence(
     const valueHash = valuesByKey.get(
       `${target.fingerprintType}:${target.componentName}`,
     );
-    return valueHash ? [slot] : [];
+    return valueHash ? [[slot, valueHash]] : [];
   });
 }
 
@@ -535,7 +531,6 @@ function PublicFormPageInner() {
   usePageTitle(formData?.form?.title ?? "公開フォーム");
 
   const notFound = fetchError instanceof RpcError && fetchError.status === 404;
-  const requireSecurityCheck = true;
   const formSecurityBypassEnabled = isFormSecurityBypassEnabledForDevelopment();
   const hCaptchaBypassEnabled = isHCaptchaBypassEnabledForDevelopment();
   const publicFormBodyReady = Boolean(
@@ -627,26 +622,18 @@ function PublicFormPageInner() {
 
         // セキュリティ確認
         let collectedFp = fingerprints;
-        if (
-          requireSecurityCheck &&
-          !formSecurityBypassEnabled &&
-          collectedFp.length === 0
-        ) {
+        if (!formSecurityBypassEnabled && collectedFp.length === 0) {
           collectedFp = await collectFingerprints();
         }
 
-        if (
-          requireSecurityCheck &&
-          !formSecurityBypassEnabled &&
-          collectedFp.length === 0
-        ) {
+        if (!formSecurityBypassEnabled && collectedFp.length === 0) {
           throw new Error(
             "セキュリティ確認に失敗しました。ページを再読み込みしてください。",
           );
         }
 
         let securityVerificationToken: string | undefined;
-        if (requireSecurityCheck && !formSecurityBypassEnabled) {
+        if (!formSecurityBypassEnabled) {
           const exchangeOpen = await rpc(
             client.api.forms.public[":publicId"].exchange.open.$post({
               param: { publicId },
@@ -662,6 +649,11 @@ function PublicFormPageInner() {
             collectedFp,
             exchangeOpen.q,
           );
+          if (securityEvidence.length < 6) {
+            throw new Error(
+              "セキュリティ確認に失敗しました。ページを再読み込みしてから再度お試しください。",
+            );
+          }
           const exchangeClose = await rpc(
             client.api.forms.public[":publicId"].exchange.close.$post({
               param: { publicId },

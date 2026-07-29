@@ -57,7 +57,7 @@ const updateFormSchema = z.object({
   description: z.string().max(5000).nullable().optional(),
 });
 
-const updateResponseSettingsSchema = z
+export const UpdateResponseSettingsRequestSchema = z
   .object({
     allowEdit: z.boolean(),
     maxResponses: z.number().int().min(0).max(100000).nullable(),
@@ -201,7 +201,7 @@ export const formsDetailRouter = createHonoApp()
     "/:id/settings/responses",
     withDualFormAuth("EDITOR"),
     formMutationRateLimit,
-    zValidator("json", updateResponseSettingsSchema),
+    zValidator("json", UpdateResponseSettingsRequestSchema),
     async (c) => {
       const id = c.req.param("id");
       const payload = c.req.valid("json");
@@ -229,6 +229,8 @@ export const formsDetailRouter = createHonoApp()
             ...(responseLimit ? { response_limit: responseLimit } : {}),
           },
         };
+        delete (updatedStructure.settings as Record<string, unknown>)
+          .require_fingerprint;
         if (!responseLimit) {
           delete updatedStructure.settings.response_limit;
         }

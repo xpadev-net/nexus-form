@@ -644,7 +644,7 @@ async function submitPublicForm(
     body: JSON.stringify({
       responses,
       captchaToken: "captcha-token",
-      telemetry: telemetry,
+      telemetry,
       securityVerificationToken: "test-security-check-token",
     }),
   });
@@ -1893,7 +1893,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
 
-  it("allows v4 and v6 security candidates to be validated with any matching token", async () => {
+  it("allows v4 and v6 telemetry tokens to be consumed with any matching token", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
@@ -1915,7 +1915,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
-  it("uses the general API IP boundary for token consumption instead of the alternate boundary", async () => {
+  it("uses the general API IP boundary for telemetry token consumption instead of the telemetry boundary", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
@@ -1948,7 +1948,7 @@ describe("R23-T1 public form input validation submit slice", () => {
     );
   });
 
-  it("rejects divergent submit and alternate header boundaries before consuming tokens", async () => {
+  it("rejects divergent submit and telemetry header boundaries before consuming telemetry tokens", async () => {
     const snapshot = mixedQuestionSnapshot();
     const responses = validMixedResponses();
     useSuccessfulSubmitSelects(snapshot);
