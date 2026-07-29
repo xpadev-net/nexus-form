@@ -157,12 +157,23 @@ export async function enqueueResponseLinkAnalysisJob(params: {
     jobId = followUpJobId;
   }
 
-  await addJobWithCleanup(queue, {
+  const result = await addJobWithCleanup(queue, {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
     jobData,
     jobId,
     jobName: params.reason,
   });
+  if (
+    result.outcome === "delayed-job-state-changed" &&
+    jobId === followUpJobId
+  ) {
+    await addJobWithCleanup(queue, {
+      delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,
+      jobData,
+      jobId: primaryJobId,
+      jobName: params.reason,
+    });
+  }
 }
 
 export async function closeQueues(): Promise<void> {

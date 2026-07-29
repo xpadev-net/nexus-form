@@ -3,6 +3,7 @@ import {
   db,
   fingerprintDetail,
   formResponse,
+  responseLinkAnalysisLock,
   responseLinkAnalysisRun,
   responsePairLink,
   responseSuspicionGroup,
@@ -27,6 +28,8 @@ const DEFAULT_ANALYSIS_RESPONSE_LIMIT = 5000;
 const DEFAULT_MAX_CANDIDATE_PAIRS = 50_000;
 const FINGERPRINT_RESPONSE_ID_BATCH_SIZE = 1000;
 const INSERT_CHUNK_SIZE = 500;
+const LOCK_HEARTBEAT_INTERVAL_MS = 60_000;
+const LOCK_RETRY_DELAY_MS = 30_000;
 
 type CandidatePairBuildResult = {
   candidatePairs: Set<string>;
@@ -45,6 +48,90 @@ type ResponseRow = {
   respondentUuid: string;
   userAgent: string | null;
 };
+
+class CandidatePairLimitExceededError extends Error {
+  constructor(limit: number) {
+    super(`Response link analysis candidate pair limit exceeded: ${limit}`);
+    this.name = "CandidatePairLimitExceededError";
+  }
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as Record<string, unknown>;
+  return record.code === "ER_DUP_ENTRY" || record.errno === 1062;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function acquireFormAnalysisLock(
+  formId: string,
+  jobId: string,
+): Promise<void> {
+  while (true) {
+    await db
+      .delete(responseLinkAnalysisLock)
+      .where(
+        and(
+          eq(responseLinkAnalysisLock.formId, formId),
+          sql`${responseLinkAnalysisLock.lockedAt} < DATE_SUB(NOW(), INTERVAL 2 HOUR)`,
+        ),
+      );
+
+    try {
+      await db.insert(responseLinkAnalysisLock).values({ formId, jobId });
+      return;
+    } catch (error) {
+      if (!isDuplicateKeyError(error)) throw error;
+      await sleep(LOCK_RETRY_DELAY_MS);
+    }
+  }
+}
+
+async function withFormAnalysisLock<T>(
+  formId: string,
+  jobId: string,
+  callback: () => Promise<T>,
+): Promise<T> {
+  await acquireFormAnalysisLock(formId, jobId);
+
+  const heartbeat = setInterval(() => {
+    void db
+      .update(responseLinkAnalysisLock)
+      .set({ lockedAt: new Date() })
+      .where(
+        and(
+          eq(responseLinkAnalysisLock.formId, formId),
+          eq(responseLinkAnalysisLock.jobId, jobId),
+        ),
+      )
+      .catch((error: unknown) => {
+        console.warn(
+          "[response-link-analysis] Failed to refresh form analysis lock",
+          error,
+        );
+      });
+  }, LOCK_HEARTBEAT_INTERVAL_MS);
+  heartbeat.unref();
+
+  try {
+    return await callback();
+  } finally {
+    clearInterval(heartbeat);
+    await db
+      .delete(responseLinkAnalysisLock)
+      .where(
+        and(
+          eq(responseLinkAnalysisLock.formId, formId),
+          eq(responseLinkAnalysisLock.jobId, jobId),
+        ),
+      );
+  }
+}
 
 function pairKey(a: string, b: string): string {
   return a < b ? `${a}\0${b}` : `${b}\0${a}`;
@@ -435,6 +522,9 @@ export async function analyzeResponseLinks(
       options.maxCandidatePairs ?? DEFAULT_MAX_CANDIDATE_PAIRS;
     const { candidatePairs, skippedBucketCount, truncated } =
       buildCandidatePairs(responses, maxCandidatePairs);
+    if (truncated) {
+      throw new CandidatePairLimitExceededError(maxCandidatePairs);
+    }
     const links: ResponsePairLinkEvaluation[] = [];
 
     for (const key of candidatePairs) {
@@ -488,17 +578,52 @@ export async function handleResponseLinkAnalysis(
 ): Promise<{ runId: string; linkCount: number; groupCount: number }> {
   const data = responseLinkAnalysisJobDataSchema.parse(job.data);
 
-  await db
-    .update(responseLinkAnalysisRun)
-    .set({ status: "STALE" })
-    .where(
-      and(
-        eq(responseLinkAnalysisRun.formId, data.formId),
-        eq(responseLinkAnalysisRun.modelVersion, RESPONSE_LINK_MODEL_VERSION),
-        eq(responseLinkAnalysisRun.status, "COMPLETED"),
-        sql`${responseLinkAnalysisRun.completedAt} < DATE_SUB(NOW(), INTERVAL 30 DAY)`,
-      ),
-    );
+  return withFormAnalysisLock(
+    data.formId,
+    job.id ?? stableId("job", [data.formId]),
+    async () => {
+      await db
+        .update(responseLinkAnalysisRun)
+        .set({ status: "STALE" })
+        .where(
+          and(
+            eq(responseLinkAnalysisRun.formId, data.formId),
+            eq(
+              responseLinkAnalysisRun.modelVersion,
+              RESPONSE_LINK_MODEL_VERSION,
+            ),
+            eq(responseLinkAnalysisRun.status, "COMPLETED"),
+            sql`${responseLinkAnalysisRun.completedAt} < DATE_SUB(NOW(), INTERVAL 30 DAY)`,
+          ),
+        );
 
-  return analyzeResponseLinks(data.formId);
+      const staleRuns = await db
+        .select({ id: responseLinkAnalysisRun.id })
+        .from(responseLinkAnalysisRun)
+        .where(
+          and(
+            eq(responseLinkAnalysisRun.formId, data.formId),
+            eq(
+              responseLinkAnalysisRun.modelVersion,
+              RESPONSE_LINK_MODEL_VERSION,
+            ),
+            eq(responseLinkAnalysisRun.status, "STALE"),
+          ),
+        );
+      const staleRunIds = staleRuns.map((run) => run.id);
+      for (const staleRunIdChunk of chunks(staleRunIds, INSERT_CHUNK_SIZE)) {
+        await db
+          .delete(responseSuspicionGroupMember)
+          .where(inArray(responseSuspicionGroupMember.runId, staleRunIdChunk));
+        await db
+          .delete(responsePairLink)
+          .where(inArray(responsePairLink.runId, staleRunIdChunk));
+        await db
+          .delete(responseSuspicionGroup)
+          .where(inArray(responseSuspicionGroup.runId, staleRunIdChunk));
+      }
+
+      return analyzeResponseLinks(data.formId);
+    },
+  );
 }

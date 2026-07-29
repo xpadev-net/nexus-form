@@ -122,6 +122,11 @@ export function ResponseSuspicionGroups({
       await queryClient.invalidateQueries({
         queryKey: ["responseSuspicionGroups", formId],
       });
+      if (selectedGroupKey !== null) {
+        await queryClient.invalidateQueries({
+          queryKey: ["responseSuspicionGroupDetail", formId, selectedGroupKey],
+        });
+      }
     },
     onError: (error) => {
       toast.error(

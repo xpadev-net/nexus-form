@@ -160,6 +160,7 @@ describe("queues", () => {
       reason: "response-deleted",
     });
 
+    expect(queue?.add).toHaveBeenCalledTimes(1);
     expect(queue?.add).toHaveBeenCalledWith(
       "response-deleted",
       { formId: "form-1", reason: "response-deleted" },
@@ -198,6 +199,47 @@ describe("queues", () => {
       "response-deleted",
       { formId: "form-1", reason: "response-deleted" },
       { delay: 10_000, jobId: "response-link-analysis.form-1.follow-up" },
+    );
+  });
+
+  it("adds a replacement when delayed response link changeDelay loses its state race", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    const changeDelay = vi.fn(async () => {
+      throw new Error("Job is not in the delayed state");
+    });
+    const getState = vi
+      .fn()
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("delayed")
+      .mockResolvedValueOnce("waiting");
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          getState: vi.fn(async () => "completed"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.follow-up") {
+        return {
+          changeDelay,
+          getState,
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(changeDelay).toHaveBeenCalledWith(10_000);
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1" },
     );
   });
 

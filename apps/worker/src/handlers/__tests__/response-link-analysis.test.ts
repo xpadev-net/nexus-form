@@ -1,13 +1,19 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ResponseLinkAnalysisJobData } from "@nexus-form/shared";
+import type { Job } from "bullmq";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   dbInsert: vi.fn(),
+  dbDelete: vi.fn(),
   dbSelect: vi.fn(),
   dbTransaction: vi.fn(),
   dbUpdate: vi.fn(),
+  dbDeletedTables: [] as unknown[],
+  dbUpdatedTables: [] as unknown[],
   txInsert: vi.fn(),
   txUpdate: vi.fn(),
   txInsertedRows: [] as Array<{ table: unknown; values: unknown }>,
+  staleRunRows: [] as Array<{ id: string }>,
   responseRows: [] as Array<{
     id: string;
     sessionId: string | null;
@@ -29,6 +35,7 @@ vi.mock("@nexus-form/database", () => ({
     select: mocks.dbSelect,
     transaction: mocks.dbTransaction,
     update: mocks.dbUpdate,
+    delete: mocks.dbDelete,
   },
   fingerprintDetail: {
     responseId: "fingerprintDetail.responseId",
@@ -51,6 +58,11 @@ vi.mock("@nexus-form/database", () => ({
     modelVersion: "responseLinkAnalysisRun.modelVersion",
     status: "responseLinkAnalysisRun.status",
     completedAt: "responseLinkAnalysisRun.completedAt",
+  },
+  responseLinkAnalysisLock: {
+    formId: "responseLinkAnalysisLock.formId",
+    jobId: "responseLinkAnalysisLock.jobId",
+    lockedAt: "responseLinkAnalysisLock.lockedAt",
   },
   responsePairLink: "responsePairLink",
   responseSuspicionGroup: "responseSuspicionGroup",
@@ -77,11 +89,20 @@ vi.mock("drizzle-orm", () => ({
   })),
 }));
 
-import { analyzeResponseLinks } from "../response-link-analysis";
+import {
+  analyzeResponseLinks,
+  handleResponseLinkAnalysis,
+} from "../response-link-analysis";
 
 function setupDbMocks() {
   const dbInsertValues = vi.fn().mockResolvedValue(undefined);
   mocks.dbInsert.mockReturnValue({ values: dbInsertValues });
+  mocks.dbDelete.mockImplementation((table: unknown) => ({
+    where: vi.fn(async () => {
+      mocks.dbDeletedTables.push(table);
+      return undefined;
+    }),
+  }));
 
   mocks.dbSelect.mockImplementation((selection: Record<string, unknown>) => {
     if ("fingerprintType" in selection) {
@@ -90,6 +111,17 @@ function setupDbMocks() {
         where: vi.fn(async () => mocks.fingerprintRows),
       };
       return fingerprintQuery;
+    }
+    if (
+      "id" in selection &&
+      !("sessionId" in selection) &&
+      !("respondentUuid" in selection)
+    ) {
+      const staleRunQuery = {
+        from: vi.fn(() => staleRunQuery),
+        where: vi.fn(async () => mocks.staleRunRows),
+      };
+      return staleRunQuery;
     }
 
     const query = {
@@ -112,11 +144,14 @@ function setupDbMocks() {
       where: vi.fn().mockResolvedValue(undefined),
     })),
   });
-  mocks.dbUpdate.mockReturnValue({
+  mocks.dbUpdate.mockImplementation((table: unknown) => ({
     set: vi.fn(() => ({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn(async () => {
+        mocks.dbUpdatedTables.push(table);
+        return undefined;
+      }),
     })),
-  });
+  }));
   mocks.dbTransaction.mockImplementation(async (callback) =>
     callback({
       insert: mocks.txInsert,
@@ -129,8 +164,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.responseRows = [];
   mocks.fingerprintRows = [];
+  mocks.staleRunRows = [];
+  mocks.dbDeletedTables = [];
+  mocks.dbUpdatedTables = [];
   mocks.txInsertedRows = [];
   setupDbMocks();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("analyzeResponseLinks", () => {
@@ -226,7 +268,7 @@ describe("analyzeResponseLinks", () => {
     expect(result.groupCount).toBe(1);
   });
 
-  it("persists partial results when the candidate cap is exceeded", async () => {
+  it("marks the run as FAILED when the candidate cap is exceeded", async () => {
     mocks.responseRows = Array.from({ length: 6 }, (_, index) => ({
       id: `response-${index.toString().padStart(3, "0")}`,
       sessionId: "same-session",
@@ -234,30 +276,20 @@ describe("analyzeResponseLinks", () => {
       userAgent: null,
     }));
 
-    const result = await analyzeResponseLinks("form-1", {
-      maxCandidatePairs: 10,
-    });
+    await expect(
+      analyzeResponseLinks("form-1", {
+        maxCandidatePairs: 10,
+      }),
+    ).rejects.toThrow("candidate pair limit exceeded");
 
-    expect(result.linkCount).toBe(10);
-    expect(result.groupCount).toBe(1);
     const pairInsert = mocks.txInsertedRows.find(
       (entry) => entry.table === "responsePairLink",
     );
-    expect(
-      Array.isArray(pairInsert?.values) ? pairInsert.values : [],
-    ).toHaveLength(10);
-    const updateSet = mocks.txUpdate.mock.results[0]?.value?.set;
+    expect(pairInsert).toBeUndefined();
+    const updateSet = mocks.dbUpdate.mock.results[0]?.value?.set;
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadataJson: {
-          candidatePairCount: 10,
-          candidatePairLimit: 10,
-          candidatePairsTruncated: true,
-          responsePopulationLimit: 5000,
-          responsePopulationTruncated: false,
-          skippedCandidateBucketCount: 0,
-        },
-        status: "COMPLETED",
+        status: "FAILED",
       }),
     );
   });
@@ -283,5 +315,119 @@ describe("analyzeResponseLinks", () => {
     expect(updateSet).toHaveBeenCalledWith(
       expect.objectContaining({ status: "FAILED" }),
     );
+  });
+});
+
+describe("handleResponseLinkAnalysis", () => {
+  it("serializes analysis with a form lock and purges stale run children", async () => {
+    mocks.staleRunRows = [{ id: "stale-run-1" }];
+
+    const result = await handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    expect(result.linkCount).toBe(0);
+    expect(mocks.dbInsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        lockedAt: "responseLinkAnalysisLock.lockedAt",
+      }),
+    );
+    expect(mocks.dbDeletedTables).toEqual([
+      expect.objectContaining({ formId: "responseLinkAnalysisLock.formId" }),
+      "responseSuspicionGroupMember",
+      "responsePairLink",
+      "responseSuspicionGroup",
+      expect.objectContaining({ formId: "responseLinkAnalysisLock.formId" }),
+    ]);
+  });
+
+  it("refreshes the form lock heartbeat while analysis is running", async () => {
+    vi.useFakeTimers();
+    let releaseResponseLoad: () => void = () => undefined;
+    const responseLoadBlocker = new Promise<void>((resolve) => {
+      releaseResponseLoad = resolve;
+    });
+    mocks.dbSelect.mockImplementation((selection: Record<string, unknown>) => {
+      if ("fingerprintType" in selection) {
+        const fingerprintQuery = {
+          from: vi.fn(() => fingerprintQuery),
+          where: vi.fn(async () => mocks.fingerprintRows),
+        };
+        return fingerprintQuery;
+      }
+      if (
+        "id" in selection &&
+        !("sessionId" in selection) &&
+        !("respondentUuid" in selection)
+      ) {
+        const staleRunQuery = {
+          from: vi.fn(() => staleRunQuery),
+          where: vi.fn(async () => mocks.staleRunRows),
+        };
+        return staleRunQuery;
+      }
+
+      const query = {
+        from: vi.fn(() => query),
+        orderBy: vi.fn(() => query),
+        limit: vi.fn(async () => {
+          await responseLoadBlocker;
+          return mocks.responseRows;
+        }),
+        where: vi.fn(() => query),
+      };
+      return query;
+    });
+
+    const result = handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    releaseResponseLoad();
+    await result;
+
+    expect(mocks.dbUpdatedTables).toContainEqual(
+      expect.objectContaining({
+        lockedAt: "responseLinkAnalysisLock.lockedAt",
+      }),
+    );
+  });
+
+  it("waits and retries when another worker holds the form lock", async () => {
+    vi.useFakeTimers();
+    const duplicateError = Object.assign(new Error("Duplicate entry"), {
+      code: "ER_DUP_ENTRY",
+    });
+    let lockInsertAttemptCount = 0;
+    mocks.dbInsert.mockImplementation((table: unknown) => ({
+      values: vi.fn(async () => {
+        if (
+          typeof table === "object" &&
+          table !== null &&
+          "lockedAt" in table
+        ) {
+          lockInsertAttemptCount += 1;
+          if (lockInsertAttemptCount === 1) {
+            throw duplicateError;
+          }
+        }
+        return undefined;
+      }),
+    }));
+
+    const result = handleResponseLinkAnalysis({
+      data: { formId: "form-1", reason: "manual" },
+      id: "job-1",
+    } as Job<ResponseLinkAnalysisJobData>);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(result).resolves.toEqual(
+      expect.objectContaining({ groupCount: 0, linkCount: 0 }),
+    );
+    expect(lockInsertAttemptCount).toBe(2);
   });
 });

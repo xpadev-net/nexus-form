@@ -11,6 +11,15 @@ export interface QueueJobHandleLike {
   remove(): Promise<unknown>;
 }
 
+function isJobNotInStateError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    error.name === "JobNotInState" ||
+    error.message.includes("not in the delayed state") ||
+    error.message.includes("not in the expected state")
+  );
+}
+
 /**
  * Minimal queue contract used by addJobWithCleanup() and related helpers.
  * Implementations must support lookup-by-id before enqueueing and stable jobId writes.
@@ -26,6 +35,10 @@ export interface QueueWithJobLookupLike<TJobData> {
   ): Promise<unknown>;
 }
 
+export type AddJobWithCleanupResult =
+  | { outcome: "added" }
+  | { outcome: "delayed-job-state-changed" };
+
 /**
  * Removes a failed/completed duplicate job before enqueueing a replacement with the same jobId.
  * This keeps queue implementations aligned with the repository's idempotency contract.
@@ -38,7 +51,7 @@ export async function addJobWithCleanup<TJobData>(
     jobId: string;
     jobName: string;
   },
-): Promise<void> {
+): Promise<AddJobWithCleanupResult> {
   const existingJob = await queue.getJob(params.jobId);
   if (existingJob) {
     const state = await existingJob.getState();
@@ -55,7 +68,17 @@ export async function addJobWithCleanup<TJobData>(
       params.delay !== undefined &&
       existingJob.changeDelay
     ) {
-      await existingJob.changeDelay(params.delay);
+      try {
+        await existingJob.changeDelay(params.delay);
+      } catch (error) {
+        if (!isJobNotInStateError(error)) {
+          throw error;
+        }
+        if ((await existingJob.getState()) === "delayed") {
+          throw error;
+        }
+        return { outcome: "delayed-job-state-changed" };
+      }
     }
   }
 
@@ -63,4 +86,5 @@ export async function addJobWithCleanup<TJobData>(
     ...(params.delay !== undefined ? { delay: params.delay } : {}),
     jobId: params.jobId,
   });
+  return { outcome: "added" };
 }

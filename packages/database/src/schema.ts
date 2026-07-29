@@ -582,6 +582,14 @@ export const responseLinkAnalysisRun = mysqlTable(
   ],
 );
 
+export const responseLinkAnalysisLock = mysqlTable("ResponseLinkAnalysisLock", {
+  formId: varchar("formId", { length: 128 })
+    .primaryKey()
+    .references(() => form.id, { onDelete: "cascade" }),
+  jobId: varchar("jobId", { length: 255 }).notNull(),
+  lockedAt: timestamp("lockedAt").defaultNow().notNull(),
+});
+
 export const responsePairLink = mysqlTable(
   "ResponsePairLink",
   {
