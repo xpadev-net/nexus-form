@@ -320,16 +320,16 @@ function securityPlanEntries() {
   ];
 }
 
-function securityEvidenceTuples(): Array<[string, string]> {
+function securityEvidenceSlots(): string[] {
   return [
-    ["slot-timezone", sha256Hex("tz")],
-    ["slot-language", sha256Hex("en-US")],
-    ["slot-platform", sha256Hex("plat")],
-    ["slot-user-agent", sha256Hex("")],
-    ["slot-visitor", sha256Hex("vid")],
-    ["slot-canvas", sha256Hex("canvas")],
-    ["slot-fonts", sha256Hex("fonts")],
-    ["slot-screen", sha256Hex("screen")],
+    "slot-timezone",
+    "slot-language",
+    "slot-platform",
+    "slot-user-agent",
+    "slot-visitor",
+    "slot-canvas",
+    "slot-fonts",
+    "slot-screen",
   ];
 }
 
@@ -1186,7 +1186,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceTuples(),
+            d: securityEvidenceSlots(),
           }),
         },
       );
@@ -1220,7 +1220,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "nonce",
             p: "test-captcha-token",
-            d: securityEvidenceTuples(),
+            d: securityEvidenceSlots(),
             require_fingerprint: true,
           }),
         },
@@ -1259,6 +1259,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    l: sha256Hex("en-US"),
                     s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
@@ -1291,7 +1292,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceTuples(),
+            d: securityEvidenceSlots(),
           }),
         },
       );
@@ -1329,6 +1330,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    l: sha256Hex("en-US"),
                     s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
@@ -1361,7 +1363,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceTuples(),
+            d: securityEvidenceSlots(),
           }),
         },
       );
@@ -1380,7 +1382,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
   );
 
   it(
-    "rejects security exchange close when server-observed evidence does not match the submitted slot value",
+    "rejects security exchange close when acknowledged slots are duplicated",
     async () => {
       const { db } = await import("@nexus-form/database");
       mockDbSelectChain(db, [
@@ -1399,6 +1401,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    l: sha256Hex("en-US"),
                     s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
@@ -1419,13 +1422,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         fn({ select: txSelect, update: txUpdate }),
       );
 
-      const mismatchedEvidence = securityEvidenceTuples().map(
-        ([slot, valueHash]) =>
-          [
-            slot,
-            slot === "slot-user-agent" ? sha256Hex("forged-ua") : valueHash,
-          ] as [string, string],
-      );
+      const duplicatedEvidence = [...securityEvidenceSlots(), "slot-canvas"];
 
       const { formsPublicRouter } = await import("../routes/forms-public");
 
@@ -1439,7 +1436,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: mismatchedEvidence,
+            d: duplicatedEvidence,
           }),
         },
       );
@@ -1474,6 +1471,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
                   exchangeNonce: "server-nonce",
                   fieldMapJson: {
                     k: sha256Hex("security-exchange-cookie:cookie-token"),
+                    l: sha256Hex("en-US"),
                     s: securityPlanEntries(),
                   },
                   challengeExpiresAt: new Date(Date.now() + 60_000),
@@ -1494,27 +1492,22 @@ describe("R15-C1: public submit persists linked security evidence", () => {
         fn({ select: txSelect, update: txUpdate }),
       );
 
-      const mismatchedEvidence = securityEvidenceTuples().map(
-        ([slot, valueHash]) =>
-          [
-            slot,
-            slot === "slot-language" ? sha256Hex("forged-language") : valueHash,
-          ] as [string, string],
-      );
-
       const { formsPublicRouter } = await import("../routes/forms-public");
 
       const res = await formsPublicRouter.request(
         "/public/test-public-id/exchange/close",
         {
           method: "POST",
-          headers: securityExchangeHeaders("cookie-token"),
+          headers: {
+            ...securityExchangeHeaders("cookie-token"),
+            "Accept-Language": "ja-JP,ja;q=0.9",
+          },
           body: JSON.stringify({
             r: "challenge",
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: mismatchedEvidence,
+            d: securityEvidenceSlots(),
           }),
         },
       );
@@ -1613,7 +1606,7 @@ describe("R15-C1: public submit persists linked security evidence", () => {
             v: 1,
             n: "client-nonce",
             p: "test-captcha-token",
-            d: securityEvidenceTuples(),
+            d: securityEvidenceSlots(),
           }),
         },
       );

@@ -129,7 +129,7 @@ function randomClientNonce(): string {
 function buildSecurityEvidence(
   collected: CollectedSignal[],
   plan: SecurityPlanEntry[],
-): Array<[string, string]> {
+): string[] {
   const valuesByKey = new Map<string, string>();
   for (const item of collected) {
     for (const component of item.components) {
@@ -146,7 +146,7 @@ function buildSecurityEvidence(
     const valueHash = valuesByKey.get(
       `${target.fingerprintType}:${target.componentName}`,
     );
-    return valueHash ? [[slot, valueHash] as [string, string]] : [];
+    return valueHash ? [slot] : [];
   });
 }
 

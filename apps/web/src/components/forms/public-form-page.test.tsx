@@ -1168,9 +1168,7 @@ describe("PublicFormPage", () => {
     expect(apiMocks.exchangeClosePost).toHaveBeenCalledWith({
       param: { publicId: "public-1" },
       json: expect.objectContaining({
-        d: expect.arrayContaining([
-          expect.arrayContaining([expect.any(String), expect.any(String)]),
-        ]),
+        d: expect.arrayContaining([expect.any(String)]),
         n: expect.any(String),
         p: "form-security-dev-bypass",
         r: "challenge-token",
@@ -1192,6 +1190,7 @@ describe("PublicFormPage", () => {
     expect(closeArgs?.json).not.toHaveProperty("b");
     expect(JSON.stringify(closeArgs?.json)).not.toContain("visitorId");
     expect(JSON.stringify(closeArgs?.json)).not.toContain("value_hash");
+    expect(JSON.stringify(closeArgs?.json)).not.toContain("hash-");
 
     await act(async () => {
       root.unmount();

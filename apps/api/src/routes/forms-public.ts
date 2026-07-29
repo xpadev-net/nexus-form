@@ -107,7 +107,6 @@ const SECURITY_EXCHANGE_COOKIE_NAME = "nf_sc";
 const SECURITY_OBSERVATION_FAMILY_BROWSER = 1;
 const SECURITY_OBSERVATION_FAMILY_FPJS = 2;
 const SECURITY_OBSERVATION_FAMILY_THUMBMARK = 3;
-const SECURITY_OBSERVATION_VALUE_HASH_PATTERN = /^[0-9a-f]{64}$/;
 export const MAX_PUBLIC_PASSWORD_REQUEST_BODY_BYTES = 8 * 1024;
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_USER_AGENT_LENGTH = 512;
@@ -225,15 +224,7 @@ const exchangeCloseSchema = z
     v: z.literal(FINGERPRINT_EXCHANGE_VERSION),
     n: z.string().min(1).max(64),
     p: z.string().min(1).max(MAX_TOKEN_LENGTH),
-    d: z
-      .array(
-        z.tuple([
-          z.string().min(8).max(64),
-          z.string().regex(SECURITY_OBSERVATION_VALUE_HASH_PATTERN),
-        ]),
-      )
-      .min(6)
-      .max(512),
+    d: z.array(z.string().min(8).max(64)).min(6).max(512),
   })
   .strict();
 
@@ -542,6 +533,7 @@ class FingerprintCollectionTokenError extends Error {
 
 const exchangeServerContextSchema = z.object({
   k: z.string().length(64),
+  l: z.string().length(64),
   s: z.array(
     z.object({
       a: z.string().min(8).max(64),
@@ -673,45 +665,23 @@ function digestSecurityObservations(params: {
   const slots = new Map(params.plan.map((entry) => [entry.a, entry]));
   const seenSlots = new Set<string>();
   const families = new Set<number>();
-  const valueHashes = new Set<string>();
-  const observationsBySlot = new Map<string, string>();
 
-  for (const [slot, valueHash] of params.observations) {
+  for (const slot of params.observations) {
     const entry = slots.get(slot);
     if (!entry || seenSlots.has(slot)) {
       throw new Error("Duplicate security observation");
     }
     seenSlots.add(slot);
-    observationsBySlot.set(slot, valueHash);
     families.add(entry.f);
-    valueHashes.add(valueHash);
   }
 
   const missingRequiredSlot = params.plan.some(
-    (entry) => entry.r && !observationsBySlot.has(entry.a),
+    (entry) => entry.r && !seenSlots.has(entry.a),
   );
-  const userAgentSlot = params.plan.find(
-    (entry) =>
-      entry.f === SECURITY_OBSERVATION_FAMILY_BROWSER &&
-      entry.n === "userAgent",
-  );
-  const userAgentObservationMatches =
-    userAgentSlot &&
-    observationsBySlot.get(userAgentSlot.a) === params.userAgentHash;
-  const languageSlot = params.plan.find(
-    (entry) =>
-      entry.f === SECURITY_OBSERVATION_FAMILY_BROWSER && entry.n === "language",
-  );
-  const languageObservationMatches =
-    languageSlot &&
-    observationsBySlot.get(languageSlot.a) === params.primaryLanguageHash;
   if (
     missingRequiredSlot ||
-    !userAgentObservationMatches ||
-    !languageObservationMatches ||
     families.size < 2 ||
     params.observations.length < 6 ||
-    valueHashes.size < 4 ||
     !families.has(SECURITY_OBSERVATION_FAMILY_BROWSER) ||
     (!families.has(SECURITY_OBSERVATION_FAMILY_FPJS) &&
       !families.has(SECURITY_OBSERVATION_FAMILY_THUMBMARK))
@@ -1244,6 +1214,9 @@ export const formsPublicRouter = createHonoApp()
         exchangeNonce,
         fieldMapJson: {
           k: hashExchangeCookie(serverContextToken),
+          l: hashPrimaryAcceptLanguage(
+            c.req.header("accept-language") ?? undefined,
+          ),
           s: observationPlan,
         },
         componentOrderJson: [],
@@ -1363,6 +1336,14 @@ export const formsPublicRouter = createHonoApp()
           if (
             !serverContextToken ||
             hashExchangeCookie(serverContextToken) !== serverContext.k
+          ) {
+            throw new Error("Invalid security exchange context");
+          }
+          if (
+            serverContext.l !==
+            hashPrimaryAcceptLanguage(
+              c.req.header("accept-language") ?? undefined,
+            )
           ) {
             throw new Error("Invalid security exchange context");
           }
