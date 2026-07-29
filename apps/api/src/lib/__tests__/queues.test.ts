@@ -201,6 +201,37 @@ describe("queues", () => {
     );
   });
 
+  it("queues a primary response link analysis job when the follow-up job is already active", async () => {
+    getResponseLinkAnalysisQueue();
+    const queue = mocks.queueInstances[0];
+    queue?.getJob.mockImplementation(async (jobId: string) => {
+      if (jobId === "response-link-analysis.form-1") {
+        return {
+          getState: vi.fn(async () => "completed"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      if (jobId === "response-link-analysis.form-1.follow-up") {
+        return {
+          getState: vi.fn(async () => "active"),
+          remove: vi.fn(async () => undefined),
+        };
+      }
+      return null;
+    });
+
+    await enqueueResponseLinkAnalysisJob({
+      formId: "form-1",
+      reason: "response-deleted",
+    });
+
+    expect(queue?.add).toHaveBeenCalledWith(
+      "response-deleted",
+      { formId: "form-1", reason: "response-deleted" },
+      { delay: 10_000, jobId: "response-link-analysis.form-1" },
+    );
+  });
+
   it("exposes retry options for manual sheets sync jobs", () => {
     expect(SHEETS_SYNC_MANUAL_RETRY_JOB_OPTIONS).toMatchObject({
       attempts: 3,

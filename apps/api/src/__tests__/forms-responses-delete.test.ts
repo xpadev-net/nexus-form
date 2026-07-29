@@ -293,9 +293,9 @@ describe("response deletion API", () => {
             right: RESPONSE_LINK_MODEL_VERSION,
           },
           {
-            op: "eq",
+            op: "inArray",
             left: "responseLinkAnalysisRun.status",
-            right: "COMPLETED",
+            values: ["COMPLETED", "PROCESSING"],
           },
         ],
       },

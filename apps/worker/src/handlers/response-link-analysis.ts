@@ -398,7 +398,12 @@ async function persistResults(params: {
         completedAt: new Date(),
         errorMessage: null,
       })
-      .where(eq(responseLinkAnalysisRun.id, runId));
+      .where(
+        and(
+          eq(responseLinkAnalysisRun.id, runId),
+          eq(responseLinkAnalysisRun.status, "PROCESSING"),
+        ),
+      );
   });
 }
 
@@ -468,7 +473,12 @@ export async function analyzeResponseLinks(
         completedAt: new Date(),
         errorMessage: error instanceof Error ? error.message : String(error),
       })
-      .where(eq(responseLinkAnalysisRun.id, runId));
+      .where(
+        and(
+          eq(responseLinkAnalysisRun.id, runId),
+          eq(responseLinkAnalysisRun.status, "PROCESSING"),
+        ),
+      );
     throw error;
   }
 }

@@ -131,6 +131,10 @@ function isRunningOrPendingJobState(state: unknown): boolean {
   return state !== "completed" && state !== "failed" && state !== undefined;
 }
 
+function isActiveJobState(state: unknown): boolean {
+  return state === "active" || state === "waiting-children";
+}
+
 export async function enqueueResponseLinkAnalysisJob(params: {
   formId: string;
   reason: "response-submitted" | "response-deleted" | "manual";
@@ -143,12 +147,15 @@ export async function enqueueResponseLinkAnalysisJob(params: {
   const primaryState = await primaryJob?.getState();
   const followUpJob = await queue.getJob(followUpJobId);
   const followUpState = await followUpJob?.getState();
-  const jobId =
+  let jobId = primaryJobId;
+  if (isActiveJobState(followUpState)) {
+    jobId = primaryJobId;
+  } else if (
     isRunningOrPendingJobState(followUpState) ||
-    primaryState === "active" ||
-    primaryState === "waiting-children"
-      ? followUpJobId
-      : primaryJobId;
+    isActiveJobState(primaryState)
+  ) {
+    jobId = followUpJobId;
+  }
 
   await addJobWithCleanup(queue, {
     delay: RESPONSE_LINK_ANALYSIS_COALESCE_DELAY_MS,

@@ -2703,7 +2703,10 @@ export const formsResponsesRouter = createHonoApp()
                 responseLinkAnalysisRun.modelVersion,
                 RESPONSE_LINK_MODEL_VERSION,
               ),
-              eq(responseLinkAnalysisRun.status, "COMPLETED"),
+              inArray(responseLinkAnalysisRun.status, [
+                "COMPLETED",
+                "PROCESSING",
+              ]),
             ),
           );
       });
@@ -2790,7 +2793,10 @@ export const formsResponsesRouter = createHonoApp()
                     responseLinkAnalysisRun.modelVersion,
                     RESPONSE_LINK_MODEL_VERSION,
                   ),
-                  eq(responseLinkAnalysisRun.status, "COMPLETED"),
+                  inArray(responseLinkAnalysisRun.status, [
+                    "COMPLETED",
+                    "PROCESSING",
+                  ]),
                 ),
               );
           });
